@@ -104,6 +104,11 @@ internal sealed class FlatsSubCommand(
                 // site is the fallback when the profile has none (handled in ConnectForFlatsAsync).
                 SiteLatitude = data?.SiteLatitude ?? defaults.SiteLatitude,
                 SiteLongitude = data?.SiteLongitude ?? defaults.SiteLongitude,
+                // An operator typed this command, and with a hand-switched panel they will have turned it
+                // on before (or right after) doing so -- there is nobody else to ask, and refusing the job
+                // they explicitly requested would be the wrong call. The SCHEDULED end-of-session flat
+                // block keeps the safe default (Decline); see UnattendedPromptResponse.
+                UnattendedPromptResponse = UnattendedPromptResponse.Proceed,
                 FlatSource = source,
                 FlatsPerFilter = parseResult.GetValue(countOpt) ?? defaults.FlatsPerFilter,
                 FlatTargetAduFraction = parseResult.GetValue(targetOpt) ?? defaults.FlatTargetAduFraction,

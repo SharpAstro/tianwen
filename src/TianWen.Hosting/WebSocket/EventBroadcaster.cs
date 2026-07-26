@@ -31,12 +31,6 @@ internal sealed class EventBroadcaster(
     ILogger<EventBroadcaster> logger
 ) : BackgroundService
 {
-    /// <summary>
-    /// How long an outstanding prompt waits for an HTTP answer before the node proceeds on its own.
-    /// See <see cref="OnPromptRequested"/> for why a bound is mandatory.
-    /// </summary>
-    private static readonly TimeSpan PromptAutoProceedAfter = TimeSpan.FromMinutes(2);
-
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1);
 
     private ISession? _subscribedSession;
@@ -88,6 +82,10 @@ internal sealed class EventBroadcaster(
                 PushNewGuideSteps(session);
             }
 
+            // Liveness bound on an outstanding prompt: see OnPromptRequested for why this replaces a
+            // timeout rather than supplementing one.
+            ResolveOrphanedPrompt();
+
             try
             {
                 // ITimeProvider, not Task.Delay: the project rule is that every wait resolves the clock
@@ -110,15 +108,6 @@ internal sealed class EventBroadcaster(
     }
 
     /// <summary>
-    /// Emits a <c>GUIDE-STEP</c> per newly-arrived guide sample.
-    /// <para>
-    /// Without this a client wanting live guide errors has to re-pull the whole ~5 minute sample ring
-    /// out of <c>/session/state</c> every second and diff it locally -- tens of samples re-sent per
-    /// poll to learn about the one that changed. Pushing the delta means the state payload's guider
-    /// block can eventually shrink to stats-only.
-    /// </para>
-    /// </summary>
-    /// <summary>
     /// Newest guide-sample timestamp currently in the session's ring, or <see cref="DateTimeOffset.MinValue"/>
     /// when it is empty. The ring is oldest-first, so this is the last element.
     /// </summary>
@@ -128,6 +117,15 @@ internal sealed class EventBroadcaster(
         return samples.IsDefaultOrEmpty ? DateTimeOffset.MinValue : samples[^1].Timestamp;
     }
 
+    /// <summary>
+    /// Emits a <c>GUIDE-STEP</c> per newly-arrived guide sample.
+    /// <para>
+    /// Without this a client wanting live guide errors has to re-pull the whole ~5 minute sample ring
+    /// out of <c>/session/state</c> every second and diff it locally -- tens of samples re-sent per
+    /// poll to learn about the one that changed. Pushing the delta means the state payload's guider
+    /// block can eventually shrink to stats-only.
+    /// </para>
+    /// </summary>
     private void PushNewGuideSteps(ISessionTelemetry session)
     {
         var samples = session.GuideSamples;
@@ -335,29 +333,44 @@ internal sealed class EventBroadcaster(
     }
 
     /// <summary>
-    /// Publishes a user prompt for an HTTP client to answer, then <b>guarantees the run continues</b>.
+    /// Publishes a user prompt for an HTTP client to answer, and guarantees the run cannot wedge on it.
     /// <para>
-    /// <b>The bound is not optional.</b> A session auto-proceeds only when <i>nothing</i> is subscribed
-    /// to <c>PromptRequested</c> -- that is what keeps unattended CLI / server runs from blocking. The
-    /// moment this broadcaster subscribes, the server stops auto-proceeding, so a prompt with nobody
-    /// listening on the other end would wedge the night at "switch on the flat panel" until the session
-    /// token cancels. Two safeguards restore the guarantee: with no WebSocket client attached the node
-    /// answers <i>immediately</i> (byte-identical to the old headless behaviour), and with one attached
-    /// it still proceeds after <see cref="PromptAutoProceedAfter"/> in case that client goes away
-    /// without answering. Proceeding, not declining, is the right default -- it matches what a headless
-    /// run has always done.
+    /// <b>Why this needs handling at all.</b> A session answers a prompt itself only while <i>nothing</i>
+    /// is subscribed to <c>PromptRequested</c>. The moment this broadcaster subscribes, the server stops
+    /// doing that, so a prompt with nobody listening would sit inside <c>RunAsync</c>'s try -- whose
+    /// finally is what parks the mount, warms the cameras and closes the covers -- leaving the rig
+    /// exposed at dawn. A hang there is not an exception; it simply never returns.
+    /// </para>
+    /// <para>
+    /// <b>While an observer is attached, wait as long as it takes.</b> There is deliberately no timer: an
+    /// attached client that ignores <c>PROMPT-REQUESTED</c> is a client bug, and guessing an answer after
+    /// some arbitrary interval does not fix it -- it just fabricates a decision faster. The only bound is
+    /// <i>liveness</i>: if the last observer goes away while a prompt is outstanding, the poll loop
+    /// resolves it (<see cref="ResolveOrphanedPrompt"/>).
+    /// </para>
+    /// <para>
+    /// <b>With nobody attached the session decides, not this class.</b> It simply un-registers itself for
+    /// this prompt by responding with the session's own configured
+    /// <c>UnattendedPromptResponse</c> -- which defaults to <i>decline</i>, because these prompts gate
+    /// physical acts and proceeding would assert something nobody did. That policy belongs to the session,
+    /// so it is read from there rather than reinvented here.
     /// </para>
     /// </summary>
-    private void OnPromptRequested(object? sender, SessionPromptEventArgs e)
+    internal void OnPromptRequested(object? sender, SessionPromptEventArgs e)
     {
         if (eventHub.ClientCount == 0)
         {
-            e.Respond(true);
+            AnswerUnattended(e, "no observer attached");
             return;
         }
 
         hostedSession.SetPendingPrompt(e);
-        Notify("Warning", $"{e.Title}: {e.Message}");
+
+        // Severity Error, not Warning: the run is blocked until somebody acts, and when it needs a body
+        // at the observatory a remote operator cannot clear it themselves.
+        Notify("Error", e.RequiresPhysicalPresence
+            ? $"{e.Title} (needs someone at the rig): {e.Message}"
+            : $"{e.Title}: {e.Message}");
 
         _ = BroadcastSafeAsync(new WebSocketEventDto
         {
@@ -367,31 +380,45 @@ internal sealed class EventBroadcaster(
                 ["Title"] = e.Title,
                 ["Message"] = e.Message,
                 ["ContinueLabel"] = e.ContinueLabel,
-                ["CancelLabel"] = e.CancelLabel
+                ["CancelLabel"] = e.CancelLabel,
+                ["RequiresPhysicalPresence"] = e.RequiresPhysicalPresence
             }
         });
+    }
 
-        _ = AutoProceedAsync();
+    /// <summary>
+    /// Answers a prompt on the session's own terms when there is nobody to ask. Mirrors what the session
+    /// would have done had this broadcaster never subscribed, so attaching an event stream cannot change
+    /// the outcome of an unattended run.
+    /// </summary>
+    private void AnswerUnattended(SessionPromptEventArgs prompt, string why)
+    {
+        // The policy rides on the prompt (SessionPromptEventArgs.DefaultIfUnanswerable) rather than being
+        // read back off the session, so this cannot drift from what the session would have decided alone.
+        logger.LogInformation("Prompt '{Title}' answered {Answer} ({Why})",
+            prompt.Title, prompt.DefaultIfUnanswerable ? "proceed" : "skip", why);
 
-        async Task AutoProceedAsync()
+        prompt.Respond(prompt.DefaultIfUnanswerable);
+    }
+
+    /// <summary>
+    /// Resolves an outstanding prompt once the last observer has gone. Without this, a client that
+    /// attached, triggered the hold, and then dropped its socket would leave the run blocked with nobody
+    /// able to answer -- the exact wedge the no-observer branch exists to prevent, reached by a different
+    /// route.
+    /// </summary>
+    internal void ResolveOrphanedPrompt()
+    {
+        if (eventHub.ClientCount > 0 || hostedSession.PendingPrompt is not { } prompt)
         {
-            try
-            {
-                await timeProvider.SleepAsync(PromptAutoProceedAfter, CancellationToken.None);
+            return;
+        }
 
-                // No-ops when the prompt was already answered: TryRespondToPrompt grabs-and-clears.
-                if (hostedSession.TryRespondToPrompt(true))
-                {
-                    logger.LogWarning("Prompt '{Title}' went unanswered for {Timeout}, proceeding", e.Title, PromptAutoProceedAfter);
-                    Notify("Warning", $"{e.Title}: no answer after {PromptAutoProceedAfter.TotalMinutes:0} min, proceeding");
-                }
-            }
-            catch (Exception ex)
-            {
-                // Never let the fallback itself be the reason a night stalls.
-                logger.LogWarning(ex, "Prompt auto-proceed timer failed for '{Title}'", e.Title);
-                hostedSession.TryRespondToPrompt(true);
-            }
+        // Grab-and-clear first so a client reconnecting at this instant cannot double-answer.
+        if (hostedSession.TryRespondToPrompt(prompt.DefaultIfUnanswerable))
+        {
+            logger.LogWarning("Prompt '{Title}' was outstanding when the last observer disconnected", prompt.Title);
+            Notify("Warning", $"{prompt.Title}: observer disconnected before answering");
         }
     }
 

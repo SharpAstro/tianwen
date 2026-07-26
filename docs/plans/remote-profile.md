@@ -209,13 +209,35 @@ it found:
 - **2.2 prompt bridging** -- `PROMPT-REQUESTED` broadcast + `POST /session/prompt/respond {proceed}`,
   and the prompt **also rides on `/session/state`**. That addition is load-bearing, not belt-and-braces:
   polling is the authoritative channel, so a prompt that were only ever pushed would be unanswerable by
-  a client that attached after it fired or whose socket dropped. **The subscription itself is a
-  behaviour change that had to be contained**: a session auto-proceeds only while *nothing* is
-  subscribed to `PromptRequested`, which is what keeps unattended CLI/server runs from blocking, so
-  `EventBroadcaster` subscribing would have wedged an unattended night at "switch on the flat panel".
-  Two safeguards restore the guarantee -- with no WebSocket client attached the node answers
-  *immediately* (byte-identical to the old headless behaviour), and with one attached it proceeds anyway
-  after a 2 min bound. Proceeding rather than declining matches what headless has always done.
+  a client that attached after it fired or whose socket dropped.
+  **This forced a root-cause fix to the prompt policy itself, not just containment of the new
+  subscriber.** A session answers a prompt itself only while *nothing* is subscribed, so
+  `EventBroadcaster` subscribing would have wedged an unattended night at "switch on the flat panel" --
+  and because that await sits inside `RunAsync`'s try, whose finally parks the mount / warms the
+  cameras / closes the covers, the rig would have sat exposed at dawn (a hang there is not an exception;
+  it simply never returns). The first attempt bounded it with a 2 min auto-*proceed*, which was the
+  wrong fix: proceeding asserts a **physical** act nobody performed. Flats survive that lie only because
+  `FlatExposureSolver` fails the metering and skips the OTA; the planned dark-frame prompt has no such
+  backstop, so light-leaked darks would be written as valid calibration and subtracted from every light.
+  Final design:
+  - `SessionConfiguration.UnattendedPromptResponse`, defaulting to **`Decline`** -- skip the gated step.
+    Missing calibration is recoverable, silently wrong calibration is not.
+  - **Operator-invoked** flat runs (`tianwen flats`, `POST /session/flats`) opt into `Proceed`, which is
+    what keeps the "switch the panel on, walk back inside" workflow working. A scheduled end-of-session
+    block never does.
+  - The policy travels **on the prompt** (`SessionPromptEventArgs.DefaultIfUnanswerable`) rather than
+    being read back off the session, so a handler cannot disagree with the session about the same
+    question -- which is how one safe default becomes two.
+  - `EventBroadcaster` with an observer attached now **holds indefinitely, with no timer**: an attached
+    client that ignores `PROMPT-REQUESTED` is a client bug, and answering after an arbitrary interval
+    fabricates a decision rather than fixing it. The only bound is **liveness** -- if the last observer
+    disconnects while a prompt is outstanding, the poll loop resolves it.
+  - Prompts carry **`RequiresPhysicalPresence`** (true for the manual panel), which crosses the wire on
+    `PendingPromptDto`. A remote observer is not at the observatory, so offering a bare "Continue" invites
+    them to assert a fact they cannot verify -- the same fabrication as auto-proceeding, performed by a
+    human. Answering stays permitted (they may be on the phone with someone at the scope); the flag is
+    what lets a UI stop presenting it as a neutral one-click default, and the node records the
+    notification at **Error** severity saying it needs someone at the rig.
 - **2.3 broadcasts** -- `GUIDER-STATE-CHANGED` (the event already existed on the session, it simply was
   not subscribed) and a per-sample `GUIDE-STEP` from a timestamp-watermark diff in the broadcaster poll.
 - **2.4 structured devices** -- `GET /devices/structured` -> `DeviceDto[]` with URI + type + live

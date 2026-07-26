@@ -230,6 +230,11 @@ internal static class SessionEndpoints
             var defaults = new SessionConfiguration();
             var config = defaults with
             {
+                // An operator asked for this run explicitly and may well have switched a hand-switched
+                // panel on before walking back inside, so a prompt nobody answers proceeds rather than
+                // skipping. The scheduled end-of-session flat block keeps the safe default (Decline) --
+                // see UnattendedPromptResponse for why proceeding is not a safe blanket policy.
+                UnattendedPromptResponse = UnattendedPromptResponse.Proceed,
                 FlatSource = source,
                 FlatsPerFilter = request?.Count ?? defaults.FlatsPerFilter,
                 FlatTargetAduFraction = request?.Target ?? defaults.FlatTargetAduFraction,
@@ -456,5 +461,6 @@ internal static class SessionEndpoints
                 Message = prompt.Message,
                 ContinueLabel = prompt.ContinueLabel,
                 CancelLabel = prompt.CancelLabel,
+                RequiresPhysicalPresence = prompt.RequiresPhysicalPresence,
             };
 }

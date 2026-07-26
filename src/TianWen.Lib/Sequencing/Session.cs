@@ -201,28 +201,48 @@ internal partial record Session(
 
     /// <summary>
     /// Asks the user to perform a physical step and confirm, via <see cref="PromptRequested"/>. Returns
-    /// <c>true</c> to proceed, <c>false</c> to decline (the caller then skips the gated step). When no
-    /// interactive handler is subscribed (CLI / server / tests), it logs the instruction and
-    /// auto-proceeds, so an unattended run never blocks. When a handler is present it raises the prompt and
-    /// awaits the response, bounded by <paramref name="cancellationToken"/> — a session cancel while the
-    /// prompt is open resolves to <c>false</c>.
+    /// <c>true</c> to proceed, <c>false</c> to decline (the caller then skips the gated step). When a
+    /// handler is present it raises the prompt and awaits the response, bounded by
+    /// <paramref name="cancellationToken"/> — a session cancel while the prompt is open resolves to
+    /// <c>false</c>.
+    /// <para>
+    /// With <b>no</b> interactive handler subscribed (CLI / server / tests) it logs the instruction and
+    /// answers <see cref="SessionConfiguration.UnattendedPromptResponse"/>, which defaults to
+    /// <see cref="UnattendedPromptResponse.Decline"/> — i.e. skip the gated step. It deliberately does
+    /// <b>not</b> hardcode "proceed": these prompts gate physical prerequisites, so proceeding asserts an
+    /// act that nobody performed. See <see cref="UnattendedPromptResponse"/> for the full reasoning and
+    /// for why blocking forever is equally unsafe.
+    /// </para>
     /// </summary>
+    /// <param name="requiresPhysicalPresence">Whether answering needs somebody at the rig. Travels to the
+    /// UI on <see cref="SessionPromptEventArgs.RequiresPhysicalPresence"/> so a remote observer is warned
+    /// that confirming from elsewhere asserts something they cannot see.</param>
     private async ValueTask<bool> RequestUserConfirmationAsync(
         string title, string message, CancellationToken cancellationToken,
-        string continueLabel = "Continue", string cancelLabel = "Cancel")
+        string continueLabel = "Continue", string cancelLabel = "Cancel",
+        bool requiresPhysicalPresence = false)
     {
         var handler = PromptRequested;
         if (handler is null)
         {
-            _logger.LogInformation("User step (auto-proceeding, no interactive handler): {Title} — {Message}", title, message);
-            return true;
+            var unattended = Configuration.UnattendedPromptResponse;
+            var proceed = unattended is UnattendedPromptResponse.Proceed;
+            _logger.LogInformation(
+                "User step, nobody to ask ({Response}): {Title} — {Message}",
+                proceed ? "proceeding" : "skipping", title, message);
+            return proceed;
         }
 
         // RunContinuationsAsynchronously: the UI thread calls Respond(); without this the session's
         // await-continuation would resume inline on that UI thread.
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _logger.LogInformation("Waiting for user: {Title} — {Message}", title, message);
-        handler.Invoke(this, new SessionPromptEventArgs(title, message, continueLabel, cancelLabel, completion));
+        handler.Invoke(this, new SessionPromptEventArgs(
+            title, message, continueLabel, cancelLabel, completion, requiresPhysicalPresence,
+            // Carry the unattended policy to the handler: a hosted broadcaster may have subscribed for
+            // remote clients and find none attached, and it must then answer exactly as the session
+            // would have with no handler at all.
+            defaultIfUnanswerable: Configuration.UnattendedPromptResponse is UnattendedPromptResponse.Proceed));
 
         try
         {
