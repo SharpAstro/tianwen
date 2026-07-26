@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading.Tasks;
 using DIR.Lib;
+using LAN.Lib;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
@@ -85,6 +86,100 @@ namespace TianWen.UI.Abstractions
             Renderer.PopClip();
         }
 
+        /// <summary>
+        /// Opens the profile-switcher dropdown anchored under the header: local profiles (from
+        /// <see cref="EquipmentTabState.AllProfiles"/>) first, then discovered "tianwen-server" rigs
+        /// (docs/plans/remote-profile.md), each labelled "(remote)". Every entry's action is captured
+        /// directly against its own item (a <see cref="Profile"/> / rig label) rather than resolved
+        /// later by index, so the list can never drift out of sync with a state change between open
+        /// and click. Remote rows post <see cref="SelectRemoteRigSignal"/> -- binding isn't wired up
+        /// yet (P4), so the handler just surfaces a stub notice.
+        /// </summary>
+        private void OpenProfileDropdown(GuiAppState appState, float x, float y, float width)
+        {
+            var profiles = State.AllProfiles;
+            var rigs = appState.PeerTable?.PeersOf("tianwen-server") ?? [];
+            var rigLabels = LanPeer.ResolveLabels(rigs);
+
+            var items = ImmutableArray.CreateBuilder<string>(profiles.Count + rigs.Count);
+            var actions = new List<Action>(profiles.Count + rigs.Count);
+
+            foreach (var p in profiles)
+            {
+                items.Add(p.DisplayName);
+                var profileId = p.ProfileId;
+                actions.Add(() => PostSignal(new SwitchProfileSignal(profileId)));
+            }
+            for (var i = 0; i < rigs.Count; i++)
+            {
+                var label = rigLabels[i];
+                items.Add($"{label} (remote)");
+                actions.Add(() => PostSignal(new SelectRemoteRigSignal(label)));
+            }
+
+            State.ProfileDropdown.Open(x, y, width, items.MoveToImmutable(), (idx, _) =>
+            {
+                if (idx >= 0 && idx < actions.Count) actions[idx]();
+            });
+        }
+
+        /// <summary>
+        /// The "can't switch profile right now" dialog: a centred card over a dimmed backdrop showing
+        /// <see cref="EquipmentTabState.ProfileSwitchBlocked"/> (the shared
+        /// <see cref="ProfileSwitchVerdict.Describe"/> text) with a single [OK]. Mirrors
+        /// <c>LiveSessionTab.RenderSessionPrompt</c>'s card geometry so the two modals look alike.
+        /// Dismissal clears the state directly (the tab owns it) -- Esc does the same via
+        /// <c>DismissActiveState</c>.
+        /// </summary>
+        private void RenderProfileSwitchBlocked(RectF32 contentRect, string notice, float fontSize)
+        {
+            var fontPath = FontPath;
+            var dpiScale = DpiScale;
+            var pad = BasePadding * dpiScale;
+            var rowH = BaseItemHeight * dpiScale;
+            var cardW = MathF.Min(contentRect.Width * 0.7f, 520f * dpiScale);
+            // Six rows of body band: the longest verdict message (four named devices + the "why"
+            // sentence) wraps to ~4 lines at this card width, so this leaves headroom without
+            // measuring the wrap up front.
+            var cardH = rowH * 6f + pad * 2f;
+            var cardX = contentRect.X + (contentRect.Width - cardW) / 2f;
+            var cardY = contentRect.Y + (contentRect.Height - cardH) / 2f;
+
+            RenderLayout(Layout.Builder.Spacer().Bg(new RGBAColor32(0x00, 0x00, 0x00, 0xaa)), contentRect);
+            RenderLayout(Layout.Builder.Spacer().Bg(ProfilePanelBg), new RectF32(cardX, cardY, cardW, cardH));
+            // Amber accent bar: a refusal to act, not a destructive confirm.
+            RenderLayout(Layout.Builder.Spacer().Bg(ConfirmForceBg), new RectF32(cardX, cardY, cardW, 2f));
+
+            // The notice is a full sentence, so it has to wrap rather than clip. One Text node per word
+            // in a WrapH flow container does that with the layout engine's own measurement -- no
+            // hand-rolled break-at-width loop, and no fixed line breaks baked into the message.
+            var words = notice.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var lineH = fontSize * 1.35f;
+            var wordNodes = new Layout.Node[words.Length];
+            for (var i = 0; i < words.Length; i++)
+            {
+                wordNodes[i] = Layout.Builder
+                    .Text(words[i], fontSize, BodyText, TextAlign.Near, TextAlign.Center)
+                    .RowH(lineH);
+            }
+            var spaceW = Renderer.MeasureText(" ".AsSpan(), fontPath, fontSize).Width;
+
+            var card = Layout.Builder.VStack(
+                    Layout.Builder.Text("Cannot switch profile", fontSize * 1.1f, HeaderText, TextAlign.Near, TextAlign.Center)
+                        .RowH(rowH),
+                    Layout.Builder.WrapH(wordNodes).WithGap(spaceW).Stretch(),
+                    Layout.Builder.HStack(
+                            Layout.Builder.Spacer().WStar(),
+                            Layout.Builder.Text("OK", fontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                                .WFixed(100f * dpiScale).HStar().Bg(ConfirmCancelBg)
+                                .Clickable(new HitResult.ButtonHit("ProfileSwitchBlockedOk"),
+                                    _ => State.ProfileSwitchBlocked = null))
+                        .RowH(rowH * 1.3f))
+                .Pad(pad);
+
+            RenderLayout(card, new RectF32(cardX, cardY, cardW, cardH), dpiScale: 1f);
+        }
+
         /// <summary>A 1px separator line at the top of a <see cref="BasePadding"/>-tall band -- the
         /// layout-node replacement for the old keyed-Fill + hand-drawn FillRect separator.</summary>
         private static Layout.Node SeparatorRow()
@@ -103,8 +198,27 @@ namespace TianWen.UI.Abstractions
             switch (section)
             {
                 case PanelSection.ProfileHeader:
-                    return Layout.Builder.Text($"Profile: {profile.DisplayName}", BaseFontSize * 1.1f, HeaderText)
-                        .RowH(BaseHeaderHeight);
+                {
+                    // Painter stashes the arranged rect (like the filter-name cell) so the dropdown --
+                    // opened on the click, which fires a later frame -- anchors from the real layout
+                    // position rather than a hand-computed x/y.
+                    var anchor = new RectF32[1];
+                    const string key = "profileHeader";
+                    var label = $"Profile: {profile.DisplayName} ▾";
+                    var fontSize = BaseFontSize * 1.1f * DpiScale;
+                    var fontPath = FontPath;
+                    _profilePanelFills[key] = r =>
+                    {
+                        anchor[0] = r;
+                        DrawText(label.AsSpan(), fontPath, r.X, r.Y, r.Width, r.Height, fontSize, HeaderText, TextAlign.Near, TextAlign.Center);
+                    };
+                    return Layout.Builder.Fill(key: key).RowH(BaseHeaderHeight)
+                        .Clickable(new HitResult.ButtonHit("ProfileHeader"), _ =>
+                        {
+                            var a = anchor[0];
+                            OpenProfileDropdown(appState, a.X, a.Y + a.Height, a.Width);
+                        });
+                }
 
                 case PanelSection.Separator:
                     return SeparatorRow();

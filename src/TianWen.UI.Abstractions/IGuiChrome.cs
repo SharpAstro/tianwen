@@ -23,8 +23,13 @@ public interface IGuiChrome : IPixelWidget
     /// <summary>Scroll the planner target list so that the item at the given index is visible.</summary>
     void PlannerEnsureVisible(int index);
 
-    /// <summary>Live session state (for session monitoring).</summary>
-    LiveSessionState LiveSessionState { get; }
+    /// <summary>
+    /// The view contexts (local node + any observed rigs) and which one is on screen.
+    /// Hosts read <c>ViewContexts.Active.LiveSession</c> to render, <c>.Local.LiveSession</c> for
+    /// anything owning this node's hardware, and iterate <c>.All</c> for polling / redraw --
+    /// see <see cref="ViewContexts"/> for the rule.
+    /// </summary>
+    ViewContexts ViewContexts { get; }
 
     /// <summary>
     /// Sky-map viewport + search modal state — exposed so <see cref="AppSignalHandler"/>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
@@ -38,7 +38,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var otaCount = session.Setup.Telescopes.Length;
+            var otaCount = session.TelescopeDisplays.Length;
             if (otaCount == 0)
             {
                 return;
@@ -83,17 +83,17 @@ namespace TianWen.UI.Abstractions
         /// exposure state (label + progress bar), and the V-curve chart (raster) filling the remaining height
         /// during focus phases.
         /// </summary>
-        private Layout.Node BuildRunningOtaColumn(LiveSessionState state, ISession session, int i,
+        private Layout.Node BuildRunningOtaColumn(LiveSessionState state, ISessionTelemetry session, int i,
             float fontSize, ITimeProvider timeProvider)
         {
-            var ota = session.Setup.Telescopes[i];
+                        var display = session.TelescopeDisplays[i];
             var cameraStates = state.CameraStates;
             var coolingSamples = state.CoolingSamples;
             var smallFsDevice = fontSize * 0.85f; // device px for the V-curve raster painter
             var rows = new List<Layout.Node>();
 
             // OTA header (camera name)
-            rows.Add(Layout.Builder.Text(ota.Camera.Device.DisplayName, BaseFontSize, HeaderText).RowH(BaseRowHeight));
+            rows.Add(Layout.Builder.Text(display.CameraName, BaseFontSize, HeaderText).RowH(BaseRowHeight));
 
             // Temperature + power from the latest cooling sample for this camera + a mini sparkline.
             var lastTemp = double.NaN;
@@ -128,7 +128,7 @@ namespace TianWen.UI.Abstractions
             rows.Add(Layout.Builder.Spacer().RowH(BasePadding));
 
             // Focuser position + temperature + moving state
-            if (ota.Focuser is not null && i < cameraStates.Length)
+            if (display.HasFocuser && i < cameraStates.Length)
             {
                 var cs = cameraStates[i];
                 var focLabel = $"Foc: {cs.FocusPosition}";
@@ -144,7 +144,7 @@ namespace TianWen.UI.Abstractions
             }
 
             // Filter
-            if (ota.FilterWheel is not null)
+            if (display.HasFilterWheel)
             {
                 var filterName = i < cameraStates.Length
                     ? LiveSessionActions.FilterDisplayLabel(cameraStates[i].FilterName, "--")
@@ -223,7 +223,7 @@ namespace TianWen.UI.Abstractions
         /// coloured Box node, not a Fill painter). Docked full-width at the panel bottom by
         /// <see cref="RenderOTAPanels"/>.
         /// </summary>
-        private Layout.Node BuildRunningMountSection(LiveSessionState state, ISession session)
+        private Layout.Node BuildRunningMountSection(LiveSessionState state, ISessionTelemetry session)
         {
             var ms = state.MountState;
             var dotColor = ms.IsSlewing ? StatusSlewing : ms.IsTracking ? StatusTracking : DimText;
@@ -236,7 +236,7 @@ namespace TianWen.UI.Abstractions
 
             var nameRow = Layout.Builder.HStack(
                     Layout.Builder.Text("\u25cf", BaseFontSize * 0.7f, dotColor, TextAlign.Center, TextAlign.Center).WFixed(BaseRowHeight * 0.6f).HStar(),
-                    Layout.Builder.Text(session.Setup.Mount.Device.DisplayName, BaseFontSize * 0.85f, HeaderText).WStar().HStar())
+                    Layout.Builder.Text(session.MountDisplayName, BaseFontSize * 0.85f, HeaderText).WStar().HStar())
                 .RowH(BaseRowHeight);
             var statusRow = Layout.Builder.Text($"{mountStatus}  {pierLabel}", BaseFontSize * 0.85f, statusColor).RowH(BaseRowHeight);
             var raHaRow = Layout.Builder.Text($"RA {raStr}  {haStr}", BaseFontSize * 0.85f, BodyText).RowH(BaseRowHeight);

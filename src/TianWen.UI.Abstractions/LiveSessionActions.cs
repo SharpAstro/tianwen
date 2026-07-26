@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
@@ -101,10 +101,12 @@ namespace TianWen.UI.Abstractions
 
                 SessionPhase.WaitingForDark => "Waiting for dark\u2026",
 
+                // Temperature comes from the cooling samples. (This used to interpolate a Setup
+                // driver value into a string that was then discarded via `is var _` -- a dead
+                // placeholder, removed with the ISessionTelemetry split since telemetry carries
+                // no driver graph.)
                 SessionPhase.Cooling =>
-                    $"Cooling to {state.ActiveSession?.Setup.Telescopes[0].Camera.Driver.FocalLength}\u2026"
-                    is var _ // placeholder — show temp from cooling samples
-                    && state.CoolingSamples is { Length: > 0 } samples
+                    state.CoolingSamples is { Length: > 0 } samples
                         ? $"Cooling: {samples[^1].TemperatureC:F0}\u00B0C \u2192 setpoint {samples[^1].SetpointTempC:F0}\u00B0C"
                         : "Cooling cameras\u2026",
 

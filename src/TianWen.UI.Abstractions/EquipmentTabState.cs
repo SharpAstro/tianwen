@@ -118,6 +118,18 @@ public class EquipmentTabState
     // Filter name dropdown
     public DropdownMenuState FilterNameDropdown { get; } = new();
 
+    // Profile-switcher dropdown, opened from the profile panel header. Lists AllProfiles plus
+    // discovered "tianwen-server" rigs (docs/plans/remote-profile.md).
+    public DropdownMenuState ProfileDropdown { get; } = new();
+
+    /// <summary>
+    /// When non-null, the profile-switch-refused dialog is up showing this explanation (from
+    /// <see cref="TianWen.Lib.Devices.ProfileSwitchVerdict.Describe"/>): the user picked another
+    /// profile while equipment was connected or a session was running. Cleared by the dialog's
+    /// [OK] button or Esc (<c>DismissActiveState</c>).
+    /// </summary>
+    public string? ProfileSwitchBlocked { get; set; }
+
     // Custom filter name input (shared across all slots, activated by "Custom..." entry)
     public int CustomFilterSlotIndex { get; set; } = -1;
     public TextInputState CustomFilterNameInput { get; } = new() { Placeholder = "Filter name..." };

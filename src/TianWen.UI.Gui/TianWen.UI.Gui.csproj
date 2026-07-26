@@ -48,6 +48,17 @@
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
   </ItemGroup>
 
+  <!-- LAN.Lib: Program.cs calls AddLanDiscovery (symmetric "tianwen-gui" beacon) and drives
+       LanDiscovery's lifecycle directly (this is a bare ServiceCollection, not a generic Host, so
+       nothing starts LanDiscoveryHostedService for us). Sibling repo's csproj lives at
+       ../LAN.Lib/src/LAN.Lib/LAN.Lib.csproj. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\LAN.Lib\src\LAN.Lib\LAN.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="LAN.Lib" />
+  </ItemGroup>
+
   <Import Project="..\VCRuntimeRedist.targets" />
 
 </Project>

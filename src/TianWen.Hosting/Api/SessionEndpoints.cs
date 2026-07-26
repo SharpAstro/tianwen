@@ -321,8 +321,19 @@ internal static class SessionEndpoints
         });
 
         // PUT /api/v1/session/profile — set active profile (pre-session)
-        group.MapPut("/profile", (SetProfileRequest request, IHostedSession hosted) =>
+        group.MapPut("/profile", (SetProfileRequest request, IHostedSession hosted, IDeviceHub hub) =>
         {
+            // Same single-profile-context invariant the GUI/TUI enforce (see ProfileSwitchGate): a
+            // running session or connected hardware belongs to the CURRENT profile, so re-pointing the
+            // active profile underneath it would strand those drivers.
+            var verdict = ProfileSwitchGate.Evaluate(hub, hosted.CurrentSession is not null);
+            if (!verdict.Allowed)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail(verdict.Describe(), 409),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
             hosted.SetActiveProfile(request.ProfileId);
             return Results.Json(
                 ResponseEnvelope<string>.Ok($"Active profile set to {request.ProfileId}"),

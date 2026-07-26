@@ -75,14 +75,16 @@ internal class TuiSubCommand(
         sessionState.InitializeFromProfile(profile, registry);
         var bus = new SignalBus();
         var tracker = new BackgroundTaskTracker();
-        var liveSessionState = new LiveSessionState();
+        // View contexts: the local node plus (later) any observed rigs. Exactly one today; the tabs
+        // render contexts.Active while anything owning local hardware reads contexts.Local.
+        var contexts = new ViewContexts();
         // TUI has no sky map tab — pass a standalone state so the shared handler still wires.
         var skyMapState = new SkyMapState();
 
         // Wire shared business logic
         // shutdownToken == cts.Token: the TUI has no separate background-CTS, so the app token doubles as
         // the planetary-capture shutdown signal (cancelled when the TUI exits).
-        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, liveSessionState, skyMapState, bus, tracker, cts, cts.Token, external);
+        var signalHandler = new AppSignalHandler(sp, appState, plannerState, sessionState, eqState, contexts, skyMapState, bus, tracker, cts, cts.Token, external);
         signalHandler.OnPlannerEnsureVisible = index =>
         {
             plannerState.SelectedTargetIndex = index;
@@ -106,11 +108,11 @@ internal class TuiSubCommand(
 
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {
-            [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, equipmentContent, consoleHost, bus),
+            [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, contexts, equipmentContent, consoleHost, bus),
             [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath, consoleHost.TimeProvider),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
-            [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, liveSessionState, terminal, consoleHost.TimeProvider, bus),
-            [GuiTab.Guider] = new TuiGuiderTab(appState, liveSessionState, terminal, fontPath, consoleHost.TimeProvider),
+            [GuiTab.LiveSession] = new TuiLiveSessionTab(appState, contexts, terminal, consoleHost.TimeProvider, bus),
+            [GuiTab.Guider] = new TuiGuiderTab(appState, contexts, terminal, fontPath, consoleHost.TimeProvider),
             [GuiTab.Notifications] = new TuiNotificationsTab(appState),
         };
 
@@ -203,18 +205,22 @@ internal class TuiSubCommand(
             }
 
             // Propagate state-level redraw flags to the active tab
-            if (plannerState.NeedsRedraw || sessionState.NeedsRedraw || liveSessionState.NeedsRedraw)
+            if (plannerState.NeedsRedraw || sessionState.NeedsRedraw || contexts.AnyNeedsRedraw)
             {
                 activeTab.NeedsRedraw = true;
                 plannerState.NeedsRedraw = false;
                 sessionState.NeedsRedraw = false;
-                liveSessionState.NeedsRedraw = false;
+                contexts.ClearNeedsRedraw();
             }
 
+            // Refresh every context's telemetry snapshot, not just the visible tab's -- matches the
+            // GUI (VkGuiRenderer.RenderContent), and is what keeps a local session current while a
+            // remote context is on screen. Free when no session is running.
+            contexts.PollAll();
+
             // Force periodic redraw on live session/guider tab (~2 Hz) for clock, cooling, mount, guide updates
-            if (liveSessionState.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
+            if (contexts.Active.LiveSession.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)
             {
-                liveSessionState.PollSession();
                 activeTab.NeedsRedraw = true;
                 await Task.Delay(500, cts.Token);
             }
@@ -257,7 +263,9 @@ internal class TuiSubCommand(
                         GuiTab.Equipment => "Equipment",
                         GuiTab.Planner => "Planner",
                         GuiTab.Session => "Session",
-                        GuiTab.LiveSession => liveSessionState.IsRunning ? $"Live \u2014 {LiveSessionActions.PhaseLabel(liveSessionState.Phase)}" : "Live",
+                        GuiTab.LiveSession => contexts.Active.LiveSession is { IsRunning: true } live
+                            ? $"Live \u2014 {LiveSessionActions.PhaseLabel(live.Phase)}"
+                            : "Live",
                         GuiTab.Guider => "Guider",
                         GuiTab.Notifications => "Notifications",
                         _ => ""

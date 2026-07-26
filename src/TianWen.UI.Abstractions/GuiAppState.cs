@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using DIR.Lib;
+using LAN.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices;
 
@@ -72,6 +73,12 @@ public class GuiAppState
 
     /// <summary>Device URI registry for resolving camera URIs to device instances.</summary>
     public IDeviceHub? DeviceHub { get; init; }
+
+    /// <summary>Live LAN peer table (rigs running tianwen-server), from LAN.Lib's symmetric
+    /// discovery beacon (docs/plans/remote-profile.md). Null only if a host never wired
+    /// AddLanDiscovery (never true for the GUI today). A fresh snapshot on every read -- no
+    /// separate caching/polling needed at a render call site.</summary>
+    public IPeerTable? PeerTable { get; init; }
 
     public GuiTab ActiveTab { get; set; } = GuiTab.Planner;
     public Profile? ActiveProfile { get; set; }

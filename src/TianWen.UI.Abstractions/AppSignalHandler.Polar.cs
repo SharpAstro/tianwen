@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -38,7 +38,7 @@ namespace TianWen.UI.Abstractions
             // Aliases over the injected fields keep the moved handler bodies verbatim
             // (the closures captured the ctor's parameters before the by-area split).
             var appState = _appState;
-            var liveSessionState = _liveSessionState;
+            var liveSessionState = LocalLiveSession;
             var tracker = _tracker;
             var cts = _cts;
             var external = _external;
@@ -51,6 +51,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartPolarAlignmentSignal>(sig =>
             {
+                if (!EnsureLocalContext("Polar alignment")) return;
                 if (!EnsureSessionIdle("Session is running \u2014 polar alignment unavailable")) return;
                 if (liveSessionState.PolarAlignmentCts is not null)
                 {

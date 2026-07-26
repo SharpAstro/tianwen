@@ -85,11 +85,13 @@ namespace TianWen.UI.Abstractions
         public override bool HandleInput(InputEvent evt) => evt switch
         {
             InputEvent.KeyDown(var key, _) when State.FilterNameDropdown.HandleKeyDown(key) => true,
+            InputEvent.KeyDown(var key, _) when State.ProfileDropdown.HandleKeyDown(key) => true,
             // ESC dismisses any active selection/confirmation before bubbling to quit
             InputEvent.KeyDown(InputKey.Escape, _) => DismissActiveState(),
             // An open, overflowing filter-name dropdown claims the wheel first (no-op when closed / fits /
             // wheel outside its overlay); returning true redraws, mirroring the device-list wheel path.
             InputEvent.Scroll when State.FilterNameDropdown.HandleScrollInput(evt) => true,
+            InputEvent.Scroll when State.ProfileDropdown.HandleScrollInput(evt) => true,
             // Wheel over the list scrolls it; the controller keeps the fractional trackpad carry.
             InputEvent.Scroll(_, var mouseX, var mouseY, _)
                 when _deviceListRect.Contains(mouseX, mouseY) => _deviceScroll.HandleInput(evt),
@@ -163,6 +165,13 @@ namespace TianWen.UI.Abstractions
         private bool DismissActiveState()
         {
             var dismissed = false;
+
+            // Modal first: while the refused-switch dialog is up it is the only thing Esc should close.
+            if (State.ProfileSwitchBlocked is not null)
+            {
+                State.ProfileSwitchBlocked = null;
+                return true;
+            }
 
             if (State.ActiveAssignment is not null)
             {
@@ -252,6 +261,17 @@ namespace TianWen.UI.Abstractions
                 FilterTableBg, SlotActive, BodyText, SeparatorColor,
                 viewportWidth: contentRect.X + contentRect.Width,
                 viewportHeight: contentRect.Y + contentRect.Height);
+            RenderDropdownMenu(State.ProfileDropdown, fontPath, fontSize * 0.85f,
+                FilterTableBg, SlotActive, BodyText, SeparatorColor,
+                viewportWidth: contentRect.X + contentRect.Width,
+                viewportHeight: contentRect.Y + contentRect.Height);
+
+            // Refused-profile-switch modal goes on top of even the dropdown (the dropdown is what
+            // raised it, and its own selection already closed it).
+            if (State.ProfileSwitchBlocked is { Length: > 0 } blocked)
+            {
+                RenderProfileSwitchBlocked(contentRect, blocked, fontSize);
+            }
         }
 
         // -----------------------------------------------------------------------
@@ -264,19 +284,47 @@ namespace TianWen.UI.Abstractions
             // Message + Create button vertically centred by equal star spacers; the button is
             // centred horizontally by star spacers around a fixed-width cell. No manual centre math.
             const float buttonW = 160f;
+
+            // When local profiles already exist (just none auto-selected -- Program.cs only
+            // auto-picks when there's exactly one), offer them directly instead of stranding the
+            // user with only "Create Profile". Same SwitchProfileSignal the header dropdown uses.
+            var profiles = State.AllProfiles;
+            Layout.Node[] pickerRows = profiles.Count == 0
+                ? []
+                :
+                [
+                    Layout.Builder.Spacer().RowH(BasePadding * 2f),
+                    Layout.Builder.Text("Or pick an existing profile:", BaseFontSize * 0.9f, DimText, TextAlign.Center, TextAlign.Center)
+                        .RowH(BaseItemHeight),
+                    .. profiles.Select(p =>
+                    {
+                        var id = p.ProfileId;
+                        return Layout.Builder.HStack(
+                                Layout.Builder.Spacer().WStar(),
+                                Layout.Builder.Text(p.DisplayName, BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                                    .WFixed(buttonW).HStar().Bg(SlotNormal)
+                                    .Clickable(new HitResult.ButtonHit($"SwitchProfile:{id}"), _ => PostSignal(new SwitchProfileSignal(id))),
+                                Layout.Builder.Spacer().WStar())
+                            .RowH(BaseButtonHeight * 0.85f);
+                    }),
+                ];
+
             var tree = Layout.Builder.VStack(
-                Layout.Builder.Spacer().Stretch(),
-                Layout.Builder.Text("No equipment profile configured.", BaseFontSize, DimText, TextAlign.Center, TextAlign.Center)
-                    .RowH(BaseItemHeight * 1.5f),
-                Layout.Builder.Spacer().RowH(BasePadding),
-                Layout.Builder.HStack(
-                        Layout.Builder.Spacer().WStar(),
-                        Layout.Builder.Text("Create Profile", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                            .WFixed(buttonW).HStar().Bg(CreateButton)
-                            .Clickable(new HitResult.ButtonHit("CreateProfile"), _ => PostSignal(new CreateProfileSignal())),
-                        Layout.Builder.Spacer().WStar())
-                    .RowH(BaseButtonHeight),
-                Layout.Builder.Spacer().Stretch());
+                [
+                    Layout.Builder.Spacer().Stretch(),
+                    Layout.Builder.Text("No equipment profile configured.", BaseFontSize, DimText, TextAlign.Center, TextAlign.Center)
+                        .RowH(BaseItemHeight * 1.5f),
+                    Layout.Builder.Spacer().RowH(BasePadding),
+                    Layout.Builder.HStack(
+                            Layout.Builder.Spacer().WStar(),
+                            Layout.Builder.Text("Create Profile", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                                .WFixed(buttonW).HStar().Bg(CreateButton)
+                                .Clickable(new HitResult.ButtonHit("CreateProfile"), _ => PostSignal(new CreateProfileSignal())),
+                            Layout.Builder.Spacer().WStar())
+                        .RowH(BaseButtonHeight),
+                    .. pickerRows,
+                    Layout.Builder.Spacer().Stretch(),
+                ]);
 
             RenderLayout(tree, rect);
         }
