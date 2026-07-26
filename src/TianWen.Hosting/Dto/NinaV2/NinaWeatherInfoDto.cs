@@ -28,26 +28,26 @@ public sealed class NinaWeatherInfoDto
             Connected = driver.Connected,
             // A weather driver reports NaN for anything its hardware does not measure, which is the
             // common case (most stations report a handful of these) -- see JsonNumber.
-            CloudCover = JsonNumber.Finite(driver.CloudCover),
-            DewPoint = JsonNumber.Finite(driver.DewPoint),
-            Humidity = JsonNumber.Finite(driver.Humidity),
-            Pressure = JsonNumber.Finite(driver.Pressure),
-            RainRate = JsonNumber.Finite(driver.RainRate),
-            SkyQuality = JsonNumber.Finite(driver.SkyQuality),
-            SkyTemperature = JsonNumber.Finite(driver.SkyTemperature),
-            StarFWHM = JsonNumber.Finite(driver.StarFWHM),
-            Temperature = JsonNumber.Finite(driver.Temperature),
-            WindDirection = JsonNumber.Finite(driver.WindDirection),
-            WindGust = JsonNumber.Finite(driver.WindGust),
-            WindSpeed = JsonNumber.Finite(driver.WindSpeed),
+            CloudCover = JsonNumber.ForWire(driver.CloudCover),
+            DewPoint = JsonNumber.ForWire(driver.DewPoint),
+            Humidity = JsonNumber.ForWire(driver.Humidity),
+            Pressure = JsonNumber.ForWire(driver.Pressure),
+            RainRate = JsonNumber.ForWire(driver.RainRate),
+            SkyQuality = JsonNumber.ForWire(driver.SkyQuality),
+            SkyTemperature = JsonNumber.ForWire(driver.SkyTemperature),
+            StarFWHM = JsonNumber.ForWire(driver.StarFWHM),
+            Temperature = JsonNumber.ForWire(driver.Temperature),
+            WindDirection = JsonNumber.ForWire(driver.WindDirection),
+            WindGust = JsonNumber.ForWire(driver.WindGust),
+            WindSpeed = JsonNumber.ForWire(driver.WindSpeed),
         };
     }
 
     public static NinaWeatherInfoDto Disconnected { get; } = new NinaWeatherInfoDto
     {
-        Connected = false, CloudCover = 0, DewPoint = 0, Humidity = 0,
-        Pressure = 0, RainRate = 0, SkyQuality = 0,
-        SkyTemperature = 0, StarFWHM = 0, Temperature = 0,
-        WindDirection = 0, WindGust = 0, WindSpeed = 0,
+        Connected = false, CloudCover = JsonNumber.Unknown, DewPoint = JsonNumber.Unknown, Humidity = JsonNumber.Unknown,
+        Pressure = JsonNumber.Unknown, RainRate = JsonNumber.Unknown, SkyQuality = JsonNumber.Unknown,
+        SkyTemperature = JsonNumber.Unknown, StarFWHM = JsonNumber.Unknown, Temperature = JsonNumber.Unknown,
+        WindDirection = JsonNumber.Unknown, WindGust = JsonNumber.Unknown, WindSpeed = JsonNumber.Unknown,
     };
 }

@@ -3,6 +3,7 @@ using Shouldly;
 using System;
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Hosting.Api;
@@ -17,20 +18,22 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Pins the one rule that every hosting DTO has to obey: <b>a non-finite double must never reach the
-/// JSON writer.</b>
+/// Pins the rule every hosting DTO has to obey: <b>a value the JSON contract cannot represent must
+/// never reach the writer.</b>
 /// <para>
-/// JSON cannot express NaN or Infinity and no context here enables
-/// <c>AllowNamedFloatingPointLiterals</c>, so <c>Utf8JsonWriter</c> throws -- and because serialization
-/// runs while the response is already streaming, the caller gets a <b>bodiless HTTP 500 for the whole
-/// endpoint</b>. One unknown focuser temperature takes down the entire session-state payload.
+/// The contract decides, not the DTO -- <see cref="JsonNumber.WireAllowsNonFinite"/> is derived from the
+/// serializer options, so these tests assert the <i>policy</i> and the <i>behaviour under it</i>
+/// separately. Under the current strict contract <c>Utf8JsonWriter</c> throws on NaN or Infinity, and
+/// because serialization runs while the response is already streaming, the caller gets a <b>bodiless
+/// HTTP 500 for the whole endpoint</b>: one unknown focuser temperature takes down the entire
+/// session-state payload.
 /// </para>
 /// <para>
 /// NaN is the ordinary "not known" value across the domain (a pre-poll mount, a camera with no
 /// temperature sensor, a weather station that does not measure rain), so these are the healthy paths,
 /// not edge cases. Each test therefore feeds an <b>all-NaN</b> source through the real projection and
-/// requires the result to serialize -- the shape of test that was missing when
-/// <c>/v2/api/equipment/camera/info</c> shipped a 500 for every disconnected camera.
+/// the real <c>JsonSerializerContext</c>, and requires the result to serialize -- the shape of test that
+/// was missing when <c>/v2/api/equipment/camera/info</c> shipped a 500 for every disconnected camera.
 /// </para>
 /// </summary>
 public class HostingWireNumberTests
@@ -44,24 +47,77 @@ public class HostingWireNumberTests
     private static string SerializeNina(object value, Type type) =>
         JsonSerializer.Serialize(value, type, NinaApiJsonContext.Default);
 
+    /// <summary>
+    /// The invariant every payload must hold: it serialized at all. Absence of a <c>NaN</c> token is
+    /// only implied by a STRICT contract -- if the policy is ever flipped to allow named literals, a NaN
+    /// in the payload is correct, and asserting it away here would fail a legitimate contract change for
+    /// the wrong reason.
+    /// </summary>
+    private static void ShouldHonourWirePolicy(string json)
+    {
+        if (!JsonNumber.WireAllowsNonFinite)
+        {
+            json.ShouldNotContain("NaN");
+            json.ShouldNotContain("Infinity");
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // The policy itself
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void TheWireContractDoesNotCarryNonFiniteNumbers()
+    {
+        // Deliberate: AllowNamedFloatingPointLiterals would emit the non-standard "NaN" token, which
+        // real nina clients do not parse. This asserts the CURRENT contract, and is meant to fail if
+        // someone flips it -- at which point the substitutions below stop happening on their own and
+        // the wire starts carrying NaN, which is a contract change to make knowingly.
+        JsonNumber.WireAllowsNonFinite.ShouldBeFalse();
+        HostingJsonContext.Default.Options.NumberHandling
+            .HasFlag(JsonNumberHandling.AllowNamedFloatingPointLiterals).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void BothWireContextsAgreeOnNumberHandling()
+    {
+        // JsonNumber derives its policy from HostingJsonContext because that is the context in its own
+        // assembly. The nina shim serializes the same coerced values through a DIFFERENT context, so
+        // the two must agree or the policy would be describing only half the surface.
+        NinaApiJsonContext.Default.Options.NumberHandling
+            .ShouldBe(HostingJsonContext.Default.Options.NumberHandling);
+    }
+
     [Theory]
     [InlineData(double.NaN)]
     [InlineData(double.PositiveInfinity)]
     [InlineData(double.NegativeInfinity)]
-    public void JsonNumberCoercesEveryNonFiniteValue(double value)
+    public void ForWireFollowsWhicheverPolicyTheContractDeclares(double value)
     {
-        JsonNumber.Finite(value).ShouldBe(0.0);
-        JsonNumber.Finite(value, fallback: -1.0).ShouldBe(-1.0);
-        JsonNumber.Finite((float)value).ShouldBe(0f);
+        if (JsonNumber.WireAllowsNonFinite)
+        {
+            // The contract can carry it, so substituting would destroy information for no reason:
+            // "not known" must stay distinguishable from a real reading of 0.
+            JsonNumber.ForWire(value).ShouldBe(value);
+            JsonNumber.ForWire((float)value).ShouldBe((float)value);
+            double.IsNaN(JsonNumber.Unknown).ShouldBeTrue();
+        }
+        else
+        {
+            JsonNumber.ForWire(value).ShouldBe(0.0);
+            JsonNumber.ForWire(value, fallback: -1.0).ShouldBe(-1.0);
+            JsonNumber.ForWire((float)value).ShouldBe(0f);
+            JsonNumber.Unknown.ShouldBe(0.0);
+        }
     }
 
     [Fact]
-    public void JsonNumberLeavesFiniteValuesAlone()
+    public void FiniteValuesArePassedThroughUnchangedWhateverThePolicy()
     {
-        JsonNumber.Finite(5.588).ShouldBe(5.588);
-        JsonNumber.Finite(0.0).ShouldBe(0.0);
-        JsonNumber.Finite(-273.15).ShouldBe(-273.15);
-        JsonNumber.Finite(3.1f).ShouldBe(3.1f);
+        JsonNumber.ForWire(5.588).ShouldBe(5.588);
+        JsonNumber.ForWire(0.0).ShouldBe(0.0);
+        JsonNumber.ForWire(-273.15).ShouldBe(-273.15);
+        JsonNumber.ForWire(3.1f).ShouldBe(3.1f);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -76,8 +132,7 @@ public class HostingWireNumberTests
 
         var json = SerializeV1(dto, HostingJsonContext.Default.MountStateDto);
 
-        json.ShouldNotContain("NaN");
-        json.ShouldContain("\"rightAscension\":0");
+        ShouldHonourWirePolicy(json);
     }
 
     [Fact]
@@ -110,8 +165,7 @@ public class HostingWireNumberTests
         var dto = SessionStateDto.FromSession(session);
 
         var json = Should.NotThrow(() => SerializeV1(dto, HostingJsonContext.Default.SessionStateDto));
-        json.ShouldNotContain("NaN");
-        json.ShouldNotContain("Infinity");
+        ShouldHonourWirePolicy(json);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -133,14 +187,14 @@ public class HostingWireNumberTests
         var dto = await NinaCameraInfoDto.FromDriverAsync(driver, TestContext.Current.CancellationToken);
 
         var json = Should.NotThrow(() => SerializeNina(dto, typeof(NinaCameraInfoDto)));
-        json.ShouldNotContain("NaN");
+        ShouldHonourWirePolicy(json);
     }
 
     [Fact]
     public void NinaCameraDisconnectedSentinelSerializes()
     {
         var json = Should.NotThrow(() => SerializeNina(NinaCameraInfoDto.Disconnected, typeof(NinaCameraInfoDto)));
-        json.ShouldNotContain("NaN");
+        ShouldHonourWirePolicy(json);
     }
 
     [Fact]
@@ -156,14 +210,14 @@ public class HostingWireNumberTests
         var dto = await NinaFocuserInfoDto.FromDriverAsync(driver, TestContext.Current.CancellationToken);
 
         var json = Should.NotThrow(() => SerializeNina(dto, typeof(NinaFocuserInfoDto)));
-        json.ShouldNotContain("NaN");
+        ShouldHonourWirePolicy(json);
     }
 
     [Fact]
     public void NinaFocuserDisconnectedSentinelSerializes()
     {
         var json = Should.NotThrow(() => SerializeNina(NinaFocuserInfoDto.Disconnected, typeof(NinaFocuserInfoDto)));
-        json.ShouldNotContain("NaN");
+        ShouldHonourWirePolicy(json);
     }
 
     [Fact]
@@ -188,14 +242,14 @@ public class HostingWireNumberTests
         var dto = NinaWeatherInfoDto.FromDriver(driver);
 
         var json = Should.NotThrow(() => SerializeNina(dto, typeof(NinaWeatherInfoDto)));
-        json.ShouldNotContain("NaN");
+        ShouldHonourWirePolicy(json);
     }
 
     [Fact]
     public void NinaWeatherDisconnectedSentinelSerializes()
     {
         var json = Should.NotThrow(() => SerializeNina(NinaWeatherInfoDto.Disconnected, typeof(NinaWeatherInfoDto)));
-        json.ShouldNotContain("NaN");
+        ShouldHonourWirePolicy(json);
     }
 
     [Fact]
@@ -211,6 +265,6 @@ public class HostingWireNumberTests
         var dto = await NinaMountInfoDto.FromDriverAsync(driver, default, TestContext.Current.CancellationToken);
 
         var json = Should.NotThrow(() => SerializeNina(dto, typeof(NinaMountInfoDto)));
-        json.ShouldNotContain("NaN");
+        ShouldHonourWirePolicy(json);
     }
 }

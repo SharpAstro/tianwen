@@ -25,7 +25,7 @@ public sealed class NinaFocuserInfoDto
             Position = await driver.GetPositionAsync(ct),
             IsMoving = await driver.GetIsMovingAsync(ct),
             // NaN on a focuser with no temperature probe (see JsonNumber).
-            Temperature = JsonNumber.Finite(await driver.GetTemperatureAsync(ct)),
+            Temperature = JsonNumber.ForWire(await driver.GetTemperatureAsync(ct)),
             TempCompAvailable = driver.TempCompAvailable,
         };
     }
@@ -33,6 +33,6 @@ public sealed class NinaFocuserInfoDto
     public static NinaFocuserInfoDto Disconnected { get; } = new NinaFocuserInfoDto
     {
         Connected = false, Name = "", Position = 0, IsMoving = false,
-        Temperature = 0, TempCompAvailable = false,
+        Temperature = JsonNumber.Unknown, TempCompAvailable = false,
     };
 }

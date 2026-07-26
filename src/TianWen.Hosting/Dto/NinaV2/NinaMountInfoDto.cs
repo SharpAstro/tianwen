@@ -28,8 +28,8 @@ public sealed class NinaMountInfoDto
             Connected = driver.Connected,
             Name = driver.Name,
             // All-NaN before the first poll (see JsonNumber).
-            RightAscension = JsonNumber.Finite(polledState.RightAscension),
-            Declination = JsonNumber.Finite(polledState.Declination),
+            RightAscension = JsonNumber.ForWire(polledState.RightAscension),
+            Declination = JsonNumber.ForWire(polledState.Declination),
             SideOfPier = polledState.PierSide.ToString(),
             Tracking = polledState.IsTracking,
             TrackingMode = (await driver.GetTrackingSpeedAsync(ct)).ToString(),

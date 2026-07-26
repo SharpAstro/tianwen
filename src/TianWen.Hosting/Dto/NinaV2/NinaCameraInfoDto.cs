@@ -32,9 +32,9 @@ public sealed class NinaCameraInfoDto
             // A driver that cannot report a value (or reports it as unknown) yields NaN, which JSON
             // cannot express -- see JsonNumber. This 500'd /v2/api/equipment/camera/info for any
             // camera without a temperature sensor, and for every disconnected camera.
-            Temperature = JsonNumber.Finite(driver.CanGetCCDTemperature ? await driver.GetCCDTemperatureAsync(ct) : double.NaN),
-            TargetTemperature = JsonNumber.Finite(driver.CanSetCCDTemperature ? await driver.GetSetCCDTemperatureAsync(ct) : double.NaN),
-            CoolerPower = JsonNumber.Finite(driver.CanGetCoolerPower ? await driver.GetCoolerPowerAsync(ct) : 0),
+            Temperature = JsonNumber.ForWire(driver.CanGetCCDTemperature ? await driver.GetCCDTemperatureAsync(ct) : double.NaN),
+            TargetTemperature = JsonNumber.ForWire(driver.CanSetCCDTemperature ? await driver.GetSetCCDTemperatureAsync(ct) : double.NaN),
+            CoolerPower = JsonNumber.ForWire(driver.CanGetCoolerPower ? await driver.GetCoolerPowerAsync(ct) : 0),
             CoolerOn = driver.CanGetCoolerOn && await driver.GetCoolerOnAsync(ct),
             IsExposing = state == CameraState.Exposing,
             CanSetTemperature = driver.CanSetCCDTemperature,
@@ -47,7 +47,8 @@ public sealed class NinaCameraInfoDto
 
     public static NinaCameraInfoDto Disconnected { get; } = new NinaCameraInfoDto
     {
-        Connected = false, Name = "", Temperature = 0, TargetTemperature = 0,
+        // "unknown", encoded per the wire policy (0 today, NaN if the contract ever carries it).
+        Connected = false, Name = "", Temperature = JsonNumber.Unknown, TargetTemperature = JsonNumber.Unknown,
         CoolerPower = 0, CoolerOn = false, IsExposing = false, CanSetTemperature = false,
         BinX = 1, BinY = 1, Gain = 0, Offset = 0,
     };

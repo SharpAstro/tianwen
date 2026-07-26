@@ -476,10 +476,10 @@ internal static class NinaEquipmentEndpoints
                 steps[i] = new NinaGuideStepDto
                 {
                     Timestamp = s.Timestamp.ToString("o"),
-                    RADistanceRawDisplay = JsonNumber.Finite(s.RaError),
-                    DECDistanceRawDisplay = JsonNumber.Finite(s.DecError),
-                    RADuration = JsonNumber.Finite(s.RaCorrectionMs),
-                    DECDuration = JsonNumber.Finite(s.DecCorrectionMs),
+                    RADistanceRawDisplay = JsonNumber.ForWire(s.RaError),
+                    DECDistanceRawDisplay = JsonNumber.ForWire(s.DecError),
+                    RADuration = JsonNumber.ForWire(s.RaCorrectionMs),
+                    DECDuration = JsonNumber.ForWire(s.DecCorrectionMs),
                     Dither = s.IsDither,
                     Settling = s.IsSettling,
                 };

@@ -364,10 +364,13 @@ plain interfaces, so remote implementations slot in without tab changes.
    endpoint as a bodiless 500. It surfaced on `/v2/api/equipment/camera/info`, but the audit showed it
    was **not** nina-only -- native v1's `OtaCameraStateDto.FocuserTemperature` is NaN by default with no
    focuser fitted, so `/api/v1/session/state` (the endpoint this whole mirror depends on) would have
-   500'd on an ordinary single-OTA session. **Fixed here**, since API coverage is otherwise thin: one
-   shared `JsonNumber.Finite` in Contracts, applied at every wire boundary, pinned by
-   `HostingWireNumberTests` (all-NaN sources through the real projections and real contexts, verified to
-   fail when a guard is removed) and re-checked against the published binary.
+   500'd on an ordinary single-OTA session. **Fixed here**, since API coverage is otherwise thin, and
+   fixed as a **policy** rather than a hardcoded coercion: `JsonNumber.WireAllowsNonFinite` is *derived*
+   from `HostingJsonContext`'s `NumberHandling`, and `ForWire` substitutes only while the contract is
+   strict -- so flipping the contract makes all ~30 call sites preserve NaN with no edit (verified by
+   doing it). Pinned by `HostingWireNumberTests`: the policy value, that both contexts agree on it, and
+   all-NaN sources through the real projections and real contexts; verified to fail when a guard is
+   removed, and re-checked against the published binary.
 3. **`RemoteSessionMirror : ISessionTelemetry`** -- **DONE (2026-07-26)**, tier 1 + part of tier 2.
    Polls `/session/state` (2 Hz active / 0.5 Hz idle) and swaps in the whole immutable DTO by a single
    reference write, so a render-thread reader always sees one internally consistent snapshot with no

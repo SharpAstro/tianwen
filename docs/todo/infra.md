@@ -59,14 +59,21 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
       500'd on an ordinary single-OTA session. Also unguarded: HFD/FWHM before the first measured
       frame, guide RMS before the first folded sample, a synthesized target's coordinates, and
       `NinaMountInfoDto` RA/Dec before the first poll.
-      Fix: one shared `JsonNumber.Finite` in `TianWen.Hosting.Contracts` (replacing the private
-      `MountStateDto.NanToZero`), applied at every wire boundary that copies a domain double. 0 is the
-      right fallback -- it is what N.I.N.A. itself reports for an unavailable reading, so the shim
-      stays compatible, whereas `AllowNamedFloatingPointLiterals` would emit non-standard `"NaN"`
-      tokens real clients do not parse. Pinned by `HostingWireNumberTests` (all-NaN sources through the
-      real projections and the real `JsonSerializerContext`s; verified to fail when a guard is removed)
-      and re-verified against the published AOT binary: all five nina `*/info` endpoints plus 12 other
-      GETs now answer 200.
+      Fix: **policy-driven**, not a hardcoded coercion. `JsonNumber` in `TianWen.Hosting.Contracts`
+      exposes `WireAllowsNonFinite`, **derived from `HostingJsonContext.Default.Options.NumberHandling`**
+      so it cannot drift from the contract it describes, and `ForWire(value, fallback = 0)` substitutes
+      only while the contract is strict. Applied at every wire boundary that copies a domain double
+      (replacing the private `MountStateDto.NanToZero`); `Disconnected` sentinels use `JsonNumber.Unknown`
+      so a pre-built DTO obeys the same policy instead of hardcoding the coercion where it cannot be
+      re-decided. Flip the contract to `AllowNamedFloatingPointLiterals` and all ~30 call sites preserve
+      NaN with no edit -- verified by doing exactly that and observing the payload serialize with NaN
+      intact. The policy stays OFF because named literals emit the non-standard `"NaN"` token real nina
+      clients do not parse; 0 matches what N.I.N.A. itself reports for an unavailable reading.
+      Pinned by `HostingWireNumberTests`: the policy value itself (a deliberate tripwire on flipping it),
+      that both contexts agree on `NumberHandling`, and all-NaN sources through the real projections and
+      real contexts -- asserted policy-aware, so a legitimate flip does not fail for the wrong reason.
+      Verified to fail when a guard is removed, and re-checked against the published AOT binary: all five
+      nina `*/info` endpoints plus 12 other GETs answer 200.
 - [ ] Free unmanaged resources and override finalizer in `External.Dispose` (`External.cs:85-91`)
 - [ ] Actually ensure that FITS library writes async (`IExternal.cs:226`)
 - [ ] Write an MCP server for TianWen (expose session status, device state, observation schedule). PARTIAL (verified 2026-06-02): `TianWen.AI.MCP` (`tianwen-mcp`) ships `FitsTools` (Header/Stats/FindStars/PlateSolve/Pixels), `CatalogTools` (Lookup), `LogTools` (Tail). Session-status / device-state / observation-schedule tools still TODO (planned `stack.*`/`profile.*`/`devices.*`/`app.*` categories are doc-only in `Program.cs`).
