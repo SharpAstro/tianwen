@@ -37,6 +37,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
+    <!-- The native-v1 DTOs + ResponseEnvelope + HostingJsonContext moved out to be shared with
+         TianWen.RemoteClient. Namespaces were deliberately kept (TianWen.Hosting.Dto /
+         TianWen.Hosting.Api span both assemblies) so no endpoint using-directive had to change. -->
+    <ProjectReference Include="..\TianWen.Hosting.Contracts\TianWen.Hosting.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

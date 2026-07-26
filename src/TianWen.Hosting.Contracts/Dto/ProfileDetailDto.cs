@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using TianWen.Lib.Devices;
 
@@ -29,9 +29,9 @@ public sealed class ProfileEquipmentDto
 {
     public required string Mount { get; init; }
     public required string Guider { get; init; }
-    public required string? GuiderCamera { get; init; }
-    public required string? Weather { get; init; }
-    public required int? GuiderFocalLength { get; init; }
+    public string? GuiderCamera { get; init; }
+    public string? Weather { get; init; }
+    public int? GuiderFocalLength { get; init; }
     public required ImmutableArray<ProfileOtaDto> OTAs { get; init; }
 
     public static ProfileEquipmentDto FromData(ProfileData data)
@@ -68,10 +68,10 @@ public sealed class ProfileOtaDto
 {
     public required string Name { get; init; }
     public required int FocalLength { get; init; }
-    public required int? Aperture { get; init; }
+    public int? Aperture { get; init; }
     public required string OpticalDesign { get; init; }
     public required string Camera { get; init; }
-    public required string? Focuser { get; init; }
-    public required string? FilterWheel { get; init; }
-    public required string? Cover { get; init; }
+    public string? Focuser { get; init; }
+    public string? FilterWheel { get; init; }
+    public string? Cover { get; init; }
 }

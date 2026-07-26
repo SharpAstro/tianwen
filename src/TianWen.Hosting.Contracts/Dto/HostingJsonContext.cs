@@ -5,7 +5,18 @@ using TianWen.Hosting.Api;
 namespace TianWen.Hosting.Dto;
 
 /// <summary>
-/// AOT-safe JSON source generator context for all Hosting API DTOs.
+/// AOT-safe JSON source generator context for all native-v1 Hosting API DTOs.
+/// <para>
+/// <b>Public, and deliberately shared.</b> It lives in <c>TianWen.Hosting.Contracts</c> so the server
+/// (<c>TianWen.Hosting</c>, via <c>ConfigureHttpJsonOptions</c>) and any client
+/// (<c>TianWen.RemoteClient</c>) serialize the same contract through the same generated metadata --
+/// one source of truth rather than a hand-copied DTO set that silently drifts. Adding a type here
+/// therefore covers both directions at once.
+/// </para>
+/// <para>
+/// The ninaAPI v2 shim keeps its own <c>NinaApiJsonContext</c> in <c>TianWen.Hosting</c> (PascalCase,
+/// single-OTA): no client of ours speaks it, so it is not part of the shared contract.
+/// </para>
 /// </summary>
 [JsonSerializable(typeof(ResponseEnvelope<SessionStateDto>))]
 [JsonSerializable(typeof(ResponseEnvelope<MountStateDto>))]
@@ -33,6 +44,6 @@ namespace TianWen.Hosting.Dto;
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
-internal partial class HostingJsonContext : JsonSerializerContext
+public partial class HostingJsonContext : JsonSerializerContext
 {
 }

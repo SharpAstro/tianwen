@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -76,6 +76,7 @@
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <ProjectReference Include="..\TianWen.AI.Imaging\TianWen.AI.Imaging.csproj" />
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
+    <ProjectReference Include="..\TianWen.RemoteClient\TianWen.RemoteClient.csproj" />
     <!-- Pulls in VkFitsImagePipeline + SdlVulkan.Renderer for the GPU offscreen
          pipeline test (GpuStretchPipelineTests). Vulkan native libs are loaded
          lazily on the first Vulkan call; tests skip if the runtime is unavailable. -->

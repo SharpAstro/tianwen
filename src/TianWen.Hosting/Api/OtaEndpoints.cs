@@ -55,7 +55,9 @@ internal static class OtaEndpoints
             }
 
             var metrics = index < session.LastFrameMetrics.Length ? session.LastFrameMetrics[index] : default;
-            var dto = OtaCameraStateDto.FromState(index, session.CameraStates[index], metrics);
+            var displays = session.TelescopeDisplays;
+            var display = !displays.IsDefaultOrEmpty && index < displays.Length ? displays[index] : default;
+            var dto = OtaCameraStateDto.FromState(index, session.CameraStates[index], metrics, display);
             return Results.Json(
                 ResponseEnvelope<OtaCameraStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeOtaCameraStateDto);

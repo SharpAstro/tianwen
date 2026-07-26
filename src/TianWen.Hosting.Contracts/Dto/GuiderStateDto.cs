@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using TianWen.Lib.Sequencing;
 
@@ -6,7 +6,7 @@ namespace TianWen.Hosting.Dto;
 
 public sealed class GuiderStateDto
 {
-    public required string? State { get; init; }
+    public string? State { get; init; }
     public required double TotalRMS { get; init; }
     public required double RaRMS { get; init; }
     public required double DecRMS { get; init; }
@@ -15,7 +15,9 @@ public sealed class GuiderStateDto
     public required double GuideExposureSeconds { get; init; }
     public required ImmutableArray<GuideStepDto> RecentSteps { get; init; }
 
-    public static GuiderStateDto FromSession(ISession session)
+    /// <summary>Projects the guider slice. <see cref="ISessionTelemetry"/> for the same reason as
+    /// <see cref="SessionStateDto.FromSession"/>.</summary>
+    public static GuiderStateDto FromSession(ISessionTelemetry session)
     {
         var stats = session.LastGuideStats;
         var steps = ImmutableArray.CreateBuilder<GuideStepDto>(session.GuideSamples.Length);

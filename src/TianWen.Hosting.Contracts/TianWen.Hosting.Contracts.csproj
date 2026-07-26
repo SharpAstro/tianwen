@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Platforms>AnyCPU</Platforms>
+    <!-- Shared by the AOT-published tianwen-server (through TianWen.Hosting) and by
+         TianWen.RemoteClient, so the trim/AOT analyzers run here too. The source-generated
+         HostingJsonContext lives in this assembly, which is the point of the split: server and
+         client serialize the SAME contract with the SAME generated metadata, instead of a
+         hand-copied DTO set that drifts. -->
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+</Project>
