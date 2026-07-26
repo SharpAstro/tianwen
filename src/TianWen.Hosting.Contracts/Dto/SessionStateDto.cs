@@ -115,8 +115,9 @@ public sealed class ObservationDto
     public static ObservationDto FromScheduled(ScheduledObservation obs) => new()
     {
         TargetName = obs.Target.Name,
-        TargetRA = obs.Target.RA,
-        TargetDec = obs.Target.Dec,
+        // A synthesized target (name known, coordinates not) carries NaN.
+        TargetRA = JsonNumber.Finite(obs.Target.RA),
+        TargetDec = JsonNumber.Finite(obs.Target.Dec),
         Start = obs.Start,
         DurationMinutes = obs.Duration.TotalMinutes,
         AcrossMeridian = obs.AcrossMeridian,

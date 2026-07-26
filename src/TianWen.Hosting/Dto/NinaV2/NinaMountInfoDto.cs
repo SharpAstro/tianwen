@@ -1,4 +1,4 @@
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -27,8 +27,9 @@ public sealed class NinaMountInfoDto
         {
             Connected = driver.Connected,
             Name = driver.Name,
-            RightAscension = polledState.RightAscension,
-            Declination = polledState.Declination,
+            // All-NaN before the first poll (see JsonNumber).
+            RightAscension = JsonNumber.Finite(polledState.RightAscension),
+            Declination = JsonNumber.Finite(polledState.Declination),
             SideOfPier = polledState.PierSide.ToString(),
             Tracking = polledState.IsTracking,
             TrackingMode = (await driver.GetTrackingSpeedAsync(ct)).ToString(),

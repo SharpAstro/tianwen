@@ -26,10 +26,10 @@ public sealed class GuiderStateDto
             steps.Add(new GuideStepDto
             {
                 Timestamp = s.Timestamp,
-                RaError = s.RaError,
-                DecError = s.DecError,
-                RaCorrectionMs = s.RaCorrectionMs,
-                DecCorrectionMs = s.DecCorrectionMs,
+                RaError = JsonNumber.Finite(s.RaError),
+                DecError = JsonNumber.Finite(s.DecError),
+                RaCorrectionMs = JsonNumber.Finite(s.RaCorrectionMs),
+                DecCorrectionMs = JsonNumber.Finite(s.DecCorrectionMs),
                 IsDither = s.IsDither,
                 IsSettling = s.IsSettling,
             });
@@ -38,11 +38,13 @@ public sealed class GuiderStateDto
         return new GuiderStateDto
         {
             State = session.GuiderState,
-            TotalRMS = stats?.TotalRMS ?? 0,
-            RaRMS = stats?.RaRMS ?? 0,
-            DecRMS = stats?.DecRMS ?? 0,
-            PeakRa = stats?.PeakRa ?? 0,
-            PeakDec = stats?.PeakDec ?? 0,
+            // A stats object can exist before any sample has been folded in, so the figures can be
+            // NaN even when `stats` is non-null -- the ?? only guards the null case.
+            TotalRMS = JsonNumber.Finite(stats?.TotalRMS ?? 0),
+            RaRMS = JsonNumber.Finite(stats?.RaRMS ?? 0),
+            DecRMS = JsonNumber.Finite(stats?.DecRMS ?? 0),
+            PeakRa = JsonNumber.Finite(stats?.PeakRa ?? 0),
+            PeakDec = JsonNumber.Finite(stats?.PeakDec ?? 0),
             GuideExposureSeconds = session.GuideExposure.TotalSeconds,
             RecentSteps = steps.MoveToImmutable(),
         };
