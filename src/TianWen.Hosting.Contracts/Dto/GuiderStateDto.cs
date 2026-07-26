@@ -26,10 +26,10 @@ public sealed class GuiderStateDto
             steps.Add(new GuideStepDto
             {
                 Timestamp = s.Timestamp,
-                RaError = JsonNumber.Finite(s.RaError),
-                DecError = JsonNumber.Finite(s.DecError),
-                RaCorrectionMs = JsonNumber.Finite(s.RaCorrectionMs),
-                DecCorrectionMs = JsonNumber.Finite(s.DecCorrectionMs),
+                RaError = JsonNumber.ForWire(s.RaError),
+                DecError = JsonNumber.ForWire(s.DecError),
+                RaCorrectionMs = JsonNumber.ForWire(s.RaCorrectionMs),
+                DecCorrectionMs = JsonNumber.ForWire(s.DecCorrectionMs),
                 IsDither = s.IsDither,
                 IsSettling = s.IsSettling,
             });
@@ -40,11 +40,11 @@ public sealed class GuiderStateDto
             State = session.GuiderState,
             // A stats object can exist before any sample has been folded in, so the figures can be
             // NaN even when `stats` is non-null -- the ?? only guards the null case.
-            TotalRMS = JsonNumber.Finite(stats?.TotalRMS ?? 0),
-            RaRMS = JsonNumber.Finite(stats?.RaRMS ?? 0),
-            DecRMS = JsonNumber.Finite(stats?.DecRMS ?? 0),
-            PeakRa = JsonNumber.Finite(stats?.PeakRa ?? 0),
-            PeakDec = JsonNumber.Finite(stats?.PeakDec ?? 0),
+            TotalRMS = JsonNumber.ForWire(stats?.TotalRMS ?? 0),
+            RaRMS = JsonNumber.ForWire(stats?.RaRMS ?? 0),
+            DecRMS = JsonNumber.ForWire(stats?.DecRMS ?? 0),
+            PeakRa = JsonNumber.ForWire(stats?.PeakRa ?? 0),
+            PeakDec = JsonNumber.ForWire(stats?.PeakDec ?? 0),
             GuideExposureSeconds = session.GuideExposure.TotalSeconds,
             RecentSteps = steps.MoveToImmutable(),
         };

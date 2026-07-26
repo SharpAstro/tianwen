@@ -116,8 +116,8 @@ public sealed class ObservationDto
     {
         TargetName = obs.Target.Name,
         // A synthesized target (name known, coordinates not) carries NaN.
-        TargetRA = JsonNumber.Finite(obs.Target.RA),
-        TargetDec = JsonNumber.Finite(obs.Target.Dec),
+        TargetRA = JsonNumber.ForWire(obs.Target.RA),
+        TargetDec = JsonNumber.ForWire(obs.Target.Dec),
         Start = obs.Start,
         DurationMinutes = obs.Duration.TotalMinutes,
         AcrossMeridian = obs.AcrossMeridian,

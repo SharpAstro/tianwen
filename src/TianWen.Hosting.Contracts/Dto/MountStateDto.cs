@@ -1,4 +1,4 @@
-using TianWen.Lib.Devices;
+﻿using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Hosting.Dto;
@@ -16,9 +16,9 @@ public sealed class MountStateDto
     {
         // Before the session's first device poll MountState is all-NaN ("unknown"), which JSON
         // cannot represent -- see JsonNumber for why an unguarded one 500s the whole response.
-        RightAscension = JsonNumber.Finite(state.RightAscension),
-        Declination = JsonNumber.Finite(state.Declination),
-        HourAngle = JsonNumber.Finite(state.HourAngle),
+        RightAscension = JsonNumber.ForWire(state.RightAscension),
+        Declination = JsonNumber.ForWire(state.Declination),
+        HourAngle = JsonNumber.ForWire(state.HourAngle),
         PierSide = state.PierSide.ToString(),
         IsSlewing = state.IsSlewing,
         IsTracking = state.IsTracking,

@@ -52,10 +52,10 @@ public sealed class OtaCameraStateDto
         FocusPosition = camera.FocusPosition,
         // NaN by default on CameraExposureState whenever no focuser is fitted, and the HFD/FWHM below
         // are NaN until a frame has been measured -- all three occur on an ordinary healthy session.
-        FocuserTemperature = JsonNumber.Finite(camera.FocuserTemperature),
+        FocuserTemperature = JsonNumber.ForWire(camera.FocuserTemperature),
         FocuserIsMoving = camera.FocuserIsMoving,
         StarCount = metrics.StarCount,
-        MedianHfd = JsonNumber.Finite(metrics.MedianHfd),
-        MedianFwhm = JsonNumber.Finite(metrics.MedianFwhm),
+        MedianHfd = JsonNumber.ForWire(metrics.MedianHfd),
+        MedianFwhm = JsonNumber.ForWire(metrics.MedianFwhm),
     };
 }
