@@ -13,6 +13,25 @@ public sealed class ProfileDetailDto
     public required string Name { get; init; }
     public required ProfileEquipmentDto Equipment { get; init; }
 
+    /// <summary>
+    /// Observing site, null when the profile defers to the mount's own configured site.
+    /// <para>
+    /// <b>Site lives here rather than on the session state</b>, even though a remote client needs it to
+    /// draw alt/az and the twilight strip. It is a property of the profile, not of a run, so putting it
+    /// on both would create two sources that can disagree. Everything a client wants from it -- horizon
+    /// coordinates for the current pointing, the astro-dark window for tonight -- is a pure function of
+    /// (site, time, RA/Dec), so the client computes it exactly as the local GUI already does instead of
+    /// the node shipping derived values that would need their own consistency rules.
+    /// </para>
+    /// </summary>
+    public double? SiteLatitude { get; init; }
+
+    /// <inheritdoc cref="SiteLatitude"/>
+    public double? SiteLongitude { get; init; }
+
+    /// <inheritdoc cref="SiteLatitude"/>
+    public double? SiteElevation { get; init; }
+
     public static ProfileDetailDto FromProfile(Profile profile)
     {
         var data = profile.Data ?? ProfileData.Empty;
@@ -21,6 +40,9 @@ public sealed class ProfileDetailDto
             ProfileId = profile.ProfileId,
             Name = profile.DisplayName,
             Equipment = ProfileEquipmentDto.FromData(data),
+            SiteLatitude = data.SiteLatitude is { } lat ? JsonNumber.ForWire(lat) : null,
+            SiteLongitude = data.SiteLongitude is { } lon ? JsonNumber.ForWire(lon) : null,
+            SiteElevation = data.SiteElevation is { } elev ? JsonNumber.ForWire(elev) : null,
         };
     }
 }

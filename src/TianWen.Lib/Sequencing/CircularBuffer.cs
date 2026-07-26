@@ -10,8 +10,14 @@ namespace TianWen.Lib.Sequencing;
 /// poll. Append pays the O(capacity) copy, which suits the low-rate producers this backs
 /// (one guide sample per guide exposure, one frame metric per sub-exposure) polled by
 /// high-rate readers (the GUI render thread reads <c>Session.GuideSamples</c> every frame).
+/// <para>
+/// Public rather than internal because it is a general-purpose primitive with consumers outside
+/// this assembly -- the hosted notification ring in <c>TianWen.Hosting</c> is one. Exposing the one
+/// type is deliberately narrower than granting that assembly <c>InternalsVisibleTo</c> over all of
+/// TianWen.Lib just to reach a ring buffer.
+/// </para>
 /// </summary>
-internal sealed class CircularBuffer<T>(int capacity)
+public sealed class CircularBuffer<T>(int capacity)
 {
     private ImmutableArray<T> _items = [];
 

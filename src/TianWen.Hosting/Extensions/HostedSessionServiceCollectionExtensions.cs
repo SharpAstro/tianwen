@@ -68,6 +68,7 @@ public static class HostedSessionServiceCollectionExtensions
         app.MapGuiderApi();
         app.MapDeviceApi();
         app.MapImageApi();
+        app.MapPreviewApi();
         app.MapWebSocketEndpoint();
 
         // ninaAPI v2 compatibility shim for Touch N Stars

@@ -135,6 +135,9 @@ public class RemoteSessionMirrorTests
                     StarCount = 412,
                     MedianHfd = 3.1f,
                     MedianFwhm = 2.4f,
+                    SensorTemperatureC = -9.8,
+                    SetpointTemperatureC = -10.0,
+                    CoolerPowerPercent = 41.5,
                 },
             ],
             Observations =
@@ -150,6 +153,39 @@ public class RemoteSessionMirrorTests
             [
                 new PhaseTimestampDto { Phase = SessionPhase.Cooling, StartTime = new DateTimeOffset(2026, 7, 26, 19, 30, 0, TimeSpan.Zero) },
                 new PhaseTimestampDto { Phase = SessionPhase.Observing, StartTime = new DateTimeOffset(2026, 7, 26, 19, 45, 0, TimeSpan.Zero) },
+            ],
+            CoolingSamples =
+            [
+                new CoolingSampleDto
+                {
+                    Timestamp = new DateTimeOffset(2026, 7, 26, 19, 35, 0, TimeSpan.Zero),
+                    CameraIndex = 0, TemperatureC = -9.8, SetpointTemperatureC = -10.0, CoolerPowerPercent = 41.5,
+                },
+            ],
+            FocusHistory =
+            [
+                new FocusRunDto
+                {
+                    Timestamp = new DateTimeOffset(2026, 7, 26, 19, 40, 0, TimeSpan.Zero),
+                    OtaName = "OTA 1", FilterName = "L", BestPosition = 980, BestHfd = 2.9f,
+                    Curve =
+                    [
+                        new FocusSampleDto { Position = 940, Hfd = 4.1f },
+                        new FocusSampleDto { Position = 980, Hfd = 2.9f },
+                        new FocusSampleDto { Position = 1020, Hfd = 4.3f },
+                    ],
+                    FitA = 1.5, FitB = 40.0,
+                },
+            ],
+            ActiveFocusSamples = [],
+            ExposureLog =
+            [
+                new ExposureLogDto
+                {
+                    Timestamp = new DateTimeOffset(2026, 7, 26, 19, 47, 0, TimeSpan.Zero),
+                    TargetName = "M42", FilterName = "L", ExposureSeconds = 120,
+                    FrameNumber = 1, MedianHfd = 3.2f, StarCount = 400,
+                },
             ],
         };
 
@@ -239,6 +275,7 @@ public class RemoteSessionMirrorTests
                 GuideExposureSeconds = 2, RecentSteps = [],
             },
             Cameras = [], Observations = [], PhaseTimeline = [],
+            CoolingSamples = [], FocusHistory = [], ActiveFocusSamples = [], ExposureLog = [],
         };
 
         var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(zeroed)));
@@ -391,9 +428,60 @@ public class RemoteSessionMirrorTests
         written[0].FrameNumber.ShouldBe(8);
         written[0].StarCount.ShouldBe(420);
 
-        // Event-sourced: the state DTO carries no exposure log, so the mirror accumulates one.
+        // The broadcast fires the notification ONLY. The collection is not event-sourced: it comes from
+        // the polled snapshot, so a frame announced but not yet polled is absent here by design.
+        mirror.ExposureLog.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task TheExposureLogComesFromTheSnapshotSoItCoversFramesWrittenBeforeAttaching()
+    {
+        // The point of sourcing it from the poll rather than from FRAME-WRITTEN: a client attaching
+        // mid-night must see the frames it was never broadcast, instead of an empty list beside a
+        // non-zero TotalFramesWritten.
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(RunningState())));
+        await using var _mirror = mirror;
+
+        mirror.ExposureLog.ShouldBeEmpty();
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
         mirror.ExposureLog.Length.ShouldBe(1);
-        mirror.ExposureLog[0].FrameNumber.ShouldBe(8);
+        mirror.ExposureLog[0].TargetName.ShouldBe("M42");
+        mirror.ExposureLog[0].FrameNumber.ShouldBe(1);
+        mirror.ExposureLog[0].Exposure.ShouldBe(TimeSpan.FromSeconds(120));
+        mirror.ExposureLog[0].StarCount.ShouldBe(400);
+    }
+
+    [Fact]
+    public async Task PollProjectsTheDeepTelemetryAddedForARemoteVCurveAndCoolingChart()
+    {
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(RunningState())));
+        await using var _mirror = mirror;
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+        ISessionTelemetry telemetry = mirror;
+
+        telemetry.CoolingSamples.Length.ShouldBe(1);
+        telemetry.CoolingSamples[0].CameraIndex.ShouldBe(0);
+        telemetry.CoolingSamples[0].TemperatureC.ShouldBe(-9.8);
+        telemetry.CoolingSamples[0].SetpointTempC.ShouldBe(-10.0);
+        telemetry.CoolingSamples[0].CoolerPowerPercent.ShouldBe(41.5);
+
+        telemetry.FocusHistory.Length.ShouldBe(1);
+        var run = telemetry.FocusHistory[0];
+        run.OtaName.ShouldBe("OTA 1");
+        run.BestPosition.ShouldBe(980);
+        run.BestHfd.ShouldBe(2.9f);
+        // The whole V-curve travels, not just the best point -- otherwise a remote focus chart has
+        // nothing to draw.
+        run.Curve.Length.ShouldBe(3);
+        run.Curve[1].Position.ShouldBe(980);
+        run.Curve[1].Hfd.ShouldBe(2.9f);
+        run.FitA.ShouldBe(1.5);
+        run.FitB.ShouldBe(40.0);
+
+        telemetry.ActiveFocusSamples.ShouldBeEmpty();
     }
 
     [Fact]

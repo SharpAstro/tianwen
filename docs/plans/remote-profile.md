@@ -187,6 +187,61 @@ OnStep mDNS is separate; `ReuseAddress` means several LAN.Lib consumers on one h
 
 ## Part 2 -- `tianwen-server` surface additions (native v1)
 
+**Status: items 1-6 + 8 DONE (2026-07-26).** Item 7 (node announce) landed with P1; item 9 is P5 and
+is expected to be served by the Alpaca device plane rather than a bespoke hub API (see the candidate
+section below). Notes on what the implementation decided, where it differs from the sketch, and what
+it found:
+
+- **2.1 preview** -- `GET /api/v1/preview/{otaIndex}?quality=&scale=`, `X-Frame-Number` header, plus a
+  shared `PreviewEncoder`. **The sketch's "modelled on the nina `prepared-image`" turned out to be the
+  wrong model**: that encoder multiplied every sample by `1/MaxValue` and called it an auto-stretch, so
+  a linear sub (background at a couple of percent of full well) encoded to a near-black frame with a
+  few lit pixels. The encoder now goes through the shared `StretchSolver` + `Image.RenderStretchedRgba`
+  -- the same pipeline the GPU viewer and the CPU/TUI renderer already agree on -- and the **nina
+  endpoint was switched onto it too**, so both surfaces render like the local viewer instead of being a
+  third rendering of the same frame. Downsampling box-averages rather than point-samples (nearest
+  neighbour at 1:8 simply misses single-pixel stars). The session-owned `Image` is only ever read:
+  `DebayerAsync(normalizeToUnit: false)` returns a new image for a CFA frame and `this` untouched
+  otherwise, so the pinned camera buffer is never consumed. Pinned by `PreviewEncoderTests`
+  (encode -> **decode back** -> assert real pixels), which also caught a genuine bug on the way in:
+  `scale=0` clamped to zero and produced a 1x1 preview, so a non-positive/NaN scale now means "full
+  resolution".
+- **2.2 prompt bridging** -- `PROMPT-REQUESTED` broadcast + `POST /session/prompt/respond {proceed}`,
+  and the prompt **also rides on `/session/state`**. That addition is load-bearing, not belt-and-braces:
+  polling is the authoritative channel, so a prompt that were only ever pushed would be unanswerable by
+  a client that attached after it fired or whose socket dropped. **The subscription itself is a
+  behaviour change that had to be contained**: a session auto-proceeds only while *nothing* is
+  subscribed to `PromptRequested`, which is what keeps unattended CLI/server runs from blocking, so
+  `EventBroadcaster` subscribing would have wedged an unattended night at "switch on the flat panel".
+  Two safeguards restore the guarantee -- with no WebSocket client attached the node answers
+  *immediately* (byte-identical to the old headless behaviour), and with one attached it proceeds anyway
+  after a 2 min bound. Proceeding rather than declining matches what headless has always done.
+- **2.3 broadcasts** -- `GUIDER-STATE-CHANGED` (the event already existed on the session, it simply was
+  not subscribed) and a per-sample `GUIDE-STEP` from a timestamp-watermark diff in the broadcaster poll.
+- **2.4 structured devices** -- `GET /devices/structured` -> `DeviceDto[]` with URI + type + live
+  `Connected` from `IDeviceHub.IsConnected`.
+- **2.5 notification ring** -- `EventBroadcaster` doubles as the node's notification recorder (it is
+  already watching every session event), writing into a 200-entry lock-free `CircularBuffer` on
+  `IHostedSession`, served by `GET /session/notifications` and pushed as `NOTIFICATION`.
+  `CircularBuffer<T>` was made public for this -- deliberately narrower than granting `TianWen.Hosting`
+  `InternalsVisibleTo` over all of TianWen.Lib to reach one ring.
+- **2.6 telemetry depth** -- `CoolingSamples` / `FocusHistory` (with full V-curve) / `ActiveFocusSamples`
+  / `ExposureLog` on the state DTO, and cooler temp/setpoint/power per OTA taken from the newest cooling
+  sample rather than a second driver poll (one source, so the number cannot disagree with the ramp chart
+  drawn beside it). **Site went on `ProfileDetailDto`, not `MountStateDto`, and alt/az + twilight are not
+  on the wire at all**: site is a property of the profile rather than of a run, and everything a client
+  wants from it (horizon coordinates for the current pointing, tonight's astro-dark window) is a pure
+  function of (site, time, RA/Dec) that the client computes exactly as the local GUI already does.
+  Shipping derived values would have created a second source needing its own consistency rules.
+- **Mirror payoff** -- `RemoteSessionMirror`'s empty stubs for those four collections are now filled from
+  the snapshot, and `ExposureLog` **stopped being event-sourced**: FRAME-WRITTEN only ever covered frames
+  written after the mirror attached, so a client joining mid-night showed an empty frame list beside a
+  non-zero frame count. The snapshot carries the whole run, polling is authoritative, and the worst case
+  is lagging one frame by one poll -- so the local ring was deleted rather than reconciled.
+- **Two standing-rule violations fixed in passing**: `EventBroadcaster` used `Task.Delay` in its poll
+  loop (must be `ITimeProvider.SleepAsync`, or a fake clock hangs), and `HostedSession` locked on a plain
+  `object` (must be `System.Threading.Lock`).
+
 The existing surface is ~80% of what a mirror needs: `/session/state` already carries phase,
 activity, failure reason, mount pointing/tracking/pier, full guider RMS + sample ring, per-OTA
 camera/focuser/HFD state, schedule + timeline; control endpoints exist for mount/camera/focuser/
@@ -420,8 +475,8 @@ plain interfaces, so remote implementations slot in without tab changes.
 | Phase | Deliverable | Depends on |
 |-------|-------------|------------|
 | P1 | DONE -- `LAN.Lib` sibling published to NuGet; server + GUI both announce/discover; GUI profile-switcher dropdown (local profiles + discovered rigs, reshaped from the original read-only-list plan) | new repo + `UseLocalSiblings` extension |
-| P2 | Server session-mirror surface: preview endpoint, prompt bridging, 3 new WS broadcasts, structured devices, notification ring, telemetry depth, schedule-fidelity target DTO (2.1-2.6, 2.8) | -- |
-| P3 | **MOSTLY DONE (2026-07-26)** -- `ISessionTelemetry` extraction, per-view-context `LiveSessionState`, `TianWen.Hosting.Contracts` split, `TianWen.RemoteClient` (`TianWenNodeClient` + `TianWenEventStream`) and `RemoteSessionMirror` all landed. Remaining: preview images, prompt round-trip and lifecycle routing, which are the parts that genuinely need P2 | P2 (for the remainder only) |
+| P2 | **DONE (2026-07-26)** -- preview endpoint (+ a shared stretch-correct encoder the nina shim now uses too), prompt bridging (with the headless auto-proceed guarantee preserved), `GUIDER-STATE-CHANGED` + `GUIDE-STEP`, structured devices, notification ring, telemetry depth, schedule-fidelity target DTO (2.1-2.6, 2.8). Item 2.7 landed with P1; 2.9 is P5 | -- |
+| P3 | **MOSTLY DONE (2026-07-26)** -- `ISessionTelemetry` extraction, per-view-context `LiveSessionState`, `TianWen.Hosting.Contracts` split, `TianWen.RemoteClient` (`TianWenNodeClient` + `TianWenEventStream`) and `RemoteSessionMirror` all landed; with P2 done the mirror's deep-telemetry stubs (cooling / V-curve / exposure log) are filled from the snapshot. Remaining and now **unblocked**, all client-side: fetch + decode preview JPEGs into `LastCapturedImages`, surface `PendingPrompt` through `ISessionTelemetry.PromptRequested` with `Respond` POSTing back, and route start/flats/abort + `POST /session/schedule` through the mirror | P2 (done) |
 | P4 | Binding UX + drive mode (fetch profile, local planner, push `ScheduledObservationDto` schedule, remote start/stop/abort) | P1, P3 |
 | P5 | Out-of-session remote device control: **either** the bespoke hub API (2.9) + `RemoteDeviceHub` + driver proxies, **or** an Alpaca server on the node consumed by the existing `AddAlpaca()` (see the 2.9 candidate above -- strongly preferred; no client-side code, ImageBytes free). Preview mode + Equipment tab remote control | P3 (the Alpaca-server route needs only P1, so it can land earlier) |
 | Deferred | Hosted polar-alignment/planetary modes (server-side orchestration), profile editing, guide-cam image stream, auth/TLS, WAN relay, multi-rig dashboard | -- |
