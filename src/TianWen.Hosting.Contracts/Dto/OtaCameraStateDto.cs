@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
@@ -50,10 +50,12 @@ public sealed class OtaCameraStateDto
         FrameNumber = camera.FrameNumber,
         FilterName = camera.FilterName,
         FocusPosition = camera.FocusPosition,
-        FocuserTemperature = camera.FocuserTemperature,
+        // NaN by default on CameraExposureState whenever no focuser is fitted, and the HFD/FWHM below
+        // are NaN until a frame has been measured -- all three occur on an ordinary healthy session.
+        FocuserTemperature = JsonNumber.Finite(camera.FocuserTemperature),
         FocuserIsMoving = camera.FocuserIsMoving,
         StarCount = metrics.StarCount,
-        MedianHfd = metrics.MedianHfd,
-        MedianFwhm = metrics.MedianFwhm,
+        MedianHfd = JsonNumber.Finite(metrics.MedianHfd),
+        MedianFwhm = JsonNumber.Finite(metrics.MedianFwhm),
     };
 }

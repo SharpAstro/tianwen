@@ -1,4 +1,4 @@
-using TianWen.Lib.Devices.Weather;
+﻿using TianWen.Lib.Devices.Weather;
 
 namespace TianWen.Hosting.Dto.NinaV2;
 
@@ -26,26 +26,28 @@ public sealed class NinaWeatherInfoDto
         return new NinaWeatherInfoDto
         {
             Connected = driver.Connected,
-            CloudCover = driver.CloudCover,
-            DewPoint = driver.DewPoint,
-            Humidity = driver.Humidity,
-            Pressure = driver.Pressure,
-            RainRate = driver.RainRate,
-            SkyQuality = driver.SkyQuality,
-            SkyTemperature = driver.SkyTemperature,
-            StarFWHM = driver.StarFWHM,
-            Temperature = driver.Temperature,
-            WindDirection = driver.WindDirection,
-            WindGust = driver.WindGust,
-            WindSpeed = driver.WindSpeed,
+            // A weather driver reports NaN for anything its hardware does not measure, which is the
+            // common case (most stations report a handful of these) -- see JsonNumber.
+            CloudCover = JsonNumber.Finite(driver.CloudCover),
+            DewPoint = JsonNumber.Finite(driver.DewPoint),
+            Humidity = JsonNumber.Finite(driver.Humidity),
+            Pressure = JsonNumber.Finite(driver.Pressure),
+            RainRate = JsonNumber.Finite(driver.RainRate),
+            SkyQuality = JsonNumber.Finite(driver.SkyQuality),
+            SkyTemperature = JsonNumber.Finite(driver.SkyTemperature),
+            StarFWHM = JsonNumber.Finite(driver.StarFWHM),
+            Temperature = JsonNumber.Finite(driver.Temperature),
+            WindDirection = JsonNumber.Finite(driver.WindDirection),
+            WindGust = JsonNumber.Finite(driver.WindGust),
+            WindSpeed = JsonNumber.Finite(driver.WindSpeed),
         };
     }
 
     public static NinaWeatherInfoDto Disconnected { get; } = new NinaWeatherInfoDto
     {
-        Connected = false, CloudCover = double.NaN, DewPoint = double.NaN, Humidity = double.NaN,
-        Pressure = double.NaN, RainRate = double.NaN, SkyQuality = double.NaN,
-        SkyTemperature = double.NaN, StarFWHM = double.NaN, Temperature = double.NaN,
-        WindDirection = double.NaN, WindGust = double.NaN, WindSpeed = double.NaN,
+        Connected = false, CloudCover = 0, DewPoint = 0, Humidity = 0,
+        Pressure = 0, RainRate = 0, SkyQuality = 0,
+        SkyTemperature = 0, StarFWHM = 0, Temperature = 0,
+        WindDirection = 0, WindGust = 0, WindSpeed = 0,
     };
 }

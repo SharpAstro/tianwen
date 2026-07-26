@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
@@ -476,10 +476,10 @@ internal static class NinaEquipmentEndpoints
                 steps[i] = new NinaGuideStepDto
                 {
                     Timestamp = s.Timestamp.ToString("o"),
-                    RADistanceRawDisplay = s.RaError,
-                    DECDistanceRawDisplay = s.DecError,
-                    RADuration = s.RaCorrectionMs,
-                    DECDuration = s.DecCorrectionMs,
+                    RADistanceRawDisplay = JsonNumber.Finite(s.RaError),
+                    DECDistanceRawDisplay = JsonNumber.Finite(s.DecError),
+                    RADuration = JsonNumber.Finite(s.RaCorrectionMs),
+                    DECDuration = JsonNumber.Finite(s.DecCorrectionMs),
                     Dither = s.IsDither,
                     Settling = s.IsSettling,
                 };

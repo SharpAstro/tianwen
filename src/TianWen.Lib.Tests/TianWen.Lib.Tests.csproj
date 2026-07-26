@@ -77,6 +77,7 @@
     <ProjectReference Include="..\TianWen.AI.Imaging\TianWen.AI.Imaging.csproj" />
     <ProjectReference Include="..\TianWen.UI.Abstractions\TianWen.UI.Abstractions.csproj" />
     <ProjectReference Include="..\TianWen.RemoteClient\TianWen.RemoteClient.csproj" />
+    <ProjectReference Include="..\TianWen.Hosting\TianWen.Hosting.csproj" />
     <!-- Pulls in VkFitsImagePipeline + SdlVulkan.Renderer for the GPU offscreen
          pipeline test (GpuStretchPipelineTests). Vulkan native libs are loaded
          lazily on the first Vulkan call; tests skip if the runtime is unavailable. -->

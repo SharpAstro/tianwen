@@ -47,18 +47,26 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 ## External / Infrastructure
 
-- [ ] **ninaAPI v2 shim returns 500 on unpopulated `double` fields (NaN is not valid JSON).** Found
-      2026-07-26 by the mandatory AOT publish smoke test during the `TianWen.Hosting.Contracts` split
-      (pre-existing, unrelated to it). `GET /v2/api/equipment/camera/info` with no camera connected
-      throws `ArgumentException: .NET number values ... cannot be written as valid JSON` out of
-      `Utf8JsonWriter.WriteNumberValue(Double)` and Kestrel returns a bodiless 500. Source: the nina
-      DTOs assign `double.NaN` for "unknown" -- `NinaCameraInfoDto` (Temperature, TargetTemperature,
-      CoolerPower), `NinaFocuserInfoDto` (1), `NinaWeatherInfoDto` (4). The native v1 side already
-      solved this: `MountStateDto.FromState` coerces via a private `NanToZero`, with a comment
-      explaining that no context configures `AllowNamedFloatingPointLiterals`. Fix = the same coercion
-      for the nina DTOs (N.I.N.A. itself reports 0 / omits rather than NaN, so 0 matches the shim's
-      contract better than enabling named literals, which would emit non-standard `"NaN"` tokens real
-      nina clients don't parse). Cheap, but audit all three DTOs at once rather than one endpoint.
+- [x] **Hosting API returned a bodiless 500 on any unpopulated `double` (NaN is not valid JSON).**
+      FIXED 2026-07-26. Found by the mandatory AOT publish smoke test during the
+      `TianWen.Hosting.Contracts` split (pre-existing, unrelated to it): `GET
+      /v2/api/equipment/camera/info` with no camera connected threw `ArgumentException: .NET number
+      values ... cannot be written as valid JSON` out of `Utf8JsonWriter.WriteNumberValue(Double)`, and
+      because serialization runs while the response is already streaming, Kestrel emits a **bodiless
+      500 for the whole endpoint**. The audit found it was **not** nina-only: native v1's
+      `OtaCameraStateDto.FocuserTemperature` is NaN by default whenever no focuser is fitted, so
+      `/api/v1/session/state` -- the endpoint the whole remote-mirror path depends on -- would have
+      500'd on an ordinary single-OTA session. Also unguarded: HFD/FWHM before the first measured
+      frame, guide RMS before the first folded sample, a synthesized target's coordinates, and
+      `NinaMountInfoDto` RA/Dec before the first poll.
+      Fix: one shared `JsonNumber.Finite` in `TianWen.Hosting.Contracts` (replacing the private
+      `MountStateDto.NanToZero`), applied at every wire boundary that copies a domain double. 0 is the
+      right fallback -- it is what N.I.N.A. itself reports for an unavailable reading, so the shim
+      stays compatible, whereas `AllowNamedFloatingPointLiterals` would emit non-standard `"NaN"`
+      tokens real clients do not parse. Pinned by `HostingWireNumberTests` (all-NaN sources through the
+      real projections and the real `JsonSerializerContext`s; verified to fail when a guard is removed)
+      and re-verified against the published AOT binary: all five nina `*/info` endpoints plus 12 other
+      GETs now answer 200.
 - [ ] Free unmanaged resources and override finalizer in `External.Dispose` (`External.cs:85-91`)
 - [ ] Actually ensure that FITS library writes async (`IExternal.cs:226`)
 - [ ] Write an MCP server for TianWen (expose session status, device state, observation schedule). PARTIAL (verified 2026-06-02): `TianWen.AI.MCP` (`tianwen-mcp`) ships `FitsTools` (Header/Stats/FindStars/PlateSolve/Pixels), `CatalogTools` (Lookup), `LogTools` (Tail). Session-status / device-state / observation-schedule tools still TODO (planned `stack.*`/`profile.*`/`devices.*`/`app.*` categories are doc-only in `Program.cs`).

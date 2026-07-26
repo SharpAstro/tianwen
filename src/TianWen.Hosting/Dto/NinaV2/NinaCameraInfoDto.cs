@@ -1,4 +1,4 @@
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 
@@ -29,9 +29,12 @@ public sealed class NinaCameraInfoDto
         {
             Connected = driver.Connected,
             Name = driver.Name,
-            Temperature = driver.CanGetCCDTemperature ? await driver.GetCCDTemperatureAsync(ct) : double.NaN,
-            TargetTemperature = driver.CanSetCCDTemperature ? await driver.GetSetCCDTemperatureAsync(ct) : double.NaN,
-            CoolerPower = driver.CanGetCoolerPower ? await driver.GetCoolerPowerAsync(ct) : 0,
+            // A driver that cannot report a value (or reports it as unknown) yields NaN, which JSON
+            // cannot express -- see JsonNumber. This 500'd /v2/api/equipment/camera/info for any
+            // camera without a temperature sensor, and for every disconnected camera.
+            Temperature = JsonNumber.Finite(driver.CanGetCCDTemperature ? await driver.GetCCDTemperatureAsync(ct) : double.NaN),
+            TargetTemperature = JsonNumber.Finite(driver.CanSetCCDTemperature ? await driver.GetSetCCDTemperatureAsync(ct) : double.NaN),
+            CoolerPower = JsonNumber.Finite(driver.CanGetCoolerPower ? await driver.GetCoolerPowerAsync(ct) : 0),
             CoolerOn = driver.CanGetCoolerOn && await driver.GetCoolerOnAsync(ct),
             IsExposing = state == CameraState.Exposing,
             CanSetTemperature = driver.CanSetCCDTemperature,
@@ -44,7 +47,7 @@ public sealed class NinaCameraInfoDto
 
     public static NinaCameraInfoDto Disconnected { get; } = new NinaCameraInfoDto
     {
-        Connected = false, Name = "", Temperature = double.NaN, TargetTemperature = double.NaN,
+        Connected = false, Name = "", Temperature = 0, TargetTemperature = 0,
         CoolerPower = 0, CoolerOn = false, IsExposing = false, CanSetTemperature = false,
         BinX = 1, BinY = 1, Gain = 0, Offset = 0,
     };

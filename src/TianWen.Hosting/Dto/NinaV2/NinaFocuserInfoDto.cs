@@ -1,4 +1,4 @@
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 
@@ -24,7 +24,8 @@ public sealed class NinaFocuserInfoDto
             Name = driver.Name,
             Position = await driver.GetPositionAsync(ct),
             IsMoving = await driver.GetIsMovingAsync(ct),
-            Temperature = await driver.GetTemperatureAsync(ct),
+            // NaN on a focuser with no temperature probe (see JsonNumber).
+            Temperature = JsonNumber.Finite(await driver.GetTemperatureAsync(ct)),
             TempCompAvailable = driver.TempCompAvailable,
         };
     }
@@ -32,6 +33,6 @@ public sealed class NinaFocuserInfoDto
     public static NinaFocuserInfoDto Disconnected { get; } = new NinaFocuserInfoDto
     {
         Connected = false, Name = "", Position = 0, IsMoving = false,
-        Temperature = double.NaN, TempCompAvailable = false,
+        Temperature = 0, TempCompAvailable = false,
     };
 }
