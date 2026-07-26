@@ -89,14 +89,18 @@ internal partial record Session
 
             // A calibrator the driver can't dim (a hand-switched manual panel) needs the human to switch it
             // on and set a comfortable level first -- the solver then meters whatever light is present. Pause
-            // for a user prompt (a headless caller auto-proceeds); declining skips this OTA. Driver-controlled
-            // panels (flip-flat / Gemini / ASCOM) set their own brightness below and never prompt.
+            // for a user prompt; declining skips this OTA, and so does a run with nobody to ask (unless the
+            // caller opted into UnattendedPromptResponse.Proceed, which only an operator-invoked flat run
+            // should do). Driver-controlled panels (flip-flat / Gemini / ASCOM) set their own brightness
+            // below and never prompt.
             if (!coverDriver.CanControlBrightness)
             {
                 var proceed = await RequestUserConfirmationAsync(
                     "Manual flat panel",
                     $"Switch on the flat panel for telescope #{i + 1} ({telescope.Name}) and set a comfortable brightness, then Continue.",
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    // Only somebody standing at the scope can do this, which a remote observer must be told.
+                    requiresPhysicalPresence: true).ConfigureAwait(false);
                 if (!proceed)
                 {
                     _logger.LogInformation("Telescope #{TelescopeNumber} '{Name}': user skipped manual-panel flats.", i + 1, telescope.Name);

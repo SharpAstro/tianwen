@@ -22,10 +22,46 @@ public sealed class SessionPhaseChangedEventArgs(SessionPhase oldPhase, SessionP
 /// <see cref="TaskCreationOptions.RunContinuationsAsynchronously"/>, so the session's awaiting continuation
 /// never runs inline on the UI thread that calls <see cref="Respond"/>.
 /// </summary>
-public sealed class SessionPromptEventArgs(string title, string message, string continueLabel, string cancelLabel, TaskCompletionSource<bool> completion) : EventArgs
+public sealed class SessionPromptEventArgs(
+    string title,
+    string message,
+    string continueLabel,
+    string cancelLabel,
+    TaskCompletionSource<bool> completion,
+    bool requiresPhysicalPresence = false,
+    bool defaultIfUnanswerable = false) : EventArgs
 {
+    /// <summary>
+    /// The answer a handler should give when it turns out <b>nobody can be asked</b> -- e.g. a hosted
+    /// event broadcaster that subscribed on behalf of remote clients and then finds none attached.
+    /// <c>false</c> (skip the gated step) unless the run opted into
+    /// <see cref="UnattendedPromptResponse.Proceed"/>.
+    /// <para>
+    /// It travels <i>with the prompt</i> so the policy has exactly one owner: the session, which holds the
+    /// <see cref="SessionConfiguration"/>. A handler that re-derived it would need the configuration
+    /// exposed on <see cref="ISession"/> and could then disagree with the session about the same
+    /// question -- which is precisely how a "safe default" quietly becomes two different defaults.
+    /// </para>
+    /// </summary>
+    public bool DefaultIfUnanswerable { get; } = defaultIfUnanswerable;
+
     /// <summary>Short heading (e.g. "Manual flat panel").</summary>
     public string Title { get; } = title;
+
+    /// <summary>
+    /// <c>true</c> when answering requires somebody to be <b>physically at the rig</b> -- switching on a
+    /// hand-switched panel, capping the scope. Every prompt raised today is of this kind.
+    /// <para>
+    /// <b>Why a flag and not left to the wording.</b> A remote observer looking at a mirrored session is
+    /// not at the observatory, so confirming from there asserts something they cannot verify -- the same
+    /// fabrication as answering the prompt automatically, just performed by a human. A UI needs to say so
+    /// plainly, and it must not have to string-match the message prose to work out when. Clients are still
+    /// allowed to answer (the operator may be on the phone with someone at the scope, or the panel is on a
+    /// smart plug they just toggled); the flag is what lets the UI stop presenting it as a neutral
+    /// one-click default.
+    /// </para>
+    /// </summary>
+    public bool RequiresPhysicalPresence { get; } = requiresPhysicalPresence;
 
     /// <summary>Body instruction (e.g. "Switch on the flat panel for OTA 1, then Continue.").</summary>
     public string Message { get; } = message;

@@ -696,18 +696,28 @@ through the **same** `Calibrator` path with no branching. The **same routines ar
   Cover slot is the active assignment (`AssignManualCoverSignal` assigns the non-discoverable
   `ManualCoverDevice` URI).
 - **Session→UI user-prompt channel (general; flats now, darks later).** `ISession.PromptRequested` +
-  `SessionPromptEventArgs.Respond(bool)` + `Session.RequestUserConfirmationAsync` -- **a headless caller
-  (CLI / server / tests) that does not subscribe makes the session auto-proceed**, so unattended runs never
-  block; a subscriber (the GUI) awaits the user's Continue/Cancel, bounded by the session token
-  (cancel → decline). GUI: `LiveSessionState.PendingPrompt` → `RenderSessionPrompt` centred overlay
+  `SessionPromptEventArgs.Respond(bool)` + `Session.RequestUserConfirmationAsync`. A subscriber (the GUI)
+  awaits the user's Continue/Cancel, bounded by the session token (cancel → decline). **With no subscriber
+  the session answers `SessionConfiguration.UnattendedPromptResponse`, which defaults to `Decline` -- it
+  skips the gated step rather than proceeding.** Proceeding would assert a *physical* act ("the panel is on",
+  "the scope is covered") that demonstrably nobody performed; flats survive that lie only because
+  `FlatExposureSolver` fails the metering, and a dark-frame prompt has no such backstop -- light-leaked
+  darks would be written as valid calibration. Blocking forever is equally unsafe: the await sits inside
+  `RunAsync`'s try, whose finally parks the mount / warms cameras / closes covers, and a prompt nothing
+  answers never returns (it does not throw), so the rig would sit exposed at dawn. **Operator-invoked** flat
+  runs (`tianwen flats`, `POST /api/v1/session/flats`) therefore opt into `Proceed` in their own config --
+  a human asked for the run and may have switched the panel on before walking back inside. Prompts also
+  carry `RequiresPhysicalPresence`, so a UI can warn that answering from elsewhere asserts something the
+  operator cannot see (it crosses the wire on `PendingPromptDto` for exactly that reason). GUI: `LiveSessionState.PendingPrompt` → `RenderSessionPrompt` centred overlay
   (Continue/Cancel + Enter/Escape) → `RespondSessionPromptSignal`. The **cover-capability model** has two
   independent axes: the motorised-cover axis is queried via `GetCoverStateAsync == NotPresent`, and the
   brightness axis is the new **`ICoverDriver.CanControlBrightness`** (default `true`; `false` only for
   `ManualCoverDriver`). The flat routine prompts **only** on a present-but-`!CanControlBrightness` calibrator
   (case D: hand-switched panel → "switch it on, then Continue"; declining skips that OTA); driver-controlled
   panels never prompt. A future dark-frame flow reuses the same channel gated on `CoverStatus.NotPresent`
-  ("cover the scope"). Pinned by `SessionFlatsTests` (prompt Continue/Cancel/auto-proceed) +
-  `ManualCoverDriverTests` (`CanControlBrightness`).
+  ("cover the scope"). Pinned by `SessionFlatsTests` (prompt Continue/Cancel + both unattended
+  policies) + `ManualCoverDriverTests` (`CanControlBrightness`) + `EventBroadcasterPromptTests` (the hosted
+  hold/liveness rules).
 - **Deferred:** live-thumbnail publishing for the **sky-flat** path (calibrator path publishes frames; sky
   shows only a status line); the **dark-frame** capture flow itself (channel + capability ready); a
   per-filter progress *bar* (flats don't flow through `TotalFramesWritten`, so the panel shows a text
@@ -1002,11 +1012,14 @@ Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
    and `AcrossMeridian`; `PendingTarget` carries none of those and `/session/start` stamps
    `Start = now` on whatever it drains. `/session/start` drains the schedule first and only falls back
    to the queue, so never route a real schedule through `/targets`.
-2. **Subscribing to `PromptRequested` disables the headless auto-proceed.** A session auto-proceeds
-   only while *nothing* is subscribed, which is what keeps unattended CLI/server runs from blocking.
-   `EventBroadcaster` is now a subscriber, so it restores the guarantee itself: no WebSocket client
-   attached -> answer immediately; one attached -> still proceed after a 2 min bound. Any new
-   subscriber on a headless path owes the same guarantee.
+2. **Subscribing to `PromptRequested` takes over the session's unattended answer.** A session answers a
+   prompt itself only while *nothing* is subscribed, which is what keeps unattended runs from blocking on a
+   step nobody will perform. `EventBroadcaster` is a subscriber, so it restores the guarantee: **no
+   WebSocket client attached -> answer immediately with `SessionPromptEventArgs.DefaultIfUnanswerable`**
+   (the session's own policy, carried on the prompt so it cannot drift); **one attached -> hold
+   indefinitely**, with no timer, because guessing after an arbitrary interval fabricates a decision rather
+   than fixing an unresponsive client. The only bound is liveness -- if the last observer disconnects while
+   a prompt is outstanding the poll loop resolves it. Any new subscriber on a headless path owes the same.
 3. **The JSON contract uses numeric enums.** No `JsonStringEnumConverter` is configured on
    `HostingJsonContext`, so every enum crosses as its ordinal. A request DTO with a `required` enum is
    therefore hostile to hand-written callers -- default it (as `ScheduledObservationDto.Priority` does)

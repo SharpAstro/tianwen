@@ -40,6 +40,10 @@ public class SessionFlatsTests(ITestOutputHelper output)
             FlatCalibratorBrightnessPercent = 50,
         };
 
+        // NOTE: no PromptRequested subscriber, and a DRIVER-CONTROLLED calibrator. That combination is
+        // load-bearing beyond this test's own subject: it is the ordinary unattended rig, and it proves
+        // SessionConfiguration.UnattendedPromptResponse (default Decline) never reaches the non-prompting
+        // path. Widen the prompt gate in Session.Flats.cs and this test goes red -- verified by doing it.
         using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withCoverCalibrator: true, withFilterWheel: true, cancellationToken: ct);
 
@@ -89,6 +93,11 @@ public class SessionFlatsTests(ITestOutputHelper output)
             FlatsPerFilter = 2,
             FlatMaxBrackets = 2,
             FlatInitialExposure = TimeSpan.FromSeconds(1),
+            // This test is about the CAPTURE path, and its premise (below) is that the user already turned
+            // the panel on. With no prompt subscriber that premise has to be stated: the unattended default
+            // is now Decline, which would skip the OTA and make this test about prompt policy instead. The
+            // policy itself is pinned separately by the two NobodySubscribed tests.
+            UnattendedPromptResponse = UnattendedPromptResponse.Proceed,
         };
 
         // A ManualCoverDevice assigned to the OTA cover slot: it reports no flap (CoverStatus.NotPresent) and
@@ -240,6 +249,127 @@ public class SessionFlatsTests(ITestOutputHelper output)
         Directory.Exists(flatsRoot).ShouldBeTrue();
         Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length
             .ShouldBe(filterCount * config.FlatsPerFilter);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TakeFlatsAsync_ManualCover_NobodySubscribed_SkipsRatherThanAssumingThePanelIsOn()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // The unattended default. Answering "proceed" here would assert that a human switched on a
+        // hand-switched panel when demonstrably nobody was asked -- so the gated step is skipped instead.
+        // Missing calibration is recoverable; silently wrong calibration is not (and the planned
+        // dark-frame prompt has no exposure solver to catch it the way flats do).
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            FlatSource = FlatIlluminationSource.Calibrator,
+            FlatAduTolerance = 1.0,
+            FlatsPerFilter = 2,
+            FlatMaxBrackets = 2,
+            FlatInitialExposure = TimeSpan.FromSeconds(1),
+        };
+        config.UnattendedPromptResponse.ShouldBe(UnattendedPromptResponse.Decline, "the safe default must not drift");
+
+        using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
+        ctx.External.MaxFitsWrites = 100;
+
+        // Deliberately NO PromptRequested subscriber -- this is the headless CLI / server shape.
+        var flatsRoot = Path.Combine(ctx.External.ImageOutputFolder.FullName, "Flats");
+        if (Directory.Exists(flatsRoot)) Directory.Delete(flatsRoot, recursive: true);
+
+        await ctx.Session.TakeFlatsAsync(ct);
+
+        if (Directory.Exists(flatsRoot))
+        {
+            Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length.ShouldBe(0);
+        }
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TakeFlatsAsync_ManualCover_NobodySubscribedButOperatorInvoked_Proceeds()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // The workflow the Decline default must not break: an operator runs `tianwen flats` (or POSTs
+        // /session/flats), walks out, switches the panel on, and comes back. Those entry points opt into
+        // Proceed precisely because a human DID act, even though no handler is subscribed to say so.
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            FlatSource = FlatIlluminationSource.Calibrator,
+            FlatAduTolerance = 1.0,
+            FlatsPerFilter = 2,
+            FlatMaxBrackets = 2,
+            FlatInitialExposure = TimeSpan.FromSeconds(1),
+            UnattendedPromptResponse = UnattendedPromptResponse.Proceed,
+        };
+
+        using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
+        ctx.External.MaxFitsWrites = 100;
+
+        var flatsRoot = Path.Combine(ctx.External.ImageOutputFolder.FullName, "Flats");
+        if (Directory.Exists(flatsRoot)) Directory.Delete(flatsRoot, recursive: true);
+
+        await ctx.Session.TakeFlatsAsync(ct);
+
+        var filterCount = ctx.FilterWheel.ShouldNotBeNull().Filters.Count;
+        Directory.Exists(flatsRoot).ShouldBeTrue();
+        Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length
+            .ShouldBe(filterCount * config.FlatsPerFilter);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task TakeFlatsAsync_ManualCover_OperatorNeverSwitchedThePanelOn_WritesNothingAndFinishesCleanly()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // MIMICS THE OPERATOR WHO DID NOT FLIP THE SWITCH -- the case the whole prompt policy is argued
+        // around. A ManualCoverDriver reports the calibrator Ready regardless (it cannot see an analog
+        // panel), so "the panel is off" is only ever observable downstream, as a frame that cannot reach
+        // the target level however long the exposure. That is modelled here by a max exposure the fake
+        // sensor cannot possibly fill to 50% -- FlatExposureSolver then returns Fail ("panel too dim at
+        // max"), exactly as it would against a dark panel.
+        //
+        // Why this test earns its place: the claim that proceeding on an unlit panel is *survivable*
+        // rests on this degradation, and only half of it was pinned. The solver's Fail is covered by
+        // FlatExposureSolverTests.TooDimAtMaxExposure_Fails_PanelTooDim; what nothing covered is the
+        // ORCHESTRATION half -- that a Fail skips the OTA, writes no frames, and lets the run finish so
+        // Finalise still parks the mount and closes the covers. If TakeFlatsForOtaAsync ever threw on
+        // Fail, or wrote its metering frames anyway, the argument would collapse silently.
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            FlatSource = FlatIlluminationSource.Calibrator,
+            FlatTargetAduFraction = 0.5,
+            FlatAduTolerance = 0.01,                          // a real acceptance band, not the wide-open 1.0
+            FlatsPerFilter = 2,
+            FlatMaxBrackets = 3,
+            FlatInitialExposure = TimeSpan.FromMilliseconds(1),
+            FlatMinExposure = TimeSpan.FromMilliseconds(1),
+            FlatMaxExposure = TimeSpan.FromMilliseconds(1),   // nowhere left to go -> "too dim at max"
+            // The operator-invoked policy, so the run proceeds past the prompt and actually reaches the
+            // metering. With Decline it would skip earlier and prove nothing about the solver path.
+            UnattendedPromptResponse = UnattendedPromptResponse.Proceed,
+        };
+
+        using var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
+        ctx.External.MaxFitsWrites = 100;
+
+        var flatsRoot = Path.Combine(ctx.External.ImageOutputFolder.FullName, "Flats");
+        if (Directory.Exists(flatsRoot)) Directory.Delete(flatsRoot, recursive: true);
+
+        // Must not throw: a flat block that fails is best-effort, never a reason to fail the night.
+        await ctx.Session.TakeFlatsAsync(ct);
+
+        // No frames -- crucially the DISCARDED metering exposures must not be mistaken for flats.
+        if (Directory.Exists(flatsRoot))
+        {
+            Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length.ShouldBe(0);
+        }
+
+        // And the panel is left off, so the run is tidy for whatever comes next.
+        (await ctx.Cover.ShouldNotBeNull().GetCalibratorStateAsync(ct)).ShouldBe(CalibratorStatus.Off);
     }
 
     [Fact(Timeout = 60_000)]

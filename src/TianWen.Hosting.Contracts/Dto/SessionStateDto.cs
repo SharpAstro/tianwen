@@ -294,6 +294,20 @@ public sealed class PendingPromptDto
     public required string Message { get; init; }
     public required string ContinueLabel { get; init; }
     public required string CancelLabel { get; init; }
+
+    /// <summary>
+    /// <c>true</c> when answering requires somebody <b>at the rig</b> (switching on a hand-switched
+    /// panel, capping the scope).
+    /// <para>
+    /// This matters far more remotely than locally, which is why it crosses the wire. A client mirroring
+    /// an observatory from somewhere else cannot perform the action, so offering a bare "Continue" invites
+    /// the operator to assert a physical fact they cannot see -- the same fabrication as the node
+    /// answering by itself, merely performed by a human. A remote UI should warn plainly, and it must not
+    /// have to pattern-match the message text to know when. Answering is still permitted: the operator may
+    /// be on the phone with someone at the scope, or the panel may be on a smart plug they just toggled.
+    /// </para>
+    /// </summary>
+    public required bool RequiresPhysicalPresence { get; init; }
 }
 
 public sealed class PhaseTimestampDto

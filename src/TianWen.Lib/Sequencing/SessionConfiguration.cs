@@ -154,6 +154,15 @@ public record struct SessionConfiguration(
     /// Skipped on abort/failure (a user who stopped the session wants a quick shutdown).
     /// </summary>
     bool TakeFlatsOnSessionEnd = false,
+    /// <summary>
+    /// What to answer a user prompt with when nobody is there to answer it. Defaults to
+    /// <see cref="Sequencing.UnattendedPromptResponse.Decline"/> -- see that type for why proceeding is
+    /// not a safe default (it asserts a physical act that did not happen). An <b>operator-invoked</b>
+    /// run may set <see cref="Sequencing.UnattendedPromptResponse.Proceed"/>, which is how
+    /// <c>tianwen flats</c> and <c>POST /api/v1/session/flats</c> keep working for someone who switches
+    /// the panel on and walks back inside.
+    /// </summary>
+    UnattendedPromptResponse UnattendedPromptResponse = UnattendedPromptResponse.Decline,
     /// <summary>Target flat level as a fraction of the sensor ceiling (median ADU / max ADU). Default 0.5 = half full well.</summary>
     double FlatTargetAduFraction = 0.5,
     /// <summary>Half-width of the acceptance band around <see cref="FlatTargetAduFraction"/>. Default 0.05.</summary>
