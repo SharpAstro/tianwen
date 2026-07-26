@@ -28,6 +28,21 @@ internal static class DeviceEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeStringArray);
         });
 
+        // Structured device list: URI + type + live connection state (see DeviceDto for why the
+        // string endpoint above is not sufficient for a client).
+        group.MapGet("/devices/structured", (IDeviceDiscovery deviceDiscovery, IDeviceHub hub) =>
+        {
+            var devices = deviceDiscovery.RegisteredDeviceTypes
+                .Where(dt => dt is not DeviceType.Profile)
+                .SelectMany(dt => deviceDiscovery.RegisteredDevices(dt))
+                .Select(d => DeviceDto.FromDevice(d, hub.IsConnected(d.DeviceUri)))
+                .ToArray();
+
+            return Results.Json(
+                ResponseEnvelope<DeviceDto[]>.Ok(devices),
+                HostingJsonContext.Default.ResponseEnvelopeDeviceDtoArray);
+        });
+
         // Trigger device discovery
         group.MapGet("/devices/discover", async (IDeviceDiscovery deviceDiscovery, CancellationToken ct) =>
         {

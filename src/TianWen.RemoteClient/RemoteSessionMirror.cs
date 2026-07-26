@@ -52,9 +52,8 @@ namespace TianWen.RemoteClient
         private static readonly TimeSpan ActivePollInterval = TimeSpan.FromMilliseconds(500);
         private static readonly TimeSpan IdlePollInterval = TimeSpan.FromSeconds(2);
 
-        /// <summary>Caps on the locally accumulated event-sourced lists, each the order of a night's worth.</summary>
+        /// <summary>Cap on the locally accumulated event-sourced history, the order of a night's worth.</summary>
         private const int MaxPlateSolveHistory = 500;
-        private const int MaxExposureLog = 2000;
 
         private readonly TianWenNodeClient _client;
         private readonly TianWenEventStream _events;
@@ -69,7 +68,6 @@ namespace TianWen.RemoteClient
         // Accumulated from the event stream. ImmutableArray + reference swap so the render thread can
         // read it torn-free while the WS callback appends (the project's standard for shared UI state).
         private ImmutableArray<PlateSolveRecord> _plateSolveHistory = [];
-        private ImmutableArray<ExposureLogEntry> _exposureLog = [];
 
         // Last observed guider state string, so a change can be surfaced as GuiderStateChanged until
         // the node broadcasts one itself. Only touched by the poll loop.
@@ -260,11 +258,15 @@ namespace TianWen.RemoteClient
         }
 
         /// <summary>
-        /// The FRAME-WRITTEN broadcast happens to carry every field of an
-        /// <see cref="ExposureLogEntry"/> except its timestamp, so the entry is rebuilt faithfully and
-        /// stamped with arrival time (within one network hop of the node's own). That makes
-        /// <see cref="ExposureLog"/> genuinely populated from the moment this mirror attached; only
-        /// backfilling frames written BEFORE that still needs a server-side log endpoint.
+        /// Raises <see cref="FrameWritten"/> for a frame the node just wrote.
+        /// <para>
+        /// The broadcast carries every field of an <see cref="ExposureLogEntry"/> except its timestamp,
+        /// which is stamped with arrival time (within one network hop of the node's own). It is used only
+        /// to fire the notification -- the <see cref="ExposureLog"/> collection itself comes from the
+        /// polled snapshot, which carries the whole run rather than only what arrived after this mirror
+        /// attached. Keeping a second event-sourced copy here would have to be reconciled against that
+        /// one, for no gain beyond half a poll interval of latency.
+        /// </para>
         /// </summary>
         private void AppendFrame(WebSocketEventDto dto)
         {
@@ -282,7 +284,6 @@ namespace TianWen.RemoteClient
                 MedianHfd: (float)(ReadDouble(data, "MedianHfd") ?? 0),
                 StarCount: (int)(ReadDouble(data, "StarCount") ?? 0));
 
-            _exposureLog = Append(_exposureLog, entry, MaxExposureLog);
             FrameWritten?.Invoke(this, new FrameWrittenEventArgs(entry));
         }
 
@@ -539,27 +540,99 @@ namespace TianWen.RemoteClient
         }
 
         // --- Event-sourced: the state DTO carries no history for these, but the node broadcasts every
-        // occurrence, so both cover everything since this mirror attached (not the whole run). ------
+        // occurrence, so it covers everything since this mirror attached (not the whole run). --------
 
         public ImmutableArray<PlateSolveRecord> PlateSolveHistory => _plateSolveHistory;
 
-        /// <inheritdoc cref="PlateSolveHistory"/>
-        public ImmutableArray<ExposureLogEntry> ExposureLog => _exposureLog;
+        /// <summary>
+        /// Read from the snapshot, which carries the <b>whole run</b>. Deliberately NOT the
+        /// event-sourced <c>_exposureLog</c> that FRAME-WRITTEN feeds: that only ever covered frames
+        /// written while this mirror was attached, so a client joining mid-night showed an empty frame
+        /// list next to a non-zero frame count. Polling is the authoritative channel (the broadcast is a
+        /// latency hint), so the snapshot wins and the worst case is lagging one frame by one poll.
+        /// </summary>
+        public ImmutableArray<ExposureLogEntry> ExposureLog
+        {
+            get
+            {
+                if (Snapshot?.ExposureLog is not { IsDefaultOrEmpty: false } log)
+                {
+                    return [];
+                }
+
+                var builder = ImmutableArray.CreateBuilder<ExposureLogEntry>(log.Length);
+                foreach (var e in log)
+                {
+                    builder.Add(new ExposureLogEntry(
+                        e.Timestamp, e.TargetName, e.FilterName,
+                        TimeSpan.FromSeconds(e.ExposureSeconds), e.FrameNumber, e.MedianHfd, e.StarCount));
+                }
+                return builder.MoveToImmutable();
+            }
+        }
+
+        public ImmutableArray<FocusRunRecord> FocusHistory
+        {
+            get
+            {
+                if (Snapshot?.FocusHistory is not { IsDefaultOrEmpty: false } runs)
+                {
+                    return [];
+                }
+
+                var builder = ImmutableArray.CreateBuilder<FocusRunRecord>(runs.Length);
+                foreach (var run in runs)
+                {
+                    builder.Add(new FocusRunRecord(
+                        run.Timestamp, run.OtaName, run.FilterName, run.BestPosition, run.BestHfd,
+                        ToCurve(run.Curve), run.FitA, run.FitB));
+                }
+                return builder.MoveToImmutable();
+            }
+        }
+
+        public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples
+            => ToCurve(Snapshot?.ActiveFocusSamples ?? []);
+
+        public ImmutableArray<CoolingSample> CoolingSamples
+        {
+            get
+            {
+                if (Snapshot?.CoolingSamples is not { IsDefaultOrEmpty: false } samples)
+                {
+                    return [];
+                }
+
+                var builder = ImmutableArray.CreateBuilder<CoolingSample>(samples.Length);
+                foreach (var s in samples)
+                {
+                    builder.Add(new CoolingSample(
+                        s.Timestamp, s.CameraIndex, s.TemperatureC, s.SetpointTemperatureC, s.CoolerPowerPercent));
+                }
+                return builder.MoveToImmutable();
+            }
+        }
+
+        private static ImmutableArray<(int Position, float Hfd)> ToCurve(ImmutableArray<FocusSampleDto> curve)
+        {
+            if (curve.IsDefaultOrEmpty)
+            {
+                return [];
+            }
+
+            var builder = ImmutableArray.CreateBuilder<(int, float)>(curve.Length);
+            foreach (var sample in curve)
+            {
+                builder.Add((sample.Position, sample.Hfd));
+            }
+            return builder.MoveToImmutable();
+        }
 
         // --- No wire representation yet. Empty, not guessed. -------------------------------------
 
         /// <summary>Empty: the node does not expose settle progress (needs the guider telemetry of
         /// remote-profile.md Part 2 item 3).</summary>
         public SettleProgress? GuiderSettleProgress => null;
-
-        /// <summary>Empty: V-curve data needs Part 2 item 6 (telemetry depth).</summary>
-        public ImmutableArray<FocusRunRecord> FocusHistory => [];
-
-        /// <inheritdoc cref="FocusHistory"/>
-        public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples => [];
-
-        /// <summary>Empty: cooler temperature/power history needs Part 2 item 6 (telemetry depth).</summary>
-        public ImmutableArray<CoolingSample> CoolingSamples => [];
 
         /// <summary>Empty: needs the per-OTA preview endpoint (Part 2 item 1). Until then a mirrored
         /// session shows telemetry without thumbnails.</summary>

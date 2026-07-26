@@ -40,6 +40,10 @@
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
     <ProjectReference Include="..\TianWen.Hosting\TianWen.Hosting.csproj" />
+    <!-- The client half, so the node client / session mirror can be exercised against a REAL running
+         host rather than a scripted HttpMessageHandler. That is what makes server/client contract drift
+         impossible to miss: both sides use the same DTOs through the same JSON context. -->
+    <ProjectReference Include="..\TianWen.RemoteClient\TianWen.RemoteClient.csproj" />
     <ProjectReference Include="..\TianWen.Lib.Tests\TianWen.Lib.Tests.csproj" />
   </ItemGroup>
 

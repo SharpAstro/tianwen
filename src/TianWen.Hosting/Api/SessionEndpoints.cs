@@ -30,7 +30,7 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            var dto = SessionStateDto.FromSession(session);
+            var dto = SessionStateDto.FromSession(session, ToPromptDto(hosted.PendingPrompt));
             return Results.Json(
                 ResponseEnvelope<SessionStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeSessionStateDto);
@@ -91,19 +91,35 @@ internal static class SessionEndpoints
                 }
             }
 
-            // Drain pending targets
-            var pendingTargets = hosted is HostedSession hs ? hs.DrainTargets() : [];
-            var startUtc = timeProvider.GetUtcNow();
-            var observations = pendingTargets.Select(t => new ScheduledObservation(
-                new Target(t.RA, t.Dec, t.Name, null),
-                startUtc,
-                TimeSpan.FromMinutes(t.DurationMinutes ?? 30),
-                AcrossMeridian: false,
-                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(
-                    TimeSpan.FromSeconds(t.SubExposureSeconds ?? 120)),
-                Gain: t.Gain.HasValue ? (int?)t.Gain.Value : null,
-                Offset: t.Offset.HasValue ? (int?)t.Offset.Value : null
-            )).ToArray();
+            // A pushed schedule wins over the pending-target queue, because it is strictly richer: it
+            // carries the planner's altitude-optimised Start per target, a per-filter exposure plan, and
+            // AcrossMeridian, none of which PendingTarget can express. Falling back to the queue keeps
+            // every existing caller (and the ninaAPI shim) working unchanged.
+            var hs = hosted as HostedSession;
+            var pushedSchedule = hs?.DrainSchedule() ?? [];
+            ScheduledObservation[] observations;
+            if (!pushedSchedule.IsDefaultOrEmpty)
+            {
+                observations = [.. pushedSchedule];
+            }
+            else
+            {
+                var pendingTargets = hs?.DrainTargets() ?? [];
+                // Start = now for every target: a bare PendingTarget carries no slot time, so the loop
+                // runs them back-to-back in list order (see WaitForScheduledStartAsync's same-Start
+                // short-circuit). This is exactly the fidelity loss POST /schedule exists to avoid.
+                var startUtc = timeProvider.GetUtcNow();
+                observations = pendingTargets.Select(t => new ScheduledObservation(
+                    new Target(t.RA, t.Dec, t.Name, null),
+                    startUtc,
+                    TimeSpan.FromMinutes(t.DurationMinutes ?? 30),
+                    AcrossMeridian: false,
+                    FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(
+                        TimeSpan.FromSeconds(t.SubExposureSeconds ?? 120)),
+                    Gain: t.Gain.HasValue ? (int?)t.Gain.Value : null,
+                    Offset: t.Offset.HasValue ? (int?)t.Offset.Value : null
+                )).ToArray();
+            }
 
             ISession session;
             try
@@ -117,10 +133,10 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            if (hosted is HostedSession hostedSession)
+            if (hs is not null)
             {
-                hostedSession.SetSession(session);
-                hostedSession.SetActiveProfile(profileId.Value);
+                hs.SetSession(session);
+                hs.SetActiveProfile(profileId.Value);
             }
 
             // Run in background — caller polls /state for progress
@@ -320,6 +336,90 @@ internal static class SessionEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
 
+        // --- Schedule push (full-fidelity, pre-session) ---
+
+        // POST /api/v1/session/schedule — replace the pending schedule with a planner-computed one.
+        // Distinct from /targets: this preserves slot times and per-filter plans (see
+        // ScheduledObservationDto for why PendingTarget cannot).
+        group.MapPost("/schedule", async (HttpContext httpContext, IHostedSession hosted, CancellationToken ct) =>
+        {
+            if (hosted.CurrentSession is not null)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("A session is already running", 409),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            ScheduledObservationDto[]? dtos;
+            try
+            {
+                dtos = await httpContext.Request.ReadFromJsonAsync(
+                    HostingJsonContext.Default.ScheduledObservationDtoArray, ct);
+            }
+            catch
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("Malformed schedule body"),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            if (dtos is null)
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("Schedule body is required"),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            var schedule = ImmutableArray.CreateBuilder<ScheduledObservation>(dtos.Length);
+            foreach (var dto in dtos)
+            {
+                schedule.Add(dto.ToScheduled());
+            }
+
+            hosted.SetSchedule(schedule.MoveToImmutable());
+            return Results.Json(
+                ResponseEnvelope<string>.Ok($"Schedule set ({dtos.Length} observation(s))"),
+                HostingJsonContext.Default.ResponseEnvelopeString);
+        });
+
+        // DELETE /api/v1/session/schedule — clear the pending schedule
+        group.MapDelete("/schedule", (IHostedSession hosted) =>
+        {
+            hosted.SetSchedule([]);
+            return Results.Json(
+                ResponseEnvelope<string>.Ok("Pending schedule cleared"),
+                HostingJsonContext.Default.ResponseEnvelopeString);
+        });
+
+        // --- User prompts ---
+
+        // POST /api/v1/session/prompt/respond — answer the session's outstanding prompt.
+        // Without this a remote client can never clear a manual-flat-panel prompt, and the node's
+        // auto-proceed timer would be the only thing that ever unblocks the run.
+        group.MapPost("/prompt/respond", (bool proceed, IHostedSession hosted) =>
+        {
+            if (!hosted.TryRespondToPrompt(proceed))
+            {
+                return Results.Json(
+                    ResponseEnvelope<string>.Fail("No prompt is awaiting a response", 404),
+                    HostingJsonContext.Default.ResponseEnvelopeString);
+            }
+
+            return Results.Json(
+                ResponseEnvelope<string>.Ok(proceed ? "Prompt accepted" : "Prompt declined"),
+                HostingJsonContext.Default.ResponseEnvelopeString);
+        });
+
+        // --- Notifications ---
+
+        // GET /api/v1/session/notifications — the node's notification ring, oldest first.
+        group.MapGet("/notifications", (IHostedSession hosted) =>
+        {
+            return Results.Json(
+                ResponseEnvelope<NotificationDto[]>.Ok([.. hosted.Notifications]),
+                HostingJsonContext.Default.ResponseEnvelopeNotificationDtoArray);
+        });
+
         // PUT /api/v1/session/profile — set active profile (pre-session)
         group.MapPut("/profile", (SetProfileRequest request, IHostedSession hosted, IDeviceHub hub) =>
         {
@@ -342,4 +442,19 @@ internal static class SessionEndpoints
 
         return group;
     }
+
+    /// <summary>
+    /// Projects the host's live prompt onto its wire shape. Separate from
+    /// <see cref="SessionStateDto.FromSession"/> because the prompt lives on the host, not the session.
+    /// </summary>
+    private static PendingPromptDto? ToPromptDto(SessionPromptEventArgs? prompt)
+        => prompt is null
+            ? null
+            : new PendingPromptDto
+            {
+                Title = prompt.Title,
+                Message = prompt.Message,
+                ContinueLabel = prompt.ContinueLabel,
+                CancelLabel = prompt.CancelLabel,
+            };
 }

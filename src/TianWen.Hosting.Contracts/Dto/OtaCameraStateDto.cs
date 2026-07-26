@@ -37,8 +37,16 @@ public sealed class OtaCameraStateDto
     public required float MedianHfd { get; init; }
     public required float MedianFwhm { get; init; }
 
+    // Cooling. Taken from the newest CoolingSample for this camera rather than added to
+    // CameraExposureState: the session already records the ramp, so re-polling the driver for the state
+    // projection would be a second source of the same fact that could disagree with the ramp chart drawn
+    // beside it. NaN (-> 0 on a strict wire) until the first cooling sample lands.
+    public required double SensorTemperatureC { get; init; }
+    public required double SetpointTemperatureC { get; init; }
+    public required double CoolerPowerPercent { get; init; }
+
     public static OtaCameraStateDto FromState(int otaIndex, CameraExposureState camera, FrameMetrics metrics,
-        TelescopeDisplayInfo display) => new()
+        TelescopeDisplayInfo display, CoolingSample? cooling = null) => new()
     {
         OtaIndex = otaIndex,
         CameraName = display.CameraName,
@@ -57,5 +65,8 @@ public sealed class OtaCameraStateDto
         StarCount = metrics.StarCount,
         MedianHfd = JsonNumber.ForWire(metrics.MedianHfd),
         MedianFwhm = JsonNumber.ForWire(metrics.MedianFwhm),
+        SensorTemperatureC = JsonNumber.ForWire(cooling?.TemperatureC ?? double.NaN),
+        SetpointTemperatureC = JsonNumber.ForWire(cooling?.SetpointTempC ?? double.NaN),
+        CoolerPowerPercent = JsonNumber.ForWire(cooling?.CoolerPowerPercent ?? double.NaN),
     };
 }

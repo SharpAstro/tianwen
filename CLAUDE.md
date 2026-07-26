@@ -987,10 +987,38 @@ Headless REST + WebSocket API. Two API layers on the same ASP.NET Core host:
 - **ninaAPI v2 shim** (`/v2/api/`): single-OTA (maps to OTA[0]), PascalCase JSON, GET for everything
 
 `IHostedSession` holds `ISession?`, `ActiveProfileId`, `PendingTargets` (pre-session queue, drained
-into `ScheduledObservation[]` at `/session/start`). `EventBroadcaster` (`BackgroundService`) subscribes
-to `PhaseChanged` / `FrameWritten` / `PlateSolveCompleted` and pushes through `EventHub`'s dual pool.
+into `ScheduledObservation[]` at `/session/start`), `PendingSchedule`, the outstanding `PendingPrompt`,
+and a `Notifications` ring. `EventBroadcaster` (`BackgroundService`) subscribes to `PhaseChanged` /
+`FrameWritten` / `PlateSolveCompleted` / `ScoutCompleted` / `GuiderStateChanged` / `PromptRequested`
+and pushes through `EventHub`'s dual pool; it is also the node's **notification recorder** (it already
+watches every session event, so it writes what it broadcasts into the ring).
 
 Run: `dotnet run --project TianWen.Server` or `tianwen-server [--port 1888]`.
+
+**Three invariants on this surface that are easy to break:**
+
+1. **A pushed schedule beats the target queue.** `POST /session/schedule` takes
+   `ScheduledObservationDto[]` and preserves per-filter plans, the planner's altitude-optimised `Start`,
+   and `AcrossMeridian`; `PendingTarget` carries none of those and `/session/start` stamps
+   `Start = now` on whatever it drains. `/session/start` drains the schedule first and only falls back
+   to the queue, so never route a real schedule through `/targets`.
+2. **Subscribing to `PromptRequested` disables the headless auto-proceed.** A session auto-proceeds
+   only while *nothing* is subscribed, which is what keeps unattended CLI/server runs from blocking.
+   `EventBroadcaster` is now a subscriber, so it restores the guarantee itself: no WebSocket client
+   attached -> answer immediately; one attached -> still proceed after a 2 min bound. Any new
+   subscriber on a headless path owes the same guarantee.
+3. **The JSON contract uses numeric enums.** No `JsonStringEnumConverter` is configured on
+   `HostingJsonContext`, so every enum crosses as its ordinal. A request DTO with a `required` enum is
+   therefore hostile to hand-written callers -- default it (as `ScheduledObservationDto.Priority` does)
+   rather than forcing a caller to guess the number.
+
+**Previews go through the shared stretch, never a private one.** `PreviewEncoder` (`Api/`) is the one
+JPEG preview encoder, used by `GET /api/v1/preview/{otaIndex}` (per-OTA, with an `X-Frame-Number`
+change token) *and* the nina `prepared-image`. It runs `StretchSolver` + `Image.RenderStretchedRgba` --
+the same pipeline as the GPU viewer and the CPU/TUI renderer. The shim previously divided by
+`Image.MaxValue` and called it an auto-stretch, which renders a linear sub near-black; do not
+reintroduce a private normalisation here. It also only ever *reads* the session's frame
+(`DebayerAsync(normalizeToUnit: false)`), because `LastCapturedImages` pins a recycled camera buffer.
 
 **Native-AOT correctness (the `tianwen-server` binary is `PublishAot=true`).** Three things keep the
 minimal API working under AOT — none are optional, and a normal `dotnet build` will NOT flag a

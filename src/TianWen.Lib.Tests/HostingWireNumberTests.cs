@@ -162,10 +162,45 @@ public class HostingWireNumberTests
         ]));
         session.PhaseTimeline.Returns([]);
 
+        // The deep telemetry added for a remote V-curve / cooling chart carries its own unknowns: a
+        // cooling probe that reports no power reading, an autofocus that recorded no hyperbola fit, and
+        // a frame whose HFD could not be measured. Each is a double/float straight onto the wire.
+        session.CoolingSamples.Returns(
+        [
+            new CoolingSample(DateTimeOffset.UnixEpoch, 0, double.NaN, double.NaN, double.NaN),
+        ]);
+        session.FocusHistory.Returns(
+        [
+            new FocusRunRecord(DateTimeOffset.UnixEpoch, "OTA", "L", 0, float.NaN,
+                [(0, float.NaN)], FitA: double.NaN, FitB: double.NaN),
+        ]);
+        session.ActiveFocusSamples.Returns([(0, float.NaN)]);
+        session.ExposureLog.Returns(
+        [
+            new ExposureLogEntry(DateTimeOffset.UnixEpoch, "Unknown", "L", TimeSpan.FromSeconds(60), 1, float.NaN, 0),
+        ]);
+
         var dto = SessionStateDto.FromSession(session);
 
         var json = Should.NotThrow(() => SerializeV1(dto, HostingJsonContext.Default.SessionStateDto));
         ShouldHonourWirePolicy(json);
+    }
+
+    [Fact]
+    public void ProfileDetailSerializesForAProfileThatDefersItsSiteToTheMount()
+    {
+        // SiteLatitude/Longitude/Elevation are nullable on ProfileData: a profile that lets the mount
+        // supply the site leaves all three null, and they must stay omitted rather than becoming 0
+        // (which would read as "on the equator at the prime meridian" to a client computing alt/az).
+        var dto = ProfileDetailDto.FromProfile(new Profile(Guid.NewGuid(), "Rig", ProfileData.Empty));
+
+        dto.SiteLatitude.ShouldBeNull();
+        dto.SiteLongitude.ShouldBeNull();
+        dto.SiteElevation.ShouldBeNull();
+
+        var json = Should.NotThrow(() => SerializeV1(dto, HostingJsonContext.Default.ProfileDetailDto));
+        ShouldHonourWirePolicy(json);
+        json.ShouldNotContain("siteLatitude");
     }
 
     // ---------------------------------------------------------------------------------------------
