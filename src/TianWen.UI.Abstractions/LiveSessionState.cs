@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -17,11 +17,29 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public class LiveSessionState
     {
-        /// <summary>The active session instance, or null if no session is running.</summary>
-        public ISession? ActiveSession { get; set; }
+        /// <summary>
+        /// The session being observed, or null if none. Typed as <see cref="ISessionTelemetry"/> rather
+        /// than <see cref="ISession"/> so a session running on a remote node is interchangeable with a
+        /// local one here (docs/plans/remote-profile.md P3) -- every consumer on this path only reads.
+        /// The two bootstrappers that actually launch a run hold the concrete <see cref="ISession"/>
+        /// themselves and assign it here.
+        /// </summary>
+        public ISessionTelemetry? ActiveSession { get; set; }
 
         /// <summary>Whether a session is currently running.</summary>
         public bool IsRunning { get; set; }
+
+        /// <summary>
+        /// True while any session-like run owns the equipment: a full session
+        /// (<see cref="IsRunning"/>) <i>or</i> an out-of-session run that sets
+        /// <see cref="ActiveSession"/> without it -- a flat run via <c>FlatsBootstrapper</c>
+        /// deliberately leaves <see cref="IsRunning"/> false so the tab keeps the preview layout.
+        /// The single predicate for "is a run holding the hardware", fed to
+        /// <see cref="TianWen.Lib.Devices.ProfileSwitchGate.Evaluate"/> by both the GUI and the TUI.
+        /// (Polar-align and planetary capture don't set <see cref="ActiveSession"/> at all; they are
+        /// caught by the gate's connected-devices check, which is the real backstop.)
+        /// </summary>
+        public bool HasActiveRun => IsRunning || ActiveSession is not null;
 
         /// <summary>
         /// Which mode the live view is in: <see cref="LiveSessionMode.Preview"/>,
@@ -306,7 +324,7 @@ namespace TianWen.UI.Abstractions
         /// Session mode: from setup telescopes. Preview mode: from profile OTAs.
         /// </summary>
         public int OtaCount => IsRunning
-            ? (ActiveSession?.Setup.Telescopes.Length ?? 1)
+            ? (ActiveSession is { } s && !s.TelescopeDisplays.IsDefaultOrEmpty ? s.TelescopeDisplays.Length : 1)
             : Math.Max(1, PreviewOTATelemetry.Length);
 
         // --- UI state ---
@@ -418,7 +436,7 @@ namespace TianWen.UI.Abstractions
             if (!double.IsNaN(sessionMount.RightAscension))
             {
                 MountState = sessionMount;
-                MountDisplayName = session.Setup.Mount.Device.DisplayName;
+                MountDisplayName = session.MountDisplayName;
             }
             CurrentActivity = session.CurrentActivity;
             LastFramePath = session.LastFramePath;

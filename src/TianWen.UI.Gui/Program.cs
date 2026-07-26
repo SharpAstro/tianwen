@@ -1,4 +1,5 @@
 using DIR.Lib;
+using LAN.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SdlVulkan.Renderer;
@@ -48,7 +49,15 @@ services
     .AddFitsViewer()
     // Live planetary capture controller (drives the 🪐 tab's video capture + rolling-window stack).
     .AddSingleton<PlanetaryCaptureController>()
-    .AddSingleton(sp => new GuiAppState { DeviceHub = sp.GetService<IDeviceHub>() })
+    // LAN peer discovery (docs/plans/remote-profile.md): symmetric beacon so the Equipment tab's
+    // no-profile screen can list tianwen-server rigs on the LAN. ServicePort 0 -- the GUI serves no
+    // inbound channel of its own, it only discovers.
+    .AddLanDiscovery(o =>
+    {
+        o.ServiceName = "tianwen-gui";
+        o.ServicePort = 0;
+    })
+    .AddSingleton(sp => new GuiAppState { DeviceHub = sp.GetService<IDeviceHub>(), PeerTable = sp.GetService<IPeerTable>() })
     // Profile-aware pinned-port provider: any COM port currently referenced by the
     // active profile is excluded from discovery probing. Absent this registration,
     // SerialProbeService falls through to general probing — safe default.
@@ -56,6 +65,16 @@ services
 
 var sp = services.BuildServiceProvider();
 var appState = sp.GetRequiredService<GuiAppState>();
+
+// Begin beaconing + peer tracking now. AddLanDiscovery only registers the DI graph -- the GUI runs
+// a bare ServiceCollection, not a generic Host, so nothing calls LanDiscoveryHostedService for us;
+// resolve the concrete LanDiscovery and drive its lifecycle directly (mirrors what the hosted
+// service would do). Changed hints a redraw so a rig that appears/disappears while the no-profile
+// screen is showing doesn't wait for the 1Hz clock-tick fallback redraw.
+var lanDiscovery = sp.GetRequiredService<LanDiscovery>();
+lanDiscovery.Changed += () => appState.NeedsRedraw = true;
+await lanDiscovery.StartAsync();
+
 var plannerState = sp.GetRequiredService<PlannerState>();
 var viewerState = sp.GetRequiredService<ViewerState>();
 var external = sp.GetRequiredService<IExternal>();
@@ -328,7 +347,10 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // indicator); 1s otherwise (clock tick + sky-map LST advance).
         {
             var now = timeProvider.GetTimestamp();
-            var liveState = guiRenderer.LiveSessionState;
+            // The faster cadence is driven by the LOCAL run even when it is off screen: its progress
+            // bars, per-rung status and notifications still have to surface at 2 Hz while a remote
+            // context is displayed. (A remote session's own cadence follows once a mirror exists.)
+            var liveState = guiRenderer.ViewContexts.Local.LiveSession;
             var inPolarRoutine = liveState.Mode == LiveSessionMode.PolarAlign
                 && liveState.PolarPhase != PolarAlignmentPhase.Idle;
             var interval = liveState.IsRunning || inPolarRoutine
@@ -351,7 +373,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // loop while another tab is active (the flag clears once RenderChart draws it).
         return appState.NeedsRedraw || plannerState.NeedsRedraw
             || guiRenderer.SkyMapState.NeedsRedraw
-            || guiRenderer.LiveSessionState.NeedsRedraw
+            || guiRenderer.ViewContexts.AnyNeedsRedraw
             || (appState.ActiveTab == GuiTab.Planner && guiRenderer.PlannerChartPendingDraw)
             || appState.ActiveTextInput is { IsActive: true };
     },
@@ -394,7 +416,10 @@ void RequestQuit()
         return;
     }
 
-    var liveState = guiRenderer.LiveSessionState;
+    // Quitting is about THIS process: it must abort the local session (and wait out its camera
+    // warm-up) regardless of which context is on screen. A session on a rig keeps running -- closing
+    // the client that was watching it is not a reason to stop the rig.
+    var liveState = guiRenderer.ViewContexts.Local.LiveSession;
 
     // During Finalising, can't do anything — just wait (warmup must complete)
     if (liveState.Phase is SessionPhase.Finalising)
@@ -503,7 +528,7 @@ loop.OnPostFrame = () =>
     }
 
     // After abort confirmation, if quit was requested, proceed to shutdown
-    if (appState.QuitRequested && !guiRenderer.LiveSessionState.IsRunning && !appState.ShuttingDown)
+    if (appState.QuitRequested && !guiRenderer.ViewContexts.Local.LiveSession.IsRunning && !appState.ShuttingDown)
     {
         appState.QuitRequested = false;
         RequestQuit();
@@ -521,12 +546,13 @@ loop.OnPostFrame = () =>
         // (running on a thread-pool continuation) sets this from outside the
         // frame, so we have to consume it once we've actually rendered, or it
         // would re-trigger the redraw loop on every iteration.
-        guiRenderer.LiveSessionState.NeedsRedraw = false;
+        guiRenderer.ViewContexts.ClearNeedsRedraw();
     }
     plannerState.NeedsRedraw = false;
 
-    // Update window title with session state (only when changed)
-    var ls = guiRenderer.LiveSessionState;
+    // Update window title with session state (only when changed). The title names what you are
+    // LOOKING at, so it follows the active context.
+    var ls = guiRenderer.ViewContexts.Active.LiveSession;
     var newTitle = ls.IsRunning
         ? ls.ActiveObservation is { Target: var target }
             ? $"\U0001F52D {LiveSessionActions.PhaseLabel(ls.Phase)} - {target.Name}"
@@ -588,7 +614,7 @@ loop.OnQuit = () =>
 {
     RequestQuit();
     // Intercept if session is running (including Finalise), showing abort confirm, or shutting down
-    return appState.ShuttingDown || appState.QuitRequested || guiRenderer.LiveSessionState.IsRunning;
+    return appState.ShuttingDown || appState.QuitRequested || guiRenderer.ViewContexts.Local.LiveSession.IsRunning;
 };
 
 #if DEBUG
@@ -628,8 +654,14 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
     {
         // Curated snapshot (NOT a full GuiAppState dump -- it holds non-serializable handles).
         // The framework owns serialization; we just declare named values.
-        var ls = guiRenderer.LiveSessionState;
+        var contexts = guiRenderer.ViewContexts;
+        var ls = contexts.Active.LiveSession;
         s.Set("activeTab", appState.ActiveTab.ToString());
+        // Which context the tabs are rendering, and whether this node's own session is running
+        // underneath it -- the two facts an agent needs to interpret every field below.
+        s.Set("viewContext", contexts.Active.DisplayName);
+        s.Set("viewContextCount", contexts.All.Length);
+        s.Set("localSessionRunning", contexts.Local.LiveSession.IsRunning);
         s.Set("profile", appState.ActiveProfile?.DisplayName);
         s.Set("status", appState.StatusMessage);
         s.Set("sessionRunning", ls.IsRunning);
@@ -711,6 +743,10 @@ catch (TimeoutException)
 
 // Stop + dispose the planetary capture (cancels the capture loop; bounded drain of any in-flight stack).
 await planetaryCapture.DisposeAsync();
+
+// Say bye so peers drop us promptly (expiry is the fallback for an unclean exit).
+await lanDiscovery.SendByeAsync();
+lanDiscovery.Dispose();
 
 guiRenderer.Dispose();
 renderer.Dispose();

@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Console.Lib;
 using DIR.Lib;
 using TianWen.Lib.Devices;
@@ -13,11 +13,15 @@ namespace TianWen.Cli.Tui;
 /// </summary>
 internal sealed class TuiGuiderTab(
     GuiAppState appState,
-    LiveSessionState liveState,
+    ViewContexts contexts,
     IVirtualTerminal terminal,
     string fontPath,
     ITimeProvider timeProvider) : TuiTabBase
 {
+    /// <summary>The on-screen context's session state. Resolved per use, never cached in a field --
+    /// the active context can change between frames.</summary>
+    private LiveSessionState LiveState => contexts.Active.LiveSession;
+
     private const int SparklineWidth = 40;
 
     private readonly GuiderTabState _state = new GuiderTabState();
@@ -80,7 +84,7 @@ internal sealed class TuiGuiderTab(
     {
         if (!IsReady) return;
 
-        _state.PollFromLiveState(liveState);
+        _state.PollFromLiveState(LiveState);
 
         // Top bar
         var placeholder = _state.PlaceholderReason;
@@ -120,7 +124,7 @@ internal sealed class TuiGuiderTab(
 
         // A terminal Sixel canvas has no DPI scaling; the widget's DpiScale stays at its default 1.
         // FontPath was set on the widget in CreateWidgets, so it is not passed per-render any more.
-        guiderWidget.Render(liveState, contentRect, timeProvider);
+        guiderWidget.Render(LiveState, contentRect, timeProvider);
     }
 
     private void RenderTextContent(GuiderPlaceholder? placeholder,

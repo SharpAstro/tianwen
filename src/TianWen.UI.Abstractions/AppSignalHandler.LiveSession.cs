@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -37,10 +37,14 @@ namespace TianWen.UI.Abstractions
         {
             // Aliases over the injected fields keep the moved handler bodies verbatim
             // (the closures captured the ctor's parameters before the by-area split).
+            // Capturing the LOCAL session state here is safe -- the local context is created once and
+            // never replaced, so the reference stays valid for the process lifetime. A handler that
+            // ever routes to the on-screen context must NOT capture like this: it has to resolve
+            // _contexts.Active at post time, since the user can switch contexts between subscribe and post.
             var appState = _appState;
             var plannerState = _plannerState;
             var sessionState = _sessionState;
-            var liveSessionState = _liveSessionState;
+            var liveSessionState = LocalLiveSession;
             var tracker = _tracker;
             var cts = _cts;
             var external = _external;
@@ -53,6 +57,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartSessionSignal>(async _ =>
             {
+                if (!EnsureLocalContext("A session")) return;
                 if (!EnsureSessionIdle("Session already running")) return;
 
                 if (appState.ActiveProfile is not { } profile)
@@ -91,7 +96,7 @@ namespace TianWen.UI.Abstractions
             // Aliases over the injected fields keep the moved handler bodies verbatim
             // (the closures captured the ctor's parameters before the by-area split).
             var appState = _appState;
-            var liveSessionState = _liveSessionState;
+            var liveSessionState = LocalLiveSession;
             var tracker = _tracker;
             var external = _external;
             var sp = _sp;

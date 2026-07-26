@@ -25,4 +25,14 @@
     <ProjectReference Include="..\TianWen.AI.Imaging\TianWen.AI.Imaging.csproj" />
   </ItemGroup>
 
+  <!-- LAN.Lib: peer discovery so a remote GUI can find this node ("rigs nearby"). Announces as
+       service "tianwen-server" (docs/plans/remote-profile.md Part 2 item 7). Sibling repo's
+       csproj lives at ../LAN.Lib/src/LAN.Lib/LAN.Lib.csproj. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\LAN.Lib\src\LAN.Lib\LAN.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="LAN.Lib" />
+  </ItemGroup>
+
 </Project>

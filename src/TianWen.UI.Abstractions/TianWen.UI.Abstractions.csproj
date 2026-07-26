@@ -26,6 +26,15 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
   </ItemGroup>
 
+  <!-- LAN.Lib: GuiAppState.PeerTable + EquipmentTab's "rigs nearby" list read IPeerTable/LanPeer
+       (docs/plans/remote-profile.md). Sibling repo's csproj lives at ../LAN.Lib/src/LAN.Lib/LAN.Lib.csproj. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\LAN.Lib\src\LAN.Lib\LAN.Lib.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="LAN.Lib" />
+  </ItemGroup>
+
   <!-- SharpAstro.Png + SharpAstro.Color.Icc: MasterPreviewRenderer emits the
        cICP-tagged PNG via PngWriter; the cICP enums (ColorPrimaries /
        TransferFunction / MatrixCoefficients) come from SharpAstro.Color.Icc. -->

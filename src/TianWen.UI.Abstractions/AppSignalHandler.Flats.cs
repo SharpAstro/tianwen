@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -39,7 +39,7 @@ namespace TianWen.UI.Abstractions
             // (the closures captured the ctor's parameters before the by-area split).
             var appState = _appState;
             var sessionState = _sessionState;
-            var liveSessionState = _liveSessionState;
+            var liveSessionState = LocalLiveSession;
             var tracker = _tracker;
             var cts = _cts;
             var sp = _sp;
@@ -51,6 +51,7 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartFlatsSignal>(async sig =>
             {
+                if (!EnsureLocalContext("A flat run")) return;
                 if (!EnsureSessionIdle("Session is running \u2014 flats unavailable")) return;
                 if (liveSessionState.FlatsCts is not null)
                 {

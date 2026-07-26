@@ -17,6 +17,24 @@ public readonly record struct EditSiteSignal;
 /// <summary>Start creating a new profile.</summary>
 public readonly record struct CreateProfileSignal;
 
+/// <summary>
+/// Re-bind THIS node's active profile to an already-registered <b>local</b> profile (profile-panel
+/// header dropdown, or the no-profile screen's picker when >1 profile already exists locally).
+/// Gated by <c>ProfileSwitchGate</c> in the handler: it changes which equipment this node owns.
+/// </summary>
+public readonly record struct SwitchProfileSignal(System.Guid ProfileId);
+
+/// <summary>
+/// User picked a discovered remote rig from the profile dropdown. Deliberately a <b>separate signal
+/// from <see cref="SwitchProfileSignal"/>, and deliberately ungated</b>: selecting a rig is a
+/// view-context <i>overlay</i>, not a rebind of this node's equipment. A local session (if any) keeps
+/// running underneath with its devices untouched -- it is only hidden from view, and its
+/// notifications/warnings still bubble up -- so <c>ProfileSwitchGate</c> must never be applied here.
+/// Remote binding (docs/plans/remote-profile.md P4) isn't wired up yet; the handler surfaces a stub
+/// notice.
+/// </summary>
+public readonly record struct SelectRemoteRigSignal(string DisplayName);
+
 /// <summary>Assign a discovered device to the active slot.</summary>
 public readonly record struct AssignDeviceSignal(int DeviceIndex);
 

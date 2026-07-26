@@ -17,6 +17,7 @@ namespace TianWen.Cli.Tui;
 internal sealed class TuiEquipmentTab(
     GuiAppState appState,
     EquipmentTabState eqState,
+    ViewContexts contexts,
     EquipmentContent equipmentContent,
     IConsoleHost consoleHost,
     SignalBus? bus = null) : TuiTabBase
@@ -655,6 +656,21 @@ internal sealed class TuiEquipmentTab(
 
         if (picked.Profile.ProfileId != appState.ActiveProfile?.ProfileId)
         {
+            // Same single-profile-context invariant the GUI enforces (see ProfileSwitchGate): never
+            // swap the profile out from under connected hardware or an active run. The TUI has no
+            // modal, so the refusal lands on the status line (and the notification history).
+            // LOCAL context: this rebinds THIS node's equipment, so the gate reads the local run
+            // regardless of which context is on screen (mirrors the GUI's SwitchProfileSignal handler).
+            var verdict = ProfileSwitchGate.Evaluate(appState.DeviceHub, contexts.Local.LiveSession.HasActiveRun);
+            if (!verdict.Allowed)
+            {
+                appState.AppendNotification(consoleHost.TimeProvider.GetUtcNow(),
+                    NotificationSeverity.Warning,
+                    $"Cannot switch to '{picked.Profile.DisplayName}': {verdict.Describe()}");
+                NeedsRedraw = true;
+                return;
+            }
+
             appState.ActiveProfile = picked.Profile;
             _editingUris.Clear();
             // The settings list rebuilds against the new profile next render; reset

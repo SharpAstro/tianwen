@@ -57,11 +57,22 @@ namespace TianWen.UI.Abstractions
         private readonly BackgroundTaskTracker _tracker;
         private readonly CancellationTokenSource _cts;
         private readonly IExternal _external;
-        private readonly LiveSessionState _liveSessionState;
+        private readonly ViewContexts _contexts;
         private readonly ILogger _logger;
         private readonly ITimeProvider _timeProvider;
         private readonly EquipmentTabState _eqState;
         private readonly SkyMapState _skyMapState;
+
+        /// <summary>
+        /// The LOCAL node's session state. Every handler here drives or guards <i>this node's</i>
+        /// equipment -- the preview telemetry poll reads local hub drivers, the session/flats/polar
+        /// handlers start local runs, and the profile gate protects local device bindings -- so they all
+        /// resolve <see cref="ViewContexts.Local"/> and never the on-screen context: watching a remote
+        /// rig must not redirect a local poll, nor let a local profile rebind slip past the gate.
+        /// Safe for a subscribe lambda to capture, because the local context's identity is stable for
+        /// the process lifetime (see <see cref="ViewContext"/>).
+        /// </summary>
+        private LiveSessionState LocalLiveSession => _contexts.Local.LiveSession;
 
         /// <summary>Set by the host after catalog load to enable autocomplete.</summary>
         public Action<string[]> SetAutoCompleteCache { get; }
@@ -331,7 +342,7 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public void PollPreviewTelemetry()
         {
-            if (_liveSessionState.IsRunning) return;
+            if (LocalLiveSession.IsRunning) return;
 
             // Preview polling drives the Live Session tab, the Sky Map tab (for the
             // mount-position reticle overlay), and the Equipment tab (for the mount
@@ -344,7 +355,7 @@ namespace TianWen.UI.Abstractions
 
             var nowTicks = _timeProvider.GetTimestamp();
 
-            _liveSessionState.ResizePreviewArrays(otas.Length);
+            LocalLiveSession.ResizePreviewArrays(otas.Length);
 
             // Per-OTA camera + focuser + filter polling — rate-adaptive on focuser state.
             // When the focuser is actively moving the user wants sub-second feedback on
@@ -359,8 +370,8 @@ namespace TianWen.UI.Abstractions
 
                 if (_previewTelemetryInFlight.ContainsKey(key)) continue;
 
-                var prevTelemetry = i < _liveSessionState.PreviewOTATelemetry.Length
-                    ? _liveSessionState.PreviewOTATelemetry[i]
+                var prevTelemetry = i < LocalLiveSession.PreviewOTATelemetry.Length
+                    ? LocalLiveSession.PreviewOTATelemetry[i]
                     : default;
                 var focuserMoving = prevTelemetry.FocuserIsMoving;
                 var sampleInterval = focuserMoving ? TimeSpan.FromSeconds(1) : TimeSpan.FromSeconds(2);
@@ -382,12 +393,12 @@ namespace TianWen.UI.Abstractions
                     try
                     {
                         var telemetry = await LiveSessionActions.SampleOTATelemetryAsync(hub, capturedOta, _logger, _cts.Token);
-                        var arr = _liveSessionState.PreviewOTATelemetry;
+                        var arr = LocalLiveSession.PreviewOTATelemetry;
                         if (capturedIndex < arr.Length)
                         {
                             var builder = arr.ToBuilder();
                             builder[capturedIndex] = telemetry;
-                            _liveSessionState.PreviewOTATelemetry = builder.ToImmutable();
+                            LocalLiveSession.PreviewOTATelemetry = builder.ToImmutable();
                             _appState.NeedsRedraw = true;
                         }
                     }
@@ -410,7 +421,7 @@ namespace TianWen.UI.Abstractions
             // goto / sync lag by up to the steady interval. Instead: fast while slewing, fast
             // for MountTrackingSettleWindow after the mount lands and starts tracking, then
             // relaxing to the steady rate only once it has tracked undisturbed that long.
-            var prevMount = _liveSessionState.MountState;
+            var prevMount = LocalLiveSession.MountState;
             var steadyNow = prevMount.IsTracking && !prevMount.IsSlewing;
             if (steadyNow && !_wasSteadyTracking)
             {
@@ -464,10 +475,10 @@ namespace TianWen.UI.Abstractions
                             _logger.LogInformation("Preview mount first sample: RA={RA:F4}h Dec={Dec:F4}° HA={HA:F4}h slewing={Slewing} tracking={Tracking}",
                                 ms.RightAscension, ms.Declination, ms.HourAngle, ms.IsSlewing, ms.IsTracking);
                         }
-                        _liveSessionState.MountState = ms;
+                        LocalLiveSession.MountState = ms;
                         if (displayName is not null)
                         {
-                            _liveSessionState.MountDisplayName = displayName;
+                            LocalLiveSession.MountDisplayName = displayName;
                         }
                         _appState.NeedsRedraw = true;
                     }
@@ -709,7 +720,7 @@ namespace TianWen.UI.Abstractions
             PlannerState plannerState,
             SessionTabState sessionState,
             EquipmentTabState eqState,
-            LiveSessionState liveSessionState,
+            ViewContexts contexts,
             SkyMapState skyMapState,
             SignalBus bus,
             BackgroundTaskTracker tracker,
@@ -722,7 +733,7 @@ namespace TianWen.UI.Abstractions
             _plannerState = plannerState;
             _sessionState = sessionState;
             _eqState = eqState;
-            _liveSessionState = liveSessionState;
+            _contexts = contexts;
             _skyMapState = skyMapState;
             _tracker = tracker;
             _cts = cts;
@@ -732,7 +743,7 @@ namespace TianWen.UI.Abstractions
             // GuiAppState.SiteTimeZone so every time display shares one value and the
             // two states cannot drift apart (see PlannerState.AttachAppState).
             plannerState.AttachAppState(appState);
-            liveSessionState.AttachAppState(appState);
+            contexts.AttachAppState(appState);
 
             _logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger(nameof(AppSignalHandler));
             _timeProvider = sp.GetRequiredService<ITimeProvider>();
@@ -784,11 +795,31 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private bool EnsureSessionIdle(string message)
         {
-            if (!_liveSessionState.IsRunning)
+            if (!LocalLiveSession.IsRunning)
             {
                 return true;
             }
             Notify(NotificationSeverity.Warning, message);
+            return false;
+        }
+
+        /// <summary>
+        /// Guards a run that would drive THIS node's hardware while a remote rig is on screen. Every
+        /// handler here acts locally, so starting one from a remote view would silently run a local
+        /// session behind a remote overlay -- the failure the local/active split exists to prevent.
+        /// Applied to the three run-starting handlers (session, flats, polar alignment); starting a run
+        /// ON a rig routes through its API instead (docs/plans/remote-profile.md P4), and per-action
+        /// guards for the device handlers land with the remote Equipment/Preview surfaces (P5), which is
+        /// where those actions become meaningful remotely.
+        /// </summary>
+        private bool EnsureLocalContext(string what)
+        {
+            if (!_contexts.IsRemoteActive)
+            {
+                return true;
+            }
+            Notify(NotificationSeverity.Warning,
+                $"{what} runs on this computer; switch back from '{_contexts.Active.DisplayName}' first");
             return false;
         }
 
@@ -822,7 +853,7 @@ namespace TianWen.UI.Abstractions
         private bool TryResolveIdleOtaFocuser(int otaIndex, [NotNullWhen(true)] out IFocuserDriver? focuser)
         {
             focuser = null;
-            if (_liveSessionState.IsRunning) return false;
+            if (LocalLiveSession.IsRunning) return false;
             if (_appState.ActiveProfile?.Data is not { OTAs: var otas } || otaIndex >= otas.Length) return false;
             if (_appState.DeviceHub is not { } hub) return false;
             if (otas[otaIndex].Focuser is not { } focUri) return false;

@@ -165,6 +165,33 @@ internal partial record Session(
     public ImmutableArray<PhaseTimestamp> PhaseTimeline => [.. _phaseTimeline];
     public ImmutableArray<CameraExposureState> CameraStates => [.. _cameraStates];
 
+    // Display facts lifted off Setup so observers never need the driver graph (see ISessionTelemetry).
+    // Built once: Setup's device set is fixed for the life of a session, and the UI polls this per frame.
+    private ImmutableArray<TelescopeDisplayInfo> _telescopeDisplays;
+
+    public ImmutableArray<TelescopeDisplayInfo> TelescopeDisplays
+    {
+        get
+        {
+            if (_telescopeDisplays.IsDefault)
+            {
+                var telescopes = Setup.Telescopes;
+                var displays = ImmutableArray.CreateBuilder<TelescopeDisplayInfo>(telescopes.Length);
+                foreach (var telescope in telescopes)
+                {
+                    displays.Add(new TelescopeDisplayInfo(
+                        telescope.Camera.Device.DisplayName,
+                        telescope.Focuser is not null,
+                        telescope.FilterWheel is not null));
+                }
+                _telescopeDisplays = displays.MoveToImmutable();
+            }
+            return _telescopeDisplays;
+        }
+    }
+
+    public string MountDisplayName => Setup.Mount.Device.DisplayName;
+
     public event EventHandler<SessionPhaseChangedEventArgs>? PhaseChanged;
     public event EventHandler<FrameWrittenEventArgs>? FrameWritten;
     public event EventHandler<PlateSolveCompletedEventArgs>? PlateSolveCompleted;

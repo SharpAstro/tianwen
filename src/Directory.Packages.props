@@ -35,6 +35,11 @@
          milkyway .bgra.lz (tools/generate_milkyway.cs), so no external lzip binary is needed.
          1.1 added the encoder; floats 1.1.* to pick up CI patch publishes. -->
     <PackageVersion Include="Lzip.Lib" Version="1.1.*" />
+    <!-- LAN.Lib: zero-dependency LAN peer discovery (UDP announce beacon + self-expiring peer
+         table), extracted from chess's Chess.Net for the remote-profile feature (see
+         docs/plans/remote-profile.md). TianWen.Server announces; the GUI beacons symmetrically and
+         reads IPeerTable for the "rigs nearby" list. Floats 1.1.* to pick up CI patch publishes. -->
+    <PackageVersion Include="LAN.Lib" Version="1.1.*" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
     <!-- Microsoft packages -->
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />

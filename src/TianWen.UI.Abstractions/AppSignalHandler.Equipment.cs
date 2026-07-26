@@ -249,6 +249,12 @@ namespace TianWen.UI.Abstractions
                         .Where(d => sig.IncludeFake || d is not TianWen.Lib.Devices.Fake.FakeDevice)
                         .OrderBy(d => d.DeviceType).ThenBy(d => d.DisplayName)];
 
+                    // Profile-switcher dropdown / no-profile picker source (docs/plans/remote-profile.md):
+                    // DiscoverAsync above already populated DeviceType.Profile, so this is free -- no
+                    // separate DiscoverOnlyDeviceType round-trip.
+                    eqState.AllProfiles = [.. dm.RegisteredDevices(DeviceType.Profile).OfType<Profile>()
+                        .OrderBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)];
+
                     // Route post-discovery profile reconciliation to EquipmentActions,
                     // then reflect any active-profile update back into UI state.
                     var reconciledProfiles = await EquipmentActions.ReconcileAllProfilesAsync(dm, external, cts.Token);
@@ -334,6 +340,42 @@ namespace TianWen.UI.Abstractions
                     eqState.IsCreatingProfile = true;
                     bus.Post(new ActivateTextInputSignal(eqState.ProfileNameInput));
                 }
+            });
+
+            bus.Subscribe<SwitchProfileSignal>(sig =>
+            {
+                var target = eqState.AllProfiles.FirstOrDefault(p => p.ProfileId == sig.ProfileId);
+                if (target is null || target.ProfileId == appState.ActiveProfile?.ProfileId) return;
+
+                // Single-profile-context invariant: never swap out from under connected hardware or a
+                // running session (ProfileSwitchGate's doc comment has the why). Gated HERE rather than
+                // in the dropdown so no poster of this signal can bypass it.
+                //
+                // LOCAL profiles only -- this signal never carries a remote rig. Selecting a rig is a
+                // view-context overlay (SelectRemoteRigSignal, deliberately ungated): the local session
+                // keeps running underneath and its notifications keep bubbling up. Correspondingly the
+                // gate reads the LOCAL context, not the on-screen one -- rebinding this node's profile
+                // is refused while its own hardware is busy, whichever context you happen to be watching.
+                var verdict = ProfileSwitchGate.Evaluate(appState.DeviceHub, LocalLiveSession.HasActiveRun);
+                if (!verdict.Allowed)
+                {
+                    var reason = verdict.Describe();
+                    eqState.ProfileSwitchBlocked = reason;
+                    Notify(NotificationSeverity.Warning, $"Cannot switch to '{target.DisplayName}': {reason}");
+                    appState.NeedsRedraw = true;
+                    return;
+                }
+
+                appState.ActiveProfile = target;
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<SelectRemoteRigSignal>(sig =>
+            {
+                // Remote binding (docs/plans/remote-profile.md P4 -- fetch the rig's profile, mirror its
+                // session) isn't built yet; the entry is shown today so discovery is visible, but there's
+                // nothing to switch to.
+                Notify(NotificationSeverity.Info, $"Remote rig binding for '{sig.DisplayName}' isn't implemented yet.");
             });
 
             bus.Subscribe<AssignDeviceSignal>(async sig =>

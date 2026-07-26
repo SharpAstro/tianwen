@@ -137,7 +137,18 @@ namespace TianWen.UI.Gui
         public SessionTabState SessionState => _sessionTab.State;
 
         /// <inheritdoc/>
-        public LiveSessionState LiveSessionState { get; } = new LiveSessionState();
+        public ViewContexts ViewContexts { get; } = new ViewContexts();
+
+        /// <summary>The on-screen context's session state -- what the chrome and tabs draw.</summary>
+        private LiveSessionState ViewedLiveSession => ViewContexts.Active.LiveSession;
+
+        /// <summary>
+        /// This node's own session state, regardless of what is on screen. Used where the chrome
+        /// guards LOCAL resources: the Equipment tab lock and <see cref="SessionTabState.IsSessionRunning"/>
+        /// (which freezes the local schedule + planner date nav) protect this node's equipment and plan,
+        /// so a session on a rig you happen to be watching must not lock them.
+        /// </summary>
+        private LiveSessionState LocalLiveSession => ViewContexts.Local.LiveSession;
 
         /// <inheritdoc/>
         public SkyMapState SkyMapState => _skyMapTab.State;
@@ -332,9 +343,9 @@ namespace TianWen.UI.Gui
                 // Planetary, camera for Preview. (Mirrors the mode pill so the sidebar reads at a glance.)
                 if (tab is GuiTab.LiveSession)
                 {
-                    icon = LiveSessionState.IsRunning
+                    icon = ViewedLiveSession.IsRunning
                         ? LiveSessionRunningIcon
-                        : LiveSessionState.Mode switch
+                        : ViewedLiveSession.Mode switch
                         {
                             LiveSessionMode.PolarAlign => LiveSessionPolarIcon,
                             LiveSessionMode.Planetary => LiveSessionPlanetaryIcon,
@@ -344,7 +355,7 @@ namespace TianWen.UI.Gui
                 var btnY = startY + i * buttonSize;
                 var isActive = appState.ActiveTab == tab;
                 var isLocked = (noProfile && tab is not GuiTab.Equipment)
-                            || (LiveSessionState.IsRunning && tab is GuiTab.Equipment);
+                            || (LocalLiveSession.IsRunning && tab is GuiTab.Equipment);
                 var isHover = !isLocked && mouseX >= 0 && mouseX < sw
                            && mouseY >= btnY && mouseY < btnY + buttonSize;
 
@@ -428,7 +439,7 @@ namespace TianWen.UI.Gui
 
             var now = timeProvider.GetUtcNow().ToOffset(plannerState.SiteTimeZone);
             var clockText = now.ToString("ddd d MMM HH:mm:ss");
-            var sessionRunning = LiveSessionState.IsRunning;
+            var sessionRunning = LocalLiveSession.IsRunning;
             SessionState.IsSessionRunning = sessionRunning;
 
             // Date + night-window label string (data only): [<] date (HH:mm-HH:mm) [>].
@@ -592,7 +603,12 @@ namespace TianWen.UI.Gui
             // default(MountState) (RA0/Dec0) the whole time a session was active and the user was
             // watching the map. The mount was never wrong; the copy that fed the reticle was never
             // refreshed.
-            LiveSessionState.PollSession();
+            //
+            // Every context, not just the visible one: a local session hidden under a remote overlay
+            // still has to keep its phase and mount pointing current (its notifications bubble up, and
+            // the chrome will grow a local-session indicator), and an off-screen context that stopped
+            // polling would resume with a stale snapshot the moment you switched back.
+            ViewContexts.PollAll();
 
             switch (appState.ActiveTab)
             {
@@ -604,7 +620,10 @@ namespace TianWen.UI.Gui
                     break;
 
                 case GuiTab.Equipment:
-                    _equipmentTab.Render(appState, contentRect, LiveSessionState);
+                    // Local: this tab lists and actuates THIS node's hub-connected devices, so it reads
+                    // the local session even while a rig is on screen. A remote Equipment view (the rig's
+                    // own devices, over the API) is P5.
+                    _equipmentTab.Render(appState, contentRect, LocalLiveSession);
                     break;
 
                 case GuiTab.Session:
@@ -625,20 +644,23 @@ namespace TianWen.UI.Gui
 
                 case GuiTab.LiveSession:
                     // Copy twilight data from planner so preview timeline can render night window
-                    if (!LiveSessionState.IsRunning)
                     {
-                        LiveSessionState.AstroDark = plannerState.AstroDark;
-                        LiveSessionState.AstroTwilight = plannerState.AstroTwilight;
-                        LiveSessionState.CivilSet = plannerState.CivilSet;
-                        LiveSessionState.CivilRise = plannerState.CivilRise;
-                        LiveSessionState.NauticalSet = plannerState.NauticalSet;
-                        LiveSessionState.NauticalRise = plannerState.NauticalRise;
+                        var viewed = ViewedLiveSession;
+                        if (!viewed.IsRunning)
+                        {
+                            viewed.AstroDark = plannerState.AstroDark;
+                            viewed.AstroTwilight = plannerState.AstroTwilight;
+                            viewed.CivilSet = plannerState.CivilSet;
+                            viewed.CivilRise = plannerState.CivilRise;
+                            viewed.NauticalSet = plannerState.NauticalSet;
+                            viewed.NauticalRise = plannerState.NauticalRise;
+                        }
+                        _liveSessionTab.Render(viewed, contentRect, timeProvider);
                     }
-                    _liveSessionTab.Render(LiveSessionState, contentRect, timeProvider);
                     break;
 
                 case GuiTab.Guider:
-                    _guiderTab.Render(LiveSessionState, contentRect, timeProvider);
+                    _guiderTab.Render(ViewedLiveSession, contentRect, timeProvider);
                     break;
 
                 case GuiTab.Notifications:
@@ -669,8 +691,9 @@ namespace TianWen.UI.Gui
             // and suppresses the reticle. A genuine, freshly-polled RA0/Dec0 would still draw,
             // which is correct: that is a real (if unusual) pointing, not the old phantom that
             // came from reading a never-refreshed default(MountState).
-            var ms = LiveSessionState.MountState;
-            var displayName = LiveSessionState.MountDisplayName;
+            var viewed = ViewedLiveSession;
+            var ms = viewed.MountState;
+            var displayName = viewed.MountDisplayName;
 
             if (string.IsNullOrEmpty(displayName))
             {
@@ -781,7 +804,10 @@ namespace TianWen.UI.Gui
             // changes as observations advance. Comparing the schedule identity
             // and active target identity avoids a List+ImmutableArray allocation
             // every render frame (~60 FPS).
-            var active = LiveSessionState.ActiveObservation?.Target;
+            // Local, to match its schedule source: the targets come from SessionState.Schedule (this
+            // node's committed plan), so the "currently imaging" highlight has to come from the run
+            // that is executing that plan.
+            var active = LocalLiveSession.ActiveObservation?.Target;
             if (_cachedSchedule == schedule && _cachedActiveTarget == active)
             {
                 return;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -51,7 +51,7 @@ namespace TianWen.UI.Abstractions
             // (the closures captured the ctor's parameters before the by-area split).
             var appState = _appState;
             var plannerState = _plannerState;
-            var liveSessionState = _liveSessionState;
+            var liveSessionState = LocalLiveSession;
             var skyMapState = _skyMapState;
             var tracker = _tracker;
             var cts = _cts;
