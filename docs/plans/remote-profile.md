@@ -53,7 +53,9 @@ and its notifications/warnings still bubble up. Consequences:
   tabs rendering whichever is active -- done in Part 3 item 2, on top of the `ISessionTelemetry`
   extraction (item 1) that makes a local `Session` and a `RemoteSessionMirror` interchangeable per context.
   Per-profile planner pins (`AppData/Planner`) likewise need keying by binding id for a remote context
-  (still open).
+  -- **done in P4**: a rig's plan lives under `Planner/rigs/{bindingId}/{profileId}/`, because a profile
+  id is not unique across machines (copy a rig's profile to a second rig and both contexts share an id,
+  merging their pins). Local paths are deliberately unchanged, so no existing pin is orphaned.
 
 The planner and sky map need no server surface at all: `GET /api/v1/profiles/{id}` already
 returns the full equipment profile (device URIs as strings, focal lengths, site), the planner is
@@ -503,14 +505,16 @@ plain interfaces, so remote implementations slot in without tab changes.
    bug. Full suites 3448 unit + 311 functional green; AOT publish clean apart from the 2 known
    LibUsbDotNet rollups, with the published binary smoke-tested (GET, complex-body POST, the
    formerly-`object` endpoint, and the nina shim).
-4. **`RemoteDeviceHub : IDeviceHub`** (in RemoteClient, over Part 2.9): driver proxies
-   (`RemoteCameraDriver` etc.) so preview telemetry/capture, equipment connect/cool/jog,
-   and sky-map slew/sync compile and behave unchanged. Precedent: the Alpaca backend already
-   IS an in-repo remote-driver protocol -- this is the same shape over native v1.
+4. **`RemoteDeviceHub : IDeviceHub`** -- **SUPERSEDED, never built (2026-07-27).** The idea was driver
+   proxies over a bespoke `/api/v1/hub/...`, on the observation that "the Alpaca backend already IS an
+   in-repo remote-driver protocol". P5 took that observation to its conclusion and made the NODE speak
+   Alpaca instead, so the client reaches a rig's devices through the existing `AddAlpaca()` -- no proxy
+   classes, no second remote-driver protocol to keep in step with the first, and ImageBytes for free.
+   The line of code that would have been `RemoteDeviceHub` is a base address.
 5. **Fidelity tiers** (honest about what doesn't round-trip): tier 1 = everything in
    `SessionStateDto` (full Live Session tab, ~70% of `PollSession` unchanged); tier 2 =
    preview images, prompts, notifications, guider per-step stream, out-of-session preview
-   capture + equipment control (needs Part 2 items + RemoteDeviceHub); tier 3 (local-only for
+   capture + equipment control (Part 2 items + the P5 Alpaca device plane); tier 3 (local-only for
    now) = guide-cam image (`LastGuideFrame`), `CalibrationOverlay`, guide-star visuals,
    polar-alignment and planetary modes (in-proc orchestrators streaming pixels; server-side
    PA is its own big item). Tier-3 fields stay empty in remote mode and the tabs already

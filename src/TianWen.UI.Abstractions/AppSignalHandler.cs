@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -72,6 +72,17 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Bound rigs, for the profile picker to list alongside local profiles.</summary>
         public RemoteRigRegistry Rigs => _rigs;
+
+        /// <summary>
+        /// The rig whose plan is on screen, or null for this computer's own plan. Feeds
+        /// <see cref="PlannerPersistence"/> so pinned targets are scoped per rig -- two rigs running a
+        /// profile copied from the same source share a profile id, and their pins would otherwise merge
+        /// into one file.
+        /// </summary>
+        private Guid? ActiveRemoteBindingId =>
+            _contexts.Active is { IsLocal: false, NodeId: { } nodeId }
+                ? _rigs.Bindings.FirstOrDefault(b => string.Equals(b.NodeId, nodeId, StringComparison.OrdinalIgnoreCase))?.BindingId
+                : null;
 
         /// <summary>
         /// The LOCAL node's session state. Every handler here drives or guards <i>this node's</i>
@@ -163,7 +174,7 @@ namespace TianWen.UI.Abstractions
                 _plannerState.MinHeightAboveHorizon, cancellationToken, comets: comets);
             if (_appState.ActiveProfile is { } profile)
             {
-                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, cancellationToken);
+                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, ActiveRemoteBindingId, cancellationToken);
             }
 
             // Bound rigs, so the profile picker lists them even before discovery has seen one this run --
@@ -650,7 +661,7 @@ namespace TianWen.UI.Abstractions
                                 _plannerState.MinHeightAboveHorizon, _cts.Token, comets: _plannerState.Comets);
                             if (_appState.ActiveProfile is { } profile)
                             {
-                                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, _cts.Token);
+                                await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, ActiveRemoteBindingId, _cts.Token);
                             }
                             SetAutoCompleteCache(PlannerActions.BuildAutoCompleteList(objectDb, _plannerState.Comets));
                         }

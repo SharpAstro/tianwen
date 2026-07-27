@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -28,9 +28,11 @@ public static class PlannerPersistence
     /// <summary>
     /// Saves the current planner state to disk.
     /// </summary>
-    public static Task SaveAsync(PlannerState state, Profile profile, IExternal external, ITimeProvider timeProvider, CancellationToken ct)
+    /// <param name="remoteBindingId">The rig this plan belongs to, or null for this computer's own
+    /// plan. See <see cref="GetSessionFilePath"/> for why remote pins are scoped separately.</param>
+    public static Task SaveAsync(PlannerState state, Profile profile, IExternal external, ITimeProvider timeProvider, Guid? remoteBindingId, CancellationToken ct)
         => external.AtomicWriteJsonAsync(
-            GetSessionFilePath(profile, state, external, timeProvider),
+            GetSessionFilePath(profile, state, external, timeProvider, remoteBindingId),
             CreateDto(state),
             PlannerJsonContext.Default.PlannerSessionDto,
             ct);
@@ -39,14 +41,15 @@ public static class PlannerPersistence
     /// Attempts to load a previously saved planner session. Returns true if state was restored.
     /// Validates site coordinates and matches saved targets against the current TonightsBest list.
     /// </summary>
-    public static async Task<bool> TryLoadAsync(PlannerState state, Profile? profile, IExternal external, ILogger logger, ITimeProvider timeProvider, CancellationToken ct)
+    /// <param name="remoteBindingId">The rig this plan belongs to, or null for this computer's own plan.</param>
+    public static async Task<bool> TryLoadAsync(PlannerState state, Profile? profile, IExternal external, ILogger logger, ITimeProvider timeProvider, Guid? remoteBindingId, CancellationToken ct)
     {
         if (profile is null)
         {
             return false;
         }
 
-        var filePath = GetSessionFilePath(profile, state, external, timeProvider);
+        var filePath = GetSessionFilePath(profile, state, external, timeProvider, remoteBindingId);
         var dto = await external.TryReadJsonAsync(
             filePath,
             PlannerJsonContext.Default.PlannerSessionDto, logger, ct);
@@ -318,7 +321,21 @@ public static class PlannerPersistence
         return best;
     }
 
-    private static string GetSessionFilePath(Profile profile, PlannerState state, IExternal external, ITimeProvider? timeProvider = null)
+    /// <summary>
+    /// Where one night's plan lives: <c>Planner/{profileId}/{date}.json</c> locally, and
+    /// <c>Planner/rigs/{bindingId}/{profileId}/{date}.json</c> for a bound rig.
+    /// <para>
+    /// <b>Why rigs are scoped by binding id.</b> A profile id alone is not unique across machines -- a
+    /// user who copies a rig's profile to a second rig (or to this computer) gives two different
+    /// contexts the same id, and their pinned targets would then merge into one file. The binding id is
+    /// unique per rig by construction.
+    /// </para>
+    /// <para>
+    /// <b>Local paths are deliberately unchanged</b> rather than moved under a <c>local/</c> sibling:
+    /// re-keying them would orphan every pin a user already has, for no benefit.
+    /// </para>
+    /// </summary>
+    private static string GetSessionFilePath(Profile profile, PlannerState state, IExternal external, ITimeProvider? timeProvider = null, Guid? remoteBindingId = null)
     {
         // Use the site's local date (not the machine's) so the file key matches
         // the "tonight" definition from CalculateNightWindow (site-timezone-aware).
@@ -327,7 +344,9 @@ public static class PlannerPersistence
         var profileId = profile.ProfileId.ToString("D");
         var dateStr = date.ToString("yyyy-MM-dd");
 
-        return Path.Combine(external.AppDataFolder.FullName, "Planner", profileId, dateStr + ".json");
+        return remoteBindingId is { } bindingId
+            ? Path.Combine(external.AppDataFolder.FullName, "Planner", "rigs", bindingId.ToString("D"), profileId, dateStr + ".json")
+            : Path.Combine(external.AppDataFolder.FullName, "Planner", profileId, dateStr + ".json");
     }
 }
 

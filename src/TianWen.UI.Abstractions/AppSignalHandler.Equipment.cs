@@ -836,7 +836,7 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
                 plannerState.IsDirty = false;
-                await PlannerPersistence.SaveAsync(plannerState, profile, external, _timeProvider, cts.Token);
+                await PlannerPersistence.SaveAsync(plannerState, profile, external, _timeProvider, ActiveRemoteBindingId, cts.Token);
             });
 
             bus.Subscribe<SaveSessionConfigSignal>(async _ =>
