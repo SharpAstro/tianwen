@@ -746,6 +746,78 @@ public class RemoteSessionMirrorTests
         mirror.LastContactUtc.ShouldBe(clock.GetUtcNow());
     }
 
+    // -------------------------------------------------------------------------------------------
+    // Request budgets
+    // -------------------------------------------------------------------------------------------
+
+    /// <summary>A node that accepts the request and then never answers -- the powered-off-rig case, which
+    /// black-holes packets rather than refusing the connection, so the caller waits out its budget.</summary>
+    private sealed class StallingHandler : HttpMessageHandler
+    {
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("unreachable: the delay above only ends by cancellation");
+        }
+    }
+
+    [Fact]
+    public async Task ARequestThatRunsOutOfBudgetIsReportedRatherThanThrown()
+    {
+        // The budget genuinely elapses here rather than being simulated by throwing an
+        // OperationCanceledException: only a real expiry leaves the LINKED token cancelled while the
+        // caller's is not, and that difference is the whole point. Guard the catch on the linked token
+        // instead of the caller's and this rethrows -- whereupon the poll loop's own OCE handler breaks
+        // the loop, so one quiet tick would stop the mirror for the rest of the night. (Verified by
+        // making exactly that change and watching this test go red; the simulated version did not
+        // notice.) Budgets are shortened so the wait is milliseconds.
+        var timeouts = NodeTimeouts.Default with { StatePoll = TimeSpan.FromMilliseconds(80) };
+        using var http = new HttpClient(new StallingHandler()) { BaseAddress = new Uri("http://rig.local:1888/") };
+        var client = new TianWenNodeClient(http, timeouts);
+        var clock = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 7, 26, 20, 0, 0, TimeSpan.Zero));
+        var events = new TianWenEventStream(http.BaseAddress, clock, NullLogger.Instance);
+        await using var mirror = new RemoteSessionMirror(client, events, clock, NullLogger.Instance);
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.IsNodeReachable.ShouldBeFalse();
+        mirror.LastContactUtc.ShouldBeNull();
+        mirror.LastError.ShouldNotBeNull()
+            .ShouldBe("No answer within 0.1s", "the budget, named -- OperationCanceledException's own " +
+                "message is 'The operation was canceled', which tells a user nothing surfaced verbatim");
+    }
+
+    [Fact]
+    public async Task CallerCancellationStillUnwindsInsteadOfLookingLikeADeadRig()
+    {
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(RunningState())));
+        await using var _mirror = mirror;
+
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(() => mirror.PollOnceAsync(cancelled.Token));
+        mirror.IsNodeReachable.ShouldBeFalse("shutting down is not evidence about the rig");
+    }
+
+    [Fact]
+    public async Task APreviewThatRunsOutOfBudgetFailsThatFrameOnly()
+    {
+        // The preview path carries its own copy of the caller-vs-budget guard, and a copied guard is
+        // where drift happens. Its budget is the generous one: previews are opt-in and non-critical, so
+        // a missed frame is a skipped update, not an offline rig.
+        var handler = new ScriptedHandler(_ => throw new OperationCanceledException());
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("http://rig.local:1888/") };
+        var client = new TianWenNodeClient(http);
+
+        var result = await client.GetPreviewAsync(
+            otaIndex: 0, quality: null, scale: null, ifNotFrameNumber: null, TestContext.Current.CancellationToken);
+
+        result.HasImage.ShouldBeFalse();
+        result.Error.ShouldBe("No answer within 30s");
+    }
+
     [Fact]
     public async Task AnUnreachableNodeLeavesTheEarlierSightingStanding()
     {
