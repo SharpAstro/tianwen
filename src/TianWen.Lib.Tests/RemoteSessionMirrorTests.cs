@@ -63,12 +63,21 @@ public class RemoteSessionMirrorTests
     private static (RemoteSessionMirror Mirror, ScriptedHandler Handler) BuildMirror(
         Func<HttpRequestMessage, HttpResponseMessage> respond)
     {
+        var (mirror, handler, _) = BuildMirrorWithClock(respond);
+        return (mirror, handler);
+    }
+
+    /// <summary>As <see cref="BuildMirror"/>, but hands back the fake clock for the last-contact tests,
+    /// which have to advance time and assert on the instant that was stamped.</summary>
+    private static (RemoteSessionMirror Mirror, ScriptedHandler Handler, FakeTimeProviderWrapper Clock) BuildMirrorWithClock(
+        Func<HttpRequestMessage, HttpResponseMessage> respond)
+    {
         var handler = new ScriptedHandler(respond);
         var http = new HttpClient(handler) { BaseAddress = new Uri("http://rig.local:1888/") };
         var client = new TianWenNodeClient(http);
         var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 7, 26, 20, 0, 0, TimeSpan.Zero));
         var events = new TianWenEventStream(http.BaseAddress, timeProvider, NullLogger.Instance);
-        return (new RemoteSessionMirror(client, events, timeProvider, NullLogger.Instance), handler);
+        return (new RemoteSessionMirror(client, events, timeProvider, NullLogger.Instance), handler, timeProvider);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -690,4 +699,72 @@ public class RemoteSessionMirrorTests
     [InlineData("https://rig.local:1888/", "wss://rig.local:1888/api/v1/events")]
     public void EventUriIsDerivedFromTheNodeRoot(string baseAddress, string expected) =>
         TianWenEventStream.BuildEventUri(new Uri(baseAddress)).ToString().ShouldBe(expected);
+
+    // -------------------------------------------------------------------------------------------
+    // Last contact -- the live source for "offline, last seen ..."
+    // -------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ANodeThatHasNeverAnsweredHasNoLastContact()
+    {
+        var (mirror, _) = BuildMirror(_ => throw new HttpRequestException("Connection refused"));
+        await using var _mirror = mirror;
+
+        mirror.LastContactUtc.ShouldBeNull("nothing has been asked yet");
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.IsNodeReachable.ShouldBeFalse();
+        mirror.LastContactUtc.ShouldBeNull("a refused connection is not a sighting");
+    }
+
+    [Fact]
+    public async Task AnAnsweredPollStampsLastContact()
+    {
+        var (mirror, _, clock) = BuildMirrorWithClock(
+            _ => Json(ResponseEnvelope<SessionStateDto>.Ok(RunningState())));
+        await using var _mirror = mirror;
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.LastContactUtc.ShouldBe(clock.GetUtcNow());
+    }
+
+    [Fact]
+    public async Task AnIdleNodeStillCountsAsSeen()
+    {
+        // 404 = "no active session", which is the node answering. Treating it as unseen would make an
+        // idle rig look progressively more dead the longer it sat there waiting for dark.
+        var (mirror, _, clock) = BuildMirrorWithClock(
+            _ => Json(ResponseEnvelope<SessionStateDto>.Fail("No active session", 404), HttpStatusCode.NotFound));
+        await using var _mirror = mirror;
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.IsNodeReachable.ShouldBeTrue();
+        mirror.HasSession.ShouldBeFalse();
+        mirror.LastContactUtc.ShouldBe(clock.GetUtcNow());
+    }
+
+    [Fact]
+    public async Task AnUnreachableNodeLeavesTheEarlierSightingStanding()
+    {
+        // The point of the whole field: a rig that dies mid-watch must report when it was last alive,
+        // not "just now" (which a naive stamp-every-poll would give) and not "never".
+        var reachable = true;
+        var (mirror, _, clock) = BuildMirrorWithClock(_ => reachable
+            ? Json(ResponseEnvelope<SessionStateDto>.Ok(RunningState()))
+            : throw new HttpRequestException("Connection refused"));
+        await using var _mirror = mirror;
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+        var seenAt = mirror.LastContactUtc.ShouldNotBeNull();
+
+        reachable = false;
+        clock.Advance(TimeSpan.FromHours(3));
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.IsNodeReachable.ShouldBeFalse();
+        mirror.LastContactUtc.ShouldBe(seenAt, "the sighting is when it last answered, not when we last asked");
+    }
 }

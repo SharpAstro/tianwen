@@ -452,6 +452,12 @@ void RequestQuit()
     // tasks below run, with no imperative Stop() in the quit path.
     backgroundCts.Cancel();
 
+    // Record how recently each watched rig answered, before its mirror goes away with the process.
+    // CancellationToken.None deliberately: backgroundCts is already cancelled above, and this is a
+    // sub-millisecond JSON write per rig, not something worth racing the shutdown for.
+    tracker.Run(() => signalHandler.FlushRigLastSeenAsync(System.Threading.CancellationToken.None),
+        "Record rig last-seen");
+
     // Out-of-session safety: enumerate hub-connected cameras and queue disconnect tasks.
     // Each task checks safety inside (async), then either disconnects cleanly or does a
     // warm-up ramp. CancellationToken.None: thermal ramp must complete for camera safety.

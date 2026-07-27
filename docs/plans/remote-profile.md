@@ -588,7 +588,20 @@ wrong. The star-profile bitmap is a second, smaller payload on the same route.
 
 P4 binds many rigs but shows one at a time -- deliberately, because the overlay model says
 selecting a rig changes what you *look at*. A dashboard is N mirrors polled at once behind a
-compact per-rig card (phase, target, frames, guide RMS, last notification).
+compact per-rig card (rig name, the profile it is running, phase, target, frames, guide RMS, last
+notification, and an outstanding-prompt badge).
+
+Two card details are already settled. **Title is the rig, subtitle is the profile it runs** -- which
+makes the local node just another card rather than a special case, and puts the one field that
+distinguishes two similar rigs (which optical train is on which pier) on every card. And **an offline
+card can state its age**: `RemoteRigBinding.LastSeenUtc` plus the live
+`RemoteSessionMirror.LastContactUtc` landed ahead of the dashboard, so "offline, last seen 6 h ago"
+is available now (`RemoteRigActions.DescribeLastSeen`).
+
+The **prompt badge is arguably the whole justification.** A prompt blocks a rig *indefinitely* -- the
+node holds the run open with no timer, bounded only by observer liveness -- and today it is visible
+only on the rig you happen to have selected. A board that shows "waiting 40 min for someone" is worth
+more than phase, frame count and guide RMS combined.
 
 `RemoteRigRegistry` already holds multiple connections and each `RemoteSessionMirror` polls
 independently, so the real work is the parts that only appear at N: a polling cadence with backoff

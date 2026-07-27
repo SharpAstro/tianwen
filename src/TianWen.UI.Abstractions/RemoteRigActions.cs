@@ -69,19 +69,52 @@ namespace TianWen.UI.Abstractions
                 rigs.Upsert(binding);
                 await RemoteRigPersistence.SaveAsync(binding, external, cancellationToken).ConfigureAwait(false);
                 return new SelectOutcome(NotificationSeverity.Warning,
-                    $"{binding.Alias} is offline{(binding.LastAddress is { } a ? $" (last seen at {a})" : "")}.");
+                    $"{binding.Alias} is offline{DescribeLastSeen(binding, timeProvider.GetUtcNow())}.");
             }
 
             rigs.Attach(connection);
 
             // Persist with wherever it was actually reached, so the next run can try that address before
-            // discovery has caught up.
-            var reached = connection.BindingWithCurrentAddress();
+            // discovery has caught up. The last-seen stamp is NOT set here -- nothing has answered yet;
+            // it lands on the first successful poll (see RemoteRigConnection.TryClaimFirstContact).
+            var reached = connection.BindingAsReached();
             rigs.Upsert(reached);
             await RemoteRigPersistence.SaveAsync(reached, external, cancellationToken).ConfigureAwait(false);
 
             contexts.Activate(connection.Context);
             return new SelectOutcome(NotificationSeverity.Info, $"Watching {binding.Alias} at {connection.Address}");
+        }
+
+        /// <summary>
+        /// The parenthesised "(last seen ...)" tail for an offline rig, or an empty string when we have
+        /// neither a time nor an address to report.
+        /// <para>
+        /// Prefers the age over the address because that is the question actually being asked -- "is this
+        /// rig off for the night or has it been dead for a month" -- and falls back to the address for a
+        /// binding written before it was ever reached. Both together would just be noise.
+        /// </para>
+        /// </summary>
+        public static string DescribeLastSeen(RemoteRigBinding binding, DateTimeOffset now) =>
+            binding.LastSeenUtc is { } seen ? $" (last seen {FormatAge(seen, now)})"
+            : binding.LastAddress is { } address ? $" (last seen at {address})"
+            : "";
+
+        /// <summary>
+        /// A coarse human age: "moments ago" / "12 min ago" / "3 h ago" / "5 days ago".
+        /// <para>
+        /// Relative on purpose -- an absolute time would have to be rendered in the <i>rig's</i> local
+        /// zone to mean anything (a rig three timezones away going quiet at "23:40" tells you nothing),
+        /// and an age sidesteps that entirely. A clock that has gone backwards (an NTP correction, a
+        /// restored VM) yields a negative span, reported as "moments ago" rather than a negative age.
+        /// </para>
+        /// </summary>
+        public static string FormatAge(DateTimeOffset then, DateTimeOffset now)
+        {
+            var age = now - then;
+            return age < TimeSpan.FromMinutes(1) ? "moments ago"
+                : age < TimeSpan.FromHours(1) ? $"{(int)age.TotalMinutes} min ago"
+                : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} h ago"
+                : $"{(int)age.TotalDays} day{((int)age.TotalDays == 1 ? "" : "s")} ago";
         }
 
         /// <summary>

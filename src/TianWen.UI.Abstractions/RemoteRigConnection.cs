@@ -114,11 +114,38 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// The binding updated with wherever the rig was actually reached, so the next run can try it
-        /// before discovery has caught up. Persist this, not the original.
+        /// The binding updated with wherever the rig was actually reached and when it last answered, so
+        /// the next run can try that address before discovery has caught up and can say how long a rig
+        /// has been silent. Persist this, not the original.
+        /// <para>
+        /// The address is known the moment a connection exists; the timestamp is not.
+        /// <see cref="TryConnect"/> makes <b>no HTTP call</b> -- it resolves an endpoint from the peer
+        /// table or the stored hint -- so at connect time we have somewhere to talk to and no evidence
+        /// anyone is listening. Stamping "seen" there would record a rig as reachable purely because it
+        /// was once announced. Hence the fall back to the previous value until the mirror has actually
+        /// had an answer.
+        /// </para>
         /// </summary>
-        public RemoteRigBinding BindingWithCurrentAddress() =>
-            Binding with { LastAddress = Address.ToString() };
+        public RemoteRigBinding BindingAsReached() =>
+            Binding with
+            {
+                LastAddress = Address.ToString(),
+                LastSeenUtc = Mirror.LastContactUtc ?? Binding.LastSeenUtc,
+            };
+
+        /// <summary>
+        /// True exactly once per connection, on the first poll the rig actually answers -- the caller's
+        /// cue to persist <see cref="BindingAsReached"/>.
+        /// <para>
+        /// This plus the flush on quit is what bounds writes to two per rig per run. Polling alone would
+        /// leave a hard kill with no stamp at all; the quit flush alone would leave one with a stamp
+        /// from the previous run.
+        /// </para>
+        /// </summary>
+        public bool TryClaimFirstContact() =>
+            Mirror.LastContactUtc is not null && Interlocked.Exchange(ref _firstContactClaimed, 1) == 0;
+
+        private int _firstContactClaimed;
 
         /// <summary>Pushes the rig's own site onto the context, so the planner and sky map work against
         /// the rig's horizon rather than this computer's.</summary>

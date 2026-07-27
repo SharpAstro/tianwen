@@ -360,6 +360,70 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Stamps <see cref="RemoteRigBinding.LastSeenUtc"/> the first time each connected rig actually
+        /// answers, so an offline rig can report its age after a restart.
+        /// <para>
+        /// One write per rig per run: <see cref="RemoteRigConnection.TryClaimFirstContact"/> is a
+        /// one-shot, so this is a couple of reference comparisons per frame in the steady state and the
+        /// save itself goes through <see cref="RunTracked"/> rather than touching the disk on the render
+        /// thread. The matching flush on quit is what keeps the stamp current for a long watch.
+        /// </para>
+        /// </summary>
+        private void PersistFirstContacts()
+        {
+            var connections = _rigs.Connections;
+            if (connections.IsEmpty) return;
+
+            foreach (var (_, connection) in connections)
+            {
+                if (!connection.TryClaimFirstContact()) continue;
+
+                var reached = connection.BindingAsReached();
+                _rigs.Upsert(reached);
+                RunTracked("PersistRigLastSeen", $"Could not record when {reached.Alias} was last seen",
+                    async ct => await RemoteRigPersistence.SaveAsync(reached, _external, ct));
+            }
+        }
+
+        /// <summary>
+        /// Records how recently every connected rig answered, for the quit path.
+        /// <para>
+        /// Without this a rig watched from dusk to dawn would persist only its first-contact stamp and
+        /// report "last seen 9 h ago" the next morning, having in fact been alive until minutes before.
+        /// Best-effort per rig -- one unwritable file must not stop the others, and nothing here may
+        /// throw into a shutdown sequence that still has cameras to warm.
+        /// </para>
+        /// <para>
+        /// Takes its own token rather than using <c>_cts</c>: that one is cancelled as part of quitting,
+        /// which would cancel this flush before it ran.
+        /// </para>
+        /// </summary>
+        public async Task FlushRigLastSeenAsync(CancellationToken cancellationToken)
+        {
+            var written = 0;
+            var attempted = 0;
+
+            foreach (var (_, connection) in _rigs.Connections)
+            {
+                var reached = connection.BindingAsReached();
+                if (reached.LastSeenUtc is null) continue; // never answered this run; nothing to record
+
+                attempted++;
+                _rigs.Upsert(reached);
+                if (await _logger.CatchAsync(
+                        ct => RemoteRigPersistence.SaveAsync(reached, _external, ct), cancellationToken))
+                {
+                    written++;
+                }
+            }
+
+            if (attempted > 0)
+            {
+                _logger.LogDebug("Recorded last-seen for {Written}/{Attempted} connected rig(s)", written, attempted);
+            }
+        }
+
+        /// <summary>
         /// Polls connected devices for preview telemetry when the Live Session tab is visible
         /// and no session is running. Reads camera, focuser, filter wheel, and mount state
         /// from hub-connected drivers via the active profile's OTA configuration.
@@ -372,6 +436,7 @@ namespace TianWen.UI.Abstractions
             // returns fire. Two plain reference/bool assignments, no device I/O.
             _eqState.BoundRigs = _rigs.Bindings;
             _eqState.RemoteContextActive = _contexts.IsRemoteActive;
+            PersistFirstContacts();
 
             if (LocalLiveSession.IsRunning) return;
 
