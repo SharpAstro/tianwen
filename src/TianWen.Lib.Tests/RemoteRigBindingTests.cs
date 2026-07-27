@@ -61,6 +61,47 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task TheLastSeenStampRoundTripsThroughDisk()
+        {
+            var external = FreshExternal();
+            var seen = new DateTimeOffset(2026, 7, 26, 21, 34, 0, TimeSpan.Zero);
+            var binding = Binding(address: "http://192.168.1.50:1888/") with { LastSeenUtc = seen };
+
+            await RemoteRigPersistence.SaveAsync(binding, external, TestContext.Current.CancellationToken);
+            var loaded = await RemoteRigPersistence.LoadAllAsync(external, null, TestContext.Current.CancellationToken);
+
+            loaded.Length.ShouldBe(1);
+            loaded[0].LastSeenUtc.ShouldBe(seen);
+        }
+
+        [Fact]
+        public async Task ABindingWrittenBeforeTheStampExistedStillLoads()
+        {
+            // The back-compat guard for adding a field to a persisted record: a file from an earlier
+            // build has no lastSeenUtc at all. It must load as "never seen" rather than failing the
+            // parse and taking the rig's binding with it.
+            var external = FreshExternal();
+            var folder = Directory.CreateDirectory(
+                Path.Combine(external.ProfileFolder.FullName, RemoteRigPersistence.FolderName));
+            // PascalCase, matching what RemoteRigJsonContext actually writes -- it configures no naming
+            // policy, and the reader is case-SENSITIVE, so a camelCase fixture would fail to bind the
+            // required members and be skipped as corrupt, passing this test for the wrong reason.
+            var id = Guid.NewGuid();
+            await File.WriteAllTextAsync(
+                Path.Combine(folder.FullName, $"{id}.json"),
+                $$"""
+                {"BindingId":"{{id}}","NodeId":"019f93aa-node","RemoteProfileId":null,"Alias":"Observatory","LastAddress":"http://10.0.0.4:1888/"}
+                """,
+                TestContext.Current.CancellationToken);
+
+            var loaded = await RemoteRigPersistence.LoadAllAsync(external, null, TestContext.Current.CancellationToken);
+
+            loaded.Length.ShouldBe(1);
+            loaded[0].Alias.ShouldBe("Observatory");
+            loaded[0].LastSeenUtc.ShouldBeNull();
+        }
+
+        [Fact]
         public async Task NoBindingsFolderIsNotAnError()
         {
             // First run: nothing has ever been bound.
@@ -188,5 +229,51 @@ namespace TianWen.Lib.Tests
             registry.Bindings.ShouldBeEmpty();
             registry.IsConnected(Guid.NewGuid()).ShouldBeFalse();
         }
+
+        // --- "last seen" wording ---------------------------------------------------------------------
+
+        private static readonly DateTimeOffset Now = new DateTimeOffset(2026, 7, 27, 6, 0, 0, TimeSpan.Zero);
+
+        [Theory]
+        [InlineData(0, "moments ago")]
+        [InlineData(30, "moments ago")]
+        [InlineData(60, "1 min ago")]
+        [InlineData(12 * 60, "12 min ago")]
+        [InlineData(60 * 60, "1 h ago")]
+        [InlineData(3 * 60 * 60 + 59 * 60, "3 h ago")]
+        [InlineData(24 * 60 * 60, "1 day ago")]
+        [InlineData(5 * 24 * 60 * 60, "5 days ago")]
+        public void AnAgeReadsTheWayAPersonWouldSayIt(int secondsAgo, string expected) =>
+            RemoteRigActions.FormatAge(Now - TimeSpan.FromSeconds(secondsAgo), Now).ShouldBe(expected);
+
+        [Fact]
+        public void AClockThatWentBackwardsDoesNotProduceANegativeAge()
+        {
+            // An NTP correction or a restored VM can put the stamp in the future. "-2 h ago" would be
+            // worse than useless, and it is not a state worth a separate message.
+            RemoteRigActions.FormatAge(Now + TimeSpan.FromHours(2), Now).ShouldBe("moments ago");
+        }
+
+        [Fact]
+        public void TheOfflineTailPrefersTheAgeOverTheAddress()
+        {
+            var binding = Binding(address: "http://10.0.0.4:1888/") with { LastSeenUtc = Now.AddHours(-6) };
+
+            RemoteRigActions.DescribeLastSeen(binding, Now).ShouldBe(" (last seen 6 h ago)");
+        }
+
+        [Fact]
+        public void TheOfflineTailFallsBackToTheAddressWhenTheRigWasNeverReached()
+        {
+            // A binding minted from an announcement that was never actually answered: the address is all
+            // we have, and it is still better than nothing.
+            var binding = Binding(address: "http://10.0.0.4:1888/");
+
+            RemoteRigActions.DescribeLastSeen(binding, Now).ShouldBe(" (last seen at http://10.0.0.4:1888/)");
+        }
+
+        [Fact]
+        public void TheOfflineTailIsEmptyWhenThereIsNothingToReport() =>
+            RemoteRigActions.DescribeLastSeen(Binding(), Now).ShouldBe("");
     }
 }

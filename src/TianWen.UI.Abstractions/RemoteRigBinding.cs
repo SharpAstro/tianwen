@@ -48,6 +48,28 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Where the rig was last reachable, e.g. <c>http://192.168.1.50:1888/</c>. A hint only.</summary>
         public string? LastAddress { get; init; }
+
+        /// <summary>
+        /// When the rig last actually answered, or null if it never has. UTC.
+        /// <para>
+        /// <b>Only meaningful across a restart.</b> While a rig is connected the live
+        /// <c>RemoteSessionMirror.LastContactUtc</c> is the truth -- a rig that dies mid-watch keeps its
+        /// connection, so the UI reads the real time from there and this field is not consulted. It
+        /// exists so that after a restart an offline rig can still say "last seen 6 h ago" instead of
+        /// only naming an address that may be years stale.
+        /// </para>
+        /// <para>
+        /// Written twice per rig per run -- on first contact and on a clean quit -- rather than on every
+        /// poll, which at the mirror's 500 ms active cadence would be a disk write twice a second per
+        /// rig. A hard kill therefore leaves the first-contact stamp, which under-reports the age rather
+        /// than inventing one.
+        /// </para>
+        /// <para>
+        /// Distinct from an announcement: LAN.Lib's beacon tells you a rig is alive *now*, which is why
+        /// there is no "last announced" here. This is the last time this app got an answer from it.
+        /// </para>
+        /// </summary>
+        public DateTimeOffset? LastSeenUtc { get; init; }
     }
 
     /// <summary>

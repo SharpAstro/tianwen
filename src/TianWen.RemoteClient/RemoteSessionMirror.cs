@@ -133,6 +133,35 @@ namespace TianWen.RemoteClient
         /// <summary>Error text from the last failed poll, for the UI to surface verbatim.</summary>
         public string? LastError { get; private set; }
 
+        /// <summary>
+        /// When the node last actually answered, or null if it never has this run.
+        /// <para>
+        /// This is the live truth behind "offline, last seen ...", and it needs no persistence to be
+        /// right: a rig that dies mid-watch keeps its connection, so the UI reads the real last-contact
+        /// time from here. <see cref="RemoteRigBinding.LastSeenUtc"/> exists only to answer the same
+        /// question across a restart, when this instance is gone.
+        /// </para>
+        /// <para>
+        /// Written by the poll loop and read from the render thread, so it is stored as UTC <b>ticks in
+        /// a long</b> (0 = never) rather than as the <c>DateTimeOffset?</c> it presents. A nullable
+        /// <c>DateTimeOffset</c> is ~16 bytes: well over pointer size, so an unguarded assignment can
+        /// tear and a reader could see one field's ticks with another's flag.
+        /// </para>
+        /// </summary>
+        public DateTimeOffset? LastContactUtc
+        {
+            get
+            {
+                var ticks = Interlocked.Read(ref _lastContactTicks);
+                return ticks == 0 ? null : new DateTimeOffset(ticks, TimeSpan.Zero);
+            }
+        }
+
+        private long _lastContactTicks;
+
+        private void StampContact() =>
+            Interlocked.Exchange(ref _lastContactTicks, _timeProvider.GetUtcNow().UtcTicks);
+
         /// <summary>Whether the push stream is currently attached (telemetry is still correct without
         /// it, just up to one poll interval behind).</summary>
         public bool IsEventStreamConnected => _events.IsConnected;
@@ -280,6 +309,7 @@ namespace TianWen.RemoteClient
             {
                 IsNodeReachable = true;
                 LastError = null;
+                StampContact();
                 Volatile.Write(ref _snapshot, state);
                 RaiseDerivedEvents(state);
                 await RefreshPreviewsAsync(state, cancellationToken).ConfigureAwait(false);
@@ -292,6 +322,7 @@ namespace TianWen.RemoteClient
                 // that has ended, and reset the change-detection baselines with it.
                 IsNodeReachable = true;
                 LastError = null;
+                StampContact(); // a 404 is the node answering -- "seen" is about the node, not the session
                 Volatile.Write(ref _snapshot, null);
                 _lastGuiderState = null;
                 _lastPhase = SessionPhase.NotStarted;
