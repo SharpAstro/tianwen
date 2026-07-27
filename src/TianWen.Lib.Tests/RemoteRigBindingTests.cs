@@ -1,9 +1,11 @@
-﻿using Shouldly;
+﻿using Microsoft.Extensions.Logging.Abstractions;
+using Shouldly;
 using System;
 using System.Collections.Immutable;
 using System.Linq;
 using System.IO;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -275,5 +277,159 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void TheOfflineTailIsEmptyWhenThereIsNothingToReport() =>
             RemoteRigActions.DescribeLastSeen(Binding(), Now).ShouldBe("");
+
+        // --- Connect-all sweep -----------------------------------------------------------------------
+
+        /// <summary>
+        /// A <b>real</b> clock for the sweep tests, deliberately not <c>FakeTimeProviderWrapper</c>.
+        /// <para>
+        /// A started mirror sleeps between polls via <c>ITimeProvider.SleepAsync</c>, and the fake
+        /// provider's <c>SleepAsync</c> auto-advances -- so with a fake clock the poll loop would
+        /// busy-spin against a dead endpoint for as long as the test lived. On a real clock the idle
+        /// interval is 2 s, so each swept rig polls at most once before the test disposes it.
+        /// </para>
+        /// </summary>
+        private static ITimeProvider RealClock() => new SystemTimeProvider();
+
+        /// <summary>
+        /// An address that fails to connect immediately rather than hanging: port 1 on loopback refuses,
+        /// so a poll fails fast instead of waiting out the request budget.
+        /// </summary>
+        private const string RefusedAddress = "http://127.0.0.1:1/";
+
+        [Fact]
+        public async Task SweepingWithNothingBoundDoesNothing()
+        {
+            var rigs = new RemoteRigRegistry();
+            var contexts = new ViewContexts();
+
+            var outcome = await RemoteRigActions.ConnectAllAsync(
+                rigs, contexts, new GuiAppState(), FreshExternal(), RealClock(), NullLogger.Instance,
+                TestContext.Current.CancellationToken);
+
+            outcome.ShouldBe(new RemoteRigActions.ConnectAllOutcome(0, 0));
+            outcome.DidAnything.ShouldBeFalse();
+            rigs.Connections.ShouldBeEmpty();
+            contexts.All.Length.ShouldBe(1); // still just the local context
+        }
+
+        [Fact]
+        public async Task ARigWithNoReachableAddressIsRecordedAsOfflineRatherThanDropped()
+        {
+            // No peer table and no address hint: nothing to talk to. The binding must survive anyway --
+            // "I own this rig and it is not answering" is information.
+            var external = FreshExternal();
+            var rigs = new RemoteRigRegistry();
+            rigs.SetBindings([Binding(alias: "Shed")]);
+
+            var outcome = await RemoteRigActions.ConnectAllAsync(
+                rigs, new ViewContexts(), new GuiAppState(), external, RealClock(), NullLogger.Instance,
+                TestContext.Current.CancellationToken);
+
+            outcome.ShouldBe(new RemoteRigActions.ConnectAllOutcome(Connected: 0, Offline: 1));
+            rigs.Connections.ShouldBeEmpty();
+            rigs.Bindings.Length.ShouldBe(1);
+
+            var persisted = await RemoteRigPersistence.LoadAllAsync(external, null, TestContext.Current.CancellationToken);
+            persisted.Length.ShouldBe(1);
+            persisted[0].Alias.ShouldBe("Shed");
+            persisted[0].LastSeenUtc.ShouldBeNull(); // never answered, so no stamp is invented
+        }
+
+        [Fact]
+        public async Task SweepingStartsMirrorsWithoutChangingWhatIsOnScreen()
+        {
+            // THE invariant of the sweep: connecting is decoupled from looking. SelectAsync activates;
+            // this must not, or opening the board would hijack the view.
+            var rigs = new RemoteRigRegistry();
+            var contexts = new ViewContexts();
+            rigs.SetBindings([
+                Binding(alias: "Pier A", nodeId: "node-a", address: RefusedAddress),
+                Binding(alias: "Pier B", nodeId: "node-b", address: RefusedAddress),
+            ]);
+
+            try
+            {
+                var outcome = await RemoteRigActions.ConnectAllAsync(
+                    rigs, contexts, new GuiAppState(), FreshExternal(), RealClock(), NullLogger.Instance,
+                    TestContext.Current.CancellationToken);
+
+                outcome.ShouldBe(new RemoteRigActions.ConnectAllOutcome(Connected: 2, Offline: 0));
+                rigs.Connections.Count.ShouldBe(2);
+
+                contexts.Active.ShouldBeSameAs(contexts.Local);
+                contexts.IsRemoteActive.ShouldBeFalse();
+                contexts.All.Length.ShouldBe(3); // local + one per rig, all pollable, none active
+            }
+            finally
+            {
+                await DisposeAllAsync(rigs);
+            }
+        }
+
+        [Fact]
+        public async Task ASweptRigFetchesNoPreviews()
+        {
+            // N mirrors each pulling JPEGs is the failure mode the opt-in exists to prevent, so the
+            // sweep must leave Previews unset.
+            var rigs = new RemoteRigRegistry();
+            rigs.SetBindings([Binding(alias: "Pier A", address: RefusedAddress)]);
+
+            try
+            {
+                await RemoteRigActions.ConnectAllAsync(
+                    rigs, new ViewContexts(), new GuiAppState(), FreshExternal(), RealClock(), NullLogger.Instance,
+                    TestContext.Current.CancellationToken);
+
+                rigs.Connections.Count.ShouldBe(1);
+                rigs.Connections.Single().Value.Mirror.Previews.ShouldBeNull();
+            }
+            finally
+            {
+                await DisposeAllAsync(rigs);
+            }
+        }
+
+        [Fact]
+        public async Task SweepingAgainLeavesAnAlreadyMirroredRigAlone()
+        {
+            // The board can re-open, and a second sweep must not tear down and rebuild live mirrors.
+            var rigs = new RemoteRigRegistry();
+            var contexts = new ViewContexts();
+            var external = FreshExternal();
+            var clock = RealClock();
+            rigs.SetBindings([Binding(alias: "Pier A", address: RefusedAddress)]);
+
+            try
+            {
+                await RemoteRigActions.ConnectAllAsync(
+                    rigs, contexts, new GuiAppState(), external, clock, NullLogger.Instance, TestContext.Current.CancellationToken);
+                var first = rigs.Connections.Single().Value;
+
+                var second = await RemoteRigActions.ConnectAllAsync(
+                    rigs, contexts, new GuiAppState(), external, clock, NullLogger.Instance, TestContext.Current.CancellationToken);
+
+                second.ShouldBe(new RemoteRigActions.ConnectAllOutcome(0, 0));
+                second.DidAnything.ShouldBeFalse();
+                rigs.Connections.Count.ShouldBe(1);
+                rigs.Connections.Single().Value.ShouldBeSameAs(first); // same mirror, not a replacement
+            }
+            finally
+            {
+                await DisposeAllAsync(rigs);
+            }
+        }
+
+        /// <summary>Stops every mirror the test started, so no poll loop outlives the test.</summary>
+        private static async Task DisposeAllAsync(RemoteRigRegistry rigs)
+        {
+            foreach (var (bindingId, _) in rigs.Connections)
+            {
+                if (rigs.Detach(bindingId) is { } connection)
+                {
+                    await connection.DisposeAsync();
+                }
+            }
+        }
     }
 }

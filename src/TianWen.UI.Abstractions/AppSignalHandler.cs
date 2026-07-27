@@ -180,6 +180,15 @@ namespace TianWen.UI.Abstractions
             // Bound rigs, so the profile picker lists them even before discovery has seen one this run --
             // a rig that is switched off must still appear (as offline), not silently disappear.
             _rigs.SetBindings(await RemoteRigPersistence.LoadAllAsync(_external, _logger, cancellationToken));
+
+            // Then start mirroring all of them, WITHOUT putting any on screen. A binding alone has no
+            // live state, so until a mirror runs there is nothing to show per rig; sweeping here is what
+            // makes a multi-rig view possible and makes the picker's online/offline labels true rather
+            // than inferred from a stale address. Previews stay off (opt-in per mirror), so the cost is
+            // one small state poll per rig per tick. No-op when nothing is bound, which is the common
+            // single-scope case.
+            await RemoteRigActions.ConnectAllAsync(
+                _rigs, _contexts, _appState, _external, _timeProvider, _logger, cancellationToken);
             await FetchWeatherForecastAsync(cancellationToken);
             _plannerState.SelectedTargetIndex = 0;
             RefreshSensorFovAndFraming();
