@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using TianWen.Hosting.Api;
+using TianWen.Hosting.Api.Alpaca;
 using TianWen.Hosting.Api.NinaV2;
 using TianWen.Hosting.Dto;
 using TianWen.Hosting.WebSocket;
@@ -49,6 +50,9 @@ public static class HostedSessionServiceCollectionExtensions
         {
             options.SerializerOptions.TypeInfoResolverChain.Insert(0, HostingJsonContext.Default);
             options.SerializerOptions.TypeInfoResolverChain.Insert(1, NinaApiJsonContext.Default);
+            // Alpaca device plane. Its envelopes are PascalCase per the ASCOM spec, which is exactly why
+            // it needs its own context rather than sharing the camelCase one above.
+            options.SerializerOptions.TypeInfoResolverChain.Insert(2, AlpacaServerJsonContext.Default);
         });
 
         return services;
@@ -70,6 +74,11 @@ public static class HostedSessionServiceCollectionExtensions
         app.MapImageApi();
         app.MapPreviewApi();
         app.MapWebSocketEndpoint();
+
+        // ASCOM Alpaca DEVICE plane (docs/plans/remote-profile.md P5). Shares the /api/v1 prefix, which
+        // the Alpaca spec fixes -- no collision, because native v1 uses session/devices/profiles/preview/
+        // image and none of those is an ASCOM device type.
+        app.MapAlpacaApi();
 
         // ninaAPI v2 compatibility shim for Touch N Stars
         app.MapNinaSystemApi();
