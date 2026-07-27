@@ -1,4 +1,8 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -32,6 +36,30 @@ namespace TianWen.RemoteClient
 
         internal static NodeResult<T> Ok(T value) => new NodeResult<T>(value, null, 200);
         internal static NodeResult<T> Fail(string error, int statusCode) => new NodeResult<T>(default, error, statusCode);
+    }
+
+    /// <summary>
+    /// Outcome of a preview fetch. Four states, because "nothing yet", "same frame you already have" and
+    /// "the node is unreachable" are all normal and mean different things to a UI -- collapsing them into
+    /// a null byte array would make an idle rig indistinguishable from a broken link.
+    /// </summary>
+    public readonly record struct PreviewResult(byte[]? Jpeg, long? FrameNumber, bool IsUnchanged, string? Error)
+    {
+        /// <summary>A new frame arrived.</summary>
+        public static PreviewResult Ok(byte[] jpeg, long? frameNumber) => new PreviewResult(jpeg, frameNumber, false, null);
+
+        /// <summary>The node still has the frame the caller already holds; nothing was transferred.</summary>
+        public static PreviewResult Unchanged => new PreviewResult(null, null, true, null);
+
+        /// <summary>No frame has been captured yet (the endpoint 404s).</summary>
+        public static PreviewResult None => new PreviewResult(null, null, false, null);
+
+        /// <summary>The fetch failed.</summary>
+        public static PreviewResult Fail(string error) => new PreviewResult(null, null, false, error);
+
+        /// <summary>True when <see cref="Jpeg"/> holds a frame to decode.</summary>
+        [MemberNotNullWhen(true, nameof(Jpeg))]
+        public bool HasImage => Jpeg is { Length: > 0 };
     }
 
     /// <summary>
@@ -110,6 +138,126 @@ namespace TianWen.RemoteClient
         public Task<NodeResult<string>> ClearTargetsAsync(CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, "api/v1/session/targets", content: null,
                 HostingJsonContext.Default.ResponseEnvelopeString, cancellationToken);
+
+        // ---------------------------------------------------------------------------------
+        // Pushed schedule -- the planner's own plan, not the flat target queue
+        // ---------------------------------------------------------------------------------
+
+        /// <summary>
+        /// <c>POST /session/schedule</c>. Use this, never <see cref="AddTargetAsync"/>, for anything the
+        /// planner produced: <see cref="PendingTarget"/> carries no per-filter plan, no altitude-optimised
+        /// <c>Start</c> and no <c>AcrossMeridian</c>, and <c>/session/start</c> stamps <c>Start = now</c>
+        /// over whatever it drains from the queue.
+        /// </summary>
+        public Task<NodeResult<string>> SetScheduleAsync(ScheduledObservationDto[] schedule, CancellationToken cancellationToken) =>
+            PostAsync(
+                "api/v1/session/schedule",
+                JsonContent.Create(schedule, HostingJsonContext.Default.ScheduledObservationDtoArray),
+                HostingJsonContext.Default.ResponseEnvelopeString,
+                cancellationToken);
+
+        /// <summary><c>DELETE /session/schedule</c>.</summary>
+        public Task<NodeResult<string>> ClearScheduleAsync(CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Delete, "api/v1/session/schedule", content: null,
+                HostingJsonContext.Default.ResponseEnvelopeString, cancellationToken);
+
+        // ---------------------------------------------------------------------------------
+        // Prompts + notifications
+        // ---------------------------------------------------------------------------------
+
+        /// <summary>
+        /// <c>POST /session/prompt/respond</c> -- answers the outstanding prompt.
+        /// <para>
+        /// Answering a prompt whose <c>RequiresPhysicalPresence</c> is set asserts that something was
+        /// physically done at the rig ("the flat panel is switched on"). A remote operator cannot see
+        /// that, so a UI must not present Continue as a neutral default; the node records it at Error
+        /// severity for the same reason.
+        /// </para>
+        /// </summary>
+        public Task<NodeResult<string>> RespondToPromptAsync(bool proceed, CancellationToken cancellationToken) =>
+            PostAsync(
+                $"api/v1/session/prompt/respond?proceed={(proceed ? "true" : "false")}",
+                content: null,
+                HostingJsonContext.Default.ResponseEnvelopeString,
+                cancellationToken);
+
+        /// <summary><c>GET /session/notifications</c> -- the node's ring, newest last.</summary>
+        public Task<NodeResult<NotificationDto[]>> GetNotificationsAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/session/notifications", HostingJsonContext.Default.ResponseEnvelopeNotificationDtoArray, cancellationToken);
+
+        // ---------------------------------------------------------------------------------
+        // Devices + preview
+        // ---------------------------------------------------------------------------------
+
+        /// <summary><c>GET /devices/structured</c> -- URIs, type and live connected state. The plain
+        /// <c>/devices</c> returns pre-formatted display strings a client cannot act on.</summary>
+        public Task<NodeResult<DeviceDto[]>> GetDevicesAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/devices/structured", HostingJsonContext.Default.ResponseEnvelopeDeviceDtoArray, cancellationToken);
+
+        /// <summary>
+        /// <c>GET /preview/{otaIndex}</c> -- the latest frame as JPEG.
+        /// <para>
+        /// <b>Not an envelope endpoint</b>: it answers raw image bytes, so it bypasses
+        /// <see cref="SendAsync"/> entirely. The response carries <c>X-Frame-Number</c>; pass the last one
+        /// you saw as <paramref name="ifNotFrameNumber"/> and the fetch is skipped when nothing new has
+        /// landed (<see cref="PreviewResult.Unchanged"/>). A preview poll that re-downloaded an unchanged
+        /// full-resolution frame twice a second would dominate the link for no benefit.
+        /// </para>
+        /// </summary>
+        public async Task<PreviewResult> GetPreviewAsync(
+            int otaIndex, int? quality, double? scale, long? ifNotFrameNumber, CancellationToken cancellationToken)
+        {
+            var query = new List<string>(2);
+            if (quality is { } q) query.Add($"quality={q}");
+            if (scale is { } s) query.Add($"scale={s.ToString(CultureInfo.InvariantCulture)}");
+            var path = $"api/v1/preview/{otaIndex}{(query.Count > 0 ? "?" + string.Join("&", query) : "")}";
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, path);
+
+            HttpResponseMessage response;
+            try
+            {
+                response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+            {
+                return PreviewResult.Fail(ex.Message);
+            }
+
+            using (response)
+            {
+                if (!response.IsSuccessStatusCode)
+                {
+                    // 404 is the ordinary "no frame captured yet" answer, not a fault to report.
+                    return response.StatusCode is HttpStatusCode.NotFound
+                        ? PreviewResult.None
+                        : PreviewResult.Fail($"{(int)response.StatusCode} {response.ReasonPhrase}");
+                }
+
+                var frameNumber = TryReadFrameNumber(response);
+                if (frameNumber is { } n && n == ifNotFrameNumber)
+                {
+                    return PreviewResult.Unchanged;
+                }
+
+                var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+                return PreviewResult.Ok(bytes, frameNumber);
+            }
+        }
+
+        private static long? TryReadFrameNumber(HttpResponseMessage response)
+            => response.Headers.TryGetValues(PreviewFrameNumberHeader, out var values)
+                && long.TryParse(values.FirstOrDefault(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)
+                ? n
+                : null;
+
+        /// <summary>Change token the preview endpoint stamps on every response.</summary>
+        public const string PreviewFrameNumberHeader = "X-Frame-Number";
 
         // ---------------------------------------------------------------------------------
         // Profiles

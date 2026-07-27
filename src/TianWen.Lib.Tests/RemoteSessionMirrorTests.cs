@@ -75,9 +75,45 @@ public class RemoteSessionMirrorTests
     // Sample state
     // -------------------------------------------------------------------------------------------
 
-    private static SessionStateDto RunningState(
+    /// <summary>One OTA's camera state per index. Extracted so <paramref name="count"/> can vary without
+    /// a second hand-written DTO going stale the next time a required member is added.</summary>
+    private static ImmutableArray<OtaCameraStateDto> SampleCameras(int count)
+    {
+        var builder = ImmutableArray.CreateBuilder<OtaCameraStateDto>(count);
+        for (var i = 0; i < count; i++)
+        {
+            builder.Add(new OtaCameraStateDto
+            {
+                OtaIndex = i,
+                CameraName = $"Fake Camera {i + 1} (IMX294C)",
+                HasFocuser = true,
+                HasFilterWheel = false,
+                State = nameof(CameraState.Exposing),
+                ExposureStart = new DateTimeOffset(2026, 7, 26, 20, 0, 0, TimeSpan.Zero),
+                SubExposureSeconds = 120,
+                FrameNumber = 7,
+                FilterName = "L",
+                FocusPosition = 980,
+                FocuserTemperature = 15.0,
+                FocuserIsMoving = false,
+                StarCount = 412,
+                MedianHfd = 3.1f,
+                MedianFwhm = 2.4f,
+                SensorTemperatureC = -9.8,
+                SetpointTemperatureC = -10.0,
+                CoolerPowerPercent = 41.5,
+            });
+        }
+        return builder.MoveToImmutable();
+    }
+
+    /// <summary>Shared with <see cref="RemoteSessionMirrorDriveTests"/> so one sample shape serves both
+    /// suites and a newly-required DTO member breaks in exactly one place.</summary>
+    internal static SessionStateDto RunningState(
         SessionPhase phase = SessionPhase.Observing,
-        string? guiderState = "Guiding") => new SessionStateDto
+        string? guiderState = "Guiding",
+        int otaCount = 1,
+        PendingPromptDto? pendingPrompt = null) => new SessionStateDto
         {
             Phase = phase,
             CurrentActivity = "Imaging M42 (3/12)",
@@ -116,30 +152,8 @@ public class RemoteSessionMirrorTests
                     },
                 ],
             },
-            Cameras =
-            [
-                new OtaCameraStateDto
-                {
-                    OtaIndex = 0,
-                    CameraName = "Fake Camera 1 (IMX294C)",
-                    HasFocuser = true,
-                    HasFilterWheel = false,
-                    State = nameof(CameraState.Exposing),
-                    ExposureStart = new DateTimeOffset(2026, 7, 26, 20, 0, 0, TimeSpan.Zero),
-                    SubExposureSeconds = 120,
-                    FrameNumber = 7,
-                    FilterName = "L",
-                    FocusPosition = 980,
-                    FocuserTemperature = 15.0,
-                    FocuserIsMoving = false,
-                    StarCount = 412,
-                    MedianHfd = 3.1f,
-                    MedianFwhm = 2.4f,
-                    SensorTemperatureC = -9.8,
-                    SetpointTemperatureC = -10.0,
-                    CoolerPowerPercent = 41.5,
-                },
-            ],
+            Cameras = SampleCameras(otaCount),
+            PendingPrompt = pendingPrompt,
             Observations =
             [
                 new ObservationDto

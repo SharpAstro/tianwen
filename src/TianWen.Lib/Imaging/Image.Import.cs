@@ -229,8 +229,14 @@ public partial class Image
     /// the SDK <c>byte[]</c> through this — a per-frame temp-file round-trip would dominate a
     /// 15-30 fps stream. A camera-processed EVF JPEG is demosaiced RGB, so it decodes to a
     /// 3-channel <see cref="Image"/> the live-stack pipeline consumes as a colour master.
+    /// <para>
+    /// Public because the same "bytes off a wire, no temp file" need exists outside this assembly:
+    /// <c>RemoteSessionMirror</c> decodes the node's JPEG preview frames through it
+    /// (docs/plans/remote-profile.md). Both callers are streams, where a per-frame file round-trip
+    /// would dominate the cost.
+    /// </para>
     /// </summary>
-    internal static bool TryDecodeRaster(byte[] bytes, [NotNullWhen(true)] out Image? image)
+    public static bool TryDecodeRaster(byte[] bytes, [NotNullWhen(true)] out Image? image)
     {
         try
         {

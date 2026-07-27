@@ -18,6 +18,15 @@ using GuiderStateChangedEventArgs = TianWen.Lib.Sequencing.GuiderStateChangedEve
 namespace TianWen.RemoteClient
 {
     /// <summary>
+    /// How a mirror should pull preview frames. Both knobs trade link cost against fidelity, and both
+    /// are applied by the node's encoder, so a downscaled preview costs the link only what it is worth.
+    /// </summary>
+    /// <param name="Quality">JPEG quality 1-100; null uses the node's default (80).</param>
+    /// <param name="Scale">Downscale factor in (0, 1); null or out of range means full resolution. A
+    /// thumbnail strip wants something like 0.25.</param>
+    public readonly record struct PreviewOptions(int? Quality = null, double? Scale = null);
+
+    /// <summary>
     /// A session running on another node, observed as an <see cref="ISessionTelemetry"/>.
     /// <para>
     /// This is the payoff of the P3.1 split: the Live Session and Guider tabs, and every helper that
@@ -36,12 +45,20 @@ namespace TianWen.RemoteClient
     /// <para>
     /// <b>Fidelity.</b> Everything in <see cref="SessionStateDto"/> is faithful (phase, activity,
     /// failure reason, counters, mount pointing + name, per-OTA camera/focus/filter state and display
-    /// facts, guide stats + sample ring, schedule, phase timeline). Fields with no wire representation
-    /// yet return empty rather than guessing, and each says why below; the tabs already handle empty
-    /// because a local session starts out that way too. <see cref="PlateSolveHistory"/> and
-    /// <see cref="ExposureLog"/> are <b>event-sourced</b> rather than read from the snapshot: the node
-    /// broadcasts every solve and every written frame but carries neither history in its state, so both
-    /// cover everything since this mirror attached.
+    /// facts, guide stats + sample ring, schedule, phase timeline, cooling ramp, focus history and
+    /// exposure log). Preview frames are fetched as JPEG and decoded here when
+    /// <see cref="Previews"/> is set. Fields with no wire representation yet return empty rather than
+    /// guessing, and each says why below; the tabs already handle empty because a local session starts
+    /// out that way too. <see cref="PlateSolveHistory"/> is <b>event-sourced</b> rather than read from
+    /// the snapshot -- the node broadcasts every solve but carries no history in its state -- so it
+    /// covers only what has happened since this mirror attached.
+    /// </para>
+    /// <para>
+    /// <b>Driving, not just watching.</b> <see cref="StartAsync"/> / <see cref="StartFlatsAsync"/> /
+    /// <see cref="AbortAsync"/> and the prompt round-trip make this a control surface as well as an
+    /// observation one. They are declared on the mirror rather than on
+    /// <see cref="ISessionTelemetry"/>, which a local <c>Session</c> also implements and which must stay
+    /// a read-only contract.
     /// </para>
     /// </summary>
     public sealed class RemoteSessionMirror : ISessionTelemetry, IAsyncDisposable
@@ -73,6 +90,18 @@ namespace TianWen.RemoteClient
         // the node broadcasts one itself. Only touched by the poll loop.
         private string? _lastGuiderState;
         private SessionPhase _lastPhase = SessionPhase.NotStarted;
+
+        // Identity of the prompt already raised locally, so the poll (which sees the same outstanding
+        // prompt on every tick until it is answered) raises it exactly once. Only touched by the poll
+        // loop. Cleared when the node reports no prompt, so a later prompt with identical wording -- the
+        // same panel, the next filter -- is raised again rather than swallowed as a duplicate.
+        private string? _raisedPromptKey;
+
+        // Decoded preview frames, one slot per OTA, and the frame number each slot holds. Published by
+        // reference swap: the poll loop decodes off the render thread and the render thread reads the
+        // array per frame.
+        private Image?[] _previews = [];
+        private long?[] _previewFrameNumbers = [];
 
         private CancellationTokenSource? _cts;
         private Task? _pollLoop;
@@ -149,6 +178,77 @@ namespace TianWen.RemoteClient
         }
 
         // -----------------------------------------------------------------------------------------
+        // Driving the rig
+        //
+        // Deliberately NOT on ISessionTelemetry, which is a read-only observation contract that a
+        // local Session also implements -- putting start/abort there would imply any telemetry source
+        // can be commanded. These are mirror-specific, so a caller has to hold a RemoteSessionMirror
+        // (i.e. know it is driving a rig) to reach them.
+        //
+        // Every one of them is a bare pass-through to the node plus a log line. The node applies its
+        // own rules -- 409 while a session is running, its ProfileSwitchGate, its device ownership --
+        // and its refusal text is surfaced verbatim rather than second-guessed here. A client that
+        // pre-judged would eventually disagree with the rig about the rig's own state.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Pushes a planner-built schedule, then starts the run. Two calls rather than one because the
+        /// node keeps them separate: <c>/session/start</c> drains whatever schedule is pending.
+        /// <para>
+        /// A caller with a real plan must come through here and not through the target queue --
+        /// <c>PendingTarget</c> drops the per-filter plan, the altitude-optimised start time and
+        /// <c>AcrossMeridian</c>, and start would stamp <c>Start = now</c> over the result.
+        /// </para>
+        /// </summary>
+        public async Task<NodeResult<string>> StartAsync(
+            ScheduledObservationDto[] schedule, Guid? profileId, CancellationToken cancellationToken)
+        {
+            if (schedule.Length > 0)
+            {
+                var pushed = await _client.SetScheduleAsync(schedule, cancellationToken).ConfigureAwait(false);
+                if (!pushed.IsSuccess)
+                {
+                    // Do NOT start anyway: a start after a failed push would run the node's own stale or
+                    // empty schedule, which looks like success and images the wrong thing all night.
+                    _logger.LogWarning("Pushing {Count} observations to {Node} failed: {Error}",
+                        schedule.Length, _client.BaseAddress, pushed.Error);
+                    return pushed;
+                }
+            }
+
+            _logger.LogInformation("Starting a session on {Node} with {Count} scheduled observation(s)",
+                _client.BaseAddress, schedule.Length);
+            return await _client.StartSessionAsync(profileId, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>Starts an on-demand flat run on the node.</summary>
+        public Task<NodeResult<string>> StartFlatsAsync(FlatsRequestDto request, Guid? profileId, CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("Starting a flat run on {Node}", _client.BaseAddress);
+            return _client.StartFlatsAsync(request, profileId, cancellationToken);
+        }
+
+        /// <summary>Aborts the node's running session. Its finaliser still runs (park, warm, close).</summary>
+        public Task<NodeResult<string>> AbortAsync(CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("Aborting the session on {Node}", _client.BaseAddress);
+            return _client.AbortSessionAsync(cancellationToken);
+        }
+
+        /// <summary>Clears any schedule pushed but not yet started.</summary>
+        public Task<NodeResult<string>> ClearScheduleAsync(CancellationToken cancellationToken) =>
+            _client.ClearScheduleAsync(cancellationToken);
+
+        /// <summary>The node's own notification ring -- what it recorded, including anything that
+        /// happened before this mirror attached.</summary>
+        public Task<NodeResult<NotificationDto[]>> GetNotificationsAsync(CancellationToken cancellationToken) =>
+            _client.GetNotificationsAsync(cancellationToken);
+
+        /// <summary>The node's devices with live connected state, for a remote Equipment view.</summary>
+        public Task<NodeResult<DeviceDto[]>> GetDevicesAsync(CancellationToken cancellationToken) =>
+            _client.GetDevicesAsync(cancellationToken);
+
+        // -----------------------------------------------------------------------------------------
         // Poll loop
         // -----------------------------------------------------------------------------------------
 
@@ -182,6 +282,7 @@ namespace TianWen.RemoteClient
                 LastError = null;
                 Volatile.Write(ref _snapshot, state);
                 RaiseDerivedEvents(state);
+                await RefreshPreviewsAsync(state, cancellationToken).ConfigureAwait(false);
                 return;
             }
 
@@ -194,6 +295,8 @@ namespace TianWen.RemoteClient
                 Volatile.Write(ref _snapshot, null);
                 _lastGuiderState = null;
                 _lastPhase = SessionPhase.NotStarted;
+                _raisedPromptKey = null;
+                ClearPreviews();
                 return;
             }
 
@@ -210,6 +313,115 @@ namespace TianWen.RemoteClient
         /// Raising <see cref="PhaseChanged"/> from both paths is safe because the poll fires only on an
         /// actual transition of its own baseline.
         /// </summary>
+        /// <summary>
+        /// Whether to fetch preview frames at all, and how. Off by default: a mirror is often attached
+        /// just to watch phase and counters (a multi-rig dashboard), and previews are by far the most
+        /// expensive thing on the link. A UI that actually shows thumbnails turns them on.
+        /// </summary>
+        public PreviewOptions? Previews { get; set; }
+
+        /// <summary>
+        /// Pulls each OTA's latest preview, skipping any whose frame number the mirror already holds.
+        /// <para>
+        /// Runs on the poll loop, so decode never touches the render thread. Frames are fetched
+        /// sequentially rather than in parallel: a multi-OTA rig is normally on the far end of a home
+        /// LAN or a VPN, and N concurrent full-frame JPEGs would spike latency for the state poll that
+        /// everything else depends on.
+        /// </para>
+        /// </summary>
+        private async Task RefreshPreviewsAsync(SessionStateDto state, CancellationToken cancellationToken)
+        {
+            if (Previews is not { } options)
+            {
+                return;
+            }
+
+            var otaCount = state.Cameras.IsDefaultOrEmpty ? 0 : state.Cameras.Length;
+            if (otaCount == 0)
+            {
+                ClearPreviews();
+                return;
+            }
+
+            var images = Volatile.Read(ref _previews);
+            var numbers = _previewFrameNumbers;
+            if (images.Length != otaCount)
+            {
+                images = new Image?[otaCount];
+                numbers = new long?[otaCount];
+            }
+            else
+            {
+                // Copy before mutating: the render thread may be reading the published array right now.
+                images = (Image?[])images.Clone();
+                numbers = (long?[])numbers.Clone();
+            }
+
+            var changed = images.Length != otaCount;
+            for (var i = 0; i < otaCount; i++)
+            {
+                PreviewResult result;
+                try
+                {
+                    result = await _client
+                        .GetPreviewAsync(i, options.Quality, options.Scale, numbers[i], cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+
+                if (result.IsUnchanged)
+                {
+                    continue;
+                }
+
+                if (result.Error is { } error)
+                {
+                    // A preview failure must never blank the telemetry: keep the last frame and let the
+                    // state poll go on reporting. Debug, not Warning -- a link too slow for previews
+                    // would otherwise flood the log every poll.
+                    _logger.LogDebug("Preview fetch for OTA {Ota} on {Node} failed: {Error}", i, _client.BaseAddress, error);
+                    continue;
+                }
+
+                if (!result.HasImage)
+                {
+                    // No frame captured yet.
+                    continue;
+                }
+
+                if (Image.TryDecodeRaster(result.Jpeg, out var decoded))
+                {
+                    images[i] = decoded;
+                    numbers[i] = result.FrameNumber;
+                    changed = true;
+                }
+                else
+                {
+                    _logger.LogDebug("Preview frame for OTA {Ota} on {Node} did not decode", i, _client.BaseAddress);
+                }
+            }
+
+            if (changed)
+            {
+                _previewFrameNumbers = numbers;
+                Volatile.Write(ref _previews, images);
+            }
+        }
+
+        private void ClearPreviews()
+        {
+            if (Volatile.Read(ref _previews).Length == 0)
+            {
+                return;
+            }
+
+            _previewFrameNumbers = [];
+            Volatile.Write(ref _previews, []);
+        }
+
         private void RaiseDerivedEvents(SessionStateDto state)
         {
             if (state.Phase != _lastPhase)
@@ -228,6 +440,79 @@ namespace TianWen.RemoteClient
                 {
                     GuiderStateChanged?.Invoke(this, new GuiderStateChangedEventArgs(old, guiderState));
                 }
+            }
+
+            RaisePromptIfNew(state.PendingPrompt);
+        }
+
+        /// <summary>
+        /// Raises <see cref="PromptRequested"/> the first time a given prompt is seen, wiring its
+        /// <c>Respond</c> to <c>POST /session/prompt/respond</c>.
+        /// </summary>
+        private void RaisePromptIfNew(PendingPromptDto? pending)
+        {
+            if (pending is null)
+            {
+                _raisedPromptKey = null;
+                return;
+            }
+
+            var key = $"{pending.Title} {pending.Message}";
+            if (string.Equals(key, _raisedPromptKey, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _raisedPromptKey = key;
+
+            if (_promptRequested is not { } handler)
+            {
+                // Nobody is listening. Deliberately do NOT answer on the node's behalf: the node already
+                // resolved that question for itself before ever broadcasting (it answers its own
+                // DefaultIfUnanswerable when no observer is attached). A second opinion from here would
+                // be a client fabricating a decision about hardware it cannot see.
+                _logger.LogDebug("Remote prompt '{Title}' from {Node} has no local handler", pending.Title, _client.BaseAddress);
+                return;
+            }
+
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            handler(this, new SessionPromptEventArgs(
+                pending.Title,
+                pending.Message,
+                pending.ContinueLabel,
+                pending.CancelLabel,
+                completion,
+                pending.RequiresPhysicalPresence,
+                // The node owns the unattended policy and has already applied it if it was going to; a
+                // prompt that reached us is one it decided to hold. Nothing here should re-derive it.
+                defaultIfUnanswerable: false));
+
+            _ = ForwardPromptAnswerAsync(completion.Task, pending.Title);
+        }
+
+        private async Task ForwardPromptAnswerAsync(Task<bool> answer, string title)
+        {
+            bool proceed;
+            try
+            {
+                proceed = await answer.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Local handler for remote prompt '{Title}' faulted; not answering", title);
+                return;
+            }
+
+            // Its own token: the answer must reach the node even as this mirror is being torn down --
+            // a UI answering "Cancel" and then closing the rig view is the ordinary way to decline, and
+            // dropping the POST would leave the run held open.
+            var result = await _client.RespondToPromptAsync(proceed, CancellationToken.None).ConfigureAwait(false);
+            if (!result.IsSuccess)
+            {
+                // 404 here is benign and expected: the node resolved the prompt itself first (its last
+                // observer dropped, or the run was aborted).
+                _logger.LogInformation("Answering remote prompt '{Title}' with {Answer} was not accepted: {Error}",
+                    title, proceed, result.Error);
             }
         }
 
@@ -634,9 +919,15 @@ namespace TianWen.RemoteClient
         /// remote-profile.md Part 2 item 3).</summary>
         public SettleProgress? GuiderSettleProgress => null;
 
-        /// <summary>Empty: needs the per-OTA preview endpoint (Part 2 item 1). Until then a mirrored
-        /// session shows telemetry without thumbnails.</summary>
-        public Image?[] LastCapturedImages => [];
+        /// <summary>
+        /// The node's per-OTA preview frames, fetched as JPEG and decoded by the poll loop.
+        /// <para>
+        /// Unlike a local session -- where this array hands out a <b>pinned camera buffer</b> the caller
+        /// must not retain -- these are ordinary decoded images owned by the mirror. There is nothing to
+        /// release, and no risk of starving a camera's recycle loop by holding one.
+        /// </para>
+        /// </summary>
+        public Image?[] LastCapturedImages => Volatile.Read(ref _previews);
 
         /// <summary>Local-only (tier 3): the guide-camera frame and star visuals are pixel streams no
         /// endpoint serves.</summary>
@@ -690,12 +981,19 @@ namespace TianWen.RemoteClient
         public event EventHandler<GuiderStateChangedEventArgs>? GuiderStateChanged;
 
         /// <summary>
-        /// Never raised yet: answering a prompt needs BOTH halves of Part 2 item 2 -- the node has to
-        /// broadcast the request AND accept the response -- because
-        /// <see cref="SessionPromptEventArgs.Respond"/> has to reach back across the wire. Until then a
-        /// remote flat run with a hand-switched panel auto-proceeds node-side, exactly as a headless CLI
-        /// run does, so nothing blocks waiting for a click that can never arrive.
+        /// Raised when the node reports an outstanding prompt, with a <see cref="SessionPromptEventArgs.Respond"/>
+        /// that POSTs the answer back to the node.
+        /// <para>
+        /// <b>Sourced from the poll, not the broadcast</b> -- deliberately, and this is the case that
+        /// shows why polling is authoritative here. A prompt delivered only by <c>PROMPT-REQUESTED</c>
+        /// would be unanswerable by a client that attached after it fired, or whose socket dropped and
+        /// reconnected while it stood: the node would hold the run open forever waiting for an answer
+        /// from a UI that never learned there was a question. Carrying it on <c>/session/state</c> means
+        /// any client that can see the rig can also unblock it.
+        /// </para>
+        /// <para>
         /// Explicit accessors for the same reason as <see cref="ScoutCompleted"/>.
+        /// </para>
         /// </summary>
         public event EventHandler<SessionPromptEventArgs>? PromptRequested
         {
