@@ -1,6 +1,6 @@
 # Remote Profile: mirror a rig's tianwen-server in the GUI "as if local"
 
-**Status: P1 DONE (2026-07-24).** Trigger: several rigs have a mini PC on the
+**Status: P1-P5 DONE (2026-07-27).** Trigger: several rigs have a mini PC on the
 same (or reachable) LAN running the capture stack; the main computer should show everything that
 is happening on a rig **as if the GUI ran on that machine directly**. The existing
 `tianwen-server` (headless REST + WebSocket) is the node-side runtime -- this plan adds discovery
@@ -336,9 +336,24 @@ Switch, Telescope). So native v1 remains the session plane by necessity. Divisio
 rig's `Session` holds borrowed drivers, so an Alpaca client issuing `startexposure` / `slewtocoordinates`
 on the same camera creates two masters. Alpaca cannot express "a session owns this" natively, but it
 *can* return an error number, so the facade must be session-aware even though the protocol is not.
-Proposed rule: **session running -> device endpoints are read-only** (state/telemetry fine, actuation
-refused); **no session -> full control**; and a remote `Connected = false` must never disconnect a
-session-owned driver.
+
+**Resolved (2026-07-27), and the first proposal was wrong.** That proposal was *"session running ->
+device endpoints are read-only"*, which would have bricked the plane exactly when it matters: every
+standard Alpaca client PUTs `Connected = true` before reading anything, so a blanket read-only mode
+makes a running rig **unreadable**. It was also the wrong layer -- the question "may I touch this
+device?" is not an Alpaca question at all. The same gap was already live **locally**: five UI call
+sites each guarded on `LiveSessionState.IsRunning`, which is false during a flat run (the very reason
+`HasActiveRun` exists), and `GetDisconnectSafetyAsync` returns `Safe` for anything that is not a
+camera -- so the mount could be disconnected out from under a session with no warning, after which
+`ResilientCall` silently reconnected it.
+
+Ownership therefore lives on `IDeviceHub` as a **lease** (see CLAUDE.md, "Device Ownership"), which is
+the one thing the GUI, TUI, hosted API and this plane all share. The Alpaca facade needs no bespoke
+policy: it asks `DeviceOwnershipGate` and returns `0x40B` with the gate's own wording. The rules that
+actually shipped: **reads always allowed** (watching a rig must cost it nothing); **`Connected = true`
+always allowed** (it is the client preamble); **`Connected = false` refused while a run owns the
+device** -- the invariant this section named, now enforced by the hub itself and not merely by the
+facade remembering to check; **actuation refused** while leased. Escalation is explicit: stop the run.
 
 **Scoping.** Two very different bars: (a) *our own* `AlpacaClient` + the six drivers work -- a known,
 enumerable endpoint subset, and it yields a free round-trip test (our client against our server, with
@@ -514,7 +529,7 @@ plain interfaces, so remote implementations slot in without tab changes.
 | P2 | **DONE (2026-07-26)** -- preview endpoint (+ a shared stretch-correct encoder the nina shim now uses too), prompt bridging (with the headless auto-proceed guarantee preserved), `GUIDER-STATE-CHANGED` + `GUIDE-STEP`, structured devices, notification ring, telemetry depth, schedule-fidelity target DTO (2.1-2.6, 2.8). Item 2.7 landed with P1; 2.9 is P5 | -- |
 | P3 | **DONE (2026-07-27)** -- `ISessionTelemetry` extraction, per-view-context `LiveSessionState`, `TianWen.Hosting.Contracts` split, `TianWen.RemoteClient` (`TianWenNodeClient` + `TianWenEventStream`) and `RemoteSessionMirror`, with the deep-telemetry arrays filled from the snapshot and the client-side remainder landed: preview JPEGs into `LastCapturedImages` (opt-in, `X-Frame-Number`-gated), the prompt round-trip (raised from the snapshot so a late-attaching client can still unblock the rig), and start / flats / abort / `POST /session/schedule` driven through the mirror | P2 (done) |
 | P4 | **DONE (2026-07-27)** -- `RemoteRigBinding` (keyed on the LAN.Lib stable node id, never the address or name) persisted one-file-per-rig under `AppData/RemoteProfiles`; `RemoteRigConnection` resolves the address per connect (peer table, then the stored hint) and hands its `RemoteSessionMirror` to a `ViewContext` so the tabs render a rig unchanged; the profile picker binds on first select, lists bound-but-undiscovered rigs as offline, and offers the way back to local; the `RequiresPhysicalPresence` warning is finally rendered | P1, P3 |
-| P5 | Out-of-session remote device control: **either** the bespoke hub API (2.9) + `RemoteDeviceHub` + driver proxies, **or** an Alpaca server on the node consumed by the existing `AddAlpaca()` (see the 2.9 candidate above -- strongly preferred; no client-side code, ImageBytes free). Preview mode + Equipment tab remote control | P3 (the Alpaca-server route needs only P1, so it can land earlier) |
+| P5 | **DONE (2026-07-27)** -- served as an **ASCOM Alpaca device plane** (the candidate below, not the bespoke hub API): `MapAlpacaApi` exposes telescope / camera / focuser / filterwheel / covercalibrator over `/api/v1/{type}/{n}/{member}` plus the management API, with the camera's `imagearray` as binary ImageBytes. Device numbers come from the ACTIVE PROFILE in profile order (discovery order varies between scans; a number that moved would point a client at different hardware). Ownership is the P0 lease: actuation and a remote `Connected=false` answer `0x40B` with the gate's own wording, while reads and `Connected=true` always pass. Client side needed no new code -- pinned by 14 round-trip tests driving our own `AlpacaClient` against our own server | P3 (the Alpaca route needed only P1) |
 | Deferred | Hosted polar-alignment/planetary modes (server-side orchestration), profile editing, guide-cam image stream, auth/TLS, WAN relay, multi-rig dashboard | -- |
 
 P1 and P2 are independent and can run in parallel. P3 is the headline ("as if local" session

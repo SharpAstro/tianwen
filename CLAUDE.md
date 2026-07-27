@@ -1065,6 +1065,25 @@ the same pipeline as the GPU viewer and the CPU/TUI renderer. The shim previousl
 reintroduce a private normalisation here. It also only ever *reads* the session's frame
 (`DebayerAsync(normalizeToUnit: false)`), because `LastCapturedImages` pins a recycled camera buffer.
 
+**ASCOM Alpaca device plane (`/api/v1/{deviceType}/{n}/{member}` + `/management/...`).** The node also
+serves its devices over Alpaca (`MapAlpacaApi`), so a remote TianWen consumes them with the existing
+`AddAlpaca()` and no new client code. Three things to know before touching it:
+
+- **It is a device plane and cannot become the session plane.** Alpaca has no vocabulary for session
+  lifecycle, schedule, phase, prompts, notifications, autofocus or flats -- and no Guider device type at
+  all. Native v1 stays the session plane by necessity.
+- **Ownership is the hub lease, not an Alpaca policy.** Actuation and `Connected=false` answer `0x40B`
+  with `DeviceOwnershipGate.Describe()`; reads and `Connected=true` always pass. Never make the plane
+  read-only during a session -- every standard client PUTs `Connected=true` before reading, so that
+  would make a running rig unreadable.
+- **Device numbers come from the ACTIVE PROFILE, in profile order** -- never from discovery, whose order
+  varies between scans; a number that moved would point a client at different hardware mid-session.
+
+Failures are **HTTP 200 with a non-zero ErrorNumber** (the spec reserves 4xx for malformed requests).
+Each payload type needs its own `AlpacaResponse<T>` registration in `AlpacaServerJsonContext` (the
+generic-envelope form of the no-`ResponseEnvelope<object>` rule). Pinned by
+`AlpacaServerRoundTripTests`, which drives our own `AlpacaClient` against our own server.
+
 **Native-AOT correctness (the `tianwen-server` binary is `PublishAot=true`).** Three things keep the
 minimal API working under AOT — none are optional, and a normal `dotnet build` will NOT flag a
 regression (the IL2026/IL3050 trim/AOT warnings only surface on `dotnet publish -r <rid>`):
