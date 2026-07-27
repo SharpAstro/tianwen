@@ -63,6 +63,55 @@ namespace TianWen.RemoteClient
     }
 
     /// <summary>
+    /// Per-request time budgets for one node.
+    /// <para>
+    /// <b>Why not a single <see cref="HttpClient.Timeout"/>:</b> one client serves both a ~2 KB state
+    /// poll and a multi-megabyte preview JPEG, and no single value fits. Tight enough to notice a dead
+    /// rig would abort previews on a marginal link; loose enough for previews leaves the UI asserting a
+    /// rig is alive long after it stopped answering. The client's own <c>Timeout</c> stays a loose
+    /// backstop so a call that forgets a budget degrades to slow rather than to unbounded.
+    /// </para>
+    /// <para>
+    /// These matter because a rig that is switched off usually does not <i>refuse</i> the connection --
+    /// that would fail instantly. It black-holes the packets, so the caller waits out the full budget.
+    /// </para>
+    /// </summary>
+    /// <param name="StatePoll">
+    /// <c>GET /session/state</c> -- the liveness signal, so this sets how fast a dead rig is noticed
+    /// (worst case = this plus the poll interval, so ~7 s at the idle cadence).
+    /// <para>
+    /// Not tighter: a mini PC mid-frame-download, a GC pause or a Wi-Fi retry can legitimately blow past
+    /// a second, and a card flapping between online and offline is worse than a couple of seconds of
+    /// staleness. Better slightly slow to declare death than crying wolf on a healthy rig.
+    /// </para>
+    /// </param>
+    /// <param name="Preview">
+    /// Preview frames. Generous because they are opt-in and non-critical -- a preview that misses its
+    /// budget simply does not update this tick -- while the payload is genuinely large: a couple of
+    /// megabytes over weak 2.4 GHz Wi-Fi is legitimately several seconds.
+    /// </param>
+    /// <param name="Control">
+    /// Everything else: start / abort / flats, schedule and target pushes, prompt replies, and the
+    /// one-shot profile / device / notification reads. One-shot and consequential -- an abort in
+    /// particular should either work or say that it did not, rather than hang.
+    /// </param>
+    public readonly record struct NodeTimeouts(TimeSpan StatePoll, TimeSpan Preview, TimeSpan Control)
+    {
+        /// <summary>The shipping values. A client that is not handed others uses these.</summary>
+        public static readonly NodeTimeouts Default = new NodeTimeouts(
+            StatePoll: TimeSpan.FromSeconds(5),
+            Preview: TimeSpan.FromSeconds(30),
+            Control: TimeSpan.FromSeconds(10));
+
+        /// <summary>
+        /// Backstop for <see cref="HttpClient.Timeout"/>: above every budget above, so the per-request
+        /// values are what actually bite, but finite so a future call site that forgets one is merely
+        /// slow instead of hanging forever.
+        /// </summary>
+        public static readonly TimeSpan ClientBackstop = TimeSpan.FromSeconds(60);
+    }
+
+    /// <summary>
     /// Typed client for one node's native v1 API (<c>/api/v1/...</c>).
     /// <para>
     /// Takes an <see cref="HttpClient"/> whose <see cref="HttpClient.BaseAddress"/> is the node root, so
@@ -76,10 +125,38 @@ namespace TianWen.RemoteClient
     /// layers those on top.
     /// </para>
     /// </summary>
-    public sealed class TianWenNodeClient(HttpClient httpClient)
+    public sealed class TianWenNodeClient(HttpClient httpClient, NodeTimeouts? timeouts = null)
     {
+        // Overridable so a test can set budgets it can actually wait out: the expiry path is real
+        // wall-clock (CancelAfter), and it is the one branch that must never be mistaken for caller
+        // cancellation, so it has to be exercised for real rather than simulated.
+        private readonly NodeTimeouts _timeouts = timeouts ?? NodeTimeouts.Default;
+
         /// <summary>The node root this client talks to, for logging and display.</summary>
         public Uri? BaseAddress => httpClient.BaseAddress;
+
+        /// <summary>
+        /// A cancellation source that fires on the caller's token OR when <paramref name="budget"/>
+        /// elapses.
+        /// <para>
+        /// The two must stay distinguishable: the caller's token cancelling means "we are shutting down,
+        /// unwind", while the budget elapsing means "the node did not answer, report it as unreachable".
+        /// Callers therefore keep hold of the ORIGINAL token for their <c>when</c> guards and pass only
+        /// this one to HTTP -- guarding on the linked token would turn every timeout into a rethrow and
+        /// tear down the poll loop the first time a rig went quiet.
+        /// </para>
+        /// </summary>
+        private static CancellationTokenSource WithBudget(TimeSpan budget, CancellationToken cancellationToken)
+        {
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(budget);
+            return cts;
+        }
+
+        /// <summary>Error text for a call that ran out of budget -- <c>OperationCanceledException.Message</c>
+        /// is just "The operation was canceled", which tells a user nothing when surfaced verbatim.</summary>
+        private static string TimedOut(TimeSpan budget) =>
+            $"No answer within {budget.TotalSeconds:0.#}s";
 
         // ---------------------------------------------------------------------------------
         // Session
@@ -90,7 +167,7 @@ namespace TianWen.RemoteClient
         /// <see cref="NodeResult{T}.IsNotFound"/> rather than an error to render.
         /// </summary>
         public Task<NodeResult<SessionStateDto>> GetSessionStateAsync(CancellationToken cancellationToken) =>
-            GetAsync("api/v1/session/state", HostingJsonContext.Default.ResponseEnvelopeSessionStateDto, cancellationToken);
+            GetAsync("api/v1/session/state", HostingJsonContext.Default.ResponseEnvelopeSessionStateDto, _timeouts.StatePoll, cancellationToken);
 
         /// <summary>
         /// <c>POST /session/start</c>. <paramref name="profileId"/> null uses the node's active profile.
@@ -101,7 +178,7 @@ namespace TianWen.RemoteClient
                 profileId is { } id ? $"api/v1/session/start?profileId={id}" : "api/v1/session/start",
                 content: null,
                 HostingJsonContext.Default.ResponseEnvelopeString,
-                cancellationToken);
+                _timeouts.Control, cancellationToken);
 
         /// <summary>
         /// <c>POST /session/flats</c>. All request fields are optional; unset knobs use the node's
@@ -112,11 +189,11 @@ namespace TianWen.RemoteClient
                 profileId is { } id ? $"api/v1/session/flats?profileId={id}" : "api/v1/session/flats",
                 JsonContent.Create(request, HostingJsonContext.Default.FlatsRequestDto),
                 HostingJsonContext.Default.ResponseEnvelopeString,
-                cancellationToken);
+                _timeouts.Control, cancellationToken);
 
         /// <summary><c>POST /session/abort</c>.</summary>
         public Task<NodeResult<string>> AbortSessionAsync(CancellationToken cancellationToken) =>
-            PostAsync("api/v1/session/abort", content: null, HostingJsonContext.Default.ResponseEnvelopeString, cancellationToken);
+            PostAsync("api/v1/session/abort", content: null, HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
 
         // ---------------------------------------------------------------------------------
         // Pre-session target queue
@@ -124,7 +201,7 @@ namespace TianWen.RemoteClient
 
         /// <summary><c>GET /session/targets</c>.</summary>
         public Task<NodeResult<PendingTarget[]>> GetTargetsAsync(CancellationToken cancellationToken) =>
-            GetAsync("api/v1/session/targets", HostingJsonContext.Default.ResponseEnvelopePendingTargetArray, cancellationToken);
+            GetAsync("api/v1/session/targets", HostingJsonContext.Default.ResponseEnvelopePendingTargetArray, _timeouts.Control, cancellationToken);
 
         /// <summary><c>POST /session/targets</c>.</summary>
         public Task<NodeResult<string>> AddTargetAsync(PendingTarget target, CancellationToken cancellationToken) =>
@@ -132,12 +209,12 @@ namespace TianWen.RemoteClient
                 "api/v1/session/targets",
                 JsonContent.Create(target, HostingJsonContext.Default.PendingTarget),
                 HostingJsonContext.Default.ResponseEnvelopeString,
-                cancellationToken);
+                _timeouts.Control, cancellationToken);
 
         /// <summary><c>DELETE /session/targets</c>.</summary>
         public Task<NodeResult<string>> ClearTargetsAsync(CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, "api/v1/session/targets", content: null,
-                HostingJsonContext.Default.ResponseEnvelopeString, cancellationToken);
+                HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
 
         // ---------------------------------------------------------------------------------
         // Pushed schedule -- the planner's own plan, not the flat target queue
@@ -154,12 +231,12 @@ namespace TianWen.RemoteClient
                 "api/v1/session/schedule",
                 JsonContent.Create(schedule, HostingJsonContext.Default.ScheduledObservationDtoArray),
                 HostingJsonContext.Default.ResponseEnvelopeString,
-                cancellationToken);
+                _timeouts.Control, cancellationToken);
 
         /// <summary><c>DELETE /session/schedule</c>.</summary>
         public Task<NodeResult<string>> ClearScheduleAsync(CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Delete, "api/v1/session/schedule", content: null,
-                HostingJsonContext.Default.ResponseEnvelopeString, cancellationToken);
+                HostingJsonContext.Default.ResponseEnvelopeString, _timeouts.Control, cancellationToken);
 
         // ---------------------------------------------------------------------------------
         // Prompts + notifications
@@ -179,11 +256,11 @@ namespace TianWen.RemoteClient
                 $"api/v1/session/prompt/respond?proceed={(proceed ? "true" : "false")}",
                 content: null,
                 HostingJsonContext.Default.ResponseEnvelopeString,
-                cancellationToken);
+                _timeouts.Control, cancellationToken);
 
         /// <summary><c>GET /session/notifications</c> -- the node's ring, newest last.</summary>
         public Task<NodeResult<NotificationDto[]>> GetNotificationsAsync(CancellationToken cancellationToken) =>
-            GetAsync("api/v1/session/notifications", HostingJsonContext.Default.ResponseEnvelopeNotificationDtoArray, cancellationToken);
+            GetAsync("api/v1/session/notifications", HostingJsonContext.Default.ResponseEnvelopeNotificationDtoArray, _timeouts.Control, cancellationToken);
 
         // ---------------------------------------------------------------------------------
         // Devices + preview
@@ -192,7 +269,7 @@ namespace TianWen.RemoteClient
         /// <summary><c>GET /devices/structured</c> -- URIs, type and live connected state. The plain
         /// <c>/devices</c> returns pre-formatted display strings a client cannot act on.</summary>
         public Task<NodeResult<DeviceDto[]>> GetDevicesAsync(CancellationToken cancellationToken) =>
-            GetAsync("api/v1/devices/structured", HostingJsonContext.Default.ResponseEnvelopeDeviceDtoArray, cancellationToken);
+            GetAsync("api/v1/devices/structured", HostingJsonContext.Default.ResponseEnvelopeDeviceDtoArray, _timeouts.Control, cancellationToken);
 
         /// <summary>
         /// <c>GET /preview/{otaIndex}</c> -- the latest frame as JPEG.
@@ -213,11 +290,12 @@ namespace TianWen.RemoteClient
             var path = $"api/v1/preview/{otaIndex}{(query.Count > 0 ? "?" + string.Join("&", query) : "")}";
 
             using var request = new HttpRequestMessage(HttpMethod.Get, path);
+            using var budgeted = WithBudget(_timeouts.Preview, cancellationToken);
 
             HttpResponseMessage response;
             try
             {
-                response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, budgeted.Token)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -226,7 +304,8 @@ namespace TianWen.RemoteClient
             }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
             {
-                return PreviewResult.Fail(ex.Message);
+                return PreviewResult.Fail(
+                    ex is OperationCanceledException ? TimedOut(_timeouts.Preview) : ex.Message);
             }
 
             using (response)
@@ -245,7 +324,23 @@ namespace TianWen.RemoteClient
                     return PreviewResult.Unchanged;
                 }
 
-                var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+                // Budgeted, not the raw caller token: the JPEG body is the slow part, so a node that
+                // answers and then stalls mid-transfer has to be given up on like any other silence.
+                byte[] bytes;
+                try
+                {
+                    bytes = await response.Content.ReadAsByteArrayAsync(budgeted.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+                {
+                    return PreviewResult.Fail(
+                        ex is OperationCanceledException ? TimedOut(_timeouts.Preview) : ex.Message);
+                }
+
                 return PreviewResult.Ok(bytes, frameNumber);
             }
         }
@@ -265,12 +360,12 @@ namespace TianWen.RemoteClient
 
         /// <summary><c>GET /profiles</c>.</summary>
         public Task<NodeResult<ProfileSummaryDto[]>> GetProfilesAsync(CancellationToken cancellationToken) =>
-            GetAsync("api/v1/profiles", HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDtoArray, cancellationToken);
+            GetAsync("api/v1/profiles", HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDtoArray, _timeouts.Control, cancellationToken);
 
         /// <summary><c>GET /profiles/{id}</c> -- the full equipment profile, which is all the planner
         /// and sky map need to work against a remote rig.</summary>
         public Task<NodeResult<ProfileDetailDto>> GetProfileAsync(Guid profileId, CancellationToken cancellationToken) =>
-            GetAsync($"api/v1/profiles/{profileId}", HostingJsonContext.Default.ResponseEnvelopeProfileDetailDto, cancellationToken);
+            GetAsync($"api/v1/profiles/{profileId}", HostingJsonContext.Default.ResponseEnvelopeProfileDetailDto, _timeouts.Control, cancellationToken);
 
         /// <summary>
         /// <c>PUT /session/profile</c>. The node applies its own <c>ProfileSwitchGate</c> and answers
@@ -283,42 +378,47 @@ namespace TianWen.RemoteClient
                 "api/v1/session/profile",
                 JsonContent.Create(new SetProfileRequest { ProfileId = profileId }, HostingJsonContext.Default.SetProfileRequest),
                 HostingJsonContext.Default.ResponseEnvelopeString,
-                cancellationToken);
+                _timeouts.Control, cancellationToken);
 
         // ---------------------------------------------------------------------------------
         // Transport
         // ---------------------------------------------------------------------------------
 
         private Task<NodeResult<T>> GetAsync<T>(string path, JsonTypeInfo<ResponseEnvelope<T>> typeInfo,
-            CancellationToken cancellationToken) =>
-            SendAsync(HttpMethod.Get, path, content: null, typeInfo, cancellationToken);
+            TimeSpan budget, CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Get, path, content: null, typeInfo, budget, cancellationToken);
 
         private Task<NodeResult<T>> PostAsync<T>(string path, HttpContent? content,
-            JsonTypeInfo<ResponseEnvelope<T>> typeInfo, CancellationToken cancellationToken) =>
-            SendAsync(HttpMethod.Post, path, content, typeInfo, cancellationToken);
+            JsonTypeInfo<ResponseEnvelope<T>> typeInfo, TimeSpan budget, CancellationToken cancellationToken) =>
+            SendAsync(HttpMethod.Post, path, content, typeInfo, budget, cancellationToken);
 
         private async Task<NodeResult<T>> SendAsync<T>(HttpMethod method, string path, HttpContent? content,
-            JsonTypeInfo<ResponseEnvelope<T>> typeInfo, CancellationToken cancellationToken)
+            JsonTypeInfo<ResponseEnvelope<T>> typeInfo, TimeSpan budget, CancellationToken cancellationToken)
         {
             using var request = new HttpRequestMessage(method, path) { Content = content };
+            using var budgeted = WithBudget(budget, cancellationToken);
 
             HttpResponseMessage response;
             try
             {
-                response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, budgeted.Token)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 // Caller-initiated: propagate so a shutdown unwinds instead of being reported as an
-                // unreachable node.
+                // unreachable node. Guarded on the ORIGINAL token, so a budget expiry falls through to
+                // the handler below instead of being mistaken for a shutdown.
                 throw;
             }
             catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
             {
-                // Unreachable host, DNS failure, or the HttpClient timeout (which surfaces as an
-                // OperationCanceledException with our token NOT cancelled). All mean "no answer".
-                return NodeResult<T>.Fail(ex.Message, (int)HttpStatusCode.ServiceUnavailable);
+                // Unreachable host, DNS failure, or the request outrunning its budget. All mean "no
+                // answer", and the UI surfaces this text verbatim, so name the timeout rather than
+                // passing on OperationCanceledException's contentless message.
+                return NodeResult<T>.Fail(
+                    ex is OperationCanceledException ? TimedOut(budget) : ex.Message,
+                    (int)HttpStatusCode.ServiceUnavailable);
             }
 
             using (response)
@@ -326,7 +426,17 @@ namespace TianWen.RemoteClient
                 ResponseEnvelope<T>? envelope;
                 try
                 {
-                    envelope = await response.Content.ReadFromJsonAsync(typeInfo, cancellationToken).ConfigureAwait(false);
+                    envelope = await response.Content.ReadFromJsonAsync(typeInfo, budgeted.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (OperationCanceledException)
+                {
+                    // The budget covers the whole exchange, not just the headers: a node that answers and
+                    // then stalls mid-body is as unreachable as one that never answered.
+                    return NodeResult<T>.Fail(TimedOut(budget), (int)HttpStatusCode.ServiceUnavailable);
                 }
                 catch (Exception ex) when (ex is System.Text.Json.JsonException or HttpRequestException)
                 {
