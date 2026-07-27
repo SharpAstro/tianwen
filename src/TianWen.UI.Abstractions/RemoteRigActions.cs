@@ -1,6 +1,8 @@
 ﻿using LAN.Lib;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -60,25 +62,53 @@ namespace TianWen.UI.Abstractions
                 return new SelectOutcome(NotificationSeverity.Info, $"Watching {binding.Alias}");
             }
 
-            var connection = await ConnectAndPersistAsync(
+            var attempt = await ConnectAndPersistAsync(
                 binding, rigs, contexts, appState, external, timeProvider, logger, cancellationToken)
                 .ConfigureAwait(false);
 
-            if (connection is null)
+            var saveWarning = attempt.SaveFailed ? DescribeSaveFailure([binding.Alias]) : null;
+
+            if (attempt.Connection is not { } connection)
             {
+                var offline = $"{binding.Alias} is offline{DescribeLastSeen(binding, timeProvider.GetUtcNow())}.";
                 return new SelectOutcome(NotificationSeverity.Warning,
-                    $"{binding.Alias} is offline{DescribeLastSeen(binding, timeProvider.GetUtcNow())}.");
+                    saveWarning is null ? offline : $"{offline} {saveWarning}");
             }
 
             contexts.Activate(connection.Context);
-            return new SelectOutcome(NotificationSeverity.Info, $"Watching {binding.Alias} at {connection.Address}");
+
+            // The severity follows the write, not the connect: watching the rig succeeded either way, so
+            // a clean select stays Info and only a lost binding escalates.
+            return saveWarning is null
+                ? new SelectOutcome(NotificationSeverity.Info, $"Watching {binding.Alias} at {connection.Address}")
+                : new SelectOutcome(NotificationSeverity.Warning,
+                    $"Watching {binding.Alias} at {connection.Address}. {saveWarning}");
         }
 
         /// <summary>How a connect-all sweep went, for the log and the notification feed.</summary>
-        public readonly record struct ConnectAllOutcome(int Connected, int Offline)
+        /// <param name="Connected">Rigs that gained a mirror on this sweep.</param>
+        /// <param name="Offline">Rigs with no reachable address, whose bindings were kept anyway.</param>
+        /// <param name="Unsaved">
+        /// Aliases whose binding file could not be written. <b>Empty is carried as
+        /// <see langword="default"/>, not <c>ImmutableArray&lt;string&gt;.Empty</c></b>, because
+        /// <c>ImmutableArray</c> equality is reference equality on the backing array -- the two are not
+        /// interchangeable, and only the default keeps an all-clear sweep equal to a plainly-constructed
+        /// <c>new ConnectAllOutcome(n, m)</c>.
+        /// </param>
+        public readonly record struct ConnectAllOutcome(
+            int Connected,
+            int Offline,
+            ImmutableArray<string> Unsaved = default)
         {
             /// <summary>True when the sweep had something to do.</summary>
             public bool DidAnything => Connected > 0 || Offline > 0;
+
+            /// <summary>
+            /// The warning for the notification feed, or null when every binding was written. A sweep
+            /// runs unattended at startup, so a silent failure here would surface as rigs quietly
+            /// missing from the picker on some later run.
+            /// </summary>
+            public string? DescribeUnsaved() => Unsaved.IsDefaultOrEmpty ? null : DescribeSaveFailure(Unsaved);
         }
 
         /// <summary>
@@ -117,6 +147,7 @@ namespace TianWen.UI.Abstractions
         {
             var connected = 0;
             var offline = 0;
+            List<string>? unsaved = null;
 
             foreach (var binding in rigs.Bindings)
             {
@@ -130,11 +161,11 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
-                var connection = await ConnectAndPersistAsync(
+                var attempt = await ConnectAndPersistAsync(
                     binding, rigs, contexts, appState, external, timeProvider, logger, cancellationToken)
                     .ConfigureAwait(false);
 
-                if (connection is null)
+                if (attempt.Connection is null)
                 {
                     offline++;
                 }
@@ -142,21 +173,55 @@ namespace TianWen.UI.Abstractions
                 {
                     connected++;
                 }
+
+                if (attempt.SaveFailed)
+                {
+                    (unsaved ??= []).Add(binding.Alias);
+                }
             }
 
-            var outcome = new ConnectAllOutcome(connected, offline);
+            // Built lazily so the ordinary all-clear sweep reports `default` rather than an empty array
+            // (see the remarks on ConnectAllOutcome.Unsaved for why those are not the same value).
+            ImmutableArray<string> unsavedAliases = unsaved is null ? default : [.. unsaved];
+
+            var outcome = new ConnectAllOutcome(connected, offline, unsavedAliases);
             if (outcome.DidAnything)
             {
                 logger.LogInformation(
-                    "Rig sweep: mirroring {Connected}, {Offline} with no reachable address", connected, offline);
+                    "Rig sweep: mirroring {Connected}, {Offline} with no reachable address, {Unsaved} binding(s) not saved",
+                    connected, offline, unsaved?.Count ?? 0);
             }
 
             return outcome;
         }
 
         /// <summary>
+        /// The one phrasing of "the binding file could not be written", shared by the select path and the
+        /// sweep so the same failure cannot be reported two different ways. Callers pass at least one
+        /// alias.
+        /// <para>
+        /// Worth a warning even when the connect itself succeeded: the rig is watchable right now and
+        /// gone after a restart, and that discrepancy would otherwise be noticed days later, long after
+        /// the log line explaining it has rolled away.
+        /// </para>
+        /// </summary>
+        private static string DescribeSaveFailure(ImmutableArray<string> aliases) => aliases switch
+        {
+            [var only] => $"Could not save the binding for {only}: it will not reappear after a restart (see the log).",
+            _ => $"Could not save {aliases.Length} rig bindings ({string.Join(", ", aliases)}): "
+                 + "they will not reappear after a restart (see the log).",
+        };
+
+        /// <summary>
+        /// One connect attempt: the mirror that was started (null when the rig had no usable address),
+        /// and whether persisting its binding failed in a way worth telling the user about.
+        /// </summary>
+        private readonly record struct ConnectAttempt(RemoteRigConnection? Connection, bool SaveFailed);
+
+        /// <summary>
         /// Connects one binding and records where it was reached, without deciding what is on screen.
-        /// Returns null when the rig has no usable address (i.e. it is offline).
+        /// <see cref="ConnectAttempt.Connection"/> is null when the rig has no usable address (i.e. it is
+        /// offline).
         /// <para>
         /// The binding is kept and persisted either way: "I own this rig and it is not answering" is
         /// information, and dropping it would look like the binding was lost rather than the rig being
@@ -166,11 +231,12 @@ namespace TianWen.UI.Abstractions
         /// <see cref="RemoteRigConnection.TryClaimFirstContact"/>).
         /// </para>
         /// <para>
-        /// The save is best-effort. Failing to write a binding file should not deny the caller the
-        /// connection it asked for, and in a sweep one unwritable file must not abort the remaining rigs.
+        /// The save is best-effort but not silent. Failing to write a binding file should not deny the
+        /// caller the connection it asked for, and in a sweep one unwritable file must not abort the
+        /// remaining rigs -- so it is reported back for a warning rather than thrown.
         /// </para>
         /// </summary>
-        private static async Task<RemoteRigConnection?> ConnectAndPersistAsync(
+        private static async Task<ConnectAttempt> ConnectAndPersistAsync(
             RemoteRigBinding binding,
             RemoteRigRegistry rigs,
             ViewContexts contexts,
@@ -190,11 +256,13 @@ namespace TianWen.UI.Abstractions
 
             var toPersist = connection?.BindingAsReached() ?? binding;
             rigs.Upsert(toPersist);
-            await logger.CatchAsync(
+            var saved = await logger.CatchAsync(
                 ct => RemoteRigPersistence.SaveAsync(toPersist, external, ct), cancellationToken)
                 .ConfigureAwait(false);
 
-            return connection;
+            // A write cancelled by shutdown is not a failure to warn about -- the user quit, and telling
+            // them a binding was lost on the way out would be noise about their own action.
+            return new ConnectAttempt(connection, SaveFailed: !saved && !cancellationToken.IsCancellationRequested);
         }
 
         /// <summary>

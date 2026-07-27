@@ -420,6 +420,113 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        // --- A binding that cannot be written ---------------------------------------------------------
+
+        /// <summary>
+        /// Makes every binding write fail, by parking a <b>file</b> where the bindings folder has to be
+        /// created -- <c>Directory.CreateDirectory</c> throws on a name a file already owns.
+        /// <para>
+        /// Deterministic and permission-free, unlike revoking write access, which needs a different
+        /// mechanism per OS and can silently no-op for an elevated CI account.
+        /// </para>
+        /// </summary>
+        private static void BlockBindingWrites(FakeExternal external)
+        {
+            Directory.CreateDirectory(external.ProfileFolder.FullName);
+            File.WriteAllText(
+                Path.Combine(external.ProfileFolder.FullName, RemoteRigPersistence.FolderName), "not a folder");
+        }
+
+        [Fact]
+        public async Task RigsWhoseBindingsCannotBeSavedAreStillMirroredAndStillReported()
+        {
+            // Best-effort must not mean silent: the sweep runs unattended at startup, so a swallowed
+            // write failure would surface only as rigs quietly missing from the picker days later.
+            var external = FreshExternal();
+            BlockBindingWrites(external);
+            var rigs = new RemoteRigRegistry();
+            rigs.SetBindings([
+                Binding(alias: "Pier A", nodeId: "node-a", address: RefusedAddress),
+                Binding(alias: "Pier B", nodeId: "node-b", address: RefusedAddress),
+            ]);
+
+            try
+            {
+                var outcome = await RemoteRigActions.ConnectAllAsync(
+                    rigs, new ViewContexts(), new GuiAppState(), external, RealClock(), NullLogger.Instance,
+                    TestContext.Current.CancellationToken);
+
+                // The failed write costs neither rig its mirror ...
+                outcome.Connected.ShouldBe(2);
+                outcome.Offline.ShouldBe(0);
+                rigs.Connections.Count.ShouldBe(2);
+
+                // ... and both are named, because "which rigs" is the actionable part.
+                outcome.Unsaved.ShouldBe(["Pier A", "Pier B"]);
+                outcome.DescribeUnsaved().ShouldBe(
+                    "Could not save 2 rig bindings (Pier A, Pier B): they will not reappear after a restart (see the log).");
+            }
+            finally
+            {
+                await DisposeAllAsync(rigs);
+            }
+        }
+
+        [Fact]
+        public async Task ACleanSweepHasNothingToReport()
+        {
+            var rigs = new RemoteRigRegistry();
+            rigs.SetBindings([Binding(alias: "Pier A", address: RefusedAddress)]);
+
+            try
+            {
+                var outcome = await RemoteRigActions.ConnectAllAsync(
+                    rigs, new ViewContexts(), new GuiAppState(), FreshExternal(), RealClock(), NullLogger.Instance,
+                    TestContext.Current.CancellationToken);
+
+                // IsDefaultOrEmpty, not ShouldBeEmpty: nothing-to-report is carried as `default`, which
+                // cannot be enumerated at all -- which is exactly why DescribeUnsaved does this check
+                // for its callers.
+                outcome.Unsaved.IsDefaultOrEmpty.ShouldBeTrue();
+                outcome.DescribeUnsaved().ShouldBeNull("a notification per successful startup would be noise");
+            }
+            finally
+            {
+                await DisposeAllAsync(rigs);
+            }
+        }
+
+        [Fact]
+        public async Task SelectingARigWhoseBindingCannotBeSavedStillWatchesItAndWarns()
+        {
+            var external = FreshExternal();
+            BlockBindingWrites(external);
+            var rigs = new RemoteRigRegistry();
+            var contexts = new ViewContexts();
+            rigs.SetBindings([Binding(alias: "Shed", address: RefusedAddress)]);
+
+            try
+            {
+                // No peer table, so the alias resolves against the bindings already on disk -- the path a
+                // rig that is not announcing right now takes.
+                var outcome = await RemoteRigActions.SelectAsync(
+                    "Shed", rigs, contexts, new GuiAppState(), external, RealClock(), NullLogger.Instance,
+                    TestContext.Current.CancellationToken);
+
+                outcome.Severity.ShouldBe(NotificationSeverity.Warning);
+                outcome.Message.ShouldBe(
+                    $"Watching Shed at {RefusedAddress}. Could not save the binding for Shed: "
+                    + "it will not reappear after a restart (see the log).");
+
+                contexts.IsRemoteActive.ShouldBeTrue("a failed write must not cost the user the view they asked for");
+            }
+            finally
+            {
+                contexts.Activate(contexts.Local);
+                await DisposeAllAsync(rigs);
+            }
+        }
+
         /// <summary>Stops every mirror the test started, so no poll loop outlives the test.</summary>
         private static async Task DisposeAllAsync(RemoteRigRegistry rigs)
         {
