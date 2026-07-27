@@ -26,6 +26,46 @@ public record Setup(
     Weather? Weather = null
 ) : IAsyncDisposable
 {
+    /// <summary>
+    /// Every device URI this setup drives, in no particular order and possibly with duplicates (the same
+    /// physical camera can fill both an OTA slot and the OAG guide-camera slot).
+    /// <para>
+    /// This is what a run claims from <see cref="TianWen.Lib.Devices.IDeviceHub"/> so nothing else can
+    /// disconnect or command its hardware mid-night -- see
+    /// <see cref="TianWen.Lib.Devices.DeviceLeaseSet.Acquire"/>, which de-duplicates. Kept beside
+    /// <see cref="DisposeAsync"/> deliberately: the two must walk the same set, so a device added to one
+    /// and forgotten in the other is visible in a single screenful.
+    /// </para>
+    /// </summary>
+    public IEnumerable<Uri> DeviceUris()
+    {
+        yield return Mount.Device.DeviceUri;
+        yield return Guider.Device.DeviceUri;
+
+        if (GuiderSetup.Camera is { } guideCamera)
+        {
+            yield return guideCamera.Device.DeviceUri;
+        }
+
+        if (GuiderSetup.Focuser is { } guideFocuser)
+        {
+            yield return guideFocuser.Device.DeviceUri;
+        }
+
+        foreach (var telescope in Telescopes)
+        {
+            foreach (var uri in telescope.DeviceUris())
+            {
+                yield return uri;
+            }
+        }
+
+        if (Weather is { } weather)
+        {
+            yield return weather.Device.DeviceUri;
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         await Mount.DisposeAsync();

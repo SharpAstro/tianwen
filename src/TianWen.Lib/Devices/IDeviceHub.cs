@@ -33,8 +33,15 @@ public interface IDeviceHub : IAsyncDisposable
     /// <summary>
     /// Disconnects and disposes the driver for the given device URI,
     /// removing it from the hub.
+    /// <para>
+    /// <b>Refuses a device a run currently owns</b> (see <see cref="TryAcquireLease"/>) by throwing
+    /// <see cref="DeviceLeasedException"/>, unless <paramref name="force"/> is set. Callers with a user
+    /// to talk to should ask <see cref="DeviceOwnershipGate.Evaluate"/> first and show the verdict --
+    /// the exception is the backstop for a caller that did not. <paramref name="force"/> exists for
+    /// process shutdown, where the drivers must come down regardless of who thought they owned them.
+    /// </para>
     /// </summary>
-    ValueTask DisconnectAsync(Uri deviceUri, CancellationToken cancellationToken = default);
+    ValueTask DisconnectAsync(Uri deviceUri, bool force = false, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Tries to retrieve a connected driver of type <typeparamref name="T"/>
@@ -57,6 +64,30 @@ public interface IDeviceHub : IAsyncDisposable
     /// (cooler on and CCD temperature significantly below ambient).
     /// </summary>
     ValueTask<bool> IsCoolingAsync(Uri deviceUri, CancellationToken cancellationToken = default);
+
+    // ── Ownership ──
+
+    /// <summary>
+    /// Claims <paramref name="deviceUri"/> for <paramref name="ownerLabel"/> until the returned handle is
+    /// disposed. Returns false when another owner already holds it.
+    /// <para>
+    /// This is what makes "sessions borrow connected drivers from the hub" an enforced fact rather than a
+    /// convention: while the claim stands, <see cref="DisconnectAsync"/> refuses and
+    /// <see cref="DeviceOwnershipGate"/> tells every other surface to keep its hands off. Reads are
+    /// unaffected -- a lease never blocks telemetry.
+    /// </para>
+    /// <para>
+    /// Prefer <see cref="DeviceLeaseSet.Acquire"/> when claiming a whole rig: it is all-or-nothing, so a
+    /// run that loses one device does not end up half-owning the others.
+    /// </para>
+    /// </summary>
+    bool TryAcquireLease(Uri deviceUri, string ownerLabel, [NotNullWhen(true)] out IDisposable? lease);
+
+    /// <summary>Who currently owns <paramref name="deviceUri"/>, if anyone.</summary>
+    bool TryGetLease(Uri deviceUri, out DeviceLease lease);
+
+    /// <summary>A snapshot of every live claim.</summary>
+    IReadOnlyList<DeviceLease> Leases { get; }
 
     /// <summary>
     /// Fired when a device is connected or disconnected via the hub.

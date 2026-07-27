@@ -170,13 +170,15 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapSlewToObjectSignal>(sig =>
             {
-                if (!EnsureSessionIdle("Cannot slew manually while a session is running")) return;
                 if (appState.ActiveProfile is not { Data: { } pdata } profile
                     || pdata.Mount is not { Scheme: not "none" } mountUri)
                 {
                     Notify(NotificationSeverity.Warning, "No mount configured in the active profile");
                     return;
                 }
+                // Ownership rather than a session flag: the mount is equally spoken for by a sky-flat
+                // run (which slews to the anti-solar zenith) and by polar alignment.
+                if (!EnsureDeviceControllable(mountUri)) return;
                 if (appState.DeviceHub is not { } hub
                     || !hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount)
                     || mount is null)
@@ -327,7 +329,6 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SkyMapSolveSyncSignal>(sig =>
             {
-                if (!EnsureSessionIdle("Cannot solve & sync while a session is running")) return;
                 // Re-entrancy guard: ignore a second click while a solve is already in
                 // flight (the button also shows "Solving ..." and drops its handler, but
                 // a queued signal could still arrive). UI-thread-only read here.
@@ -341,6 +342,9 @@ namespace TianWen.UI.Abstractions
                     Notify(NotificationSeverity.Warning, "No mount configured in the active profile");
                     return;
                 }
+                // Solve & sync rewrites the mount's pointing model -- doing that under any run that
+                // owns the mount would corrupt its idea of where it is pointing.
+                if (!EnsureDeviceControllable(mountUri)) return;
                 if (appState.DeviceHub is not { } hub
                     || !hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount)
                     || mount is null)

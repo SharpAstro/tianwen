@@ -1,4 +1,4 @@
-using DIR.Lib;
+﻿using DIR.Lib;
 using LAN.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -473,11 +473,14 @@ void RequestQuit()
                     var safety = await EquipmentActions.GetDisconnectSafetyAsync(hubAtQuit, capUri, System.Threading.CancellationToken.None);
                     if (safety == EquipmentActions.DisconnectSafety.Safe)
                     {
-                        await hubAtQuit.DisconnectAsync(capUri, System.Threading.CancellationToken.None);
+                        // force: the quit path aborts the local session first, but the abort is async and
+                        // may not have dropped its leases yet. Shutting down must not be blocked by a run
+                        // that is already on its way out.
+                        await hubAtQuit.DisconnectAsync(capUri, force: true, System.Threading.CancellationToken.None);
                     }
                     else
                     {
-                        await EquipmentActions.WarmAndDisconnectAsync(hubAtQuit, capUri, logger, System.Threading.CancellationToken.None);
+                        await EquipmentActions.WarmAndDisconnectAsync(hubAtQuit, capUri, logger, force: true, System.Threading.CancellationToken.None);
                     }
                 }
                 catch (Exception ex)

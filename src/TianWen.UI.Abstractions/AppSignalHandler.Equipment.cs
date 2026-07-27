@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -588,6 +588,18 @@ namespace TianWen.UI.Abstractions
                     return;
                 }
 
+                // Ownership first, and BEFORE the hardware-safety check: "a run is using this" is a
+                // different refusal from "the cooler is on", and offering the [Warm & Off] [Force Off]
+                // strip for a device the session is driving would invite the user to break their own run.
+                // GetDisconnectSafetyAsync cannot cover this -- it returns Safe for anything that is not
+                // a camera, so the mount was previously disconnectable mid-session with no warning at all.
+                var ownership = DeviceOwnershipGate.Evaluate(hub, sig.DeviceUri, DeviceAction.Disconnect);
+                if (!ownership.Allowed)
+                {
+                    Notify(NotificationSeverity.Warning, ownership.Describe());
+                    return;
+                }
+
                 // Pre-flight safety check. If the device is a cooled/busy camera, don't
                 // disconnect — set the per-row confirmation state so the UI shows the
                 // [Warm & Off] [Force Off] [Cancel] strip instead of executing.
@@ -609,7 +621,7 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    await RunDeviceOpOffRenderThreadAsync(() => hub.DisconnectAsync(sig.DeviceUri, cts.Token).AsTask(), cts.Token);
+                    await RunDeviceOpOffRenderThreadAsync(() => hub.DisconnectAsync(sig.DeviceUri, cancellationToken: cts.Token).AsTask(), cts.Token);
                     Notify(NotificationSeverity.Info, "Device disconnected");
                 }
                 catch (Exception ex)
@@ -632,6 +644,18 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // Bypass the safety pre-check. Caller already passed two-stage confirmation.
+                //
+                // "Force" here means "skip the warm-up", which is what the user actually confirmed. It
+                // deliberately does NOT mean "take the device off a running session": consenting to a cold
+                // disconnect is not consenting to kill the night. Ownership is still checked, and the only
+                // way past it stays the explicit one -- stop the run.
+                var forceOwnership = DeviceOwnershipGate.Evaluate(hub, sig.DeviceUri, DeviceAction.Disconnect);
+                if (!forceOwnership.Allowed)
+                {
+                    Notify(NotificationSeverity.Warning, forceOwnership.Describe());
+                    return;
+                }
+
                 eqState.PendingDisconnectConfirm = null;
                 eqState.PendingForceConfirm = null;
                 if (!eqState.PendingTransitions.TryAdd(sig.DeviceUri, 0))
@@ -642,7 +666,7 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    await RunDeviceOpOffRenderThreadAsync(() => hub.DisconnectAsync(sig.DeviceUri, cts.Token).AsTask(), cts.Token);
+                    await RunDeviceOpOffRenderThreadAsync(() => hub.DisconnectAsync(sig.DeviceUri, cancellationToken: cts.Token).AsTask(), cts.Token);
                     Notify(NotificationSeverity.Info, "Device force-disconnected (no warm-up)");
                     logger.LogWarning("Force-disconnect of {Uri} (bypassed safety check)", sig.DeviceUri);
                 }
@@ -675,7 +699,7 @@ namespace TianWen.UI.Abstractions
 
                 try
                 {
-                    await RunDeviceOpOffRenderThreadAsync(() => EquipmentActions.WarmAndDisconnectAsync(hub, sig.DeviceUri, _logger, cts.Token).AsTask(), cts.Token);
+                    await RunDeviceOpOffRenderThreadAsync(() => EquipmentActions.WarmAndDisconnectAsync(hub, sig.DeviceUri, _logger, force: false, cts.Token).AsTask(), cts.Token);
                     Notify(NotificationSeverity.Info, "Camera warmed and disconnected");
                 }
                 catch (OperationCanceledException)

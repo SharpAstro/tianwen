@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using System.Threading.Tasks;
 using NSubstitute;
@@ -39,7 +39,7 @@ namespace TianWen.Lib.Tests
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
-        public void RespondingForwardsTheAnswerToTheWaitingSession(bool proceed)
+        public async Task RespondingForwardsTheAnswerToTheWaitingSession(bool proceed)
         {
             var host = CreateHost();
             var completion = new TaskCompletionSource<bool>();
@@ -49,11 +49,11 @@ namespace TianWen.Lib.Tests
             host.TryRespondToPrompt(proceed).ShouldBeTrue();
 
             completion.Task.IsCompletedSuccessfully.ShouldBeTrue();
-            completion.Task.Result.ShouldBe(proceed);
+            (await completion.Task).ShouldBe(proceed);
         }
 
         [Fact]
-        public void OnlyTheFirstResponseWins()
+        public async Task OnlyTheFirstResponseWins()
         {
             // Grab-and-clear: the auto-proceed timer and a real client can race, and the second one to
             // arrive must be told there was nothing to answer rather than appearing to succeed.
@@ -65,7 +65,7 @@ namespace TianWen.Lib.Tests
             host.TryRespondToPrompt(false).ShouldBeFalse();
 
             host.PendingPrompt.ShouldBeNull();
-            completion.Task.Result.ShouldBeTrue();
+            (await completion.Task).ShouldBeTrue();
         }
 
         // --- Pushed schedule -----------------------------------------------------------------------

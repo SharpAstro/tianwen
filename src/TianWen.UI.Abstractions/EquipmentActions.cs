@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -654,11 +654,14 @@ public static class EquipmentActions
     /// Mirrors the spirit of <c>Session.Cooling.CoolCamerasToAmbientAsync</c> but
     /// without the multi-camera orchestration / telemetry collection.
     /// </summary>
+    /// <param name="force">Disconnect even if a run owns the camera. Reserved for the shutdown path --
+    /// see <see cref="IDeviceHub.DisconnectAsync"/>.</param>
     public static ValueTask WarmAndDisconnectAsync(
         IDeviceHub hub, Uri deviceUri,
         Microsoft.Extensions.Logging.ILogger logger,
+        bool force,
         System.Threading.CancellationToken cancellationToken)
-        => WarmCameraAsync(hub, deviceUri, logger, disconnectAfter: true, cancellationToken);
+        => WarmCameraAsync(hub, deviceUri, logger, disconnectAfter: true, force, cancellationToken);
 
     /// <summary>
     /// Warm-up ramp + cooler-off without disconnecting (camera stays available for
@@ -669,7 +672,7 @@ public static class EquipmentActions
         IDeviceHub hub, Uri deviceUri,
         Microsoft.Extensions.Logging.ILogger logger,
         System.Threading.CancellationToken cancellationToken)
-        => WarmCameraAsync(hub, deviceUri, logger, disconnectAfter: false, cancellationToken);
+        => WarmCameraAsync(hub, deviceUri, logger, disconnectAfter: false, force: false, cancellationToken);
 
     /// <summary>
     /// Shared warm-up ramp implementation. Steps the setpoint toward the heat-sink (or
@@ -680,11 +683,12 @@ public static class EquipmentActions
         IDeviceHub hub, Uri deviceUri,
         Microsoft.Extensions.Logging.ILogger logger,
         bool disconnectAfter,
+        bool force,
         System.Threading.CancellationToken cancellationToken)
     {
         if (!hub.TryGetConnectedDriver<TianWen.Lib.Devices.ICameraDriver>(deviceUri, out var camera))
         {
-            if (disconnectAfter) await hub.DisconnectAsync(deviceUri, cancellationToken);
+            if (disconnectAfter) await hub.DisconnectAsync(deviceUri, force, cancellationToken);
             return;
         }
 
@@ -709,7 +713,7 @@ public static class EquipmentActions
             if (!coolerOn)
             {
                 logger.LogInformation("Camera cooler is off for {Uri}; skipping warm-up ramp", deviceUri);
-                if (disconnectAfter) await hub.DisconnectAsync(deviceUri, cancellationToken);
+                if (disconnectAfter) await hub.DisconnectAsync(deviceUri, force, cancellationToken);
                 return;
             }
         }
@@ -753,7 +757,7 @@ public static class EquipmentActions
 
         if (disconnectAfter)
         {
-            await hub.DisconnectAsync(deviceUri, cancellationToken);
+            await hub.DisconnectAsync(deviceUri, force, cancellationToken);
         }
     }
 
@@ -839,7 +843,7 @@ public static class EquipmentActions
 
         try
         {
-            await hub.DisconnectAsync(prevSlotUri, cancellationToken);
+            await hub.DisconnectAsync(prevSlotUri, cancellationToken: cancellationToken);
             return (OrphanDisconnectOutcome.Disconnected, safety);
         }
         catch (Exception ex)

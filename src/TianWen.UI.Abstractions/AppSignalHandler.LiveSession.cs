@@ -263,11 +263,13 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<StartVideoCaptureSignal>(sig =>
             {
-                if (liveSessionState.IsRunning) return;
                 if (appState.ActiveProfile?.Data is not { OTAs: var otas } || sig.OtaIndex >= otas.Length) return;
                 if (appState.DeviceHub is not { } hub) return;
 
                 var ota = otas[sig.OtaIndex];
+                // Ownership, not IsRunning: streaming video off a camera that a flat run is metering on
+                // would fight it frame for frame.
+                if (!EnsureDeviceControllable(ota.Camera)) return;
                 if (!TryGetConnected<ICameraDriver>(hub, ota.Camera, "Camera", out var camera, "Connect a camera to start a planetary capture")) return;
 
                 var (roiW, roiH) = PlanetaryCaptureActions.ConfigureRoi(camera, sig.RoiWidth, sig.RoiHeight);
@@ -306,10 +308,12 @@ namespace TianWen.UI.Abstractions
             // tracker. Gated on no running session + a pulse-guide-capable mount.
             bus.Subscribe<JogMountSignal>(sig =>
             {
-                if (liveSessionState.IsRunning) return;
                 if (appState.ActiveProfile?.Data is not { } pdata) return;
                 if (pdata.Mount is not { Scheme: not "none" } mountUri) return;
                 if (appState.DeviceHub is not { } hub) return;
+                // Was a silent `if (liveSessionState.IsRunning) return;` -- wrong twice over: it let a jog
+                // through during a flat run, and when it did refuse it gave the user no reason at all.
+                if (!EnsureDeviceControllable(mountUri)) return;
                 if (!hub.TryGetConnectedDriver<IMountDriver>(mountUri, out var mount) || mount is null) return;
 
                 RunTracked($"JogMount {sig.Direction}", "Mount jog failed", async ct =>
