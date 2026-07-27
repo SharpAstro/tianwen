@@ -266,7 +266,14 @@ namespace TianWen.UI.Abstractions
             var pad = BasePadding * dpiScale;
             var rowH = BaseRowHeight * dpiScale;
             var cardW = MathF.Min(contentRect.Width * 0.7f, 520f * dpiScale);
-            var cardH = rowH * 5f + pad * 2f;
+
+            // A prompt that gates a PHYSICAL act ("switch the panel on", "cap the scope") gets an extra
+            // warning row and loses its neutral green Continue. Answering one asserts that somebody did
+            // something at the rig -- if nobody did, the session proceeds on a false premise, and for
+            // flats it only survives because the exposure solver fails the metering. A dark-frame prompt
+            // would have no such backstop. So the UI must not present Continue as the obvious default.
+            var warning = PhysicalPresenceWarning(prompt);
+            var cardH = rowH * (warning is null ? 5f : 6.2f) + pad * 2f;
             var cardX = contentRect.X + (contentRect.Width - cardW) / 2f;
             var cardY = contentRect.Y + (contentRect.Height - cardH) / 2f;
 
@@ -286,8 +293,23 @@ namespace TianWen.UI.Abstractions
                 innerX, cardY + pad + rowH, innerW, rowH * 2.4f,
                 fontSize, BodyText, TextAlign.Near, TextAlign.Near);
 
+            if (warning is not null)
+            {
+                DrawText(warning, fontPath,
+                    innerX, cardY + pad + rowH * 3.4f, innerW, rowH * 1.6f,
+                    fontSize * 0.92f, StatusSlewing, TextAlign.Near, TextAlign.Near);
+            }
+
             // Buttons: [Cancel] left, [Continue] right (primary in the muscle-memory spot). One HStack of
             // two equal Star cells (was two RenderButton calls placed by hand); device-px -> dpiScale:1f.
+            //
+            // Continue is amber rather than green when the prompt gates a physical act: green reads as
+            // "the safe, expected choice", which is exactly the wrong signal for a claim the person
+            // clicking may not be in a position to make.
+            var continueBg = warning is null
+                ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff)
+                : new RGBAColor32(0xb0, 0x7a, 0x22, 0xff);
+
             var btnH = rowH * 1.3f;
             var btnY = cardY + cardH - btnH - pad;
             var btnRow = Layout.Builder.HStack(
@@ -295,11 +317,26 @@ namespace TianWen.UI.Abstractions
                         .WStar().HStar().Bg(new RGBAColor32(0x33, 0x33, 0x3a, 0xff))
                         .Clickable(new HitResult.ButtonHit("SessionPromptCancel"), _ => PostSignal(new RespondSessionPromptSignal(false))),
                     Layout.Builder.Text(prompt.ContinueLabel, fontSize, BrightText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(new RGBAColor32(0x44, 0xaa, 0x66, 0xff))
+                        .WStar().HStar().Bg(continueBg)
                         .Clickable(new HitResult.ButtonHit("SessionPromptContinue"), _ => PostSignal(new RespondSessionPromptSignal(true))))
                 .WithGap(pad);
             RenderLayout(btnRow, new RectF32(innerX, btnY, innerW, btnH), dpiScale: 1f);
         }
+
+        /// <summary>
+        /// The caution line for a prompt that gates a physical act, or null when none is needed.
+        /// <para>
+        /// Shown for the local context too, not only remote: "physical presence" means somebody has to be
+        /// at the telescope, and the person at the keyboard may be indoors two rooms away. Watching a rig
+        /// only makes it more certain, which is why the remote wording names the rig.
+        /// </para>
+        /// </summary>
+        internal string? PhysicalPresenceWarning(SessionPromptEventArgs prompt) =>
+            !prompt.RequiresPhysicalPresence
+                ? null
+                : RemoteRigName is { Length: > 0 } rig
+                    ? $"⚠ Someone has to be at {rig} for this. Continuing asserts it was done — the session cannot check."
+                    : "⚠ Someone has to be at the telescope for this. Continuing asserts it was done — the session cannot check.";
 
         // -----------------------------------------------------------------------
         // Polar alignment: precondition gating + side panel

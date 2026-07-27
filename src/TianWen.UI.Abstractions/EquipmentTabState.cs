@@ -2,6 +2,7 @@ using System;
 using DIR.Lib;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
@@ -89,6 +90,17 @@ public class EquipmentTabState
 
     // Profile list (for multi-profile picker)
     public IReadOnlyList<Profile> AllProfiles { get; set; } = [];
+
+    /// <summary>
+    /// Rigs bound locally (docs/plans/remote-profile.md). Listed in the profile picker alongside the
+    /// discovered ones so a rig that is switched off still appears -- marked offline -- rather than
+    /// looking like the binding was lost. ImmutableArray because the load completes on a background
+    /// continuation while the render thread enumerates it.
+    /// </summary>
+    public ImmutableArray<RemoteRigBinding> BoundRigs { get; set; } = [];
+
+    /// <summary>Whether a rig is currently on screen, so the picker can offer the way back to local.</summary>
+    public bool RemoteContextActive { get; set; }
 
     // Filter editing: which OTA's filter table is expanded (-1 = none)
     public int ExpandedFilterOtaIndex { get; set; } = -1;

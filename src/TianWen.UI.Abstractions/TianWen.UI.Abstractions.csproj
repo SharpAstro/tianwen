@@ -23,6 +23,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
+    <!-- RemoteRigConnection owns a RemoteSessionMirror and hands it to a ViewContext as the context's
+         ISessionTelemetry, so the tabs render a rig unchanged (docs/plans/remote-profile.md P4). -->
+    <ProjectReference Include="..\TianWen.RemoteClient\TianWen.RemoteClient.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
   </ItemGroup>
 

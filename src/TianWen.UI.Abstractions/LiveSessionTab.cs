@@ -29,6 +29,17 @@ namespace TianWen.UI.Abstractions
         public LiveSessionState? State { get; set; }
 
         /// <summary>
+        /// Name of the rig being watched, or null when this is the local node's own session. Set by the
+        /// host from the active view context.
+        /// <para>
+        /// Used only by the prompt overlay, and only to sharpen its wording: a prompt that
+        /// <c>RequiresPhysicalPresence</c> is warned about either way, but when the hardware is at the far
+        /// end of a link the warning can name where the operator would have to be.
+        /// </para>
+        /// </summary>
+        public string? RemoteRigName { get; set; }
+
+        /// <summary>
         /// The shared full image viewer (same widget as the FITS viewer / planetary tab) used to show the
         /// last captured frame in Preview / PolarAlign modes. Set by the host. Configured chromeless
         /// (<see cref="ViewerState.HideChrome"/>) with a lightweight <see cref="LiveFramePreviewSource"/> feed,
