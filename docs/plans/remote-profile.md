@@ -618,12 +618,35 @@ add the dashboard to `PollPreviewTelemetry`'s `ActiveTab` gate**; it only polls 
 drivers, but keeping the board off it makes "the home screen does zero device I/O" a property that can
 be stated rather than argued.
 
-**Two prerequisites that are behaviour, not UI.** (1) No `HttpClient.Timeout` is set on the rig path,
-so it is the 100 s default -- a rig that goes dark reads as reachable for over a minute, which is
-already mildly wrong for one rig and glaring on a board of six. (2) A mirror exists only after a rig is
-*selected*, so the board needs a connect-all path; because the board is always the landing tab, that is
-effectively at startup, which is what promotes the timeout fix from cleanup to prerequisite (an
-off rig would otherwise show as connecting for 100 s on every launch).
+**Two prerequisites that are behaviour, not UI.** (1) **DONE** -- the rig path had no
+`HttpClient.Timeout`, so it ran on the 100 s default and a rig that went dark read as reachable for
+over a minute (mildly wrong for one rig, glaring on a board of six). `NodeTimeouts` now gives each
+request its own budget (state poll 5 s, preview 30 s, control 10 s) behind a 60 s `HttpClient`
+backstop, so a dark rig is reported unreachable in about five seconds. (2) A mirror exists only after
+a rig is *selected*, so the board still needs a connect-all path; because the board is always the
+landing tab, that is effectively at startup -- which is what promoted the timeout fix from cleanup to
+prerequisite, since an off rig would otherwise have shown as connecting for 100 s on every launch.
+
+**Tab identity: `GuiTab.Home`, icon `\U0001F3E0` (house), `Ctrl+H`** (user, 2026-07-27). The icon has
+to stay **neutral between local and remote**, which rules out the family that first suggests itself --
+satellite / antenna / globe all read "remote", and that quietly contradicts the settled rule that the
+local node is *just another card*. A network icon would turn the landing screen into a
+remote-monitoring tab and make a single-scope user's one-card board look like a feature they do not
+use. The icon also names the **screen**, not the rig list, because multi-night progress is landing
+beside the cards. House says both. `Ctrl+H` is free (E/P/S/L/M/G/N are taken) and agrees with the name.
+
+Two practical notes for whoever wires it. Every existing sidebar icon is a **bare codepoint with no
+variation selector** (🔭 Equipment, 📅 Planner, 🌌 Sky Map, 🚀 Session Setup, 📷/📸/🧭/🪐 Live Session,
+🎯 Guider, 🔔 Notifications) -- keep that property, since the VS16 emoji are the ones that render
+inconsistently through the bundled emoji font. `U+1F3E0` qualifies. And icons are written in source as
+`\U0001F3E0` escapes, not literal glyphs, so the edit needs a tool that can match escape sequences (see
+`reference_edit_unicode_escape_gotcha`).
+
+Adding a tab touches six places, and the last one is the easily-missed one: the `GuiTab` enum;
+`GuiAppState.TabOrder` (**first**, since it is the landing tab); `VkGuiRenderer.TabChrome` (icon +
+tooltip); the `GuiEventHandlerBase` `Ctrl+<letter>` map; the two `VkGuiRenderer` switches (tab instance
++ render); and `GuiTabNavigationTests.TabOrder_IsTheSidebarLayoutOrder`, which pins the exact order and
+will go red by design.
 
 **Leave room -- do not fill the viewport** (user, 2026-07-27). The rig cards are one section of a home
 screen, not the whole of it: multi-night progress per target ("M31, 4.2 h of 12 h, over 3 nights", the
@@ -636,9 +659,12 @@ NOT Star-sized to fill. A Star-sized section has to be reworked to add a second 
 silently resizes when it is.
 
 `RemoteRigRegistry` already holds multiple connections and each `RemoteSessionMirror` polls
-independently, so the real work is the parts that only appear at N: a polling cadence with backoff
-so a dashboard does not hammer N nodes and one offline node cannot stall the tick, and a compact
-card widget. Two invariants to set deliberately at the start rather than discover: **previews stay
+independently, so the real work is the parts that only appear at N: a compact card widget, the
+connect-all path above, and **per-mirror backoff for a rig that is not answering**. Be precise about
+what that last one is and is not: there is no shared tick, so one offline node structurally *cannot*
+stall the others -- each mirror owns its own `Task.Run(PollLoopAsync)`. What is missing is that a dark
+rig is retried at the full live cadence forever, which six dark rigs turn into steady pointless
+traffic. Backoff is the fix; "an offline node stalls the board" was never the failure mode. Two invariants to set deliberately at the start rather than discover: **previews stay
 off** on the dashboard (P3 made them opt-in per mirror for exactly this reason -- N mirrors each
 pulling JPEGs is the failure mode), and **the dashboard is read-only by construction** -- driving
 still means selecting a rig, which keeps the overlay model intact instead of quietly inventing a
