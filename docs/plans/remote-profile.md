@@ -603,6 +603,38 @@ node holds the run open with no timer, bounded only by observer liveness -- and 
 only on the rig you happen to have selected. A board that shows "waiting 40 min for someone" is worth
 more than phase, frame count and guide RMS combined.
 
+**It is the home screen, not a multi-rig monitor.** Always the landing tab, listing everything you can
+look at -- local and remote -- with live status. That framing is what makes the always-on tab correct
+rather than conditional chrome, and what stops a single-scope user's one-card board being dead UI: a
+home screen with one entry is still a home screen. The cost is one click per launch for a single-rig
+user, paid for by seeing whether anything is *waiting on you* before diving in.
+
+**Opening a view never actuates hardware.** The word "connect" covers two different acts here and only
+one is safe to do on the user's behalf: a *remote* connect starts a read-only HTTP mirror (no lease, no
+touch on the rig's hardware), while a *local* connect opens drivers and powers a mount. The local card
+needs neither -- it reads `LiveSessionState`, which is populated whether or not any driver is
+connected, so "this scope, idle, nothing connected" is an accurate free card. Concrete guard: **do not
+add the dashboard to `PollPreviewTelemetry`'s `ActiveTab` gate**; it only polls already-connected
+drivers, but keeping the board off it makes "the home screen does zero device I/O" a property that can
+be stated rather than argued.
+
+**Two prerequisites that are behaviour, not UI.** (1) No `HttpClient.Timeout` is set on the rig path,
+so it is the 100 s default -- a rig that goes dark reads as reachable for over a minute, which is
+already mildly wrong for one rig and glaring on a board of six. (2) A mirror exists only after a rig is
+*selected*, so the board needs a connect-all path; because the board is always the landing tab, that is
+effectively at startup, which is what promotes the timeout fix from cleanup to prerequisite (an
+off rig would otherwise show as connecting for 100 s on every launch).
+
+**Leave room -- do not fill the viewport** (user, 2026-07-27). The rig cards are one section of a home
+screen, not the whole of it: multi-night progress per target ("M31, 4.2 h of 12 h, over 3 nights", the
+Vaonis smart-scope feature) is the intended neighbour, so the home screen answers both axes -- what is
+happening *now* per rig, and what is accumulating *over time*. Tracked as the display half of
+[`docs/todo/sequencing.md`](../todo/sequencing.md) "Multi-night scheduling"; **not part of the dashboard
+change.** The layout consequence is concrete and worth getting right first time: build the rig section
+**content-sized** (a `Layout.Builder.WrapH` of cards) with a trailing `Spacer` absorbing the slack --
+NOT Star-sized to fill. A Star-sized section has to be reworked to add a second one, and every card
+silently resizes when it is.
+
 `RemoteRigRegistry` already holds multiple connections and each `RemoteSessionMirror` polls
 independently, so the real work is the parts that only appear at N: a polling cadence with backoff
 so a dashboard does not hammer N nodes and one offline node cannot stall the tick, and a compact
