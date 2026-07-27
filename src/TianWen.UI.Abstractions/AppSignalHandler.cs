@@ -187,8 +187,15 @@ namespace TianWen.UI.Abstractions
             // than inferred from a stale address. Previews stay off (opt-in per mirror), so the cost is
             // one small state poll per rig per tick. No-op when nothing is bound, which is the common
             // single-scope case.
-            await RemoteRigActions.ConnectAllAsync(
+            var sweep = await RemoteRigActions.ConnectAllAsync(
                 _rigs, _contexts, _appState, _external, _timeProvider, _logger, cancellationToken);
+            if (sweep.DescribeUnsaved() is { } unsavedWarning)
+            {
+                // Nobody asked for this sweep, so a failure in it has no other way to reach the user --
+                // and its consequence (a rig that vanishes from the picker on some later run) shows up
+                // far from the cause.
+                Notify(NotificationSeverity.Warning, unsavedWarning);
+            }
             await FetchWeatherForecastAsync(cancellationToken);
             _plannerState.SelectedTargetIndex = 0;
             RefreshSensorFovAndFraming();
