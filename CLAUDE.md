@@ -58,15 +58,22 @@ src/
 ├── Directory.Build.props          # Auto-detect sibling repos (ProjectReference vs PackageReference)
 ├── Directory.Packages.props       # Centralized package version management
 ├── TianWen.Lib/                   # Core library (net10.0)
+├── TianWen.Lib.SourceGenerators/  # Roslyn generators for Lib (DispatchInterfaceGenerator)
 ├── TianWen.Lib.Tests/             # Unit tests (xUnit v3)
 ├── TianWen.Lib.Tests.Functional/  # Functional/integration tests (Session loops with FakeTimeProvider)
+├── TianWen.Lib.Tests.Simulators/  # On-demand tests vs LIVE Alpaca/ASCOM simulators (gated; skip by default)
 ├── TianWen.Cli/                   # CLI (AOT-published → `tianwen`)
-├── TianWen.Hosting/               # ASP.NET Core Minimal API (REST + WebSocket)
+├── TianWen.Hosting.Contracts/     # Wire DTOs + the shared HostingJsonContext (host AND client reference it)
+├── TianWen.Hosting/               # ASP.NET Core Minimal API (REST + WebSocket + Alpaca device plane)
 ├── TianWen.Server/                # Headless server (AOT-published → `tianwen-server`)
+├── TianWen.RemoteClient/          # Client for a remote node (TianWenNodeClient / EventStream / SessionMirror)
+├── TianWen.AscomHost/             # Windows-only out-of-proc host for in-proc COM ASCOM drivers
 ├── TianWen.UI.Abstractions/       # Widget system, layout, state, shared types
 ├── TianWen.UI.Shared/             # SDL→InputKey mapping, Vulkan FITS pipeline, VkSkyMapPipeline
 ├── TianWen.UI.Gui/                # N.I.N.A.-style integrated GUI (AOT-published → `tianwen-gui`)
 ├── TianWen.UI.FitsViewer/         # Standalone FITS viewer (AOT-published → `tianwen-fits`)
+├── TianWen.UI.Web/                # WebAssembly showcase build (WebGl renderer)
+├── TianWen.UI.Web.E2E/            # Playwright end-to-end tests for the web build
 ├── TianWen.UI.Benchmarks/         # BenchmarkDotNet performance tests
 ├── TianWen.AI/                    # ORT facade (EP resolver + session-options helpers)
 ├── TianWen.AI.Imaging/            # Image ↔ tensor bridge + concrete enhancer wrappers
@@ -724,9 +731,10 @@ through the **same** `Calibrator` path with no branching. The **same routines ar
   stepper, Start/Cancel; running = phase pill + per-filter status. Live preview: `Session.Flats.cs`
   publishes each metering + kept frame to `LastCapturedImages` via `PublishFlatPreview` (ownership-transfer
   hand-off like polar's `onFrameCaptured`; released in `FinaliseFlatsAsync`) + sets `_currentActivity`
-  (`OTA n · <filter> · flat k/N`). Equipment 💡: a "+ Manual Light Panel" button by `[Discover]` when a
-  Cover slot is the active assignment (`AssignManualCoverSignal` assigns the non-discoverable
-  `ManualCoverDevice` URI).
+  (`OTA n · <filter> · flat k/N`). Equipment gains a **"+ Manual Light Panel"** button by `[Discover]`
+  when a Cover slot is the active assignment (`AssignManualCoverSignal` assigns the non-discoverable
+  `ManualCoverDevice` URI) -- a plain text button, no icon. The 💡 glyph belongs to the **Live Session
+  sidebar icon for Flats mode**, not to that button.
 - **Session→UI user-prompt channel (general; flats now, darks later).** `ISession.PromptRequested` +
   `SessionPromptEventArgs.Respond(bool)` + `Session.RequestUserConfirmationAsync`. A subscriber (the GUI)
   awaits the user's Continue/Cancel, bounded by the session token (cancel → decline). **With no subscriber
@@ -1113,6 +1121,78 @@ Verify after any endpoint change by *publishing* (not just building) and smoke-t
 `curl` a GET, a complex-body POST, and a previously-`object` endpoint. The only expected publish
 warnings are 2 third-party rollups (IL2104/IL3053) from `LibUsbDotNet` (optional Canon-over-USB
 discovery; the lib ships no AOT annotations and we don't mask the warning).
+
+### Remote Rigs (mirror another node's session "as if local")
+
+[`docs/plans/remote-profile.md`](docs/plans/remote-profile.md) is complete P1-P5. A GUI can bind
+another TianWen node (`tianwen-server`) and render its session through the same tabs that render a
+local one. Two projects carry it: **`TianWen.Hosting.Contracts`** (wire DTOs + the shared public
+`HostingJsonContext`, referenced by host *and* client so the contract cannot drift) and
+**`TianWen.RemoteClient`** (`TianWenNodeClient` REST, `TianWenEventStream` WebSocket,
+`RemoteSessionMirror`).
+
+**The overlay model is the whole design: selecting a rig changes what you *look at*, never what this
+node owns.** A *remote* connect starts a read-only HTTP mirror -- no lease, no hardware touched; a
+*local* connect opens drivers and powers a mount. The single-session invariant is per NODE, so
+mirroring six rigs is not six sessions. `RemoteRigBinding` (persisted, keyed on a stable `NodeId`,
+**never** an address) + `RemoteRigRegistry` + `RemoteRigConnection`; the address is resolved per
+connect from the LAN peer table with the stored `LastAddress` as a hint, so a rig that changed DHCP
+lease reconnects on its own.
+
+**One `LiveSessionState` per view context** (`ViewContexts` / `ViewContext`). Pick deliberately:
+**Active** (what renders), **Local** (this node's own hardware -- every quit / park / disconnect path
+belongs here, and it is the only one that is capturable), **All** (poll + redraw). Reaching for
+Active where Local is meant is how a remote view ends up parking the local mount.
+
+**`ISession` / `ISessionTelemetry` split.** Telemetry is the wire-crossable *read* surface; `Setup`
+stays local (it holds live driver instances). Display-only facts ride on `TelescopeDisplayInfo`.
+`RemoteSessionMirror` implements the telemetry side -- which is why the Live Session and Guider tabs
+render a remote rig with no knowledge that it is remote.
+
+**Two wire traps, both load-bearing:**
+- **Never put `required` on a nullable wire property.** `WhenWritingNull` omits it, and the payload
+  becomes undeserializable by its own contract.
+- **A non-finite double reaching the writer is a bodiless 500 for the WHOLE endpoint** -- one NaN
+  altitude kills the entire `/state` response. Route through `JsonNumber.ForWire`, whose policy is
+  *derived* from the context's `NumberHandling` so the two cannot drift.
+
+**Polling is authoritative; the WebSocket is a latency hint, not truth.** A poll swaps the whole DTO
+in one reference write, so no field-by-field tearing is possible. `NodeResult<T>` carries a status
+code because **404 is not unreachable** -- it is the node answering "no session", which is exactly
+why `LastContactUtc` stamps on the 404 branch too. The outstanding user prompt rides on
+`/session/state` and not only the event stream, so a client attaching late can still unblock a rig
+that is waiting on a human.
+
+**Every request has a time budget** (`NodeTimeouts` -- state poll 5 s, preview 30 s, control 10 s)
+behind a 60 s `HttpClient` backstop. The 100 s default is far too long because a rig that is switched
+off *black-holes* packets rather than refusing the connection (which would fail instantly). Budget
+expiry and caller cancellation both surface as `OperationCanceledException` and mean opposite things:
+keep the `when (...)` filters on the **original** token, never the linked one, or every timeout
+rethrows and the poll loop dies.
+
+**Profile switching is gated** (`ProfileSwitchGate`): a single-profile context refuses to switch while
+connected or running, or where drivers would strand in the hub.
+
+**Planned -- the Home tab** (`GuiTab.Home`, 🏠 `U+1F3E0`, `Ctrl+H`): the multi-rig dashboard, and the
+app's landing screen. Every rig you can look at, local and remote, with phase / target / frames /
+guide RMS and an outstanding-prompt badge (the badge is most of the justification -- a prompt blocks a
+rig *indefinitely* and is currently visible only on the rig you happen to have selected). It is
+**read-only by construction**, **opening a view never actuates hardware** (concretely: do NOT add it
+to `PollPreviewTelemetry`'s `ActiveTab` gate), previews stay **off** there, and the rig section is
+**content-sized with a trailing `Spacer`, never Star-filled**, because multi-night progress is the
+intended neighbour on that screen.
+
+**Sidebar icon convention.** Every tab glyph is a **bare codepoint with no variation selector** -- the
+VS16 emoji render inconsistently through the bundled emoji font. Icons live in
+`VkGuiRenderer.TabChrome` and are written in source as backslash-U escape sequences, not literal
+glyphs, so editing them needs a tool that can match escapes (see the memory note on this). Current
+set: 🔭 Equipment, 📅 Planner, 🌌 Sky Map, 🎬 Session Setup (both the night's config *and* the Start
+button -- a cog implied only the former, a rocket only the latter), 🎯 Guider, 🔔 Notifications, and
+Live Session which swaps per mode (📷 idle, 📸 running, 🧭 polar, 🪐 planetary, 💡 flats). Adding a tab
+touches six places: the `GuiTab` enum, `GuiAppState.TabOrder`, `TabChrome`, the `GuiEventHandlerBase`
+Ctrl+letter map, the two `VkGuiRenderer` switches, and
+`GuiTabNavigationTests.TabOrder_IsTheSidebarLayoutOrder` (which pins the order and will go red by
+design).
 
 ### Image Pipeline & Buffer Lifecycle
 
