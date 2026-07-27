@@ -372,10 +372,37 @@ namespace TianWen.UI.Abstractions
 
             bus.Subscribe<SelectRemoteRigSignal>(sig =>
             {
-                // Remote binding (docs/plans/remote-profile.md P4 -- fetch the rig's profile, mirror its
-                // session) isn't built yet; the entry is shown today so discovery is visible, but there's
-                // nothing to switch to.
-                Notify(NotificationSeverity.Info, $"Remote rig binding for '{sig.DisplayName}' isn't implemented yet.");
+                // Deliberately ungated: this is a view-context overlay, so the local session keeps
+                // running underneath with its hardware untouched. ProfileSwitchGate must never apply.
+                RunTracked($"BindRig {sig.DisplayName}", "Could not connect to the rig", async ct =>
+                {
+                    var outcome = await RemoteRigActions.SelectAsync(
+                        sig.DisplayName, _rigs, _contexts, appState, external, _timeProvider, logger, ct);
+
+                    Notify(outcome.Severity, outcome.Message);
+                    appState.NeedsRedraw = true;
+                }, onFinally: () => appState.NeedsRedraw = true);
+            });
+
+            bus.Subscribe<SelectLocalContextSignal>(_ =>
+            {
+                _contexts.Activate(_contexts.Local);
+                appState.NeedsRedraw = true;
+            });
+
+            bus.Subscribe<ForgetRemoteRigSignal>(sig =>
+            {
+                // Detach on the UI thread (so nothing renders a torn-down mirror) and dispose off it.
+                var connection = _rigs.Remove(sig.BindingId);
+                RemoteRigPersistence.Delete(sig.BindingId, external, logger);
+                _contexts.Activate(_contexts.Local);
+                appState.NeedsRedraw = true;
+
+                if (connection is not null)
+                {
+                    RunTracked("ForgetRig", "Disconnecting the rig failed", async _ =>
+                        await connection.DisposeAsync());
+                }
             });
 
             bus.Subscribe<AssignDeviceSignal>(async sig =>

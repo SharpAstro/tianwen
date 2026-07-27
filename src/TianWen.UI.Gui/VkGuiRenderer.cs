@@ -655,6 +655,9 @@ namespace TianWen.UI.Gui
                             viewed.NauticalSet = plannerState.NauticalSet;
                             viewed.NauticalRise = plannerState.NauticalRise;
                         }
+                        // Null for the local context. Only the prompt overlay reads it, to name where
+                        // somebody would have to physically be for a presence-gated prompt.
+                        _liveSessionTab.RemoteRigName = ViewContexts.Active.IsLocal ? null : ViewContexts.Active.DisplayName;
                         _liveSessionTab.Render(viewed, contentRect, timeProvider);
                     }
                     break;

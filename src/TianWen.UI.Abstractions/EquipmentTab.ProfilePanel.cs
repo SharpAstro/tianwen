@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -92,17 +92,30 @@ namespace TianWen.UI.Abstractions
         /// (docs/plans/remote-profile.md), each labelled "(remote)". Every entry's action is captured
         /// directly against its own item (a <see cref="Profile"/> / rig label) rather than resolved
         /// later by index, so the list can never drift out of sync with a state change between open
-        /// and click. Remote rows post <see cref="SelectRemoteRigSignal"/> -- binding isn't wired up
-        /// yet (P4), so the handler just surfaces a stub notice.
+        /// and click. Remote rows post <see cref="SelectRemoteRigSignal"/>, which binds on first select.
+        /// <para>
+        /// Bound-but-undiscovered rigs are listed too, marked "(offline)". A rig that is switched off
+        /// must still be visible: dropping it would be indistinguishable from having lost the binding,
+        /// and the user would re-bind a rig they already own.
+        /// </para>
         /// </summary>
         private void OpenProfileDropdown(GuiAppState appState, float x, float y, float width)
         {
             var profiles = State.AllProfiles;
             var rigs = appState.PeerTable?.PeersOf("tianwen-server") ?? [];
             var rigLabels = LanPeer.ResolveLabels(rigs);
+            var bound = State.BoundRigs;
 
-            var items = ImmutableArray.CreateBuilder<string>(profiles.Count + rigs.Count);
-            var actions = new List<Action>(profiles.Count + rigs.Count);
+            var items = ImmutableArray.CreateBuilder<string>();
+            var actions = new List<Action>();
+
+            // "This computer" first, and only while a rig is on screen -- offering it otherwise would be
+            // a no-op row on the overwhelmingly common local-only path.
+            if (State.RemoteContextActive)
+            {
+                items.Add("← This computer");
+                actions.Add(() => PostSignal(new SelectLocalContextSignal()));
+            }
 
             foreach (var p in profiles)
             {
@@ -110,6 +123,7 @@ namespace TianWen.UI.Abstractions
                 var profileId = p.ProfileId;
                 actions.Add(() => PostSignal(new SwitchProfileSignal(profileId)));
             }
+
             for (var i = 0; i < rigs.Count; i++)
             {
                 var label = rigLabels[i];
@@ -117,7 +131,21 @@ namespace TianWen.UI.Abstractions
                 actions.Add(() => PostSignal(new SelectRemoteRigSignal(label)));
             }
 
-            State.ProfileDropdown.Open(x, y, width, items.MoveToImmutable(), (idx, _) =>
+            // Bound rigs discovery has not seen this run. Matched on node id, so a rig that is announcing
+            // under a new name is not listed twice.
+            foreach (var binding in bound)
+            {
+                if (rigs.Any(p => string.Equals(p.NodeId, binding.NodeId, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                items.Add($"{binding.Alias} (offline)");
+                var alias = binding.Alias;
+                actions.Add(() => PostSignal(new SelectRemoteRigSignal(alias)));
+            }
+
+            State.ProfileDropdown.Open(x, y, width, items.ToImmutable(), (idx, _) =>
             {
                 if (idx >= 0 && idx < actions.Count) actions[idx]();
             });

@@ -64,6 +64,16 @@ namespace TianWen.UI.Abstractions
         private readonly SkyMapState _skyMapState;
 
         /// <summary>
+        /// Bound rigs and their live mirrors. Owned here rather than in <see cref="GuiAppState"/> because
+        /// a connection has a lifetime (it must be disposed), and the signal handler is what already owns
+        /// the app's background work.
+        /// </summary>
+        private readonly RemoteRigRegistry _rigs = new RemoteRigRegistry();
+
+        /// <summary>Bound rigs, for the profile picker to list alongside local profiles.</summary>
+        public RemoteRigRegistry Rigs => _rigs;
+
+        /// <summary>
         /// The LOCAL node's session state. Every handler here drives or guards <i>this node's</i>
         /// equipment -- the preview telemetry poll reads local hub drivers, the session/flats/polar
         /// handlers start local runs, and the profile gate protects local device bindings -- so they all
@@ -155,6 +165,10 @@ namespace TianWen.UI.Abstractions
             {
                 await PlannerPersistence.TryLoadAsync(_plannerState, profile, _external, _logger, _timeProvider, cancellationToken);
             }
+
+            // Bound rigs, so the profile picker lists them even before discovery has seen one this run --
+            // a rig that is switched off must still appear (as offline), not silently disappear.
+            _rigs.SetBindings(await RemoteRigPersistence.LoadAllAsync(_external, _logger, cancellationToken));
             await FetchWeatherForecastAsync(cancellationToken);
             _plannerState.SelectedTargetIndex = 0;
             RefreshSensorFovAndFraming();
@@ -342,6 +356,12 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public void PollPreviewTelemetry()
         {
+            // Mirror the rig list into the Equipment tab BEFORE the early-returns below: the picker has to
+            // list bound rigs on every tab and while a local session runs, which is precisely when those
+            // returns fire. Two plain reference/bool assignments, no device I/O.
+            _eqState.BoundRigs = _rigs.Bindings;
+            _eqState.RemoteContextActive = _contexts.IsRemoteActive;
+
             if (LocalLiveSession.IsRunning) return;
 
             // Preview polling drives the Live Session tab, the Sky Map tab (for the

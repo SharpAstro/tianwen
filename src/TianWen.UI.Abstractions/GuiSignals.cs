@@ -1,4 +1,5 @@
 using DIR.Lib;
+using System;
 using TianWen.DAL;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing.PolarAlignment;
@@ -30,10 +31,24 @@ public readonly record struct SwitchProfileSignal(System.Guid ProfileId);
 /// view-context <i>overlay</i>, not a rebind of this node's equipment. A local session (if any) keeps
 /// running underneath with its devices untouched -- it is only hidden from view, and its
 /// notifications/warnings still bubble up -- so <c>ProfileSwitchGate</c> must never be applied here.
-/// Remote binding (docs/plans/remote-profile.md P4) isn't wired up yet; the handler surfaces a stub
-/// notice.
+/// The handler binds on first select (writing a <c>RemoteRigBinding</c> under
+/// <c>AppData/RemoteProfiles</c>) and reuses that binding thereafter, so a rig is bound by being
+/// looked at rather than through a separate setup step.
 /// </summary>
 public readonly record struct SelectRemoteRigSignal(string DisplayName);
+
+/// <summary>
+/// Return the view to this computer's own context. The inverse of <see cref="SelectRemoteRigSignal"/>;
+/// like it, it changes only what is displayed -- the rig keeps running and its mirror keeps polling, so
+/// coming back is free and instant.
+/// </summary>
+public readonly record struct SelectLocalContextSignal;
+
+/// <summary>
+/// Drop a bound rig entirely: disconnect its mirror and delete its binding record. Distinct from
+/// <see cref="SelectLocalContextSignal"/>, which merely looks away.
+/// </summary>
+public readonly record struct ForgetRemoteRigSignal(Guid BindingId);
 
 /// <summary>Assign a discovered device to the active slot.</summary>
 public readonly record struct AssignDeviceSignal(int DeviceIndex);
