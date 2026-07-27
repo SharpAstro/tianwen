@@ -177,12 +177,15 @@ namespace TianWen.UI.Gui
         private float FontSize => BaseFontSize * DpiScale;
 
         // Live Session sidebar icon reflects session state (overridden per-frame in RenderSidebar):
-        // idle = camera, running = camera with flash. The rocket marks the Session Setup tab as the
-        // "set up and launch here" entry point so the Start Session button is easy to find.
+        // idle = camera, running = camera with flash. The clapper board marks the Session Setup tab
+        // as the "set up and launch here" entry point. That tab is BOTH the night's configuration and
+        // the Start button, which is why neither obvious glyph worked: a cog implied only the setup
+        // half and a rocket only the launch half. A shoot you stage and then call action on spans both.
         private const string LiveSessionIdleIcon      = "\U0001F4F7"; // camera (Preview)
         private const string LiveSessionRunningIcon   = "\U0001F4F8"; // camera with flash (running session)
         private const string LiveSessionPolarIcon     = "\U0001F9ED"; // compass (Polar Align mode)
         private const string LiveSessionPlanetaryIcon = "\U0001FA90"; // ringed planet (Planetary mode)
+        private const string LiveSessionFlatsIcon     = "\U0001F4A1"; // light bulb (Flats mode)
 
         // Per-tab sidebar chrome (icon + hover tooltip with the Ctrl+letter shortcut). The sidebar
         // ORDER comes from GuiAppState.TabOrder (shared with Ctrl+Tab cycling) so the visual order
@@ -192,7 +195,7 @@ namespace TianWen.UI.Gui
             [GuiTab.Equipment]     = ("\U0001F52D",        "Equipment (Ctrl+E)"),
             [GuiTab.Planner]       = ("\U0001F4C5",        "Planner (Ctrl+P)"),
             [GuiTab.SkyMap]        = ("\U0001F30C",        "Sky Map (Ctrl+M)"),
-            [GuiTab.Session]       = ("\U0001F680",        "Session Setup (Ctrl+S)"),
+            [GuiTab.Session]       = ("\U0001F3AC",        "Session Setup (Ctrl+S)"),
             [GuiTab.LiveSession]   = (LiveSessionIdleIcon, "Live Session (Ctrl+L)"),
             [GuiTab.Guider]        = ("\U0001F3AF",        "Guider (Ctrl+G)"),
             [GuiTab.Notifications] = ("\U0001F514",        "Notifications (Ctrl+N)"),
@@ -340,7 +343,9 @@ namespace TianWen.UI.Gui
                 var (icon, tooltip) = TabChrome[tab];
                 // Live Session icon reflects the active mode: a running session flips to "camera with
                 // flash"; otherwise the mode picks the glyph -- compass for Polar Align, ringed planet for
-                // Planetary, camera for Preview. (Mirrors the mode pill so the sidebar reads at a glance.)
+                // Planetary, light bulb for Flats, camera for Preview. (Mirrors the mode pill so the
+                // sidebar reads at a glance.) A flat run deliberately leaves IsRunning false, so the
+                // running-session glyph never masks the Flats one for the duration of the run.
                 if (tab is GuiTab.LiveSession)
                 {
                     icon = ViewedLiveSession.IsRunning
@@ -349,6 +354,7 @@ namespace TianWen.UI.Gui
                         {
                             LiveSessionMode.PolarAlign => LiveSessionPolarIcon,
                             LiveSessionMode.Planetary => LiveSessionPlanetaryIcon,
+                            LiveSessionMode.Flats => LiveSessionFlatsIcon,
                             _ => LiveSessionIdleIcon,
                         };
                 }
