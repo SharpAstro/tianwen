@@ -534,13 +534,116 @@ plain interfaces, so remote implementations slot in without tab changes.
 | P3 | **DONE (2026-07-27)** -- `ISessionTelemetry` extraction, per-view-context `LiveSessionState`, `TianWen.Hosting.Contracts` split, `TianWen.RemoteClient` (`TianWenNodeClient` + `TianWenEventStream`) and `RemoteSessionMirror`, with the deep-telemetry arrays filled from the snapshot and the client-side remainder landed: preview JPEGs into `LastCapturedImages` (opt-in, `X-Frame-Number`-gated), the prompt round-trip (raised from the snapshot so a late-attaching client can still unblock the rig), and start / flats / abort / `POST /session/schedule` driven through the mirror | P2 (done) |
 | P4 | **DONE (2026-07-27)** -- `RemoteRigBinding` (keyed on the LAN.Lib stable node id, never the address or name) persisted one-file-per-rig under `AppData/RemoteProfiles`; `RemoteRigConnection` resolves the address per connect (peer table, then the stored hint) and hands its `RemoteSessionMirror` to a `ViewContext` so the tabs render a rig unchanged; the profile picker binds on first select, lists bound-but-undiscovered rigs as offline, and offers the way back to local; the `RequiresPhysicalPresence` warning is finally rendered | P1, P3 |
 | P5 | **DONE (2026-07-27)** -- served as an **ASCOM Alpaca device plane** (the candidate below, not the bespoke hub API): `MapAlpacaApi` exposes telescope / camera / focuser / filterwheel / covercalibrator over `/api/v1/{type}/{n}/{member}` plus the management API, with the camera's `imagearray` as binary ImageBytes. Device numbers come from the ACTIVE PROFILE in profile order (discovery order varies between scans; a number that moved would point a client at different hardware). Ownership is the P0 lease: actuation and a remote `Connected=false` answer `0x40B` with the gate's own wording, while reads and `Connected=true` always pass. Client side needed no new code -- pinned by 14 round-trip tests driving our own `AlpacaClient` against our own server | P3 (the Alpaca route needed only P1) |
-| Deferred | Hosted polar-alignment/planetary modes (server-side orchestration), profile editing, guide-cam image stream, auth/TLS, WAN relay, multi-rig dashboard | -- |
+| Deferred | Hosted polar-alignment/planetary modes, profile editing over the API, guide-cam image stream, auth/TLS, WAN relay, multi-rig dashboard, full ASCOM conformance -- each written up in [Deferred](#deferred-out-of-scope-for-this-plan) below | -- |
 
 P1 and P2 are independent and can run in parallel. P3 is the headline ("as if local" session
 mirror). P4 is the "remote profile" UX proper -- notably late in the sequence because the mirror
-(P3) is what makes it useful, and because the binding UX is thin once the mirror exists. P5 is
-the largest single chunk (out-of-session device control); it is what turns a session *monitor*
-into full remote *operation*, and it can slip past P4 without blocking it.
+(P3) is what makes it useful, and because the binding UX is thin once the mirror exists. P5 was
+sized here as the largest single chunk (out-of-session device control) -- **that estimate was
+wrong by an order of magnitude**, because serving Alpaca instead of a bespoke hub API deleted the
+entire client half. It is still what turns a session *monitor* into full remote *operation*.
+
+## Deferred (out of scope for this plan)
+
+Everything here is a scope boundary the plan drew on purpose, not leftover work from P1-P5. Each
+entry says what it is, why it was held back, and what it would actually take -- so picking one up
+starts from a shape rather than a name. Three are flagged **likely next** (user, 2026-07-27):
+hosted polar alignment, the guide-cam stream, and the multi-rig dashboard.
+
+**The P0 device lease changes the economics of the first two.** "Exactly one run owns the rig" now
+exists as a concept in `TianWen.Lib` rather than as a GUI flag, so a hosted run of *any* kind can
+claim the hardware and be refused coherently by every other plane. Before the lease, a hosted
+polar-align would have had to invent its own mutual exclusion against sessions and flat runs.
+
+### Hosted polar alignment (likely next)
+
+`PolarAlignmentSession` runs *outside* `Session.RunAsync` against a manually-connected mount and is
+driven entirely by the GUI today (`LiveSessionMode.PolarAlign`). Hosting it needs: a lifecycle
+surface on `IHostedSession` (start / abort / state) alongside the session and the flat run; a DTO
+for the phase plus the two-frame solve result (az/alt error, refine-loop residual); and nothing at
+all for the imagery, because the P2 preview endpoint already carries frames and the reticle/rings
+are client-side drawing on top.
+
+The design question worth settling **first** is whether the node grows a *run kind* (session /
+flats / polar-align) with one "what is this node doing" state, or a parallel endpoint group per
+mode. Lean strongly toward the run kind: the lease already models exactly one run holding the rig,
+`LiveSessionState.HasActiveRun` already asks that question, and a second parallel notion of
+"running" is precisely the mistake the P0 work just finished undoing.
+
+### Guide-cam image stream (likely next)
+
+The mirror gets guide *telemetry* today (`GUIDER-STATE-CHANGED`, `GUIDE-STEP`, the guide-sample
+ring) but no guide-camera frames and no star-profile bitmap, so a remote guider tab draws graphs
+over an empty image panel.
+
+Nearly free in principle -- a `/preview/guider` sibling reusing `PreviewEncoder` verbatim with its
+own `X-Frame-Number` change token. The reason it did not land in P2 is structural, not hard:
+`PreviewEncoder` reads `LastCapturedImages`, which holds the *OTA* frames, and the guide frame
+lives inside the guider driver. So the work is exposing the guider's last frame through
+`ISessionTelemetry` (or a guider-specific accessor) **without pinning the driver's recycled
+buffer** -- the same rule the imaging preview follows, and the one thing here that can actually go
+wrong. The star-profile bitmap is a second, smaller payload on the same route.
+
+### Multi-rig dashboard (likely next)
+
+P4 binds many rigs but shows one at a time -- deliberately, because the overlay model says
+selecting a rig changes what you *look at*. A dashboard is N mirrors polled at once behind a
+compact per-rig card (phase, target, frames, guide RMS, last notification).
+
+`RemoteRigRegistry` already holds multiple connections and each `RemoteSessionMirror` polls
+independently, so the real work is the parts that only appear at N: a polling cadence with backoff
+so a dashboard does not hammer N nodes and one offline node cannot stall the tick, and a compact
+card widget. Two invariants to set deliberately at the start rather than discover: **previews stay
+off** on the dashboard (P3 made them opt-in per mirror for exactly this reason -- N mirrors each
+pulling JPEGs is the failure mode), and **the dashboard is read-only by construction** -- driving
+still means selecting a rig, which keeps the overlay model intact instead of quietly inventing a
+second way to command hardware.
+
+### Hosted planetary mode
+
+The one item where "poll a JPEG" genuinely does not work: planetary is a high-rate video stream
+feeding a CPU-heavy rolling stack. The realistic shape is not "mirror the planetary tab" but "the
+node runs the pipeline and you steer it" -- capture + `RollingWindowStacker` stay on the node
+(where the camera is, which is the entire point), and only the stacked master preview streams back
+at a low rate, with exposure/gain/ROI and the six wavelet layers sent *up* as parameters. That is a
+genuine new feature rather than a wire-up, which is why it sits below the other three.
+
+### Profile editing over the API
+
+`POST /api/v1/profiles` accepts only `Name` today (found while writing the Alpaca round-trip
+tests). Real editing means sending device assignments, OTA specs and site -- and immediately raises
+last-writer-wins against the rig's own GUI, on top of `ProfileSwitchGate` already refusing a switch
+while anything is connected or running.
+
+Held back on principle, not effort: the overlay model says you *look at* a rig, you do not
+reconfigure it. Editing is the one operation that mutates the remote node's identity rather than
+its activity. If it lands, it wants gating in the same family as the lease.
+
+### Auth / TLS
+
+Unchanged posture, stated once here so it is not mistaken for an omission: the server binds
+`0.0.0.0` plain HTTP with no auth, LAN-trust, and **every mutating endpoint was already
+unauthenticated before this plan** -- discovery makes nodes findable, not more privileged.
+Hardening is a separate plan that applies to the server as a whole.
+
+One thing to be explicit about: **the device lease is coordination, not a security boundary.** It
+stops a second *well-behaved* client from stealing a rig mid-night; it does not stop anyone on the
+LAN who wants to. Do not let "devices are leased now" read as "the plane is protected".
+
+### WAN relay
+
+Discovery is UDP broadcast, so it is LAN-only by construction. Across the internet the zero-code
+answer today is a VPN (Tailscale/WireGuard) -- bind, route, done -- which is exactly why this is
+deferred: it is an ops choice, not a missing feature. A real relay/rendezvous service would make
+auth a **prerequisite** rather than a companion item.
+
+### Full ASCOM conformance (N.I.N.A. / SharpCap)
+
+P5's scope is the members our own `AlpacaClient` calls, pinned by round-trip tests. Third-party
+clients call more, and ConformU is the arbiter. Two known gaps beyond breadth: Alpaca has **no
+Guider device type at all**, and the three deliberate `NotImplemented` members
+(`readoutmodes`/`readoutmode`, filterwheel `focusoffsets`) would need honest answers rather than
+the current "TianWen does not model this that way". A conformance grind, not a design problem.
 
 ## Testing
 
@@ -599,9 +702,13 @@ the server as a whole, not to this feature.
   round-trips, more protocol). Poll first; push is a drop-in upgrade behind the same mirror.
 - Does the contracts split (`TianWen.Hosting.Contracts`) also absorb `NinaApiJsonContext` DTOs?
   No -- the mirror speaks native v1 only; nina DTOs stay put.
-- Device access alternative worth naming: the mini PC could expose its devices as ASCOM Alpaca
-  servers and the GUI could drive them with its existing Alpaca backend -- that covers *devices
-  only*, no session/planner/state, and needs an Alpaca server stack on the node (Windows ASCOM or
-  a conformant implementation). The hub-level native API (P5) is the better fit: one transport,
-  one auth story later, and the node stays a plain `tianwen-server`. Noted so the door stays
-  marked, not recommended.
+- ~~Device access alternative worth naming: the mini PC could expose its devices as ASCOM Alpaca
+  servers ... The hub-level native API (P5) is the better fit ... not recommended.~~
+  **RESOLVED the other way (2026-07-27) -- the Alpaca route is what shipped.** The objection
+  assumed a separate Alpaca server stack on the node (Windows ASCOM or a third-party
+  implementation); serving it *from `tianwen-server` itself* was the option not considered, and it
+  keeps every advantage the native API was credited with -- one process, one port, one auth story
+  later, the node stays a plain `tianwen-server` -- while deleting the entire client half
+  (`AddAlpaca()` already existed) and getting ImageBytes for free. "Devices only, no
+  session/planner/state" was accurate and turned out not to be a drawback: native v1 remains the
+  session plane, and the two planes do not overlap.
