@@ -465,9 +465,23 @@ plain interfaces, so remote implementations slot in without tab changes.
    return empty rather than guessing, each documented with which Part 2 item unblocks it;
    `ScoutCompleted` / `PromptRequested` use explicit accessors so subscriptions are retained rather
    than silently dropped.
-   <br>Still to do here: preview JPEGs into `LastCapturedImages` (Part 2.1), prompt round-trip
-   (Part 2.2), and routing session lifecycle through the mirror (`POST /session/start` with the
-   schedule DTO of Part 2.8, `/session/flats`, abort) -- the client methods exist, the wiring is P4.
+   <br>**Completed 2026-07-27.** Preview JPEGs are fetched per OTA and decoded into
+   `LastCapturedImages`, opt-in via `RemoteSessionMirror.Previews` (off by default -- a multi-rig
+   dashboard wants phase and counters, not N JPEG streams) and skipped entirely when the node reports
+   the `X-Frame-Number` the mirror already holds, so an unchanged frame costs headers only. Prompts are
+   raised from the **snapshot**, not the broadcast -- a client that attached after `PROMPT-REQUESTED`
+   fired, or whose socket dropped while a prompt stood, would otherwise never learn there was a
+   question and the node would hold the run open forever; `Respond` POSTs back on its own token so a
+   "Cancel" still lands while the view is being torn down, and with no local handler the mirror stays
+   silent rather than inventing a second answer to a question about hardware it cannot see. Lifecycle
+   is driven by `StartAsync` (pushes the `ScheduledObservationDto[]` schedule, then starts -- and
+   **does not start** if the push failed, since running the node's stale schedule looks like success
+   and images the wrong thing all night) / `StartFlatsAsync` / `AbortAsync`, declared on the mirror
+   rather than on `ISessionTelemetry`, which a local `Session` also implements and must stay read-only.
+   `Image.TryDecodeRaster` became public for the decode (same "bytes off a wire, no temp file" need as
+   the Canon EVF path). 19 new `RemoteSessionMirrorDriveTests`, with preview frames produced by the
+   **real** server-side `PreviewEncoder` and decoded by the real client path; the change-token test
+   counts body reads rather than requests, since the GET is issued either way.
    <br>Verified: 18 `RemoteSessionMirrorTests` against a scripted `HttpMessageHandler`, including a
    **round-trip through the real server-side projection** (`SessionStateDto.FromSession` over a
    substituted telemetry, serialized and read back) -- the test that would have caught the `required`
@@ -498,7 +512,7 @@ plain interfaces, so remote implementations slot in without tab changes.
 |-------|-------------|------------|
 | P1 | DONE -- `LAN.Lib` sibling published to NuGet; server + GUI both announce/discover; GUI profile-switcher dropdown (local profiles + discovered rigs, reshaped from the original read-only-list plan) | new repo + `UseLocalSiblings` extension |
 | P2 | **DONE (2026-07-26)** -- preview endpoint (+ a shared stretch-correct encoder the nina shim now uses too), prompt bridging (with the headless auto-proceed guarantee preserved), `GUIDER-STATE-CHANGED` + `GUIDE-STEP`, structured devices, notification ring, telemetry depth, schedule-fidelity target DTO (2.1-2.6, 2.8). Item 2.7 landed with P1; 2.9 is P5 | -- |
-| P3 | **MOSTLY DONE (2026-07-26)** -- `ISessionTelemetry` extraction, per-view-context `LiveSessionState`, `TianWen.Hosting.Contracts` split, `TianWen.RemoteClient` (`TianWenNodeClient` + `TianWenEventStream`) and `RemoteSessionMirror` all landed; with P2 done the mirror's deep-telemetry stubs (cooling / V-curve / exposure log) are filled from the snapshot. Remaining and now **unblocked**, all client-side: fetch + decode preview JPEGs into `LastCapturedImages`, surface `PendingPrompt` through `ISessionTelemetry.PromptRequested` with `Respond` POSTing back, and route start/flats/abort + `POST /session/schedule` through the mirror | P2 (done) |
+| P3 | **DONE (2026-07-27)** -- `ISessionTelemetry` extraction, per-view-context `LiveSessionState`, `TianWen.Hosting.Contracts` split, `TianWen.RemoteClient` (`TianWenNodeClient` + `TianWenEventStream`) and `RemoteSessionMirror`, with the deep-telemetry arrays filled from the snapshot and the client-side remainder landed: preview JPEGs into `LastCapturedImages` (opt-in, `X-Frame-Number`-gated), the prompt round-trip (raised from the snapshot so a late-attaching client can still unblock the rig), and start / flats / abort / `POST /session/schedule` driven through the mirror | P2 (done) |
 | P4 | Binding UX + drive mode (fetch profile, local planner, push `ScheduledObservationDto` schedule, remote start/stop/abort) | P1, P3 |
 | P5 | Out-of-session remote device control: **either** the bespoke hub API (2.9) + `RemoteDeviceHub` + driver proxies, **or** an Alpaca server on the node consumed by the existing `AddAlpaca()` (see the 2.9 candidate above -- strongly preferred; no client-side code, ImageBytes free). Preview mode + Equipment tab remote control | P3 (the Alpaca-server route needs only P1, so it can land earlier) |
 | Deferred | Hosted polar-alignment/planetary modes (server-side orchestration), profile editing, guide-cam image stream, auth/TLS, WAN relay, multi-rig dashboard | -- |
