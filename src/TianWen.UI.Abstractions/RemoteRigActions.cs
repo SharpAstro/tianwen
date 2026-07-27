@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Extensions;
 
 namespace TianWen.UI.Abstractions
 {
@@ -59,30 +60,141 @@ namespace TianWen.UI.Abstractions
                 return new SelectOutcome(NotificationSeverity.Info, $"Watching {binding.Alias}");
             }
 
-            var connection = RemoteRigConnection.TryConnect(
-                binding, contexts, appState.PeerTable, timeProvider, logger, cancellationToken);
+            var connection = await ConnectAndPersistAsync(
+                binding, rigs, contexts, appState, external, timeProvider, logger, cancellationToken)
+                .ConfigureAwait(false);
 
             if (connection is null)
             {
-                // Keep the binding: "I own this rig and it is not answering" is information, and dropping
-                // it would look like the binding was lost rather than the rig being off.
-                rigs.Upsert(binding);
-                await RemoteRigPersistence.SaveAsync(binding, external, cancellationToken).ConfigureAwait(false);
                 return new SelectOutcome(NotificationSeverity.Warning,
                     $"{binding.Alias} is offline{DescribeLastSeen(binding, timeProvider.GetUtcNow())}.");
             }
 
-            rigs.Attach(connection);
-
-            // Persist with wherever it was actually reached, so the next run can try that address before
-            // discovery has caught up. The last-seen stamp is NOT set here -- nothing has answered yet;
-            // it lands on the first successful poll (see RemoteRigConnection.TryClaimFirstContact).
-            var reached = connection.BindingAsReached();
-            rigs.Upsert(reached);
-            await RemoteRigPersistence.SaveAsync(reached, external, cancellationToken).ConfigureAwait(false);
-
             contexts.Activate(connection.Context);
             return new SelectOutcome(NotificationSeverity.Info, $"Watching {binding.Alias} at {connection.Address}");
+        }
+
+        /// <summary>How a connect-all sweep went, for the log and the notification feed.</summary>
+        public readonly record struct ConnectAllOutcome(int Connected, int Offline)
+        {
+            /// <summary>True when the sweep had something to do.</summary>
+            public bool DidAnything => Connected > 0 || Offline > 0;
+        }
+
+        /// <summary>
+        /// Starts a mirror for <b>every</b> bound rig that does not already have one, and activates
+        /// none of them.
+        /// <para>
+        /// <b>This is the one place connecting is decoupled from looking.</b> <see cref="SelectAsync"/>
+        /// connects and then calls <see cref="ViewContexts.Activate"/>, because picking a rig from the
+        /// picker means "show me this". A dashboard needs the opposite: N rigs live at once while the
+        /// view stays wherever the user left it. A binding on its own carries no live state -- alias,
+        /// node id, last address and <see cref="RemoteRigBinding.LastSeenUtc"/> from disk -- so phase,
+        /// target, frame counts, guide RMS and the outstanding-prompt badge all require a running
+        /// <c>RemoteSessionMirror</c>. Without this sweep a board would render N cards showing nothing
+        /// until each was clicked, and clicking would move the view.
+        /// </para>
+        /// <para>
+        /// <b>Previews stay off.</b> <c>RemoteSessionMirror.Previews</c> is opt-in and nothing here sets
+        /// it, so a sweep costs one small state poll per rig per tick and never a JPEG. N mirrors each
+        /// pulling frames is the failure mode this design exists to avoid.
+        /// </para>
+        /// <para>
+        /// Cheap to call: <see cref="RemoteRigConnection.TryConnect"/> makes no HTTP request at all, it
+        /// resolves an endpoint and starts a poll loop. Best-effort per rig -- one unreachable rig or one
+        /// unwritable binding file must not stop the others -- and idempotent, so calling it again after
+        /// a rig comes online picks up only what is still missing.
+        /// </para>
+        /// </summary>
+        public static async Task<ConnectAllOutcome> ConnectAllAsync(
+            RemoteRigRegistry rigs,
+            ViewContexts contexts,
+            GuiAppState appState,
+            IExternal external,
+            ITimeProvider timeProvider,
+            ILogger logger,
+            CancellationToken cancellationToken)
+        {
+            var connected = 0;
+            var offline = 0;
+
+            foreach (var binding in rigs.Bindings)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                if (rigs.IsConnected(binding.BindingId))
+                {
+                    continue;
+                }
+
+                var connection = await ConnectAndPersistAsync(
+                    binding, rigs, contexts, appState, external, timeProvider, logger, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (connection is null)
+                {
+                    offline++;
+                }
+                else
+                {
+                    connected++;
+                }
+            }
+
+            var outcome = new ConnectAllOutcome(connected, offline);
+            if (outcome.DidAnything)
+            {
+                logger.LogInformation(
+                    "Rig sweep: mirroring {Connected}, {Offline} with no reachable address", connected, offline);
+            }
+
+            return outcome;
+        }
+
+        /// <summary>
+        /// Connects one binding and records where it was reached, without deciding what is on screen.
+        /// Returns null when the rig has no usable address (i.e. it is offline).
+        /// <para>
+        /// The binding is kept and persisted either way: "I own this rig and it is not answering" is
+        /// information, and dropping it would look like the binding was lost rather than the rig being
+        /// off. On success it is persisted with wherever the rig was actually reached, so the next run
+        /// can try that address before discovery has caught up -- but <b>not</b> with a last-seen stamp,
+        /// because nothing has answered yet; that lands on the first successful poll (see
+        /// <see cref="RemoteRigConnection.TryClaimFirstContact"/>).
+        /// </para>
+        /// <para>
+        /// The save is best-effort. Failing to write a binding file should not deny the caller the
+        /// connection it asked for, and in a sweep one unwritable file must not abort the remaining rigs.
+        /// </para>
+        /// </summary>
+        private static async Task<RemoteRigConnection?> ConnectAndPersistAsync(
+            RemoteRigBinding binding,
+            RemoteRigRegistry rigs,
+            ViewContexts contexts,
+            GuiAppState appState,
+            IExternal external,
+            ITimeProvider timeProvider,
+            ILogger logger,
+            CancellationToken cancellationToken)
+        {
+            var connection = RemoteRigConnection.TryConnect(
+                binding, contexts, appState.PeerTable, timeProvider, logger, cancellationToken);
+
+            if (connection is not null)
+            {
+                rigs.Attach(connection);
+            }
+
+            var toPersist = connection?.BindingAsReached() ?? binding;
+            rigs.Upsert(toPersist);
+            await logger.CatchAsync(
+                ct => RemoteRigPersistence.SaveAsync(toPersist, external, ct), cancellationToken)
+                .ConfigureAwait(false);
+
+            return connection;
         }
 
         /// <summary>
