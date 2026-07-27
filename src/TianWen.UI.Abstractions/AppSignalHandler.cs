@@ -804,6 +804,31 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Guards a manual command against a device some run currently owns, notifying the shared
+        /// <see cref="DeviceOwnershipVerdict.Describe"/> explanation when it refuses. Call as
+        /// <c>if (!EnsureDeviceControllable(uri)) return;</c>.
+        /// <para>
+        /// <b>Use this, not <see cref="EnsureSessionIdle"/>, for anything that commands hardware.</b>
+        /// <c>EnsureSessionIdle</c> asks the UI whether a <i>full session</i> is running, which is false
+        /// during a flat run and unset entirely by polar-align and planetary capture -- all of which own
+        /// the hardware just as completely. This asks the hub who actually holds the device, so it is
+        /// right for every kind of run and stays right for the hosted API and the Alpaca plane, which
+        /// never see a UI flag at all.
+        /// </para>
+        /// </summary>
+        private bool EnsureDeviceControllable(Uri deviceUri)
+        {
+            var verdict = DeviceOwnershipGate.Evaluate(_appState.DeviceHub, deviceUri, DeviceAction.Actuate);
+            if (verdict.Allowed)
+            {
+                return true;
+            }
+
+            Notify(NotificationSeverity.Warning, verdict.Describe());
+            return false;
+        }
+
+        /// <summary>
         /// Guards a run that would drive THIS node's hardware while a remote rig is on screen. Every
         /// handler here acts locally, so starting one from a remote view would silently run a local
         /// session behind a remote overlay -- the failure the local/active split exists to prevent.
@@ -853,10 +878,11 @@ namespace TianWen.UI.Abstractions
         private bool TryResolveIdleOtaFocuser(int otaIndex, [NotNullWhen(true)] out IFocuserDriver? focuser)
         {
             focuser = null;
-            if (LocalLiveSession.IsRunning) return false;
             if (_appState.ActiveProfile?.Data is not { OTAs: var otas } || otaIndex >= otas.Length) return false;
             if (_appState.DeviceHub is not { } hub) return false;
             if (otas[otaIndex].Focuser is not { } focUri) return false;
+            // Ownership, not LiveSessionState.IsRunning: a flat run holds the focuser with IsRunning false.
+            if (!EnsureDeviceControllable(focUri)) return false;
             return hub.TryGetConnectedDriver(focUri, out focuser);
         }
 

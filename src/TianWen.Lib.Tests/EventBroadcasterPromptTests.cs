@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net.WebSockets;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -73,7 +73,7 @@ namespace TianWen.Lib.Tests
         // --- Nobody attached: behave exactly as an unsubscribed session would --------------------------
 
         [Fact]
-        public void WithNoObserverAttachedThePromptIsAnsweredImmediatelyWithTheSessionsOwnDefault()
+        public async Task WithNoObserverAttachedThePromptIsAnsweredImmediatelyWithTheSessionsOwnDefault()
         {
             // The guarantee that keeps an unattended run from blocking: attaching an event broadcaster
             // must not change the outcome of a run nobody is watching.
@@ -83,12 +83,12 @@ namespace TianWen.Lib.Tests
             broadcaster.OnPromptRequested(this, prompt);
 
             answer.IsCompletedSuccessfully.ShouldBeTrue();
-            answer.Result.ShouldBeFalse("declining skips the gated step, which is the safe default");
+            (await answer).ShouldBeFalse("declining skips the gated step, which is the safe default");
             host.PendingPrompt.ShouldBeNull("nothing is outstanding, so no client should be offered it");
         }
 
         [Fact]
-        public void AnOperatorInvokedRunStillProceedsWhenNobodyIsThereToAnswer()
+        public async Task AnOperatorInvokedRunStillProceedsWhenNobodyIsThereToAnswer()
         {
             // tianwen flats / POST /session/flats opt into Proceed, because the operator who asked for
             // the run may have switched a hand-switched panel on and walked back inside. The policy rides
@@ -99,7 +99,7 @@ namespace TianWen.Lib.Tests
             broadcaster.OnPromptRequested(this, prompt);
 
             answer.IsCompletedSuccessfully.ShouldBeTrue();
-            answer.Result.ShouldBeTrue();
+            (await answer).ShouldBeTrue();
             host.PendingPrompt.ShouldBeNull();
         }
 
@@ -156,7 +156,7 @@ namespace TianWen.Lib.Tests
         // --- Liveness: the observer going away must not leave the run wedged ------------------------
 
         [Fact]
-        public void APromptOutstandingWhenTheLastObserverLeavesIsResolvedNotLeftHanging()
+        public async Task APromptOutstandingWhenTheLastObserverLeavesIsResolvedNotLeftHanging()
         {
             // The wedge reached by a different route: a client attaches, triggers the hold, then drops its
             // socket. Nobody is left who can answer, so the liveness check has to close it -- otherwise
@@ -172,7 +172,7 @@ namespace TianWen.Lib.Tests
             broadcaster.ResolveOrphanedPrompt();
 
             answer.IsCompletedSuccessfully.ShouldBeTrue();
-            answer.Result.ShouldBeFalse();
+            (await answer).ShouldBeFalse();
             host.PendingPrompt.ShouldBeNull();
         }
 
@@ -194,7 +194,7 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void AClientsAnswerWinsAndTheLivenessCheckThenDoesNothing()
+        public async Task AClientsAnswerWinsAndTheLivenessCheckThenDoesNothing()
         {
             var (broadcaster, host, hub) = Build();
             var clientId = hub.AddClient(FakeClient());
@@ -210,7 +210,7 @@ namespace TianWen.Lib.Tests
             broadcaster.ResolveOrphanedPrompt();
 
             answer.IsCompletedSuccessfully.ShouldBeTrue();
-            answer.Result.ShouldBeTrue("the human's answer must not be overwritten by the fallback");
+            (await answer).ShouldBeTrue("the human's answer must not be overwritten by the fallback");
             host.PendingPrompt.ShouldBeNull();
         }
 

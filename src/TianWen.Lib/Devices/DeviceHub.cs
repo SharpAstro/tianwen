@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -13,6 +13,14 @@ namespace TianWen.Lib.Devices;
 internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> logger) : IDeviceHub
 {
     private readonly ConcurrentDictionary<string, (DeviceBase Device, IDeviceDriver Driver)> _connected = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Live ownership claims, keyed the same way as <see cref="_connected"/> so a lease survives the
+    /// query part of a URI changing (a re-plugged mount moving COM5 -> COM6 is the same device).
+    /// A lease is deliberately independent of connection state: a run owns its devices across a driver
+    /// reconnect, which is precisely when a stray disconnect would do the most damage.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, LeaseHandle> _leases = new(StringComparer.OrdinalIgnoreCase);
 
     public event EventHandler<DeviceConnectedEventArgs>? DeviceStateChanged;
 
@@ -66,9 +74,16 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
         return driver;
     }
 
-    public async ValueTask DisconnectAsync(Uri deviceUri, CancellationToken cancellationToken = default)
+    public async ValueTask DisconnectAsync(Uri deviceUri, bool force = false, CancellationToken cancellationToken = default)
     {
         var key = DeviceKey(deviceUri);
+
+        // Ownership is checked BEFORE the TryRemove: refusing after the entry is gone would leave the hub
+        // believing the device is disconnected while the run keeps driving it.
+        if (!force && _leases.TryGetValue(key, out var lease))
+        {
+            throw new DeviceLeasedException(lease.Claim);
+        }
 
         if (!_connected.TryRemove(key, out var entry))
         {
@@ -111,6 +126,70 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
     public bool IsConnected(Uri deviceUri) =>
         _connected.TryGetValue(DeviceKey(deviceUri), out var entry) && entry.Driver.Connected;
 
+    // ── Ownership ──
+
+    public bool TryAcquireLease(Uri deviceUri, string ownerLabel, [NotNullWhen(true)] out IDisposable? lease)
+    {
+        var key = DeviceKey(deviceUri);
+        var handle = new LeaseHandle(this, key, new DeviceLease(deviceUri, ownerLabel));
+
+        if (!_leases.TryAdd(key, handle))
+        {
+            lease = null;
+            return false;
+        }
+
+        logger.LogDebug("DeviceHub: {Owner} took ownership of {DeviceUri}", ownerLabel, deviceUri);
+        lease = handle;
+        return true;
+    }
+
+    public bool TryGetLease(Uri deviceUri, out DeviceLease lease)
+    {
+        if (_leases.TryGetValue(DeviceKey(deviceUri), out var handle))
+        {
+            lease = handle.Claim;
+            return true;
+        }
+
+        lease = default;
+        return false;
+    }
+
+    public IReadOnlyList<DeviceLease> Leases => _leases.Values.Select(static h => h.Claim).ToList();
+
+    /// <summary>
+    /// Releases a claim, but only if the slot still holds THIS handle.
+    /// <para>
+    /// Keyed on the handle's reference identity rather than the <see cref="DeviceLease"/> value, because
+    /// two successive claims on the same device by the same owner ("the imaging session", twice in one
+    /// evening) are equal <i>by value</i> -- so a stale handle disposed late would silently unlock the
+    /// device the CURRENT run is driving. Reference identity makes that impossible.
+    /// </para>
+    /// </summary>
+    private void ReleaseLease(string key, LeaseHandle handle)
+    {
+        if (_leases.TryRemove(new KeyValuePair<string, LeaseHandle>(key, handle)))
+        {
+            logger.LogDebug("DeviceHub: {Owner} released {DeviceUri}", handle.Claim.OwnerLabel, handle.Claim.DeviceUri);
+        }
+    }
+
+    private sealed class LeaseHandle(DeviceHub hub, string key, DeviceLease claim) : IDisposable
+    {
+        private int _released;
+
+        internal DeviceLease Claim { get; } = claim;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) == 0)
+            {
+                hub.ReleaseLease(key, this);
+            }
+        }
+    }
+
     public async ValueTask<bool> IsCoolingAsync(Uri deviceUri, CancellationToken cancellationToken = default)
     {
         if (!_connected.TryGetValue(DeviceKey(deviceUri), out var entry))
@@ -132,7 +211,10 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
         {
             try
             {
-                await DisconnectAsync(device.DeviceUri, CancellationToken.None);
+                // force: the process is going down, so the hardware must come down with it regardless of
+                // which run still believes it owns a driver. A quit path is supposed to abort the local
+                // session first (which drops its leases); this is the backstop for when it did not.
+                await DisconnectAsync(device.DeviceUri, force: true, CancellationToken.None);
             }
             catch (Exception ex)
             {

@@ -308,6 +308,38 @@ URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends)
 Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See class XML doc comments
 for supported keys.
 
+### Device Ownership (the hub lease)
+
+A run that is driving hardware **claims it from the hub**, and nothing else may disconnect or command a
+claimed device. `IDeviceHub.TryAcquireLease` / `DeviceLeaseSet.Acquire` (all-or-nothing over a rig) /
+`DeviceOwnershipGate.Evaluate` (the one shared verdict + `Describe()` message, mirroring
+`ProfileSwitchGate`). `Session.RunAsync` and `RunFlatsOnlyAsync` claim `Setup.DeviceUris()` for the
+whole run, released in the `finally` so a claim survives `Finalise` (parking + warming is exactly when a
+stray disconnect hurts most).
+
+- **Reads are never leased.** Telemetry, status and previews stay free for every observer — watching a
+  rig must cost it nothing. A lease only refuses *taking the driver away* and *commanding it*.
+- **Never guard hardware access on a UI flag.** The guards used to be five ad-hoc
+  `LiveSessionState.IsRunning` checks (three of them a silent `return` with no message), and every one
+  was wrong the same way: `IsRunning` is **false during a flat run** — which is precisely why
+  `HasActiveRun` exists, and none of them used it — while polar-align and planetary capture set neither.
+  So mid-flat-run the focuser could be jogged, the mount pulsed and slewed, and a planetary capture
+  started on the camera being metered. A UI flag also cannot work for the hosted API or the Alpaca plane,
+  which never see one. Ask `DeviceOwnershipGate`; in the GUI that is `EnsureDeviceControllable(uri)`.
+- **Enforcement is asymmetric, deliberately.** Disconnect has one choke point, so `DisconnectAsync`
+  throws `DeviceLeasedException` unless `force: true` — a caller that skips the gate gets an exception,
+  not a stolen driver. Actuation has no choke point short of proxying every driver (an interception layer
+  on the imaging hot path), so actuation call sites ask the gate. Both evaluate the same rule.
+- **`force: true` is for process shutdown only.** Note that GUI "Force Off" does **not** force past
+  ownership: it means "skip the warm-up", which is what the user confirmed — consenting to a cold
+  disconnect is not consenting to kill the night.
+- **Escalation is explicit:** stop the run (abort the session / cancel the flat run) and the lease frees.
+  There is no override on the actuation path by design.
+- `GetDisconnectSafetyAsync` is a **hardware**-safety check (cooler on / mid-exposure) and returns `Safe`
+  for anything that is not a camera — it is not, and never was, an ownership check. Ask the gate first.
+
+Pinned by `DeviceOwnershipTests`, including three that drive a real `Session`/flat run end to end.
+
 ### Alpaca Backend (ASCOM Remote / Alpaca HTTP)
 
 `AddAlpaca()` is a **fully functional** device source (camera, telescope, focuser, filter wheel,

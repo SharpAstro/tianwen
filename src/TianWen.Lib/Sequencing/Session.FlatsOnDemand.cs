@@ -25,6 +25,25 @@ internal partial record Session
         var mountConnected = false;
 
         _failureReason = null;
+
+        // A flat run owns the hardware exactly as completely as a full session -- which is the case the old
+        // UI-flag guards all missed, because FlatsBootstrapper deliberately leaves LiveSessionState.IsRunning
+        // false. Claiming from the hub is what makes the two indistinguishable to everything else.
+        DeviceLeaseSet leases;
+        try
+        {
+            leases = AcquireEquipment("the flat run");
+        }
+        catch (DeviceLeasedException ex)
+        {
+            _logger.LogError(ex, "Cannot start flats: equipment already owned.");
+            _failureReason = ex.Message;
+            SetPhase(SessionPhase.Failed);
+            return;
+        }
+
+        using var _equipment = leases;
+
         try
         {
             AllocateObservableState();

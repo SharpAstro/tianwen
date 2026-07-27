@@ -108,13 +108,22 @@ public class FakeExternal : IExternal
     public ValueTask<ResourceLock> WaitForSerialPortEnumerationAsync(CancellationToken cancellationToken) => ValueTask.FromResult(ResourceLock.AlwaysUnlocked);
 
     /// <summary>
-    /// Builds a minimal <see cref="IServiceProvider"/> that resolves <see cref="IExternal"/> and <see cref="ITimeProvider"/>.
+    /// Builds a minimal <see cref="IServiceProvider"/> that resolves <see cref="IExternal"/>,
+    /// <see cref="ITimeProvider"/> and <see cref="IDeviceHub"/>.
     /// Use when constructing <see cref="Sequencing.ControllableDeviceBase{TDriver}"/> subclasses in tests.
+    /// <para>
+    /// The hub starts empty, so <c>TryGetConnectedDriver</c> misses and every device still instantiates
+    /// its own driver exactly as before -- nothing about driver creation changes. What it adds is a real
+    /// <b>ownership</b> surface, so a session under test genuinely claims and releases its rig
+    /// (<c>DeviceOwnershipTests</c>). Without it every session test would silently take the
+    /// no-hub path and a leaked lease would go unnoticed until it stranded a real user's rig.
+    /// </para>
     /// </summary>
     public IServiceProvider BuildServiceProvider() =>
         new ServiceCollection()
             .AddSingleton<IExternal>(this)
             .AddSingleton<ITimeProvider>(_timeProvider)
+            .AddSingleton<IDeviceHub, DeviceHub>()
             .AddLogging()
             .BuildServiceProvider();
 }

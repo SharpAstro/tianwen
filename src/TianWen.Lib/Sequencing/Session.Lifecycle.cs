@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -54,6 +55,26 @@ internal partial record Session
             throw new InvalidOperationException($"Failed to start guider loop of guider {guider.Driver}");
         }
     }
+
+    /// <summary>
+    /// Claims every device in <see cref="Setup"/> from the hub for the duration of a run, so nothing else
+    /// can disconnect or command this rig's hardware while the run owns it.
+    /// <para>
+    /// <b>Why the run claims rather than the UI guarding.</b> Before this, the guards lived at five UI
+    /// call sites keyed on <c>LiveSessionState.IsRunning</c> -- which is false during a flat run, invisible
+    /// to the hosted API, and invisible to the Alpaca device plane. Ownership belongs to the hub because
+    /// the hub is the one thing every surface shares. See
+    /// <see cref="TianWen.Lib.Devices.DeviceOwnershipGate"/>.
+    /// </para>
+    /// <para>
+    /// A host with no <see cref="IDeviceHub"/> composed (several unit-test hosts) gets an empty set and
+    /// behaves exactly as before.
+    /// </para>
+    /// </summary>
+    /// <exception cref="DeviceLeasedException">Another run already owns one of these devices; nothing is
+    /// left claimed.</exception>
+    private DeviceLeaseSet AcquireEquipment(string ownerLabel)
+        => DeviceLeaseSet.Acquire(ServiceProvider.GetService<IDeviceHub>(), Setup.DeviceUris(), ownerLabel);
 
     internal async ValueTask Finalise(CancellationToken cancellationToken)
     {
