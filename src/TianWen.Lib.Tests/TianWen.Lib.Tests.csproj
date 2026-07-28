@@ -82,6 +82,8 @@
          pipeline test (GpuStretchPipelineTests). Vulkan native libs are loaded
          lazily on the first Vulkan call; tests skip if the runtime is unavailable. -->
     <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
+    <!-- The TUI chrome (tab bar geometry) is testable without a terminal; see TuiTabBarTests. -->
+    <ProjectReference Include="..\TianWen.Cli\TianWen.Cli.csproj" />
   </ItemGroup>
 
   <ItemGroup>

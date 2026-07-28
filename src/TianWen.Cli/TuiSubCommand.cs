@@ -154,7 +154,7 @@ internal class TuiSubCommand(
                 var rawEvt = terminal.TryReadInput();
 
                 // Tab switching: 1-4 or F1-F4 (skip when editing site — digits go to text input)
-                if (!eqState.IsEditingSite && TrySwitchTab(rawEvt, appState, tabs, ref activeTab, terminal))
+                if (!eqState.IsEditingSite && TrySwitchTab(rawEvt, appState, tabs, ref activeTab, terminal, tabBar))
                 {
                     continue;
                 }
@@ -287,7 +287,7 @@ internal class TuiSubCommand(
     }
 
     private static bool TrySwitchTab(ConsoleInputEvent rawEvt, GuiAppState appState,
-        Dictionary<GuiTab, ITuiTab> tabs, ref ITuiTab activeTab, IVirtualTerminal terminal)
+        Dictionary<GuiTab, ITuiTab> tabs, ref ITuiTab activeTab, IVirtualTerminal terminal, TuiTabBar tabBar)
     {
         // F-keys for direct switching; Ctrl+letter as a letter-based mnemonic.
         // Digit shortcuts (1..5) were removed in favour of the mnemonic bindings.
@@ -309,15 +309,16 @@ internal class TuiSubCommand(
             _ => (GuiTab?)null
         };
 
-        // Mouse click on tab bar (row 0)
+        // Mouse click: pixels to cells, then ask the bar. It hit-tests its own arranged tree, so the row is
+        // part of the question rather than a hardcoded "the bar is row 0" here, and a column the bar did not
+        // draw a tab into -- because a narrow terminal left that tab out -- correctly misses.
         if (newTab is null && rawEvt.Mouse is { IsRelease: true } mouse)
         {
+            var cellW = terminal.CellSize.Width;
             var cellH = terminal.CellSize.Height;
-            if (cellH > 0 && mouse.Y / cellH == 0)
+            if (cellW > 0 && cellH > 0)
             {
-                var cellW = terminal.CellSize.Width;
-                var col = cellW > 0 ? mouse.X / cellW : 0;
-                newTab = TuiTabBar.HitTestTab(col);
+                newTab = tabBar.HitTest(mouse.X / cellW, mouse.Y / cellH);
             }
         }
 
