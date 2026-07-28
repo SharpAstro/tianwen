@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+﻿<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -52,7 +52,7 @@
     <ProjectReference Include="..\..\..\WebGl.Renderer\src\WebGl.Renderer\WebGl.Renderer.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
-    <PackageReference Include="WebGl.Renderer" Version="1.11.*" />
+    <PackageReference Include="WebGl.Renderer" Version="1.12.*" />
   </ItemGroup>
 
 
