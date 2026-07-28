@@ -133,7 +133,7 @@
          rounded panel is a property of the tree. Chrome only, so arrange is unaffected and a rounded
          node occupies exactly the rect a square one would; a zero radius keeps the plain FillRectangle
          path, so untouched trees paint byte-identically. -->
-    <PackageVersion Include="DIR.Lib" Version="6.22.*" />
+    <PackageVersion Include="DIR.Lib" Version="6.23.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -207,7 +207,7 @@
          inline buttons. Between them the list now owns the row hit geometry the TUI tabs used to
          reconstruct by hand: viewport-offset origin, header row, SCROLLED item index, and yielding the
          scrollbar column so the thumb stays grabbable. -->
-    <PackageVersion Include="Console.Lib" Version="3.16.*" />
+    <PackageVersion Include="Console.Lib" Version="4.0.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan

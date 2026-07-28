@@ -21,7 +21,27 @@ namespace TianWen.UI.Abstractions
         RGBAColor32 OfflineDot,
         RGBAColor32 RunningDot,
         RGBAColor32 PromptBg,
-        RGBAColor32 PromptText);
+        RGBAColor32 PromptText)
+    {
+        /// <summary>
+        /// The shared board palette. One instance for every surface: the GPU tab and the TUI tab draw the
+        /// same tree, so a second copy of these colours would be a second thing to keep in step.
+        /// </summary>
+        public static HomeBoardStyle Default { get; } = new HomeBoardStyle(
+            ContentBg:    GuiTheme.Palette.ContentBg,
+            HeaderBg:     GuiTheme.Palette.HeaderBg,
+            HeaderText:   GuiTheme.Palette.HeaderText,
+            EmptyText:    new RGBAColor32(0x55, 0x55, 0x66, 0xff),
+            CardBg:       GuiTheme.Palette.PanelBg,
+            ViewedCardBg: GuiTheme.Palette.Selection,
+            BodyText:     GuiTheme.Palette.BodyText,
+            DimText:      GuiTheme.Palette.DimText,
+            OnlineDot:    new RGBAColor32(0x55, 0xbb, 0x66, 0xff),
+            OfflineDot:   new RGBAColor32(0x66, 0x66, 0x74, 0xff),
+            RunningDot:   new RGBAColor32(0x55, 0x99, 0xdd, 0xff),
+            PromptBg:     new RGBAColor32(0xbb, 0x88, 0x22, 0xff),
+            PromptText:   new RGBAColor32(0x18, 0x14, 0x08, 0xff));
+    }
 
     /// <summary>
     /// Builds the whole home screen as ONE <see cref="Layout.Node"/> tree, the way

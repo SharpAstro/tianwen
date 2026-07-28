@@ -30,6 +30,7 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
     // Label carries the Ctrl+letter mnemonic; F-keys (F1..F6) also switch tabs.
     private static readonly (string Label, GuiTab Tab)[] Tabs =
     [
+        ("^H Home", GuiTab.Home),
         ("^E Equip", GuiTab.Equipment),
         ("^P Plan", GuiTab.Planner),
         ("^S Session", GuiTab.Session),

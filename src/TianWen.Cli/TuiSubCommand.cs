@@ -108,6 +108,9 @@ internal class TuiSubCommand(
 
         var tabs = new Dictionary<GuiTab, ITuiTab>
         {
+            // First tab whose tree is SHARED with the GPU surface (HomeBoardLayout) rather than written
+            // for the terminal.
+            [GuiTab.Home] = new TuiHomeTab(appState, contexts, signalHandler.Rigs, consoleHost.TimeProvider, bus),
             [GuiTab.Equipment] = new TuiEquipmentTab(appState, eqState, contexts, equipmentContent, consoleHost, bus),
             [GuiTab.Planner] = new TuiPlannerTab(appState, plannerState, fontPath, consoleHost.TimeProvider),
             [GuiTab.Session] = new TuiSessionTab(appState, sessionState, plannerState, bus),
@@ -294,12 +297,14 @@ internal class TuiSubCommand(
         var ctrl = (rawEvt.Modifiers & ConsoleModifiers.Control) != 0;
         var newTab = rawEvt.Key switch
         {
-            ConsoleKey.F1 => GuiTab.Equipment,
-            ConsoleKey.F2 => GuiTab.Planner,
-            ConsoleKey.F3 => GuiTab.Session,
-            ConsoleKey.F4 => GuiTab.LiveSession,
-            ConsoleKey.F5 => GuiTab.Guider,
-            ConsoleKey.F6 => GuiTab.Notifications,
+            ConsoleKey.F1 => GuiTab.Home,
+            ConsoleKey.F2 => GuiTab.Equipment,
+            ConsoleKey.F3 => GuiTab.Planner,
+            ConsoleKey.F4 => GuiTab.Session,
+            ConsoleKey.F5 => GuiTab.LiveSession,
+            ConsoleKey.F6 => GuiTab.Guider,
+            ConsoleKey.F7 => GuiTab.Notifications,
+            ConsoleKey.H when ctrl => GuiTab.Home,
             ConsoleKey.E when ctrl => GuiTab.Equipment,
             ConsoleKey.P when ctrl => GuiTab.Planner,
             ConsoleKey.S when ctrl => GuiTab.Session,

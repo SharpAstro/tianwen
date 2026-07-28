@@ -21,22 +21,6 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public class HomeTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
-        /// <summary>The screen's palette, resolved once from the shared theme.</summary>
-        private static readonly HomeBoardStyle Style = new HomeBoardStyle(
-            ContentBg:    GuiTheme.Palette.ContentBg,
-            HeaderBg:     GuiTheme.Palette.HeaderBg,
-            HeaderText:   GuiTheme.Palette.HeaderText,
-            EmptyText:    new RGBAColor32(0x55, 0x55, 0x66, 0xff),
-            CardBg:       GuiTheme.Palette.PanelBg,
-            ViewedCardBg: GuiTheme.Palette.Selection,
-            BodyText:     GuiTheme.Palette.BodyText,
-            DimText:      GuiTheme.Palette.DimText,
-            OnlineDot:    new RGBAColor32(0x55, 0xbb, 0x66, 0xff),
-            OfflineDot:   new RGBAColor32(0x66, 0x66, 0x74, 0xff),
-            RunningDot:   new RGBAColor32(0x55, 0x99, 0xdd, 0xff),
-            PromptBg:     new RGBAColor32(0xbb, 0x88, 0x22, 0xff),
-            PromptText:   new RGBAColor32(0x18, 0x14, 0x08, 0xff));
-
         public void Render(GuiAppState appState, RectF32 contentRect)
         {
             // Drops last frame's clickable regions: the documented contract for a Render pass, and what every
@@ -50,7 +34,7 @@ namespace TianWen.UI.Abstractions
 
             // The cards are built once per frame by the telemetry poll, so the tab neither reaches into the
             // rig registry nor decides when a card is stale.
-            RenderLayout(HomeBoardLayout.Build(appState.HomeCards, Style, columns, SelectAction), contentRect);
+            RenderLayout(HomeBoardLayout.Build(appState.HomeCards, HomeBoardStyle.Default, columns, SelectAction), contentRect);
         }
 
         /// <summary>

@@ -1,3 +1,4 @@
+using Console.Lib;
 using DIR.Lib;
 using Shouldly;
 using System;
@@ -179,6 +180,65 @@ namespace TianWen.Lib.Tests
             // The socket leads the label, in the same run as the text -- which only renders because the
             // painter resolves emoji runs to the emoji font per run.
             new RigDeviceLink(4, 6).Describe().ShouldStartWith("🔌");
+        }
+
+        [Fact]
+        public void TheSameTreeArrangesOnACellSurface()
+        {
+            // The point of the axis-aware unit mapping: this is HomeBoardLayout.Build -- the very tree the GPU
+            // tab renders -- arranged for a terminal. No TUI-specific card, rows, or metrics.
+            var cards = ImmutableArray.Create(Card("This computer"), Card("Backyard"), Card("Roof"));
+            var tree = HomeBoardLayout.Build(cards, HomeBoardStyle.Default, columns: 2);
+
+            // An 80x24 terminal.
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, 80, 24), CellMeasureContext.PixelAuthored);
+
+            var cardRects = arranged
+                .Where(a => a.Node.Hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("HomeRig:"))
+                .Select(a => a.Bounds)
+                .OrderBy(r => r.Y).ThenBy(r => r.X)
+                .ToArray();
+
+            cardRects.Length.ShouldBe(3);
+
+            // A card is a sane number of CELLS, not the raw design-unit count: 132 units tall is ~8 rows at
+            // 16 units per row, not 132 rows. Before the axis split this arranged into nonsense.
+            foreach (var rect in cardRects)
+            {
+                rect.Height.ShouldBeInRange(6, 10);
+                rect.Width.ShouldBeInRange(20, 40);
+            }
+
+            // Two per row, third wraps -- the grid behaves the same way it does on pixels.
+            cardRects[0].Y.ShouldBe(cardRects[1].Y);
+            cardRects[2].Y.ShouldBeGreaterThan(cardRects[0].Y);
+
+            // And it fits the terminal rather than overflowing it.
+            foreach (var rect in cardRects)
+            {
+                (rect.X + rect.Width).ShouldBeLessThanOrEqualTo(80);
+            }
+        }
+
+        [Fact]
+        public void ACellAuthoredContextWouldArrangeTheSharedTreeIntoNonsense()
+        {
+            // Why the convention has to be told to the context rather than assumed. The default cell context
+            // reads one design unit as one cell, so the same tree claims a 132-ROW card -- which is what made
+            // sharing a tree across surface kinds type-correct and geometrically meaningless.
+            var tree = HomeBoardLayout.Build(
+                ImmutableArray.Create(Card("This computer")), HomeBoardStyle.Default, columns: 1);
+
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, 80, 24), CellMeasureContext.CellAuthored);
+
+            var card = arranged
+                .Where(a => a.Node.Hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("HomeRig:"))
+                .Select(a => a.Bounds)
+                .ShouldHaveSingleItem();
+
+            card.Height.ShouldBeGreaterThan(24, "one unit per cell reads CardHeight as rows, not pixels");
         }
 
         [Fact]
