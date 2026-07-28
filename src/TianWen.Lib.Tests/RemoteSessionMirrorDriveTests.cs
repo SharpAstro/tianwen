@@ -282,13 +282,14 @@ namespace TianWen.Lib.Tests
         // Prompt round-trip
         // -------------------------------------------------------------------------------------------
 
-        private static PendingPromptDto ManualPanelPrompt() => new PendingPromptDto
+        private static PendingPromptDto ManualPanelPrompt(DateTimeOffset? raisedUtc = null) => new PendingPromptDto
         {
             Title = "Manual flat panel",
             Message = "Switch on the flat panel for OTA 1, then Continue.",
             ContinueLabel = "Continue",
             CancelLabel = "Cancel",
             RequiresPhysicalPresence = true,
+            RaisedUtc = raisedUtc,
         };
 
         [Fact]
@@ -309,6 +310,48 @@ namespace TianWen.Lib.Tests
                 raised.Title.ShouldBe("Manual flat panel");
                 raised.RequiresPhysicalPresence.ShouldBeTrue(
                     "a remote operator cannot see the panel, so the UI has to be able to say so");
+            }
+        }
+
+        [Fact]
+        public async Task APromptCarriesTheInstantTheNodeRaisedIt()
+        {
+            // How long a prompt has been waiting is the fact that makes it visible as a problem, and only
+            // the node knows it -- so it has to survive the wire rather than being re-derived here. This
+            // goes through the real HostingJsonContext, which also pins that a NULLABLE timestamp
+            // round-trips at all (a nullable wire member that were also required could not).
+            var raisedAt = new DateTimeOffset(2026, 7, 27, 20, 20, 0, TimeSpan.Zero);
+            var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(StateWith(prompt: ManualPanelPrompt(raisedAt)))));
+
+            await using (mirror)
+            {
+                SessionPromptEventArgs? raised = null;
+                mirror.PromptRequested += (_, e) => raised = e;
+
+                await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+                raised.ShouldNotBeNull();
+                raised.RaisedUtc.ShouldBe(raisedAt);
+            }
+        }
+
+        [Fact]
+        public async Task APromptFromANodeThatSendsNoTimestampHasAnUnknownAge()
+        {
+            // An older node sends no RaisedUtc. The mirror must leave the age unknown rather than stamping
+            // "now": dating the prompt from when this client attached would show a rig that has been stuck
+            // since dusk as freshly waiting, and would reset on every GUI restart.
+            var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(StateWith(prompt: ManualPanelPrompt()))));
+
+            await using (mirror)
+            {
+                SessionPromptEventArgs? raised = null;
+                mirror.PromptRequested += (_, e) => raised = e;
+
+                await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+                raised.ShouldNotBeNull();
+                raised.RaisedUtc.ShouldBeNull();
             }
         }
 

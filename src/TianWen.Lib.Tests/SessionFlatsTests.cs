@@ -233,9 +233,11 @@ public class SessionFlatsTests(ITestOutputHelper output)
         ctx.External.MaxFitsWrites = 100;
 
         var prompts = 0;
+        DateTimeOffset? raisedUtc = null;
         ctx.Session.PromptRequested += (_, e) =>
         {
             prompts++;
+            raisedUtc = e.RaisedUtc;
             e.Respond(true);
         };
 
@@ -245,6 +247,10 @@ public class SessionFlatsTests(ITestOutputHelper output)
         await ctx.Session.TakeFlatsAsync(ct);
 
         prompts.ShouldBe(1); // one OTA with a manual panel -> exactly one prompt
+        // Stamped by the session, from the session's clock. An observer cannot work this out for itself,
+        // and without it a board of rigs can show that a prompt is outstanding but not that it has been
+        // outstanding for forty minutes -- which is the part that makes it worth showing.
+        raisedUtc.ShouldNotBeNull();
         var filterCount = ctx.FilterWheel.ShouldNotBeNull().Filters.Count;
         Directory.Exists(flatsRoot).ShouldBeTrue();
         Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length

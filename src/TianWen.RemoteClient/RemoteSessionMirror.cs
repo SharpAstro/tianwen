@@ -520,7 +520,11 @@ namespace TianWen.RemoteClient
                 pending.RequiresPhysicalPresence,
                 // The node owns the unattended policy and has already applied it if it was going to; a
                 // prompt that reached us is one it decided to hold. Nothing here should re-derive it.
-                defaultIfUnanswerable: false));
+                defaultIfUnanswerable: false,
+                // Passed straight through, null included. Substituting "now" would date the prompt from
+                // when this client attached, so a rig stuck since dusk would read as freshly waiting on
+                // every GUI restart -- the one number a board of rigs exists to make visible.
+                raisedUtc: pending.RaisedUtc));
 
             _ = ForwardPromptAnswerAsync(completion.Task, pending.Title);
         }

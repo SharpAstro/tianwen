@@ -242,7 +242,10 @@ internal partial record Session(
             // Carry the unattended policy to the handler: a hosted broadcaster may have subscribed for
             // remote clients and find none attached, and it must then answer exactly as the session
             // would have with no handler at all.
-            defaultIfUnanswerable: Configuration.UnattendedPromptResponse is UnattendedPromptResponse.Proceed));
+            defaultIfUnanswerable: Configuration.UnattendedPromptResponse is UnattendedPromptResponse.Proceed,
+            // Stamped here, at the one place a prompt is born, so every observer -- this node's UI and a
+            // remote board alike -- ages it from the same instant.
+            raisedUtc: _timeProvider.GetUtcNow()));
 
         try
         {
