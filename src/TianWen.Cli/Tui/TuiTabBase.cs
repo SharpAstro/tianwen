@@ -29,7 +29,13 @@ internal abstract class TuiTabBase : ITuiTab
     protected readonly ClickableRegionTracker Tracker = new();
 
     /// <summary>Stateless (text width is the character count), so one instance serves every tab.</summary>
-    private static readonly CellMeasureContext MeasureContext = new CellMeasureContext();
+    /// <summary>
+    /// How this tab's design units map to cells. Cell-authored by default -- every hand-written TUI tree
+    /// counts in cells, so <c>RowH(1)</c> is one row. A tab that renders a tree SHARED with a pixel surface
+    /// overrides this with <see cref="CellMeasureContext.PixelAuthored"/>, because those trees count in
+    /// pixel-ish units and the two conventions differ by a different factor on each axis.
+    /// </summary>
+    protected virtual CellMeasureContext MeasureContext => CellMeasureContext.CellAuthored;
 
     private readonly Dictionary<string, HostedRegion> _hosts = [];
     private IVirtualTerminal? _terminal;
@@ -43,6 +49,36 @@ internal abstract class TuiTabBase : ITuiTab
     /// assert placement without a terminal.
     /// </summary>
     protected ImmutableArray<Layout.ArrangedNode<int>> Arranged { get; private set; }
+
+    /// <summary>
+    /// The cell rect this tab was last arranged into (chrome rows already removed). Set before
+    /// <see cref="BuildLayout"/> runs, so a responsive tree can branch on it.
+    /// </summary>
+    protected Rect<int> Content { get; private set; }
+
+    /// <summary>
+    /// Resolves a MOUSE-PIXEL point against the arranged tree and dispatches the leaf's click, returning
+    /// whether anything was hit.
+    /// <para>
+    /// The pixel-to-cell conversion lives here, once, because a tab doing it itself is the exact shape of
+    /// defect the tab-bar fix removed: arithmetic parallel to what was drawn, kept in step by hand.
+    /// </para>
+    /// </summary>
+    protected bool DispatchLayoutHit(float pixelX, float pixelY)
+    {
+        if (_terminal is not { } terminal || Arranged.IsDefaultOrEmpty)
+        {
+            return false;
+        }
+
+        var cell = terminal.CellSize;
+        if (cell.Width <= 0 || cell.Height <= 0)
+        {
+            return false;
+        }
+
+        return CellLayout.HitTest(Arranged, (int)pixelX / cell.Width, (int)pixelY / cell.Height) is not null;
+    }
 
     public void Attach(IVirtualTerminal terminal, int topRows = 1, int bottomRows = 1)
     {
@@ -74,6 +110,10 @@ internal abstract class TuiTabBase : ITuiTab
         {
             return;
         }
+
+        // Published before BuildLayout so a tree can branch on how much room it has -- how many card
+        // columns fit, whether to stack rather than dock. Content area, not the whole terminal.
+        Content = content;
 
         Arranged = Layout.Engine.Arrange(BuildLayout(), content, MeasureContext);
         CellLayout.Paint(terminal, Arranged, PlaceAndPaint);

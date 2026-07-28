@@ -88,11 +88,14 @@ namespace TianWen.Lib.Tests
         {
             // Dropping is what makes the fix structural: an absent tab cannot be hit, whereas a truncated
             // string leaves a region that is hit but not visible.
+            // Derived, not hardcoded: a bar wide enough for everything defines the total, so adding a tab
+            // does not make this test wrong.
+            var everything = TabRects(Arrange(Bar(), width: 400));
             var wide = TabRects(Arrange(Bar(), width: 120));
             var narrow = TabRects(Arrange(Bar(), width: 60));
 
-            wide.Length.ShouldBe(6);
-            narrow.Length.ShouldBeLessThan(wide.Length);
+            wide.Length.ShouldBe(everything.Length);
+            narrow.Length.ShouldBeLessThan(everything.Length);
             narrow.Length.ShouldBeGreaterThan(0, "the bar should still show what it can");
         }
 
