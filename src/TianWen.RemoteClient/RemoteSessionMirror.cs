@@ -488,7 +488,11 @@ namespace TianWen.RemoteClient
                 return;
             }
 
-            var key = $"{pending.Title} {pending.Message}";
+            // NUL as the separator, written as an escape rather than a literal byte: a raw NUL in
+            // the source makes the whole file read as BINARY to grep/ripgrep, which silently hides
+            // it from every code search. Neither a title nor a message can contain one, so the
+            // join stays unambiguous either way.
+            var key = $"{pending.Title}\0{pending.Message}";
             if (string.Equals(key, _raisedPromptKey, StringComparison.Ordinal))
             {
                 return;
