@@ -425,6 +425,38 @@ internal static class SessionEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeNotificationDtoArray);
         });
 
+        // GET /api/v1/session/profile — which profile this node is set up to run.
+        //
+        // The symmetric read of the PUT below, and the ONLY way a client can learn this: the node held
+        // ActiveProfileId privately (every reader was server-side) and /profiles lists what exists without
+        // saying which one is live. A remote observer needs it to label a rig by the optical train it is
+        // running rather than by address alone -- and unlike the session snapshot, it answers for an IDLE
+        // rig too, which is most of them most of the time.
+        group.MapGet("/profile", (IHostedSession hosted, IDeviceDiscovery deviceDiscovery) =>
+        {
+            if (hosted.ActiveProfileId is not { } activeId)
+            {
+                return Results.Json(
+                    ResponseEnvelope<ProfileSummaryDto>.NotFound("No active profile is set"),
+                    HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDto);
+            }
+
+            var profile = deviceDiscovery.RegisteredDevices(DeviceType.Profile)
+                .OfType<Profile>()
+                .FirstOrDefault(p => p.ProfileId == activeId);
+
+            // Set but no longer present: report it as missing rather than inventing a name, so a client
+            // shows "profile unknown" instead of a label for a profile that has been deleted.
+            return profile is null
+                ? Results.Json(
+                    ResponseEnvelope<ProfileSummaryDto>.NotFound($"Active profile {activeId} no longer exists"),
+                    HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDto)
+                : Results.Json(
+                    ResponseEnvelope<ProfileSummaryDto>.Ok(
+                        new ProfileSummaryDto { ProfileId = profile.ProfileId, Name = profile.DisplayName }),
+                    HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDto);
+        });
+
         // PUT /api/v1/session/profile — set active profile (pre-session)
         group.MapPut("/profile", (SetProfileRequest request, IHostedSession hosted, IDeviceHub hub) =>
         {

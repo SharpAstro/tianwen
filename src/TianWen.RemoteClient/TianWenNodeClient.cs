@@ -368,6 +368,14 @@ namespace TianWen.RemoteClient
             GetAsync($"api/v1/profiles/{profileId}", HostingJsonContext.Default.ResponseEnvelopeProfileDetailDto, _timeouts.Control, cancellationToken);
 
         /// <summary>
+        /// <c>GET /session/profile</c> -- which profile the node is set up to run, as opposed to
+        /// <see cref="GetProfilesAsync"/>, which lists what it HAS. A <b>404</b> is a normal answer here
+        /// (no active profile, or one that has since been deleted) and means "unknown", not "unreachable".
+        /// </summary>
+        public Task<NodeResult<ProfileSummaryDto>> GetActiveProfileAsync(CancellationToken cancellationToken) =>
+            GetAsync("api/v1/session/profile", HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDto, _timeouts.Control, cancellationToken);
+
+        /// <summary>
         /// <c>PUT /session/profile</c>. The node applies its own <c>ProfileSwitchGate</c> and answers
         /// <b>409</b> while its equipment is connected or a run owns it, with the gate's own wording as
         /// the error -- surface that verbatim rather than inventing a client-side message.

@@ -143,6 +143,35 @@ public class NodeClientRoundTripTests(ITestOutputHelper outputHelper) : IAsyncLi
     }
 
     [Fact(Timeout = 15_000)]
+    public async Task AnActiveProfileIsReadableBackOverTheWire()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Before anything is set, "which profile does this node run" has a real answer -- none. A 404 here
+        // is the node answering, which is exactly the distinction a board of rigs depends on: unknown
+        // profile is not the same as unreachable rig.
+        var none = await _client.GetActiveProfileAsync(ct);
+        none.IsNotFound.ShouldBeTrue(none.Error);
+
+        var profiles = await _client.GetProfilesAsync(ct);
+        profiles.IsSuccess.ShouldBeTrue(profiles.Error);
+        if (profiles.Value is not { Length: > 0 } available)
+        {
+            return; // nothing saved on this host, so there is no id to make active
+        }
+
+        var expected = available[0];
+        (await _client.SetActiveProfileAsync(expected.ProfileId, ct)).IsSuccess.ShouldBeTrue();
+
+        // The point of the endpoint: the NAME comes back, not just the id. A client labelling a rig by the
+        // optical train it runs cannot resolve a bare guid against a profile store it does not have.
+        var active = await _client.GetActiveProfileAsync(ct);
+        active.IsSuccess.ShouldBeTrue(active.Error);
+        active.Value.ShouldNotBeNull().ProfileId.ShouldBe(expected.ProfileId);
+        active.Value.Name.ShouldBe(expected.Name);
+    }
+
+    [Fact(Timeout = 15_000)]
     public async Task AbortingWithNoSessionIsAClean404NotAThrow()
     {
         var result = await _client.AbortSessionAsync(TestContext.Current.CancellationToken);
