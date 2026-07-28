@@ -560,13 +560,30 @@ loop.OnPostFrame = () =>
     plannerState.NeedsRedraw = false;
 
     // Update window title with session state (only when changed). The title names what you are
-    // LOOKING at, so it follows the active context.
+    // LOOKING at, so it follows the active context -- including WHICH rig, when that is not this computer.
     var ls = guiRenderer.ViewContexts.Active.LiveSession;
+    var viewed = guiRenderer.ViewContexts.Active;
+
+    // The profile label comes from the home board's card for the context on screen, so the title and the
+    // card can never disagree about what a rig runs -- and a remote rig's profile costs no second lookup.
+    string? viewedProfile = null;
+    foreach (var card in appState.HomeCards)
+    {
+        if (card.IsViewed)
+        {
+            viewedProfile = card.Subtitle;
+            break;
+        }
+    }
+
+    var viewedName = viewed.IsLocal ? "TianWen" : viewed.DisplayName;
     var newTitle = ls.IsRunning
         ? ls.ActiveObservation is { Target: var target }
             ? $"\U0001F52D {LiveSessionActions.PhaseLabel(ls.Phase)} - {target.Name}"
             : $"\U0001F52D {LiveSessionActions.PhaseLabel(ls.Phase)}"
-        : "\U0001F52D TianWen";
+        : viewedProfile is { Length: > 0 } profile
+            ? $"\U0001F52D {viewedName} - {profile}"
+            : $"\U0001F52D {viewedName}";
     if (newTitle != lastWindowTitle)
     {
         lastWindowTitle = newTitle;
