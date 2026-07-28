@@ -38,6 +38,12 @@ namespace TianWen.UI.Abstractions
             GuiAppState appState,
             RectF32 contentRect)
         {
+            // Drops last frame's clickable regions, as every other tab's Render does. This was missing, so
+            // the Clear button's region was re-registered on every frame for as long as the tab was open --
+            // harmless to click (the duplicates are identical) but an unbounded list, and hit testing walks
+            // all of them.
+            BeginFrame();
+
             // DPI + font come from the inherited DpiScale / FontPath (host-set); local aliases keep the
             // px math + draw calls unchanged.
             var dpiScale = DpiScale;
