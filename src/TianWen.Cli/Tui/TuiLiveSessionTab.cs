@@ -57,7 +57,10 @@ internal sealed class TuiLiveSessionTab(
     private TextBar? _statusBar;
     private TextBar? _previewToolbar;
 
-    // Preview area — Canvas for Sixel, MarkdownWidget placeholder for non-Sixel
+    // Preview area — Canvas for Sixel, MarkdownWidget placeholder for non-Sixel. The Canvas and its
+    // renderer are pixel-backed, so they are built on first placement and rebuilt on resize (PaintHost);
+    // the viewport is interface-typed because PixelSize is a default interface member.
+    private ITerminalViewport? _previewViewport;
     private Canvas? _previewCanvas;
     private SixelRgbaImageRenderer? _previewRenderer;
     private MarkdownWidget? _previewFallback;
@@ -78,36 +81,110 @@ internal sealed class TuiLiveSessionTab(
     protected override bool IsReady =>
         _topBar is not null && _guideBar is not null && _infoList is not null && _statusBar is not null && _previewToolbar is not null;
 
-    protected override void CreateWidgets(Panel panel)
+    // Fill-leaf keys. The tree names these; PaintHost draws them.
+    private const string TopKey = "top";
+    private const string GuideKey = "guide";
+    private const string InfoKey = "info";
+    private const string ToolbarKey = "toolbar";
+    private const string PreviewKey = "preview";
+    private const string StatusKey = "status";
+
+    private bool UseSixel => terminal.HasSixelSupport;
+
+    protected override void CreateWidgets()
     {
-        var topVp = panel.Dock(DockStyle.Top, 1);
-        var guideVp = panel.Dock(DockStyle.Top, 1);
-        var bottomVp = panel.Dock(DockStyle.Bottom, 1);
-        var leftVp = panel.Dock(DockStyle.Left, LeftPanelCols);
-        var toolbarVp = panel.Dock(DockStyle.Top, 1);
-        var fillVp = panel.Fill();
+        _topBar = new TextBar(Host(TopKey));
+        _guideBar = new TextBar(Host(GuideKey));
+        _statusBar = new TextBar(Host(StatusKey));
+        _infoList = new ScrollableList<InfoRowItem>(Host(InfoKey));
+        _previewToolbar = new TextBar(Host(ToolbarKey));
 
-        _topBar = new TextBar(topVp);
-        _guideBar = new TextBar(guideVp);
-        _statusBar = new TextBar(bottomVp);
-        _infoList = new ScrollableList<InfoRowItem>(leftVp);
-        _previewToolbar = new TextBar(toolbarVp);
-
-        // Preview area: Sixel-capable terminals get a Canvas, others get a text fallback
-        if (terminal.HasSixelSupport)
+        // Preview area: Sixel-capable terminals get a Canvas, others a text fallback. The Canvas needs a
+        // pixel size the arrange has not produced yet, so only its viewport is taken here -- PaintHost
+        // builds the renderer and canvas on first placement and on resize.
+        var previewViewport = Host(PreviewKey);
+        if (UseSixel)
         {
-            var canvasPixelSize = fillVp.PixelSize;
-            _previewRenderer = new SixelRgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
-            _previewCanvas = new Canvas(fillVp, _previewRenderer);
+            _previewViewport = previewViewport;
             _previewFallback = null;
-            panel.Add(_topBar).Add(_guideBar).Add(_statusBar).Add(_infoList).Add(_previewToolbar).Add(_previewCanvas);
         }
         else
         {
-            _previewCanvas = null;
-            _previewRenderer = null;
-            _previewFallback = new MarkdownWidget(fillVp);
-            panel.Add(_topBar).Add(_guideBar).Add(_statusBar).Add(_infoList).Add(_previewToolbar).Add(_previewFallback);
+            _previewViewport = null;
+            _previewFallback = new MarkdownWidget(previewViewport);
+        }
+    }
+
+    /// <summary>
+    /// Two header rows, then the info panel beside the preview (which carries its own toolbar row), then
+    /// the status row -- the same arrangement the docked Panel produced. The Sixel and text preview are
+    /// one leaf, not two branches: only what gets drawn into it differs.
+    /// </summary>
+    protected override Layout.Node BuildLayout() =>
+        Layout.Builder.VStack(
+            Layout.Builder.Fill(key: TopKey).RowH(1),
+            Layout.Builder.Fill(key: GuideKey).RowH(1),
+            Layout.Builder.HStack(
+                Layout.Builder.Fill(key: InfoKey).WFixed(LeftPanelCols),
+                Layout.Builder.VStack(
+                    Layout.Builder.Fill(key: ToolbarKey).RowH(1),
+                    Layout.Builder.Fill(key: PreviewKey).Stretch()).WStar()).Stretch(),
+            Layout.Builder.Fill(key: StatusKey).RowH(1));
+
+    /// <summary>
+    /// Draws one hosted widget. The Sixel preview is why <paramref name="geometryChanged"/> matters: its
+    /// renderer is a fixed-size pixel buffer, so it is allocated on first placement and reallocated on
+    /// resize. The Panel-based version sized it once at construction and never again, so a terminal
+    /// resize left the preview rendering at the old pixel size.
+    /// </summary>
+    protected override void PaintHost(string key, Rect<int> rect, bool geometryChanged)
+    {
+        switch (key)
+        {
+            case TopKey:
+                _topBar?.Render();
+                break;
+
+            case GuideKey:
+                _guideBar?.Render();
+                break;
+
+            case InfoKey:
+                _infoList?.Render();
+                break;
+
+            case ToolbarKey:
+                _previewToolbar?.Render();
+                break;
+
+            case StatusKey:
+                _statusBar?.Render();
+                break;
+
+            case PreviewKey when _previewViewport is { } viewport:
+                if (geometryChanged)
+                {
+                    var (pixelWidth, pixelHeight) = viewport.PixelSize;
+                    _previewRenderer?.Dispose();
+                    _previewRenderer = new SixelRgbaImageRenderer((uint)pixelWidth, (uint)pixelHeight);
+                    _previewCanvas = new Canvas(viewport, _previewRenderer);
+                }
+
+                if (_previewCanvas is { } canvas && _previewRenderer is { } previewRenderer)
+                {
+                    if (_lastDoc is { } doc)
+                    {
+                        // Render directly into the canvas's surface -- ConsoleImageRenderer wraps an RgbaImageRenderer
+                        var renderer = new ConsoleImageRenderer(previewRenderer);
+                        renderer.RenderImage(doc, _viewerState, _viewerState.CurvesBoost);
+                    }
+                    canvas.Render();
+                }
+                break;
+
+            case PreviewKey:
+                _previewFallback?.Render();
+                break;
         }
     }
 
@@ -675,14 +752,9 @@ internal sealed class TuiLiveSessionTab(
             }
         }
 
-        // Render preview to Canvas (Sixel) or text fallback
-        if (_previewCanvas is not null && _previewRenderer is not null && _lastDoc is not null)
-        {
-            // Render directly into the canvas's surface — ConsoleImageRenderer wraps an RgbaImageRenderer
-            var renderer = new ConsoleImageRenderer(_previewRenderer);
-            renderer.RenderImage(_lastDoc, _viewerState, _viewerState.CurvesBoost);
-        }
-        else if (_previewFallback is not null)
+        // The Sixel raster is drawn from PaintHost, not here -- it needs the arranged pixel size.
+        // The text fallback is a cell widget, so its content can be filled now like any other.
+        if (_previewFallback is not null)
         {
             // Non-Sixel: show frame metadata
             var metrics = LiveState.LastFrameMetrics;

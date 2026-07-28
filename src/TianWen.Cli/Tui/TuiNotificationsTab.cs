@@ -17,15 +17,34 @@ internal sealed class TuiNotificationsTab(GuiAppState appState) : TuiTabBase
     [MemberNotNullWhen(true, nameof(_list), nameof(_statusBar))]
     protected override bool IsReady => _list is not null && _statusBar is not null;
 
-    protected override void CreateWidgets(Panel panel)
+    // Fill-leaf keys. The tree names these; PaintHost draws them.
+    private const string ListKey = "list";
+    private const string StatusKey = "status";
+
+    protected override void CreateWidgets()
     {
-        var bottomVp = panel.Dock(DockStyle.Bottom, 1);
-        var fillVp = panel.Fill();
+        _list = new ScrollableList<NotificationListItem>(Host(ListKey));
+        _statusBar = new TextBar(Host(StatusKey));
+    }
 
-        _statusBar = new TextBar(bottomVp);
-        _list = new ScrollableList<NotificationListItem>(fillVp);
+    /// <summary>The list takes everything the one-row status bar does not.</summary>
+    protected override Layout.Node BuildLayout() =>
+        Layout.Builder.VStack(
+            Layout.Builder.Fill(key: ListKey).Stretch(),
+            Layout.Builder.Fill(key: StatusKey).RowH(1));
 
-        panel.Add(_statusBar).Add(_list);
+    protected override void PaintHost(string key, Rect<int> rect, bool geometryChanged)
+    {
+        switch (key)
+        {
+            case ListKey:
+                _list?.Render();
+                break;
+
+            case StatusKey:
+                _statusBar?.Render();
+                break;
+        }
     }
 
     protected override void RenderContent()

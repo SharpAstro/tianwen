@@ -29,7 +29,11 @@ internal sealed class TuiGuiderTab(
     private TextBar? _topBar;
     private TextBar? _statusBar;
 
-    // Sixel mode: single canvas with full graphical guider
+    // Sixel mode: single canvas with full graphical guider. All three are built on first placement and
+    // rebuilt on resize (PaintHost), because their pixel size is only known once the tree is arranged.
+    // Interface-typed: PixelSize is a default interface member, so it is only reachable through
+    // ITerminalViewport, and this is the one place the tab needs it.
+    private ITerminalViewport? _canvasViewport;
     private Canvas? _canvas;
     private SixelRgbaImageRenderer? _canvasRenderer;
     private GuiderTab<RgbaImage>? _guiderWidget;
@@ -41,42 +45,108 @@ internal sealed class TuiGuiderTab(
 
     private bool UseSixel => terminal.HasSixelSupport;
 
+    /// <summary>
+    /// Readiness covers only what <see cref="CreateWidgets"/> builds. The Sixel canvas is deliberately
+    /// absent: it cannot exist before the first arrange, so requiring it here would stop the tab ever
+    /// rendering the frame that would size it.
+    /// </summary>
     [MemberNotNullWhen(true, nameof(_topBar), nameof(_statusBar))]
     protected override bool IsReady => _topBar is not null && _statusBar is not null
-        && (UseSixel
-            ? _canvas is not null && _canvasRenderer is not null && _guiderWidget is not null
-            : _graphPanel is not null && _targetPanel is not null && _statsPanel is not null);
+        && (UseSixel || (_graphPanel is not null && _targetPanel is not null && _statsPanel is not null));
 
-    protected override void CreateWidgets(Panel panel)
+    // Fill-leaf keys. The tree names these; PaintHost draws them.
+    private const string TopKey = "top";
+    private const string StatusKey = "status";
+    private const string CanvasKey = "canvas";
+    private const string GraphKey = "graph";
+    private const string TargetKey = "target";
+    private const string StatsKey = "stats";
+
+    protected override void CreateWidgets()
     {
-        var topVp = panel.Dock(DockStyle.Top, 1);
-        var bottomVp = panel.Dock(DockStyle.Bottom, 1);
-
-        _topBar = new TextBar(topVp);
-        _statusBar = new TextBar(bottomVp);
+        _topBar = new TextBar(Host(TopKey));
+        _statusBar = new TextBar(Host(StatusKey));
 
         if (UseSixel)
         {
-            var fillVp = panel.Fill();
-            var canvasPixelSize = fillVp.PixelSize;
-            _canvasRenderer = new SixelRgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
-            _canvas = new Canvas(fillVp, _canvasRenderer);
-            // The widget owns its font path (host-set once); a terminal Sixel canvas has no emoji font.
-            _guiderWidget = new GuiderTab<RgbaImage>(_canvasRenderer) { FontPath = fontPath };
-
-            panel.Add(_topBar).Add(_statusBar).Add(_canvas);
+            // Only the viewport. The renderer, canvas and guider widget all need a pixel size, which
+            // comes from the arranged rect -- PaintHost builds them on first placement and on resize.
+            _canvasViewport = Host(CanvasKey);
         }
         else
         {
-            var leftVp = panel.Dock(DockStyle.Left, 44);
-            var centerVp = panel.Dock(DockStyle.Left, 24);
-            var fillVp = panel.Fill();
+            _graphPanel = new MarkdownWidget(Host(GraphKey));
+            _targetPanel = new MarkdownWidget(Host(TargetKey));
+            _statsPanel = new MarkdownWidget(Host(StatsKey));
+        }
+    }
 
-            _graphPanel = new MarkdownWidget(leftVp);
-            _targetPanel = new MarkdownWidget(centerVp);
-            _statsPanel = new MarkdownWidget(fillVp);
+    /// <summary>
+    /// The arrangement: a one-row bar top and bottom with the content between them. The Sixel and text
+    /// variants are now two expressions of one tree rather than two widget-construction paths -- and
+    /// because the tree is rebuilt per frame, the fallback's fixed 44/24 columns can give way to Star
+    /// sizing on a narrow terminal without touching widget setup.
+    /// </summary>
+    protected override Layout.Node BuildLayout() =>
+        Layout.Builder.VStack(
+            Layout.Builder.Fill(key: TopKey).RowH(1),
+            UseSixel
+                ? Layout.Builder.Fill(key: CanvasKey).Stretch()
+                : Layout.Builder.HStack(
+                    Layout.Builder.Fill(key: GraphKey).WFixed(44),
+                    Layout.Builder.Fill(key: TargetKey).WFixed(24),
+                    Layout.Builder.Fill(key: StatsKey).WStar()).Stretch(),
+            Layout.Builder.Fill(key: StatusKey).RowH(1));
 
-            panel.Add(_topBar).Add(_statusBar).Add(_graphPanel).Add(_targetPanel).Add(_statsPanel);
+    /// <summary>
+    /// Draws one hosted widget. The Sixel canvas is the reason <paramref name="geometryChanged"/> exists:
+    /// its renderer is a fixed-size pixel buffer, so it is allocated on first placement and reallocated
+    /// whenever the cell rect resizes. The Panel-based version sized it once at construction and never
+    /// again, so a terminal resize left the guider rendering at the old pixel size.
+    /// </summary>
+    protected override void PaintHost(string key, Rect<int> rect, bool geometryChanged)
+    {
+        switch (key)
+        {
+            case TopKey:
+                _topBar?.Render();
+                break;
+
+            case StatusKey:
+                _statusBar?.Render();
+                break;
+
+            case CanvasKey when _canvasViewport is { } viewport:
+                if (geometryChanged)
+                {
+                    var (pixelWidth, pixelHeight) = viewport.PixelSize;
+                    _canvasRenderer?.Dispose();
+                    _canvasRenderer = new SixelRgbaImageRenderer(pixelWidth, pixelHeight);
+                    _guiderWidget = new GuiderTab<RgbaImage>(_canvasRenderer) { FontPath = fontPath };
+                    _canvas = new Canvas(viewport, _canvasRenderer);
+                }
+
+                if (_canvas is { } canvas && _guiderWidget is { } guiderWidget)
+                {
+                    // A terminal Sixel canvas has no DPI scaling; the widget's DpiScale stays at its
+                    // default 1. FontPath was set when the widget was built, not passed per render.
+                    var (pixelWidth, pixelHeight) = canvas.PixelSize;
+                    guiderWidget.Render(LiveState, new RectF32(0, 0, pixelWidth, pixelHeight), timeProvider);
+                    canvas.Render();
+                }
+                break;
+
+            case GraphKey:
+                _graphPanel?.Render();
+                break;
+
+            case TargetKey:
+                _targetPanel?.Render();
+                break;
+
+            case StatsKey:
+                _statsPanel?.Render();
+                break;
         }
     }
 
@@ -100,13 +170,11 @@ internal sealed class TuiGuiderTab(
             _topBar.RightText(GuiderActions.FormatRmsSummary(_state.LastGuideStats));
         }
 
-        // Main content. The null-checked widgets flow into the helpers as parameters so the
-        // non-null guarantee travels with them -- no null-forgiving '!' re-derefs inside.
-        if (UseSixel && _canvas is { } canvas && _guiderWidget is { } guiderWidget)
-        {
-            RenderSixelContent(canvas, guiderWidget);
-        }
-        else if (_graphPanel is { } graphPanel && _targetPanel is { } targetPanel && _statsPanel is { } statsPanel)
+        // Text-fallback content. The Sixel path has no data step -- the guider widget draws straight from
+        // LiveState during PaintHost, once its canvas has been sized by the arrange.
+        // The null-checked widgets flow into the helper as parameters so the non-null guarantee travels
+        // with them -- no null-forgiving '!' re-derefs inside.
+        if (!UseSixel && _graphPanel is { } graphPanel && _targetPanel is { } targetPanel && _statsPanel is { } statsPanel)
         {
             RenderTextContent(placeholder, graphPanel, targetPanel, statsPanel);
         }
@@ -115,16 +183,6 @@ internal sealed class TuiGuiderTab(
         var targetName = _state.ActiveObservation is { Target: var t } ? t.Name : "";
         _statusBar.Text(targetName.Length > 0 ? $" \u2192 {targetName}" : "");
         _statusBar.RightText(appState.StatusMessage ?? "");
-    }
-
-    private void RenderSixelContent(Canvas canvas, GuiderTab<RgbaImage> guiderWidget)
-    {
-        var canvasPixelSize = canvas.PixelSize;
-        var contentRect = new RectF32(0, 0, canvasPixelSize.Width, canvasPixelSize.Height);
-
-        // A terminal Sixel canvas has no DPI scaling; the widget's DpiScale stays at its default 1.
-        // FontPath was set on the widget in CreateWidgets, so it is not passed per-render any more.
-        guiderWidget.Render(LiveState, contentRect, timeProvider);
     }
 
     private void RenderTextContent(GuiderPlaceholder? placeholder,

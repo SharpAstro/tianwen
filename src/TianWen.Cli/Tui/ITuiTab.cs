@@ -5,7 +5,7 @@ namespace TianWen.Cli.Tui;
 
 /// <summary>
 /// Interface for a TUI tab that can be hosted in the tabbed <see cref="TuiSubCommand"/>.
-/// Each tab owns its own Console.Lib widget layout within a content viewport.
+/// Each tab declares its arrangement as a layout tree and hosts its widgets at that tree's leaves.
 /// </summary>
 internal interface ITuiTab
 {
@@ -13,11 +13,11 @@ internal interface ITuiTab
     bool NeedsRedraw { get; set; }
 
     /// <summary>
-    /// Builds the tab's Panel layout. The tab creates its own Panel from the terminal,
-    /// reserving <paramref name="topRows"/> for the tab bar and <paramref name="bottomRows"/> for the status bar.
-    /// Called on tab activation and terminal resize.
+    /// Binds the tab to a terminal and creates its widgets, reserving <paramref name="topRows"/> for the
+    /// tab bar and <paramref name="bottomRows"/> for the status bar so the tab's own tree is arranged in
+    /// what is left. Called on tab activation and terminal resize.
     /// </summary>
-    void BuildPanel(IVirtualTerminal terminal, int topRows = 1, int bottomRows = 1);
+    void Attach(IVirtualTerminal terminal, int topRows = 1, int bottomRows = 1);
 
     /// <summary>Renders the tab content. Called each frame when <see cref="NeedsRedraw"/> is true.</summary>
     void Render();

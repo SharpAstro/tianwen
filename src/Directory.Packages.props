@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <!-- Allow floating versions (e.g. "3.0.*", "2.30.*") so sibling-tracked
@@ -124,8 +124,12 @@
          Auto/Star, Node.CollapseBelow, Node.Wrap flow container) that PlannerTab's portrait
          reflow builds on. The Sizing ctor/Star/WStar signatures gained optional parameters
          (binary-breaking), so the whole sibling family rebuilt: lockstep with Console.Lib 3.8 +
-         SdlVulkan.Renderer 6.25 + WebGl.Renderer 1.8. -->
-    <PackageVersion Include="DIR.Lib" Version="6.19.*" />
+         SdlVulkan.Renderer 6.25 + WebGl.Renderer 1.8.
+         6.20 is the current pin: it adds Renderer.FillRoundedRectangle (a base virtual, so every
+         backend gains rounded fills at once) and fixes per-vector alpha compositing in
+         RgbaImage.FillRect, where a translucent fill over an opaque surface now yields alpha 255 as
+         it always should have. RGB output is bit-identical, so no TianWen golden moved. -->
+    <PackageVersion Include="DIR.Lib" Version="6.20.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -186,10 +190,14 @@
          3.2 is a no-code lockstep rebuild against DIR.Lib 5.2.
          3.3 is a no-code lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL).
          3.4-3.5 continue the lockstep rebuilds against DIR.Lib 6.x; 3.5 also carries the codecs-facade
-         migration (Console.Lib references SharpAstro.Codecs for image decode). 3.8 is the current
-         pin: the no-code lockstep rebuild against DIR.Lib 6.14 (its Sizing/Star signatures are
-         binary-breaking, so the 3.5 binary would MissingMethodException at runtime). -->
-    <PackageVersion Include="Console.Lib" Version="3.12.*" />
+         migration (Console.Lib references SharpAstro.Codecs for image decode). 3.8 was the no-code
+         lockstep rebuild against DIR.Lib 6.14 (its Sizing/Star signatures are binary-breaking, so the
+         3.5 binary would MissingMethodException at runtime); 3.10-3.12 continue that lockstep.
+         3.13 is the current pin: it adds the shared TextTable + BorderStyle (markdown tables render
+         through it, so mdcat inherits the border vocabulary) and widens TerminalViewport.UpdateGeometry
+         to public so a layout tree can host a widget at a Fill leaf and re-point it at the arranged
+         rect each frame. That is the seam the TUI's CellLayout migration is built on. -->
+    <PackageVersion Include="Console.Lib" Version="3.13.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
