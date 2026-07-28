@@ -69,6 +69,23 @@ namespace TianWen.RemoteClient
         private static readonly TimeSpan ActivePollInterval = TimeSpan.FromMilliseconds(500);
         private static readonly TimeSpan IdlePollInterval = TimeSpan.FromSeconds(2);
 
+        /// <summary>
+        /// Ceiling on the poll interval for a rig that is not answering.
+        /// <para>
+        /// <b>What this is not for.</b> Each mirror owns its own poll loop, so a dark rig structurally
+        /// cannot stall the others -- there is no shared tick to hold up. What it fixes is that a dark rig
+        /// was otherwise retried at the full live cadence forever, which on a board of several powered-off
+        /// rigs is steady pointless traffic and a log line every two seconds each.
+        /// </para>
+        /// <para>
+        /// Capped rather than unbounded so a rig coming back is noticed within half a minute without
+        /// anyone touching anything. Deliberately the same shape and ceiling as
+        /// <c>TianWenEventStream</c>'s reconnect backoff, since they are backing off from the same rig for
+        /// the same reason.
+        /// </para>
+        /// </summary>
+        internal static readonly TimeSpan MaxUnreachablePollInterval = TimeSpan.FromSeconds(30);
+
         /// <summary>Cap on the locally accumulated event-sourced history, the order of a night's worth.</summary>
         private const int MaxPlateSolveHistory = 500;
 
@@ -89,6 +106,10 @@ namespace TianWen.RemoteClient
         // Last observed guider state string, so a change can be surfaced as GuiderStateChanged until
         // the node broadcasts one itself. Only touched by the poll loop.
         private string? _lastGuiderState;
+
+        // Consecutive polls the node has not answered, which is what NextPollInterval backs off on.
+        // Only touched by the poll loop.
+        private int _consecutiveFailures;
         private SessionPhase _lastPhase = SessionPhase.NotStarted;
 
         // Identity of the prompt already raised locally, so the poll (which sees the same outstanding
@@ -295,9 +316,32 @@ namespace TianWen.RemoteClient
                     break;
                 }
 
-                var interval = HasSession ? ActivePollInterval : IdlePollInterval;
-                await _timeProvider.SleepAsync(interval, cancellationToken).ConfigureAwait(false);
+                await _timeProvider.SleepAsync(NextPollInterval(), cancellationToken).ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// How long to wait before the next poll: the live cadence while the rig is answering, doubling up
+        /// to <see cref="MaxUnreachablePollInterval"/> while it is not.
+        /// <para>
+        /// Derived from the consecutive-failure count rather than from a stored interval, so recovery needs
+        /// no reset step -- one successful poll clears the count and the very next wait is back to the live
+        /// cadence. Internal so a test can assert the curve without running a real clock.
+        /// </para>
+        /// </summary>
+        internal TimeSpan NextPollInterval()
+        {
+            var baseInterval = HasSession ? ActivePollInterval : IdlePollInterval;
+            if (_consecutiveFailures == 0)
+            {
+                return baseInterval;
+            }
+
+            // Doubling from the base, capped. Shifting by the failure count directly would overflow after
+            // ~60 dark polls (about two minutes), so the cap is applied to the count first.
+            var doublings = Math.Min(_consecutiveFailures, 16);
+            var scaled = baseInterval * (1L << doublings);
+            return scaled < MaxUnreachablePollInterval ? scaled : MaxUnreachablePollInterval;
         }
 
         /// <summary>One poll cycle. Internal so a test can step it with a fake clock.</summary>
@@ -309,6 +353,7 @@ namespace TianWen.RemoteClient
             {
                 IsNodeReachable = true;
                 LastError = null;
+                _consecutiveFailures = 0;
                 StampContact();
                 Volatile.Write(ref _snapshot, state);
                 RaiseDerivedEvents(state);
@@ -322,6 +367,8 @@ namespace TianWen.RemoteClient
                 // that has ended, and reset the change-detection baselines with it.
                 IsNodeReachable = true;
                 LastError = null;
+                // A 404 is the node ANSWERING, so it resets the backoff -- an idle rig is a healthy rig.
+                _consecutiveFailures = 0;
                 StampContact(); // a 404 is the node answering -- "seen" is about the node, not the session
                 Volatile.Write(ref _snapshot, null);
                 _lastGuiderState = null;
@@ -335,6 +382,10 @@ namespace TianWen.RemoteClient
             // state on screen (flagged stale via IsNodeReachable) rather than blanking the tab.
             IsNodeReachable = false;
             LastError = result.Error;
+            if (_consecutiveFailures < int.MaxValue)
+            {
+                _consecutiveFailures++;
+            }
         }
 
         /// <summary>

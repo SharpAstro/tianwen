@@ -378,6 +378,58 @@ public class RemoteSessionMirrorTests
         mirror.LastError.ShouldNotBeNull();
     }
 
+    [Fact]
+    public async Task ADarkRigIsPolledLessOftenUntilItAnswersAgain()
+    {
+        var reachable = false;
+        var (mirror, _) = BuildMirror(_ => reachable
+            ? Json(ResponseEnvelope<SessionStateDto>.Ok(RunningState()))
+            : throw new HttpRequestException("No such host is known"));
+        await using var _mirror = mirror;
+
+        var idle = mirror.NextPollInterval();
+
+        // Each unanswered poll doubles the wait. A dark rig retried at the live cadence forever is not a
+        // stall -- each mirror owns its own loop -- but on a board of powered-off rigs it is steady
+        // pointless traffic, which is what backing off fixes.
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+        var afterOne = mirror.NextPollInterval();
+        afterOne.ShouldBeGreaterThan(idle);
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+        mirror.NextPollInterval().ShouldBeGreaterThan(afterOne);
+
+        // Capped, so a rig that comes back is noticed within half a minute rather than never.
+        for (var i = 0; i < 40; i++)
+        {
+            await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+        }
+        mirror.NextPollInterval().ShouldBe(RemoteSessionMirror.MaxUnreachablePollInterval);
+
+        // One answer is the whole reset: the interval is derived from the failure count, so recovery needs
+        // no separate step and cannot be forgotten.
+        reachable = true;
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+        mirror.NextPollInterval().ShouldBeLessThan(afterOne);
+    }
+
+    [Fact]
+    public async Task AnIdleNodeIsNotTreatedAsADarkOne()
+    {
+        // A 404 is the node answering -- it is up, just not running a session. Backing off on that would
+        // make an idle rig slower and slower to notice the moment it starts a run.
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.NotFound("No active session")));
+        await using var _mirror = mirror;
+
+        var before = mirror.NextPollInterval();
+        for (var i = 0; i < 5; i++)
+        {
+            await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+        }
+
+        mirror.NextPollInterval().ShouldBe(before);
+    }
+
     // -------------------------------------------------------------------------------------------
     // Events
     // -------------------------------------------------------------------------------------------
