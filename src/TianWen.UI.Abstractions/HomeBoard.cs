@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions
@@ -27,6 +28,39 @@ namespace TianWen.UI.Abstractions
     }
 
     /// <summary>
+    /// How much of a rig's equipment is actually connected, as a card shows it.
+    /// <para>
+    /// Worth its own line because it is the one thing about a rig that a session phase cannot tell you: a
+    /// node sitting at "Idle" with nothing connected and one with every driver up look identical otherwise,
+    /// and pressing Connect All has no visible effect anywhere on this screen without it.
+    /// </para>
+    /// </summary>
+    /// <param name="Connected">Assigned devices currently connected on that node.</param>
+    /// <param name="Assigned">Devices the active profile assigns.</param>
+    public readonly record struct RigDeviceLink(int Connected, int Assigned)
+    {
+        /// <summary>All of them, and at least one.</summary>
+        public bool AllConnected => Assigned > 0 && Connected == Assigned;
+
+        /// <summary>
+        /// The badge text, with the count so a partial connect is distinguishable from a complete one at a
+        /// glance. The plugged/unplugged distinction is carried by the card's colour, not by a glyph.
+        /// <para>
+        /// <b>No emoji here, deliberately.</b> A socket glyph would be the obvious label, but the layout
+        /// painter draws a whole tree with ONE font: <c>PixelWidgetBase.EmojiFontPath</c> is declared and
+        /// never consumed inside DIR.Lib, so an emoji inside a <c>Layout.Node</c> text run has no fallback
+        /// and renders as blank space. Every emoji in the app today is an explicit <c>DrawText</c> that
+        /// passes the emoji font AS the font, which a mixed "glyph + count" run cannot do. Adding per-run
+        /// font fallback to the painter is the real fix and is a DIR.Lib change of its own.
+        /// </para>
+        /// </summary>
+        public string Describe() =>
+            AllConnected
+                ? $"{Assigned} devices connected"
+                : $"{Connected}/{Assigned} devices connected";
+    }
+
+    /// <summary>
     /// One rig on the home screen, flattened to exactly what a card draws. A pure snapshot: built once per
     /// frame from live state, holding no references back to it, so the tab cannot accidentally read a
     /// half-updated session while painting.
@@ -44,6 +78,9 @@ namespace TianWen.UI.Abstractions
     /// <param name="GuideRmsArcsec">Total guide RMS, when guiding.</param>
     /// <param name="Prompt">An outstanding prompt, which is the one thing on a card that is a call to
     /// action rather than a status.</param>
+    /// <param name="Devices">How much of the rig's equipment is connected, or <see langword="null"/> when
+    /// that is not knowable -- which today is every REMOTE rig, because the session snapshot carries no
+    /// device count and asking costs a separate request per rig.</param>
     /// <param name="IsViewed">Whether this is the rig currently on screen. Resolved here rather than in the
     /// tab, which would otherwise have to match a card back to a binding by its title.</param>
     public readonly record struct RigCard(
@@ -57,6 +94,7 @@ namespace TianWen.UI.Abstractions
         int FramesWritten,
         double? GuideRmsArcsec,
         RigCardPrompt? Prompt,
+        RigDeviceLink? Devices,
         bool IsViewed)
     {
         /// <summary>
@@ -137,6 +175,7 @@ namespace TianWen.UI.Abstractions
                 GuideRmsArcsec: session.LastGuideStats?.TotalRMS,
                 // Aged from the same clock as every other card: a local prompt blocks a run just as long.
                 Prompt: DescribePrompt(session, now),
+                Devices: LocalDeviceLink(appState),
                 IsViewed: isViewed);
         }
 
@@ -167,6 +206,8 @@ namespace TianWen.UI.Abstractions
                 // A prompt outlives the connection going dark -- it is still blocking that rig's run, and
                 // is arguably more urgent once nobody can answer it remotely.
                 Prompt: DescribePrompt(session, now),
+                // Not knowable from the snapshot -- see RigCard.Devices.
+                Devices: null,
                 IsViewed: isViewed);
         }
 
@@ -187,7 +228,37 @@ namespace TianWen.UI.Abstractions
                 FramesWritten: 0,
                 GuideRmsArcsec: null,
                 Prompt: null,
+                Devices: null,
                 IsViewed: isViewed);
+
+        /// <summary>
+        /// This node's connected-device count, or null when the active profile assigns none (a fresh profile
+        /// with nothing chosen yet, where "0/0 connected" would be noise rather than information).
+        /// <para>
+        /// Read straight from the hub, which is a handful of dictionary lookups -- it does NOT talk to a
+        /// driver, so the board keeps its "no device I/O" property.
+        /// </para>
+        /// </summary>
+        private static RigDeviceLink? LocalDeviceLink(GuiAppState appState)
+        {
+            if (appState.ActiveProfile?.Data is not { } profileData)
+            {
+                return null;
+            }
+
+            var assigned = 0;
+            var connected = 0;
+            foreach (var uri in profileData.AssignedDeviceUris)
+            {
+                assigned++;
+                if (appState.DeviceHub?.IsConnected(uri) == true)
+                {
+                    connected++;
+                }
+            }
+
+            return assigned == 0 ? null : new RigDeviceLink(connected, assigned);
+        }
 
         /// <summary>
         /// The status line for a rig that is answering: what the session says it is doing, falling back to
