@@ -618,14 +618,19 @@ add the dashboard to `PollPreviewTelemetry`'s `ActiveTab` gate**; it only polls 
 drivers, but keeping the board off it makes "the home screen does zero device I/O" a property that can
 be stated rather than argued.
 
-**Two prerequisites that are behaviour, not UI.** (1) **DONE** -- the rig path had no
+**Two prerequisites that are behaviour, not UI -- both now DONE.** (1) The rig path had no
 `HttpClient.Timeout`, so it ran on the 100 s default and a rig that went dark read as reachable for
 over a minute (mildly wrong for one rig, glaring on a board of six). `NodeTimeouts` now gives each
 request its own budget (state poll 5 s, preview 30 s, control 10 s) behind a 60 s `HttpClient`
-backstop, so a dark rig is reported unreachable in about five seconds. (2) A mirror exists only after
-a rig is *selected*, so the board still needs a connect-all path; because the board is always the
-landing tab, that is effectively at startup -- which is what promoted the timeout fix from cleanup to
+backstop, so a dark rig is reported unreachable in about five seconds. (2) A mirror existed only after
+a rig was *selected*, so the board needed a connect-all path; because the board is always the landing
+tab, that is effectively at startup -- which is what promoted the timeout fix from cleanup to
 prerequisite, since an off rig would otherwise have shown as connecting for 100 s on every launch.
+`RemoteRigActions.ConnectAllAsync` is that sweep: idempotent (so it can be re-run when a rig comes
+online, picking up only what is still missing), best-effort per rig (one unreachable rig or one
+unwritable binding file must not stop the others), previews left off, and deliberately **without**
+touching the view context -- connecting every bound rig must not change which one is on screen, or the
+sweep would silently become a selection.
 
 **Tab identity: `GuiTab.Home`, icon `\U0001F3E0` (house), `Ctrl+H`** (user, 2026-07-27). The icon has
 to stay **neutral between local and remote**, which rules out the family that first suggests itself --
