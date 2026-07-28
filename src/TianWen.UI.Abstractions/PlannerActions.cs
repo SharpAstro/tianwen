@@ -512,44 +512,6 @@ public static class PlannerActions
         }
     }
 
-    /// <summary>
-    /// Hit-tests a pixel X coordinate against handoff slider positions in the chart.
-    /// Returns the index of the nearest slider within the plot area, or -1 if no sliders exist
-    /// or the click is outside the plot area.
-    /// </summary>
-    public static int HitTestSlider(PlannerState state, float pixelX, float chartX, float chartW)
-    {
-        if (state.HandoffSliders.Length == 0)
-        {
-            return -1;
-        }
-
-        var (tStart, tEnd, plotX, plotW) = AltitudeChartRenderer.GetChartTimeLayout(state, (int)chartX, (int)chartW);
-
-        // Click must be within the plot area
-        if (pixelX < plotX || pixelX > plotX + plotW)
-        {
-            return -1;
-        }
-
-        var bestIdx = -1;
-        var bestDist = double.MaxValue;
-
-        for (var i = 0; i < state.HandoffSliders.Length; i++)
-        {
-            var fraction = (state.HandoffSliders[i] - tStart).TotalSeconds / (tEnd - tStart).TotalSeconds;
-            var sliderPixelX = plotX + fraction * plotW;
-            var dist = Math.Abs(pixelX - sliderPixelX);
-            if (dist < bestDist)
-            {
-                bestDist = dist;
-                bestIdx = i;
-            }
-        }
-
-        return bestIdx;
-    }
-
     private static void ClampSlider(PlannerState state, int idx, ref DateTimeOffset newTime)
     {
         var minSlot = TimeSpan.FromMinutes(15);

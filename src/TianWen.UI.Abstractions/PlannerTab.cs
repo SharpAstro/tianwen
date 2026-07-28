@@ -251,26 +251,15 @@ namespace TianWen.UI.Abstractions
 
         private void RegisterSliderHitRegions(PlannerState state)
         {
-            if (state.HandoffSliders.Length == 0)
+            // Band geometry (including the plot-Y bound that keeps a click on the weather band above the
+            // plot from grabbing a divider) is shared with every other host that hit-tests this chart.
+            var bands = PlannerSliderInteraction.GetHitBands(
+                state, _chartRect, PlannerSliderInteraction.DefaultBandWidth * DpiScale);
+
+            for (var i = 0; i < bands.Count; i++)
             {
-                return;
-            }
-            var dpiScale = DpiScale;
-
-            var (tStart, tEnd, plotX, plotY, plotW, plotH) = AltitudeChartRenderer.GetChartPlotLayout(
-                state, (int)_chartRect.X, (int)_chartRect.Y, (int)_chartRect.Width, (int)_chartRect.Height);
-            var tRange = (tEnd - tStart).TotalHours;
-
-            var hitW = 10f * dpiScale;
-            for (var i = 0; i < state.HandoffSliders.Length; i++)
-            {
-                var fraction = (state.HandoffSliders[i] - tStart).TotalHours / tRange;
-                var sliderX = plotX + (float)(fraction * plotW);
-
-                // Hit region spans only the plot rows -- NOT the full chart height -- so clicking
-                // the weather band / icons above the plot never grabs a handoff divider.
-                RegisterClickable(sliderX - hitW / 2, plotY, hitW, plotH,
-                    new HitResult.SliderHit(i));
+                var band = bands[i];
+                RegisterClickable(band.X, band.Y, band.Width, band.Height, new HitResult.SliderHit(i));
             }
         }
 
