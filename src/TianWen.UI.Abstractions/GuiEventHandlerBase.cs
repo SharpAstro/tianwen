@@ -272,12 +272,13 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Ctrl+E/P/S/L/M/G/Y/N tab shortcuts. M = Sky Map, Y = Planetary, the rest map by first letter.
+        /// Ctrl+H/E/P/S/L/M/G/Y/N tab shortcuts. M = Sky Map, Y = Planetary, the rest map by first letter.
         /// </summary>
         private bool TrySwitchTabByShortcut(InputKey key)
         {
             GuiTab? target = key switch
             {
+                InputKey.H => GuiTab.Home,
                 InputKey.E => GuiTab.Equipment,
                 InputKey.P => GuiTab.Planner,
                 InputKey.S => GuiTab.Session,

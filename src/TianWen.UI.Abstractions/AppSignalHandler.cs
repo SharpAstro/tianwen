@@ -440,6 +440,32 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Keeps each connected rig's profile label current, so a card can name the optical train a rig is
+        /// running rather than just its address.
+        /// <para>
+        /// Gated on the connection's own synchronous due-check so the common frame does no work at all and
+        /// allocates nothing -- the actual request is minutes apart per rig. A change redraws, because
+        /// otherwise a relabelled card would not appear until something else happened to dirty the frame.
+        /// </para>
+        /// </summary>
+        private void RefreshRigProfileNames()
+        {
+            foreach (var (_, connection) in _rigs.Connections)
+            {
+                if (!connection.ProfileNameRefreshDue) continue;
+
+                RunTracked("RefreshRigProfileName", $"Could not read which profile {connection.Binding.Alias} runs",
+                    async ct =>
+                    {
+                        if (await connection.MaybeRefreshProfileNameAsync(ct).ConfigureAwait(false))
+                        {
+                            _appState.NeedsRedraw = true;
+                        }
+                    });
+            }
+        }
+
+        /// <summary>
         /// Polls connected devices for preview telemetry when the Live Session tab is visible
         /// and no session is running. Reads camera, focuser, filter wheel, and mount state
         /// from hub-connected drivers via the active profile's OTA configuration.
@@ -453,6 +479,16 @@ namespace TianWen.UI.Abstractions
             _eqState.BoundRigs = _rigs.Bindings;
             _eqState.RemoteContextActive = _contexts.IsRemoteActive;
             PersistFirstContacts();
+
+            // The home board, published the same way and for the same reason: it must be current on every
+            // tab, and the tab renders a snapshot rather than reaching into the rig registry itself.
+            //
+            // Deliberately ABOVE the ActiveTab gate below, and deliberately NOT added to it. Everything
+            // here is state mirroring and one throttled HTTP read per rig; the gate guards polling
+            // already-connected DRIVERS, so keeping the board on this side of it is what makes "the home
+            // screen does zero device I/O" a property that can be stated rather than argued.
+            _appState.HomeCards = HomeBoard.BuildCards(_contexts, _rigs, _appState, _timeProvider.GetUtcNow());
+            RefreshRigProfileNames();
 
             if (LocalLiveSession.IsRunning) return;
 
