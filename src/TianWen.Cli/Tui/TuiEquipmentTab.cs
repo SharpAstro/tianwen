@@ -772,52 +772,30 @@ internal sealed class TuiEquipmentTab(
         }
     }
 
+    /// <summary>
+    /// Left panel: clicking a profile row selects and switches to it. The list's own HandleMouse moved
+    /// the cursor on MouseDown; this callback fires on MouseUp and adds the side effect. The MoveTo is
+    /// re-issued so a drag-release (down on row A, up on row B) still ends up on B.
+    /// <para>
+    /// Right panel: <see cref="ScrollableList{T}"/>'s built-in HandleMouse moves its own cursor on
+    /// click, so cursor-only effects need no registration here.
+    /// </para>
+    /// </summary>
     protected override void RegisterClickableRegions()
     {
-        // Left panel: clicking a profile row selects and switches to it. The list's
-        // own HandleMouse moved the cursor on MouseDown; the tracker callback fires
-        // on MouseUp and adds the side-effect (switch active profile). We re-issue
-        // MoveTo so a drag-release (down on row A, up on row B) still ends up on B.
-        if (_profileList is { } pl && _cachedProfiles.Count > 0)
+        if (_profileList is not { } profileList)
         {
-            var (bx, by, rowW, rowH) = GetRowGeometry(pl);
-            var count = _cachedProfiles.Count;
-            for (var i = 0; i < pl.VisibleRows && pl.ScrollOffset + i < count; i++)
-            {
-                var capturedIdx = pl.ScrollOffset + i;
-                var y = by + (1 + i) * rowH; // +1 for header row
-                Tracker.Register(bx, y, rowW, rowH,
-                    new HitResult.ListItemHit("Profile", capturedIdx),
-                    _ =>
-                    {
-                        pl.MoveTo(capturedIdx);
-                        SwitchToSelectedProfile();
-                        NeedsRedraw = true;
-                    });
-            }
+            return;
         }
 
-        // Right panel: ScrollableList's built-in HandleMouse moves its own cursor
-        // on click — no tracker registration needed for cursor-only effects. We
-        // still need a tracker hit for header rows (so HandleRawMouse can snap
-        // past them), but since header rows have FieldIndex < 0, they're excluded
-        // here exactly as before.
-    }
-
-    // Computes (baseX, baseY, rowWidth, rowHeight) for a list, excluding the
-    // scrollbar column from the clickable width so drag/click on the track
-    // reaches ScrollableList.HandleMouse instead of triggering a row-select.
-    private static (float BaseX, float BaseY, float RowW, float RowH) GetRowGeometry<T>(
-        ScrollableList<T> list) where T : IRowFormatter
-    {
-        var vp = list.Viewport;
-        var cell = vp.CellSize;
-        var bx = (float)(vp.Offset.Column * cell.Width);
-        var by = (float)(vp.Offset.Row * cell.Height);
-        var cols = vp.Size.Width - (list.ItemCount > list.VisibleRows ? 1 : 0);
-        var rowW = (float)(cols * cell.Width);
-        var rowH = (float)cell.Height;
-        return (bx, by, rowW, rowH);
+        profileList.RegisterRowHits(Tracker,
+            hitFor: (index, _) => new HitResult.ListItemHit("Profile", index),
+            onClick: (index, _) =>
+            {
+                profileList.MoveTo(index);
+                SwitchToSelectedProfile();
+                NeedsRedraw = true;
+            });
     }
 
     public override bool HandleInput(InputEvent evt)
