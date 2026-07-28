@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using DIR.Lib;
@@ -28,6 +28,7 @@ namespace TianWen.UI.Gui
         private readonly VkLiveSessionTab _liveSessionTab;
         private readonly GuiderTab<VulkanContext> _guiderTab;
         private readonly VkNotificationsTab _notificationsTab;
+        private readonly VkHomeTab _homeTab;
         private readonly VkImageRenderer _guiderViewer;
         private readonly VkImageRenderer _previewViewer;
         private readonly VkPlanetaryTab _planetaryTab;
@@ -55,6 +56,7 @@ namespace TianWen.UI.Gui
                 _liveSessionTab.DpiScale = value;
                 _guiderTab.DpiScale = value;
                 _notificationsTab.DpiScale = value;
+                _homeTab.DpiScale = value;
                 _guiderViewer.DpiScale = value;
                 _previewViewer.DpiScale = value;
                 _planetaryTab.DpiScale = value;
@@ -81,6 +83,7 @@ namespace TianWen.UI.Gui
                 _liveSessionTab.FontPath = value;
                 _guiderTab.FontPath = value;
                 _notificationsTab.FontPath = value;
+                _homeTab.FontPath = value;
             }
         }
 
@@ -102,6 +105,7 @@ namespace TianWen.UI.Gui
                 _liveSessionTab.EmojiFontPath = value;
                 _guiderTab.EmojiFontPath = value;
                 _notificationsTab.EmojiFontPath = value;
+                _homeTab.EmojiFontPath = value;
             }
         }
 
@@ -192,6 +196,10 @@ namespace TianWen.UI.Gui
         // and the cycle order can't drift apart.
         private static readonly Dictionary<GuiTab, (string Icon, string Tooltip)> TabChrome = new()
         {
+            // House, not satellite/antenna/globe: the icon has to stay neutral between local and remote,
+            // or a single-scope user's one-card board looks like a remote-monitoring feature they do not
+            // use -- and it names the SCREEN, which is due to hold multi-night progress beside the cards.
+            [GuiTab.Home]          = ("\U0001F3E0",        "Home (Ctrl+H)"),
             [GuiTab.Equipment]     = ("\U0001F52D",        "Equipment (Ctrl+E)"),
             [GuiTab.Planner]       = ("\U0001F4C5",        "Planner (Ctrl+P)"),
             [GuiTab.SkyMap]        = ("\U0001F30C",        "Sky Map (Ctrl+M)"),
@@ -234,6 +242,9 @@ namespace TianWen.UI.Gui
             _guiderViewer = new VkImageRenderer(renderer, width, height);
             _guiderTab = new GuiderTab<VulkanContext>(renderer) { Bus = bus, GuideCameraViewer = _guiderViewer };
             _notificationsTab = new VkNotificationsTab(renderer) { Bus = bus };
+            // Bus, because a card click changes the view context through the same signals the profile
+            // picker posts -- the board itself neither connects nor commands anything.
+            _homeTab = new VkHomeTab(renderer) { Bus = bus };
             // The 🪐 tab IS a full image viewer (shares VkImageRenderer with tianwen-fits) + a capture strip,
             // so it gets the same stretch pipeline / RAW-STACK toggle / wavelet sliders as the FITS viewer.
             _planetaryTab = new VkPlanetaryTab(renderer, width, height) { Bus = bus };
@@ -273,6 +284,7 @@ namespace TianWen.UI.Gui
             _guiderTab.FrameCount++;
             _planetaryTab.FrameCount++;
             _notificationsTab.FrameCount++;
+            _homeTab.FrameCount++;
 
             ActiveTab = appState.ActiveTab switch
             {
@@ -283,6 +295,7 @@ namespace TianWen.UI.Gui
                 GuiTab.LiveSession => _liveSessionTab,
                 GuiTab.Guider => _guiderTab,
                 GuiTab.Notifications => _notificationsTab,
+                GuiTab.Home => _homeTab,
                 _ => null
             };
 
@@ -674,6 +687,13 @@ namespace TianWen.UI.Gui
 
                 case GuiTab.Notifications:
                     _notificationsTab.Render(appState, contentRect);
+                    break;
+
+                case GuiTab.Home:
+                    // Renders the board snapshot the telemetry poll published this frame. No context or rig
+                    // registry is threaded in on purpose: the board must not be able to reach live session
+                    // state, or a card could be painted from a session being updated underneath it.
+                    _homeTab.Render(appState, contentRect);
                     break;
 
                 default:

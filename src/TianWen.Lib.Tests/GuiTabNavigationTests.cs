@@ -15,6 +15,8 @@ public class GuiTabNavigationTests
     {
         GuiAppState.TabOrder.ShouldBe(new[]
         {
+            // Home is first because it is the landing tab, not merely because it was added first.
+            GuiTab.Home,
             GuiTab.Equipment,
             GuiTab.Planner,
             GuiTab.SkyMap,

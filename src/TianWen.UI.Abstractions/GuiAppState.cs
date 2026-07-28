@@ -9,6 +9,7 @@ namespace TianWen.UI.Abstractions;
 
 public enum GuiTab
 {
+    Home,
     Planner,
     Session,
     Equipment,
@@ -45,6 +46,9 @@ public class GuiAppState
     /// </summary>
     public static readonly ImmutableArray<GuiTab> TabOrder =
     [
+        // The landing tab, hence first: it lists everything you can look at, so seeing whether anything is
+        // waiting on you comes before diving into any one rig.
+        GuiTab.Home,
         GuiTab.Equipment,
         GuiTab.Planner,
         GuiTab.SkyMap,
@@ -80,7 +84,7 @@ public class GuiAppState
     /// separate caching/polling needed at a render call site.</summary>
     public IPeerTable? PeerTable { get; init; }
 
-    public GuiTab ActiveTab { get; set; } = GuiTab.Planner;
+    public GuiTab ActiveTab { get; set; } = GuiTab.Home;
     public Profile? ActiveProfile { get; set; }
 
     /// <summary>
@@ -171,6 +175,13 @@ public class GuiAppState
     /// the render thread while background tasks append).
     /// </summary>
     public ImmutableArray<NotificationEntry> Notifications { get; private set; } = [];
+
+    /// <summary>
+    /// The Home tab's rig board, rebuilt once per frame by the telemetry poll and read by the tab. A
+    /// snapshot rather than live state, published by atomic reference swap, so the render thread cannot
+    /// observe a card half-built from a session that is being updated underneath it.
+    /// </summary>
+    public ImmutableArray<RigCard> HomeCards { get; set; } = [];
 
     /// <summary>Unread-count since the user last opened the Notifications tab.
     /// Reset to 0 when that tab becomes active.</summary>

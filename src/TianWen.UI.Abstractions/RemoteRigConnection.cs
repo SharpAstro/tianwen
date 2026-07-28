@@ -30,15 +30,27 @@ namespace TianWen.UI.Abstractions
         /// <summary>The LAN.Lib service name a TianWen node announces.</summary>
         public const string NodeServiceName = "tianwen-server";
 
+        /// <summary>
+        /// How often the rig is re-asked which profile it runs. Slow on purpose: it changes when somebody
+        /// reconfigures the rig, not during a night, so this is two orders of magnitude rarer than the
+        /// state poll and its traffic is noise next to it.
+        /// </summary>
+        public static readonly TimeSpan ProfileNameRefreshInterval = TimeSpan.FromMinutes(2);
+
         private readonly HttpClient _http;
         private readonly TianWenNodeClient _client;
         private readonly TianWenEventStream _events;
+        private readonly ITimeProvider _timeProvider;
         private readonly ILogger _logger;
+
+        private string? _profileName;
+        private DateTimeOffset? _profileNameCheckedUtc;
+        private int _profileRefreshInFlight;
 
         private RemoteRigConnection(
             RemoteRigBinding binding, ViewContext context, Uri address,
             HttpClient http, TianWenNodeClient client, TianWenEventStream events,
-            RemoteSessionMirror mirror, ILogger logger)
+            RemoteSessionMirror mirror, ITimeProvider timeProvider, ILogger logger)
         {
             Binding = binding;
             Context = context;
@@ -47,6 +59,7 @@ namespace TianWen.UI.Abstractions
             _client = client;
             _events = events;
             Mirror = mirror;
+            _timeProvider = timeProvider;
             _logger = logger;
         }
 
@@ -99,7 +112,7 @@ namespace TianWen.UI.Abstractions
             mirror.Start(cancellationToken);
             logger.LogInformation("Mirroring rig '{Alias}' at {Address}", binding.Alias, address);
 
-            return new RemoteRigConnection(binding, context, address, http, client, events, mirror, logger);
+            return new RemoteRigConnection(binding, context, address, http, client, events, mirror, timeProvider, logger);
         }
 
         /// <summary>
@@ -150,6 +163,81 @@ namespace TianWen.UI.Abstractions
             Mirror.LastContactUtc is not null && Interlocked.Exchange(ref _firstContactClaimed, 1) == 0;
 
         private int _firstContactClaimed;
+
+        /// <summary>
+        /// The profile the rig is set up to run, or <see langword="null"/> until it has been learned (and
+        /// for a rig with no active profile, or one too old to report it). Written by
+        /// <see cref="MaybeRefreshProfileNameAsync"/> on a background task and read on the render thread,
+        /// hence the volatile reference read.
+        /// </summary>
+        public string? ProfileName => Volatile.Read(ref _profileName);
+
+        /// <summary>
+        /// Whether <see cref="MaybeRefreshProfileNameAsync"/> would actually do anything. A synchronous
+        /// predicate so a per-frame caller can skip the call entirely rather than allocating a completed
+        /// task per connection per frame; the async path re-checks it, so this is one rule, not two.
+        /// </summary>
+        public bool ProfileNameRefreshDue =>
+            _profileNameCheckedUtc is not { } last || _timeProvider.GetUtcNow() - last >= ProfileNameRefreshInterval;
+
+        /// <summary>
+        /// Re-asks the rig which profile it runs, at most once every
+        /// <see cref="ProfileNameRefreshInterval"/> and never concurrently with itself. Returns
+        /// <see langword="true"/> only when the answer <i>changed</i>, so a caller can redraw on the
+        /// transition rather than every tick.
+        /// <para>
+        /// Polled rather than pushed because the fact has no event: the rig's profile is changed through
+        /// the rig, and the beacon it announces is not a second place to put this -- a rig reached through
+        /// its stored address hint has no beacon at all, and would then be the one rig on the board with
+        /// no label. One source, even if it costs a request every couple of minutes.
+        /// </para>
+        /// <para>
+        /// A failure leaves the previous name in place and is <b>not</b> logged as a warning: the common
+        /// cause is a rig that has gone offline, which the card already says plainly. Only a 404 clears
+        /// the name, because that is the node stating it has no active profile.
+        /// </para>
+        /// </summary>
+        public async Task<bool> MaybeRefreshProfileNameAsync(CancellationToken cancellationToken)
+        {
+            if (!ProfileNameRefreshDue)
+            {
+                return false;
+            }
+
+            // One in flight at a time. Claimed before the timestamp is written so a slow request cannot be
+            // joined by a second one that sees a stale timestamp.
+            if (Interlocked.CompareExchange(ref _profileRefreshInFlight, 1, 0) != 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                _profileNameCheckedUtc = _timeProvider.GetUtcNow();
+                var result = await _client.GetActiveProfileAsync(cancellationToken).ConfigureAwait(false);
+
+                var resolved = result switch
+                {
+                    { IsSuccess: true, Value: { } profile } => profile.Name,
+                    // The node answered that it has none -- that IS the answer, so drop any stale label.
+                    { IsNotFound: true } => null,
+                    // Unreachable or errored: keep what we had rather than blanking a good label.
+                    _ => ProfileName,
+                };
+
+                if (string.Equals(resolved, ProfileName, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+
+                Volatile.Write(ref _profileName, resolved);
+                return true;
+            }
+            finally
+            {
+                Volatile.Write(ref _profileRefreshInFlight, 0);
+            }
+        }
 
         /// <summary>Pushes the rig's own site onto the context, so the planner and sky map work against
         /// the rig's horizon rather than this computer's.</summary>
