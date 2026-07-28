@@ -873,48 +873,33 @@ internal sealed class TuiLiveSessionTab(
         return new string(spark);
     }
 
-    protected override void RegisterClickableRegions()
-    {
-        if (_infoList is null || _rows.Count == 0)
+    /// <summary>
+    /// The info panel's rows carry inline buttons (steppers, actions), so each row contributes column
+    /// SPANS rather than one whole-row region. The list owns all the geometry.
+    /// <para>
+    /// This previously hardcoded a zero scroll offset, with a comment that the widget had no public
+    /// <c>ScrollOffset</c>. It does, and now the list applies it -- so the panel becoming scrollable
+    /// stops being a latent mis-click bug waiting for the first list long enough to need it.
+    /// </para>
+    /// </summary>
+    protected override void RegisterClickableRegions() =>
+        _infoList?.RegisterRowSpanHits(Tracker, (index, row) =>
         {
-            return;
-        }
-
-        var cellSize = _infoList.Viewport.CellSize;
-        var offset = _infoList.Viewport.Offset;
-        // Info panel isn't scrolled programmatically; if it ever is, the list widget
-        // would need a public ScrollOffset getter (currently private) for hit-test
-        // accuracy. Without scrolling, line index == visible-row index.
-        const int scrollOffset = 0;
-        var baseX = (float)(offset.Column * cellSize.Width);
-        var baseY = (float)(offset.Row * cellSize.Height);
-        var visibleRows = _infoList.VisibleRows;
-        var rowWidth = _infoList.Viewport.Size.Width;
-
-        for (var lineIdx = 0; lineIdx < _rows.Count; lineIdx++)
-        {
-            var row = _rows[lineIdx];
             var buttons = row.Buttons;
-            if (buttons.Count == 0) continue;
-
-            var visibleLine = lineIdx - scrollOffset;
-            if (visibleLine < 0 || visibleLine >= visibleRows)
+            if (buttons.Count == 0)
             {
-                continue;
+                return [];
             }
 
-            var y = baseY + visibleLine * (float)cellSize.Height;
-            foreach (var btn in buttons)
+            var spans = new RowSpan[buttons.Count];
+            for (var i = 0; i < buttons.Count; i++)
             {
-                var colEnd = Math.Min(btn.ColEnd, rowWidth);
-                if (btn.ColStart >= colEnd) continue;
-                var x = baseX + btn.ColStart * (float)cellSize.Width;
-                var w = (colEnd - btn.ColStart) * (float)cellSize.Width;
-                Tracker.Register(x, y, w, (float)cellSize.Height,
-                    new HitResult.ListItemHit("InfoRow", lineIdx), btn.OnClick);
+                var button = buttons[i];
+                spans[i] = new RowSpan(button.ColStart, button.ColEnd,
+                    new HitResult.ListItemHit("InfoRow", index), button.OnClick);
             }
-        }
-    }
+            return spans;
+        });
 
     public override bool HandleRawMouse(MouseEvent mouse)
     {

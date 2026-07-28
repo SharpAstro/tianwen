@@ -179,36 +179,25 @@ internal sealed class TuiSessionTab(
         _statusBar.RightText(appState.StatusMessage ?? "");
     }
 
-    protected override void RegisterClickableRegions()
-    {
-        if (_configList is null || _lastItems.Count == 0)
-        {
-            return;
-        }
-
-        var cellSize = _configList.Viewport.CellSize;
-        var offset = _configList.Viewport.Offset;
-        var baseX = (float)(offset.Column * cellSize.Width);
-        var baseY = (float)(offset.Row * cellSize.Height);
-        var rowW = (float)(_configList.Viewport.Size.Width * cellSize.Width);
-        var rowH = (float)cellSize.Height;
-        var headerRows = 1; // ScrollableList header row
-
-        for (var i = 0; i < _configList.VisibleRows && sessionState.ConfigScrollOffset + i < _lastItems.Count; i++)
-        {
-            var item = _lastItems[sessionState.ConfigScrollOffset + i];
-            if (item.FieldIndex < 0)
+    /// <summary>
+    /// Row clicks select the field. The list owns the geometry (viewport origin, header row, scroll
+    /// offset, scrollbar column), so this only has to say which rows are clickable and what a click
+    /// means -- a group header carries no field index and stays inert.
+    /// </summary>
+    protected override void RegisterClickableRegions() =>
+        _configList?.RegisterRowHits(Tracker,
+            hitFor: (_, item) => item.FieldIndex >= 0
+                ? new HitResult.ListItemHit("ConfigField", item.FieldIndex)
+                : null,
+            // Only rows hitFor accepted get here, so the field index is known good; the bound check is
+            // against _lastItems, which mirrors the list's items rather than being the same array.
+            onClick: (index, _) =>
             {
-                continue; // skip group headers
-            }
-
-            var capturedIdx = item.FieldIndex;
-            var y = baseY + (headerRows + i) * rowH;
-            Tracker.Register(baseX, y, rowW, rowH,
-                new HitResult.ListItemHit("ConfigField", item.FieldIndex),
-                _ => { sessionState.SelectedFieldIndex = capturedIdx; });
-        }
-    }
+                if (index >= 0 && index < _lastItems.Count)
+                {
+                    sessionState.SelectedFieldIndex = _lastItems[index].FieldIndex;
+                }
+            });
 
     public override bool HandleRawMouse(MouseEvent mouse)
     {
