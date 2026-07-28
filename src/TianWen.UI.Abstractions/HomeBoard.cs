@@ -43,21 +43,21 @@ namespace TianWen.UI.Abstractions
         public bool AllConnected => Assigned > 0 && Connected == Assigned;
 
         /// <summary>
-        /// The badge text, with the count so a partial connect is distinguishable from a complete one at a
-        /// glance. The plugged/unplugged distinction is carried by the card's colour, not by a glyph.
+        /// The badge: a socket glyph plus the count, so a partial connect is distinguishable from a complete
+        /// one at a glance.
         /// <para>
-        /// <b>No emoji here, deliberately.</b> A socket glyph would be the obvious label, but the layout
-        /// painter draws a whole tree with ONE font: <c>PixelWidgetBase.EmojiFontPath</c> is declared and
-        /// never consumed inside DIR.Lib, so an emoji inside a <c>Layout.Node</c> text run has no fallback
-        /// and renders as blank space. Every emoji in the app today is an explicit <c>DrawText</c> that
-        /// passes the emoji font AS the font, which a mixed "glyph + count" run cannot do. Adding per-run
-        /// font fallback to the painter is the real fix and is a DIR.Lib change of its own.
+        /// The glyph and the text share ONE string, which only works because the layout painter resolves
+        /// emoji runs to <c>PixelWidgetBase.EmojiFontPath</c> per run. Before that a mixed string was
+        /// impossible -- a run is drawn with exactly one font, so an emoji inside ordinary text rendered as
+        /// blank space, and every emoji in the app had to be its own draw with the emoji font passed AS the
+        /// font.
         /// </para>
         /// </summary>
         public string Describe() =>
-            AllConnected
-                ? $"{Assigned} devices connected"
-                : $"{Connected}/{Assigned} devices connected";
+            Connected == 0 ? "🔌 No devices connected"
+            : Assigned == 1 ? "🔌 1 device connected"
+            : AllConnected ? $"🔌 All {Assigned} devices connected"
+            : $"🔌 {Connected} of {Assigned} devices connected";
     }
 
     /// <summary>
