@@ -490,18 +490,19 @@ namespace TianWen.UI.Gui
             var arrowBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
             const float gapDu = 6f; // design-unit inter-element gap
 
-            // LEFT: profile name + (truncated) status message.
-            var profileName = appState.ActiveProfile?.DisplayName ?? "No profile";
-            var profileNode = Layout.Builder.Text(profileName, BaseFontSize, StatusText, TextAlign.Near, TextAlign.Center)
-                .WAuto().HStar();
+            // LEFT: the (truncated) status message.
+            //
+            // The profile name used to lead this zone and no longer does: the window title names it now,
+            // which is one place instead of several. It was also the copy that said the least -- the
+            // Equipment tab has a Profile picker, and the Home board labels every rig with the profile it
+            // runs, so a third grey copy beside the notification text was noise competing with the message.
             Layout.Node statusNode;
             if (appState.StatusMessage is { Length: > 0 } msg)
             {
-                // Truncation needs a target width (intrinsic to ellipsising). Estimate the status cell as
-                // the left third (each zone is 1/3 of the content area) minus the profile name + gap.
+                // Truncation needs a target width (intrinsic to ellipsising); the status cell is the left
+                // third, since each of the three zones takes a third of the content area.
                 var contentW = w - (SidebarWidth + 6f) - 4f;
-                var profW = _renderer.MeasureText(profileName.AsSpan(), FontPath, FontSize).Width;
-                var msgCellW = Math.Max(contentW / 3f - profW - gapDu * DpiScale, 40f);
+                var msgCellW = Math.Max(contentW / 3f, 40f);
                 var displayMsg = TruncateToFit(msg, msgCellW, FontSize * 0.85f);
                 statusNode = Layout.Builder.Text(displayMsg, BaseFontSize * 0.85f, new RGBAColor32(0xff, 0xcc, 0x66, 0xff), TextAlign.Near, TextAlign.Center)
                     .WStar().HStar();
@@ -510,8 +511,7 @@ namespace TianWen.UI.Gui
             {
                 statusNode = Layout.Builder.Spacer().WStar();
             }
-            var leftZone = Layout.Builder.HStack(profileNode, Layout.Builder.Spacer().WFixed(gapDu), statusNode)
-                .WStar().HStar();
+            var leftZone = Layout.Builder.HStack(statusNode).WStar().HStar();
 
             // CENTRE: [<] date [>], centred via flanking star spacers. Arrows hidden during a session.
             var dateLabel = Layout.Builder.Text(dateStr, BaseFontSize, dateColor, TextAlign.Center, TextAlign.Center)
