@@ -169,12 +169,16 @@ namespace TianWen.Lib.Tests
             new RigDeviceLink(4, 6).AllConnected.ShouldBeFalse();
             new RigDeviceLink(0, 0).AllConnected.ShouldBeFalse("nothing assigned is not the same as all up");
 
-            new RigDeviceLink(6, 6).Describe().ShouldNotBe(new RigDeviceLink(4, 6).Describe());
-            new RigDeviceLink(4, 6).Describe().ShouldContain("4/6");
+            // Reads as a sentence, and the cases stay distinguishable at a glance.
+            new RigDeviceLink(6, 6).Describe().ShouldEndWith("All 6 devices connected");
+            new RigDeviceLink(4, 6).Describe().ShouldEndWith("4 of 6 devices connected");
+            new RigDeviceLink(0, 6).Describe().ShouldEndWith("No devices connected");
+            // A lone device must not read as "All 1 devices".
+            new RigDeviceLink(1, 1).Describe().ShouldEndWith("1 device connected");
 
-            // No emoji: the layout painter has no per-run font fallback, so a glyph here would render
-            // as blank space rather than a socket. See RigDeviceLink.Describe.
-            new RigDeviceLink(4, 6).Describe().ShouldAllBe(c => c < 0x2000);
+            // The socket leads the label, in the same run as the text -- which only renders because the
+            // painter resolves emoji runs to the emoji font per run.
+            new RigDeviceLink(4, 6).Describe().ShouldStartWith("🔌");
         }
 
         [Fact]
