@@ -200,8 +200,14 @@
          3.13 is the current pin: it adds the shared TextTable + BorderStyle (markdown tables render
          through it, so mdcat inherits the border vocabulary) and widens TerminalViewport.UpdateGeometry
          to public so a layout tree can host a widget at a Fill leaf and re-point it at the arranged
-         rect each frame. That is the seam the TUI's CellLayout migration is built on. -->
-    <PackageVersion Include="Console.Lib" Version="3.13.*" />
+         rect each frame. That is the seam the TUI's CellLayout migration is built on.
+         3.15 is the current pin. 3.14 taught CellLayout to honour Layout.Node.CornerRadius (one arc
+         glyph per corner; the magnitude is ignored because a grid cannot round by fractions of a cell)
+         and added ScrollableList.RegisterRowHits; 3.15 added RegisterRowSpanHits for rows carrying
+         inline buttons. Between them the list now owns the row hit geometry the TUI tabs used to
+         reconstruct by hand: viewport-offset origin, header row, SCROLLED item index, and yielding the
+         scrollbar column so the thumb stays grabbable. -->
+    <PackageVersion Include="Console.Lib" Version="3.15.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan

@@ -194,34 +194,14 @@ internal sealed class TuiPlannerTab(
         _statusBar.RightText(appState.StatusMessage ?? "");
     }
 
-    protected override void RegisterClickableRegions()
-    {
-        if (_targetList is not { } targetList)
-        {
-            return;
-        }
-
-        var cellSize = targetList.Viewport.CellSize;
-        var offset = targetList.Viewport.Offset;
-        var baseX = (float)(offset.Column * cellSize.Width);
-        var baseY = (float)(offset.Row * cellSize.Height);
-        // Exclude the rightmost column when a scrollbar is drawn so clicks there reach
-        // the list's drag handler rather than the row's click handler.
-        var visibleWidth = targetList.Viewport.Size.Width - (targetList.ItemCount > targetList.VisibleRows ? 1 : 0);
-        var rowW = (float)(visibleWidth * cellSize.Width);
-        var rowH = (float)cellSize.Height;
-        var scrollOffset = targetList.ScrollOffset;
-
-        var filteredCount = PlannerActions.GetFilteredTargets(plannerState).Count;
-        for (var i = 0; i < targetList.VisibleRows && scrollOffset + i < filteredCount; i++)
-        {
-            var capturedIdx = scrollOffset + i;
-            var y = baseY + (1 + i) * rowH; // +1 for header
-            Tracker.Register(baseX, y, rowW, rowH,
-                new HitResult.ListItemHit("TargetList", capturedIdx),
-                _ => { plannerState.SelectedTargetIndex = capturedIdx; });
-        }
-    }
+    /// <summary>
+    /// Row clicks select the target. The list owns the geometry -- including yielding the scrollbar
+    /// column, which this used to compute for itself.
+    /// </summary>
+    protected override void RegisterClickableRegions() =>
+        _targetList?.RegisterRowHits(Tracker,
+            hitFor: (index, _) => new HitResult.ListItemHit("TargetList", index),
+            onClick: (index, _) => plannerState.SelectedTargetIndex = index);
 
     public override bool HandleRawMouse(MouseEvent mouse)
     {
@@ -331,6 +311,12 @@ internal sealed class TuiPlannerTab(
     /// <summary>
     /// Hit-tests sliders on the chart canvas using chart time-layout math.
     /// Returns true if a slider was hit and selected.
+    /// <para>
+    /// The one place in this tab that still converts cells to pixels by hand, and legitimately so: the
+    /// chart is a raster surface, and a slider drawn into it is at a pixel position no layout node
+    /// describes. Row-level geometry belongs to <see cref="ScrollableList{T}"/> (see
+    /// <see cref="RegisterClickableRegions"/>); this is the raster bucket, not that one.
+    /// </para>
     /// </summary>
     private bool HitTestSliderOnCanvas(float x, float y)
     {
