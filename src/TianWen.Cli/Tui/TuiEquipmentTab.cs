@@ -66,20 +66,54 @@ internal sealed class TuiEquipmentTab(
     protected override bool IsReady =>
         _profileList is not null && _settingsList is not null && _siteBar is not null && _statusBar is not null;
 
+    // Fill-leaf keys. The tree names these; PaintHost draws them.
+    private const string ProfilesKey = "profiles";
+    private const string SettingsKey = "settings";
+    private const string SiteKey = "site";
+    private const string StatusKey = "status";
+
     [MemberNotNull(nameof(_profileList), nameof(_settingsList), nameof(_siteBar), nameof(_statusBar))]
-    protected override void CreateWidgets(Panel panel)
+    protected override void CreateWidgets()
     {
-        var bottomVp = panel.Dock(DockStyle.Bottom, 1);
-        var siteVp = panel.Dock(DockStyle.Bottom, 1);
-        var leftVp = panel.Dock(DockStyle.Left, 24);
-        var fillVp = panel.Fill();
+        _siteBar = new TextBar(Host(SiteKey));
+        _statusBar = new TextBar(Host(StatusKey));
+        _profileList = new ScrollableList<ProfilePickerItem>(Host(ProfilesKey));
+        _settingsList = new ScrollableList<EquipmentFieldItem>(Host(SettingsKey));
+    }
 
-        _siteBar = new TextBar(siteVp);
-        _statusBar = new TextBar(bottomVp);
-        _profileList = new ScrollableList<ProfilePickerItem>(leftVp);
-        _settingsList = new ScrollableList<EquipmentFieldItem>(fillVp);
+    /// <summary>
+    /// Profile picker left, settings right, with the site line above the status row -- the same
+    /// arrangement the docked Panel produced (its two Bottom 1 docks in that order are what put the
+    /// site line above the status bar).
+    /// </summary>
+    protected override Layout.Node BuildLayout() =>
+        Layout.Builder.VStack(
+            Layout.Builder.HStack(
+                Layout.Builder.Fill(key: ProfilesKey).WFixed(24),
+                Layout.Builder.Fill(key: SettingsKey).WStar()).Stretch(),
+            Layout.Builder.Fill(key: SiteKey).RowH(1),
+            Layout.Builder.Fill(key: StatusKey).RowH(1));
 
-        panel.Add(_siteBar).Add(_statusBar).Add(_profileList).Add(_settingsList);
+    protected override void PaintHost(string key, Rect<int> rect, bool geometryChanged)
+    {
+        switch (key)
+        {
+            case ProfilesKey:
+                _profileList?.Render();
+                break;
+
+            case SettingsKey:
+                _settingsList?.Render();
+                break;
+
+            case SiteKey:
+                _siteBar?.Render();
+                break;
+
+            case StatusKey:
+                _statusBar?.Render();
+                break;
+        }
     }
 
     private static readonly string[] FieldLabels = ["Lat", "Lon", "Elev"];

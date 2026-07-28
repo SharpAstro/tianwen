@@ -25,17 +25,50 @@ internal sealed class TuiSessionTab(
     [MemberNotNullWhen(true, nameof(_configList), nameof(_rightPanel), nameof(_statusBar))]
     protected override bool IsReady => _configList is not null && _rightPanel is not null && _statusBar is not null;
 
-    protected override void CreateWidgets(Panel panel)
+    // Fill-leaf keys. The tree names these; PaintHost draws them.
+    private const string ConfigKey = "config";
+    private const string RightKey = "right";
+    private const string StatusKey = "status";
+
+    protected override void CreateWidgets()
     {
-        var bottomVp = panel.Dock(DockStyle.Bottom, 1);
-        var rightVp = panel.Dock(DockStyle.Right, 44);
-        var fillVp = panel.Fill();
+        _statusBar = new TextBar(Host(StatusKey));
+        _rightPanel = new MarkdownWidget(Host(RightKey));
+        _configList = new ScrollableList<SessionFieldItem>(Host(ConfigKey));
+    }
 
-        _statusBar = new TextBar(bottomVp);
-        _rightPanel = new MarkdownWidget(rightVp);
-        _configList = new ScrollableList<SessionFieldItem>(fillVp);
+    /// <summary>
+    /// Config form left, per-OTA panel right at a fixed 44 columns, one status row underneath --
+    /// the same arrangement the docked Panel produced, so this is a straight translation.
+    /// <para>
+    /// Now that it is a tree rebuilt per frame, a narrow terminal could branch here (stack the two
+    /// vertically, or <c>CollapseBelow</c> the right panel) without touching widget construction.
+    /// Deliberately not doing that in the migration -- behaviour first, responsiveness after.
+    /// </para>
+    /// </summary>
+    protected override Layout.Node BuildLayout() =>
+        Layout.Builder.VStack(
+            Layout.Builder.HStack(
+                Layout.Builder.Fill(key: ConfigKey).WStar(),
+                Layout.Builder.Fill(key: RightKey).WFixed(44)).Stretch(),
+            Layout.Builder.Fill(key: StatusKey).RowH(1));
 
-        panel.Add(_statusBar).Add(_rightPanel).Add(_configList);
+    protected override void PaintHost(string key, Rect<int> rect, bool geometryChanged)
+    {
+        switch (key)
+        {
+            case ConfigKey:
+                _configList?.Render();
+                break;
+
+            case RightKey:
+                _rightPanel?.Render();
+                break;
+
+            case StatusKey:
+                _statusBar?.Render();
+                break;
+        }
     }
 
     protected override void RenderContent()

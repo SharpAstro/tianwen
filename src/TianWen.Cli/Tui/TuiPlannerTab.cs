@@ -21,34 +21,119 @@ internal sealed class TuiPlannerTab(
     private TextBar? _statusBar;
     private ScrollableList<TargetListItem>? _targetList;
     private MarkdownWidget? _detailWidget;
+
+    // The altitude chart is pixel-backed, so its renderer can only be sized once the tree has been
+    // arranged. Built on first placement and rebuilt on resize (PaintHost). Interface-typed because
+    // PixelSize is a default interface member, only reachable through ITerminalViewport.
+    private ITerminalViewport? _canvasViewport;
     private Canvas? _canvas;
     private SixelRgbaImageRenderer? _canvasRenderer;
     private int _lastEnsuredIndex = -1;
 
+    /// <summary>
+    /// Readiness covers only what <see cref="CreateWidgets"/> builds. The chart canvas is deliberately
+    /// absent: it cannot exist before the first arrange, so requiring it here would stop the tab ever
+    /// rendering the frame that would size it.
+    /// </summary>
     [MemberNotNullWhen(true, nameof(_topBar), nameof(_statusBar), nameof(_targetList),
-        nameof(_detailWidget), nameof(_canvas), nameof(_canvasRenderer))]
+        nameof(_detailWidget))]
     protected override bool IsReady =>
         _topBar is not null && _statusBar is not null && _targetList is not null
-        && _detailWidget is not null && _canvas is not null && _canvasRenderer is not null;
+        && _detailWidget is not null;
 
-    protected override void CreateWidgets(Panel panel)
+    // Fill-leaf keys. The tree names these; PaintHost draws them.
+    private const string TopKey = "top";
+    private const string ListKey = "list";
+    private const string CanvasKey = "canvas";
+    private const string DetailKey = "detail";
+    private const string StatusKey = "status";
+
+    protected override void CreateWidgets()
     {
-        var topVp = panel.Dock(DockStyle.Top, 1);
-        var bottomVp = panel.Dock(DockStyle.Bottom, 1);
-        var detailVp = panel.Dock(DockStyle.Bottom, 8);
-        var leftVp = panel.Dock(DockStyle.Left, 32);
-        var fillVp = panel.Fill();
+        _topBar = new TextBar(Host(TopKey));
+        _statusBar = new TextBar(Host(StatusKey));
+        _targetList = new ScrollableList<TargetListItem>(Host(ListKey));
+        _detailWidget = new MarkdownWidget(Host(DetailKey));
 
-        _topBar = new TextBar(topVp);
-        _statusBar = new TextBar(bottomVp);
-        _targetList = new ScrollableList<TargetListItem>(leftVp);
-        _detailWidget = new MarkdownWidget(detailVp);
+        // Only the viewport -- the renderer and canvas need a pixel size the arrange has not produced yet.
+        _canvasViewport = Host(CanvasKey);
+    }
 
-        var canvasPixelSize = fillVp.PixelSize;
-        _canvasRenderer = new SixelRgbaImageRenderer((uint)canvasPixelSize.Width, (uint)canvasPixelSize.Height);
-        _canvas = new Canvas(fillVp, _canvasRenderer);
+    /// <summary>
+    /// Top bar, then the target list beside the altitude chart, then the detail panel, then the status
+    /// row -- the same arrangement the docked Panel produced (its Bottom 1 / Bottom 8 order is what put
+    /// the detail panel above the status bar).
+    /// </summary>
+    protected override Layout.Node BuildLayout() =>
+        Layout.Builder.VStack(
+            Layout.Builder.Fill(key: TopKey).RowH(1),
+            Layout.Builder.HStack(
+                Layout.Builder.Fill(key: ListKey).WFixed(32),
+                Layout.Builder.Fill(key: CanvasKey).WStar()).Stretch(),
+            Layout.Builder.Fill(key: DetailKey).RowH(8),
+            Layout.Builder.Fill(key: StatusKey).RowH(1));
 
-        panel.Add(_topBar).Add(_statusBar).Add(_targetList).Add(_detailWidget).Add(_canvas);
+    /// <summary>
+    /// Draws one hosted widget. The chart is why <paramref name="geometryChanged"/> matters: its Sixel
+    /// renderer is a fixed-size pixel buffer, so it is allocated on first placement and reallocated on
+    /// resize. The Panel-based version sized it once at construction and never again, so a terminal
+    /// resize left the chart rendering at the old pixel size.
+    /// </summary>
+    protected override void PaintHost(string key, Rect<int> rect, bool geometryChanged)
+    {
+        switch (key)
+        {
+            case TopKey:
+                _topBar?.Render();
+                break;
+
+            case ListKey:
+                _targetList?.Render();
+                break;
+
+            case DetailKey:
+                _detailWidget?.Render();
+                break;
+
+            case StatusKey:
+                _statusBar?.Render();
+                break;
+
+            case CanvasKey when _canvasViewport is { } viewport:
+                if (geometryChanged)
+                {
+                    var (pixelWidth, pixelHeight) = viewport.PixelSize;
+                    _canvasRenderer?.Dispose();
+                    _canvasRenderer = new SixelRgbaImageRenderer((uint)pixelWidth, (uint)pixelHeight);
+                    _canvas = new Canvas(viewport, _canvasRenderer);
+                }
+
+                if (_canvas is { } canvas && _canvasRenderer is { } canvasRenderer)
+                {
+                    RenderAltitudeChart(canvas, canvasRenderer);
+                    canvas.Render();
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Draws the altitude chart. Lives here rather than in <see cref="RenderContent"/> because it needs
+    /// the canvas's pixel size, which only exists once the tree has been arranged.
+    /// </summary>
+    private void RenderAltitudeChart(Canvas canvas, SixelRgbaImageRenderer canvasRenderer)
+    {
+        var canvasPixelSize = canvas.PixelSize;
+        canvasRenderer.FillRectangle(
+            new RectInt(new PointInt((int)canvasPixelSize.Width, (int)canvasPixelSize.Height), new PointInt(0, 0)),
+            new RGBAColor32(0x1a, 0x1a, 0x2e, 0xff));
+        var chartCurrentTime = plannerState.PlanningDate.HasValue
+            ? null as DateTimeOffset?
+            : timeProvider.GetUtcNow().ToOffset(plannerState.SiteTimeZone);
+        AltitudeChartRenderer.Render(canvasRenderer, plannerState, fontPath,
+            0, 0, (int)canvasRenderer.Width, (int)canvasRenderer.Height,
+            highlightTargetIndex: plannerState.SelectedTargetIndex,
+            currentTime: chartCurrentTime);
     }
 
     protected override void RenderContent()
@@ -99,16 +184,7 @@ internal sealed class TuiPlannerTab(
             _detailWidget.Markdown(md);
         }
 
-        // Altitude chart
-        var canvasPixelSize = _canvas.PixelSize;
-        _canvasRenderer.FillRectangle(
-            new RectInt(new PointInt((int)canvasPixelSize.Width, (int)canvasPixelSize.Height), new PointInt(0, 0)),
-            new RGBAColor32(0x1a, 0x1a, 0x2e, 0xff));
-        var chartCurrentTime = plannerState.PlanningDate.HasValue ? null as DateTimeOffset? : timeProvider.GetUtcNow().ToOffset(plannerState.SiteTimeZone);
-        AltitudeChartRenderer.Render(_canvasRenderer, plannerState, fontPath,
-            0, 0, (int)_canvasRenderer.Width, (int)_canvasRenderer.Height,
-            highlightTargetIndex: plannerState.SelectedTargetIndex,
-            currentTime: chartCurrentTime);
+        // The altitude chart is drawn from PaintHost, not here -- it needs the arranged pixel size.
 
         // Status bar
         var statusText = plannerState.StatusMessage is { } msg

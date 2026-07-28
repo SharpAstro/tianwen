@@ -1,4 +1,4 @@
-using Console.Lib;
+﻿using Console.Lib;
 using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -140,7 +140,7 @@ internal class TuiSubCommand(
         var tabBar = new TuiTabBar(tabBarVp);
 
         var activeTab = tabs[appState.ActiveTab];
-        activeTab.BuildPanel(terminal);
+        activeTab.Attach(terminal);
 
         var lastClockSecond = -1;
 
@@ -200,7 +200,7 @@ internal class TuiSubCommand(
             if (tabs.TryGetValue(appState.ActiveTab, out var newActiveTab) && newActiveTab != activeTab)
             {
                 activeTab = newActiveTab;
-                activeTab.BuildPanel(terminal);
+                activeTab.Attach(terminal);
                 activeTab.NeedsRedraw = true;
             }
 
@@ -247,7 +247,7 @@ internal class TuiSubCommand(
                 chromePanel = new Panel(terminal);
                 tabBarVp = chromePanel.Dock(DockStyle.Top, 1);
                 tabBar = new TuiTabBar(tabBarVp);
-                activeTab.BuildPanel(terminal);
+                activeTab.Attach(terminal);
                 appState.NeedsRedraw = true;
             }
 
@@ -329,7 +329,7 @@ internal class TuiSubCommand(
         appState.ActiveTab = tab;
         activeTab = tabs[tab];
         terminal.Clear(); // Erase sixel pixel artifacts from previous tab
-        activeTab.BuildPanel(terminal);
+        activeTab.Attach(terminal);
         activeTab.NeedsRedraw = true;
         appState.NeedsRedraw = true;
         return true;
