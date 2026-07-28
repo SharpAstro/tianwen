@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Immutable;
 using DIR.Lib;
 
 namespace TianWen.UI.Abstractions
@@ -11,6 +13,74 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public static class PlannerSliderInteraction
     {
+        /// <summary>
+        /// Hit-band width for a divider handle, in design units. A divider is drawn as a thin line, so the
+        /// band is deliberately wider than the line -- grabbing a 1px target with a mouse is not reasonable.
+        /// </summary>
+        public const float DefaultBandWidth = 10f;
+
+        /// <summary>
+        /// The hit bands for the handoff dividers of a chart drawn into a given rect: one band per divider,
+        /// centred where that divider was drawn and spanning ONLY the plot rows.
+        /// <para>
+        /// Shared by every host that hit-tests the chart, because the alternative -- each host re-deriving
+        /// divider positions from the chart layout -- is a second source of truth for where something was
+        /// drawn, and it had already drifted. The TUI's copy hit-tested X only, with no plot-Y bound at all,
+        /// so a click on the weather band above the plot (or the legend below it) selected a divider; the
+        /// GUI's copy bounded it and carried a comment explaining why. One of them was a bug and the shape
+        /// of the code is what hid it.
+        /// </para>
+        /// <para>
+        /// A struct with an indexer rather than an array of rects: the hosts want to loop and register, and a
+        /// per-frame array for a handful of bands is an allocation on the render path for nothing.
+        /// </para>
+        /// </summary>
+        public readonly struct HitBands(
+            ImmutableArray<DateTimeOffset> sliders, DateTimeOffset start, double rangeHours,
+            float plotX, float plotY, float plotW, float plotH, float bandWidth)
+        {
+            /// <summary>
+            /// How many bands there are. Zero for a <c>default</c> instance, so an unusable chart layout
+            /// reports "nothing to register" rather than throwing on the default <see cref="ImmutableArray{T}"/>.
+            /// </summary>
+            public int Count => sliders.IsDefaultOrEmpty ? 0 : sliders.Length;
+
+            /// <summary>
+            /// The band for divider <paramref name="index"/>, in the same coordinate space as the chart rect
+            /// it was built from.
+            /// </summary>
+            public RectF32 this[int index]
+            {
+                get
+                {
+                    var fraction = (sliders[index] - start).TotalHours / rangeHours;
+                    var x = plotX + (float)(fraction * plotW);
+                    return new RectF32(x - bandWidth * 0.5f, plotY, bandWidth, plotH);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Builds the divider hit bands for a chart occupying <paramref name="chartRect"/>.
+        /// <para>
+        /// <paramref name="bandWidth"/> is in the chart rect's own units: device pixels for a GUI (so scale
+        /// it by DPI), terminal pixels for the Sixel canvas -- where it wants to be at least one cell wide,
+        /// since a terminal cannot report a click finer than a cell.
+        /// </para>
+        /// </summary>
+        public static HitBands GetHitBands(PlannerState state, RectF32 chartRect, float bandWidth)
+        {
+            var (tStart, tEnd, plotX, plotY, plotW, plotH) = AltitudeChartRenderer.GetChartPlotLayout(
+                state, (int)chartRect.X, (int)chartRect.Y, (int)chartRect.Width, (int)chartRect.Height);
+            var rangeHours = (tEnd - tStart).TotalHours;
+
+            // A degenerate time range would make every fraction NaN. Report no bands instead: a region
+            // registered at NaN can never be hit, so it would look like a dead handle with no clue why.
+            return rangeHours > 0
+                ? new HitBands(state.HandoffSliders, tStart, rangeHours, plotX, plotY, plotW, plotH, bandWidth)
+                : default;
+        }
+
         /// <summary>
         /// Handles a primary-button press after hit testing. A press directly on a slider
         /// handle (<see cref="HitResult.SliderHit"/>) selects it and starts a drag; a press on

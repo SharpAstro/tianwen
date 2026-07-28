@@ -198,10 +198,52 @@ internal sealed class TuiPlannerTab(
     /// Row clicks select the target. The list owns the geometry -- including yielding the scrollbar
     /// column, which this used to compute for itself.
     /// </summary>
-    protected override void RegisterClickableRegions() =>
+    protected override void RegisterClickableRegions()
+    {
         _targetList?.RegisterRowHits(Tracker,
             hitFor: (index, _) => new HitResult.ListItemHit("TargetList", index),
             onClick: (index, _) => plannerState.SelectedTargetIndex = index);
+
+        // The chart is a raster surface, so a divider drawn into it sits at a pixel position no layout node
+        // describes -- this is the raster bucket, and the tracker is where its regions belong. The geometry
+        // itself is NOT computed here: it comes from the same helper the GUI registers, which is what stops
+        // the two drifting (this tab's own copy had lost the plot-Y bound).
+        if (ChartCanvasGeometry() is not { } geometry)
+        {
+            return;
+        }
+
+        // At least one cell wide: a terminal cannot report a click finer than a cell, so a sub-cell band
+        // would be a handle nothing can grab.
+        var bands = PlannerSliderInteraction.GetHitBands(plannerState, geometry.Rect,
+            MathF.Max(PlannerSliderInteraction.DefaultBandWidth, geometry.CellWidth));
+
+        for (var i = 0; i < bands.Count; i++)
+        {
+            var band = bands[i];
+            Tracker.Register(band.X, band.Y, band.Width, band.Height, new HitResult.SliderHit(i));
+        }
+    }
+
+    /// <summary>
+    /// The chart canvas in MOUSE-PIXEL space -- the space <see cref="InputEvent"/> coordinates and the
+    /// <see cref="TuiTabBase.Tracker"/> both use -- together with the cell width, or null before the first
+    /// arrange has sized it. The chart itself draws at the canvas's own origin, so the viewport offset is
+    /// what converts between the two.
+    /// </summary>
+    private (RectF32 Rect, float CellWidth)? ChartCanvasGeometry()
+    {
+        if (_canvas is not { } canvas)
+        {
+            return null;
+        }
+
+        var cell = canvas.Viewport.CellSize;
+        var offset = canvas.Viewport.Offset;
+        var pixels = canvas.PixelSize;
+        return (new RectF32(offset.Column * cell.Width, offset.Row * cell.Height, pixels.Width, pixels.Height),
+            cell.Width);
+    }
 
     public override bool HandleRawMouse(MouseEvent mouse)
     {
@@ -218,25 +260,28 @@ internal sealed class TuiPlannerTab(
         switch (evt)
         {
             case InputEvent.MouseUp(var x, var y, MouseButton.Left):
-                // Slider hit test (uses chart time-layout math directly)
-                if (HitTestSliderOnCanvas(x, y))
+            {
+                var selectedBefore = plannerState.SelectedSliderIndex;
+
+                // Every region, dividers included, in one dispatch -- the bands are registered alongside
+                // the list rows, so there is no separate chart hit test to keep in step.
+                var hit = Tracker.HitTestAndDispatch(x, y);
+
+                // Select / click-to-place / deselect all belong to the shared state machine, so the TUI
+                // cannot fork the behaviour. A terminal click is a zero-length drag: press then release in
+                // one go, which leaves no drag outstanding for a move event that will never arrive.
+                if (PlannerSliderInteraction.HandleMouseDown(
+                        plannerState, hit, ChartCanvasGeometry()?.Rect ?? default, x, y))
                 {
-                    NeedsRedraw = true;
-                    return false;
+                    PlannerSliderInteraction.HandleMouseUp(plannerState);
                 }
 
-                // Target list and other regions via tracker
-                if (Tracker.HitTestAndDispatch(x, y) is not null)
+                if (hit is not null || plannerState.SelectedSliderIndex != selectedBefore)
                 {
-                    NeedsRedraw = true;
-                }
-                else if (plannerState.SelectedSliderIndex >= 0)
-                {
-                    // Click outside any region → deselect slider
-                    PlannerActions.SelectSlider(plannerState, -1);
                     NeedsRedraw = true;
                 }
                 return false;
+            }
 
             case InputEvent.Scroll(var delta, _, _, _):
                 var scrollTargets = PlannerActions.GetFilteredTargets(plannerState);
@@ -308,43 +353,4 @@ internal sealed class TuiPlannerTab(
         return false;
     }
 
-    /// <summary>
-    /// Hit-tests sliders on the chart canvas using chart time-layout math.
-    /// Returns true if a slider was hit and selected.
-    /// <para>
-    /// The one place in this tab that still converts cells to pixels by hand, and legitimately so: the
-    /// chart is a raster surface, and a slider drawn into it is at a pixel position no layout node
-    /// describes. Row-level geometry belongs to <see cref="ScrollableList{T}"/> (see
-    /// <see cref="RegisterClickableRegions"/>); this is the raster bucket, not that one.
-    /// </para>
-    /// </summary>
-    private bool HitTestSliderOnCanvas(float x, float y)
-    {
-        if (_canvas is null)
-        {
-            return false;
-        }
-
-        var canvasCell = _canvas.Viewport.CellSize;
-        var canvasOffset = _canvas.Viewport.Offset;
-        var canvasPixelSize = _canvas.PixelSize;
-        var localX = x - canvasOffset.Column * canvasCell.Width;
-        var localY = y - canvasOffset.Row * canvasCell.Height;
-
-        if (localX < 0 || localX >= canvasPixelSize.Width ||
-            localY < 0 || localY >= canvasPixelSize.Height)
-        {
-            return false;
-        }
-
-        var sliderIdx = PlannerActions.HitTestSlider(
-            plannerState, localX, 0, canvasPixelSize.Width);
-        if (sliderIdx >= 0)
-        {
-            PlannerActions.SelectSlider(plannerState, sliderIdx);
-            return true;
-        }
-
-        return false;
-    }
 }
