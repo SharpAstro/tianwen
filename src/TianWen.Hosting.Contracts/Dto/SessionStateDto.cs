@@ -308,6 +308,22 @@ public sealed class PendingPromptDto
     /// </para>
     /// </summary>
     public required bool RequiresPhysicalPresence { get; init; }
+
+    /// <summary>
+    /// When the node raised this prompt, or <see langword="null"/> from a node too old to send it.
+    /// <para>
+    /// A prompt holds the run open indefinitely with no timer, so its <i>age</i> is the fact a client
+    /// needs -- an unanswered prompt is only visibly a problem once you can see it has been waiting 40
+    /// minutes. A client cannot derive this: the moment it first polled says when the client started, not
+    /// when the rig stopped.
+    /// </para>
+    /// <para>
+    /// Deliberately not <c>required</c>: it is nullable, and a nullable wire property that is also
+    /// required cannot round-trip (the serializer omits it when null, and deserialization then fails on
+    /// the missing member).
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? RaisedUtc { get; init; }
 }
 
 public sealed class PhaseTimestampDto

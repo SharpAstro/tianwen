@@ -381,7 +381,12 @@ internal sealed class EventBroadcaster(
                 ["Message"] = e.Message,
                 ["ContinueLabel"] = e.ContinueLabel,
                 ["CancelLabel"] = e.CancelLabel,
-                ["RequiresPhysicalPresence"] = e.RequiresPhysicalPresence
+                ["RequiresPhysicalPresence"] = e.RequiresPhysicalPresence,
+                // Carried here as well as on /session/state so the two paths agree. A client that learns
+                // of a prompt from the broadcast would otherwise know less about it than one that polled,
+                // for no reason -- and the age is the part worth knowing. Null when the session did not
+                // stamp it; a boxed DateTimeOffset already crosses on this dictionary (GUIDE-STEP).
+                ["RaisedUtc"] = e.RaisedUtc
             }
         });
     }

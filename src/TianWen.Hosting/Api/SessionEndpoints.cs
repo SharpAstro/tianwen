@@ -462,5 +462,6 @@ internal static class SessionEndpoints
                 ContinueLabel = prompt.ContinueLabel,
                 CancelLabel = prompt.CancelLabel,
                 RequiresPhysicalPresence = prompt.RequiresPhysicalPresence,
+                RaisedUtc = prompt.RaisedUtc,
             };
 }

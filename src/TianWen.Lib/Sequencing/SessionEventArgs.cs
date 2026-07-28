@@ -29,8 +29,25 @@ public sealed class SessionPromptEventArgs(
     string cancelLabel,
     TaskCompletionSource<bool> completion,
     bool requiresPhysicalPresence = false,
-    bool defaultIfUnanswerable = false) : EventArgs
+    bool defaultIfUnanswerable = false,
+    DateTimeOffset? raisedUtc = null) : EventArgs
 {
+    /// <summary>
+    /// When the session raised this prompt, or <see langword="null"/> when that is genuinely not known.
+    /// <para>
+    /// <b>How long a prompt has been waiting is the interesting fact about it</b>, not its wording: it
+    /// blocks the run indefinitely, with no timer, bounded only by observer liveness. "Waiting 40 min"
+    /// is what makes an unanswered prompt visible as a problem on a board of rigs.
+    /// </para>
+    /// <para>
+    /// Nullable because a mirrored prompt may come from a node too old to send it, and because the only
+    /// alternative -- substituting the moment this process first noticed -- would silently reset the age
+    /// on every client restart and read "waiting 10 s" for a rig that has in fact been stuck since dusk.
+    /// An unknown age must render as unknown; it must never be filled in with a plausible number.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? RaisedUtc { get; } = raisedUtc;
+
     /// <summary>
     /// The answer a handler should give when it turns out <b>nobody can be asked</b> -- e.g. a hosted
     /// event broadcaster that subscribed on behalf of remote clients and then finds none attached.
