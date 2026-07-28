@@ -534,7 +534,7 @@ plain interfaces, so remote implementations slot in without tab changes.
 | P3 | **DONE (2026-07-27)** -- `ISessionTelemetry` extraction, per-view-context `LiveSessionState`, `TianWen.Hosting.Contracts` split, `TianWen.RemoteClient` (`TianWenNodeClient` + `TianWenEventStream`) and `RemoteSessionMirror`, with the deep-telemetry arrays filled from the snapshot and the client-side remainder landed: preview JPEGs into `LastCapturedImages` (opt-in, `X-Frame-Number`-gated), the prompt round-trip (raised from the snapshot so a late-attaching client can still unblock the rig), and start / flats / abort / `POST /session/schedule` driven through the mirror | P2 (done) |
 | P4 | **DONE (2026-07-27)** -- `RemoteRigBinding` (keyed on the LAN.Lib stable node id, never the address or name) persisted one-file-per-rig under `AppData/RemoteProfiles`; `RemoteRigConnection` resolves the address per connect (peer table, then the stored hint) and hands its `RemoteSessionMirror` to a `ViewContext` so the tabs render a rig unchanged; the profile picker binds on first select, lists bound-but-undiscovered rigs as offline, and offers the way back to local; the `RequiresPhysicalPresence` warning is finally rendered | P1, P3 |
 | P5 | **DONE (2026-07-27)** -- served as an **ASCOM Alpaca device plane** (the candidate below, not the bespoke hub API): `MapAlpacaApi` exposes telescope / camera / focuser / filterwheel / covercalibrator over `/api/v1/{type}/{n}/{member}` plus the management API, with the camera's `imagearray` as binary ImageBytes. Device numbers come from the ACTIVE PROFILE in profile order (discovery order varies between scans; a number that moved would point a client at different hardware). Ownership is the P0 lease: actuation and a remote `Connected=false` answer `0x40B` with the gate's own wording, while reads and `Connected=true` always pass. Client side needed no new code -- pinned by 14 round-trip tests driving our own `AlpacaClient` against our own server | P3 (the Alpaca route needed only P1) |
-| Deferred | Hosted polar-alignment/planetary modes, profile editing over the API, guide-cam image stream, auth/TLS, WAN relay, multi-rig dashboard, full ASCOM conformance -- each written up in [Deferred](#deferred-out-of-scope-for-this-plan) below | -- |
+| Deferred | Hosted polar-alignment/planetary modes, profile editing over the API, guide-cam image stream, auth/TLS, WAN relay, full ASCOM conformance -- each written up in [Deferred](#deferred-out-of-scope-for-this-plan) below | -- |
 
 P1 and P2 are independent and can run in parallel. P3 is the headline ("as if local" session
 mirror). P4 is the "remote profile" UX proper -- notably late in the sequence because the mirror
@@ -548,7 +548,8 @@ entire client half. It is still what turns a session *monitor* into full remote 
 Everything here is a scope boundary the plan drew on purpose, not leftover work from P1-P5. Each
 entry says what it is, why it was held back, and what it would actually take -- so picking one up
 starts from a shape rather than a name. Three are flagged **likely next** (user, 2026-07-27):
-hosted polar alignment, the guide-cam stream, and the multi-rig dashboard.
+hosted polar alignment and the guide-cam stream. (The multi-rig dashboard was the third; it shipped
+2026-07-28 and its section is kept below as the design record.)
 
 **The P0 device lease changes the economics of the first two.** "Exactly one run owns the rig" now
 exists as a concept in `TianWen.Lib` rather than as a GUI flag, so a hosted run of *any* kind can
@@ -584,7 +585,16 @@ lives inside the guider driver. So the work is exposing the guider's last frame 
 buffer** -- the same rule the imaging preview follows, and the one thing here that can actually go
 wrong. The star-profile bitmap is a second, smaller payload on the same route.
 
-### Multi-rig dashboard (likely next)
+### Multi-rig dashboard -- **SHIPPED (2026-07-28)**
+
+**What landed:** `GuiTab.Home` as the landing tab, `HomeBoard.BuildCards` (the pure card projection) and
+`HomeTab<TSurface>`, on top of three prerequisites that turned out to be missing and are now in place:
+`SessionPromptEventArgs.RaisedUtc` / `PendingPromptDto.RaisedUtc` so a prompt's *age* is the node's own
+truth rather than "when this client noticed"; `GET /api/v1/session/profile` so a node can say which
+profile it runs at all (`ActiveProfileId` had no way out of the node, and `/profiles` lists what exists
+without saying which is live); and per-mirror poll backoff for a rig that is not answering. Everything
+below stands as the design record. **Not** part of it: multi-night progress (see "Leave room"), and a
+TUI equivalent -- the TUI keeps its own tab table and is untouched.
 
 P4 binds many rigs but shows one at a time -- deliberately, because the overlay model says
 selecting a rig changes what you *look at*. A dashboard is N mirrors polled at once behind a
@@ -669,7 +679,11 @@ connect-all path above, and **per-mirror backoff for a rig that is not answering
 what that last one is and is not: there is no shared tick, so one offline node structurally *cannot*
 stall the others -- each mirror owns its own `Task.Run(PollLoopAsync)`. What is missing is that a dark
 rig is retried at the full live cadence forever, which six dark rigs turn into steady pointless
-traffic. Backoff is the fix; "an offline node stalls the board" was never the failure mode. Two invariants to set deliberately at the start rather than discover: **previews stay
+traffic. Backoff is the fix; "an offline node stalls the board" was never the failure mode. **As
+shipped:** the interval doubles per unanswered poll, capped at 30 s (matching `TianWenEventStream`'s
+reconnect ceiling), derived from a consecutive-failure count so one answer resets it with no separate
+recovery step -- and a **404 counts as an answer**, since an idle rig is a healthy one and backing off
+on it would make the rig slower to notice the moment it starts a run. Two invariants to set deliberately at the start rather than discover: **previews stay
 off** on the dashboard (P3 made them opt-in per mirror for exactly this reason -- N mirrors each
 pulling JPEGs is the failure mode), and **the dashboard is read-only by construction** -- driving
 still means selecting a rig, which keeps the overlay model intact instead of quietly inventing a

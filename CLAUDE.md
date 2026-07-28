@@ -1173,20 +1173,45 @@ rethrows and the poll loop dies.
 **Profile switching is gated** (`ProfileSwitchGate`): a single-profile context refuses to switch while
 connected or running, or where drivers would strand in the hub.
 
-**Planned -- the Home tab** (`GuiTab.Home`, 🏠 `U+1F3E0`, `Ctrl+H`): the multi-rig dashboard, and the
-app's landing screen. Every rig you can look at, local and remote, with phase / target / frames /
-guide RMS and an outstanding-prompt badge (the badge is most of the justification -- a prompt blocks a
-rig *indefinitely* and is currently visible only on the rig you happen to have selected). It is
-**read-only by construction**, **opening a view never actuates hardware** (concretely: do NOT add it
-to `PollPreviewTelemetry`'s `ActiveTab` gate), previews stay **off** there, and the rig section is
-**content-sized with a trailing `Spacer`, never Star-filled**, because multi-night progress is the
-intended neighbour on that screen.
+**The Home tab** (`GuiTab.Home`, 🏠 `U+1F3E0`, `Ctrl+H`, **first** in `TabOrder`): the multi-rig
+dashboard, and the app's landing screen. Every rig you can look at, local and remote, titled by the rig
+with the profile it runs underneath, plus phase / target / frames / guide RMS and an outstanding-prompt
+badge (the badge is most of the justification -- a prompt blocks a rig *indefinitely* and was otherwise
+visible only on the rig you happen to have selected).
+
+- **`HomeBoard.BuildCards` is the pure projection; `HomeTab<TSurface>` only draws.** The tab renders the
+  `ImmutableArray<RigCard>` snapshot published on `GuiAppState.HomeCards` and never touches
+  `RemoteRigRegistry` or a `LiveSessionState` -- same shape as `EquipmentTabState.BoundRigs`, and it also
+  makes it impossible to paint a card from a session being mutated underneath the frame.
+- **Read-only with respect to hardware.** A card click changes which rig you *look at*, via the same
+  `SelectRemoteRigSignal` / `SelectLocalContextSignal` the profile picker posts. Nothing on this screen
+  connects a driver, commands anything, or takes a lease.
+- **Zero device I/O**, and structurally so: cards are built in the pre-gate part of `PollPreviewTelemetry`
+  and the board is **not** added to that method's `ActiveTab` gate (which exists to guard polling
+  already-connected *drivers*). Previews stay **off** -- N mirrors each pulling JPEGs is the failure mode
+  `RemoteSessionMirror.Previews` was made opt-in for.
+- **The rig section is content-sized** (a `Layout.Builder.WrapH` plus a trailing `Spacer`), never
+  Star-filled, because multi-night progress is the intended neighbour on that screen and a Star-sized
+  section would have to be reworked to admit it.
+- **A prompt's age is the raising node's truth.** `SessionPromptEventArgs.RaisedUtc` /
+  `PendingPromptDto.RaisedUtc` (nullable, and deliberately **not** `required` -- a nullable wire member
+  that is also required cannot round-trip). Never substitute "when this client first saw it": that dates
+  the prompt from when the observer attached, so a rig stuck since dusk reads as freshly waiting and
+  resets on every restart. Unknown must render as unknown.
+- **`GET /api/v1/session/profile`** is how a node reports which profile it runs; `ActiveProfileId` had no
+  way out of the node and `/profiles` lists what exists without saying which is live. Cached per
+  `RemoteRigConnection` and refreshed on a slow cadence. The LAN beacon is **not** a second home for this
+  -- a rig reached through its stored address hint has no beacon, and would be the one card with no label.
+- **A dark rig is polled less often** (doubling to a 30 s cap). Note what that is *not* for: each mirror
+  owns its own `Task.Run(PollLoopAsync)`, so an offline node structurally cannot stall the others. The
+  fix is for pointless traffic. A **404 counts as an answer** and resets it -- an idle rig is a healthy
+  rig, and backing off on it would make it slower to notice the moment it starts a run.
 
 **Sidebar icon convention.** Every tab glyph is a **bare codepoint with no variation selector** -- the
 VS16 emoji render inconsistently through the bundled emoji font. Icons live in
 `VkGuiRenderer.TabChrome` and are written in source as backslash-U escape sequences, not literal
 glyphs, so editing them needs a tool that can match escapes (see the memory note on this). Current
-set: 🔭 Equipment, 📅 Planner, 🌌 Sky Map, 🎬 Session Setup (both the night's config *and* the Start
+set: 🏠 Home, 🔭 Equipment, 📅 Planner, 🌌 Sky Map, 🎬 Session Setup (both the night's config *and* the Start
 button -- a cog implied only the former, a rocket only the latter), 🎯 Guider, 🔔 Notifications, and
 Live Session which swaps per mode (📷 idle, 📸 running, 🧭 polar, 🪐 planetary, 💡 flats). Adding a tab
 touches six places: the `GuiTab` enum, `GuiAppState.TabOrder`, `TabChrome`, the `GuiEventHandlerBase`
