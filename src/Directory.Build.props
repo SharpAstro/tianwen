@@ -29,6 +29,23 @@
   </PropertyGroup>
 
   <!--
+    Whether the sibling libraries' DEBUG-only debug-inspector surface is available to compile against.
+
+    SdlVulkan.Renderer's DebugInspector and Console.Lib's ConsoleDebugInspector are both wrapped in
+    #if DEBUG upstream, so they exist only in a DEBUG-compiled sibling. A PackageReference resolves the
+    RELEASE-built package, where those types are absent entirely. So a plain `#if DEBUG` at our call
+    site asks the wrong question: it tests how WE are compiled, not how the library was. Debug plus
+    -p:UseLocalSiblings=false (the override the block above documents) therefore failed to compile, with
+    CS0103 on a name that genuinely is not in that package.
+
+    Both conditions, so the constant means what its name says. CI builds Release, which is why this was
+    only ever a local-build trap.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' AND '$(UseLocalSiblings)' == 'true'">
+    <DefineConstants>$(DefineConstants);SIBLING_DEBUG_INSPECTORS</DefineConstants>
+  </PropertyGroup>
+
+  <!--
     Local AOT publishes of the browser app (perf-comparison builds served on :5100) get their
     own obj/bin so they never regenerate the fingerprinted framework assets underneath a running
     `dotnet run` dev server (the boot script then 404s on the replaced dotnet.*.js). Scoped to

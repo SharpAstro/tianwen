@@ -132,8 +132,17 @@
          6.21 is the current pin: Layout.Node.CornerRadius + the .Radius(designUnits) fluent, so a
          rounded panel is a property of the tree. Chrome only, so arrange is unaffected and a rounded
          node occupies exactly the rect a square one would; a zero radius keeps the plain FillRectangle
-         path, so untouched trees paint byte-identically. -->
-    <PackageVersion Include="DIR.Lib" Version="7.0.*" />
+         path, so untouched trees paint byte-identically.
+         7.2 is what made a TERMINAL inspectable: 7.1 hoisted the debug
+         inspector's surface-agnostic half into DIR.Lib.Diagnostics (DebugInspectorCore: discovery,
+         framing, the loopback command server), and 7.2 made an instance declare its SurfaceKind so a
+         sidecar can filter on it. Console.Lib 4.6 is DebugInspectorCore's first non-GPU backend; the
+         GPU one moved onto the same core. Serialization is deliberately NON-reflective throughout,
+         because an AOT consumer disables reflective JSON and the generic overload throws at runtime.
+         7.3 is the current pin: the inspector core learned the EXECUTION model (batch with per-step
+         waits, exclusive vs background pump ownership), published from the sibling family alongside
+         SdlVulkan.Renderer 7.3; TianWen consumes it transitively through Console.Lib 4.8. -->
+    <PackageVersion Include="DIR.Lib" Version="7.3.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -206,8 +215,27 @@
          and added ScrollableList.RegisterRowHits; 3.15 added RegisterRowSpanHits for rows carrying
          inline buttons. Between them the list now owns the row hit geometry the TUI tabs used to
          reconstruct by hand: viewport-offset origin, header row, SCROLLED item index, and yielding the
-         scrollbar column so the thumb stays grabbable. -->
-    <PackageVersion Include="Console.Lib" Version="4.0.*" />
+         scrollbar column so the thumb stays grabbable.
+         4.3 added CellBuffer (a front/back grid whose Flush emits only changed cells, so a 40-cell
+         clock row rewritten in full per tick emits ONE cell) plus VirtualTerminal.EnableCellBuffer to
+         route writes through it, and ConsoleDebugInspector, whose cell plane is the thing a GPU surface
+         cannot offer: the screen readable as TEXT, straight off the FRONT buffer, so an agent asserts
+         in words. 4.4-4.7 shipped the Console.Lib.Inspector MCP sidecar (see .mcp.json), settled its
+         discovery tag on "tui", and gave the key verb chorded modifiers.
+         Buffering is OPT-IN in the library (unbuffered stays byte-for-byte what it was, so mdcat and
+         every other consumer are untouched by the pin alone); the TUI opts in unconditionally. Sixel
+         needed one structural fix (4.3's Canvas blit vanished under buffering): a raw blit declares
+         itself through BeginRawOutput / MarkRawRegion, both default interface methods, so the diff
+         flushes before the pixels land and then breaks its runs AROUND the picture.
+         4.8 is the current pin, and it is what makes buffering LIVABLE: it fixed the five bugs the
+         TUI's adoption exposed (unstated colours emitted as opaque black instead of SGR 39/49; text
+         inheriting its background from leftover SGR state, so a row's colour depended on which sibling
+         painted first; ReverseOn never turned off; a per-cursor-move flush shipping the HALF-PAINTED
+         diff, which WAS the once-per-second top-bar flicker; and 0x08 shadowing Ctrl+H as Backspace)
+         and added the flush accounting (FlushedCellsTotal / CollectFlushDiagnostics) that found them.
+         See CLAUDE.md's TUI-inspector section for the shapes not to reintroduce. Re-pins DIR.Lib
+         7.3.*. -->
+    <PackageVersion Include="Console.Lib" Version="4.8.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -254,8 +282,13 @@
          DIR.Lib 6.14 (binary-breaking Sizing/Star signatures). 6.26 made the Khronos validation layer
          opt-in even in Debug (CompiledDebug and SDLVK_VALIDATION=1). 6.27 is the current pin: batched
          DrawPolyline/DrawPolylineDashed overrides (whole polyline into one Flat-pipeline draw); see
-         docs/plans/render-batching.md. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.0.*" />
+         docs/plans/render-batching.md.
+         7.1 moved the GPU inspector onto DIR.Lib 7.1's DebugInspectorCore and lost its reflective JSON
+         with it. 7.3 is the current pin: the inspector consolidation completed upstream (one
+         dir-inspect protocol shared with the terminal inspector, loopback-only bind, the SDL-side
+         transport deleted; batch and wait became core verbs). No render-path change, so these are
+         rebuilds from TianWen's side, pinned forward to keep the family on one DIR.Lib. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.3.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
