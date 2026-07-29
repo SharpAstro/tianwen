@@ -14,6 +14,19 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 - [ ] Exposure log thumbnails: 128px height, preserve aspect ratio
 - [ ] Finalise as background task — keep UI responsive during park/warmup after abort/complete
 
+## TUI Equipment tab (found during the 2026-07-29 cell-buffer session)
+
+- [ ] Wire the OTA header's `[X]` to a click — the glyph is painted but only the `X` KEY sets
+  `_pendingDeleteOtaIndex` (`TuiEquipmentTab.cs` ~line 956), so clicking the affordance does nothing.
+  While there: advertise `X:delete OTA` in the status-bar key hints (it lists `A:add OTA` but the
+  delete is undiscoverable), and note the browse-input guard is skipped while `IsEditingSite` — a
+  key sequence sent in site-edit mode silently goes to the Lat/Lon editor, which is how an
+  automation-driven delete went sideways against a live profile.
+- [ ] Restore the settings-list selection after a tab switch — `Attach` rebuilds the list and the
+  cursor resets to row 0, so switching away and back loses the white-on-blue selected row (measured
+  via the console inspector: row 3 `Mount` returns as unselected). Remember the cursor index per tab
+  instance across `Attach`, clamped to the rebuilt item count.
+
 ## FITS Viewer
 
 - [ ] Rename HDR button/label to "Compress Highlights"
