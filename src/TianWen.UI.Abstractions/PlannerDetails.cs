@@ -44,7 +44,7 @@ public static class PlannerDetails
         }
 
         var scored = filteredTargets[idx];
-        var isProposed = state.Proposals.Any(p => p.Target == scored.Target);
+        var isProposed = PlannerActions.IsProposed(state.Proposals, scored.Target);
         var pinnedCount = state.PinnedCount;
         var entries = new List<(int Rank, string Line)>();
 

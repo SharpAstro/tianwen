@@ -265,7 +265,6 @@ public static class PlannerActions
         var searchResultsSnap = state.SearchResults;
         var tonightsBestSnap = state.TonightsBest;
 
-        var proposedTargets = new HashSet<Target>(proposalsSnap.Select(p => p.Target));
         var searchTargets = new HashSet<Target>(searchResultsSnap.Select(s => s.Target));
 
         var maxScore = tonightsBestSnap.Length > 0 ? tonightsBestSnap[0].CombinedScore : 1.0;
@@ -273,24 +272,12 @@ public static class PlannerActions
         var result = new List<ScoredTarget>();
         var seen = new HashSet<Target>();
 
-        // Pinned targets first, sorted by peak time ascending
+        // Pinned targets first, sorted by peak time ascending. EVERY proposal yields exactly one row --
+        // see ResolveProposalScore for why an unresolvable one must not be dropped.
         var pinnedScored = new List<ScoredTarget>();
         foreach (var p in proposalsSnap)
         {
-            // Look up the scored target from TonightsBest, SearchResults, or ScoredTargets
-            var scored = tonightsBestSnap.FirstOrDefault(s => s.Target == p.Target);
-            if (scored.Target == default)
-            {
-                scored = searchResultsSnap.FirstOrDefault(s => s.Target == p.Target);
-            }
-            if (scored.Target == default && state.ScoredTargets.TryGetValue(p.Target, out var fromCache))
-            {
-                scored = fromCache;
-            }
-            if (scored.Target != default)
-            {
-                pinnedScored.Add(scored);
-            }
+            pinnedScored.Add(ResolveProposalScore(state, p, tonightsBestSnap, searchResultsSnap));
         }
 
         // Sort pinned by actual peak altitude time (not OptimalStart, which is the
@@ -304,21 +291,41 @@ public static class PlannerActions
             return peakA.CompareTo(peakB);
         });
 
+        // Added unconditionally, NOT gated on `seen`: the pinned section is a projection of
+        // Proposals, so PinnedCount == Proposals.Length by construction (which is also what the
+        // N-1 HandoffSliders indexing assumes). Were two proposals ever to resolve to the same
+        // object, dedup here would silently swallow one of them -- the same unremovable-pin
+        // failure this method used to have. Two identical rows are self-healing: the user can
+        // remove both. `seen` still records them so the unpinned passes below skip them.
         foreach (var s in pinnedScored)
         {
-            if (seen.Add(s.Target))
-            {
-                result.Add(s);
-            }
+            result.Add(s);
+            seen.Add(s.Target);
         }
 
         // Track where pinned section ends (for rendering separator)
         state.PinnedCount = result.Count;
 
+        // "Already pinned" is an OBJECT test, not a value test: a pinned planet resolved to its own
+        // stale-position target must still suppress tonight's freshly-computed row for the same body,
+        // or the object appears twice (once pinned, once not).
+        bool AlreadyPinned(Target t)
+        {
+            if (seen.Contains(t))
+            {
+                return true;
+            }
+            for (var i = 0; i < pinnedScored.Count; i++)
+            {
+                if (IsSameObject(pinnedScored[i].Target, t)) return true;
+            }
+            return false;
+        }
+
         // Unpinned: tonight's best filtered by rating, excluding already-pinned
         foreach (var s in tonightsBestSnap)
         {
-            if (seen.Contains(s.Target))
+            if (AlreadyPinned(s.Target))
             {
                 continue;
             }
@@ -336,7 +343,7 @@ public static class PlannerActions
         // Append search results that aren't already shown
         foreach (var s in searchResultsSnap)
         {
-            if (seen.Add(s.Target))
+            if (!AlreadyPinned(s.Target) && seen.Add(s.Target))
             {
                 result.Add(s);
             }
@@ -344,6 +351,68 @@ public static class PlannerActions
 
         return result;
     }
+
+    /// <summary>
+    /// Resolves the <see cref="ScoredTarget"/> to draw for a pinned proposal, preferring (in order)
+    /// tonight's ranked list, the search results, and the per-target score cache -- all matched by
+    /// <see cref="IsSameObject"/>, so a pinned planet re-binds to tonight's freshly-computed position
+    /// and score instead of orphaning.
+    /// <para>
+    /// <b>Never returns "not found".</b> The pinned rows are the only unpin affordance in the UI (the
+    /// row's [-] button and the keyboard toggle both act on the row), so a proposal that resolves to
+    /// nothing and is dropped from the list is a pin the user can neither see nor remove -- it just
+    /// keeps being re-saved and re-scheduled. Two ways in were found together: a full recompute
+    /// rebuilds <see cref="PlannerState.ScoredTargets"/> from tonight's list alone, dropping the
+    /// entries for anything the scheduler does not sweep (planets are only ever added by search or a
+    /// sky-map pin), and a restore can rebuild a solar-system target from the object DB's NaN
+    /// coordinate sentinel. So when nothing resolves we synthesize a row from the proposal itself:
+    /// the object is visible, reports no altitude, and -- the point -- is removable.
+    /// </para>
+    /// </summary>
+    private static ScoredTarget ResolveProposalScore(
+        PlannerState state,
+        ProposedObservation proposal,
+        ImmutableArray<ScoredTarget> tonightsBest,
+        ImmutableArray<ScoredTarget> searchResults)
+    {
+        foreach (var s in tonightsBest)
+        {
+            if (IsSameObject(s.Target, proposal.Target)) return s;
+        }
+
+        foreach (var s in searchResults)
+        {
+            if (IsSameObject(s.Target, proposal.Target)) return s;
+        }
+
+        if (state.ScoredTargets.TryGetValue(proposal.Target, out var fromCache))
+        {
+            return fromCache;
+        }
+
+        // The cache is keyed by Target, so a solar-system body whose stored position differs from the
+        // proposal's needs the same object-wise scan rather than a hash lookup.
+        if (proposal.Target.CatalogIndex is { } idx && idx.IsSolarSystemObject)
+        {
+            foreach (var (cached, scored) in state.ScoredTargets)
+            {
+                if (IsSameObject(cached, proposal.Target)) return scored;
+            }
+        }
+
+        // Unresolvable: a visible, removable row carrying only what the proposal itself knows.
+        return new ScoredTarget(
+            proposal.Target,
+            (Half)0.0,
+            (Half)0.0,
+            EmptyElevationProfile,
+            OptimalStart: state.AstroDark,
+            OptimalDuration: TimeSpan.Zero,
+            ObjectType: proposal.ObjectType);
+    }
+
+    private static readonly IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> EmptyElevationProfile
+        = new Dictionary<RaDecEventTime, RaDecEventInfo>();
 
     /// <summary>
     /// Cycles the rating filter: All → 3★+ → 4★+ → All.
@@ -1101,10 +1170,41 @@ public static class PlannerActions
     {
         for (var i = 0; i < proposals.Length; i++)
         {
-            if (proposals[i].Target == target) return i;
+            if (IsSameObject(proposals[i].Target, target)) return i;
         }
         return -1;
     }
+
+    /// <summary>
+    /// Whether <paramref name="target"/> is pinned. Every "show this as proposed" check goes through
+    /// here so none of them can quietly fall back to <see cref="Target"/> value equality and disagree
+    /// with the list about what is pinned -- see <see cref="IsSameObject"/>.
+    /// </summary>
+    public static bool IsProposed(ImmutableArray<ProposedObservation> proposals, Target target)
+        => FindProposalIndex(proposals, target) >= 0;
+
+    /// <summary>
+    /// Whether two targets denote the same celestial object.
+    /// <para>
+    /// <b>Why this is not <c>==</c>.</b> <see cref="Target"/> is a positional record, so its equality
+    /// includes RA/Dec -- and for a solar-system body those are <i>ephemeris values computed at a
+    /// particular instant</i>, not identity. A Venus pinned at last night's <c>AstroDark</c> is a
+    /// different <see cref="Target"/> value from the Venus resolved for tonight, so value equality
+    /// reports them as unrelated objects. That is what let a pinned planet become a zombie proposal:
+    /// it stayed in <see cref="PlannerState.Proposals"/> (and on disk) while matching nothing in the
+    /// list, so no row was drawn and there was no way to unpin it.
+    /// </para>
+    /// <para>
+    /// For a solar-system body (<c>CatalogIndex.IsSolarSystemObject</c> -- planets, the Moon, Sol,
+    /// comets) identity is therefore the <see cref="Target.CatalogIndex"/> alone. Everything else
+    /// keeps exact record equality: a fixed object's coordinates come from the catalog and do not
+    /// drift, and widening the rule there would collapse distinct same-index entries (mosaic panels
+    /// share a catalog index and differ only by their offset centre).
+    /// </para>
+    /// </summary>
+    public static bool IsSameObject(Target a, Target b)
+        => a == b
+            || (a.CatalogIndex is { } ai && b.CatalogIndex is { } bi && ai == bi && ai.IsSolarSystemObject);
 
     public static void AddProposal(PlannerState state, int tonightsBestIndex, ObservationPriority priority = ObservationPriority.Normal)
     {
@@ -1116,8 +1216,9 @@ public static class PlannerActions
         var scored = state.TonightsBest[tonightsBestIndex];
         var target = scored.Target;
 
-        // Don't add duplicates
-        if (state.Proposals.Any(p => p.Target == target))
+        // Don't add duplicates. Object-wise (see IsSameObject) so re-pinning a planet whose ephemeris
+        // position has since moved is a no-op rather than a second pin for the same body.
+        if (IsProposed(state.Proposals, target))
         {
             return;
         }
@@ -1650,7 +1751,7 @@ public static class PlannerActions
         for (var i = 0; i < Math.Min(state.TonightsBest.Length, maxLines); i++)
         {
             var s = state.TonightsBest[i];
-            var proposed = state.Proposals.Any(p => p.Target == s.Target) ? "*" : " ";
+            var proposed = IsProposed(state.Proposals, s.Target) ? "*" : " ";
             var typeName = s.Target.CatalogIndex?.ToCatalog().ToString() ?? "?";
             if (typeName.Length > 10) typeName = typeName[..10];
 

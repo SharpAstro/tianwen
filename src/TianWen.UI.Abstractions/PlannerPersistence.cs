@@ -254,8 +254,25 @@ public static class PlannerPersistence
             var idx = (CatalogIndex)proposal.CatalogIndex.Value;
             if (objectDb.TryLookupByIndex(idx, out var obj))
             {
-                return new Target(obj.RA, obj.Dec, proposal.Name, idx);
+                // A solar-system body is stored in the DB with NaN coordinates -- its RA/Dec is
+                // ephemeris-computed, so the catalog has no fixed position to hand back. Taking them
+                // verbatim produced a NaN-positioned target that matched no scored entry and no
+                // altitude profile, i.e. an invisible, unremovable pin. The saved proposal's own RA/Dec
+                // is a real position (whatever it was when pinned), and the planner recomputes the
+                // live one anyway, so prefer it whenever the catalog's is not a number.
+                var ra = double.IsNaN(obj.RA) ? proposal.RA : obj.RA;
+                var dec = double.IsNaN(obj.Dec) ? proposal.Dec : obj.Dec;
+                return new Target(ra, dec, proposal.Name, idx);
             }
+        }
+
+        // Fallback 3: a solar-system body that is not in the object DB at all (e.g. a comet, which is
+        // never in it by design -- every consumer augments from ICometRepository at its own layer).
+        // The saved proposal still fully describes it, and dropping it here is what silently discarded
+        // a pinned comet on restore.
+        if (proposal.CatalogIndex is { } savedIdx && ((CatalogIndex)savedIdx).IsSolarSystemObject)
+        {
+            return new Target(proposal.RA, proposal.Dec, proposal.Name, (CatalogIndex)savedIdx);
         }
 
         return null;

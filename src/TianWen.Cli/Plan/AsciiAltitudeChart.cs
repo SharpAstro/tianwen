@@ -75,7 +75,7 @@ internal static class AsciiAltitudeChart
                 continue;
             }
 
-            var isProposed = state.Proposals.Any(p => p.Target == target);
+            var isProposed = PlannerActions.IsProposed(state.Proposals, target);
             var marker = isProposed ? "*" : " ";
 
             var name = target.Name;
