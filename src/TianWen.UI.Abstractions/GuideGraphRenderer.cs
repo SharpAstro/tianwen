@@ -72,26 +72,6 @@ public static class GuideGraphRenderer
     }
 
     /// <summary>
-    /// Computes the Y scale from guide stats (legacy overload for compact graphs without sample access).
-    /// </summary>
-    public static double ComputeYScale(GuideStats? stats)
-    {
-        var peakErr = 1.0;
-        if (stats is { } gs)
-        {
-            // Use RMS * 4 as a reasonable peak — avoids dither spikes locking the scale
-            peakErr = Math.Max(gs.RaRMS, gs.DecRMS) * 4;
-            peakErr = Math.Max(peakErr, 0.5);
-        }
-        return peakErr < 0.3 ? 0.5
-            : peakErr < 0.7 ? 1.0
-            : peakErr < 1.5 ? 2.0
-            : peakErr < 3.0 ? 4.0
-            : peakErr < 6.0 ? 8.0
-            : 12.0;
-    }
-
-    /// <summary>
     /// Computes the scrolling window parameters.
     /// </summary>
     public static (int StartIdx, int VisibleCount, float SampleSpacing) ComputeWindow(
