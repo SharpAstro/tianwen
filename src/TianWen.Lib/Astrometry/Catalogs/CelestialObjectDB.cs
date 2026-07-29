@@ -447,7 +447,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // merge immediately.
         // Skip pre-starting if a SIMBAD snapshot is embedded — the apply path won't need
         // HR's parse; on hash miss the live fallback path starts the parse synchronously.
-        Task<List<SimbadCatalogDto>?>? hrParseTask = simbadSnapshotResource is null
+        Task<List<SimbadCatalogDto>>? hrParseTask = simbadSnapshotResource is null
             ? ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken)
             : null;
 
@@ -538,7 +538,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             // HR's parse was kicked off up front (see the hrParseTask assignment near the
             // Tycho2 launch) UNLESS a SIMBAD snapshot was embedded — in that case the
             // hash check here failed, so we start it synchronously now.
-            Task<List<SimbadCatalogDto>?>? nextParseTask = simbadCatalogs.Length switch
+            Task<List<SimbadCatalogDto>>? nextParseTask = simbadCatalogs.Length switch
             {
                 0 => null,
                 _ when simbadCatalogs[0].FileName == "HR" => hrParseTask ?? ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken),
@@ -553,13 +553,18 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                     : null;
 
                 var perFileSw = Stopwatch.StartNew();
-                var records = await nextParseTask!;
-                if (records is not null)
+                // Flow-checked rather than null-forgiving: the prefetch chain hands the loop the task
+                // it started last iteration, and a zero-length catalog list never enters the loop at
+                // all, so this cannot be null -- but saying so with `!` would only assert it.
+                if (nextParseTask is not { } currentParse)
                 {
-                    var (processed, failed) = MergeSimbadRecords(records, catToAdd, mainCatalogs);
-                    totalProcessed += processed;
-                    totalFailed += failed;
+                    break;
                 }
+
+                var records = await currentParse;
+                var (processed, failed) = MergeSimbadRecords(records, catToAdd, mainCatalogs);
+                totalProcessed += processed;
+                totalFailed += failed;
                 // mainCatalogs growth stays load-bearing: cross-ref recording for
                 // entry N+1 depends on catalogs 0..N being visible here.
                 mainCatalogs.Add(catToAdd);
@@ -2683,45 +2688,35 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// in parallel on the thread pool without touching the shared dicts.
     /// </summary>
     /// <remarks>
-    /// Prefers the ASCII-separated <c>.gs.gz</c> format (produced by
-    /// <c>tools/preprocess-catalog.ps1</c>) when an embedded resource matches;
-    /// falls back to the legacy <c>.json.lz</c> path for catalogs that have not
-    /// yet been migrated. See <c>docs/plans/catalog-binary-format.md</c>.
+    /// Reads the ASCII-separated <c>.gs.gz</c> format (produced by
+    /// <c>tools/preprocess-catalog.ps1</c>). See <c>docs/plans/catalog-binary-format.md</c>.
+    /// <para>
+    /// <b>A missing resource throws.</b> There used to be a fallback to the legacy
+    /// <c>.json.lz</c> for "catalogs that have not yet been migrated" -- but every entry in
+    /// <c>simbadCatalogs</c> has a <c>.gs.gz</c>, and each one's <c>.json.lz</c> is explicitly
+    /// <c>EmbeddedResource Remove</c>d (it stays on disk purely as preprocessor input), so the
+    /// fallback could never find anything. It was worse than dead: it ended in
+    /// <c>return null</c>, which the caller treats as "this catalog contributed no records",
+    /// so a build that failed to embed a <c>.gs.gz</c> produced a silently emptier sky. That
+    /// has already happened once -- a <c>*.gz</c> glob evaluated before PreprocessCatalogs ran
+    /// and shipped DLLs without 15 of the 30 catalogs (see the EmbedCatalogOutputs comment in
+    /// TianWen.Lib.csproj). Failing loudly is the whole point: an absent catalog is a broken
+    /// build, not a valid state.
+    /// </para>
     /// </remarks>
-    private static async Task<List<SimbadCatalogDto>?> ParseSimbadFileAsync(Assembly assembly, string[] manifestNames, string jsonName, CancellationToken cancellationToken)
+    private static async Task<List<SimbadCatalogDto>> ParseSimbadFileAsync(Assembly assembly, string[] manifestNames, string jsonName, CancellationToken cancellationToken)
     {
         var gsManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".gs.gz"));
-        if (gsManifest is not null && assembly.GetManifestResourceStream(gsManifest) is { } gsStream)
+        if (gsManifest is null || assembly.GetManifestResourceStream(gsManifest) is not { } gsStream)
         {
-            return await ParseSimbadGsAsync(gsStream, cancellationToken);
+            throw new InvalidOperationException(
+                $"Catalog '{jsonName}' has no embedded {jsonName}.gs.gz resource. This is a broken build, " +
+                "not a missing catalog: PreprocessCatalogs generates it from the .json.lz on disk and " +
+                "EmbedCatalogOutputs embeds it. Rebuild TianWen.Lib; if it persists, check that " +
+                $"Astrometry/Catalogs/{jsonName}.json.lz is still a <CatalogPreprocess> item.");
         }
 
-        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + jsonName + ".json.lz"));
-        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
-        {
-            return null;
-        }
-
-        // Eager byte-array decompression (instead of LzipDecoder.DecompressToStream's
-        // lazy wrapper) so the thread-pool task genuinely finishes its decompress work
-        // before handing off; that way when we await the task in the merge loop, all
-        // CPU-bound work is done and the JSON parse stream reads from memory.
-        byte[] decompressed;
-        using (stream)
-        {
-            decompressed = await Task.Run(() => LzipDecoder.Decompress(stream), cancellationToken);
-        }
-
-        using var ms = new MemoryStream(decompressed);
-        var records = new List<SimbadCatalogDto>(capacity: 4096);
-        await foreach (var record in JsonSerializer.DeserializeAsyncEnumerable(ms, SimbadCatalogDtoJsonSerializerContext.Default.SimbadCatalogDto, cancellationToken))
-        {
-            if (record is not null)
-            {
-                records.Add(record);
-            }
-        }
-        return records;
+        return await ParseSimbadGsAsync(gsStream, cancellationToken);
     }
 
     /// <summary>
