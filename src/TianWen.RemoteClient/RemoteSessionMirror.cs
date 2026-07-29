@@ -730,6 +730,19 @@ namespace TianWen.RemoteClient
             }
         }
 
+        /// <summary>
+        /// The node's pending flip, verbatim. An instant, so it needs no adjustment for how long the poll
+        /// took to arrive -- which is exactly why the wire carries the instant and not a countdown.
+        /// </summary>
+        public DateTimeOffset? MeridianFlipUtc => Snapshot?.MeridianFlipUtc;
+
+        /// <summary>
+        /// The newest entry of the node's notification ring, carried on the state poll. Not part of
+        /// <see cref="ISessionTelemetry"/> -- a local session raises notifications as events and the app
+        /// records them, so only a mirror has a "last notification" to hand out.
+        /// </summary>
+        public NotificationDto? LastNotification => Snapshot?.LastNotification;
+
         public ImmutableArray<TelescopeDisplayInfo> TelescopeDisplays
         {
             get
@@ -1110,8 +1123,14 @@ namespace TianWen.RemoteClient
             TimeSpan.FromMinutes(obs.DurationMinutes),
             obs.AcrossMeridian,
             // The state DTO flattens the filter plan away (it is a scheduling input, not observed
-            // state); the schedule-fidelity DTO of Part 2 item 8 is what carries it back.
-            FilterPlan: [],
+            // state); the schedule-fidelity DTO of Part 2 item 8 is what carries it back. What DOES cross is
+            // the plan's frame TOTAL, so it is rebuilt as a single passthrough entry (FilterPosition -1)
+            // holding that count. The per-filter breakdown is genuinely not on the wire and is not invented
+            // here -- but this makes ScheduledObservation.PlannedFrameCount answer the same number locally
+            // and remotely, so a progress display has one path instead of a local branch and a wire branch.
+            FilterPlan: obs.PlannedFrameCount is { } planned and > 0
+                ? [new FilterExposure(-1, TimeSpan.Zero, planned)]
+                : [],
             Gain: null,
             Offset: null);
 

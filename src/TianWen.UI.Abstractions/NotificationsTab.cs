@@ -19,9 +19,10 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 BodyText     = new(0xdd, 0xdd, 0xdd, 0xff);
         private static readonly RGBAColor32 DimText      = new(0x80, 0x80, 0x90, 0xff);
         private static readonly RGBAColor32 EmptyText    = new(0x55, 0x55, 0x66, 0xff);
-        private static readonly RGBAColor32 InfoStripe   = new(0x55, 0x88, 0xcc, 0xff);
-        private static readonly RGBAColor32 WarnStripe   = new(0xcc, 0x99, 0x33, 0xff);
-        private static readonly RGBAColor32 ErrorStripe  = new(0xcc, 0x44, 0x44, 0xff);
+        // Shared with the home card's last-note line, so the same warning is the same colour on both.
+        private static readonly RGBAColor32 InfoStripe   = GuiTheme.SeverityInfo;
+        private static readonly RGBAColor32 WarnStripe   = GuiTheme.SeverityWarn;
+        private static readonly RGBAColor32 ErrorStripe  = GuiTheme.SeverityError;
 
         private const float BaseRowHeight = 32f;
         private const float BaseFontSize  = 13f;

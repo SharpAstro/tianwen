@@ -77,9 +77,8 @@ internal sealed class TuiNotificationsTab(GuiAppState appState) : TuiTabBase
         return false;
     }
 
-    public override bool HandleInput(InputEvent evt)
-    {
-        if (!IsReady) return false;
+    protected override void HandleTabInput(InputEvent evt){
+        if (!IsReady) return;
 
         switch (evt)
         {
@@ -88,12 +87,15 @@ internal sealed class TuiNotificationsTab(GuiAppState appState) : TuiTabBase
                 {
                     NeedsRedraw = true;
                 }
-                return false;
+                return;
 
             case InputEvent.KeyDown(var key, _):
-                return HandleKey(key);
+                // The helper bool means "did I consume this" for the tab's own use; it must not
+                // travel further -- see ITuiTab.HandleInput on why a tab cannot ask the app to exit.
+                _ = HandleKey(key);
+                break;
         }
-        return false;
+        return;
     }
 
     private bool HandleKey(InputKey key)

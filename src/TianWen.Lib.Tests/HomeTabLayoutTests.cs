@@ -1,4 +1,4 @@
-using Console.Lib;
+﻿using Console.Lib;
 using DIR.Lib;
 using Shouldly;
 using System;
@@ -22,8 +22,15 @@ namespace TianWen.Lib.Tests
     /// </summary>
     public class HomeTabLayoutTests
     {
+        /// <summary>
+        /// Fixed clock, so a flip countdown is assertable without waiting for one.
+        /// </summary>
+        private static readonly DateTimeOffset Now = new DateTimeOffset(2026, 7, 29, 22, 0, 0, TimeSpan.Zero);
+
         private static RigCard Card(
-            string title, bool running = false, RigCardPrompt? prompt = null, RigDeviceLink? devices = null) =>
+            string title, bool running = false, RigCardPrompt? prompt = null, RigDeviceLink? devices = null,
+            RigCardProgress? progress = null, RigCardCooling? cooling = null, double? hfd = null,
+            DateTimeOffset? flipUtc = null, RigCardNote? note = null) =>
             new RigCard(
                 Title: title,
                 Subtitle: "Test",
@@ -36,7 +43,12 @@ namespace TianWen.Lib.Tests
                 GuideRmsArcsec: running ? 0.62 : null,
                 Prompt: prompt,
                 Devices: devices,
-                IsViewed: false);
+                IsViewed: false,
+                Progress: progress,
+                Cooling: cooling,
+                MedianHfd: hfd,
+                MeridianFlipUtc: flipUtc,
+                LastNote: note);
 
         private static HomeTab<RgbaImage> RenderTab(
             RgbaImageRenderer renderer, ImmutableArray<RigCard> cards, float dpiScale = 1f, int frames = 1)
@@ -49,7 +61,7 @@ namespace TianWen.Lib.Tests
             var appState = new GuiAppState { HomeCards = cards };
             for (var i = 0; i < frames; i++)
             {
-                tab.Render(appState, new RectF32(0, 0, renderer.Width, renderer.Height));
+                tab.Render(appState, new RectF32(0, 0, renderer.Width, renderer.Height), Now);
             }
             return tab;
         }
@@ -76,12 +88,28 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void ColumnsAreDroppedAsTheWindowNarrowsRatherThanCardsBeingCrushed()
         {
-            HomeBoardLayout.ColumnsFor(HomeBoardLayout.MinCardWidth * 3 + HomeBoardLayout.CardGap * 2).ShouldBe(3);
-            HomeBoardLayout.ColumnsFor(HomeBoardLayout.MinCardWidth).ShouldBe(1);
+            var wide = HomeBoardLayout.MinCardWidth * 3 + HomeBoardLayout.CardGap * 2;
+            HomeBoardLayout.ColumnsFor(wide, cardCount: 8).ShouldBe(3);
+            HomeBoardLayout.ColumnsFor(HomeBoardLayout.MinCardWidth, cardCount: 8).ShouldBe(1);
 
             // Never zero, however little room there is -- a zero-column grid would drop every card silently.
-            HomeBoardLayout.ColumnsFor(0f).ShouldBe(1);
-            HomeBoardLayout.ColumnsFor(-50f).ShouldBe(1);
+            HomeBoardLayout.ColumnsFor(0f, cardCount: 8).ShouldBe(1);
+            HomeBoardLayout.ColumnsFor(-50f, cardCount: 8).ShouldBe(1);
+            HomeBoardLayout.ColumnsFor(wide, cardCount: 0).ShouldBe(1);
+        }
+
+        [Fact]
+        public void AWideWindowDoesNotSplitAFewRigsIntoMoreColumnsThanThereAreRigs()
+        {
+            // A 200-column terminal has room for six columns. Laying four rigs out in six leaves two empty,
+            // and -- worse -- squeezes the four real cards under the width at which they show full detail, so
+            // the cards get NARROWER the wider the window is.
+            var wideBoard = 200 * 8f - HomeBoardLayout.BodyPadding * 2f;
+            HomeBoardLayout.ColumnsFor(wideBoard, cardCount: 8).ShouldBeGreaterThan(4);
+
+            var columns = HomeBoardLayout.ColumnsFor(wideBoard, cardCount: 4);
+            columns.ShouldBe(4);
+            HomeBoardLayout.DetailFor(HomeBoardLayout.ColumnWidth(wideBoard, columns)).ShouldBe(RigCardDetail.Full);
         }
 
         [Fact]
@@ -188,7 +216,8 @@ namespace TianWen.Lib.Tests
             // The point of the axis-aware unit mapping: this is HomeBoardLayout.Build -- the very tree the GPU
             // tab renders -- arranged for a terminal. No TUI-specific card, rows, or metrics.
             var cards = ImmutableArray.Create(Card("This computer"), Card("Backyard"), Card("Roof"));
-            var tree = HomeBoardLayout.Build(cards, HomeBoardStyle.Default, columns: 2);
+            // An 80-column terminal in design units (8 per cell), which resolves to the two columns this asserts.
+            var tree = HomeBoardLayout.Build(cards, HomeBoardStyle.Default, width: 80 * 8f, Now);
 
             // An 80x24 terminal.
             var arranged = Layout.Engine.Arrange(
@@ -228,7 +257,7 @@ namespace TianWen.Lib.Tests
             // reads one design unit as one cell, so the same tree claims a 132-ROW card -- which is what made
             // sharing a tree across surface kinds type-correct and geometrically meaningless.
             var tree = HomeBoardLayout.Build(
-                ImmutableArray.Create(Card("This computer")), HomeBoardStyle.Default, columns: 1);
+                ImmutableArray.Create(Card("This computer")), HomeBoardStyle.Default, width: 80 * 8f, Now);
 
             var arranged = Layout.Engine.Arrange(
                 tree, new Rect<int>(0, 0, 80, 24), CellMeasureContext.CellAuthored);
@@ -249,5 +278,268 @@ namespace TianWen.Lib.Tests
 
             Cards(tab).Length.ShouldBe(2);
         }
+    
+
+        /// <summary>A card with every optional row populated -- the worst case for the card's height.</summary>
+        private static RigCard FullCard(string title) =>
+            Card(title,
+                running: true,
+                devices: new RigDeviceLink(6, 6),
+                progress: new RigCardProgress(2, 3, 23, 100),
+                cooling: new RigCardCooling(-9.9, -10.0, 38.0, 1, 1, IsRamping: false),
+                hfd: 3.14,
+                flipUtc: Now + TimeSpan.FromMinutes(35),
+                note: new RigCardNote(NotificationSeverity.Warning, "Guide star lost", TimeSpan.FromMinutes(4)),
+                prompt: new RigCardPrompt("Manual flat panel", TimeSpan.FromMinutes(40), true));
+
+        [Fact]
+        public void AFullyLoadedCardGrowsRatherThanClippingItsLastRow()
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+
+            // Every row populated exceeds the old fixed 132-unit box. When the height was a constant, the
+            // rows past it were simply not drawn -- which is invisible in a build and looks like a missing
+            // feature on screen.
+            var loaded = Cards(RenderTab(renderer, [FullCard("A")])).ShouldHaveSingleItem();
+
+            loaded.Height.ShouldBeGreaterThan(HomeBoardLayout.CardHeight);
+        }
+
+        [Fact]
+        public void EveryCardSharesOneBoxSizedToTheBusiestRig()
+        {
+            using var renderer = new RgbaImageRenderer(1600, 1000);
+
+            // A board is scanned, so cards must line up: one busy rig sizes the box and the quiet ones match
+            // it, rather than each card taking its own height and leaving the rows ragged.
+            var cards = Cards(RenderTab(renderer, [Card("A"), FullCard("B"), Card("C")]));
+
+            cards.Length.ShouldBe(3);
+            foreach (var card in cards)
+            {
+                card.Height.ShouldBe(cards[0].Height, 0.5f);
+                card.Height.ShouldBeGreaterThan(HomeBoardLayout.CardHeight);
+            }
+        }
+
+        [Fact]
+        public void AFullCardCostsAKnownNumberOfTerminalRows()
+        {
+            // A cell row is indivisible, so a 14-design-unit row costs a whole one: the card that is ~9.6
+            // rows' worth of pixels is 13 rows in a terminal. Pinned because it is the number that decides
+            // how many rigs fit an 80x24 window, and it is not obvious from the design units.
+            var tree = HomeBoardLayout.Build(
+                ImmutableArray.Create(FullCard("This computer")), HomeBoardStyle.Default, width: 80 * 8f, Now);
+
+            var card = Layout.Engine.Arrange(tree, new Rect<int>(0, 0, 80, 60), CellMeasureContext.PixelAuthored)
+                .Where(a => a.Node.Hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("HomeRig:"))
+                .Select(a => a.Bounds)
+                .ShouldHaveSingleItem();
+
+            card.Height.ShouldBe(13);
+        }
+
+        [Fact]
+        public void ANarrowColumnDropsTheTwoCollapsibleRowsRatherThanTheEssentialOnes()
+        {
+            // Width decides, and it is the COLUMN's width, not the window's: six rigs on a wide monitor give
+            // narrow columns and want the compact card.
+            HomeBoardLayout.DetailFor(HomeBoardLayout.FullDetailCardWidth).ShouldBe(RigCardDetail.Full);
+            HomeBoardLayout.DetailFor(HomeBoardLayout.MinCardWidth).ShouldBe(RigCardDetail.Compact);
+
+            var style = HomeBoardStyle.Default;
+            var full = Layout.Engine.Arrange(
+                HomeBoardLayout.Card(FullCard("A"), style, Now, RigCardDetail.Full),
+                new Rect<int>(0, 0, 60, 40), CellMeasureContext.PixelAuthored);
+            var compact = Layout.Engine.Arrange(
+                HomeBoardLayout.Card(FullCard("A"), style, Now, RigCardDetail.Compact),
+                new Rect<int>(0, 0, 60, 40), CellMeasureContext.PixelAuthored);
+
+            // The note line comes off, and HFD comes off the stats line -- the RMS stays, because a rig
+            // guiding badly is something you act on.
+            Texts(full).ShouldContain(t => t.Contains("Guide star lost"));
+            Texts(compact).ShouldNotContain(t => t.Contains("Guide star lost"));
+            Texts(full).ShouldContain(t => t.Contains("HFD"));
+            Texts(compact).ShouldNotContain(t => t.Contains("HFD"));
+            Texts(compact).ShouldContain(t => t.Contains("RMS"));
+
+            // And nothing essential went with them.
+            Texts(compact).ShouldContain(t => t.Contains("target 2/3"));
+            Texts(compact).ShouldContain(t => t.Contains("flip in"));
+            Texts(compact).ShouldContain(t => t.Contains("WAITING"));
+            Texts(compact).ShouldContain(t => t.Contains("-10.0"));
+        }
+
+        [Fact]
+        public void TheFlipCountdownIsDrawnFromTheClockPassedInNotStoredOnTheCard()
+        {
+            var card = Card("A", running: true, flipUtc: Now + TimeSpan.FromHours(2));
+            var style = HomeBoardStyle.Default;
+
+            // Same card, two clocks: the row has to move, which is what the instant-on-the-wire design buys.
+            var early = Layout.Engine.Arrange(
+                HomeBoardLayout.Card(card, style, Now),
+                new Rect<int>(0, 0, 60, 40), CellMeasureContext.PixelAuthored);
+            var later = Layout.Engine.Arrange(
+                HomeBoardLayout.Card(card, style, Now + TimeSpan.FromMinutes(115)),
+                new Rect<int>(0, 0, 60, 40), CellMeasureContext.PixelAuthored);
+
+            Texts(early).ShouldContain(t => t.StartsWith("flip in 2"));
+            Texts(later).ShouldContain(t => t.StartsWith("flip in 5"));
+
+            // Past due drops the row rather than counting backwards.
+            var due = Layout.Engine.Arrange(
+                HomeBoardLayout.Card(card, style, Now + TimeSpan.FromHours(3)),
+                new Rect<int>(0, 0, 60, 40), CellMeasureContext.PixelAuthored);
+            Texts(due).ShouldNotContain(t => t.StartsWith("flip in"));
+        }
+
+        /// <summary>Every text run the tree emitted, for asserting WHICH rows a card built.</summary>
+        // -----------------------------------------------------------------------------------------
+        // The two shapes, and the selector that chooses between them
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>Arranges a board into a terminal of the given size and returns its text runs + card hits.</summary>
+        private static (string[] Texts, int RigRows) Board(
+            ImmutableArray<RigCard> cards, int cols, int rows, HomeBoardView view = HomeBoardView.Auto)
+        {
+            var tree = HomeBoardLayout.Build(
+                cards, HomeBoardStyle.Default, cols * 8f, Now, rows * 16f, view,
+                onSelect: _ => _ => { },
+                onSelectView: _ => _ => { });
+
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, cols, rows), CellMeasureContext.PixelAuthored);
+
+            var rigHits = arranged.Count(a =>
+                a.Node.Hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("HomeRig:"));
+
+            return (Texts(arranged), rigHits);
+        }
+
+        [Fact]
+        public void AShrunkWindowSwapsTheCardsForATableRatherThanRunningOffTheBottom()
+        {
+            var rigs = ImmutableArray.Create(FullCard("A"), FullCard("B"), FullCard("C"), FullCard("D"));
+
+            // Roomy: cards, one row of four.
+            var roomy = Board(rigs, cols: 200, rows: 56);
+            roomy.Texts.ShouldContain(t => t.Contains("Guide star lost"), "a wide board shows the full card");
+            roomy.Texts.ShouldNotContain("Rig", "the table's column headings are not drawn in card mode");
+
+            // Cramped: four 13-row cards in two columns need 27 rows and there are 20. The table is the
+            // answer, and every rig keeps a row -- nothing is hidden behind anything.
+            var cramped = Board(rigs, cols: 100, rows: 20);
+            cramped.Texts.ShouldContain("Rig");
+            cramped.RigRows.ShouldBe(4);
+        }
+
+        [Fact]
+        public void TheHeaderSaysWhyTheShapeChangedRatherThanJustChanging()
+        {
+            // A board that silently turns into a different thing reads as a glitch; naming it makes the same
+            // event the nudge that the window wants enlarging.
+            var cramped = Board(ImmutableArray.Create(FullCard("A"), FullCard("B"), FullCard("C"), FullCard("D")),
+                cols: 100, rows: 20);
+
+            cramped.Texts.ShouldContain(t => t.Contains("window too small for cards"));
+        }
+
+        [Fact]
+        public void AnExplicitChoiceIsNotSecondGuessedByTheWindowSize()
+        {
+            var rigs = ImmutableArray.Create(FullCard("A"), FullCard("B"), FullCard("C"), FullCard("D"));
+
+            // Cards in a window too small for them: the user asked for cards and gets cards. Overriding a
+            // choice somebody just made is worse than an overflowing board.
+            var forcedCards = Board(rigs, cols: 100, rows: 20, view: HomeBoardView.Cards);
+            forcedCards.Texts.ShouldNotContain("Rig");
+            forcedCards.Texts.ShouldNotContain(t => t.Contains("window too small"));
+
+            // And the table in a window with room to spare.
+            var forcedTable = Board(rigs, cols: 200, rows: 56, view: HomeBoardView.Table);
+            forcedTable.Texts.ShouldContain("Rig");
+        }
+
+        [Fact]
+        public void TheSelectorOffersEveryShapeAndMarksTheCurrentOne()
+        {
+            var tree = HomeBoardLayout.Build(
+                ImmutableArray.Create(Card("A")), HomeBoardStyle.Default, 200 * 8f, Now,
+                view: HomeBoardView.Table, onSelectView: _ => _ => { });
+
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, 200, 56), CellMeasureContext.PixelAuthored);
+
+            var options = arranged
+                .Select(a => a.Node.Hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("HomeView:")
+                    ? action["HomeView:".Length..]
+                    : null)
+                .Where(a => a is not null)
+                .ToArray();
+
+            options.ShouldBe(["Auto", "Cards", "Table"]);
+        }
+
+        [Fact]
+        public void ABoardWithNowhereToStoreTheChoiceDrawsNoSelector()
+        {
+            // The callback IS the permission to offer the control: a host that cannot persist a choice must
+            // not present one that silently does nothing.
+            var tree = HomeBoardLayout.Build(
+                ImmutableArray.Create(Card("A")), HomeBoardStyle.Default, 200 * 8f, Now);
+
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, 200, 56), CellMeasureContext.PixelAuthored);
+
+            // Counted rather than asserted with a predicate: Shouldly's predicate overload builds an
+            // expression tree, which cannot contain an `is` pattern.
+            arranged.Count(a =>
+                    a.Node.Hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("HomeView:"))
+                .ShouldBe(0);
+        }
+
+        [Fact]
+        public void ANarrowTableDropsWholeColumnsInsteadOfTruncatingEveryCell()
+        {
+            var rigs = ImmutableArray.Create(FullCard("A"), FullCard("B"));
+
+            var wide = Board(rigs, cols: 200, rows: 40, view: HomeBoardView.Table);
+            var narrow = Board(rigs, cols: 60, rows: 40, view: HomeBoardView.Table);
+
+            // Wide enough for every column.
+            wide.Texts.ShouldContain("Rig");
+            wide.Texts.ShouldContain("Cooling");
+            wide.Texts.ShouldContain("RMS");
+
+            // Squeezed: the detail columns come off entirely rather than every cell being truncated into
+            // ambiguity, and what remains is what a row means -- which rig, and what it is doing.
+            narrow.Texts.ShouldContain("Rig");
+            narrow.Texts.ShouldContain("Status");
+            narrow.Texts.ShouldNotContain("RMS");
+            narrow.Texts.ShouldNotContain("Cooling");
+            narrow.RigRows.ShouldBe(2);
+        }
+
+        [Fact]
+        public void AWaitingRigKeepsItsBadgeInTheTable()
+        {
+            // The reason the cramped case is a table and not a stack of overlapping cards: every rig stays
+            // visible, so a badge can never be behind another rig.
+            var waiting = Card("B", running: true,
+                prompt: new RigCardPrompt("Manual flat panel", TimeSpan.FromMinutes(40), true));
+
+            var board = Board(ImmutableArray.Create(Card("A"), waiting), cols: 120, rows: 20,
+                view: HomeBoardView.Table);
+
+            board.RigRows.ShouldBe(2);
+            board.Texts.ShouldContain(t => t.StartsWith("WAITING"));
+        }
+
+        private static string[] Texts(ImmutableArray<Layout.ArrangedNode<int>> arranged) =>
+            [.. arranged
+                .Select(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Text text } ? text.Value : null)
+                .Where(t => t is not null)
+                .Select(t => t!)];
     }
 }

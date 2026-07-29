@@ -1,4 +1,4 @@
-using Shouldly;
+﻿using Shouldly;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using Xunit;
@@ -176,5 +176,43 @@ public class MeridianFlipDecisionTests
         MeridianFlipDecision.ClassifyHourAngle(7.0 / 60.0, config).ShouldBe(HourAngleZone.InFlipWindow);
         // 7.5 min — past
         MeridianFlipDecision.ClassifyHourAngle(7.5 / 60.0, config).ShouldBe(HourAngleZone.PastFlipWindow);
+    }
+
+    [Fact]
+    public void TheCountdownRunsToTheEarliestSanctionedFlipAtTheSiderealRate()
+    {
+        var config = MakeConfig(earliestMinutesAfter: 5);
+
+        // An hour east of the meridian, with the flip a further 5 min past it, is 65 sidereal minutes of
+        // hour angle to cover -- which takes slightly LESS than 65 wall-clock minutes, because HA gains on
+        // the clock by about 4 minutes a day.
+        var until = MeridianFlipDecision.TimeUntilFlip(-1.0, config).ShouldNotBeNull();
+
+        until.TotalMinutes.ShouldBeLessThan(65.0);
+        until.TotalMinutes.ShouldBe(65.0 / 1.00273790935, 0.001);
+    }
+
+    [Fact]
+    public void ThereIsNothingToCountDownToOnceTheFlipPointIsReached()
+    {
+        var config = MakeConfig(earliestMinutesAfter: 5);
+
+        // At and past the earliest flip point the flip is due now, not in a negative amount of time.
+        MeridianFlipDecision.TimeUntilFlip(5.0 / 60.0, config).ShouldBeNull();
+        MeridianFlipDecision.TimeUntilFlip(0.5, config).ShouldBeNull();
+
+        // An unread hour angle is unknown, not "due immediately".
+        MeridianFlipDecision.TimeUntilFlip(double.NaN, config).ShouldBeNull();
+    }
+
+    [Fact]
+    public void TheCountdownFollowsTheConfiguredFlipPointRatherThanTheMeridian()
+    {
+        // A rig told to flip 20 min after the meridian has 20 more minutes of imaging than one told 5, so
+        // reading the countdown off the meridian would cut every rig's target short on the display.
+        var early = MeridianFlipDecision.TimeUntilFlip(-0.5, MakeConfig(earliestMinutesAfter: 5)).ShouldNotBeNull();
+        var late = MeridianFlipDecision.TimeUntilFlip(-0.5, MakeConfig(earliestMinutesAfter: 20)).ShouldNotBeNull();
+
+        (late - early).TotalMinutes.ShouldBe(15.0 / 1.00273790935, 0.001);
     }
 }

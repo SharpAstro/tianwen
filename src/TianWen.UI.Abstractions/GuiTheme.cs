@@ -32,5 +32,18 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>The combined theme (palette + metrics).</summary>
         public static UiTheme Theme { get; } = new(Palette, Metrics);
+
+        // Notification-severity accents. Shared rather than tab-local because two surfaces now colour by
+        // severity -- the notifications feed's row stripe and the home card's last-note line -- and a second
+        // copy of these three would drift the moment one is adjusted. They are NOT on UiPalette: that record
+        // lives in DIR.Lib and knows nothing about notifications.
+        /// <summary>Accent for an informational notification.</summary>
+        public static RGBAColor32 SeverityInfo { get; } = new RGBAColor32(0x55, 0x88, 0xcc, 0xff);
+
+        /// <inheritdoc cref="SeverityInfo"/>
+        public static RGBAColor32 SeverityWarn { get; } = new RGBAColor32(0xcc, 0x99, 0x33, 0xff);
+
+        /// <inheritdoc cref="SeverityInfo"/>
+        public static RGBAColor32 SeverityError { get; } = new RGBAColor32(0xcc, 0x44, 0x44, 0xff);
     }
 }

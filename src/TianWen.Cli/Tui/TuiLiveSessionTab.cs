@@ -124,11 +124,14 @@ internal sealed class TuiLiveSessionTab(
         Layout.Builder.VStack(
             Layout.Builder.Fill(key: TopKey).RowH(1),
             Layout.Builder.Fill(key: GuideKey).RowH(1),
+            // ColW / Stretch, not WFixed / WStar: in an HStack the cross axis is the height, and a child left
+            // on Auto height gets its intrinsic one -- zero for a Fill leaf, and zero for the inner VStack's
+            // whole subtree with it.
             Layout.Builder.HStack(
-                Layout.Builder.Fill(key: InfoKey).WFixed(LeftPanelCols),
+                Layout.Builder.Fill(key: InfoKey).ColW(LeftPanelCols),
                 Layout.Builder.VStack(
                     Layout.Builder.Fill(key: ToolbarKey).RowH(1),
-                    Layout.Builder.Fill(key: PreviewKey).Stretch()).WStar()).Stretch(),
+                    Layout.Builder.Fill(key: PreviewKey).Stretch()).Stretch()).Stretch(),
             Layout.Builder.Fill(key: StatusKey).RowH(1));
 
     /// <summary>
@@ -911,8 +914,7 @@ internal sealed class TuiLiveSessionTab(
         return false;
     }
 
-    public override bool HandleInput(InputEvent evt)
-    {
+    protected override void HandleTabInput(InputEvent evt){
         // Polar-align mode: Esc cancels the routine instead of falling through to
         // the abort-confirmation strip (which is a session-only concept). Done is
         // surfaced as a button on the side panel rather than a keybind because
@@ -925,7 +927,7 @@ internal sealed class TuiLiveSessionTab(
                 case InputEvent.KeyDown(InputKey.Escape, _):
                     bus.Post(new CancelPolarAlignmentSignal());
                     NeedsRedraw = true;
-                    return false;
+                    return;
             }
         }
 
@@ -933,7 +935,7 @@ internal sealed class TuiLiveSessionTab(
         // they don't get swallowed by the viewer keybindings below.
         if (!LiveState.IsRunning && HandlePreviewInput(evt))
         {
-            return false;
+            return;
         }
 
         switch (evt)
@@ -943,23 +945,23 @@ internal sealed class TuiLiveSessionTab(
                 {
                     NeedsRedraw = true;
                 }
-                return false;
+                return;
 
             case InputEvent.KeyDown(InputKey.Escape, _) when LiveState.ShowAbortConfirm:
                 LiveState.ShowAbortConfirm = false;
                 NeedsRedraw = true;
-                return false;
+                return;
 
             case InputEvent.KeyDown(InputKey.Enter, _) when LiveState.ShowAbortConfirm:
                 bus.Post(new ConfirmAbortSessionSignal());
                 NeedsRedraw = true;
-                return false;
+                return;
 
             case InputEvent.KeyDown(InputKey.C, InputModifier.Ctrl) when LiveState.IsRunning:
             case InputEvent.KeyDown(InputKey.Escape or InputKey.Q, _) when LiveState.IsRunning:
                 LiveState.ShowAbortConfirm = true;
                 NeedsRedraw = true;
-                return false; // consumed via NeedsRedraw — don't quit
+                return; // consumed via NeedsRedraw — don't quit
 
             // Preview viewer controls — same shortcuts as FITS viewer
             case InputEvent.KeyDown(InputKey.T, _):
@@ -971,35 +973,35 @@ internal sealed class TuiLiveSessionTab(
                     _ => StretchMode.None,
                 };
                 NeedsRedraw = true;
-                return false;
+                return;
 
             case InputEvent.KeyDown(InputKey.B, _):
                 ViewerActions.CycleCurvesBoost(_viewerState);
                 NeedsRedraw = true;
-                return false;
+                return;
 
             case InputEvent.KeyDown(InputKey.Plus, _):
                 ViewerActions.CycleStretchPreset(_viewerState);
                 NeedsRedraw = true;
-                return false;
+                return;
 
             case InputEvent.KeyDown(InputKey.Minus, _):
                 ViewerActions.CycleStretchPreset(_viewerState, reverse: true);
                 NeedsRedraw = true;
-                return false;
+                return;
 
             case InputEvent.KeyDown(InputKey.F, _):
                 _viewerState.ZoomToFit = true;
                 NeedsRedraw = true;
-                return false;
+                return;
 
             case InputEvent.KeyDown(InputKey.R, _):
                 _viewerState.ZoomToFit = false;
                 NeedsRedraw = true;
-                return false;
+                return;
 
             default:
-                return false;
+                return;
         }
     }
 

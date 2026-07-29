@@ -30,7 +30,13 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            var dto = SessionStateDto.FromSession(session, ToPromptDto(hosted.PendingPrompt));
+            // Newest ring entry only. The ring is oldest-first, so the tail is the newest; a client that
+            // wants the history still calls /session/notifications.
+            var notifications = hosted.Notifications;
+            var dto = SessionStateDto.FromSession(
+                session,
+                ToPromptDto(hosted.PendingPrompt),
+                notifications.IsDefaultOrEmpty ? null : notifications[^1]);
             return Results.Json(
                 ResponseEnvelope<SessionStateDto>.Ok(dto),
                 HostingJsonContext.Default.ResponseEnvelopeSessionStateDto);

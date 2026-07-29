@@ -92,10 +92,12 @@ internal sealed class TuiGuiderTab(
             Layout.Builder.Fill(key: TopKey).RowH(1),
             UseSixel
                 ? Layout.Builder.Fill(key: CanvasKey).Stretch()
+                // ColW (Width=Fixed, Height=Star), not WFixed: in an HStack the cross axis is the height, and
+                // a Fill leaf left on Auto height measures its MinHeight -- zero.
                 : Layout.Builder.HStack(
-                    Layout.Builder.Fill(key: GraphKey).WFixed(44),
-                    Layout.Builder.Fill(key: TargetKey).WFixed(24),
-                    Layout.Builder.Fill(key: StatsKey).WStar()).Stretch(),
+                    Layout.Builder.Fill(key: GraphKey).ColW(44),
+                    Layout.Builder.Fill(key: TargetKey).ColW(24),
+                    Layout.Builder.Fill(key: StatsKey).Stretch()).Stretch(),
             Layout.Builder.Fill(key: StatusKey).RowH(1));
 
     /// <summary>
@@ -224,9 +226,8 @@ internal sealed class TuiGuiderTab(
         }
     }
 
-    public override bool HandleInput(InputEvent evt)
-    {
+    protected override void HandleTabInput(InputEvent evt){
         // Read-only monitoring tab — no special input handling
-        return false;
+        return;
     }
 }

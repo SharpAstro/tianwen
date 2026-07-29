@@ -123,6 +123,25 @@ namespace TianWen.Lib.Sequencing
         /// <summary>Polled mount state (RA, Dec, HA, pier side, slewing, tracking).</summary>
         MountState MountState { get; }
 
+        /// <summary>
+        /// When the current observation's meridian flip is due, or <see langword="null"/> when no flip is
+        /// pending (not a GEM, the target does not cross, already flipped, or HA is past the flip point).
+        /// <para>
+        /// <b>An instant, not a countdown</b>, for the same reason
+        /// <see cref="SessionPromptEventArgs.RaisedUtc"/> is: a duration is only true at the moment it is
+        /// read, so one that crossed a wire or sat in a snapshot between polls would be stale by however
+        /// long the poll interval is, and would visibly stall on a dashboard. An instant stays true and the
+        /// display subtracts.
+        /// </para>
+        /// <para>
+        /// Computed by the session rather than derived by a client, because the answer needs the flip
+        /// configuration (<see cref="SessionConfiguration.MeridianFlipEarliestMinutesAfter"/>), the mount's
+        /// pier side and the destination side -- none of which a remote observer has. Same principle as the
+        /// prompt's raised-at: the rig owns the fact.
+        /// </para>
+        /// </summary>
+        DateTimeOffset? MeridianFlipUtc { get; }
+
         /// <summary>Per-camera latest frame metrics (star count, HFD, FWHM). One per OTA.</summary>
         FrameMetrics[] LastFrameMetrics { get; }
 

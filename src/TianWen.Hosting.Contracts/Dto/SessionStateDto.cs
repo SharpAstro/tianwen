@@ -32,6 +32,37 @@ public sealed class SessionStateDto
 
     public MountStateDto? Mount { get; init; }
 
+    /// <summary>
+    /// When the current observation's meridian flip is due, or null when none is pending.
+    /// <para>
+    /// The <b>instant</b> crosses the wire rather than a remaining duration, for the same reason
+    /// <see cref="PendingPromptDto.RaisedUtc"/> does: a duration is only true when it is computed, so it
+    /// would be stale by the poll interval on arrival and would visibly stall between polls. The client
+    /// subtracts against its own clock.
+    /// </para>
+    /// <para>
+    /// Nullable and NOT <c>required</c>: it is legitimately absent (no flip pending), and it is also what a
+    /// node too old to send it produces.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? MeridianFlipUtc { get; init; }
+
+    /// <summary>
+    /// The newest entry of the node's notification feed, or null when it has recorded nothing.
+    /// <para>
+    /// Carried on the polled state rather than left to <c>GET /session/notifications</c> so a client
+    /// watching several rigs pays no extra request per rig per tick -- the whole ring is still on its own
+    /// endpoint for anything that wants the history. Same reasoning that put
+    /// <see cref="PendingPrompt"/> here.
+    /// </para>
+    /// <para>
+    /// This is the one field on the state that outlives <see cref="CurrentActivity"/>: the activity string
+    /// is overwritten by every sub-step, so a warning raised between two polls leaves no trace, while the
+    /// ring keeps it.
+    /// </para>
+    /// </summary>
+    public NotificationDto? LastNotification { get; init; }
+
     /// <summary>Mount display label (<see cref="ISessionTelemetry.MountDisplayName"/>). Travels with the
     /// pointing it describes, so a mirror's mount panel reads the same as a local one.</summary>
     public required string MountDisplayName { get; init; }
@@ -83,7 +114,12 @@ public sealed class SessionStateDto
     /// </summary>
     /// <param name="pendingPrompt">Outstanding prompt, held by the host rather than the session itself
     /// (the session hands it out as an event and then awaits the answer), so the caller supplies it.</param>
-    public static SessionStateDto FromSession(ISessionTelemetry session, PendingPromptDto? pendingPrompt = null)
+    /// <param name="lastNotification">Newest entry of the node's notification ring, which likewise lives on
+    /// the host and not on the session -- the session raises events, the host records them.</param>
+    public static SessionStateDto FromSession(
+        ISessionTelemetry session,
+        PendingPromptDto? pendingPrompt = null,
+        NotificationDto? lastNotification = null)
     {
         var displays = session.TelescopeDisplays;
         var coolingSamples = session.CoolingSamples;
@@ -181,6 +217,8 @@ public sealed class SessionStateDto
             ActiveTargetName = session.ActiveObservation?.Target.Name,
             LastFramePath = session.LastFramePath,
             Mount = MountStateDto.FromState(session.MountState),
+            MeridianFlipUtc = session.MeridianFlipUtc,
+            LastNotification = lastNotification,
             MountDisplayName = session.MountDisplayName,
             Guider = GuiderStateDto.FromSession(session),
             Cameras = cameraStates.MoveToImmutable(),
@@ -341,6 +379,19 @@ public sealed class ObservationDto
     public required double DurationMinutes { get; init; }
     public required bool AcrossMeridian { get; init; }
 
+    /// <summary>
+    /// Frames the filter plan asks for, per OTA -- the denominator for "frame 23/100". Null when the
+    /// observation carries no filter plan, which is what a bare target queued through <c>/targets</c> looks
+    /// like, and also what a node too old to send this produces.
+    /// <para>
+    /// Summed from the plan rather than derived from <see cref="DurationMinutes"/>: duration is the
+    /// scheduler's slot, which a run can leave early or overrun, while the plan is what the imaging loop
+    /// actually works through. It is <b>per OTA</b>, because each OTA works the same plan in parallel -- a
+    /// client comparing it against a session-wide frame count has to multiply by the camera count.
+    /// </para>
+    /// </summary>
+    public int? PlannedFrameCount { get; init; }
+
     public static ObservationDto FromScheduled(ScheduledObservation obs) => new()
     {
         TargetName = obs.Target.Name,
@@ -350,5 +401,8 @@ public sealed class ObservationDto
         Start = obs.Start,
         DurationMinutes = obs.Duration.TotalMinutes,
         AcrossMeridian = obs.AcrossMeridian,
+        // Null rather than 0 for "no plan", so a client can tell "not stated" from "stated as none" -- the
+        // sum itself comes from the observation, which is where it is defined.
+        PlannedFrameCount = obs.PlannedFrameCount is var planned and > 0 ? planned : null,
     };
 }

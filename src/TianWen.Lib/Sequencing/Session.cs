@@ -91,6 +91,27 @@ internal partial record Session(
     public string? CurrentActivity => _currentActivity;
     public string? FailureReason => _failureReason;
     public MountState MountState => _mountState;
+
+    /// <summary>
+    /// Stamped only where the imaging loop already reads HA for its flip decision (Session.Imaging.cs), so it
+    /// costs no extra device I/O and cannot disagree with the decision taken on the same reading. Cleared on
+    /// every new observation, since a pending flip belongs to the target that is crossing.
+    /// <para>
+    /// Held as UTC ticks because the imaging loop writes it and the UI/wire projections read it from another
+    /// thread: <c>DateTimeOffset?</c> is well over pointer-size, so a plain field would tear and could
+    /// briefly report a nonsense instant. A <c>long</c> is atomic under <see cref="Volatile"/>.
+    /// </para>
+    /// </summary>
+    public DateTimeOffset? MeridianFlipUtc
+    {
+        get => Volatile.Read(ref _meridianFlipUtcTicks) is var ticks and not 0
+            ? new DateTimeOffset(ticks, TimeSpan.Zero)
+            : null;
+        private set => Volatile.Write(ref _meridianFlipUtcTicks, value?.UtcTicks ?? 0);
+    }
+
+    private long _meridianFlipUtcTicks;
+
     // Start "unknown" (all-NaN coords), not default(MountState) which would read as a real RA0/Dec0.
     // The first PollDeviceStatesAsync (RunAsync, right after InitialisationAsync) fills it in. UI
     // consumers treat NaN RA as "no pointing yet" and keep the last known value rather than snapping
