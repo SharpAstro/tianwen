@@ -50,6 +50,12 @@ public readonly record struct SelectLocalContextSignal;
 /// </summary>
 public readonly record struct ForgetRemoteRigSignal(Guid BindingId);
 
+/// <summary>
+/// Choose the home board's shape from its header selector. A display preference only -- it changes nothing
+/// about any rig, and <see cref="HomeBoardView.Auto"/> hands the choice back to the window size.
+/// </summary>
+public readonly record struct SetHomeBoardViewSignal(HomeBoardView View);
+
 /// <summary>Assign a discovered device to the active slot.</summary>
 public readonly record struct AssignDeviceSignal(int DeviceIndex);
 

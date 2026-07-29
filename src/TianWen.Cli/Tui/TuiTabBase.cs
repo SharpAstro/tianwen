@@ -151,7 +151,40 @@ internal abstract class TuiTabBase : ITuiTab
         return viewport;
     }
 
-    public abstract bool HandleInput(InputEvent evt);
+    /// <summary>
+    /// Dispatches a click against the arranged tree first, then hands the event to the tab.
+    /// <para>
+    /// Layout-tree hits are resolved HERE rather than per tab, which removes an asymmetry with the pixel
+    /// side: there, <c>PixelWidgetBase.PaintLayout</c> registers each node's hit as a side effect of
+    /// painting, so draw==hit holds automatically. <see cref="CellLayout"/> only draws, so a terminal tab
+    /// had to remember to wire the dispatch itself -- and a tab that forgot had clickable nodes that
+    /// silently did nothing. Doing it in the base means every layout-driven tab gets it, and no tab can get
+    /// it wrong.
+    /// </para>
+    /// <para>
+    /// A tree hit consumes the event; anything else falls through to <see cref="HandleTabInput"/>. That
+    /// ordering only affects a tab whose tree actually carries <c>Clickable</c> nodes -- the tabs whose
+    /// trees are <c>Fill</c> leaves still route their clicks to their own lists and trackers.
+    /// </para>
+    /// </summary>
+    public void HandleInput(InputEvent evt)
+    {
+        if (evt is InputEvent.MouseUp(var x, var y, MouseButton.Left) && DispatchLayoutHit(x, y))
+        {
+            NeedsRedraw = true;
+            return;
+        }
+
+        HandleTabInput(evt);
+    }
+
+    /// <summary>
+    /// The tab's own input handling: keys, and mouse the layout tree did not claim. Signal that an event was
+    /// consumed by setting <see cref="NeedsRedraw"/> -- which is also what stops the app loop treating a
+    /// swallowed <c>Q</c> as a request to exit. Default is to ignore everything, so a tab whose whole
+    /// surface is clickable layout nodes needs no override.
+    /// </summary>
+    protected virtual void HandleTabInput(InputEvent evt) { }
 
     /// <summary>
     /// Raw mouse dispatch for ScrollableList drag handling. Default is a no-op --

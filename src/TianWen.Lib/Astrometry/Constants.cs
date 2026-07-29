@@ -34,6 +34,11 @@ internal static class Constants
     internal const double DEG2RAD = DEGREES2RADIANS;
     internal const double RAD2DEG = RADIANS2DEGREES;
     internal const double SIDEREAL_RATE = 15.0417; // approx. rate of sky moving in arcseconds/second
+
+    // Mean sidereal-to-solar time ratio: LST advances 24h 3m 56.555s per 24h of UT, i.e. 1.00273790935
+    // sidereal hours per mean solar hour. Divide a sidereal interval by this to get the wall-clock wait.
+    // Distinct from SIDEREAL_RATE above, which is an angular rate in arcsec/second.
+    internal const double SIDEREAL_HOURS_PER_SOLAR_HOUR = 1.00273790935;
     internal const double MEAN_SOLAR_DAY_DEG = 0.985647332; //  number of degrees the Earth rotates in one mean solar day, sans a multiple of 360
 
     // Physical constants

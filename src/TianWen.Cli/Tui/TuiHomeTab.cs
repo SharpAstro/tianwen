@@ -52,19 +52,33 @@ internal sealed class TuiHomeTab(
     {
         // Columns come from the width in DESIGN units, not cells, since that is what the shared builder
         // reasons in. One column is CellMeasureContext.PixelAuthored's 8 design units.
-        var columns = HomeBoardLayout.ColumnsFor(
-            Content.Width * PixelAuthoredCellWidth - HomeBoardLayout.BodyPadding * 2f);
-
-        return HomeBoardLayout.Build(appState.HomeCards, HomeBoardStyle.Default, columns, SelectAction);
+        // Cells to design units on each axis -- the terminal's 8x16 nominal cell, matching
+        // CellMeasureContext.PixelAuthored. Both extents matter: the width picks the columns, and the height
+        // is what Auto uses to swap the cards for the table when the window has been made too small for them.
+        return HomeBoardLayout.Build(
+            appState.HomeCards, HomeBoardStyle.Default,
+            Content.Width * PixelAuthoredCellWidth, timeProvider.GetUtcNow(),
+            Content.Height * PixelAuthoredCellHeight,
+            appState.HomeBoardView, SelectAction, SelectViewAction);
     }
 
-    /// <summary>Design units per character cell horizontally, matching <see cref="CellMeasureContext.PixelAuthored"/>.</summary>
+    /// <summary>Design units per character cell, matching <see cref="CellMeasureContext.PixelAuthored"/>'s 8x16.</summary>
     private const float PixelAuthoredCellWidth = 8f;
+
+    /// <inheritdoc cref="PixelAuthoredCellWidth"/>
+    private const float PixelAuthoredCellHeight = 16f;
 
     protected override void PaintHost(string key, Rect<int> rect, bool geometryChanged)
     {
         // No Fill leaves in this tree.
     }
+
+    /// <summary>The header's shape selector, posting the same signal the GUI board's does.</summary>
+    private Action<InputModifier>? SelectViewAction(HomeBoardView view) => _ =>
+    {
+        bus.Post(new SetHomeBoardViewSignal(view));
+        NeedsRedraw = true;
+    };
 
     /// <summary>Looking at a rig, not driving it -- the same two signals the GUI board posts.</summary>
     private Action<InputModifier>? SelectAction(RigCard card) => _ =>
@@ -80,10 +94,6 @@ internal sealed class TuiHomeTab(
         NeedsRedraw = true;
     };
 
-    public override bool HandleInput(InputEvent evt) => evt switch
-    {
-        // Card clicks are bound to the arranged tree, so the rect drawn IS the rect hit.
-        InputEvent.MouseUp(var x, var y, MouseButton.Left) => DispatchLayoutHit(x, y),
-        _ => false,
-    };
+    // No input override: every card is a Clickable node in the tree, and TuiTabBase dispatches tree hits
+    // before delegating -- so the whole screen works with no per-tab wiring.
 }

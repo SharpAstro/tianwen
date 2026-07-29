@@ -68,6 +68,17 @@ namespace TianWen.UI.Abstractions
         /// <summary>Current observation index (-1 = not started).</summary>
         public int CurrentObservationIndex { get; set; } = -1;
 
+        /// <summary>
+        /// How many observations the run is working through, so <see cref="CurrentObservationIndex"/> can be
+        /// presented as "2 of 3". Zero when the run has no schedule (a single ad-hoc target).
+        /// <para>
+        /// Mirrored here rather than read from <c>ActiveSession.Observations</c> at the point of use, because
+        /// <see cref="PollSession"/> is the only place that should touch the live session -- a consumer
+        /// reaching through it is reading a collection that may be replaced underneath the frame.
+        /// </para>
+        /// </summary>
+        public int ObservationCount { get; set; }
+
         /// <summary>Currently active observation, if any.</summary>
         public ScheduledObservation? ActiveObservation { get; set; }
 
@@ -181,6 +192,29 @@ namespace TianWen.UI.Abstractions
         /// <summary>Resolved mount display name for the current <see cref="MountState"/> source
         /// (preview poll when idle, the running session's mount otherwise).</summary>
         public string? MountDisplayName { get; set; }
+
+        /// <summary>
+        /// When the current observation's meridian flip is due, or null when none is pending. An instant, so
+        /// a display subtracts against the clock and the value does not go stale between polls -- see
+        /// <see cref="ISessionTelemetry.MeridianFlipUtc"/>.
+        /// <para>
+        /// Held as UTC ticks rather than the nullable struct itself, because the poll writes it and the
+        /// render thread reads it. <c>DateTimeOffset?</c> is well over pointer-size, so an auto-property
+        /// would tear -- the hazard <see cref="MountState"/> pays a holder record for. A <c>long</c> is
+        /// atomic under <see cref="Volatile"/> on every platform, so this costs no allocation, and zero is
+        /// an unambiguous "none" (the value is a real observing instant, never the epoch).
+        /// </para>
+        /// </summary>
+        public DateTimeOffset? MeridianFlipUtc
+        {
+            get => Volatile.Read(ref _meridianFlipUtcTicks) is var ticks and not 0
+                ? new DateTimeOffset(ticks, TimeSpan.Zero)
+                : null;
+            // UtcTicks, so whatever offset the source carried is normalised to what the name promises.
+            set => Volatile.Write(ref _meridianFlipUtcTicks, value?.UtcTicks ?? 0);
+        }
+
+        private long _meridianFlipUtcTicks;
 
         /// <summary>Whether a preview exposure is currently in progress (per OTA index).</summary>
         public bool[] PreviewCapturing { get; set; } = [];
@@ -415,6 +449,7 @@ namespace TianWen.UI.Abstractions
             TotalFramesWritten = session.TotalFramesWritten;
             TotalExposureTime = session.TotalExposureTime;
             CurrentObservationIndex = session.CurrentObservationIndex;
+            ObservationCount = session.Observations?.Count ?? 0;
             ActiveObservation = session.ActiveObservation;
             GuideSamples = session.GuideSamples;
             LastGuideStats = session.LastGuideStats;
@@ -438,6 +473,7 @@ namespace TianWen.UI.Abstractions
                 MountState = sessionMount;
                 MountDisplayName = session.MountDisplayName;
             }
+            MeridianFlipUtc = session.MeridianFlipUtc;
             CurrentActivity = session.CurrentActivity;
             LastFramePath = session.LastFramePath;
             LastCapturedImages = session.LastCapturedImages;

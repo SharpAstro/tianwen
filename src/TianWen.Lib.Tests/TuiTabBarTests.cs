@@ -1,6 +1,7 @@
 using Console.Lib;
 using DIR.Lib;
 using Shouldly;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
@@ -51,6 +52,57 @@ namespace TianWen.Lib.Tests
                 .Where(a => a.Node.Hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("Tab:"))
                 .Select(a => (Text: (a.Node as Layout.Node.Leaf)?.Content is Layout.Content.Text t ? t.Value : "", a.Bounds))
                 .OrderBy(x => x.Bounds.X)];
+
+        /// <summary>Paints into a real <see cref="CellBuffer"/>, so what the diff would emit is assertable.</summary>
+        private sealed class BufferedViewport(CellBuffer buffer, int width) : ITerminalViewport
+        {
+            public (int Column, int Row) Offset => (0, 0);
+            public (int Width, int Height) Size => (width, 1);
+            public TermCell CellSize => new TermCell(8, 16);
+            public Stream OutputStream => Stream.Null;
+            public ColorMode ColorMode => ColorMode.Sgr16;
+            public void SetCursorPosition(int left, int top) => buffer.MoveTo(left, top);
+            public void Write(string text) => buffer.Write(text);
+            public void WriteLine(string? text = null) { }
+            public void Flush() { }
+        }
+
+        /// <summary>Records each emitted run's position and text, so a failure names the exact cells.</summary>
+        private sealed class RunRecordingSink : ICellSink
+        {
+            private (int Column, int Row) _at;
+            public readonly List<(int Column, int Row, string Text)> Runs = [];
+            public void MoveTo(int column, int row) => _at = (column, row);
+            public void SetPen(VtStyle style, bool reverse) { }
+            public void Write(System.ReadOnlySpan<char> run) => Runs.Add((_at.Column, _at.Row, run.ToString()));
+        }
+
+        /// <summary>
+        /// The reason the TUI has a cell buffer at all: the clock ticks once a second, and the ONLY cells
+        /// that may reach the terminal for it are the digits that flipped. This paints the REAL bar for two
+        /// consecutive seconds and asserts the second flush — anything more re-emitted here is what the user
+        /// sees as a once-per-second flicker of the top bar, which is exactly how the regression this pins
+        /// was reported.
+        /// </summary>
+        [Fact]
+        public void AClockTick_EmitsOnlyTheFlippedDigits()
+        {
+            const int Width = 200;
+            var buffer = new CellBuffer { ColorMode = ColorMode.Sgr16 };
+            buffer.Resize(Width, 1);
+            var viewport = new BufferedViewport(buffer, Width);
+            var bar = new TuiTabBar(viewport);
+
+            CellLayout.Paint(viewport, bar.Arrange(GuiTab.Equipment, "My Observatory  22:14:03 ", Width));
+            buffer.Flush(new RunRecordingSink());
+
+            CellLayout.Paint(viewport, bar.Arrange(GuiTab.Equipment, "My Observatory  22:14:04 ", Width));
+            var sink = new RunRecordingSink();
+            var emitted = buffer.Flush(sink);
+
+            var runs = string.Join("; ", sink.Runs.Select(r => $"({r.Column},{r.Row})='{r.Text}'"));
+            emitted.ShouldBe(1, $"one digit flipped, so one cell may go out — emitted runs: {runs}");
+        }
 
         [Fact]
         public void EveryTabsClickRegionIsExactlyTheCellsItsLabelOccupies()

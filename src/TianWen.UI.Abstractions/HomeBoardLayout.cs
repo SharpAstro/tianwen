@@ -21,7 +21,9 @@ namespace TianWen.UI.Abstractions
         RGBAColor32 OfflineDot,
         RGBAColor32 RunningDot,
         RGBAColor32 PromptBg,
-        RGBAColor32 PromptText)
+        RGBAColor32 PromptText,
+        RGBAColor32 WarnText,
+        RGBAColor32 ErrorText)
     {
         /// <summary>
         /// The shared board palette. One instance for every surface: the GPU tab and the TUI tab draw the
@@ -40,7 +42,60 @@ namespace TianWen.UI.Abstractions
             OfflineDot:   new RGBAColor32(0x66, 0x66, 0x74, 0xff),
             RunningDot:   new RGBAColor32(0x55, 0x99, 0xdd, 0xff),
             PromptBg:     new RGBAColor32(0xbb, 0x88, 0x22, 0xff),
-            PromptText:   new RGBAColor32(0x18, 0x14, 0x08, 0xff));
+            PromptText:   new RGBAColor32(0x18, 0x14, 0x08, 0xff),
+            // Shared with the notifications feed's row stripes, so one warning is one colour app-wide.
+            WarnText:     GuiTheme.SeverityWarn,
+            ErrorText:    GuiTheme.SeverityError);
+    }
+
+    /// <summary>
+    /// How much of a card to draw. The board narrows before it drops a column, so at the tightest column
+    /// width the two extras that are nice-to-know rather than need-to-know come off.
+    /// <para>
+    /// Deliberately a small, blunt distinction rather than a per-row priority list: two levels can be
+    /// reasoned about and tested, and the rows that survive are the ones that say what a rig is doing, how
+    /// far through it is, and whether it needs a human.
+    /// </para>
+    /// </summary>
+    public enum RigCardDetail
+    {
+        /// <summary>Everything, including median HFD and the last notification.</summary>
+        Full,
+
+        /// <summary>Drops the last-notification line and the HFD figure; guide RMS stays.</summary>
+        Compact
+    }
+
+    /// <summary>
+    /// Which shape the board draws in.
+    /// <para>
+    /// <b>Two shapes rather than a card that shrinks.</b> A card that keeps halving to fit ends up saying
+    /// almost nothing while still costing a card's worth of chrome; one row per rig says more in a third of
+    /// the space, which is the whole reason tables exist. Both are built from the same
+    /// <see cref="RigCard"/> data by this class, so neither surface knows there are two -- the shared tree is
+    /// a description language, not a fixed shape.
+    /// </para>
+    /// <para>
+    /// <b>Not a stack of overlapping cards.</b> That was the other candidate for the cramped case, and it
+    /// hides rigs behind other rigs. The prompt badge is the one thing on this screen that must never be
+    /// hidden -- it is what the board exists to answer, two rigs can be waiting at once so only one could be
+    /// at the front, and what you could see would depend on animation timing.
+    /// </para>
+    /// </summary>
+    public enum HomeBoardView
+    {
+        /// <summary>
+        /// Cards while they fit, the table once they do not. The default, and the only value that reacts to
+        /// the window: it is what makes a shrunk window degrade into something readable instead of a board
+        /// running off the bottom edge.
+        /// </summary>
+        Auto,
+
+        /// <summary>Always cards, even when that overflows. An explicit choice is not second-guessed.</summary>
+        Cards,
+
+        /// <summary>Always the table -- one row per rig, which is what you want past a handful of rigs.</summary>
+        Table
     }
 
     /// <summary>
@@ -75,8 +130,21 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public const float MinCardWidth = 220f;
 
-        /// <summary>Design-unit card height. Fixed, because it is what sizes the card's grid row.</summary>
+        /// <summary>
+        /// Design-unit <b>minimum</b> card height. A card is as tall as the rows it built, so this only keeps
+        /// a rig with little to report looking like a card rather than a label. It used to be the exact height
+        /// and had to be raised by hand whenever a row was added, which silently clipped the last row when it
+        /// was not.
+        /// </summary>
         public const float CardHeight = 132f;
+
+        /// <summary>Narrowest a card may be and still show its collapsible extras -- see <see cref="DetailFor"/>.</summary>
+        public const float FullDetailCardWidth = 260f;
+
+        private const float TitleRowHeight = 18f;
+        private const float StatusRowHeight = 16f;
+        private const float DetailRowHeight = 14f;
+        private const float RowGap = 3f;
 
         /// <summary>Gap between columns, and between rows.</summary>
         public const float CardGap = 10f;
@@ -102,15 +170,59 @@ namespace TianWen.UI.Abstractions
         /// one.
         /// </para>
         /// </summary>
+        /// <param name="width">Content width in DESIGN units. Columns and card detail are resolved in here
+        /// rather than by the caller: both hosts were running the same three-step arithmetic
+        /// (<see cref="ColumnsFor"/> then <see cref="ColumnWidth"/> then <see cref="DetailFor"/>) and a fourth
+        /// input would have had to be threaded through both again.</param>
+        /// <param name="height">Content height in design units, which is what <see cref="HomeBoardView.Auto"/>
+        /// decides on. <see cref="float.PositiveInfinity"/> means "unbounded", so a caller that genuinely does
+        /// not know (a test arranging into a tall surface) never gets the table by accident.</param>
+        /// <param name="now">Resolves each card's flip countdown -- see <see cref="Card"/>.</param>
+        /// <param name="view">The user's choice from the header selector; Auto reacts to <paramref name="height"/>.</param>
+        /// <param name="onSelectView">Posts the header selector's choice, or null to draw no selector -- which
+        /// is what a caller that has nowhere to persist the choice should do.</param>
         public static Layout.Node Build(
             ImmutableArray<RigCard> cards,
             HomeBoardStyle style,
-            int columns,
-            Func<RigCard, Action<InputModifier>?>? onSelect = null) =>
-            Layout.Builder.VStack(
-                    Header(cards, style),
-                    Body(cards, style, columns, onSelect))
+            float width,
+            DateTimeOffset now,
+            float height = float.PositiveInfinity,
+            HomeBoardView view = HomeBoardView.Auto,
+            Func<RigCard, Action<InputModifier>?>? onSelect = null,
+            Func<HomeBoardView, Action<InputModifier>?>? onSelectView = null)
+        {
+            var cardArea = width - BodyPadding * 2f;
+            var columns = ColumnsFor(cardArea, cards.Length);
+
+            Layout.Node body;
+            var fellBack = false;
+
+            if (view is HomeBoardView.Table)
+            {
+                body = Table(cards, style, now, onSelect);
+            }
+            else
+            {
+                // Auto falls back to the table when the cards would not fit; an explicit Cards does not,
+                // because overriding a choice the user just made is worse than an overflowing board.
+                var cardsFitWithin = view is HomeBoardView.Auto
+                    ? height - HeaderHeight - BodyPadding * 2f
+                    : float.PositiveInfinity;
+
+                body = Body(cards, style, columns, now, DetailFor(ColumnWidth(cardArea, columns)), onSelect,
+                    cardsFitWithin, out fellBack);
+
+                if (fellBack)
+                {
+                    body = Table(cards, style, now, onSelect);
+                }
+            }
+
+            return Layout.Builder.VStack(
+                    Header(cards, style, view, fellBack, onSelectView),
+                    body)
                 .Bg(style.ContentBg);
+        }
 
         /// <summary>
         /// How many columns fit in <paramref name="availableWidthDesignUnits"/> (the content width less
@@ -121,14 +233,45 @@ namespace TianWen.UI.Abstractions
         /// and the layout engine has no notion of "as many columns as fit".
         /// </para>
         /// </summary>
-        public static int ColumnsFor(float availableWidthDesignUnits) =>
-            Math.Max(1, (int)((availableWidthDesignUnits + CardGap) / (MinCardWidth + CardGap)));
+        /// <param name="cardCount">
+        /// Caps the answer: <b>a board never has more columns than rigs.</b> Without this, a wide window
+        /// resolves to as many columns as physically fit -- 6 on a 200-column terminal -- so a four-rig board
+        /// is laid out in six, leaving two empty columns AND squeezing the four real cards below the width at
+        /// which they show full detail. The cards get narrower the wider the window is, which is precisely
+        /// backwards.
+        /// </param>
+        public static int ColumnsFor(float availableWidthDesignUnits, int cardCount) =>
+            Math.Clamp((int)((availableWidthDesignUnits + CardGap) / (MinCardWidth + CardGap)), 1, Math.Max(1, cardCount));
+
+        /// <summary>
+        /// How much of a card fits, from the width one column actually got.
+        /// <para>
+        /// Takes the resolved column width rather than the screen width, because that is what a card has to
+        /// live in: six rigs on a wide monitor give narrow columns and want the compact card, while one rig on
+        /// a small window gets a wide column and can afford everything.
+        /// </para>
+        /// </summary>
+        public static RigCardDetail DetailFor(float columnWidthDesignUnits) =>
+            columnWidthDesignUnits >= FullDetailCardWidth ? RigCardDetail.Full : RigCardDetail.Compact;
+
+        /// <summary>
+        /// The width one column gets, for feeding <see cref="DetailFor"/>. Mirrors how the grid divides the
+        /// card area, so the two cannot disagree about how wide a card is.
+        /// </summary>
+        public static float ColumnWidth(float availableWidthDesignUnits, int columns) =>
+            columns <= 0 ? availableWidthDesignUnits
+            : (availableWidthDesignUnits - CardGap * (columns - 1)) / columns;
 
         /// <summary>
         /// The header states the one fact the board exists for -- how many rigs are waiting on somebody -- so
         /// it reads without scanning the cards.
         /// </summary>
-        private static Layout.Node Header(ImmutableArray<RigCard> cards, HomeBoardStyle style)
+        /// <param name="fellBackToTable">Whether Auto overrode the cards this frame, so the header can SAY so.
+        /// A shape that changes under you with no explanation reads as a glitch; naming it turns the same
+        /// event into the nudge that the window is too small.</param>
+        private static Layout.Node Header(
+            ImmutableArray<RigCard> cards, HomeBoardStyle style, HomeBoardView view, bool fellBackToTable,
+            Func<HomeBoardView, Action<InputModifier>?>? onSelectView)
         {
             var waiting = 0;
             foreach (var card in cards)
@@ -140,19 +283,83 @@ namespace TianWen.UI.Abstractions
                 ? $"Home · {waiting} rig{(waiting == 1 ? "" : "s")} waiting on you"
                 : $"Home · {cards.Length} rig{(cards.Length == 1 ? "" : "s")}";
 
+            if (fellBackToTable)
+            {
+                label += " · table (window too small for cards)";
+            }
+
             // A leading spacer rather than padding on the text, so the bar's background stays full-bleed
             // while the label lines up with the cards inset below it.
-            return Layout.Builder.HStack(
-                    Layout.Builder.Spacer().WFixed(BodyPadding).HStar(),
-                    Layout.Builder.Text(label, BaseFontSize * 1.05f, style.HeaderText, TextAlign.Near, TextAlign.Center)
-                        .WStar().HStar())
+            var children = ImmutableArray.CreateBuilder<Layout.Node>(6);
+            children.Add(Layout.Builder.Spacer().WFixed(BodyPadding).HStar());
+            children.Add(Layout.Builder
+                .Text(label, BaseFontSize * 1.05f, style.HeaderText, TextAlign.Near, TextAlign.Center)
+                .WStar().HStar());
+
+            if (onSelectView is not null)
+            {
+                foreach (var option in ViewOptions)
+                {
+                    children.Add(ViewButton(option, view, style, onSelectView));
+                }
+
+                children.Add(Layout.Builder.Spacer().WFixed(BodyPadding).HStar());
+            }
+
+            return Layout.Builder.HStack([.. children])
                 .RowH(HeaderHeight)
+                .WithGap(4f)
                 .Bg(style.HeaderBg);
         }
 
-        private static Layout.Node Body(
-            ImmutableArray<RigCard> cards, HomeBoardStyle style, int columns,
-            Func<RigCard, Action<InputModifier>?>? onSelect)
+        /// <summary>Selector order, and the single list both the buttons and the tests read.</summary>
+        private static readonly ImmutableArray<HomeBoardView> ViewOptions =
+            [HomeBoardView.Auto, HomeBoardView.Cards, HomeBoardView.Table];
+
+        /// <summary>Width of one selector button. Fixed, so the label cannot squeeze the rig count out.</summary>
+        private const float ViewButtonWidth = 54f;
+
+        /// <summary>
+        /// One segmented-selector button. Segments rather than a dropdown: there are three, they are all
+        /// short, and the current one has to be readable at a glance from across the room -- a dropdown would
+        /// hide two of the three behind a click and still cost the same width.
+        /// </summary>
+        private static Layout.Node ViewButton(
+            HomeBoardView option, HomeBoardView selected, HomeBoardStyle style,
+            Func<HomeBoardView, Action<InputModifier>?> onSelectView)
+        {
+            var isSelected = option == selected;
+            var node = Layout.Builder
+                .Text(option.ToString(), BaseFontSize * 0.85f,
+                    isSelected ? style.BodyText : style.DimText, TextAlign.Center, TextAlign.Center)
+                .WFixed(ViewButtonWidth)
+                .RowH(HeaderHeight - 8f)
+                .Radius(4f)
+                .Clickable(new HitResult.ButtonHit($"HomeView:{option}"), onSelectView(option));
+
+            // Only the selected segment is filled; an unselected one is bare so the row reads as one control
+            // with a current value rather than three separate buttons.
+            return isSelected ? node.Bg(style.ViewedCardBg) : node;
+        }
+
+        /// <summary>
+        /// One row per rig: the same facts a card carries, laid out as columns.
+        /// <para>
+        /// Built from the same <see cref="RigCard"/> data by the same builder, so a fact added to the card is
+        /// added here too or the omission is visible in one file -- and both surfaces get the table with no
+        /// per-surface code, exactly as they get the cards.
+        /// </para>
+        /// <para>
+        /// Columns past the first two <see cref="Layout.Node.CollapseBelow"/> their minimum, so a narrow window
+        /// drops whole columns instead of truncating every cell into ambiguity. The prompt badge is NOT among
+        /// them: it is the one column that must survive any width.
+        /// </para>
+        /// </summary>
+        public static Layout.Node Table(
+            ImmutableArray<RigCard> cards,
+            HomeBoardStyle style,
+            DateTimeOffset now,
+            Func<RigCard, Action<InputModifier>?>? onSelect = null)
         {
             if (cards.IsDefaultOrEmpty)
             {
@@ -161,10 +368,156 @@ namespace TianWen.UI.Abstractions
                     .WStar().HStar();
             }
 
+            var rows = ImmutableArray.CreateBuilder<Layout.Node>(cards.Length + 1);
+            rows.Add(TableHeaderRow(style));
+
+            foreach (var card in cards)
+            {
+                rows.Add(TableRow(card, style, now, onSelect));
+            }
+
+            rows.Add(Layout.Builder.Spacer().HStar());
+
+            // WStar is not optional here: a Node's default Width is Sizing.Auto, and a VStack of rows whose
+            // cells are all Star measures to a near-zero intrinsic width. The table would then be handed
+            // almost no width, every column would fall under its collapse threshold, and the whole thing
+            // would arrange down to nothing but the min-clamped prompt badge.
+            return Layout.Builder.VStack([.. rows])
+                .WithGap(2f)
+                .Pad(BodyPadding)
+                .WStar()
+                .HStar();
+        }
+
+        // Which rig it is and what it is doing are the row; everything else is detail that may come off.
+        // Mandatory columns pass no threshold, so they cannot collapse -- see TableCell for why that matters
+        // more than it looks: the engine prunes every under-threshold child in ONE pass rather than dropping
+        // the least important first, so at a squeeze anything collapsible goes at once.
+        private static Layout.Node TableHeaderRow(HomeBoardStyle style) =>
+            Layout.Builder.HStack(
+                    Layout.Builder.Spacer().WFixed(DotSize),
+                    TableCell("Rig", style.DimText, 2f),
+                    TableCell("Profile", style.DimText, 1.5f, 90f),
+                    TableCell("Status", style.DimText, 2f),
+                    TableCell("Progress", style.DimText, 1.5f, 110f),
+                    TableCell("Cooling", style.DimText, 1.5f, 110f),
+                    TableCell("Flip", style.DimText, 1f, 70f),
+                    TableCell("RMS", style.DimText, 1f, 60f))
+                .RowH(DetailRowHeight)
+                .WithGap(8f);
+
+        private static Layout.Node TableRow(
+            RigCard card, HomeBoardStyle style, DateTimeOffset now,
+            Func<RigCard, Action<InputModifier>?>? onSelect)
+        {
+            var dot = !card.IsOnline ? style.OfflineDot : card.IsRunning ? style.RunningDot : style.OnlineDot;
+
+            // The badge replaces the two rightmost columns rather than adding a ninth: a waiting rig's flip
+            // countdown and guide RMS are not what you need from that row.
+            var tail = card.Prompt is { } prompt
+                ? (Layout.Builder
+                    .Text(prompt.Describe(), BaseFontSize * 0.8f, style.PromptText, TextAlign.Center, TextAlign.Center)
+                    .WStar(2f, 130f)
+                    .Bg(style.PromptBg)
+                    .Radius(4f), (Layout.Node?)null)
+                : (TableCell(card.TimeToMeridianFlip(now) is { } untilFlip
+                        ? LiveSessionActions.FormatDuration(untilFlip)
+                        : "", style.DimText, 1f, 70f),
+                   TableCell(card.GuideRmsArcsec is { } rms ? $"{rms:F2}\"" : "", style.DimText, 1f, 60f));
+
+            var cells = ImmutableArray.CreateBuilder<Layout.Node>(9);
+            cells.Add(Layout.Builder.Box(DotSize, DotSize, dot).WFixed(DotSize).HFixed(DotSize));
+            cells.Add(TableCell(card.Title, style.BodyText, 2f));
+            cells.Add(TableCell(card.Subtitle ?? "", style.DimText, 1.5f, 90f));
+            cells.Add(TableCell(card.Status, style.BodyText, 2f));
+            cells.Add(TableCell(card.Progress?.Describe() ?? "", style.DimText, 1.5f, 110f));
+            cells.Add(TableCell(card.Cooling is { } cooling ? cooling.Describe() : "", style.DimText, 1.5f, 110f));
+            cells.Add(tail.Item1);
+            if (tail.Item2 is { } rmsCell)
+            {
+                cells.Add(rmsCell);
+            }
+
+            return Layout.Builder.HStack([.. cells])
+                .RowH(TitleRowHeight)
+                .WithGap(8f)
+                .Clickable(new HitResult.ButtonHit($"HomeRig:{card.Title}"), onSelect?.Invoke(card));
+        }
+
+        /// <summary>
+        /// One table cell: a weighted column that collapses out entirely rather than truncating, so a narrow
+        /// window loses whole columns and the ones that remain stay readable.
+        /// </summary>
+        /// <param name="min">
+        /// The width below which the column comes off, or 0 for a column that must never come off.
+        /// <para>
+        /// Deliberately NOT also a Star minimum: a min-clamped Star holds its floor and lets the row overflow,
+        /// which would mean the collapse threshold could never be reached and every column would stay,
+        /// squeezed, past the edge of the screen. Leaving the Star free is what lets a column actually shrink
+        /// under the threshold and be dropped, handing its space to the columns that remain.
+        /// </para>
+        /// <para>
+        /// The engine drops <b>every</b> under-threshold child in one pass and then re-resolves, rather than
+        /// shedding the least important first -- so at a real squeeze everything collapsible goes together.
+        /// That is why the columns that carry the row's meaning take no threshold instead of a small one.
+        /// </para>
+        /// </param>
+        private static Layout.Node TableCell(string text, RGBAColor32 color, float weight, float min = 0f) =>
+            Layout.Builder
+                .Text(text, BaseFontSize * 0.85f, color, TextAlign.Near, TextAlign.Center)
+                .WStar(weight)
+                .HStar()
+                .CollapseBelow(min);
+
+        /// <param name="fitWithin">
+        /// Height the card grid must not exceed, or <see cref="float.PositiveInfinity"/> to never fall back.
+        /// Checked against the height the cards ACTUALLY came to rather than a worst-case constant, so a board
+        /// of quiet rigs keeps its cards in a window where a board of busy ones would not -- and there is no
+        /// second estimate of the card height to drift from the real one.
+        /// </param>
+        /// <param name="fellBackToTable">True when the grid did not fit and the caller should draw the table.</param>
+        private static Layout.Node Body(
+            ImmutableArray<RigCard> cards, HomeBoardStyle style, int columns,
+            DateTimeOffset now, RigCardDetail detail,
+            Func<RigCard, Action<InputModifier>?>? onSelect,
+            float fitWithin, out bool fellBackToTable)
+        {
+            fellBackToTable = false;
+
+            if (cards.IsDefaultOrEmpty)
+            {
+                return Layout.Builder
+                    .Text("No rigs yet.", BaseFontSize, style.EmptyText, TextAlign.Center, TextAlign.Center)
+                    .WStar().HStar();
+            }
+
+            // Every card gets the SAME box, sized to the busiest one. Cards are built first and measured
+            // second, so the height comes from the rows that were actually emitted rather than from a
+            // constant somebody has to remember to raise -- which is what used to clip the last row.
+            //
+            // One shared height rather than a per-card one is what keeps this a board: a grid row already
+            // equalises its own cards, so per-card heights would only show up as ragged row heights, and an
+            // idle rig's card would change size the moment its rig started a run. The cost is some empty
+            // space on quiet cards when one rig is busy, which is the right trade for a screen you scan.
+            var built = new (Layout.Node Node, float Height)[cards.Length];
+            var tallest = CardHeight;
+            for (var i = 0; i < cards.Length; i++)
+            {
+                built[i] = CardBody(cards[i], style, now, detail, onSelect);
+                tallest = Math.Max(tallest, built[i].Height);
+            }
+
+            var gridRows = (cards.Length + columns - 1) / Math.Max(1, columns);
+            if (gridRows * tallest + CardGap * Math.Max(0, gridRows - 1) > fitWithin)
+            {
+                fellBackToTable = true;
+                return Layout.Builder.Spacer();
+            }
+
             var cardNodes = new Layout.Node[cards.Length];
             for (var i = 0; i < cards.Length; i++)
             {
-                cardNodes[i] = Card(cards[i], style, onSelect);
+                cardNodes[i] = built[i].Node.RowH(tallest);
             }
 
             return Layout.Builder.VStack(
@@ -178,72 +531,164 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// One card: the rig, the profile it runs, a status line, then -- only while a run is live -- its
-        /// counters and target, and a prompt badge when one is outstanding.
+        /// One card: the rig, the profile it runs, a status line, then -- only while a run is live -- how far
+        /// through the night it is, and a prompt badge when one is outstanding.
+        /// <para>
+        /// <b>Every row past the first three is conditional on having something to say</b>, and the card's
+        /// height is the sum of the rows it actually built. That is why there is no constant here to keep in
+        /// step: adding a row cannot clip the card, and a rig with nothing to report does not reserve blank
+        /// space for rows it will never draw. <see cref="CardHeight"/> survives only as a floor, so a bare
+        /// card still looks like a card.
+        /// </para>
         /// </summary>
+        /// <param name="now">Resolves the flip countdown. Passed in rather than read from a clock so the tree
+        /// stays a pure function of its inputs and a test can assert a countdown without waiting for one --
+        /// and so the countdown is computed per FRAME rather than per telemetry poll, which is the whole
+        /// reason <see cref="RigCard.MeridianFlipUtc"/> is an instant.</param>
+        /// <param name="detail">How much to show. Only the two collapsible extras honour it.</param>
         public static Layout.Node Card(
             RigCard card,
             HomeBoardStyle style,
+            DateTimeOffset now,
+            RigCardDetail detail = RigCardDetail.Full,
             Func<RigCard, Action<InputModifier>?>? onSelect = null)
         {
-            var dot = !card.IsOnline ? style.OfflineDot : card.IsRunning ? style.RunningDot : style.OnlineDot;
-            var rows = ImmutableArray.CreateBuilder<Layout.Node>(6);
+            var (node, height) = CardBody(card, style, now, detail, onSelect);
+            return node.RowH(height);
+        }
 
-            rows.Add(Layout.Builder.HStack(
+        /// <summary>
+        /// The card, plus the height its rows came to. Split out so <see cref="Body"/> can size every card to
+        /// the tallest without a second function deciding which rows exist -- two such functions would drift
+        /// the first time a row was added to one of them.
+        /// </summary>
+        private static (Layout.Node Node, float Height) CardBody(
+            RigCard card,
+            HomeBoardStyle style,
+            DateTimeOffset now,
+            RigCardDetail detail,
+            Func<RigCard, Action<InputModifier>?>? onSelect)
+        {
+            var dot = !card.IsOnline ? style.OfflineDot : card.IsRunning ? style.RunningDot : style.OnlineDot;
+            var rows = ImmutableArray.CreateBuilder<Layout.Node>(11);
+            var contentHeight = 0f;
+
+            void Row(Layout.Node node, float height)
+            {
+                rows.Add(node.RowH(height));
+                contentHeight += height;
+            }
+
+            Row(Layout.Builder.HStack(
                     Layout.Builder.Text(card.Title, BaseFontSize * 1.05f, style.BodyText).WStar().HStar(),
                     Layout.Builder.Box(DotSize, DotSize, dot).WFixed(DotSize).HFixed(DotSize))
-                .RowH(18f).WithGap(6f));
+                .WithGap(6f), TitleRowHeight);
 
             // Title is the rig, subtitle is the profile it runs -- the field that tells two similar rigs
             // apart. "Profile unknown" is stated rather than left blank, so an unlabelled card reads as a rig
             // we have not asked yet rather than a rig with no profile.
-            rows.Add(Layout.Builder
-                .Text(card.Subtitle ?? "profile unknown", BaseFontSize * 0.85f, style.DimText)
-                .RowH(14f));
+            Row(Layout.Builder.Text(card.Subtitle ?? "profile unknown", BaseFontSize * 0.85f, style.DimText),
+                DetailRowHeight);
 
-            rows.Add(Layout.Builder.Text(card.Status, BaseFontSize * 0.9f, style.BodyText).RowH(16f));
+            Row(Layout.Builder.Text(card.Status, BaseFontSize * 0.9f, style.BodyText), StatusRowHeight);
+
+            // Cooling sits directly under the status because during setup it IS the status, and it is the one
+            // row that answers a question about a rig you are NOT looking at: is this one ready yet. Settled
+            // reads in full body text -- "done" is the thing you are scanning for -- while a ramp in progress
+            // stays dim like the other in-flight counters.
+            if (card.Cooling is { } cooling)
+            {
+                Row(Layout.Builder.Text($"❄ {cooling.Describe()}", BaseFontSize * 0.85f,
+                    cooling.IsSettled ? style.BodyText : style.DimText), DetailRowHeight);
+            }
+
+            if (card.IsRunning)
+            {
+                if (card.Progress is { } progress)
+                {
+                    Row(Layout.Builder.Text(progress.Describe(), BaseFontSize * 0.85f, style.DimText),
+                        DetailRowHeight);
+                }
+
+                if (card.Target is { Length: > 0 } target)
+                {
+                    Row(Layout.Builder.Text(target, BaseFontSize * 0.85f, style.DimText), DetailRowHeight);
+                }
+
+                // A flip interrupts imaging, so knowing one is minutes away changes whether you go to bed.
+                if (card.TimeToMeridianFlip(now) is { } untilFlip)
+                {
+                    Row(Layout.Builder.Text(
+                            $"flip in {LiveSessionActions.FormatDuration(untilFlip)}",
+                            BaseFontSize * 0.85f, style.DimText),
+                        DetailRowHeight);
+                }
+
+                if (DescribeStats(card, detail) is { } stats)
+                {
+                    Row(Layout.Builder.Text(stats, BaseFontSize * 0.85f, style.DimText), DetailRowHeight);
+                }
+            }
 
             // The plug row: dim when something is still unplugged, normal when the rig is fully connected, so
             // the card answers "did Connect All do anything" without reading the number.
             if (card.Devices is { } devices)
             {
-                rows.Add(Layout.Builder
-                    .Text(devices.Describe(), BaseFontSize * 0.85f,
-                        devices.AllConnected ? style.BodyText : style.DimText)
-                    .RowH(14f));
+                Row(Layout.Builder.Text(devices.Describe(), BaseFontSize * 0.85f,
+                    devices.AllConnected ? style.BodyText : style.DimText), DetailRowHeight);
             }
 
-            if (card.IsRunning)
+            // Last thing the rig said. Coloured by severity, because the reason to keep a line for this is
+            // the warning that would otherwise have been overwritten by the next activity string.
+            if (detail is RigCardDetail.Full && card.LastNote is { } note)
             {
-                var counters = card.GuideRmsArcsec is { } rms
-                    ? $"{card.FramesWritten} frames · RMS {rms:F2}\""
-                    : $"{card.FramesWritten} frames";
-                rows.Add(Layout.Builder.Text(counters, BaseFontSize * 0.85f, style.DimText).RowH(14f));
-
-                if (card.Target is { Length: > 0 } target)
+                var noteColor = note.Severity switch
                 {
-                    rows.Add(Layout.Builder.Text(target, BaseFontSize * 0.85f, style.DimText).RowH(14f));
-                }
+                    NotificationSeverity.Error => style.ErrorText,
+                    NotificationSeverity.Warning => style.WarnText,
+                    _ => style.DimText
+                };
+                Row(Layout.Builder.Text(note.Describe(), BaseFontSize * 0.8f, noteColor), DetailRowHeight);
             }
 
             if (card.Prompt is { } prompt)
             {
                 // The only thing on a card that is a call to action rather than a status, so it gets the one
                 // saturated colour on the screen.
-                rows.Add(Layout.Builder
-                    .Text(prompt.Describe(), BaseFontSize * 0.85f, style.PromptText, TextAlign.Center, TextAlign.Center)
-                    .RowH(18f)
-                    .Bg(style.PromptBg)
-                    .Radius(6f));
+                Row(Layout.Builder
+                        .Text(prompt.Describe(), BaseFontSize * 0.85f, style.PromptText, TextAlign.Center, TextAlign.Center)
+                        .Bg(style.PromptBg)
+                        .Radius(6f),
+                    TitleRowHeight);
             }
 
-            return Layout.Builder.VStack([.. rows])
-                .RowH(CardHeight)
-                .WithGap(3f)
+            var gaps = RowGap * Math.Max(0, rows.Count - 1);
+            var node = Layout.Builder.VStack([.. rows])
+                .WithGap(RowGap)
                 .Pad(CardPadding)
                 .Bg(card.IsViewed ? style.ViewedCardBg : style.CardBg)
                 .Radius(CardRadius)
                 .Clickable(new HitResult.ButtonHit($"HomeRig:{card.Title}"), onSelect?.Invoke(card));
+
+            return (node, Math.Max(CardHeight, contentHeight + gaps + CardPadding * 2f));
+        }
+
+        /// <summary>
+        /// The collapsible stats line: guide RMS, plus median HFD when the card is showing full detail. Null
+        /// when there is nothing measured to put on it.
+        /// </summary>
+        private static string? DescribeStats(RigCard card, RigCardDetail detail)
+        {
+            var rms = card.GuideRmsArcsec is { } r ? $"RMS {r:F2}\"" : null;
+            var hfd = detail is RigCardDetail.Full && card.MedianHfd is { } h ? $"HFD {h:F2}" : null;
+
+            return (rms, hfd) switch
+            {
+                ({ } a, { } b) => $"{a} · {b}",
+                ({ } a, null) => a,
+                (null, { } b) => b,
+                _ => null
+            };
         }
     }
 }

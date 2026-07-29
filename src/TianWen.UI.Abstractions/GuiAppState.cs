@@ -183,6 +183,13 @@ public class GuiAppState
     /// </summary>
     public ImmutableArray<RigCard> HomeCards { get; set; } = [];
 
+    /// <summary>
+    /// The shape the home board draws in, from its header selector. Defaults to
+    /// <see cref="HomeBoardView.Auto"/>, which is the only value that reacts to the window size -- picking
+    /// either other value is the user saying they would rather have that shape than have it chosen for them.
+    /// </summary>
+    public HomeBoardView HomeBoardView { get; set; } = HomeBoardView.Auto;
+
     /// <summary>Unread-count since the user last opened the Notifications tab.
     /// Reset to 0 when that tab becomes active.</summary>
     public int UnreadNotificationCount { get; set; }

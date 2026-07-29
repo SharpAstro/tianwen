@@ -593,13 +593,83 @@ wrong. The star-profile bitmap is a second, smaller payload on the same route.
 truth rather than "when this client noticed"; `GET /api/v1/session/profile` so a node can say which
 profile it runs at all (`ActiveProfileId` had no way out of the node, and `/profiles` lists what exists
 without saying which is live); and per-mirror poll backoff for a rig that is not answering. Everything
-below stands as the design record. **Not** part of it: multi-night progress (see "Leave room"), and a
-TUI equivalent -- the TUI keeps its own tab table and is untouched.
+below stands as the design record. **Not** part of it: multi-night progress (see "Leave room").
+
+**Landed after** (2026-07-29): a **TUI home board** (`TuiHomeTab`) rendering the *same*
+`HomeBoardLayout` tree with the same palette and the same `BuildCards` data -- the first tree genuinely
+shared across surface kinds, which only became possible once a design unit resolved per axis (DIR.Lib
+6.23) and the cell context could be told which convention a tree was authored in
+(`CellMeasureContext.PixelAuthored`). The original text here said a TUI equivalent was out of scope
+because "the TUI keeps its own tab table"; that is no longer true.
+
+Also landed after: the **card's session detail**, below.
 
 P4 binds many rigs but shows one at a time -- deliberately, because the overlay model says
 selecting a rig changes what you *look at*. A dashboard is N mirrors polled at once behind a
 compact per-rig card (rig name, the profile it is running, phase, target, frames, guide RMS, last
 notification, and an outstanding-prompt badge).
+
+**Card session detail -- SHIPPED (2026-07-29).** The first cut carried a status line, frames, RMS and
+the prompt badge, and "last notification" was on the list above but never landed -- the status line
+mirrors `CurrentActivity`, which is a different thing and is overwritten by every sub-step. Added, with
+the shape reasons that matter for anyone touching it:
+
+- **Progress is per TARGET** (`target 2/3 · frame 23/100`), not per session. A session total answers "has
+  it been busy"; a board is scanned for "is this one nearly done". The denominator needed
+  `ObservationDto.PlannedFrameCount` on the wire, and the mirror rebuilds its observations carrying that
+  total (a single passthrough `FilterExposure`) so `ScheduledObservation.PlannedFrameCount` answers the
+  same question locally and remotely -- one path, rather than a local branch and a wire branch. Frames
+  done is counted **backwards** from the log tail, so it costs O(this target's frames) on a path that
+  runs per card per frame. The denominator scales with the OTA count, because each OTA works the same
+  plan in parallel and the log counts all of them.
+- **Cooling is the row that justifies the screen during setup** (user, 2026-07-29): cooling several rigs
+  in parallel is dead time, and the question is which are *ready*. Reported for the camera **furthest**
+  from its setpoint -- a rig is ready when its last camera is. "Settled" is gated on the session's own
+  `Phase is not Cooling` **and** the arithmetic: the ramp's real completion test is cooler power plus a
+  consecutive-sample count (`CameraCoolingState`), which is not on the wire, so the 1 °C tolerance is
+  documented as a *display* threshold and the phase outranks it. Never report finished early.
+- **Time to meridian flip** is an **instant** on the wire (`SessionStateDto.MeridianFlipUtc`), never a
+  remaining duration -- the same rule as `RaisedUtc`. A duration is only true when computed, so on a rig
+  polled every 30 s a stored countdown moves in 30 s steps and reads as broken. The card subtracts at
+  render time, which is why `HomeBoardLayout.Build`/`Card` take a `now`. Computed by the *session*
+  (`MeridianFlipDecision.TimeUntilFlip`, stamped from the same HA read the flip decision uses, so the
+  countdown and the flip can never disagree) because the answer needs the flip config, the pier side and
+  the destination side -- none of which a remote observer has.
+- **The card is content-sized against one shared box.** Every row past the first three is conditional, the
+  card's height is the sum of the rows it built, and `Body` sizes every card to the tallest. `CardHeight`
+  survives only as a floor. A constant would clip: the full row set is ~215 units against the old 132, and
+  a clipped row is invisible in a build and looks like a missing feature on screen. One *shared* height
+  rather than per-card is what keeps it a board -- per-card heights show up as ragged rows, and an idle
+  rig's card would resize the moment its rig started a run.
+- **Collapse is two levels, not a priority list** (`RigCardDetail`, chosen from the resolved COLUMN width,
+  not the window's): Compact drops the note line and the HFD figure. Guide RMS stays -- a rig guiding
+  badly is something you act on.
+
+**Board shape -- SHIPPED (2026-07-29).** With the card grown, a small window could no longer hold it, so the
+board gained a second shape and a header selector (`HomeBoardView`: `Auto` / `Cards` / `Table`, user,
+2026-07-29). Three candidates were considered for the cramped case and the reasoning is the durable part:
+
+- **A stack of overlapping cards, auto-shuffling the interesting one forward.** Rejected: it hides rigs
+  behind other rigs, and the prompt badge is the one thing on this screen that must never be hidden. It is
+  what the board exists to answer, two rigs can be waiting at once so only one could be at the front, and
+  what you could see would depend on animation timing rather than on state.
+- **Half cards** (a third, denser `RigCardDetail`). Rejected as redundant once the table existed: a card
+  that keeps halving still pays a card's worth of chrome to say less than a row does.
+- **A table, one row per rig.** Taken. Four rigs is five rows against twenty for cards.
+
+The shared tree is not a casualty of this -- it is what makes it cheap. Both shapes are `Layout.Node`
+projections over the same `RigCard` data in `HomeBoardLayout`, so the table renders on the GPU tab and the
+TUI with no per-surface code, exactly as the cards do. A shared tree is a description language, not a fixed
+shape.
+
+Two behaviours worth keeping: **Auto names what it did** in the header ("table (window too small for
+cards)"), because a screen that silently becomes a different thing reads as a glitch while a labelled one is
+the nudge to enlarge the window; and **an explicit `Cards` is never overridden**, because second-guessing a
+choice the user just made is worse than an overflowing board.
+
+`Build` now takes the viewport rather than a pre-resolved column count -- both hosts had been running the
+same `ColumnsFor` -> `ColumnWidth` -> `DetailFor` arithmetic, and each new input had to be threaded through
+both again.
 
 Two card details are already settled. **Title is the rig, subtitle is the profile it runs** -- which
 makes the local node just another card rather than a special case, and puts the one field that
@@ -669,8 +739,9 @@ Vaonis smart-scope feature) is the intended neighbour, so the home screen answer
 happening *now* per rig, and what is accumulating *over time*. Tracked as the display half of
 [`docs/todo/sequencing.md`](../todo/sequencing.md) "Multi-night scheduling"; **not part of the dashboard
 change.** The layout consequence is concrete and worth getting right first time: build the rig section
-**content-sized** (a `Layout.Builder.WrapH` of cards) with a trailing `Spacer` absorbing the slack --
-NOT Star-sized to fill. A Star-sized section has to be reworked to add a second one, and every card
+**content-sized** with a trailing `Spacer` absorbing the slack -- NOT Star-sized to fill. (As shipped it
+is a `Grid(columns).WithAutoRows()`, not the `WrapH` sketched here: fixed-width cards in a flow leave
+ragged space at the right edge and do not line up as a board. The content-sized property is the same.) A Star-sized section has to be reworked to add a second one, and every card
 silently resizes when it is.
 
 `RemoteRigRegistry` already holds multiple connections and each `RemoteSessionMirror` polls

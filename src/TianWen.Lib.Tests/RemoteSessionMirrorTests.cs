@@ -741,6 +741,84 @@ public class RemoteSessionMirrorTests
         mirror.ActiveObservation.ShouldNotBeNull().Target.Name.ShouldBe("M42");
     }
 
+    [Fact]
+    public async Task TheFlipInstantAndTheLastNoteSurviveTheRoundTrip()
+    {
+        var flipDue = new DateTimeOffset(2026, 7, 26, 23, 12, 0, TimeSpan.Zero);
+        var session = Substitute.For<ISessionTelemetry>();
+        session.Phase.Returns(SessionPhase.Observing);
+        session.MountDisplayName.Returns("Fake Mount");
+        session.MeridianFlipUtc.Returns(flipDue);
+        session.MountState.Returns(new MountState(5.5, -5.0, -0.75, PointingState.Normal, false, true));
+        session.TelescopeDisplays.Returns([]);
+        session.CameraStates.Returns([]);
+        session.LastFrameMetrics.Returns([]);
+        session.Observations.Returns(new ScheduledObservationTree([]));
+        session.PhaseTimeline.Returns([]);
+        session.GuideSamples.Returns([]);
+
+        var note = new NotificationDto
+        {
+            Severity = "Warning",
+            Message = "Guide star lost, recovering",
+            TimestampUtc = new DateTimeOffset(2026, 7, 26, 22, 55, 0, TimeSpan.Zero),
+        };
+
+        var projected = SessionStateDto.FromSession(session, pendingPrompt: null, lastNotification: note);
+
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(projected)));
+        await using var _mirror = mirror;
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        // An INSTANT, unchanged by however long the poll took to arrive -- which is the whole reason a
+        // countdown is not what crosses the wire.
+        mirror.MeridianFlipUtc.ShouldBe(flipDue);
+
+        // The note rides on the state poll, so a board of six rigs costs no extra request per rig.
+        mirror.LastNotification.ShouldNotBeNull().Message.ShouldBe("Guide star lost, recovering");
+        mirror.LastNotification.ShouldNotBeNull().Severity.ShouldBe("Warning");
+    }
+
+    [Fact]
+    public async Task ThePlanFrameTotalCrossesSoProgressHasOnePathLocallyAndRemotely()
+    {
+        var session = Substitute.For<ISessionTelemetry>();
+        session.Phase.Returns(SessionPhase.Observing);
+        session.MountDisplayName.Returns("Fake Mount");
+        session.CurrentObservationIndex.Returns(0);
+        session.MountState.Returns(new MountState(5.5, -5.0, -0.75, PointingState.Normal, false, true));
+        session.TelescopeDisplays.Returns([]);
+        session.CameraStates.Returns([]);
+        session.LastFrameMetrics.Returns([]);
+        session.PhaseTimeline.Returns([]);
+        session.GuideSamples.Returns([]);
+        // Three filter entries: the per-filter breakdown does NOT cross, but the total must.
+        session.Observations.Returns(new ScheduledObservationTree(
+            [new ScheduledObservation(new Target(5.588, -5.39, "M42", null),
+                new DateTimeOffset(2026, 7, 26, 19, 45, 0, TimeSpan.Zero), TimeSpan.FromHours(1),
+                AcrossMeridian: false,
+                FilterPlan:
+                [
+                    new FilterExposure(0, TimeSpan.FromSeconds(300), 40),
+                    new FilterExposure(1, TimeSpan.FromSeconds(300), 35),
+                    new FilterExposure(2, TimeSpan.FromSeconds(300), 25),
+                ],
+                Gain: null, Offset: null)]));
+
+        var projected = SessionStateDto.FromSession(session);
+        projected.Observations[0].PlannedFrameCount.ShouldBe(100);
+
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(projected)));
+        await using var _mirror = mirror;
+
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        // PlannedFrameCount answers the same on the mirror as on the session, which is what lets the home
+        // card's progress row read one property instead of branching on local-vs-remote.
+        mirror.ActiveObservation.ShouldNotBeNull().PlannedFrameCount.ShouldBe(100);
+    }
+
     // -------------------------------------------------------------------------------------------
     // Event-stream URI derivation
     // -------------------------------------------------------------------------------------------

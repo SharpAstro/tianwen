@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Specialized;
@@ -321,6 +321,10 @@ internal partial record Session
         // A GEM flips at most once per target. Set after a successful (or detected) flip so the HA-window
         // decision can never re-fire for this observation — the backstop behind the destination-side gate.
         var hasFlipped = false;
+
+        // A pending flip belongs to the target that is crossing, so the countdown starts unknown for each
+        // observation and is only stamped once this loop actually reads HA below.
+        MeridianFlipUtc = null;
 
         // The meridian flip + pre-meridian obstruction pause are a GERMAN-equatorial concern ONLY: the GEM's
         // counterweight bar would collide with the pier if it tracked past the meridian on the same side.
@@ -736,6 +740,15 @@ internal partial record Session
                     {
                         flipAction = MeridianFlipDecision.DecideFlipAction(
                             currentHA, pierSideChanged, alreadyOnCorrectSide, hasFlipped, Configuration);
+
+                        // Published from the same HA reading the decision was taken on, so the countdown a
+                        // dashboard shows and the flip the loop performs can never disagree. Null once we
+                        // have flipped (or are already on the destination side): the countdown would
+                        // otherwise point at a flip that is never coming.
+                        MeridianFlipUtc = !hasFlipped && !alreadyOnCorrectSide
+                            && MeridianFlipDecision.TimeUntilFlip(currentHA, Configuration) is { } untilFlip
+                            ? _timeProvider.GetUtcNow() + untilFlip
+                            : null;
                     }
                 }
                 else if (!await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))

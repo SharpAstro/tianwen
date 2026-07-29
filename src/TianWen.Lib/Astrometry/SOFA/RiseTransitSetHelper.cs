@@ -18,8 +18,9 @@ public static class RiseTransitSetHelper
     private const double StandardHorizonAltitudeDeg = -34.0 / 60.0;
 
     // Mean sidereal-to-solar time ratio: LST advances 24h 3m 56.555s per 24h of UT.
-    // 1.00273790935 sidereal hours per mean solar hour.
-    private const double SiderealRate = 1.00273790935;
+    // 1.00273790935 sidereal hours per mean solar hour. Shared with the meridian-flip countdown, which
+    // converts the same way, so it lives with the other astronomical constants rather than here.
+    private const double SiderealRate = Constants.SIDEREAL_HOURS_PER_SOLAR_HOUR;
 
     /// <summary>
     /// Compute rise, transit, and set for a fixed RA/Dec at the given site.

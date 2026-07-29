@@ -693,7 +693,8 @@ namespace TianWen.UI.Gui
                     // Renders the board snapshot the telemetry poll published this frame. No context or rig
                     // registry is threaded in on purpose: the board must not be able to reach live session
                     // state, or a card could be painted from a session being updated underneath it.
-                    _homeTab.Render(appState, contentRect);
+                    // The clock is the app's, not the tab's -- it only resolves the flip countdown.
+                    _homeTab.Render(appState, contentRect, timeProvider.GetUtcNow());
                     break;
 
                 default:

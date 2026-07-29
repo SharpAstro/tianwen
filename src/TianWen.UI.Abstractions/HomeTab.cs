@@ -21,21 +21,34 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public class HomeTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
-        public void Render(GuiAppState appState, RectF32 contentRect)
+        /// <param name="now">Passed in rather than read from a clock here, so this tab has no time source of
+        /// its own to disagree with the rest of the app. It resolves the flip countdown, which is why it is
+        /// wanted per FRAME: the cards are rebuilt on the telemetry poll, and a countdown stored on one would
+        /// only move when the poll did.</param>
+        public void Render(GuiAppState appState, RectF32 contentRect, DateTimeOffset now)
         {
             // Drops last frame's clickable regions: the documented contract for a Render pass, and what every
             // other tab does.
             BeginFrame();
 
-            // How many columns fit is the one responsive decision, and it is a plain branch on this frame's
-            // width -- design units, since the layout engine re-applies DpiScale itself.
-            var designWidth = DpiScale > 0f ? contentRect.Width / DpiScale : contentRect.Width;
-            var columns = HomeBoardLayout.ColumnsFor(designWidth - HomeBoardLayout.BodyPadding * 2f);
+            // Design units, since the layout engine re-applies DpiScale itself. Columns, card detail and the
+            // cards-versus-table decision are all resolved inside Build from these two numbers -- the tab
+            // supplies the viewport and the user's choice, and decides nothing about shape itself.
+            var scale = DpiScale > 0f ? DpiScale : 1f;
 
             // The cards are built once per frame by the telemetry poll, so the tab neither reaches into the
             // rig registry nor decides when a card is stale.
-            RenderLayout(HomeBoardLayout.Build(appState.HomeCards, HomeBoardStyle.Default, columns, SelectAction), contentRect);
+            RenderLayout(
+                HomeBoardLayout.Build(
+                    appState.HomeCards, HomeBoardStyle.Default,
+                    contentRect.Width / scale, now, contentRect.Height / scale,
+                    appState.HomeBoardView, SelectAction, SelectViewAction),
+                contentRect);
         }
+
+        /// <summary>Posts the header selector's choice; the handler stores it and nothing else happens.</summary>
+        private Action<InputModifier>? SelectViewAction(HomeBoardView view) =>
+            _ => PostSignal(new SetHomeBoardViewSignal(view));
 
         /// <summary>
         /// Looking at a rig, not driving it. Local and remote go through the same two signals the profile

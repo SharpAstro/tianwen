@@ -88,9 +88,12 @@ internal sealed class TuiEquipmentTab(
     /// </summary>
     protected override Layout.Node BuildLayout() =>
         Layout.Builder.VStack(
+            // ColW, not WFixed: inside an HStack the cross axis is the HEIGHT, and WFixed leaves it Auto --
+            // which for a Fill leaf measures its MinHeight, i.e. zero. ColW is Width=Fixed + Height=Star,
+            // the HStack counterpart of RowH.
             Layout.Builder.HStack(
-                Layout.Builder.Fill(key: ProfilesKey).WFixed(24),
-                Layout.Builder.Fill(key: SettingsKey).WStar()).Stretch(),
+                Layout.Builder.Fill(key: ProfilesKey).ColW(24),
+                Layout.Builder.Fill(key: SettingsKey).Stretch()).Stretch(),
             Layout.Builder.Fill(key: SiteKey).RowH(1),
             Layout.Builder.Fill(key: StatusKey).RowH(1));
 
@@ -798,15 +801,14 @@ internal sealed class TuiEquipmentTab(
             });
     }
 
-    public override bool HandleInput(InputEvent evt)
-    {
+    protected override void HandleTabInput(InputEvent evt){
         if (evt is InputEvent.MouseUp(var mx, var my, MouseButton.Left))
         {
             if (Tracker.HitTestAndDispatch(mx, my) is not null)
             {
                 NeedsRedraw = true;
             }
-            return false;
+            return;
         }
 
         if (evt is InputEvent.Scroll(var delta, var wx, var wy, _))
@@ -816,21 +818,24 @@ internal sealed class TuiEquipmentTab(
             if (step == 0) step = delta > 0 ? 1 : -1;
             _ = RouteWheel(_profileList, step, (int)wx, (int)wy)
                 || RouteWheel(_settingsList, step, (int)wx, (int)wy);
-            return false;
+            return;
         }
 
         if (evt is not InputEvent.KeyDown(var key, var modifiers))
         {
-            return false;
+            return;
         }
 
-        // Site editing takes priority over all modes
+        // Site editing takes priority over all modes. The mode handlers' bool means "did I consume
+        // this" for the tab's own use and deliberately stops here -- see ITuiTab.HandleInput on why a tab
+        // cannot ask the app to exit.
         if (eqState.IsEditingSite)
         {
-            return HandleSiteEditInput(key, modifiers);
+            _ = HandleSiteEditInput(key, modifiers);
+            return;
         }
 
-        return _mode switch
+        _ = _mode switch
         {
             Mode.Browse => HandleBrowseInput(key, modifiers),
             Mode.Assignment => HandleAssignmentInput(key, modifiers),

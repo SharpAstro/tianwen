@@ -390,6 +390,13 @@ namespace TianWen.UI.Abstractions
                 appState.NeedsRedraw = true;
             });
 
+            // A display preference: no rig is touched, so there is nothing to persist, gate or notify about.
+            bus.Subscribe<SetHomeBoardViewSignal>(sig =>
+            {
+                appState.HomeBoardView = sig.View;
+                appState.NeedsRedraw = true;
+            });
+
             bus.Subscribe<ForgetRemoteRigSignal>(sig =>
             {
                 // Detach on the UI thread (so nothing renders a torn-down mirror) and dispose off it.

@@ -48,9 +48,11 @@ internal sealed class TuiSessionTab(
     /// </summary>
     protected override Layout.Node BuildLayout() =>
         Layout.Builder.VStack(
+            // Stretch / ColW, not WStar / WFixed: in an HStack the cross axis is the height, and a Fill leaf
+            // left on Auto height measures its MinHeight -- zero.
             Layout.Builder.HStack(
-                Layout.Builder.Fill(key: ConfigKey).WStar(),
-                Layout.Builder.Fill(key: RightKey).WFixed(44)).Stretch(),
+                Layout.Builder.Fill(key: ConfigKey).Stretch(),
+                Layout.Builder.Fill(key: RightKey).ColW(44)).Stretch(),
             Layout.Builder.Fill(key: StatusKey).RowH(1));
 
     protected override void PaintHost(string key, Rect<int> rect, bool geometryChanged)
@@ -209,8 +211,7 @@ internal sealed class TuiSessionTab(
         return false;
     }
 
-    public override bool HandleInput(InputEvent evt)
-    {
+    protected override void HandleTabInput(InputEvent evt){
         switch (evt)
         {
             case InputEvent.MouseUp(var x, var y, MouseButton.Left):
@@ -218,13 +219,16 @@ internal sealed class TuiSessionTab(
                 {
                     NeedsRedraw = true;
                 }
-                return false;
+                return;
 
             case InputEvent.KeyDown(var key, _):
-                return HandleKey(key);
+                // The helper bool means "did I consume this" for the tab's own use; it must not
+                // travel further -- see ITuiTab.HandleInput on why a tab cannot ask the app to exit.
+                _ = HandleKey(key);
+                break;
 
             default:
-                return false;
+                return;
         }
     }
 

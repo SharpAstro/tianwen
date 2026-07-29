@@ -76,6 +76,36 @@ public static class MeridianFlipDecision
     }
 
     /// <summary>
+    /// How long until the flip is due, from the current hour angle, or <see langword="null"/> when there is
+    /// nothing to count down to (HA unknown, or already at/past the earliest sanctioned flip point).
+    /// </summary>
+    /// <remarks>
+    /// The countdown runs to <see cref="SessionConfiguration.MeridianFlipEarliestMinutesAfter"/>, which is
+    /// when a flip is actually commanded. <b>Imaging may pause sooner than this</b>: with an obstruction
+    /// zone configured the loop stops exposing at
+    /// <c>-MeridianFlipObstructionZoneMinutesBefore</c> and waits, so on such a rig this is the time to the
+    /// flip and not the time to the interruption.
+    /// <para>
+    /// HA advances at the <i>sidereal</i> rate, so the remaining hour angle is divided by
+    /// <c>SIDEREAL_HOURS_PER_SOLAR_HOUR</c> to give a wall-clock wait. Over a 6-hour countdown, treating
+    /// the two as equal would be about a minute out -- immaterial for a dashboard, but the conversion is
+    /// one divide and the constant already exists.
+    /// </para>
+    /// </remarks>
+    public static TimeSpan? TimeUntilFlip(double hourAngleHours, SessionConfiguration config)
+    {
+        if (double.IsNaN(hourAngleHours))
+        {
+            return null;
+        }
+
+        var remainingSiderealMinutes = config.MeridianFlipEarliestMinutesAfter - hourAngleHours * 60.0;
+        return remainingSiderealMinutes > 0
+            ? TimeSpan.FromMinutes(remainingSiderealMinutes / Astrometry.Constants.SIDEREAL_HOURS_PER_SOLAR_HOUR)
+            : null;
+    }
+
+    /// <summary>
     /// Decide what the imaging loop should do this tick given the observed mount state.
     /// </summary>
     /// <param name="hourAngleHours">Current HA, signed hours.</param>

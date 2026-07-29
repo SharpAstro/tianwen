@@ -67,9 +67,12 @@ internal sealed class TuiPlannerTab(
     protected override Layout.Node BuildLayout() =>
         Layout.Builder.VStack(
             Layout.Builder.Fill(key: TopKey).RowH(1),
+            // ColW (Width=Fixed, Height=Star), not WFixed: in an HStack the cross axis is the height, and a
+            // Fill leaf on Auto height measures its MinHeight -- zero. That left the chart canvas zero rows
+            // tall, so it allocated no Sixel buffer and drew nothing.
             Layout.Builder.HStack(
-                Layout.Builder.Fill(key: ListKey).WFixed(32),
-                Layout.Builder.Fill(key: CanvasKey).WStar()).Stretch(),
+                Layout.Builder.Fill(key: ListKey).ColW(32),
+                Layout.Builder.Fill(key: CanvasKey).Stretch()).Stretch(),
             Layout.Builder.Fill(key: DetailKey).RowH(8),
             Layout.Builder.Fill(key: StatusKey).RowH(1));
 
@@ -255,8 +258,7 @@ internal sealed class TuiPlannerTab(
         return false;
     }
 
-    public override bool HandleInput(InputEvent evt)
-    {
+    protected override void HandleTabInput(InputEvent evt){
         switch (evt)
         {
             case InputEvent.MouseUp(var x, var y, MouseButton.Left):
@@ -280,7 +282,7 @@ internal sealed class TuiPlannerTab(
                 {
                     NeedsRedraw = true;
                 }
-                return false;
+                return;
             }
 
             case InputEvent.Scroll(var delta, _, _, _):
@@ -289,7 +291,7 @@ internal sealed class TuiPlannerTab(
                 plannerState.SelectedTargetIndex = Math.Clamp(
                     plannerState.SelectedTargetIndex + scrollStep, 0, scrollTargets.Count - 1);
                 NeedsRedraw = true;
-                return false;
+                return;
 
             case InputEvent.KeyDown(var key, var modifiers):
                 if (plannerState.StatusMessage is not null)
@@ -302,7 +304,7 @@ internal sealed class TuiPlannerTab(
                 if (PlannerActions.HandleSliderKeyboard(plannerState, key, modifiers))
                 {
                     NeedsRedraw = true;
-                    return false;
+                    return;
                 }
 
                 var filtered = PlannerActions.GetFilteredTargets(plannerState);
@@ -314,7 +316,7 @@ internal sealed class TuiPlannerTab(
                             plannerState.SelectedTargetIndex--;
                             NeedsRedraw = true;
                         }
-                        return false;
+                        return;
 
                     case InputKey.Down:
                         if (plannerState.SelectedTargetIndex < filtered.Count - 1)
@@ -322,7 +324,7 @@ internal sealed class TuiPlannerTab(
                             plannerState.SelectedTargetIndex++;
                             NeedsRedraw = true;
                         }
-                        return false;
+                        return;
 
                     case InputKey.Enter:
                         if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < filtered.Count)
@@ -332,7 +334,7 @@ internal sealed class TuiPlannerTab(
                             PlannerActions.ToggleProposal(plannerState, filtered[plannerState.SelectedTargetIndex].Target, followPinnedSelection: true);
                             NeedsRedraw = true;
                         }
-                        return false;
+                        return;
 
                     case InputKey.P:
                         if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < filtered.Count)
@@ -344,13 +346,13 @@ internal sealed class TuiPlannerTab(
                                 NeedsRedraw = true;
                             }
                         }
-                        return false;
+                        return;
 
                 }
                 break;
         }
 
-        return false;
+        return;
     }
 
 }

@@ -278,6 +278,60 @@ reads `LiveSessionState`, which can lag during the guide loop; per-frame guide s
 HA, and pier side come from `%LOCALAPPDATA%/TianWen/Logs/<date>/GUI_*.log`. The describe path is the right
 tool for orchestration and coarse state; the log is the source of truth for what the drivers actually did.
 
+### Driving the TUI unattended (the terminal inspector)
+
+The TUI has the same treatment, via `ConsoleDebugInspector` (Console.Lib 4.3+) on the same
+`DIR.Lib.Diagnostics.DebugInspectorCore` transport the GPU inspector now uses, with the
+`Console.Lib.Inspector` MCP sidecar in `.mcp.json` alongside `sdl-ui-inspector`. Wired in
+`TuiSubCommand.RunTuiAsync`, `Pump()`ed once per loop iteration.
+
+**A terminal reads back as TEXT, which is the one thing a GPU surface cannot offer.** `screen` / `row` /
+`cell` report the **front** cell buffer -- what was actually emitted, not a parallel model that can drift
+-- so an assertion is words ("row 4 is `Guider  Built-in Guider`", "the board header says `table (window
+too small for cards)`") instead of a screenshot to eyeball. `cell` adds the resolved pen, which is how a
+colour bug gets caught at all: a glyph that is present but drawn `#000000` on `#000000` is invisible on
+screen yet indistinguishable from a correct one in the text dump. `appState` is the curated snapshot
+(hand-written JSON -- `Utf8JsonWriter`, never a reflective overload, since an AOT consumer disables
+reflective JSON), named to match the GUI's fields wherever they mean the same thing. `inputLog` is the
+event trace, written **before** dispatch so a swallowed event still appears.
+
+One gotcha: the modifier parameter is **`mods`** (`"Ctrl"`, `"ctrl+shift"`), not a `ctrl` boolean, and the
+verb echoes what it resolved -- a dropped chord is otherwise invisible, since bare `G` is usually a
+different valid binding.
+
+**The diffing cell buffer is ON unconditionally** (Console.Lib 4.7): a clock tick emits ONE cell (pinned by
+`TuiTabBarTests.AClockTick_EmitsOnlyTheFlippedDigits`, which drives the REAL bar into a real `CellBuffer`),
+and the old DEC-2026 synchronized-output wrapper is gone -- it only ever hid the full-row repaint the buffer
+now prevents. Getting there surfaced five bugs whose lessons are pinned in tests; the shapes to not
+reintroduce:
+
+- **Never rely on leftover SGR state.** Text used to be painted foreground-only ("the cells keep whatever
+  Background was painted underneath") and unselected TUI rows emitted no style at all -- both invisible on a
+  live terminal, both wrong the moment a cell buffer must name a colour per cell. `CellLayout` now resolves
+  a text cell's background from the TREE (a depth-keyed stack of enclosing backgrounds); every
+  `EquipmentFieldItem` row states its own pen (`StyleRow`). An UNSTATED colour is alpha-zero -> SGR 39/49
+  (the terminal's default), never black -- a terminal cell does not composite, so alpha 0 cannot mean
+  "transparent".
+- **Attributes must be stated in both directions.** The cell sink emitted `ReverseOn` and never
+  `ReverseOff`, so one reversed cell (a text cursor) inverted everything painted after it.
+- **A cursor move must not flush, and moves ride the same byte stream as the glyphs.**
+  `TerminalViewport.SetCursorPosition` used to call `parent.Flush()` per move -- on a buffered terminal that
+  ships the HALF-PAINTED diff (blanks over the old text, then labels one by one), which was the
+  once-per-second top-bar flicker; only the frame's owner flushes (`TuiSubCommand`'s render `finally`).
+  And the sink moves via a CUP escape, not Win32 `SetCursorPosition` -- one ordered sequence, one delivery
+  mechanism.
+- **Diagnose repaints from the log, not the screen.** The TUI logs `TUI paint: N frames, M cells (K opaque)`
+  once a second (totals diffed across the interval -- a per-LAST-flush read is how the mid-paint flush bug
+  hid from the first version of this accounting), plus the exact emitted runs in Debug
+  (`CellBuffer.CollectFlushDiagnostics`). Steady state is ~1 cell/tick; a high opaque share means an
+  unmodelled SGR is bypassing the diff, not that the diff is doing badly.
+
+Sixel composes with the buffer: `Canvas` declares its region via `BeginRawOutput` / `MarkRawRegion`,
+verified on the Guider tab (every sampled canvas cell reports `kind=Image`, so the diff breaks its runs
+around the picture instead of blanking it). Ctrl+H also works now -- Console.Lib's byte table special-cased
+`0x08` as Backspace, shadowing the general `0x01..0x1A -> letter+Ctrl` rule (the Backspace KEY sends DEL
+0x7F), so Ctrl+H was the one unbindable letter.
+
 ## Coding Style
 
 Enforced via `.editorconfig`:
@@ -1175,9 +1229,11 @@ connected or running, or where drivers would strand in the hub.
 
 **The Home tab** (`GuiTab.Home`, 🏠 `U+1F3E0`, `Ctrl+H`, **first** in `TabOrder`): the multi-rig
 dashboard, and the app's landing screen. Every rig you can look at, local and remote, titled by the rig
-with the profile it runs underneath, plus phase / target / frames / guide RMS and an outstanding-prompt
-badge (the badge is most of the justification -- a prompt blocks a rig *indefinitely* and was otherwise
-visible only on the rig you happen to have selected).
+with the profile it runs underneath, plus phase / progress / cooling / flip countdown / guide RMS / HFD /
+last notification and an outstanding-prompt badge (the badge is most of the justification -- a prompt
+blocks a rig *indefinitely* and was otherwise visible only on the rig you happen to have selected). The
+**TUI renders the same tree** (`TuiHomeTab`, `CellMeasureContext.PixelAuthored`) -- the one tree shared
+across surface kinds, so a change to the card lands on both surfaces or neither.
 
 - **`HomeBoard.BuildCards` is the pure projection; `HomeTab<TSurface>` only draws.** The tab renders the
   `ImmutableArray<RigCard>` snapshot published on `GuiAppState.HomeCards` and never touches
@@ -1190,9 +1246,53 @@ visible only on the rig you happen to have selected).
   and the board is **not** added to that method's `ActiveTab` gate (which exists to guard polling
   already-connected *drivers*). Previews stay **off** -- N mirrors each pulling JPEGs is the failure mode
   `RemoteSessionMirror.Previews` was made opt-in for.
-- **The rig section is content-sized** (a `Layout.Builder.WrapH` plus a trailing `Spacer`), never
+- **The rig section is content-sized** (a `Grid(columns).WithAutoRows()` plus a trailing `Spacer`), never
   Star-filled, because multi-night progress is the intended neighbour on that screen and a Star-sized
-  section would have to be reworked to admit it.
+  section would have to be reworked to admit it. A grid rather than a `WrapH` flow because fixed-width
+  cards in a flow leave ragged right-edge space and do not line up as a board.
+- **A card is as tall as the rows it built, and every card shares the tallest one's box.** Rows past the
+  first three are all conditional, so `CardHeight` is a **floor**, not the height -- it used to be exact
+  and had to be raised by hand whenever a row was added, which silently clipped the last row when it was
+  not. One shared height (computed in `Body`, not per card) is what keeps it a board: per-card heights
+  read as ragged rows, and an idle rig's card would resize the moment its rig started a run.
+- **The flip countdown is an instant, resolved at render time.** `ISessionTelemetry.MeridianFlipUtc` →
+  `SessionStateDto.MeridianFlipUtc` → `RigCard.TimeToMeridianFlip(now)`, which is why `HomeBoardLayout`
+  takes a `now`. Same rule as the prompt's `RaisedUtc`, for the same reason: a stored duration is only
+  true when it was computed, so on a rig polled every 30 s it steps in 30 s jumps and reads as broken.
+  The session computes it (`MeridianFlipDecision.TimeUntilFlip`, stamped from the same HA read the flip
+  decision uses) because the answer needs the flip config and the destination pier side.
+- **Cooling reports the camera furthest from setpoint, and "settled" is gated on the session's phase.**
+  A rig is ready when its *last* camera is. The ramp's real completion test is cooler power plus a
+  consecutive-sample count (`CameraCoolingState`) and is **not** on the wire, so the 1 °C figure in
+  `RigCardCooling.SetpointToleranceC` is a display threshold and `Phase is Cooling` overrides it --
+  reporting "finished" early is the one thing this row must not do.
+- **Progress is per target, and `PlannedFrameCount` is why it has one path.** `target 2/3 · frame 23/100`
+  needs a denominator, so `ObservationDto.PlannedFrameCount` crosses the wire and
+  `RemoteSessionMirror.ToScheduled` rebuilds the plan carrying that total -- so
+  `ScheduledObservation.PlannedFrameCount` answers identically for a local session and a mirror instead of
+  the card branching on which it is. Frames-done counts **backwards** from the exposure-log tail (the run
+  images one target at a time, so they are the tail) because this runs per card per frame.
+- **Two shapes, selected in the header** (`HomeBoardView`: `Auto` / `Cards` / `Table`, posted as
+  `SetHomeBoardViewSignal`). Auto is the default and the only value that reacts to the window: it swaps the
+  cards for a one-row-per-rig table when the grid would not fit, and the header **says why** ("window too
+  small for cards") -- a shape that changes with no explanation reads as a glitch, whereas a named one is
+  the nudge to enlarge. An explicit Cards is never second-guessed. The rejected alternative was a stack of
+  overlapping cards: it hides rigs behind other rigs, and the prompt badge is the one thing that must never
+  be hidden (two rigs can be waiting, so only one could be at the front). Both shapes are `Layout.Node`
+  projections over the same `RigCard` data in `HomeBoardLayout`, so the shared tree costs nothing here --
+  it is a description language, not a fixed shape, and both surfaces get the table for free.
+- **`Build` takes the viewport, not a resolved column count.** Columns, card detail and cards-vs-table are
+  all decided inside it; both hosts previously ran the same `ColumnsFor` -> `ColumnWidth` -> `DetailFor`
+  arithmetic, and every new input had to be threaded through both again.
+- **`ColumnsFor` clamps to the rig count.** Without it a 200-column terminal resolves to six columns for
+  four rigs: two empty, and the four real cards squeezed under `FullDetailCardWidth` -- so the cards got
+  *narrower the wider the window was*.
+- **Two layout-engine traps this surface hit, both silent.** A `Node`'s default `Width` is `Sizing.Auto`,
+  so a container whose children are all Star measures to a near-zero intrinsic width and arranges to
+  nothing -- the table needs an explicit `.WStar()`. And `.CollapseBelow(u)` must **not** be paired with a
+  Star *minimum* on the same node: a min-clamped Star holds its floor and overflows, so the threshold is
+  never reached. The engine also prunes every under-threshold child in ONE pass rather than shedding the
+  least important first, so a column that must survive takes **no** threshold rather than a small one.
 - **A prompt's age is the raising node's truth.** `SessionPromptEventArgs.RaisedUtc` /
   `PendingPromptDto.RaisedUtc` (nullable, and deliberately **not** `required` -- a nullable wire member
   that is also required cannot round-trip). Never substitute "when this client first saw it": that dates

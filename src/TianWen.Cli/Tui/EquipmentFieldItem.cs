@@ -1,4 +1,4 @@
-using Console.Lib;
+﻿using Console.Lib;
 using DIR.Lib;
 using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
@@ -230,13 +230,10 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         // happen AFTER padding -- otherwise the visible row ends short by the outer
         // style's byte count and stale content from the previous frame peeks through
         // at the far right of the viewport (the "ghost [>]" bug).
+        // Wrapped in the row's OWN style either way -- see StyleRow for why an unstyled row was a bug. The
+        // style is stated here rather than via StyleRow because the segments above already had to restore it.
         var padded = line.PadRight(width + VisibleOverhead(line));
-        if (isSelected)
-        {
-            return $"{outerStyle.Apply(colorMode)}{padded}{VtStyle.Reset}";
-        }
-
-        return padded;
+        return $"{outerStyle.Apply(colorMode)}{padded}{VtStyle.Reset}";
     }
 
     /// <summary>
@@ -269,6 +266,26 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         return overhead;
     }
 
+    /// <summary>
+    /// Wraps an already-padded row in its own style. The selected row is white on blue; every other row
+    /// states plain white on black rather than emitting nothing.
+    /// <para>
+    /// <b>An unselected row used to return unstyled, and that was a latent bug in every formatter.</b> It
+    /// inherited whatever SGR state the row above left behind, which usually looked right by luck -- and
+    /// where the row above ended on a <see cref="VtStyle.Reset"/> (the selected row, a section header) the
+    /// row inherited the terminal's DEFAULT pen, which is light grey and so still looked right. Under a
+    /// diffing cell buffer that inheritance records a cell with no colour at all, and those rows painted as
+    /// empty gaps. A row's colour is a property of the row, not of its neighbour.
+    /// </para>
+    /// </summary>
+    private static string StyleRow(string padded, ColorMode colorMode, bool isSelected)
+    {
+        var style = isSelected
+            ? new VtStyle(SgrColor.BrightWhite, SgrColor.Blue)
+            : new VtStyle(SgrColor.White, SgrColor.Black);
+        return $"{style.Apply(colorMode)}{padded}{VtStyle.Reset}";
+    }
+
     private string FormatFilterRow(int width, ColorMode colorMode, bool isSelected)
     {
         var offsetStr = FilterOffset >= 0 ? $"+{FilterOffset}" : $"{FilterOffset}";
@@ -279,13 +296,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
             line = line[..width];
         }
 
-        if (isSelected)
-        {
-            var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
-            return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
-        }
-
-        return line.PadRight(width);
+        return StyleRow(line.PadRight(width), colorMode, isSelected);
     }
 
     private string FormatPropertyRow(int width, ColorMode colorMode, bool isSelected)
@@ -303,13 +314,7 @@ internal sealed class EquipmentFieldItem : IRowFormatter
             line = line[..width];
         }
 
-        if (isSelected)
-        {
-            var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
-            return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
-        }
-
-        return line.PadRight(width);
+        return StyleRow(line.PadRight(width), colorMode, isSelected);
     }
 
     private string FormatSettingRow(DeviceSettingDescriptor setting, int width, ColorMode colorMode, bool isSelected)
@@ -335,12 +340,6 @@ internal sealed class EquipmentFieldItem : IRowFormatter
             line = line[..width];
         }
 
-        if (isSelected)
-        {
-            var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
-            return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
-        }
-
-        return line.PadRight(width);
+        return StyleRow(line.PadRight(width), colorMode, isSelected);
     }
 }

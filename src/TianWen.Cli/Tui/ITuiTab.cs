@@ -23,9 +23,16 @@ internal interface ITuiTab
     void Render();
 
     /// <summary>
-    /// Handles an input event. Returns true if the TUI should quit.
+    /// Handles an input event.
+    /// <para>
+    /// <b>A tab cannot ask the app to exit.</b> This used to return "true = quit", which no tab ever
+    /// actually used -- every one returned false and the quit keys are the app loop's own business. Its only
+    /// live effect was that a tab returning a perfectly reasonable "yes, I handled that" exited the TUI,
+    /// which is what clicking a home-screen card did. That matters more than tidiness here: quitting takes
+    /// no care of the hardware, so an accidental exit can drop a cooled camera without a thermal ramp.
+    /// </para>
     /// </summary>
-    bool HandleInput(InputEvent evt);
+    void HandleInput(InputEvent evt);
 
     /// <summary>
     /// Routes a raw Console.Lib <see cref="MouseEvent"/> to the tab before it's mapped

@@ -59,6 +59,12 @@ builder.Services
     .AddDevices()
     .AddSessionFactory()
     .AddFitsViewer()
+    // Required by the shared AppSignalHandler, which resolves it in its CONSTRUCTOR (unlike its other
+    // dependencies, which resolve lazily inside subscribe lambdas) -- so a host missing it cannot start
+    // the TUI at all. The TUI has no planetary tab, but the controller does nothing until a capture
+    // begins, so registering it costs nothing and keeps the handler host-agnostic. Same reason the TUI
+    // hands the handler a standalone SkyMapState: supply what it needs rather than branch inside it.
+    .AddSingleton<PlanetaryCaptureController>()
     // RC-preferred: uses RC-Astro (sxt/nxt/bxt) when the CLI is installed and the
     // product is licensed, else falls back to the SETI Astro ONNX enhancers.
     // AddRcAstroAi() calls AddTianWenAi() internally, so the SAS baseline stands.
