@@ -87,7 +87,7 @@ internal class PlanSubCommand(
         for (var i = 0; i < Math.Min(plannerState.TonightsBest.Length, maxLines); i++)
         {
             var s = plannerState.TonightsBest[i];
-            var pin = plannerState.Proposals.Any(p => p.Target == s.Target) ? "\u2605" : "";
+            var pin = PlannerActions.IsProposed(plannerState.Proposals, s.Target) ? "\u2605" : "";
             var objType = s.ObjectType.ToAbbreviation();
             var window = $"{s.OptimalStart.ToOffset(plannerState.SiteTimeZone):HH:mm}-{(s.OptimalStart + s.OptimalDuration).ToOffset(plannerState.SiteTimeZone):HH:mm}";
             var rating = PlannerActions.ScoreToRating(s.CombinedScore, maxScore);
@@ -140,26 +140,28 @@ internal class PlanSubCommand(
         }
 
         consoleHost.WriteScrollable("Proposed observations:");
-        var pinnedCount = plannerState.PinnedCount;
-        for (var i = 0; i < pinnedCount; i++)
-        {
-            var target = plannerState.Proposals[i].Target;
-            var scored = plannerState.TonightsBest.FirstOrDefault(t => t.Target == target);
-            if (scored is { Target: not null })
-            {
-                var start = i == 0 ? plannerState.AstroDark
-                    : i - 1 < plannerState.HandoffSliders.Length ? plannerState.HandoffSliders[i - 1] : scored.OptimalStart;
-                var end = i >= pinnedCount - 1 || i >= plannerState.HandoffSliders.Length
-                    ? plannerState.AstroTwilight : plannerState.HandoffSliders[i];
-                var duration = end - start;
-                var durationStr = duration.TotalHours >= 1.0
-                    ? $"{(int)duration.TotalHours}h {duration.Minutes:D2}m"
-                    : $"{(int)duration.TotalMinutes}m";
-                var startStr = start.ToOffset(plannerState.SiteTimeZone).ToString("HH:mm");
-                var endStr = end.ToOffset(plannerState.SiteTimeZone).ToString("HH:mm");
 
-                consoleHost.WriteScrollable($"  {i + 1}. {startStr}-{endStr}  {target.Name,-22} ({durationStr}, peak {scored.OptimalAltitude:F0}\u00b0)");
-            }
+        // Read the pinned section of the filtered list rather than re-resolving each proposal against
+        // TonightsBest: that list is one already-resolved row per proposal (PlannerActions guarantees
+        // it), whereas a private lookup silently omitted anything the scheduler does not sweep -- a
+        // pinned planet printed as nothing at all.
+        var filtered = PlannerActions.GetFilteredTargets(plannerState);
+        var pinnedCount = plannerState.PinnedCount;
+        for (var i = 0; i < pinnedCount && i < filtered.Count; i++)
+        {
+            var scored = filtered[i];
+            var start = i == 0 ? plannerState.AstroDark
+                : i - 1 < plannerState.HandoffSliders.Length ? plannerState.HandoffSliders[i - 1] : scored.OptimalStart;
+            var end = i >= pinnedCount - 1 || i >= plannerState.HandoffSliders.Length
+                ? plannerState.AstroTwilight : plannerState.HandoffSliders[i];
+            var duration = end - start;
+            var durationStr = duration.TotalHours >= 1.0
+                ? $"{(int)duration.TotalHours}h {duration.Minutes:D2}m"
+                : $"{(int)duration.TotalMinutes}m";
+            var startStr = start.ToOffset(plannerState.SiteTimeZone).ToString("HH:mm");
+            var endStr = end.ToOffset(plannerState.SiteTimeZone).ToString("HH:mm");
+
+            consoleHost.WriteScrollable($"  {i + 1}. {startStr}-{endStr}  {scored.Target.Name,-22} ({durationStr}, peak {scored.OptimalAltitude:F0}\u00b0)");
         }
     }
 
@@ -251,7 +253,7 @@ internal class PlanSubCommand(
         }
 
         var scored = targets[idx];
-        var isPinned = plannerState.Proposals.Any(p => p.Target == scored.Target);
+        var isPinned = PlannerActions.IsProposed(plannerState.Proposals, scored.Target);
         var pin = isPinned ? "\u2605" : " ";
         var coordLine = $"  {PlannerDetails.FormatCoordinateLine(plannerState, scored)}";
 
@@ -299,7 +301,7 @@ internal class PlanSubCommand(
                         if (plannerState.SelectedTargetIndex >= 0 && plannerState.SelectedTargetIndex < plannerState.TonightsBest.Length)
                         {
                             var target = plannerState.TonightsBest[plannerState.SelectedTargetIndex].Target;
-                            var wasPinned = plannerState.Proposals.Any(p => p.Target == target);
+                            var wasPinned = PlannerActions.IsProposed(plannerState.Proposals, target);
                             PlannerActions.ToggleProposal(plannerState, target);
                             var action = wasPinned ? "-" : "+";
                             consoleHost.WriteScrollable($"  {action} {target.Name} ({plannerState.Proposals.Length} proposed)");
