@@ -101,6 +101,31 @@ internal sealed class EquipmentFieldItem : IRowFormatter
     /// <summary>Action label (e.g. "+ Add OTA").</summary>
     public string? ActionLabel { get; init; }
 
+    /// <summary>The delete affordance an OTA header carries, and its width in columns.</summary>
+    public const string DeleteActionLabel = "[X]";
+
+    /// <summary>Section-header text without any action suffix.</summary>
+    private static string HeaderText(string sectionName) => $"\u2500\u2500 {sectionName} \u2500\u2500";
+
+    /// <summary>
+    /// The columns <see cref="DeleteActionLabel"/> occupies on this OTA header's row, so the click
+    /// region is derived from the SAME arithmetic that draws it (the row is a formatted string, not a
+    /// layout tree, so there is no arranged rect to bind to -- this static is the substitute for
+    /// draw==hit by construction).
+    /// <para>
+    /// Deliberately anchored one space after the title rather than right-aligned to the row's edge:
+    /// the row's usable width belongs to <c>ScrollableList</c> (it hands the formatter <c>width - 1</c>
+    /// once a scrollbar appears, and reserves that column against hit registration), so a
+    /// right-aligned span would have to re-derive that and would silently drift by a column exactly
+    /// when the list overflows.
+    /// </para>
+    /// </summary>
+    public static (int Start, int End) DeleteActionColumns(string sectionName)
+    {
+        var start = HeaderText(sectionName).Length + 1;
+        return (start, start + DeleteActionLabel.Length);
+    }
+
     public string FormatRow(int width, ColorMode colorMode) => FormatRow(width, colorMode, isSelected: false);
 
     public string FormatRow(int width, ColorMode colorMode, bool isSelected)
@@ -108,19 +133,16 @@ internal sealed class EquipmentFieldItem : IRowFormatter
         // Section header
         if (SectionName is not null)
         {
-            var header = $"\u2500\u2500 {SectionName} \u2500\u2500";
+            var header = HeaderText(SectionName);
             if (IsOtaHeader)
             {
                 // OTA headers show only [X] (delete THIS OTA) -- global Add is already
                 // surfaced by the "+ Add OTA" action row at the bottom and the `A` key
                 // hint in the status bar, so repeating [A]dd per-OTA is just clutter.
-                var actions = "  [X]";
-                var maxHeader = width - actions.Length;
-                if (header.Length > maxHeader)
-                {
-                    header = header[..maxHeader];
-                }
-                header = header.PadRight(maxHeader) + actions;
+                var (start, end) = DeleteActionColumns(SectionName);
+                header = end <= width
+                    ? header.PadRight(start) + DeleteActionLabel
+                    : header[..Math.Min(header.Length, width)];
             }
             var headerStyle = new VtStyle(SgrColor.BrightBlue, SgrColor.Black);
             return $"{headerStyle.Apply(colorMode)}{header.PadRight(width)}{VtStyle.Reset}";

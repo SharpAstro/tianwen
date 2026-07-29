@@ -189,10 +189,10 @@ internal sealed class TuiEquipmentTab(
             Mode.Assignment => " \u2191\u2193:select  Enter:assign  Esc:cancel",
             Mode.InlineEdit => " Type filter name  Enter:save  Esc:cancel",
             _ when eqState.IsEditingSite => " Tab:next field  Enter:save  Esc:cancel",
-            _ when _pendingDeleteOtaIndex >= 0 => " Press X again to confirm delete, any other key to cancel",
+            _ when _pendingDeleteOtaIndex >= 0 => " Press Ctrl+X or click [X] again to confirm delete, any other key to cancel",
             _ when eqState.PendingDisconnectConfirm is not null =>
                 $" {PendingDisconnectPrompt(eqState.PendingDisconnectSafety)}  W:warm+off  F:force  Esc:cancel",
-            _ => " D:discover  E:site  A:add OTA  O:on/off  Enter:assign  \u2190\u2192:adjust  Q:quit"
+            _ => " D:discover  E:site  A:add OTA  Ctrl+X:remove OTA  O:on/off  Enter:assign  \u2190\u2192:adjust  Q:quit"
         };
         _statusBar.Text(statusText);
         _statusBar.RightText(appState.StatusMessage ?? "");
@@ -786,19 +786,77 @@ internal sealed class TuiEquipmentTab(
     /// </summary>
     protected override void RegisterClickableRegions()
     {
-        if (_profileList is not { } profileList)
+        if (_profileList is { } profileList)
         {
-            return;
+            profileList.RegisterRowHits(Tracker,
+                hitFor: (index, _) => new HitResult.ListItemHit("Profile", index),
+                onClick: (index, _) =>
+                {
+                    profileList.MoveTo(index);
+                    SwitchToSelectedProfile();
+                    NeedsRedraw = true;
+                });
         }
 
-        profileList.RegisterRowHits(Tracker,
-            hitFor: (index, _) => new HitResult.ListItemHit("Profile", index),
-            onClick: (index, _) =>
+        // The [X] an OTA header draws is only an affordance if it is clickable -- it was drawn but
+        // never bound, so the only way to remove an OTA was the undocumented X key (now in the status
+        // bar too). Arms the same two-step confirm the key does, so a stray click cannot delete a
+        // configured OTA outright.
+        if (_settingsList is { } settingsList)
+        {
+            settingsList.RegisterRowSpanHits(Tracker, (_, item) =>
             {
-                profileList.MoveTo(index);
-                SwitchToSelectedProfile();
-                NeedsRedraw = true;
+                if (!item.IsOtaHeader || item.SectionName is not { } section || item.OtaIndex < 0)
+                {
+                    return [];
+                }
+
+                var (start, end) = EquipmentFieldItem.DeleteActionColumns(section);
+                var otaIndex = item.OtaIndex;
+                return
+                [
+                    new RowSpan(start, end, new HitResult.ButtonHit($"RemoveOta{otaIndex}"), _ =>
+                    {
+                        if (_pendingDeleteOtaIndex == otaIndex)
+                        {
+                            ConfirmPendingOtaDelete();
+                        }
+                        else
+                        {
+                            _pendingDeleteOtaIndex = otaIndex;
+                        }
+                        NeedsRedraw = true;
+                    }),
+                ];
             });
+        }
+    }
+
+    /// <summary>
+    /// Removing an OTA is <b>Ctrl+X</b>, not a bare <c>X</c>.
+    /// <para>
+    /// It destroys a configured optical train, and every other destructive path in this tab is either
+    /// a chord or a confirm. A single unmodified letter is also what any blind key-injection (the
+    /// inspector, a paste, a stuck key) walks straight into: a run of bare <c>X</c>es armed and
+    /// confirmed the delete in alternation, wiping one OTA per pair, which is exactly how a profile
+    /// got emptied. The two-step confirm stays on top of the chord rather than instead of it.
+    /// </para>
+    /// </summary>
+    internal static bool IsRemoveOtaChord(InputKey key, InputModifier modifiers)
+        => key == InputKey.X && (modifiers & InputModifier.Ctrl) != 0;
+
+    /// <summary>
+    /// Applies the armed OTA delete. Shared by the Ctrl+X confirmation and the header's [X] click so
+    /// the two cannot drift apart, and always disarms.
+    /// </summary>
+    private void ConfirmPendingOtaDelete()
+    {
+        if (_pendingDeleteOtaIndex >= 0 && appState.ActiveProfile?.Data is { } data)
+        {
+            var updated = EquipmentActions.RemoveOTA(data, _pendingDeleteOtaIndex);
+            bus?.Post(new UpdateProfileSignal(updated));
+        }
+        _pendingDeleteOtaIndex = -1;
     }
 
     protected override void HandleTabInput(InputEvent evt){
@@ -846,19 +904,15 @@ internal sealed class TuiEquipmentTab(
 
     private bool HandleBrowseInput(InputKey key, InputModifier modifiers)
     {
-        // Delete confirmation guard
+        // Delete confirmation guard. Confirming repeats the same chord that armed it -- a bare key
+        // here would let one stray press past the guard, which is the whole point of having one.
         if (_pendingDeleteOtaIndex >= 0)
         {
-            if (key == InputKey.X)
+            if (IsRemoveOtaChord(key, modifiers))
             {
-                // Confirmed: delete the OTA
-                if (appState.ActiveProfile?.Data is { } data)
-                {
-                    var updated = EquipmentActions.RemoveOTA(data, _pendingDeleteOtaIndex);
-                    bus?.Post(new UpdateProfileSignal(updated));
-                }
+                ConfirmPendingOtaDelete();
             }
-            // Any key (including X) clears the guard
+            // Any other key cancels; either way the guard is cleared.
             _pendingDeleteOtaIndex = -1;
             NeedsRedraw = true;
             return false;
@@ -949,7 +1003,7 @@ internal sealed class TuiEquipmentTab(
                 NeedsRedraw = true;
                 return false;
 
-            case InputKey.X:
+            case InputKey.X when IsRemoveOtaChord(key, modifiers):
                 var otaIdx = FindNearestOtaIndex();
                 if (otaIdx >= 0)
                 {

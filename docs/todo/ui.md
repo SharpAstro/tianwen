@@ -16,12 +16,24 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 ## TUI Equipment tab (found during the 2026-07-29 cell-buffer session)
 
-- [ ] Wire the OTA header's `[X]` to a click — the glyph is painted but only the `X` KEY sets
-  `_pendingDeleteOtaIndex` (`TuiEquipmentTab.cs` ~line 956), so clicking the affordance does nothing.
-  While there: advertise `X:delete OTA` in the status-bar key hints (it lists `A:add OTA` but the
-  delete is undiscoverable), and note the browse-input guard is skipped while `IsEditingSite` — a
-  key sequence sent in site-edit mode silently goes to the Lat/Lon editor, which is how an
-  automation-driven delete went sideways against a live profile.
+- [x] Wire the OTA header's `[X]` to a click — **DONE (2026-07-29).** The glyph was painted but never
+  bound, so the only route to removing an OTA was an undiscoverable key. Now:
+  - The `[X]` registers a click via `ScrollableList.RegisterRowSpanHits` and arms the same two-step
+    confirm the key does, so a stray click cannot delete outright.
+  - **The key is `Ctrl+X`, not a bare `X`** (user call). Removing an OTA destroys a configured optical
+    train, and a bare letter is precisely what blind key injection walks into — a run of `X`es armed
+    and confirmed in alternation, one OTA gone per pair, which is how a live profile got emptied. The
+    confirm requires the chord again (`IsRemoveOtaChord`, unit-pinned), so one stray press cannot get
+    past the guard either. Advertised as `Ctrl+X:remove OTA` in the status bar.
+  - Draw and hit derive from ONE static (`EquipmentFieldItem.DeleteActionColumns`), because a
+    `ScrollableList` row is a formatted string with no arranged rect to bind to. Left-anchored one
+    space after the title, deliberately NOT right-aligned: the row's usable width belongs to
+    `ScrollableList` (formatter gets `width - 1` once a scrollbar shows, and that column is reserved
+    against registration), so a right-anchored span drifts by one column exactly when the list
+    overflows. See the `TuiCellRenderer` entry in `TODO.md` for the durable fix.
+  - The `IsEditingSite` note needs no code change: site-edit mode owning the keys is correct, and it
+    was the *automation* that was wrong to send keys without verifying the mode. The chord removes
+    most of the residual risk regardless. Pinned by `TuiEquipmentRowTests`.
 - [ ] Restore the settings-list selection after a tab switch — `Attach` rebuilds the list and the
   cursor resets to row 0, so switching away and back loses the white-on-blue selected row (measured
   via the console inspector: row 3 `Mount` returns as unselected). Remember the cursor index per tab
