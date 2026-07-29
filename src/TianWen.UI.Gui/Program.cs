@@ -22,7 +22,7 @@ services
     .AddLogging(static builder =>
     {
         builder.AddProvider(new FileLoggerProvider("GUI"));
-#if DEBUG
+#if SIBLING_DEBUG_INSPECTORS
         builder.SetMinimumLevel(LogLevel.Debug);
 #endif
     })
@@ -643,11 +643,11 @@ loop.OnQuit = () =>
     return appState.ShuttingDown || appState.QuitRequested || guiRenderer.ViewContexts.Local.LiveSession.IsRunning;
 };
 
-#if DEBUG
+#if SIBLING_DEBUG_INSPECTORS
 // Live UI debug inspector (DEBUG only -- compiled out of Release entirely). Exposes this running
 // process to the SdlVulkan.Renderer.Inspector MCP sidecar so an agent can discover it, read the
 // widget tree, screenshot the window, inject input, and post a curated set of signals. All of the
-// in-process machinery lives in the framework under #if DEBUG; this block is the only wiring.
+// in-process machinery lives in the framework under #if SIBLING_DEBUG_INSPECTORS; this block is the only wiring.
 using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
 {
     AppName = "TianWen",

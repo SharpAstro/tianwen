@@ -1,4 +1,4 @@
-using System.CommandLine;
+﻿using System.CommandLine;
 using DIR.Lib;
 using SdlVulkan.Renderer;
 using TianWen.Lib.Logging;
@@ -270,7 +270,7 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
     return true;
 };
 
-#if DEBUG
+#if SIBLING_DEBUG_INSPECTORS
 // Live UI debug inspector (DEBUG only -- compiled out of Release). Exposes this process to the
 // SdlVulkan.Renderer.Inspector MCP sidecar so an agent can discover it, read the clickable-region
 // tree, and screenshot the window. The viewer renders all chrome through the single imageRenderer

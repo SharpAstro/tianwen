@@ -3,7 +3,12 @@
     "sdl-ui-inspector": {
       "type": "stdio",
       "command": "dotnet",
-      "args": ["dnx", "SdlVulkan.Renderer.Inspector@6.18.1461", "--yes"]
+      "args": ["dnx", "SdlVulkan.Renderer.Inspector@7.3.1882", "--yes"]
+    },
+    "console-inspector": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": ["dnx", "Console.Lib.Inspector@4.8.1391", "--yes"]
     }
   }
 }
