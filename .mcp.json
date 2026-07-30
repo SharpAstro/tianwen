@@ -8,7 +8,7 @@
     "console-inspector": {
       "type": "stdio",
       "command": "dotnet",
-      "args": ["dnx", "Console.Lib.Inspector@4.8.1391", "--yes"]
+      "args": ["dnx", "Console.Lib.Inspector@4.10.1411", "--yes"]
     }
   }
 }
