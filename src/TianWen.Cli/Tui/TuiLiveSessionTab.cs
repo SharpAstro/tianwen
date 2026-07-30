@@ -72,9 +72,9 @@ internal sealed class TuiLiveSessionTab(
 
     private readonly ViewerState _viewerState = new ViewerState();
 
-    // Canonical row list for the info panel. Each frame rebuilds into this list,
-    // then ScrollableList renders. RegisterClickableRegions walks the list to
-    // collect ButtonRegions and translate them into pixel hit-test zones.
+    // Canonical row list for the info panel. Each frame rebuilds into this list, then ScrollableList
+    // arranges and renders each row's tree. A row's inline buttons ride on that tree, so nothing here
+    // collects them: DispatchInfoRowClick resolves a click against the rects the list painted.
     private readonly List<InfoRowItem> _rows = [];
 
     [MemberNotNullWhen(true, nameof(_topBar), nameof(_guideBar), nameof(_infoList), nameof(_statusBar), nameof(_previewToolbar))]
