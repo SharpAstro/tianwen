@@ -7,12 +7,21 @@
     through to PackageReference automatically (version from Directory.Packages.props).
 
     Override: dotnet build -p:UseLocalSiblings=false
+
+    All-or-nothing on purpose: a missing checkout of ANY listed sibling flips the whole
+    set back to packages. WebGl.Renderer is listed even though its only consumer
+    (TianWen.UI.Web) sits outside TianWen.slnx, because the alternative is worse. While it
+    was absent from this list, a box holding every other sibling resolved this property to
+    true and then pointed a ProjectReference at a path that was not there, so the web
+    project simply failed to build. Listed, the switch and that ProjectReference agree by
+    construction: no WebGl.Renderer checkout means packages everywhere, which restores.
   -->
   <PropertyGroup>
     <UseLocalSiblings Condition="'$(UseLocalSiblings)' == ''
       AND Exists('$(MSBuildThisFileDirectory)..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Console.Lib\src\Console.Lib\Console.Lib.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\SdlVulkan.Renderer\src\SdlVulkan.Renderer\SdlVulkan.Renderer.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\WebGl.Renderer\src\WebGl.Renderer\WebGl.Renderer.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Codecs\src\SharpAstro.Tiff\SharpAstro.Tiff.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Codecs\src\SharpAstro.Exif\SharpAstro.Exif.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Codecs\src\SharpAstro.Png\SharpAstro.Png.csproj')

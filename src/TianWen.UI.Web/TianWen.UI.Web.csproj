@@ -6,10 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <OverrideHtmlAssetPlaceholders>true</OverrideHtmlAssetPlaceholders>
     <!-- The in-browser app is a consumer of TianWen.Lib / TianWen.UI.Abstractions, not a shipped
-         package and not part of the desktop test/release chain. It lives OUTSIDE TianWen.slnx and
-         opts out of Central Package Management so the Blazor deps carry their own versions without
-         touching Directory.Packages.props. Mirrors ../../sebgod/chess/Chess.Web. -->
-    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+         package and not part of the desktop test/release chain, and it lives OUTSIDE TianWen.slnx.
+         It is nonetheless under Central Package Management like every other project here: it used to
+         opt out, so that the Blazor deps could carry their own versions without touching
+         Directory.Packages.props, and the cost of that convenience was WebGl.Renderer. Pinned inline,
+         it was invisible to a sweep of the props file, so it drifted two minors behind and became the
+         last sibling built against DIR.Lib 7.0 while the rest moved to 7.4. Being outside a solution
+         has no bearing on CPM, which resolves by walking directories, so there was never a technical
+         reason for the opt-out. All three versions now live in Directory.Packages.props. -->
     <IsPackable>false</IsPackable>
     <!-- No culture data needed; dropping ICU trims the payload. Site timezone resolves via the
          bundled wasm tzdata (TimeZoneInfo), which is independent of ICU; the planner falls back to
@@ -26,8 +30,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.9" />
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.9" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
@@ -46,13 +50,15 @@
     <_AOT_InternalForceInterpretAssemblies Include="LibUsbDotNet.LibUsbDotNet.dll" />
   </ItemGroup>
 
-  <!-- WebGL backend: sibling working copy for local iteration, NuGet in CI (same UseLocalSiblings
-       switch the desktop projects use; the web project opts out of CPM so the version rides inline). -->
+  <!-- WebGL backend: sibling working copy for local iteration, NuGet otherwise, on the same
+       UseLocalSiblings switch and the same CPM pin as every desktop sibling. WebGl.Renderer is in that
+       switch's own Exists list, so the two branches below can never disagree about whether the sibling
+       is on disk. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\WebGl.Renderer\src\WebGl.Renderer\WebGl.Renderer.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
-    <PackageReference Include="WebGl.Renderer" Version="1.14.*" />
+    <PackageReference Include="WebGl.Renderer" />
   </ItemGroup>
 
 
