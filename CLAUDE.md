@@ -111,12 +111,12 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `SER.Lib` | `../SER.Lib` | `src/SER.Lib/SER.Lib.csproj` | ✅ |
 | `Lzip.Lib` | `../Lzip.Lib` | `src/Lzip.Lib/Lzip.Lib.csproj` | ✅ |
 | `LAN.Lib` | `../LAN.Lib` | `src/LAN.Lib/LAN.Lib.csproj` | ✅ |
-| `WebGl.Renderer` | `../WebGl.Renderer` | `src/WebGl.Renderer/WebGl.Renderer.csproj` | ⚠️ see below |
+| `WebGl.Renderer` | `../WebGl.Renderer` | `src/WebGl.Renderer/WebGl.Renderer.csproj` | ✅ |
 | `TianWen.DAL` | `../TianWen.DAL` | — | ❌ |
 
 **Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all.
 The build switches to ProjectReference when **every** sibling working copy exists — `DIR.Lib`,
-`Console.Lib`, `SdlVulkan.Renderer`, the `Codecs`-repo codec family (`SharpAstro.Tiff`,
+`Console.Lib`, `SdlVulkan.Renderer`, `WebGl.Renderer`, the `Codecs`-repo codec family (`SharpAstro.Tiff`,
 `SharpAstro.Exif`, `SharpAstro.Png`, `SharpAstro.Color.Icc`, `SharpAstro.Jxr`,
 `SharpAstro.Jpeg.IccInjector`, `SharpAstro.Exr`, `SharpAstro.Codecs`), `QHYCCD.SDK`, `FITS.Lib`,
 `SER.Lib`, `Lzip.Lib`, and `LAN.Lib`; otherwise it falls
@@ -127,16 +127,22 @@ be outliers (the latter via a separate `UseLocalFitsLib` switch) but were folded
 there is **no** per-library switch anymore. Trade-off: a missing checkout of *any* listed sibling flips
 the whole set back to packages (all-or-nothing), which is fine on a dev box that has them all.
 
-**`WebGl.Renderer` is the one exception, and it bites in two ways.** It is consumed only by
-`TianWen.UI.Web`, which **opts out of CPM**, so its version is pinned **inline in
-`TianWen.UI.Web.csproj`** rather than in `Directory.Packages.props`. Consequences: (1) a sibling-family
-version bump that sweeps `Directory.Packages.props` silently misses it, which is how the pin sat two
-minors behind (`1.12.*` while `1.13` was published) and how the web renderer ended up the last sibling
-still built against DIR.Lib 7.0 after everything else moved to 7.4; grep the whole `src/` tree for a
-pin, not just the props file. (2) It is **gated on `UseLocalSiblings` but absent from that property's
-own `Exists(...)` list**, so a box with every other sibling checked out but no `WebGl.Renderer` gets
-`UseLocalSiblings=true` and a `ProjectReference` to a path that is not there. Clone it, or build that
-one project with `-p:UseLocalSiblings=false`.
+**`WebGl.Renderer` used to be an exception on both counts, and the two ways it bit are the argument for
+never making one again.** It is consumed only by `TianWen.UI.Web`, which sits outside `TianWen.slnx`, and
+that project used to **opt out of CPM** so its Blazor deps could carry inline versions. The convenience
+cost two real defects: (1) a sibling-family bump sweeping `Directory.Packages.props` could not see an
+inline pin, so it sat two minors behind (`1.12.*` while `1.13` was published) and became the last member
+still built against DIR.Lib 7.0 after the rest moved to 7.4, leaving the package graph to unify DIR.Lib
+by taking the highest version rather than by intent; (2) it was gated on `UseLocalSiblings` yet absent
+from that property's own `Exists(...)` list, so a box with every other sibling cloned resolved the switch
+to `true` and then pointed a `ProjectReference` at a path that was not there.
+
+Both are now closed: the project is under CPM like everything else (all three of its versions live in
+`Directory.Packages.props`), and `WebGl.Renderer` is in the `Exists(...)` list, so the switch and that
+`ProjectReference` agree by construction. **Being outside a solution never had any bearing on CPM**,
+which resolves by walking directories, so the opt-out bought nothing it could not have had anyway.
+`src/TianWen.UI.Web.E2E` is the last CPM opt-out, and it has already drifted the same way
+(`Microsoft.NET.Test.Sdk` 18.6.0 inline against 18.3.0 centrally).
 
 For libraries without auto-detection (`FC.SDK`, `ZWOptical.SDK`, `TianWen.DAL`),
 prefer to extend the `UseLocalSiblings` switch in

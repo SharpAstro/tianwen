@@ -319,6 +319,14 @@
          rebuild against DIR.Lib 7.4. No render-path change, so these are
          rebuilds from TianWen's side, pinned forward to keep the family on one DIR.Lib. -->
     <PackageVersion Include="SdlVulkan.Renderer" Version="7.4.*" />
+    <!-- The WebGL2 backend for the same DIR.Lib Renderer, consumed ONLY by TianWen.UI.Web (which sits
+         outside TianWen.slnx). It lives here, next to its desktop counterpart, because it used to be
+         pinned inline in that csproj instead: a sibling-family bump that swept this file could not see
+         it, so it silently sat two minors behind at 1.12 while 1.13 was published, and stayed the last
+         member built against DIR.Lib 7.0 after the rest moved to 7.4. The package graph then unified
+         DIR.Lib by taking the highest version rather than by intent. Bump it with the family.
+         1.14 is the current pin: the no-code lockstep rebuild against DIR.Lib 7.4. -->
+    <PackageVersion Include="WebGl.Renderer" Version="1.14.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
@@ -327,6 +335,11 @@
     <PackageVersion Include="FC.SDK.Raw" Version="1.4.*" />
     <!-- Image encoding -->
     <PackageVersion Include="StbImageWriteSharp" Version="1.16.7" />
+    <!-- Blazor WebAssembly host for TianWen.UI.Web. That project is outside TianWen.slnx and is not
+         part of the desktop test/release chain, but it is still governed by this file: being outside a
+         solution has no bearing on CPM, which is resolved by walking directories. -->
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.9" />
+    <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.9" />
     <!-- Other packages -->
     <PackageVersion Include="QHYCCD.SDK" Version="1.0.*" />
     <PackageVersion Include="TianWen.DAL" Version="2.0.*" />
