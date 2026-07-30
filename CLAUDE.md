@@ -141,8 +141,24 @@ Both are now closed: the project is under CPM like everything else (all three of
 `Directory.Packages.props`), and `WebGl.Renderer` is in the `Exists(...)` list, so the switch and that
 `ProjectReference` agree by construction. **Being outside a solution never had any bearing on CPM**,
 which resolves by walking directories, so the opt-out bought nothing it could not have had anyway.
-`src/TianWen.UI.Web.E2E` is the last CPM opt-out, and it has already drifted the same way
-(`Microsoft.NET.Test.Sdk` 18.6.0 inline against 18.3.0 centrally).
+`TianWen.UI.Web.E2E` opted out for the same non-reason and had drifted the same way
+(`Microsoft.NET.Test.Sdk` 18.6.0 inline against 18.3.0 centrally, since reconciled upward to 18.6.0 for
+every test project); it is now under CPM too. **There are no CPM opt-outs left in `src/`, and a new one
+needs a real technical justification, not "this project is not in the solution".**
+
+**Both web projects stay out of `TianWen.slnx`, which is a separate and legitimate decision.**
+`TianWen.UI.Web` is a Blazor WASM app whose sole CI is `pages.yml` (a mono AOT publish, far too heavy for
+the per-push `dotnet.yml` loop), and `TianWen.UI.Web.E2E` needs a browser plus a running dev server, so a
+solution-wide `dotnet test` must not sweep it up. Run them explicitly:
+`dotnet build TianWen.UI.Web`, `dotnet test TianWen.UI.Web.E2E`.
+
+**`open-vs.ps1` generates `TianWen.local.slnx`** at the repo root (gitignored) by re-rooting
+`src/TianWen.slnx` and appending a `/Siblings/` folder, so Go To Definition lands in sibling *source*.
+Its project list **must** match the `UseLocalSiblings` `Exists(...)` conjunction, and nothing enforces
+that: it had drifted to `../StbImageSharp` for all seven codec projects (that repo is `../Codecs` now),
+and was missing `LAN.Lib`, `SharpAstro.Codecs` and `WebGl.Renderer`. A generated solution with
+unresolvable entries loads with them silently unloaded rather than failing, so touch one file and re-read
+the other.
 
 For libraries without auto-detection (`FC.SDK`, `ZWOptical.SDK`, `TianWen.DAL`),
 prefer to extend the `UseLocalSiblings` switch in

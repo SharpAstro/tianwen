@@ -1,13 +1,23 @@
 #!/usr/bin/env pwsh
 # Generates TianWen.local.slnx at the repo root with sibling project references,
 # then opens it in Visual Studio. This gives Go To Definition into every sibling
-# that Directory.Build.props' UseLocalSiblings switch project-references (DIR.Lib,
-# Console.Lib, SdlVulkan.Renderer, the SharpAstro codec projects in the StbImageSharp
-# repo, QHYCCD.SDK, FITS.Lib, SER.Lib, Lzip.Lib). Keep this list in sync with
-# Directory.Build.props. NB: the stb_image port itself (StbImageSharp.csproj) is not
-# listed — TianWen consumes only the SharpAstro.* codecs, not the port.
+# that Directory.Build.props' UseLocalSiblings switch project-references.
 #
-# The base TianWen.slnx in src/ stays untouched (used by CI and dotnet build).
+# THIS LIST MUST MATCH THAT SWITCH'S Exists(...) CONJUNCTION. It had drifted badly,
+# in a way nothing could catch: the codec projects pointed at ../StbImageSharp, a repo
+# that no longer exists (it is ../Codecs now), so seven of the entries below resolved
+# to nothing and VS silently loaded an unloadable-project solution. LAN.Lib,
+# SharpAstro.Codecs and WebGl.Renderer were simply missing. A generated file is not
+# self-checking, so re-read Directory.Build.props when you touch either one.
+#
+# NB: the stb_image port itself (StbImageSharp.csproj) is deliberately not listed.
+# TianWen consumes only the SharpAstro.* codecs, not the port.
+#
+# The base TianWen.slnx in src/ stays untouched (used by CI and dotnet build). It
+# omits TianWen.UI.Web and TianWen.UI.Web.E2E on purpose, so this generated solution
+# omits them too: the WASM app has its own workflow (pages.yml) as its sole CI, and
+# the E2E suite needs a browser plus a running dev server, so neither belongs in a
+# solution-wide build or `dotnet test`.
 
 $repoRoot = $PSScriptRoot
 $baseSlnx = Join-Path $repoRoot 'src' 'TianWen.slnx'
@@ -34,20 +44,26 @@ $siblings = @"
     <Project Path="../Fonts.Lib/src/SharpAstro.Fonts/SharpAstro.Fonts.csproj" />
     <Project Path="../Console.Lib/src/Console.Lib/Console.Lib.csproj" />
     <Project Path="../SdlVulkan.Renderer/src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj" />
-    <!-- SharpAstro.* codec projects from the StbImageSharp repo. The stb_image
-         port (StbImageSharp.csproj) is intentionally omitted: nothing in the
+    <!-- The WebGL2 backend for the same DIR.Lib Renderer. Its only consumer,
+         TianWen.UI.Web, is not in this solution, but the project is here so a
+         sibling-wide refactor can see and rebuild it. -->
+    <Project Path="../WebGl.Renderer/src/WebGl.Renderer/WebGl.Renderer.csproj" />
+    <!-- SharpAstro.* codec projects from the Codecs repo. The stb_image port
+         (StbImageSharp.csproj) is intentionally omitted: nothing in the
          solution references it (Fonts decodes CBDT PNGs via SharpAstro.Png). -->
-    <Project Path="../StbImageSharp/src/SharpAstro.Tiff/SharpAstro.Tiff.csproj" />
-    <Project Path="../StbImageSharp/src/SharpAstro.Exif/SharpAstro.Exif.csproj" />
-    <Project Path="../StbImageSharp/src/SharpAstro.Png/SharpAstro.Png.csproj" />
-    <Project Path="../StbImageSharp/src/SharpAstro.Color.Icc/SharpAstro.Color.Icc.csproj" />
-    <Project Path="../StbImageSharp/src/SharpAstro.Jxr/SharpAstro.Jxr.csproj" />
-    <Project Path="../StbImageSharp/src/SharpAstro.Jpeg.IccInjector/SharpAstro.Jpeg.IccInjector.csproj" />
-    <Project Path="../StbImageSharp/src/SharpAstro.Exr/SharpAstro.Exr.csproj" />
+    <Project Path="../Codecs/src/SharpAstro.Tiff/SharpAstro.Tiff.csproj" />
+    <Project Path="../Codecs/src/SharpAstro.Exif/SharpAstro.Exif.csproj" />
+    <Project Path="../Codecs/src/SharpAstro.Png/SharpAstro.Png.csproj" />
+    <Project Path="../Codecs/src/SharpAstro.Color.Icc/SharpAstro.Color.Icc.csproj" />
+    <Project Path="../Codecs/src/SharpAstro.Jxr/SharpAstro.Jxr.csproj" />
+    <Project Path="../Codecs/src/SharpAstro.Jpeg.IccInjector/SharpAstro.Jpeg.IccInjector.csproj" />
+    <Project Path="../Codecs/src/SharpAstro.Exr/SharpAstro.Exr.csproj" />
+    <Project Path="../Codecs/src/SharpAstro.Codecs/SharpAstro.Codecs.csproj" />
     <Project Path="../QHYCCD.SDK/QHYCCD.SDK.csproj" />
     <Project Path="../FITS.Lib/CSharpFITS/CSharpFITS.csproj" />
     <Project Path="../SER.Lib/src/SER.Lib/SER.Lib.csproj" />
     <Project Path="../Lzip.Lib/src/Lzip.Lib/Lzip.Lib.csproj" />
+    <Project Path="../LAN.Lib/src/LAN.Lib/LAN.Lib.csproj" />
   </Folder>
 "@
 
