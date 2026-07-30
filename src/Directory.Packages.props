@@ -54,7 +54,7 @@
          stdio server so an AI assistant can call read-only debugging tools
          against TianWen.Lib. AOT-compatible when registered via WithTools<T>(). -->
     <PackageVersion Include="ModelContextProtocol" Version="1.1.0" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.201" />
     <PackageVersion Include="System.IO.Ports" Version="10.0.5" />
     <PackageVersion Include="System.Numerics.Tensors" Version="10.0.5" />
@@ -73,6 +73,12 @@
     <PackageVersion Include="coverlet.collector" Version="8.0.1" />
     <PackageVersion Include="Meziantou.Extensions.Logging.Xunit.v3" Version="1.1.26" />
     <PackageVersion Include="Nerdbank.Streams" Version="2.13.16" />
+    <!-- Browser driver for TianWen.UI.Web.E2E. That project stays OUTSIDE TianWen.slnx, because it
+         needs a browser and a running dev server and must not be swept up by a solution-wide
+         dotnet test, but it is under CPM like everything else: solution membership and CPM are
+         unrelated, and keeping it out of CPM only meant its versions could drift unseen (they did,
+         with Microsoft.NET.Test.Sdk 18.6.0 inline against 18.3.0 here). -->
+    <PackageVersion Include="Microsoft.Playwright" Version="1.61.0" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
