@@ -36,11 +36,11 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
   - The `IsEditingSite` note needs no code change: site-edit mode owning the keys is correct, and it
     was the *automation* that was wrong to send keys without verifying the mode. The chord removes
     most of the residual risk regardless. Pinned by `TuiEquipmentRowTests`.
-- [ ] Wire the slot row's `[On|Off]` and `[>]` to clicks — the same defect the `[X]` had, on the two
+- [ ] Wire the slot row's `[On|Off]` and `[>]` to clicks -- the same defect the `[X]` had, on the two
   affordances beside it: both are painted on every device-slot row and neither is bound, so connecting a
   device or opening the assignment picker is keyboard-only (`O`, `Enter`). Not done with the 4.10 row port
   deliberately: the geometry half is now a one-line `.Clickable(...)` per cell, but the row has no handler
-  to bind — it would need the tab's connect/disconnect and assign flows threaded in as callbacks, and the
+  to bind -- it would need the tab's connect/disconnect and assign flows threaded in as callbacks, and the
   disconnect path carries a safety pre-check plus a confirm strip that must not be bypassed. Model it on
   `EquipmentFieldItem.OnRemoveOta`.
 - [ ] Restore the settings-list selection after a tab switch — `Attach` rebuilds the list and the
