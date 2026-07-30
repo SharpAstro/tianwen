@@ -234,8 +234,23 @@
          diff, which WAS the once-per-second top-bar flicker; and 0x08 shadowing Ctrl+H as Backspace)
          and added the flush accounting (FlushedCellsTotal / CollectFlushDiagnostics) that found them.
          See CLAUDE.md's TUI-inspector section for the shapes not to reintroduce. Re-pins DIR.Lib
-         7.3.*. -->
-    <PackageVersion Include="Console.Lib" Version="4.8.*" />
+         7.3.*.
+         4.10 is the current pin and is a BREAKING one: IRowFormatter is deleted and
+         ITreeNode.FormatNodeContent replaced, so a ScrollableList row now implements
+         IRowLayout.BuildRow(in RowContext) and a TreeView node ITreeNode.BuildNodeContent, both
+         returning a DIR.Lib Layout.Node that the widget arranges into the row's rect and paints via
+         CellLayout. No shim, deliberately: a default-implementation bridge would let a consumer sit
+         half-ported while keeping every defect. What it buys: a row's inline button is a
+         .Clickable(...) NODE resolved through ScrollableList.DispatchRowHit against the rect that was
+         painted, rather than a column range re-derived beside the code that drew it (and a row cannot
+         see the scrollbar column, so a right-anchored span drifted by one exactly when the list
+         scrolled); a cell states its own pen, which the diffing cell buffer requires; and the same tree
+         can serve a GPU surface. RowSpan / RegisterRowHits / RegisterRowSpanHits / RowGeometry /
+         ForEachVisibleRow are gone with it, leaving HitTestRow for "which ITEM is under this point".
+         The three-overload cascade collapses into fields on RowContext, so the next capability adds a
+         field rather than a rung an implementation can silently ignore. See Console.Lib's MIGRATION.md
+         and CLAUDE.md's Layout DSL section. -->
+    <PackageVersion Include="Console.Lib" Version="4.10.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan

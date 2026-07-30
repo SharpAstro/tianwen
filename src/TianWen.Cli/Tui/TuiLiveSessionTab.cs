@@ -877,32 +877,27 @@ internal sealed class TuiLiveSessionTab(
     }
 
     /// <summary>
-    /// The info panel's rows carry inline buttons (steppers, actions), so each row contributes column
-    /// SPANS rather than one whole-row region. The list owns all the geometry.
+    /// The info panel's rows carry inline buttons (steppers, actions). Each one is a clickable node on its
+    /// row's own tree, so this resolves a click against the rects that were painted and nothing here has
+    /// to know a button's columns.
     /// <para>
-    /// This previously hardcoded a zero scroll offset, with a comment that the widget had no public
-    /// <c>ScrollOffset</c>. It does, and now the list applies it -- so the panel becoming scrollable
-    /// stops being a latent mis-click bug waiting for the first list long enough to need it.
+    /// What that replaced: every interactive row published a parallel list of column spans, computed by
+    /// repeating the same offset arithmetic the formatter used to place the glyphs. The two were kept in
+    /// step by hand, and the row could not see the scrollbar column or the scroll offset the list had
+    /// applied -- so the spans were also a latent mis-click waiting for the first panel long enough to
+    /// scroll.
     /// </para>
     /// </summary>
-    protected override void RegisterClickableRegions() =>
-        _infoList?.RegisterRowSpanHits(Tracker, (index, row) =>
+    private bool DispatchInfoRowClick(int x, int y)
+    {
+        if (_infoList?.DispatchRowHit(x, y) is null)
         {
-            var buttons = row.Buttons;
-            if (buttons.Count == 0)
-            {
-                return [];
-            }
+            return false;
+        }
 
-            var spans = new RowSpan[buttons.Count];
-            for (var i = 0; i < buttons.Count; i++)
-            {
-                var button = buttons[i];
-                spans[i] = new RowSpan(button.ColStart, button.ColEnd,
-                    new HitResult.ListItemHit("InfoRow", index), button.OnClick);
-            }
-            return spans;
-        });
+        NeedsRedraw = true;
+        return true;
+    }
 
     public override bool HandleRawMouse(MouseEvent mouse)
     {
@@ -941,7 +936,7 @@ internal sealed class TuiLiveSessionTab(
         switch (evt)
         {
             case InputEvent.MouseUp(var x, var y, MouseButton.Left):
-                if (Tracker.HitTestAndDispatch(x, y) is not null)
+                if (!DispatchInfoRowClick((int)x, (int)y) && Tracker.HitTestAndDispatch(x, y) is not null)
                 {
                     NeedsRedraw = true;
                 }

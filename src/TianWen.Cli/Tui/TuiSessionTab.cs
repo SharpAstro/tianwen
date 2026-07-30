@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics.CodeAnalysis;
 using Console.Lib;
 using DIR.Lib;
@@ -182,24 +182,25 @@ internal sealed class TuiSessionTab(
     }
 
     /// <summary>
-    /// Row clicks select the field. The list owns the geometry (viewport origin, header row, scroll
-    /// offset, scrollbar column), so this only has to say which rows are clickable and what a click
-    /// means -- a group header carries no field index and stays inert.
+    /// Resolves a click on the config list to the field behind it. The list owns the geometry (viewport
+    /// origin, header row, scroll offset, scrollbar column) and hands back the ITEM, so this only has to
+    /// say what a click means -- a group header carries no field index and stays inert.
+    /// <para>
+    /// The selected field lives in the session state rather than in the list cursor (the keyboard moves it
+    /// independently), so the click has to write it explicitly.
+    /// </para>
     /// </summary>
-    protected override void RegisterClickableRegions() =>
-        _configList?.RegisterRowHits(Tracker,
-            hitFor: (_, item) => item.FieldIndex >= 0
-                ? new HitResult.ListItemHit("ConfigField", item.FieldIndex)
-                : null,
-            // Only rows hitFor accepted get here, so the field index is known good; the bound check is
-            // against _lastItems, which mirrors the list's items rather than being the same array.
-            onClick: (index, _) =>
-            {
-                if (index >= 0 && index < _lastItems.Count)
-                {
-                    sessionState.SelectedFieldIndex = _lastItems[index].FieldIndex;
-                }
-            });
+    private bool DispatchConfigListClick(int x, int y)
+    {
+        if (_configList?.HitTestRow(x, y) is not { Item.FieldIndex: >= 0 and var fieldIndex })
+        {
+            return false;
+        }
+
+        sessionState.SelectedFieldIndex = fieldIndex;
+        NeedsRedraw = true;
+        return true;
+    }
 
     public override bool HandleRawMouse(MouseEvent mouse)
     {
@@ -215,7 +216,7 @@ internal sealed class TuiSessionTab(
         switch (evt)
         {
             case InputEvent.MouseUp(var x, var y, MouseButton.Left):
-                if (Tracker.HitTestAndDispatch(x, y) is not null)
+                if (!DispatchConfigListClick((int)x, (int)y) && Tracker.HitTestAndDispatch(x, y) is not null)
                 {
                     NeedsRedraw = true;
                 }

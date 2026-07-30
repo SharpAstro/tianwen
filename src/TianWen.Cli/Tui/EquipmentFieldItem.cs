@@ -3,365 +3,309 @@ using DIR.Lib;
 using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 
-namespace TianWen.Cli.Tui;
-
-/// <summary>
-/// A row in the equipment settings scrollable list.
-/// Supports section headers, device slot rows, OTA headers, property steppers,
-/// filter rows, device settings, and action rows.
-/// </summary>
-internal sealed class EquipmentFieldItem : IRowFormatter
+namespace TianWen.Cli.Tui
 {
-    // --- Common ---
-
-    /// <summary>Section header (non-editable separator row).</summary>
-    public string? SectionName { get; init; }
-
-    /// <summary>Flat index among editable fields (for selection tracking). -1 for headers.</summary>
-    public int FieldIndex { get; init; } = -1;
-
-    /// <summary>Increment callback.</summary>
-    public Action? Increment { get; init; }
-
-    /// <summary>Decrement callback.</summary>
-    public Action? Decrement { get; init; }
-
-    // --- Device setting rows (original) ---
-
-    /// <summary>Device setting descriptor (null for non-setting rows).</summary>
-    public DeviceSettingDescriptor? Setting { get; init; }
-
-    /// <summary>URI being edited — used to format current value.</summary>
-    public Uri? DeviceUri { get; init; }
-
-    // --- Device slot rows ---
-
-    /// <summary>Assignment target for device slot rows.</summary>
-    public AssignTarget? Slot { get; init; }
-
-    /// <summary>Label for the slot (e.g. "Mount", "Camera").</summary>
-    public string? SlotLabel { get; init; }
-
-    /// <summary>Display name of the currently assigned device.</summary>
-    public string? SlotDeviceName { get; init; }
-
-    /// <summary>Whether this slot has a device assigned (not NoneDevice).</summary>
-    public bool IsSlotActive { get; init; }
-
-    /// <summary>URI of the currently-assigned device (null for unassigned slots).
-    /// Used by the connect/disconnect toggle — distinct from <see cref="DeviceUri"/>
-    /// which drives device-setting rows.</summary>
-    public Uri? SlotDeviceUri { get; init; }
-
-    /// <summary>Whether the assigned device is currently connected via the hub.
-    /// Meaningless when <see cref="SlotDeviceUri"/> is null.</summary>
-    public bool IsConnected { get; init; }
-
-    /// <summary>Whether a connect/disconnect transition is in flight — shown as
-    /// "..." on the target segment so the user gets visible feedback.</summary>
-    public bool IsPending { get; init; }
-
-    // --- OTA header rows ---
-
-    /// <summary>OTA index for OTA headers (-1 for non-OTA rows).</summary>
-    public int OtaIndex { get; init; } = -1;
-
-    /// <summary>Whether this row is an OTA header (with Add/Delete actions).</summary>
-    public bool IsOtaHeader { get; init; }
-
-    // --- Property stepper rows ---
-
-    /// <summary>Label for property rows (FL, Aperture, Design).</summary>
-    public string? PropertyLabel { get; init; }
-
-    /// <summary>Formatted value for property/stepper rows.</summary>
-    public string? PropertyValue { get; init; }
-
-    /// <summary>Whether this is a toggle/cycle field (no ←/→ arrows).</summary>
-    public bool IsCycleField { get; init; }
-
-    // --- Filter rows ---
-
-    /// <summary>Filter slot index (1-based), or -1 for non-filter rows.</summary>
-    public int FilterIndex { get; init; } = -1;
-
-    /// <summary>Display name of the filter.</summary>
-    public string? FilterName { get; init; }
-
-    /// <summary>Focus offset value.</summary>
-    public int FilterOffset { get; init; }
-
-    // --- Inline text input ---
-
-    /// <summary>Active text input state (for filter name inline editing).</summary>
-    public TextInputState? InlineInput { get; init; }
-
-    // --- Action rows ---
-
-    /// <summary>Action label (e.g. "+ Add OTA").</summary>
-    public string? ActionLabel { get; init; }
-
-    /// <summary>The delete affordance an OTA header carries, and its width in columns.</summary>
-    public const string DeleteActionLabel = "[X]";
-
-    /// <summary>Section-header text without any action suffix.</summary>
-    private static string HeaderText(string sectionName) => $"\u2500\u2500 {sectionName} \u2500\u2500";
-
     /// <summary>
-    /// The columns <see cref="DeleteActionLabel"/> occupies on this OTA header's row, so the click
-    /// region is derived from the SAME arithmetic that draws it (the row is a formatted string, not a
-    /// layout tree, so there is no arranged rect to bind to -- this static is the substitute for
-    /// draw==hit by construction).
-    /// <para>
-    /// Deliberately anchored one space after the title rather than right-aligned to the row's edge:
-    /// the row's usable width belongs to <c>ScrollableList</c> (it hands the formatter <c>width - 1</c>
-    /// once a scrollbar appears, and reserves that column against hit registration), so a
-    /// right-aligned span would have to re-derive that and would silently drift by a column exactly
-    /// when the list overflows.
-    /// </para>
+    /// A row in the equipment settings scrollable list.
+    /// Supports section headers, device slot rows, OTA headers, property steppers,
+    /// filter rows, device settings, and action rows.
     /// </summary>
-    public static (int Start, int End) DeleteActionColumns(string sectionName)
+    internal sealed class EquipmentFieldItem : IRowLayout
     {
-        var start = HeaderText(sectionName).Length + 1;
-        return (start, start + DeleteActionLabel.Length);
-    }
+        // --- Common ---
 
-    public string FormatRow(int width, ColorMode colorMode) => FormatRow(width, colorMode, isSelected: false);
+        /// <summary>Section header (non-editable separator row).</summary>
+        public string? SectionName { get; init; }
 
-    public string FormatRow(int width, ColorMode colorMode, bool isSelected)
-    {
-        // Section header
-        if (SectionName is not null)
+        /// <summary>Flat index among editable fields (for selection tracking). -1 for headers.</summary>
+        public int FieldIndex { get; init; } = -1;
+
+        /// <summary>Increment callback.</summary>
+        public Action? Increment { get; init; }
+
+        /// <summary>Decrement callback.</summary>
+        public Action? Decrement { get; init; }
+
+        // --- Device setting rows (original) ---
+
+        /// <summary>Device setting descriptor (null for non-setting rows).</summary>
+        public DeviceSettingDescriptor? Setting { get; init; }
+
+        /// <summary>URI being edited — used to format current value.</summary>
+        public Uri? DeviceUri { get; init; }
+
+        // --- Device slot rows ---
+
+        /// <summary>Assignment target for device slot rows.</summary>
+        public AssignTarget? Slot { get; init; }
+
+        /// <summary>Label for the slot (e.g. "Mount", "Camera").</summary>
+        public string? SlotLabel { get; init; }
+
+        /// <summary>Display name of the currently assigned device.</summary>
+        public string? SlotDeviceName { get; init; }
+
+        /// <summary>Whether this slot has a device assigned (not NoneDevice).</summary>
+        public bool IsSlotActive { get; init; }
+
+        /// <summary>URI of the currently-assigned device (null for unassigned slots).
+        /// Used by the connect/disconnect toggle — distinct from <see cref="DeviceUri"/>
+        /// which drives device-setting rows.</summary>
+        public Uri? SlotDeviceUri { get; init; }
+
+        /// <summary>Whether the assigned device is currently connected via the hub.
+        /// Meaningless when <see cref="SlotDeviceUri"/> is null.</summary>
+        public bool IsConnected { get; init; }
+
+        /// <summary>Whether a connect/disconnect transition is in flight — shown as
+        /// "..." on the target segment so the user gets visible feedback.</summary>
+        public bool IsPending { get; init; }
+
+        // --- OTA header rows ---
+
+        /// <summary>OTA index for OTA headers (-1 for non-OTA rows).</summary>
+        public int OtaIndex { get; init; } = -1;
+
+        /// <summary>Whether this row is an OTA header (with a delete action).</summary>
+        public bool IsOtaHeader { get; init; }
+
+        /// <summary>
+        /// Invoked when the OTA header's delete action is clicked. Null leaves the glyph unbound, which
+        /// is what it used to be unconditionally: it was drawn as an affordance and was not one, so the
+        /// only way to remove an OTA was an undocumented key.
+        /// </summary>
+        public Action<InputModifier>? OnRemoveOta { get; init; }
+
+        // --- Property stepper rows ---
+
+        /// <summary>Label for property rows (FL, Aperture, Design).</summary>
+        public string? PropertyLabel { get; init; }
+
+        /// <summary>Formatted value for property/stepper rows.</summary>
+        public string? PropertyValue { get; init; }
+
+        /// <summary>Whether this is a toggle/cycle field (no ←/→ arrows).</summary>
+        public bool IsCycleField { get; init; }
+
+        // --- Filter rows ---
+
+        /// <summary>Filter slot index (1-based), or -1 for non-filter rows.</summary>
+        public int FilterIndex { get; init; } = -1;
+
+        /// <summary>Display name of the filter.</summary>
+        public string? FilterName { get; init; }
+
+        /// <summary>Focus offset value.</summary>
+        public int FilterOffset { get; init; }
+
+        // --- Action rows ---
+
+        /// <summary>Action label (e.g. "+ Add OTA").</summary>
+        public string? ActionLabel { get; init; }
+
+        /// <summary>The delete affordance an OTA header carries.</summary>
+        public const string DeleteActionLabel = "[X]";
+
+        public Layout.Node BuildRow(in RowContext context)
         {
-            var header = HeaderText(SectionName);
-            if (IsOtaHeader)
+            if (SectionName is not null)
             {
-                // OTA headers show only [X] (delete THIS OTA) -- global Add is already
-                // surfaced by the "+ Add OTA" action row at the bottom and the `A` key
-                // hint in the status bar, so repeating [A]dd per-OTA is just clutter.
-                var (start, end) = DeleteActionColumns(SectionName);
-                header = end <= width
-                    ? header.PadRight(start) + DeleteActionLabel
-                    : header[..Math.Min(header.Length, width)];
+                return BuildSectionHeader(SectionName);
             }
-            var headerStyle = new VtStyle(SgrColor.BrightBlue, SgrColor.Black);
-            return $"{headerStyle.Apply(colorMode)}{header.PadRight(width)}{VtStyle.Reset}";
-        }
 
-        // Action row (e.g. "+ Add OTA")
-        if (ActionLabel is not null)
-        {
-            var actionLine = $"  {ActionLabel}";
-            if (isSelected)
+            if (ActionLabel is not null)
             {
-                var style = new VtStyle(SgrColor.BrightGreen, SgrColor.Black);
-                return $"{style.Apply(colorMode)}{actionLine.PadRight(width)}{VtStyle.Reset}";
+                // Bright when the cursor is on it, dim otherwise -- an action row is always green, so the
+                // usual white-on-blue selection bar would read as a different KIND of row.
+                var actionPen = new RowPen(context.Selected ? SgrColor.BrightGreen : SgrColor.Green, SgrColor.Black);
+                return actionPen.Text($"  {ActionLabel}");
             }
-            var dimStyle = new VtStyle(SgrColor.Green, SgrColor.Black);
-            return $"{dimStyle.Apply(colorMode)}{actionLine.PadRight(width)}{VtStyle.Reset}";
-        }
 
-        // Device slot row
-        if (SlotLabel is not null && Slot is not null)
-        {
-            return FormatSlotRow(width, colorMode, isSelected);
-        }
-
-        // Filter row
-        if (FilterIndex > 0 && FilterName is not null)
-        {
-            return FormatFilterRow(width, colorMode, isSelected);
-        }
-
-        // Property stepper row
-        if (PropertyLabel is not null)
-        {
-            return FormatPropertyRow(width, colorMode, isSelected);
-        }
-
-        // Device setting row (original)
-        if (Setting is { } setting && DeviceUri is not null)
-        {
-            return FormatSettingRow(setting, width, colorMode, isSelected);
-        }
-
-        return "".PadRight(width);
-    }
-
-    private string FormatSlotRow(int width, ColorMode colorMode, bool isSelected)
-    {
-        // Layout: "  Label[padded]  DeviceName  [On|Off]  [>]"
-        // The On/Off strip only appears for assigned slots — unassigned rows just
-        // show the assign affordance. Segments are rendered with different SGR
-        // attributes so the "active" side (current connection state) stands out.
-        var labelWidth = Math.Max(14, width / 3);
-        var paddedLabel = SlotLabel!.Length > labelWidth ? SlotLabel[..(labelWidth - 1)] + "." : SlotLabel;
-        var name = SlotDeviceName ?? "(none)";
-
-        // Reserve space for the right-hand action strip so names never collide with
-        // it AND the trailing [>] lines up across rows regardless of whether the
-        // toggle strip is rendered. Breakdown:
-        //   " [On|Off] " -> 10 visible chars (always reserved; filled with spaces
-        //                   when the slot has no device assigned)
-        //   " [>]"        -> 4 visible chars
-        // Total: 14. Without this unified reserve the `[>]` column shifted by ~8
-        // chars between toggle rows and non-toggle rows.
-        const int TogglePadWidth = 10;
-        const int RightReserve = TogglePadWidth + 4;
-        var nameWidth = Math.Max(4, width - 2 - labelWidth - 1 - RightReserve);
-        var paddedName = name.Length > nameWidth ? name[..(nameWidth - 1)] + "." : name.PadRight(nameWidth);
-
-        // The outer row style is what StyleSegment must re-apply after each nested
-        // segment -- otherwise its closing `\e[0m` wipes the blue selection background
-        // mid-line and leaves a visible gap until the row ends. Pass the outer style
-        // down so each segment restores both fg (BrightWhite / White) and bg (Blue /
-        // default) on exit.
-        var outerStyle = isSelected
-            ? new VtStyle(SgrColor.BrightWhite, SgrColor.Blue)
-            : new VtStyle(SgrColor.White, SgrColor.Black);
-
-        string onSeg, offSeg;
-        if (!IsSlotActive)
-        {
-            onSeg = string.Empty;
-            offSeg = string.Empty;
-        }
-        else if (IsPending)
-        {
-            // Pending: target segment shows "…", "you are here" segment stays inert.
-            onSeg = IsConnected ? StyleSegment("On", colorMode, SgrColor.BrightGreen, outerStyle) : StyleSegment("...", colorMode, SgrColor.Yellow, outerStyle);
-            offSeg = IsConnected ? StyleSegment("...", colorMode, SgrColor.Yellow, outerStyle) : StyleSegment("Off", colorMode, SgrColor.BrightRed, outerStyle);
-        }
-        else
-        {
-            onSeg = IsConnected ? StyleSegment("On", colorMode, SgrColor.BrightGreen, outerStyle) : StyleSegment("On", colorMode, SgrColor.White, outerStyle);
-            offSeg = IsConnected ? StyleSegment("Off", colorMode, SgrColor.White, outerStyle) : StyleSegment("Off", colorMode, SgrColor.BrightRed, outerStyle);
-        }
-
-        // When there's no device assigned, emit TogglePadWidth spaces so the [>]
-        // lands in the same column as on active rows.
-        var toggleStrip = IsSlotActive
-            ? $" [{onSeg}|{offSeg}] "
-            : new string(' ', TogglePadWidth);
-        var line = $"  {paddedLabel.PadRight(labelWidth)} {paddedName}{toggleStrip} [>]";
-
-        // Pad the line to produce exactly `width` visible characters by adding
-        // VisibleOverhead(line) extra chars to the pad target (compensating for the
-        // SGR escapes embedded in StyleSegment). The outer-style wrapping below adds
-        // further invisible bytes but does NOT change the visible width, so it must
-        // happen AFTER padding -- otherwise the visible row ends short by the outer
-        // style's byte count and stale content from the previous frame peeks through
-        // at the far right of the viewport (the "ghost [>]" bug).
-        // Wrapped in the row's OWN style either way -- see StyleRow for why an unstyled row was a bug. The
-        // style is stated here rather than via StyleRow because the segments above already had to restore it.
-        var padded = line.PadRight(width + VisibleOverhead(line));
-        return $"{outerStyle.Apply(colorMode)}{padded}{VtStyle.Reset}";
-    }
-
-    /// <summary>
-    /// Wraps text in an SGR style that overrides the foreground while keeping the
-    /// caller's outer background, then restores the full outer style on exit. The
-    /// caller inlines the return value so the surrounding line still reads naturally;
-    /// counting visible characters in a styled line requires <see cref="VisibleOverhead"/>.
-    /// </summary>
-    private static string StyleSegment(string text, ColorMode colorMode, SgrColor fg, VtStyle restore)
-        => $"{new VtStyle(fg.ToRgba(), restore.Background).Apply(colorMode)}{text}{restore.Apply(colorMode)}";
-
-    /// <summary>
-    /// Returns the number of "invisible" characters (SGR escape bytes) in <paramref name="line"/>
-    /// so PadRight can be compensated to target a given visible width.
-    /// </summary>
-    private static int VisibleOverhead(string line)
-    {
-        var overhead = 0;
-        for (var i = 0; i < line.Length; i++)
-        {
-            if (line[i] == '\x1b')
+            if (SlotLabel is not null && Slot is not null)
             {
-                // Skip to end of SGR sequence (terminated by 'm')
-                var j = i + 1;
-                while (j < line.Length && line[j] != 'm') j++;
-                overhead += j - i + 1;
-                i = j;
+                return BuildSlotRow(context.Selected);
             }
+
+            if (FilterIndex > 0 && FilterName is not null)
+            {
+                return BuildFilterRow(context.Selected);
+            }
+
+            if (PropertyLabel is not null)
+            {
+                return BuildLabelledControl(PropertyLabel, PropertyControl(), context.Selected);
+            }
+
+            if (Setting is { } setting && DeviceUri is not null)
+            {
+                return BuildLabelledControl(setting.Label, SettingControl(setting), context.Selected);
+            }
+
+            return TuiRowPalette.Body.Rest();
         }
-        return overhead;
-    }
 
-    /// <summary>
-    /// Wraps an already-padded row in its own style. The selected row is white on blue; every other row
-    /// states plain white on black rather than emitting nothing.
-    /// <para>
-    /// <b>An unselected row used to return unstyled, and that was a latent bug in every formatter.</b> It
-    /// inherited whatever SGR state the row above left behind, which usually looked right by luck -- and
-    /// where the row above ended on a <see cref="VtStyle.Reset"/> (the selected row, a section header) the
-    /// row inherited the terminal's DEFAULT pen, which is light grey and so still looked right. Under a
-    /// diffing cell buffer that inheritance records a cell with no colour at all, and those rows painted as
-    /// empty gaps. A row's colour is a property of the row, not of its neighbour.
-    /// </para>
-    /// </summary>
-    private static string StyleRow(string padded, ColorMode colorMode, bool isSelected)
-    {
-        var style = isSelected
-            ? new VtStyle(SgrColor.BrightWhite, SgrColor.Blue)
-            : new VtStyle(SgrColor.White, SgrColor.Black);
-        return $"{style.Apply(colorMode)}{padded}{VtStyle.Reset}";
-    }
-
-    private string FormatFilterRow(int width, ColorMode colorMode, bool isSelected)
-    {
-        var offsetStr = FilterOffset >= 0 ? $"+{FilterOffset}" : $"{FilterOffset}";
-        var line = $"    {FilterIndex,2}  {FilterName!.PadRight(16)} [\u2190] {offsetStr,5} [\u2192]";
-
-        if (line.Length > width)
+        /// <summary>
+        /// A section separator, with the OTA sections carrying a delete action at the row's right edge.
+        /// <para>
+        /// The action is <b>right-anchored</b>, which a formatted string could not safely be: the row's
+        /// usable width is not the viewport width (<see cref="ScrollableList{T}"/> yields a column to the
+        /// scrollbar once the list overflows), so a right-aligned span had to re-derive that and drifted by
+        /// a column exactly when the list scrolled. It was therefore pinned one space after the title, and
+        /// the columns it occupied had to be published as a static so the click region could be registered
+        /// over the same arithmetic that drew them. The node is arranged into the content width and carries
+        /// its own hit, so both problems are gone -- and it now sits where the GUI's [Remove] does.
+        /// </para>
+        /// <para>
+        /// Only [X] appears: a global add is already surfaced by the "+ Add OTA" action row and the
+        /// <c>A</c> hint in the status bar, so repeating it per OTA is clutter.
+        /// </para>
+        /// </summary>
+        private Layout.Node BuildSectionHeader(string sectionName)
         {
-            line = line[..width];
+            var pen = TuiRowPalette.SectionHeader;
+            var title = pen.Text(TuiRowPalette.SectionHeaderText(sectionName));
+
+            if (!IsOtaHeader)
+            {
+                return title;
+            }
+
+            var action = pen.Cell(DeleteActionLabel, DeleteActionLabel.Length, TextAlign.Center);
+            if (OnRemoveOta is { } onRemove)
+            {
+                action = action.Clickable(new HitResult.ButtonHit($"RemoveOta{OtaIndex}"), onRemove);
+            }
+
+            return Layout.Builder.HStack(title, action).RowH(1).Bg(pen.Background);
         }
 
-        return StyleRow(line.PadRight(width), colorMode, isSelected);
-    }
+        /// <summary>
+        /// <c>"  Label   DeviceName   [On|Off]  [>]"</c>.
+        /// <para>
+        /// The right-hand strip is a fixed width whether or not the slot has a device, so <c>[>]</c> lands
+        /// in the same column on every row; and each of On/Off gets a fixed cell, so the strip no longer
+        /// grows by a column while a connect is in flight (<c>"..."</c> is one character wider than
+        /// <c>"On"</c>, which used to shift <c>[>]</c> for as long as the transition ran).
+        /// </para>
+        /// <para>
+        /// The label used to take a third of the row because <c>Math.Max(14, width / 3)</c> was easy
+        /// arithmetic, not because a slot label needs 26 columns -- the longest is "CoverCalibrator". It is
+        /// a clamped Star now, so the surplus goes to the device name, which is the field that actually
+        /// runs long.
+        /// </para>
+        /// </summary>
+        private Layout.Node BuildSlotRow(bool isSelected)
+        {
+            var pen = TuiRowPalette.ForRow(isSelected);
 
-    private string FormatPropertyRow(int width, ColorMode colorMode, bool isSelected)
-    {
-        var controlStr = IsCycleField
+            return Layout.Builder.HStack(
+                pen.Gap(2),
+                pen.Text(SlotLabel!).WStar(1f, SlotLabelMinColumns, SlotLabelMaxColumns),
+                pen.Gap(1),
+                pen.Text(SlotDeviceName ?? "(none)").WStar(2f, 4f),
+                BuildToggleStrip(pen),
+                pen.Cell(" [>]", 4))
+                .RowH(1).Bg(pen.Background);
+        }
+
+        /// <summary>
+        /// The <c>[On|Off]</c> strip. Both segments are always drawn; colour says which side is live and
+        /// which is merely available, and a pending transition marks the segment being moved TO.
+        /// <para>
+        /// Each segment states its foreground against the ROW's background, which is the whole reason the
+        /// string version needed a helper that re-applied the enclosing style on exit plus a scan over the
+        /// emitted escape bytes to know how far to pad the line. A nested run's reset used to wipe the
+        /// selection background for the rest of the row.
+        /// </para>
+        /// </summary>
+        private Layout.Node BuildToggleStrip(RowPen pen)
+        {
+            if (!IsSlotActive)
+            {
+                return pen.Gap(ToggleColumns);
+            }
+
+            var (on, off) = (IsPending, IsConnected) switch
+            {
+                (true, true) => (SgrColor.BrightGreen, SgrColor.Yellow),   // disconnecting: Off is the target
+                (true, false) => (SgrColor.Yellow, SgrColor.BrightRed),    // connecting: On is the target
+                (false, true) => (SgrColor.BrightGreen, SgrColor.White),
+                (false, false) => (SgrColor.White, SgrColor.BrightRed),
+            };
+
+            var onText = IsPending && !IsConnected ? "..." : "On";
+            var offText = IsPending && IsConnected ? "..." : "Off";
+
+            return Layout.Builder.HStack(
+                pen.Gap(1),
+                pen.Cell("[", 1),
+                pen.WithForeground(on).Cell(onText, 3, TextAlign.Center),
+                pen.Cell("|", 1),
+                pen.WithForeground(off).Cell(offText, 3, TextAlign.Center),
+                pen.Cell("]", 1),
+                pen.Gap(1))
+                .WFixed(ToggleColumns).HStar().Bg(pen.Background);
+        }
+
+        private Layout.Node BuildFilterRow(bool isSelected)
+        {
+            var pen = TuiRowPalette.ForRow(isSelected);
+            var offset = FilterOffset >= 0 ? $"+{FilterOffset}" : $"{FilterOffset}";
+
+            return Layout.Builder.HStack(
+                pen.Gap(4),
+                pen.Cell($"{FilterIndex}", 2, TextAlign.Far),
+                pen.Gap(2),
+                pen.Text(FilterName!).WStar(1f, 16f),
+                pen.Cell(" [←] ", 5),
+                pen.Cell(offset, 5, TextAlign.Far),
+                pen.Cell(" [→]", 4),
+                pen.Rest())
+                .RowH(1).Bg(pen.Background);
+        }
+
+        /// <summary>
+        /// <c>"  Label   [control]"</c> -- the shape shared by property steppers and device settings, and
+        /// by <see cref="SessionFieldItem"/>. The label column is half the row with a floor, expressed as
+        /// a min-clamped Star rather than the <c>Math.Max(18, width / 2)</c> each of the three copies
+        /// computed for itself.
+        /// </summary>
+        private static Layout.Node BuildLabelledControl(string label, string control, bool isSelected)
+        {
+            var pen = TuiRowPalette.ForRow(isSelected);
+
+            return Layout.Builder.HStack(
+                pen.Gap(2),
+                pen.Text(label).WStar(1f, TuiRowPalette.LabelMinColumns),
+                pen.Text(control).WStar())
+                .RowH(1).Bg(pen.Background);
+        }
+
+        private string PropertyControl() => IsCycleField
             ? $"  [{PropertyValue}]"
-            : $"  [\u2190] {PropertyValue} [\u2192]";
+            : $"  [←] {PropertyValue} [→]";
 
-        var labelWidth = Math.Max(18, width / 2);
-        var paddedLabel = PropertyLabel!.Length > labelWidth ? PropertyLabel[..(labelWidth - 1)] + "." : PropertyLabel;
-        var line = $"  {paddedLabel.PadRight(labelWidth)}{controlStr}";
-
-        if (line.Length > width)
+        private string SettingControl(DeviceSettingDescriptor setting)
         {
-            line = line[..width];
+            var value = setting.FormatValue(DeviceUri!);
+            return setting.Kind switch
+            {
+                DeviceSettingKind.BoolToggle => $"  [{value}]",
+                DeviceSettingKind.EnumCycle => $"  [{value}]",
+                DeviceSettingKind.StringEditor => setting.Mask && value.Length > 0
+                    ? $"  [{new string('*', Math.Min(value.Length, 8))}{value[Math.Max(0, value.Length - 4)..]}]"
+                    : $"  [{(value.Length > 0 ? value : setting.Placeholder ?? "(empty)")}]",
+                _ => $"  [←] {value} [→]",
+            };
         }
 
-        return StyleRow(line.PadRight(width), colorMode, isSelected);
-    }
+        /// <summary>Floor for the slot-label column, matching the width the old <c>Math.Max</c> guaranteed.</summary>
+        private const float SlotLabelMinColumns = 14f;
 
-    private string FormatSettingRow(DeviceSettingDescriptor setting, int width, ColorMode colorMode, bool isSelected)
-    {
-        var label = setting.Label;
-        var value = setting.FormatValue(DeviceUri!);
-        var controlStr = setting.Kind switch
-        {
-            DeviceSettingKind.BoolToggle => $"  [{value}]",
-            DeviceSettingKind.EnumCycle => $"  [{value}]",
-            DeviceSettingKind.StringEditor => setting.Mask && value.Length > 0
-                ? $"  [{new string('*', Math.Min(value.Length, 8))}{value[Math.Max(0, value.Length - 4)..]}]"
-                : $"  [{(value.Length > 0 ? value : setting.Placeholder ?? "(empty)")}]",
-            _ => $"  [\u2190] {value} [\u2192]",
-        };
+        /// <summary>Ceiling for the slot-label column: enough for "CoverCalibrator", the longest label.</summary>
+        private const float SlotLabelMaxColumns = 18f;
 
-        var labelWidth = Math.Max(18, width / 2);
-        var paddedLabel = label.Length > labelWidth ? label[..(labelWidth - 1)] + "." : label;
-        var line = $"  {paddedLabel.PadRight(labelWidth)}{controlStr}";
-
-        if (line.Length > width)
-        {
-            line = line[..width];
-        }
-
-        return StyleRow(line.PadRight(width), colorMode, isSelected);
+        /// <summary>Columns the <c>[On|Off]</c> strip reserves, occupied or not.</summary>
+        private const int ToggleColumns = 11;
     }
 }

@@ -25,15 +25,24 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
     and confirmed in alternation, one OTA gone per pair, which is how a live profile got emptied. The
     confirm requires the chord again (`IsRemoveOtaChord`, unit-pinned), so one stray press cannot get
     past the guard either. Advertised as `Ctrl+X:remove OTA` in the status bar.
-  - Draw and hit derive from ONE static (`EquipmentFieldItem.DeleteActionColumns`), because a
-    `ScrollableList` row is a formatted string with no arranged rect to bind to. Left-anchored one
-    space after the title, deliberately NOT right-aligned: the row's usable width belongs to
-    `ScrollableList` (formatter gets `width - 1` once a scrollbar shows, and that column is reserved
-    against registration), so a right-anchored span drifts by one column exactly when the list
-    overflows. See the `TuiCellRenderer` entry in `TODO.md` for the durable fix.
+  - **Superseded 2026-07-30 by the durable fix** (Console.Lib 4.10, rows as `Layout.Node`). It first
+    shipped with draw and hit derived from ONE static (`EquipmentFieldItem.DeleteActionColumns`) as a
+    stand-in for draw==hit, left-anchored one space after the title because a formatted-string row
+    cannot know its usable width (`ScrollableList` hands the formatter `width - 1` once a scrollbar
+    shows), so a right-anchored span drifted by a column exactly when the list overflowed. The `[X]` is
+    now a clickable NODE carrying `ButtonHit($"RemoveOta{i}")`, arranged into the content width and
+    resolved via `ScrollableList.DispatchRowHit` -- so the static is gone and the glyph is
+    **right-anchored**, where the GUI's `[Remove]` sits.
   - The `IsEditingSite` note needs no code change: site-edit mode owning the keys is correct, and it
     was the *automation* that was wrong to send keys without verifying the mode. The chord removes
     most of the residual risk regardless. Pinned by `TuiEquipmentRowTests`.
+- [ ] Wire the slot row's `[On|Off]` and `[>]` to clicks — the same defect the `[X]` had, on the two
+  affordances beside it: both are painted on every device-slot row and neither is bound, so connecting a
+  device or opening the assignment picker is keyboard-only (`O`, `Enter`). Not done with the 4.10 row port
+  deliberately: the geometry half is now a one-line `.Clickable(...)` per cell, but the row has no handler
+  to bind — it would need the tab's connect/disconnect and assign flows threaded in as callbacks, and the
+  disconnect path carries a safety pre-check plus a confirm strip that must not be bypassed. Model it on
+  `EquipmentFieldItem.OnRemoveOta`.
 - [ ] Restore the settings-list selection after a tab switch — `Attach` rebuilds the list and the
   cursor resets to row 0, so switching away and back loses the white-on-blue selected row (measured
   via the console inspector: row 3 `Mount` returns as unselected). Remember the cursor index per tab
