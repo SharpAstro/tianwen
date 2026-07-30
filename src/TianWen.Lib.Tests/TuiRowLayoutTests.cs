@@ -7,6 +7,7 @@ using DIR.Lib;
 using Shouldly;
 using TianWen.Cli.Plan;
 using TianWen.Cli.Tui;
+using TianWen.Lib.Devices;
 using TianWen.UI.Abstractions;
 using Xunit;
 
@@ -104,6 +105,17 @@ namespace TianWen.Lib.Tests
                 PropertyValue = "750",
                 FieldIndex = 3,
             }, ["Focal Length", "750"]);
+
+            data.Add("profile picker (active)", new ProfilePickerItem
+            {
+                Profile = new Profile(Guid.Empty, "Backyard", ProfileData.Empty),
+                IsActive = true,
+            }, ["Backyard"]);
+            data.Add("profile picker (inactive)", new ProfilePickerItem
+            {
+                Profile = new Profile(Guid.Empty, "Remote Rig", ProfileData.Empty),
+                IsActive = false,
+            }, ["Remote Rig"]);
 
             data.Add("planner target", new TargetListItem(new PlannerTargetRow(
                 Name: "M 42", Info: "2.5h", ObjectType: "Nebula", IsPinned: true, IsSelected: false,
@@ -225,6 +237,11 @@ namespace TianWen.Lib.Tests
                 FilterIndex = 1,
                 FilterName = "L",
                 FieldIndex = 0,
+            });
+            data.Add("profile picker", new ProfilePickerItem
+            {
+                Profile = new Profile(Guid.Empty, "Backyard", ProfileData.Empty),
+                IsActive = false,
             });
             data.Add("notification", new NotificationListItem(
                 new NotificationEntry(DateTimeOffset.UnixEpoch, NotificationSeverity.Info, "Slewing"),
