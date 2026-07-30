@@ -181,6 +181,12 @@ namespace TianWen.Lib.Tests
         /// The row names its own background, selected or not. See the class remarks: an unstated colour is
         /// alpha-zero, and a row that inherits one records colourless cells that the diffing buffer paints
         /// as a gap.
+        /// <para>
+        /// There is deliberately nothing asserted about the root's WIDTH here. <c>Layout.Engine.Arrange</c>
+        /// places the root at the rect it was handed and never reads the root's own sizing (only children
+        /// are sized by their parent), so "the root spans the row" is the engine's invariant, not the row's,
+        /// and asserting it here would pass for every conceivable row.
+        /// </para>
         /// </summary>
         [Theory]
         [MemberData(nameof(Rows))]
@@ -195,7 +201,6 @@ namespace TianWen.Lib.Tests
                     $"{name} (selected: {selected}) set no background at all");
                 background.Alpha.ShouldNotBe((byte)0,
                     $"{name} (selected: {selected}) named a background with no alpha, which resolves to the terminal default");
-                root.Bounds.Width.ShouldBe(Width, $"{name} (selected: {selected}) did not fill the row");
             }
         }
 
