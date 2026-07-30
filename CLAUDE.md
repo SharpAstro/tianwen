@@ -108,19 +108,35 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `ZWOptical.SDK` | `../zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (repo root) | ❌ |
 | `QHYCCD.SDK` | `../QHYCCD.SDK` | `QHYCCD.SDK.csproj` (repo root) | ✅ |
 | `SharpAstro.Fonts` | `../Fonts.Lib` | `src/SharpAstro.Fonts/SharpAstro.Fonts.csproj` | transitive |
+| `SER.Lib` | `../SER.Lib` | `src/SER.Lib/SER.Lib.csproj` | ✅ |
+| `Lzip.Lib` | `../Lzip.Lib` | `src/Lzip.Lib/Lzip.Lib.csproj` | ✅ |
+| `LAN.Lib` | `../LAN.Lib` | `src/LAN.Lib/LAN.Lib.csproj` | ✅ |
+| `WebGl.Renderer` | `../WebGl.Renderer` | `src/WebGl.Renderer/WebGl.Renderer.csproj` | ⚠️ see below |
 | `TianWen.DAL` | `../TianWen.DAL` | — | ❌ |
 
 **Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all.
 The build switches to ProjectReference when **every** sibling working copy exists — `DIR.Lib`,
 `Console.Lib`, `SdlVulkan.Renderer`, the `Codecs`-repo codec family (`SharpAstro.Tiff`,
 `SharpAstro.Exif`, `SharpAstro.Png`, `SharpAstro.Color.Icc`, `SharpAstro.Jxr`,
-`SharpAstro.Jpeg.IccInjector`, `SharpAstro.Exr`), `QHYCCD.SDK`, and `FITS.Lib` — otherwise it falls
+`SharpAstro.Jpeg.IccInjector`, `SharpAstro.Exr`, `SharpAstro.Codecs`), `QHYCCD.SDK`, `FITS.Lib`,
+`SER.Lib`, `Lzip.Lib`, and `LAN.Lib`; otherwise it falls
 through to PackageReference. Override: `dotnet build -p:UseLocalSiblings=false`. CI always uses
 PackageReference. `Fonts.Lib` is transitive via DIR.Lib's own `UseLocalFontsLib` switch. `QHYCCD.SDK`
 (`../QHYCCD.SDK/QHYCCD.SDK.csproj`) and `FITS.Lib` (`../FITS.Lib/CSharpFITS/CSharpFITS.csproj`) used to
 be outliers (the latter via a separate `UseLocalFitsLib` switch) but were folded into the one switch —
 there is **no** per-library switch anymore. Trade-off: a missing checkout of *any* listed sibling flips
 the whole set back to packages (all-or-nothing), which is fine on a dev box that has them all.
+
+**`WebGl.Renderer` is the one exception, and it bites in two ways.** It is consumed only by
+`TianWen.UI.Web`, which **opts out of CPM**, so its version is pinned **inline in
+`TianWen.UI.Web.csproj`** rather than in `Directory.Packages.props`. Consequences: (1) a sibling-family
+version bump that sweeps `Directory.Packages.props` silently misses it, which is how the pin sat two
+minors behind (`1.12.*` while `1.13` was published) and how the web renderer ended up the last sibling
+still built against DIR.Lib 7.0 after everything else moved to 7.4; grep the whole `src/` tree for a
+pin, not just the props file. (2) It is **gated on `UseLocalSiblings` but absent from that property's
+own `Exists(...)` list**, so a box with every other sibling checked out but no `WebGl.Renderer` gets
+`UseLocalSiblings=true` and a `ProjectReference` to a path that is not there. Clone it, or build that
+one project with `-p:UseLocalSiblings=false`.
 
 For libraries without auto-detection (`FC.SDK`, `ZWOptical.SDK`, `TianWen.DAL`),
 prefer to extend the `UseLocalSiblings` switch in
@@ -1692,6 +1708,14 @@ every widget `Render`/helper signature lives as a **`virtual` property on `Pixel
   in device px). Widget methods that draw open with `var dpiScale = DpiScale;` / `var fontPath = FontPath;`
   (an alias, so the px + `DrawText` calls below are unchanged); input handlers read the property directly
   (input events carry no DPI/font -- this is why the old `_lastDpiScale` render-time cache is gone).
+- **DIR.Lib 7.4 adds a context-taking overload of each** (`ArrangeLayout`/`PaintLayout`/`RenderLayout`
+  taking a `PixelMeasureContext<TSurface>`), for the two cases a single scalar cannot express: a per-axis
+  scale, and a **cell-authored tree arranged on a pixel surface** (`PixelMeasureContext.CellAuthored`, the
+  mirror of Console.Lib's `CellMeasureContext.PixelAuthored` that `TuiHomeTab` uses in the other
+  direction). Build the context ONCE and pass the same instance to Arrange and Paint: the painter reads
+  `FontPath`/`FontScale`/corner radius off it, so measuring with one context and painting with another
+  gives text drawn at a size it was never measured at. The scalar overloads delegate to these with an
+  isotropic context, so they stay the right default and nothing about the rule above changes.
 
 **Do NOT reintroduce these as `Render`/helper parameters.** Rule of thumb: a per-window *constant* ->
 property; a per-call *derived* value stays a parameter. `fontSize` is the canonical parameter -- it varies
