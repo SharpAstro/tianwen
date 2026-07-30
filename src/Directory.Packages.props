@@ -139,10 +139,22 @@
          sidecar can filter on it. Console.Lib 4.6 is DebugInspectorCore's first non-GPU backend; the
          GPU one moved onto the same core. Serialization is deliberately NON-reflective throughout,
          because an AOT consumer disables reflective JSON and the generic overload throws at runtime.
-         7.3 is the current pin: the inspector core learned the EXECUTION model (batch with per-step
+         7.3 raised the inspector core to the EXECUTION model (batch with per-step
          waits, exclusive vs background pump ownership), published from the sibling family alongside
-         SdlVulkan.Renderer 7.3; TianWen consumes it transitively through Console.Lib 4.8. -->
-    <PackageVersion Include="DIR.Lib" Version="7.3.*" />
+         SdlVulkan.Renderer 7.3; TianWen consumes it transitively through Console.Lib 4.8.
+         7.4 is the current pin: a CELL-authored layout tree can now be arranged on a PIXEL surface.
+         Console.Lib has carried the opposite crossing since 4.10 (CellMeasureContext.PixelAuthored, which
+         is how the Home board paints ONE tree on both the GPU tab and the TUI tab), so this closes the
+         gap rather than adding a feature: PixelMeasureContext gains per-axis scales plus a matching
+         CellAuthored factory on the same nominal 8x16 cell. It also adds PixelWidgetBase
+         Arrange/Paint/RenderLayout overloads that take the measure CONTEXT instead of a bare dpiScale, so
+         the painter reads FontPath, FontScale and corner radius from the same object the measure pass
+         used. That half is what makes per-axis safe: the scalar used to be threaded separately into the
+         measure context and the paint loop, two copies kept in step by hand, and per-axis scales would
+         have turned that into text painted at a size it was never measured at. Additive, since the scalar
+         overloads delegate to the context ones with an isotropic context, so every existing TianWen call
+         site paints byte-identically. -->
+    <PackageVersion Include="DIR.Lib" Version="7.4.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -249,8 +261,10 @@
          ForEachVisibleRow are gone with it, leaving HitTestRow for "which ITEM is under this point".
          The three-overload cascade collapses into fields on RowContext, so the next capability adds a
          field rather than a rung an implementation can silently ignore. See Console.Lib's MIGRATION.md
-         and CLAUDE.md's Layout DSL section. -->
-    <PackageVersion Include="Console.Lib" Version="4.10.*" />
+         and CLAUDE.md's Layout DSL section.
+         4.11 is the current pin: a no-code lockstep rebuild against DIR.Lib 7.4, so the family restores
+         one DIR.Lib instead of two. Nothing in the TUI changes. -->
+    <PackageVersion Include="Console.Lib" Version="4.11.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -299,11 +313,12 @@
          DrawPolyline/DrawPolylineDashed overrides (whole polyline into one Flat-pipeline draw); see
          docs/plans/render-batching.md.
          7.1 moved the GPU inspector onto DIR.Lib 7.1's DebugInspectorCore and lost its reflective JSON
-         with it. 7.3 is the current pin: the inspector consolidation completed upstream (one
+         with it. 7.3 completed the inspector consolidation upstream (one
          dir-inspect protocol shared with the terminal inspector, loopback-only bind, the SDL-side
-         transport deleted; batch and wait became core verbs). No render-path change, so these are
+         transport deleted; batch and wait became core verbs). 7.4 is the current pin: a no-code lockstep
+         rebuild against DIR.Lib 7.4. No render-path change, so these are
          rebuilds from TianWen's side, pinned forward to keep the family on one DIR.Lib. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.3.*" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.4.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR -->
