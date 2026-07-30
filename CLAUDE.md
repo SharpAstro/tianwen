@@ -1638,6 +1638,40 @@ construction; no second hit-rect arithmetic that can drift). The full engine + D
 - Engine geometry is headless-testable (stub `Layout.IMeasureContext`); `EquipmentPanelLayoutTests` /
   `SessionConfigLayoutTests` pin arranged rects. Shipped DIR.Lib 6.0 / Console.Lib 3.3 / SdlVulkan.Renderer 6.7.
 
+**TUI list and tree rows are trees too, never formatted strings** (Console.Lib 4.10). A
+`ScrollableList<T>` item implements `IRowLayout.BuildRow(in RowContext)` and a `TreeView` node
+`ITreeNode.BuildNodeContent`, both returning a `Layout.Node`; the widget arranges it into the row's rect and
+paints it via `CellLayout`, so a row states structure and colour and **never pads, truncates, or emits an
+escape code**. Authored in CELLS (`TuiRowPalette.CellFontSize` = 1 design unit = 1 cell,
+`CellMeasureContext.CellAuthored`) unless the tree is shared with a GPU surface (`TuiHomeTab` overrides
+`MeasureContext` to `PixelAuthored`). Three rules this replaced, each of which had cost a real bug:
+
+- **An inline button on a row is a `.Clickable(...)` NODE**, resolved through
+  `ScrollableList.DispatchRowHit` against the rect that was painted -- never a column range computed
+  alongside the code that draws it. `EquipmentFieldItem.DeleteActionColumns` and
+  `InfoRowItem.ButtonRegion` were exactly that, and `StepperRow` derived four offsets *twice*. A row also
+  cannot see its own usable width (the list yields a column to the scrollbar once it overflows), so a
+  right-anchored span drifted by one column exactly when the list scrolled -- which is why the OTA `[X]`
+  used to be pinned beside the title instead of at the row's edge, where it now is.
+- **A cell states its own pen** (`RowPen`, foreground AND background together). Foreground-only writes
+  relied on whatever SGR state a previous write left in effect; the diffing cell buffer stores a colour per
+  cell, so an inheriting row recorded cells with no colour and painted as a gap. This also retired
+  `VisibleOverhead`/`StyleSegment` -- a nested run's closing reset used to wipe the enclosing row's
+  background, so each segment re-applied the outer style on exit and the row scanned its own escape bytes
+  to know how far to pad.
+- **Width arithmetic becomes sizing.** `Math.Max(18, width / 2)` is a min-clamped Star
+  (`.WStar(1f, 18f)`) stated once in `TuiRowPalette.LabelMinColumns`, not recomputed per row shape; a
+  content column is `.WStar`, so a fixed-column budget (`width - 19`) and the comment that had already
+  drifted from it both disappear.
+
+Selection comes from `RowContext.Selected` **only when the list cursor is the truth**. Where the selected
+index lives in shared state instead (`PlannerState.SelectedTargetIndex`, `SessionTabState.SelectedFieldIndex`
+-- both moved by the keyboard independently of the cursor), the row reads its own `IsSelected` and the tab
+writes the state from `ScrollableList.HitTestRow` on mouse-up. Adding a capability adds a **field to
+`RowContext`**, never an overload: the shape this replaced grew one rung per capability
+(`(width, mode)` -> `(.., isSelected)` -> `(.., selectedColumn, columnCount)`) and every rung let an
+implementation silently opt out of the newest information by overriding an older one.
+
 ### Per-Window Widget State: `DpiScale` / `FontPath` / `EmojiFontPath` are properties, not parameters
 
 A value that is **constant for the whole window** and would otherwise be threaded identically through

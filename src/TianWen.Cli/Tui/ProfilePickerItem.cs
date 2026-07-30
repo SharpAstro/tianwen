@@ -1,44 +1,29 @@
-using Console.Lib;
+﻿using Console.Lib;
+using DIR.Lib;
 using TianWen.Lib.Devices;
 
-namespace TianWen.Cli.Tui;
-
-/// <summary>
-/// A row in the profile picker list. Shows profile name with active indicator.
-/// </summary>
-internal sealed class ProfilePickerItem : IRowFormatter
+namespace TianWen.Cli.Tui
 {
-    /// <summary>The profile.</summary>
-    public required Profile Profile { get; init; }
-
-    /// <summary>Whether this profile is the currently active one.</summary>
-    public bool IsActive { get; init; }
-
-    public string FormatRow(int width, ColorMode colorMode) => FormatRow(width, colorMode, isSelected: false);
-
-    public string FormatRow(int width, ColorMode colorMode, bool isSelected)
+    /// <summary>
+    /// A row in the profile picker list. Shows profile name with active indicator.
+    /// </summary>
+    internal sealed class ProfilePickerItem : IRowLayout
     {
-        var marker = IsActive ? "\u25b6 " : "  ";
-        var name = Profile.DisplayName;
-        var line = $" {marker}{name}";
+        /// <summary>The profile.</summary>
+        public required Profile Profile { get; init; }
 
-        if (line.Length > width)
+        /// <summary>Whether this profile is the currently active one.</summary>
+        public bool IsActive { get; init; }
+
+        public Layout.Node BuildRow(in RowContext context)
         {
-            line = line[..(width - 1)] + "\u2026";
-        }
+            // Cursor first, then active: the cursor can sit on a profile that is not the active one, and
+            // which row you are about to switch TO is the more urgent fact of the two.
+            var pen = context.Selected ? TuiRowPalette.Selected
+                : IsActive ? new RowPen(SgrColor.BrightGreen, SgrColor.Black)
+                : TuiRowPalette.Body;
 
-        if (isSelected)
-        {
-            var style = new VtStyle(SgrColor.BrightWhite, SgrColor.Blue);
-            return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
+            return pen.Text($" {(IsActive ? "▶ " : "  ")}{Profile.DisplayName}");
         }
-
-        if (IsActive)
-        {
-            var style = new VtStyle(SgrColor.BrightGreen, SgrColor.Black);
-            return $"{style.Apply(colorMode)}{line.PadRight(width)}{VtStyle.Reset}";
-        }
-
-        return line.PadRight(width);
     }
 }

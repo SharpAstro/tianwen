@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
@@ -252,12 +252,15 @@ internal sealed class TuiEquipmentTab(
             var ota = otaSummaries[i];
             var otaData = data.OTAs[i];
 
-            // OTA header with actions
+            // OTA header with actions. The delete action carries its own handler, so the row that draws
+            // the glyph is the row that binds it -- the two can no longer disagree about where it is.
+            var otaIndex = i;
             items.Add(new EquipmentFieldItem
             {
                 SectionName = $"Telescope #{ota.Index}: {ota.Name}",
                 IsOtaHeader = true,
-                OtaIndex = i,
+                OtaIndex = otaIndex,
+                OnRemoveOta = _ => ArmOrConfirmOtaDelete(otaIndex),
             });
 
             // Device sub-slots
@@ -741,14 +744,14 @@ internal sealed class TuiEquipmentTab(
         return false;
     }
 
-    private bool RouteMouse<T>(ScrollableList<T>? list, MouseEvent mouse) where T : IRowFormatter
+    private bool RouteMouse<T>(ScrollableList<T>? list, MouseEvent mouse) where T : IRowLayout
     {
         if (list is null || !list.HandleMouse(mouse)) return false;
         NeedsRedraw = true;
         return true;
     }
 
-    private bool RouteWheel<T>(ScrollableList<T>? list, int step, int mx, int my) where T : IRowFormatter
+    private bool RouteWheel<T>(ScrollableList<T>? list, int step, int mx, int my) where T : IRowLayout
     {
         if (list is null || list.HitTest(mx, my) is null || !list.HandleWheel(step)) return false;
         NeedsRedraw = true;
@@ -776,60 +779,55 @@ internal sealed class TuiEquipmentTab(
     }
 
     /// <summary>
-    /// Left panel: clicking a profile row selects and switches to it. The list's own HandleMouse moved
-    /// the cursor on MouseDown; this callback fires on MouseUp and adds the side effect. The MoveTo is
-    /// re-issued so a drag-release (down on row A, up on row B) still ends up on B.
+    /// Left panel: a click selects the profile and switches to it. Right panel: a click on an OTA
+    /// header's [X] arms, then confirms, the delete.
     /// <para>
-    /// Right panel: <see cref="ScrollableList{T}"/>'s built-in HandleMouse moves its own cursor on
-    /// click, so cursor-only effects need no registration here.
+    /// Both resolve through the list rather than a registered region. A profile row IS the affordance, so
+    /// <see cref="ScrollableList{T}.HitTestRow"/> yields the item behind the point; the [X] is a node on
+    /// the row's own tree, so <see cref="ScrollableList{T}.DispatchRowHit"/> resolves it against the rect
+    /// that was painted. Neither one re-derives the viewport origin, the header row, the scroll offset or
+    /// the scrollbar column, which is four ways a registered region could silently disagree with the paint.
+    /// </para>
+    /// <para>
+    /// Called on mouse RELEASE. <see cref="HandleRawMouse"/> gets the press first and moves the list
+    /// cursor there, so by the time this runs the cursor is already on the row the user pressed.
     /// </para>
     /// </summary>
-    protected override void RegisterClickableRegions()
+    private bool DispatchListClick(int x, int y)
     {
-        if (_profileList is { } profileList)
+        if (_profileList is { } profileList && profileList.HitTestRow(x, y) is { ItemIndex: var profileIndex })
         {
-            profileList.RegisterRowHits(Tracker,
-                hitFor: (index, _) => new HitResult.ListItemHit("Profile", index),
-                onClick: (index, _) =>
-                {
-                    profileList.MoveTo(index);
-                    SwitchToSelectedProfile();
-                    NeedsRedraw = true;
-                });
+            profileList.MoveTo(profileIndex);
+            SwitchToSelectedProfile();
+            NeedsRedraw = true;
+            return true;
         }
 
-        // The [X] an OTA header draws is only an affordance if it is clickable -- it was drawn but
-        // never bound, so the only way to remove an OTA was the undocumented X key (now in the status
-        // bar too). Arms the same two-step confirm the key does, so a stray click cannot delete a
-        // configured OTA outright.
-        if (_settingsList is { } settingsList)
+        if (_settingsList?.DispatchRowHit(x, y) is not null)
         {
-            settingsList.RegisterRowSpanHits(Tracker, (_, item) =>
-            {
-                if (!item.IsOtaHeader || item.SectionName is not { } section || item.OtaIndex < 0)
-                {
-                    return [];
-                }
-
-                var (start, end) = EquipmentFieldItem.DeleteActionColumns(section);
-                var otaIndex = item.OtaIndex;
-                return
-                [
-                    new RowSpan(start, end, new HitResult.ButtonHit($"RemoveOta{otaIndex}"), _ =>
-                    {
-                        if (_pendingDeleteOtaIndex == otaIndex)
-                        {
-                            ConfirmPendingOtaDelete();
-                        }
-                        else
-                        {
-                            _pendingDeleteOtaIndex = otaIndex;
-                        }
-                        NeedsRedraw = true;
-                    }),
-                ];
-            });
+            NeedsRedraw = true;
+            return true;
         }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Arms the delete on first activation and performs it on the second, so neither a stray click nor a
+    /// stray chord can drop a configured optical train outright. Shared by the [X] and by Ctrl+X, so the
+    /// two cannot arm differently.
+    /// </summary>
+    private void ArmOrConfirmOtaDelete(int otaIndex)
+    {
+        if (_pendingDeleteOtaIndex == otaIndex)
+        {
+            ConfirmPendingOtaDelete();
+        }
+        else
+        {
+            _pendingDeleteOtaIndex = otaIndex;
+        }
+        NeedsRedraw = true;
     }
 
     /// <summary>
@@ -862,7 +860,8 @@ internal sealed class TuiEquipmentTab(
     protected override void HandleTabInput(InputEvent evt){
         if (evt is InputEvent.MouseUp(var mx, var my, MouseButton.Left))
         {
-            if (Tracker.HitTestAndDispatch(mx, my) is not null)
+            // Rows first (they own most of the surface), then whatever the chrome registered.
+            if (!DispatchListClick((int)mx, (int)my) && Tracker.HitTestAndDispatch(mx, my) is not null)
             {
                 NeedsRedraw = true;
             }

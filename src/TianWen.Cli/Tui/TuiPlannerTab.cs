@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Console.Lib;
 using DIR.Lib;
 using TianWen.Lib.Devices;
@@ -198,15 +198,31 @@ internal sealed class TuiPlannerTab(
     }
 
     /// <summary>
-    /// Row clicks select the target. The list owns the geometry -- including yielding the scrollbar
-    /// column, which this used to compute for itself.
+    /// Resolves a click on the target list to the target behind it. The list owns the geometry -- including
+    /// yielding the scrollbar column, which this used to compute for itself.
+    /// <para>
+    /// The selected target lives in <see cref="PlannerState"/> (shared with the GUI) rather than in the
+    /// list cursor, so the click has to write it explicitly; <see cref="ScrollableList{T}.HitTestRow"/>
+    /// reports the ITEM index, which is the one the state is indexed by even when the list is scrolled.
+    /// </para>
+    /// </summary>
+    private bool DispatchTargetListClick(int x, int y)
+    {
+        if (_targetList?.HitTestRow(x, y) is not { ItemIndex: var index })
+        {
+            return false;
+        }
+
+        plannerState.SelectedTargetIndex = index;
+        NeedsRedraw = true;
+        return true;
+    }
+
+    /// <summary>
+    /// Registers the chart's slider bands.
     /// </summary>
     protected override void RegisterClickableRegions()
     {
-        _targetList?.RegisterRowHits(Tracker,
-            hitFor: (index, _) => new HitResult.ListItemHit("TargetList", index),
-            onClick: (index, _) => plannerState.SelectedTargetIndex = index);
-
         // The chart is a raster surface, so a divider drawn into it sits at a pixel position no layout node
         // describes -- this is the raster bucket, and the tracker is where its regions belong. The geometry
         // itself is NOT computed here: it comes from the same helper the GUI registers, which is what stops
@@ -263,10 +279,14 @@ internal sealed class TuiPlannerTab(
         {
             case InputEvent.MouseUp(var x, var y, MouseButton.Left):
             {
-                var selectedBefore = plannerState.SelectedSliderIndex;
+                // A click on the target list is never also a slider grab -- the two surfaces do not
+                // overlap -- so resolving rows first keeps the slider state machine off that path.
+                if (DispatchTargetListClick((int)x, (int)y))
+                {
+                    return;
+                }
 
-                // Every region, dividers included, in one dispatch -- the bands are registered alongside
-                // the list rows, so there is no separate chart hit test to keep in step.
+                var selectedBefore = plannerState.SelectedSliderIndex;
                 var hit = Tracker.HitTestAndDispatch(x, y);
 
                 // Select / click-to-place / deselect all belong to the shared state machine, so the TUI

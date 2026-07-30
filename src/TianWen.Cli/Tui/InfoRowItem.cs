@@ -1,224 +1,171 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Console.Lib;
 using DIR.Lib;
 
-namespace TianWen.Cli.Tui;
-
-/// <summary>
-/// Rows rendered inside <see cref="TuiLiveSessionTab"/>'s info-panel scrollable list.
-/// Each row formats itself to a VT string of a given width; interactive rows also
-/// expose <see cref="Buttons"/> so the enclosing tab can register hit-test regions
-/// at the right column offsets.
-/// <para>
-/// This exists because <c>MarkdownWidget</c>'s Markdig-based parser corrupts SGR escape
-/// sequences and treats leading '&gt;' as blockquote, which made the stepper and
-/// [Capture]/[Save]/[Solve] cells unprintable. Pre-formatted VT strings via
-/// <see cref="ScrollableList{T}"/> give us full control over colour, background, and
-/// whitespace preservation.
-/// </para>
-/// </summary>
-internal abstract record InfoRowItem : IRowFormatter
+namespace TianWen.Cli.Tui
 {
-    /// <summary>VT-escaped, padded-to-width row. Called once per visible row per frame.</summary>
-    public abstract string FormatRow(int width, ColorMode colorMode);
+    /// <summary>
+    /// Rows rendered inside <see cref="TuiLiveSessionTab"/>'s info-panel scrollable list. Each row builds
+    /// itself as a layout tree; a row's inline buttons are clickable nodes ON that tree, so the enclosing
+    /// tab dispatches a click through the list without knowing any of their columns.
+    /// <para>
+    /// This exists because <c>MarkdownWidget</c>'s Markdig-based parser corrupts SGR escape sequences and
+    /// treats leading '&gt;' as blockquote, which made the stepper and [Capture]/[Save]/[Solve] cells
+    /// unprintable. A <see cref="ScrollableList{T}"/> of authored rows gives us full control over colour,
+    /// background, and whitespace.
+    /// </para>
+    /// <para>
+    /// <b>The <c>ButtonRegion</c> list these rows used to publish is gone.</b> A formatted string has no
+    /// rect to bind a hit to, so every interactive row computed its button columns twice -- once while
+    /// writing the glyphs and again for the region list -- and the two had to be kept in step by hand.
+    /// <see cref="StepperRow"/> was the worst of it: four column offsets derived identically in both
+    /// halves, where changing the value width in one place silently moved the buttons away from the
+    /// glyphs. Hits ride on <c>.Clickable(...)</c> now and resolve against the rect that was painted.
+    /// </para>
+    /// </summary>
+    internal abstract record InfoRowItem : IRowLayout
+    {
+        /// <summary>Builds this row. Called once per visible row per frame.</summary>
+        public abstract Layout.Node BuildRow(in RowContext context);
+    }
+
+    /// <summary>Pure whitespace separator. Useful for vertical gaps between OTA blocks.</summary>
+    internal sealed record BlankRow : InfoRowItem
+    {
+        public override Layout.Node BuildRow(in RowContext context) => TuiRowPalette.Body.Rest();
+    }
 
     /// <summary>
-    /// Clickable sub-regions within this row, specified in visible-character
-    /// columns (so callers can multiply by cell width to get pixel coords).
-    /// Empty for non-interactive rows.
+    /// Plain text row, optionally styled (colour / background). Caller passes the exact text to render --
+    /// leading whitespace is preserved verbatim (no markdown stripping).
     /// </summary>
-    public virtual IReadOnlyList<ButtonRegion> Buttons => [];
-}
-
-/// <summary>
-/// Column range within a row that is clickable and its associated handler. The tab
-/// aggregates these from all rendered rows to populate the <see cref="ClickableRegionTracker"/>.
-/// </summary>
-internal readonly record struct ButtonRegion(int ColStart, int ColEnd, Action<InputModifier> OnClick);
-
-/// <summary>Pure whitespace separator. Useful for vertical gaps between OTA blocks.</summary>
-internal sealed record BlankRow : InfoRowItem
-{
-    public override string FormatRow(int width, ColorMode colorMode) => new(' ', width);
-}
-
-/// <summary>
-/// Plain text row, optionally styled (colour / bold / background). Caller passes the
-/// exact text to render — leading whitespace is preserved verbatim (no markdown stripping).
-/// </summary>
-internal sealed record TextRow(string Text, VtStyle? Style = null) : InfoRowItem
-{
-    public override string FormatRow(int width, ColorMode colorMode)
+    internal sealed record TextRow(string Text, VtStyle? Style = null) : InfoRowItem
     {
-        var pad = Math.Max(0, width - Text.Length);
-        return Style.HasValue
-            ? $"{Style.Value.Apply(colorMode)}{Text}{VtStyle.Reset}{new string(' ', pad)}"
-            : Text + new string(' ', pad);
-    }
-}
-
-/// <summary>
-/// Heading row (e.g. per-OTA header, "## Focus", mount section title). Selection marker
-/// in the first column lets the user see which OTA is active in preview mode.
-/// </summary>
-internal sealed record HeadingRow(string Text, bool IsSelected = false, Action<InputModifier>? OnClick = null) : InfoRowItem
-{
-    public override string FormatRow(int width, ColorMode colorMode)
-    {
-        var marker = IsSelected ? "\u25b8" : " "; // Black right-pointing small triangle
-        var line = $"{marker} {Text}";
-        var pad = Math.Max(0, width - line.Length);
-        var fg = IsSelected ? new VtStyle(SgrColor.BrightWhite, SgrColor.Blue) : new VtStyle(SgrColor.BrightCyan, SgrColor.Black);
-        return $"{fg.Apply(colorMode)}{line}{VtStyle.Reset}{new string(' ', pad)}";
+        public override Layout.Node BuildRow(in RowContext context)
+            => (Style is { } style ? new RowPen(style) : TuiRowPalette.Body).Text(Text);
     }
 
-    public override IReadOnlyList<ButtonRegion> Buttons => OnClick is null
-        ? []
-        : [new ButtonRegion(0, int.MaxValue, OnClick)];
-}
-
-/// <summary>
-/// Stepper row for exposure / gain: label, [-] button, value, [+] button, optional
-/// trailing action button (e.g. [Capture] next to the exposure stepper). The buttons
-/// use SGR background colours so they stand out as clickable affordances.
-/// </summary>
-internal sealed record StepperRow(
-    string Label,
-    string Value,
-    Action<InputModifier> OnDec,
-    Action<InputModifier> OnInc,
-    string? ActionLabel = null,
-    Action<InputModifier>? OnAction = null,
-    VtStyle? ActionStyle = null,
-    bool ValueIsOverride = true) : InfoRowItem
-{
-    // Fixed-width layout so the stepper doesn't jiggle when the value's length changes:
-    //   "Label: [-] VALUE_PAD [+]  [ACTION]"
-    //          ^DEC         ^INC  ^ACTION
-    // VALUE_PAD is always VALUE_WIDTH chars. Trailing action is right-padded to fit.
-    private const int ValueWidth = 10;
-    private const int ButtonInnerWidth = 3; // "[-]" / "[+]"
-
-    public override string FormatRow(int width, ColorMode colorMode)
+    /// <summary>
+    /// Heading row (e.g. per-OTA header, "## Focus", mount section title). Selection marker
+    /// in the first column lets the user see which OTA is active in preview mode.
+    /// </summary>
+    internal sealed record HeadingRow(string Text, bool IsSelected = false, Action<InputModifier>? OnClick = null) : InfoRowItem
     {
-        var decStart = Label.Length + 2;                       // after "Label: "
-        var valueStart = decStart + ButtonInnerWidth + 1;      // after "[-] "
-        var incStart = valueStart + ValueWidth + 1;            // after value and " "
-        var actionStart = incStart + ButtonInnerWidth + 2;     // after "[+]  "
-
-        var btnStyle = new VtStyle(SgrColor.White, SgrColor.BrightBlack);
-
-        var paddedValue = Value.Length > ValueWidth ? Value[..ValueWidth] : Value.PadRight(ValueWidth);
-        var valueSpan = ValueIsOverride
-            ? paddedValue
-            : $"{new VtStyle(SgrColor.BrightBlack, SgrColor.Black).Apply(colorMode)}{paddedValue}{VtStyle.Reset}";
-
-        var core =
-            $"{Label}: " +
-            $"{btnStyle.Apply(colorMode)}[-]{VtStyle.Reset} " +
-            $"{valueSpan} " +
-            $"{btnStyle.Apply(colorMode)}[+]{VtStyle.Reset}";
-
-        if (ActionLabel is not null && OnAction is not null)
+        public override Layout.Node BuildRow(in RowContext context)
         {
-            var style = ActionStyle.HasValue ? ActionStyle.Value : new VtStyle(SgrColor.BrightWhite, SgrColor.Green);
-            core += $"  {style.Apply(colorMode)}[{ActionLabel}]{VtStyle.Reset}";
+            var pen = IsSelected ? TuiRowPalette.Selected : new RowPen(SgrColor.BrightCyan, SgrColor.Black);
+            var marker = IsSelected ? "▸" : " "; // Black right-pointing small triangle
+            var row = pen.Text($"{marker} {Text}");
+
+            // The whole row is the affordance, which used to be spelled as a span from column 0 to
+            // int.MaxValue -- a sentinel the list had to clamp. A Star-width node IS the row.
+            return OnClick is null
+                ? row
+                : row.Clickable(new HitResult.ButtonHit($"InfoHeading:{Text}"), OnClick);
         }
-
-        // Pad right to the list width. The visible length of `core` equals
-        // actionStart + ActionLabel.Length + 2 (for the brackets) when an action
-        // is present, otherwise incStart + ButtonInnerWidth. We compute padding
-        // based on visible chars, not raw string length (which includes SGR bytes).
-        var visibleLen = incStart + ButtonInnerWidth;
-        if (ActionLabel is not null)
-        {
-            visibleLen = actionStart + ActionLabel.Length + 2;
-        }
-        return core + new string(' ', Math.Max(0, width - visibleLen));
     }
 
-    public override IReadOnlyList<ButtonRegion> Buttons
+    /// <summary>
+    /// Stepper row for exposure / gain: label, [-] button, value, [+] button, optional
+    /// trailing action button (e.g. [Capture] next to the exposure stepper). The buttons
+    /// carry their own background so they read as clickable affordances.
+    /// </summary>
+    internal sealed record StepperRow(
+        string Label,
+        string Value,
+        Action<InputModifier> OnDec,
+        Action<InputModifier> OnInc,
+        string? ActionLabel = null,
+        Action<InputModifier>? OnAction = null,
+        VtStyle? ActionStyle = null,
+        bool ValueIsOverride = true) : InfoRowItem
     {
-        get
-        {
-            var decStart = Label.Length + 2;
-            var valueStart = decStart + ButtonInnerWidth + 1;
-            var incStart = valueStart + ValueWidth + 1;
-            var actionStart = incStart + ButtonInnerWidth + 2;
+        /// <summary>
+        /// Fixed value width so the stepper does not jiggle as the value's length changes -- the [+] must
+        /// not move under the cursor between frames.
+        /// </summary>
+        private const int ValueColumns = 10;
 
-            var regions = new List<ButtonRegion>(3)
+        public override Layout.Node BuildRow(in RowContext context)
+        {
+            var body = TuiRowPalette.Body;
+            var button = TuiRowPalette.Button;
+
+            // A value the user has not overridden is dimmed -- it is showing the driver's own number.
+            var valuePen = ValueIsOverride ? body : TuiRowPalette.Dim;
+
+            var cells = new List<Layout.Node>(7)
             {
-                new ButtonRegion(decStart, decStart + ButtonInnerWidth, OnDec),
-                new ButtonRegion(incStart, incStart + ButtonInnerWidth, OnInc),
+                body.Cell($"{Label}: ", Label.Length + 2),
+                button.Cell("[-]", 3).Clickable(new HitResult.ButtonHit($"Stepper:{Label}:dec"), OnDec),
+                body.Gap(1),
+                valuePen.Cell(Value, ValueColumns),
+                body.Gap(1),
+                button.Cell("[+]", 3).Clickable(new HitResult.ButtonHit($"Stepper:{Label}:inc"), OnInc),
             };
+
             if (ActionLabel is not null && OnAction is not null)
             {
-                regions.Add(new ButtonRegion(actionStart, actionStart + ActionLabel.Length + 2, OnAction));
+                var actionPen = ActionStyle is { } style
+                    ? new RowPen(style)
+                    : new RowPen(SgrColor.BrightWhite, SgrColor.Green);
+                cells.Add(body.Gap(2));
+                cells.Add(actionPen.Cell($"[{ActionLabel}]", ActionLabel.Length + 2)
+                    .Clickable(new HitResult.ButtonHit($"Stepper:{Label}:action"), OnAction));
             }
-            return regions;
+
+            cells.Add(body.Rest());
+            return Layout.Builder.HStack([.. cells]).RowH(1).Bg(body.Background);
         }
     }
-}
 
-/// <summary>
-/// One-line progress row shown during a preview capture. No clickable controls —
-/// a filled bar and elapsed/total seconds so the user sees forward motion.
-/// </summary>
-internal sealed record ProgressRow(string Label, double ElapsedSec, double TotalSec) : InfoRowItem
-{
-    private const int BarWidth = 16;
-
-    public override string FormatRow(int width, ColorMode colorMode)
+    /// <summary>
+    /// One-line progress row shown during a preview capture. No clickable controls --
+    /// a filled bar and elapsed/total seconds so the user sees forward motion.
+    /// </summary>
+    internal sealed record ProgressRow(string Label, double ElapsedSec, double TotalSec) : InfoRowItem
     {
-        var frac = TotalSec > 0 ? Math.Clamp(ElapsedSec / TotalSec, 0.0, 1.0) : 0.0;
-        var filled = (int)(frac * BarWidth);
-        var bar = new string('\u2588', filled) + new string('\u2591', BarWidth - filled);
-        var text = $"{Label}: {bar} {ElapsedSec:F0}/{TotalSec:F0}s";
-        var style = new VtStyle(SgrColor.BrightGreen, SgrColor.Black);
-        var pad = Math.Max(0, width - text.Length);
-        return $"{style.Apply(colorMode)}{text}{VtStyle.Reset}{new string(' ', pad)}";
-    }
-}
+        private const int BarWidth = 16;
 
-/// <summary>
-/// Row of up to four coloured action buttons (e.g. [J-50] [J+50] [Save] [Solve]).
-/// Layout is "  BTN1 BTN2 ... " with a single space between; regions are computed
-/// by walking the labels in order.
-/// </summary>
-internal sealed record ActionRow(IReadOnlyList<ActionRow.Button> Buttons_) : InfoRowItem
-{
-    public readonly record struct Button(string Label, Action<InputModifier> OnClick, VtStyle Style);
-
-    public override string FormatRow(int width, ColorMode colorMode)
-    {
-        var sb = new System.Text.StringBuilder("  ");
-        var visibleLen = 2;
-        for (var i = 0; i < Buttons_.Count; i++)
+        public override Layout.Node BuildRow(in RowContext context)
         {
-            if (i > 0) { sb.Append(' '); visibleLen++; }
-            var b = Buttons_[i];
-            sb.Append($"{b.Style.Apply(colorMode)}[{b.Label}]{VtStyle.Reset}");
-            visibleLen += b.Label.Length + 2;
+            var frac = TotalSec > 0 ? Math.Clamp(ElapsedSec / TotalSec, 0.0, 1.0) : 0.0;
+            var filled = (int)(frac * BarWidth);
+            var bar = new string('█', filled) + new string('░', BarWidth - filled);
+            return new RowPen(SgrColor.BrightGreen, SgrColor.Black)
+                .Text($"{Label}: {bar} {ElapsedSec:F0}/{TotalSec:F0}s");
         }
-        sb.Append(new string(' ', Math.Max(0, width - visibleLen)));
-        return sb.ToString();
     }
 
-    public override IReadOnlyList<ButtonRegion> Buttons
+    /// <summary>
+    /// Row of up to four coloured action buttons (e.g. [J-50] [J+50] [Save] [Solve]), each its own
+    /// clickable cell. Walking the labels to compute where each one starts -- once to draw and again to
+    /// register -- is what the tree removes.
+    /// </summary>
+    internal sealed record ActionRow(IReadOnlyList<ActionRow.Button> Buttons) : InfoRowItem
     {
-        get
+        public readonly record struct Button(string Label, Action<InputModifier> OnClick, VtStyle Style);
+
+        public override Layout.Node BuildRow(in RowContext context)
         {
-            var regions = new List<ButtonRegion>(Buttons_.Count);
-            var col = 2; // leading "  "
-            for (var i = 0; i < Buttons_.Count; i++)
+            var body = TuiRowPalette.Body;
+            var cells = new List<Layout.Node>(Buttons.Count * 2 + 2) { body.Gap(2) };
+
+            for (var i = 0; i < Buttons.Count; i++)
             {
-                if (i > 0) col++; // space between
-                var b = Buttons_[i];
-                regions.Add(new ButtonRegion(col, col + b.Label.Length + 2, b.OnClick));
-                col += b.Label.Length + 2;
+                if (i > 0)
+                {
+                    cells.Add(body.Gap(1));
+                }
+
+                var b = Buttons[i];
+                cells.Add(new RowPen(b.Style).Cell($"[{b.Label}]", b.Label.Length + 2)
+                    .Clickable(new HitResult.ButtonHit($"InfoAction:{b.Label}"), b.OnClick));
             }
-            return regions;
+
+            cells.Add(body.Rest());
+            return Layout.Builder.HStack([.. cells]).RowH(1).Bg(body.Background);
         }
     }
 }
