@@ -52,6 +52,24 @@ You can install the TianWen library via NuGet:
 dotnet add package TianWen.Lib
 ```
 
+### Runtime prerequisites
+
+The release archives are self-contained native AOT builds — no .NET install needed, and the SDL3
+native is bundled. What they cannot bundle is the Vulkan loader, which has to come from the OS. This
+applies to the two GPU-rendered apps (`tianwen-gui`, `tianwen-fits`); `tianwen-cli` and
+`tianwen-server` render in the terminal or not at all, and need none of it.
+
+| Platform | Also needs |
+|----------|------------|
+| Windows (`win-x64`, `win-arm64`) | nothing — `vulkan-1.dll` ships with any modern GPU driver |
+| Linux (`linux-x64`, `linux-arm64`) | `libvulkan.so.1` + an ICD (`mesa-vulkan-drivers`; that package also carries the lavapipe software rasteriser for headless boxes) |
+| macOS (`osx-arm64`, `osx-x64`) | [MoltenVK](https://github.com/KhronosGroup/MoltenVK) (Vulkan-on-Metal) |
+
+`tianwen-gui` bundles its own fonts (`DejaVuSans.ttf`, `Noto-COLRv1.ttf`). `tianwen-fits` resolves a
+system font instead, via `FontResolver.ResolveSystemFont`, so on a minimal Linux image it also needs a
+font package — `fonts-dejavu-core` on Debian/Ubuntu, `font-dejavu` on Alpine. Without one it starts and
+renders the image but draws no text.
+
 ### Server (Headless / Remote)
 
 Pre-built native AOT binaries of `tianwen-server` are available from [GitHub Releases](https://github.com/SharpAstro/tianwen/releases):
@@ -235,12 +253,14 @@ Pre-built native AOT binaries of `TianWen.UI.FitsViewer` are available from [Git
 
 | Platform | Architecture | Artifact |
 |----------|-------------|----------|
-| Windows  | x64         | `tianwen-fits-viewer-win-x64.tar.gz` |
-| Windows  | ARM64       | `tianwen-fits-viewer-win-arm64.tar.gz` |
-| Linux    | x64         | `tianwen-fits-viewer-linux-x64.tar.gz` |
-| Linux    | ARM64       | `tianwen-fits-viewer-linux-arm64.tar.gz` |
-| macOS    | x64         | `tianwen-fits-viewer-osx-x64.tar.gz` |
-| macOS    | ARM64       | `tianwen-fits-viewer-osx-arm64.tar.gz` |
+| Windows  | x64         | `tianwen-fits-win-x64.tar.gz` |
+| Windows  | ARM64       | `tianwen-fits-win-arm64.tar.gz` |
+| Linux    | x64         | `tianwen-fits-linux-x64.tar.gz` |
+| Linux    | ARM64       | `tianwen-fits-linux-arm64.tar.gz` |
+| macOS    | x64         | `tianwen-fits-osx-x64.tar.gz` |
+| macOS    | ARM64       | `tianwen-fits-osx-arm64.tar.gz` |
+
+Needs a Vulkan loader — see [Runtime prerequisites](#runtime-prerequisites).
 
 #### Keyboard Shortcuts
 
@@ -285,6 +305,19 @@ The live session tab includes a real-time Sixel image preview with viewer contro
 The integrated GUI provides a N.I.N.A.-style interface with GPU-accelerated Vulkan rendering,
 including all the same tabs as the TUI plus a full FITS image viewer with real-time stretch,
 star overlay, WCS grid, and histogram.
+
+Pre-built native AOT binaries are available from [GitHub Releases](https://github.com/SharpAstro/tianwen/releases):
+
+| Platform | Architecture | Artifact |
+|----------|-------------|----------|
+| Windows  | x64         | `tianwen-gui-win-x64.tar.gz` |
+| Windows  | ARM64       | `tianwen-gui-win-arm64.tar.gz` |
+| Linux    | x64         | `tianwen-gui-linux-x64.tar.gz` |
+| Linux    | ARM64       | `tianwen-gui-linux-arm64.tar.gz` |
+| macOS    | x64         | `tianwen-gui-osx-x64.tar.gz` |
+| macOS    | ARM64       | `tianwen-gui-osx-arm64.tar.gz` |
+
+Needs a Vulkan loader — see [Runtime prerequisites](#runtime-prerequisites).
 
 ## Architecture
 
