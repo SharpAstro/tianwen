@@ -45,10 +45,10 @@ work**, which is why phase 1 leads and phase 4 is blocked at the back.
 |-------|------|-------|--------|
 | **0** | **Continuum subtraction.** Remove the broadband starlight a narrowband filter also passes, via a photometric star-flux fit against a matched broadband frame. Prerequisite for everything below: without it the "line" images are line + continuum. | `TianWen.Lib/Imaging/`, new `ContinuumSubtractor` | NOT STARTED |
 | 1 | **Robust channel normalization.** Align G and B to R by median offset then MAD/percentile gain, about the background. No catalog, no spectra, no new data. | `TianWen.Lib/Imaging/`, new `NarrowbandNormalizer` | NOT STARTED |
-| 2 | **Palette mixer + named presets, signal-gated.** Mix coefficients are *fields*, not constants: a `BlendThroughMask` between two palettes driven by a signal-presence mask built from the line image (threshold auto-derived from `Background()` + MAD). Presets name which effect they apply. | same | NOT STARTED |
+| 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, applied globally. Presets name which effect they apply (H-beta vs hue rotation). | same | NOT STARTED |
 | 3 | **Line unmixing.** Two-line Ha/OIII via DBXtract algebra + per-sensor crosstalk coefficients. **3a: the three-line Ha/Hb/OIII solve for Hb-passing filters is the high-value variant** (exactly determined, and the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
 | 4 | **SPCC narrowband mode.** Declared passbands convolved against real star spectra. Needs a Gaia DR3 spectra source. | `Astrometry/`, extends `Tycho2ColorCalibration` | NOT STARTED (blocked, see ADR-3) |
-| 5 | **Hue/chroma editing.** Value-domain luminance masks, then `L`/`S`/`C` domains, with `C` as a hue-preserving scale of Lab `a`,`b`. Reuses `FritschCarlsonSpline` (ADR-7). | `Image.Masks.cs`, `MasterPreviewRenderer` | NOT STARTED (separate concern, see ADR-4/8) |
+| 5 | **Masked colour adjustment.** Curves over `L`/`S`/`C` + per-channel RGB, gated by a mask that may be sourced from a **line image** (ADR-11, threshold auto-derived from `Background()` + MAD). `C` is a hue-preserving scale of Lab `a`,`b`. Reuses `FritschCarlsonSpline` (ADR-7). | `Image.Masks.cs`, `MasterPreviewRenderer` | NOT STARTED (separate concern, see ADR-4/8) |
 
 Phases 1 and 2 are the useful minimum and are independent of everything else. Phase 3 improves
 phase 1 where the sensor is known. Phase 4 is a different feature that happens to share the word
@@ -359,10 +359,19 @@ asymmetry is what decides the default (ADR-5).
 
 ### The mix is gated by a signal-presence mask, not applied globally
 
-The 2021 video does not apply those coefficients to the whole frame. It builds a **range mask from
-the OIII line image itself** and uses it to decide where the blue treatment lands (user screenshot;
-the narration is "will decide how much of the O3 will become a blue kind of..."). Observed
-`RangeSelection` settings, source image `O`:
+The 2021 video keeps the PixelMath mix global, then builds a **range mask from the OIII line image
+itself** and uses it to gate a **`CurvesTransformation` applied afterwards** (user screenshots; the
+narration is "will decide how much of the O3 will become a blue kind of...", and the target image's
+status bar reads `Modified - Masked`). The full chain is:
+
+1. **Global** PixelMath mix, `G = 0.7 O + 0.3 H`, `B = 0.95 O + 0.05 H`, producing the RGB composite.
+2. `RangeSelection` on the **O** channel, producing `range_mask`.
+3. That mask applied to the composite.
+4. **Masked per-channel RGB curves.** In the observed frame the red curve is pulled well below the
+   diagonal while green stays near it, so red is suppressed *only inside the mask*. That is the
+   actual rescue: the OIII regions go blue while the Ha regions keep their colour.
+
+Observed `RangeSelection` settings, source image `O`:
 
 | Parameter | Value | What it does |
 |---|---|---|
@@ -384,13 +393,15 @@ signal to enhance**, which is the plan's governing principle (ADR-9) expressed a
 as a model. It also makes the strong coefficients safe: you can push a much more aggressive blue
 inside the mask than you would ever dare apply globally.
 
-So the mixer's real shape is not three constants but three **fields**:
+**Where this lands in our phases.** The mix itself stays global (phase 2, three constants). The
+gating belongs to the **colour-adjustment stage, phase 5**, which is already specced as masked curves
+over `L`/`S`/`C` plus per-channel RGB from technique D. The single change phase 5 needs is that its
+mask may be sourced from a **line image** rather than from composite luminance, which our
+`LuminanceRangeMask` cannot currently do.
 
-```
-mix_b(x,y) = mix_b_base + mask(x,y) * (mix_b_gated - mix_b_base)
-```
-
-which is a `BlendThroughMask` between two palettes, both primitives we already have.
+That is a smaller change than treating the mix as a field would have been, and it composes better:
+one global palette decision, then one spatially-gated colour adjustment, rather than coefficients
+that vary per pixel for reasons the user cannot see.
 
 **We can automate the one manual step.** The 0.24 threshold is hand-tuned per image, which is why
 this reads as a fiddly manual process. It is really asking "where is this pixel above the noise?",
@@ -626,33 +637,39 @@ physics, minimal payoff) is at the back. It also means the mode flag is a late, 
 what to add, not a fork in the pipeline; and anything synthetic must be **recorded as synthetic** in
 the output provenance, so a science-mode consumer can reject it rather than having to trust a label.
 
-### ADR-11: The mix is a field gated on signal presence, not a global constant
+### ADR-11: A mask may be sourced from a line image, and gates the colour-adjustment stage
 
-**Decision.** Phase 2 applies its palette through a **signal-presence mask built from the line image**
-(`BlendThroughMask` between a base palette and a gated one), and derives the mask threshold
-automatically from the line image's own statistics rather than exposing a raw slider as the primary
-control.
+**Decision.** Masks in this plan may be built from a **single line image** (typically OIII), not only
+from composite luminance, and that mask gates **phase 5's colour adjustment**. The palette mix in
+phase 2 stays global. Derive the mask threshold automatically from the line image's own statistics
+rather than exposing a raw slider as the primary control.
 
-**Why gated.** A global mix tints every pixel, including regions with no OIII at all, where the blue
-treatment is colouring noise and Ha-only structure. Gating means the enhancement lands **only where
-there is signal to enhance**, which is ADR-9 expressed as a mask instead of as a model. It is also
-what makes strong coefficients usable: inside a mask you can push a blue that would be indefensible
-applied frame-wide.
+**Corrected 2026-08-02.** The first version of this ADR had the mask gating the *mix*, inferred from
+a screenshot of the mask being built. A later screenshot showed what it actually gates: a
+`CurvesTransformation` applied after a global mix, with the target reading `Modified - Masked` and
+the red curve pulled below the diagonal inside the mask. So the shape is one global palette decision
+followed by one spatially-gated colour adjustment, not per-pixel mix coefficients.
 
-**Why automatic.** The reference workflow hand-tunes a threshold (0.24 in the observed case), which
-is most of why it reads as fiddly manual work. The question it actually asks is "is this pixel above
-the noise", and we answer that already: `Image.Background()` plus a MAD-scaled sigma, the same
-machinery behind `FindStarsAsync`. So the manual step becomes a default with an override, which is a
-genuine improvement on the reference rather than a port of it.
+**Why gated at all.** A frame-wide colour push also hits regions with no OIII, where it is colouring
+noise and Ha-only structure. Gating puts the adjustment **only where there is signal to adjust**,
+which is ADR-9 expressed as a mask instead of as a model, and it is what makes an aggressive push
+safe: inside a mask you can suppress red far harder than you would dare frame-wide.
 
-**Consequence.** The mixer's inputs are three coefficient *fields*, not three constants, so phase 2
-needs mask plumbing from the start. Both primitives exist (`LuminanceRangeMask`-style thresholding,
-`BlendThroughMask`); what is new is sourcing the mask from a **line image** rather than from composite
-luminance. Note the phase ordering compounds here: on a continuum-contaminated frame a brightness
-threshold selects "anything bright" including stars, whereas after phase 0 it is a true
-"is there OIII here" test. And keep the mask primitive spatial-blur capable: the reference pairs a
-hard threshold with heavy smoothing deliberately, to get a structural envelope rather than a
-per-pixel selection.
+**Why a line image and not luminance.** Composite luminance answers "is this pixel bright", which
+includes bright Ha with no OIII at all. The OIII channel answers "is there OIII here", which is the
+question being asked. This is the one real capability gap: `Image.LuminanceRangeMask` derives from
+composite luminance and has no line-image source.
+
+**Why automatic.** The reference hand-tunes the threshold (0.24 observed), which is most of why the
+workflow reads as fiddly. It is asking "is this above the noise", which `Image.Background()` plus a
+MAD-scaled sigma already answers, the same machinery behind `FindStarsAsync`. The manual step becomes
+a default with an override: an improvement on the reference, not a port of it.
+
+**Consequence.** Phase 5 gains a mask-source parameter; phase 2 is unchanged. Keep the mask primitive
+**spatial-blur capable**: the reference deliberately pairs a hard threshold (fuzziness 0.00) with
+heavy smoothing (35.5) to get a structural envelope rather than a noisy per-pixel selection. And the
+phases compound: on a continuum-contaminated frame a brightness threshold selects anything bright,
+stars included, whereas after phase 0 it is a genuine "is there OIII here" test.
 
 ### ADR-10: Continuum subtraction is phase 0, and it is not a star-removal method
 
