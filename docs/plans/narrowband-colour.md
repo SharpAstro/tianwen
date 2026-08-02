@@ -39,14 +39,48 @@ purely statistical item in row 1 is the one that fixes the complaint. Rigour is 
 it yields signal, not as an end in itself. So the ordering is by **signal recovered per unit of
 work**, which is why phase 1 leads and phase 4 is blocked at the back.
 
+## The data model: a set of mono line images
+
+**The pipeline's native input is N named mono planes (`Ha`, `OIII`, `SII`, `Hb`), not an RGB image.**
+This is how the reference workflow is actually set up: the 2021 video's PixelMath operates on two
+grayscale windows, `H` and `O`, that already exist as separate images before any mixing happens. Only
+at the mix do they become RGB.
+
+That is worth stating explicitly because the two hardware paths reach that state very differently:
+
+| | How the lines get separated | Consequence |
+|---|---|---|
+| **Mono + filter wheel** | **Optically.** Each line was shot through its own filter and stacked into its own master | Already separated, perfectly, by construction. No unmixing exists or is needed |
+| **OSC + dual/tri/quad-band** | **Algebraically**, from one RGB frame where R is mostly Ha and G/B are mostly OIII | Needs an unmixing step just to *reach* the state a mono imager starts from |
+
+**So phase 3 is not a core phase, it is the OSC on-ramp.** A mono imager skips it entirely and gets a
+strictly better result, because optical separation beats any algebraic estimate: there is no
+crosstalk model, no sensor coefficient table, and no conditioning to worry about.
+
+Two things fall out that were previously muddled in this document:
+
+- **Phase 1 is about line planes, not RGB channels.** Alchemy states it as "align G and B to R"
+  because its input is an OSC dual-band RGB, but the operation is really *align each weak line image
+  to the reference (strongest, usually Ha) by median offset then signal-strength gain*. Stated that
+  way it generalises to any number of planes and reads correctly for mono, which is the form we
+  should implement.
+- **SII is easy for mono and hard for OSC**, which inverts the earlier Deferred note. A mono imager
+  with an SII filter simply has a fourth plane and full SHO is available immediately. A quad-band OSC
+  user is trying to recover four lines from three channels, which is underdetermined. The difficulty
+  was never SII; it was doing algebra on too few measurements.
+
+Everything else composes per-plane without change: continuum subtraction (phase 0) subtracts a scaled
+broadband from *each* line plane, and the phase 5 mask is built from *one* line plane, which is
+exactly what the OIII range mask is.
+
 ## Status: NOT STARTED (research + decision recorded 2026-08-02)
 
 | Phase | What | Where | Status |
 |-------|------|-------|--------|
 | **0** | **Continuum subtraction.** Remove the broadband starlight a narrowband filter also passes, via a photometric star-flux fit against a matched broadband frame. Prerequisite for everything below: without it the "line" images are line + continuum. | `TianWen.Lib/Imaging/`, new `ContinuumSubtractor` | NOT STARTED |
-| 1 | **Robust channel normalization.** Align G and B to R by median offset then MAD/percentile gain, about the background. No catalog, no spectra, no new data. | `TianWen.Lib/Imaging/`, new `NarrowbandNormalizer` | NOT STARTED |
+| 1 | **Robust plane normalization.** Align each weak line plane to the reference plane (usually Ha) by median offset then MAD/percentile gain, about the background. No catalog, no spectra, no new data. Works for any N. | `TianWen.Lib/Imaging/`, new `NarrowbandNormalizer` | NOT STARTED |
 | 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, applied globally. Presets name which effect they apply (H-beta vs hue rotation). | same | NOT STARTED |
-| 3 | **Line unmixing.** Two-line Ha/OIII via DBXtract algebra + per-sensor crosstalk coefficients. **3a: the three-line Ha/Hb/OIII solve for Hb-passing filters is the high-value variant** (exactly determined, and the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
+| 3 | **Line unmixing: the OSC on-ramp only.** Recovers mono line planes from one dual/tri-band RGB frame, via DBXtract algebra + per-sensor crosstalk coefficients. **Mono imagers skip this entirely** and start at phase 1. **3a: the three-line Ha/Hb/OIII solve is the high-value variant** (exactly determined, the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
 | 4 | **SPCC narrowband mode.** Declared passbands convolved against real star spectra. Needs a Gaia DR3 spectra source. | `Astrometry/`, extends `Tycho2ColorCalibration` | NOT STARTED (blocked, see ADR-3) |
 | 5 | **Masked colour adjustment.** Curves over `L`/`S`/`C` + per-channel RGB, gated by a mask that may be sourced from a **line image** (ADR-11, threshold auto-derived from `Background()` + MAD). `C` is a hue-preserving scale of Lab `a`,`b`. Reuses `FritschCarlsonSpline` (ADR-7). | `Image.Masks.cs`, `MasterPreviewRenderer` | NOT STARTED (separate concern, see ADR-4/8) |
 
@@ -637,6 +671,35 @@ physics, minimal payoff) is at the back. It also means the mode flag is a late, 
 what to add, not a fork in the pipeline; and anything synthetic must be **recorded as synthetic** in
 the output provenance, so a science-mode consumer can reject it rather than having to trust a label.
 
+### ADR-10: Continuum subtraction is phase 0, and it is not a star-removal method
+
+**Decision.** Continuum subtraction runs **before** normalization, unmixing and mixing, on linear
+registered frames, and is offered as an optional preprocessing step gated on a matched broadband
+frame being present. It is deliberately **not** wired into the `IStarRemover` role.
+
+**Why phase 0.** Everything else in this plan computes on the line images. If those images are
+`line + continuum`, then phase 1's median/MAD/p99.5 statistics are measuring a broadband pedestal and
+a field of stars alongside the line signal, and phase 2's palette mix blends continuum into every
+output channel. Subtracting afterwards cannot undo that; the numbers were already fitted to the wrong
+quantity. It is also the purest instance of ADR-9: it is precise physical modelling whose direct
+product is *more real signal correctly separated*, which is exactly what buys colour headroom.
+
+**Why not a star remover.** It does remove stars, and it removes them *physically* rather than by
+inpainting, which is strictly more honest than `StarXTerminator` or the SAS star remover where the
+data supports it. But the two are not interchangeable and conflating them would be a mistake:
+continuum subtraction requires a matched broadband frame, only removes the *continuum* component (an
+emission-line star, or a star with strong Ha, leaves residual), and its by-product is a corrected
+science frame rather than a starless plate. `IStarRemover` must keep working with no broadband frame
+at all. Treat continuum subtraction as calibration that happens to remove stars, not as a star
+remover that happens to calibrate.
+
+**Consequence.** It needs frame pairing that the stacker does not currently model: a narrowband
+`MasterGroupKey` has to be associated with its broadband counterpart from the same target. That
+pairing is the actual new work, since the fit itself is largely assembled from parts we own
+(`FindStarsAsync`, the quad-match registration, and the flux-fitting shape `Tycho2ColorCalibration`
+already uses). Absent a broadband frame the step is skipped, and everything downstream behaves
+exactly as it does today.
+
 ### ADR-11: A mask may be sourced from a line image, and gates the colour-adjustment stage
 
 **Decision.** Masks in this plan may be built from a **single line image** (typically OIII), not only
@@ -671,34 +734,32 @@ heavy smoothing (35.5) to get a structural envelope rather than a noisy per-pixe
 phases compound: on a continuum-contaminated frame a brightness threshold selects anything bright,
 stars included, whereas after phase 0 it is a genuine "is there OIII here" test.
 
-### ADR-10: Continuum subtraction is phase 0, and it is not a star-removal method
+### ADR-12: The pipeline operates on mono line planes; OSC extraction is an on-ramp
 
-**Decision.** Continuum subtraction runs **before** normalization, unmixing and mixing, on linear
-registered frames, and is offered as an optional preprocessing step gated on a matched broadband
-frame being present. It is deliberately **not** wired into the `IStarRemover` role.
+**Decision.** Model the input as a set of **named mono line planes** (`Ha`, `OIII`, `SII`, `Hb`) of
+arbitrary size N. Every phase is defined over that set. The OSC dual/tri-band case is a *preprocessing
+step* (phase 3) that produces the set; it is not the native representation.
 
-**Why phase 0.** Everything else in this plan computes on the line images. If those images are
-`line + continuum`, then phase 1's median/MAD/p99.5 statistics are measuring a broadband pedestal and
-a field of stars alongside the line signal, and phase 2's palette mix blends continuum into every
-output channel. Subtracting afterwards cannot undo that; the numbers were already fitted to the wrong
-quantity. It is also the purest instance of ADR-9: it is precise physical modelling whose direct
-product is *more real signal correctly separated*, which is exactly what buys colour headroom.
+**Why.** There are two ways to arrive at separated lines and they are not equivalent. A mono imager
+separates them **optically**, one filter per line, which is exact and has no model. An OSC dual-band
+user separates them **algebraically** from three channels, which is an estimate with a crosstalk
+model, a sensor coefficient table, and conditioning to worry about. Writing the pipeline against the
+RGB form (as Alchemy does, because that is its input) bakes the harder, lossier case into the core and
+makes the better-equipped user route through machinery they do not need.
 
-**Why not a star remover.** It does remove stars, and it removes them *physically* rather than by
-inpainting, which is strictly more honest than `StarXTerminator` or the SAS star remover where the
-data supports it. But the two are not interchangeable and conflating them would be a mistake:
-continuum subtraction requires a matched broadband frame, only removes the *continuum* component (an
-emission-line star, or a star with strong Ha, leaves residual), and its by-product is a corrected
-science frame rather than a starless plate. `IStarRemover` must keep working with no broadband frame
-at all. Treat continuum subtraction as calibration that happens to remove stars, not as a star
-remover that happens to calibrate.
+**Consequence.**
 
-**Consequence.** It needs frame pairing that the stacker does not currently model: a narrowband
-`MasterGroupKey` has to be associated with its broadband counterpart from the same target. That
-pairing is the actual new work, since the fit itself is largely assembled from parts we own
-(`FindStarsAsync`, the quad-match registration, and the flux-fitting shape `Tycho2ColorCalibration`
-already uses). Absent a broadband frame the step is skipped, and everything downstream behaves
-exactly as it does today.
+- **Mono imagers skip phase 3 entirely** and start at phase 1, with a strictly better result than any
+  unmixing can produce.
+- **Phase 1 is restated over planes:** align each weak plane to the reference plane by median offset
+  then signal-strength gain. Alchemy's "align G and B to R" is that operation with N fixed at 3 and
+  the planes wearing RGB names.
+- **SII inverts.** The earlier Deferred note called quad-band SII "a larger linear system"; the
+  difficulty was never SII, it was doing algebra on too few measurements. A mono imager with an SII
+  filter just has a fourth plane and full SHO is immediately available. Only *OSC* quad-band is hard,
+  and it is hard because four unknowns from three channels is underdetermined.
+- Phase 0 and phase 5 need no change: continuum subtraction runs per plane, and the phase 5 mask is
+  built from one plane, which is exactly what the OIII range mask is.
 
 ## Invariants
 
@@ -727,7 +788,9 @@ exactly as it does today.
   technique D's is a sigmoid on the luminance value, which cannot bleed a selection across an edge.
   Worth adding as an option (not a replacement: spatial feathering is still right for some masks),
   but it is an independent improvement to an existing primitive rather than part of this plan.
-- **Quad-band (SII) unmixing.** Four lines across three channels is underdetermined and needs either
-  a constraint or a fourth measurement. Genuinely deferred.
+- **OSC quad-band unmixing only.** Four lines from three channels is underdetermined and needs a
+  constraint or a fourth measurement. Genuinely deferred, and note the scope: this is an *OSC*
+  limitation, not an SII limitation. A **mono** imager with an SII filter simply has a fourth plane
+  and full SHO works today with no unmixing at all (ADR-12).
   (**The three-line Hb case is NOT deferred** and moved into phase 3a: it is exactly determined and
   is the largest available source of real blue. See the HOO section and ADR-9.)
