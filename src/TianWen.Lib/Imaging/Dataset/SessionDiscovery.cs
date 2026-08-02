@@ -42,13 +42,15 @@ public static class SessionDiscovery
         int Duplicates,
         int SessionsTooSmall,
         int Sessions,
-        int Lights);
+        int Lights,
+        FrameMetaSidecarStats? Sidecar = null);
 
     /// <summary>Enumerates all archive roots (header-only reads) and groups into sessions.</summary>
     public static async Task<(ImmutableArray<ImagingSession> Sessions, DiscoveryStats Stats)> DiscoverAsync(
         DatasetBuildOptions options, ILogger? logger = null, CancellationToken cancellationToken = default)
     {
         var frames = new List<(FrameInfo Frame, string Root)>();
+        var sidecar = FrameMetaSidecarStats.Empty;
         foreach (var root in options.ArchiveRoots)
         {
             var source = new FitsFolderFrameSource(root, true);
@@ -56,9 +58,16 @@ public static class SessionDiscovery
             {
                 frames.Add((frame, root));
             }
+            // Read after enumerating: the counters accumulate as frames stream past.
+            sidecar = sidecar.Add(source.SidecarStats);
             logger?.LogInformation("Scanned {Root}: {Count} FITS headers so far", root, frames.Count);
         }
-        return GroupSessions(frames, options);
+        if (sidecar.Malformed > 0)
+        {
+            logger?.LogWarning("{Count} {FileName} sidecar(s) could not be parsed and were ignored", sidecar.Malformed, FrameMetaSidecarResolver.FileName);
+        }
+        var (sessions, stats) = GroupSessions(frames, options);
+        return (sessions, stats with { Sidecar = sidecar });
     }
 
     /// <summary>Pure grouping core (unit-testable without disk): gate → dedup → session grouping.</summary>
@@ -135,18 +144,11 @@ public static class SessionDiscovery
     private static string TargetOf(FrameInfo frame) => frame.Meta.ObjectName?.Trim() ?? "";
 
     /// <summary>
-    /// The session-grouping filter key: the canonical <see cref="Filter.Name"/> when the header
-    /// parsed to a known filter, else the trimmed raw <c>FILTER</c> text, else empty.
-    ///
-    /// <para><b>The raw fallback is what makes the split real on an actual archive.</b>
-    /// <see cref="Filter.FromName"/>'s patterns are anchored, so descriptive header text ("Ha 3nm",
-    /// "OIII 3nm", "Antlia ALP-T") matches none of them and canonicalises to
-    /// <see cref="Filter.Unknown"/>. Keying on the canonical name alone (what
-    /// <see cref="MasterGroupKey"/> does, correctly, for a different job) would therefore merge Ha
-    /// and OIII straight back together for exactly the archives this split exists to separate.
-    /// <see cref="Bandpass"/> is the redundant half and is deliberately not in the key: it is a
-    /// function of the canonical name for every recognised filter and None for every unrecognised
-    /// one, so it partitions nothing the name does not.</para>
+    /// The session-grouping filter key, which is exactly <see cref="Filter.IdentityKey"/> (shared
+    /// with the sidecar's does-this-frame-already-have-a-filter test, so the two cannot disagree
+    /// about what counts as "no filter"). A frame whose <c>FILTER</c> header is missing entirely can
+    /// still carry one here: <see cref="FrameMetaSidecarResolver"/> fills it in at scan time from a
+    /// hand-authored declaration, which is how a manually screwed-in filter gets grouped at all.
     ///
     /// <para>Raw text is compared verbatim (ordinal, as <see cref="TargetOf"/> compares OBJECT),
     /// which can over-split if one directory's capture software spelled one filter two ways. That
@@ -156,15 +158,7 @@ public static class SessionDiscovery
     /// recognised filter is immune regardless, since the canonical name already folds "Ha", "ha"
     /// and "H-alpha" onto one key.</para>
     /// </summary>
-    private static string FilterOf(FrameInfo frame)
-    {
-        var filter = frame.Meta.Filter;
-        if (filter.Name == Filter.None.Name)
-        {
-            return "";
-        }
-        return filter.Name == Filter.Unknown.Name ? filter.RawName?.Trim() ?? "" : filter.Name;
-    }
+    private static string FilterOf(FrameInfo frame) => frame.Meta.Filter.IdentityKey;
 
     private enum LightGate { Pass, NotLight, ExposureOutOfRange, InstrumentExcluded, SoftwareExcluded, ObjectExcluded, Product }
 

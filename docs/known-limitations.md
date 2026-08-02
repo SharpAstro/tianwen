@@ -122,6 +122,13 @@ grows when the new field is present**, because `test-sessions.txt` is a stable p
 that does not move cannot change train/test sets; every broadband session built before filters
 entered the key keeps its exact id and its exact assignment.
 
+**A frame with no `FILTER` card at all needs a declaration, not a better parser.** N.I.N.A. does not
+model a hand-fitted filter, which is how a dual-band usually goes onto an OSC, so those frames carry
+nothing to key on. `.tianwen-meta.json` (`FrameMetaSidecar`) declares it per directory, cascading
+like `.gitignore`, applied at the frame source so lights and their flats learn it together. Format
+and the reasoning behind fill-only semantics:
+[plans/ai-denoise-deconv.md](plans/ai-denoise-deconv.md).
+
 See [docs/plans/narrowband-colour.md](plans/narrowband-colour.md) for what the archive sweep is
 otherwise wanted for.
 
