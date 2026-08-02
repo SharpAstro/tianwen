@@ -89,6 +89,24 @@ Each verb maps to an enhancer / classical implementation that hasn't been wired 
 Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [x] **Masked finishing boost for the preview render** (2026-07-03) — `Image.MaskedBoost` composes the new mask primitives (`LuminanceRangeMask` + `BlendThroughMask` + `Saturate` / `ContrastBoost`, `Image.Masks.cs`) into the Affinity masked-contrast-boost + saturation macro; surfaced as `stack --saturation/--contrast-boost` + the same flags on `image render`, applied to the stretched preview PNG only (`MasterPreviewRenderer.ApplyMaskedBoost`). Basic mask support shipped alongside: `Invert`, `Binarize`, `GaussianBlur` (feathering), scalar `Multiply` (partial-strength masks). Linear masters + split-plate TIFFs untouched by design.
+- [ ] **Geometric black-point estimation (EZ_SoftStretch's method), as an alternative to the MAD sigma-clip.**
+  Our autostretch derives the black point statistically: `median + (-2.8 x MAD)`, mirroring Siril's
+  `find_linked_midtones_balance`, which assumes a roughly Gaussian background. EZ_SoftStretch derives it
+  **geometrically from the shape of the cumulative histogram** instead, and the difference is worth having.
+  Per channel: build a cumulative histogram from 0 up to the median (averaging adjacent bins); find the
+  noise floor as the first bin whose cumulative exceeds `(totalPixels / 10000) * aggressiveness`;
+  least-squares fit a line to the cumulative between that floor and the histogram peak; **the black point
+  is that line's x-intercept** (`-c/m`). It also computes **R-squared as a confidence measure** and falls back
+  to 0 with a warning when the fit fails or lands above the median. Two things we do not have: a black
+  point that does not assume a Gaussian background, and a *confidence* number telling us when the estimate
+  is untrustworthy (today a bad MAD silently produces a bad stretch). Its other idea is `htExpandLow`, fed
+  as a **negative output shadow** in the histogram transform so input-black maps above 0: a deliberate
+  "do not crush the blacks" control, which is the "soft" in soft stretch. **Licence: reimplement only,
+  and more strictly than the VeraLux case.** `EZ_SoftStretch.js` (S. Dimant / darkarchon, 2020-2023,
+  [archive](https://github.com/Arkatufus/Ez-Processing-Suite)) carries a bare copyright line with **no
+  licence grant at all**, which is all-rights-reserved, not GPL. Take the algorithm, never the code.
+  (Surfaced 2026-08-02 via the "RESCUE the BLUE" video's reference thread; adjacent to
+  [narrowband-colour](../plans/narrowband-colour.md) but a stretch concern, not a colour one.)
 - [ ] **`tianwen image adjust` standalone verb** — apply `Image.MaskedBoost` (and the raw mask primitives, e.g. `--export-mask` for previewing what a step will touch) to an already-stretched TIFF/FITS plate outside the stack/render flow. The primitives + CLI parsing shape (mirror `image render`'s flags) are in place; deferred until a concrete need.
 - [ ] **Mask morphology (dilate / erode)** — the remaining classic mask ops beyond invert/feather/binarize; useful for growing a star mask before protection. Deferred until a consumer exists.
 
@@ -137,4 +155,30 @@ The dcraw `adobe_coeff` 3×3 (now shipped via `FC.SDK.Raw.CanonCameraProfiles`) 
 - [ ] **Jiang et al spectral CSV importer** — Stanford 2013 measured camera spectral response (QE × CFA per channel) for ~28 cameras including Canon EOS 5D Mark II / III, 1D X, 40D / 60D, Nikon D40 / D700 / D5100, several Sony / Olympus / Fuji bodies. Public CSV download. Small Python or C# tool that normalises to TianWen's `FilterCurveDatabase` `.gs.gz` format. Once imported, those camera models go through the spectral matrix path; cameras without entries fall back to `CanonCameraProfiles` (Canon) or identity (everything else).
 
 Dispatch order on CR2 import: try spectral matrix first (best — first-principles); fall back to dcraw matrix (factory-curated); fall back to identity (warn). For non-Canon raws (NEF / ARW / etc.) only the spectral path applies until / unless a vendor-specific factory table lands too.
+
+## Colour: narrowband
+
+Everything above (and `Tycho2ColorCalibration`) assumes a **broadband** system: SPCC integrates a Pickles
+SED against QE × CFA over the visible, which is exactly the wrong model for an Ha / OIII / SII stack. Today
+a narrowband master has no colour-calibration path at all, so the palette is whatever the channel-assignment
+and per-channel autostretch happen to produce.
+
+Planned in **[docs/plans/narrowband-colour.md](../plans/narrowband-colour.md)** (researched 2026-08-02),
+which carries the algorithms, a pros/cons table across the three candidate techniques, and four ADRs.
+Summary of what was decided, so this file is not misleading on its own:
+
+- [ ] **Phase 1-2: robust channel normalization + palette mixer** (the useful minimum). Median offset then
+  MAD/percentile gain applied **about the background**, aligning G and B to R, followed by an `Ha`/`OIII`
+  to RGB lerp. No catalog, no plate solve, no new data, and it is what actually fixes red-dominated HOO.
+  Built almost entirely from primitives we already have. Reimplement from the maths in the plan: the
+  reference implementation is GPL-3.0 and must not be copied into an LGPL-2.1 library (ADR-2).
+- [ ] **Phase 3: dual-band Ha/OIII unmixing** (optional, gated on a known sensor). DBXtract algebra plus a
+  nine-coefficient per-sensor crosstalk table, sourced from DBXtract rather than lifted from the script.
+- [ ] **Phase 4: SPCC narrowband. BLOCKED, and the framing this item used to carry was wrong** (ADR-3). It
+  cannot be done by pointing a narrow passband at our existing Pickles SEDs: a Pickles template is a
+  spectral *type average*, so over a 3 nm window it cannot know whether a given star shows Ha in absorption
+  or emission. Siril uses Gaia DR3 `xp_sampled` per-star spectra, which we do not have, so this is a Gaia
+  project rather than a colour project. Also scoped to **exclude SHO** on Siril's own guidance: SPCC
+  reproduces true spectral intensities and true SHO intensities are green-dominated, so the Hubble palette
+  is not something a photometric calibrator should be producing.
 
