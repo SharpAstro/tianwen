@@ -45,7 +45,7 @@ work**, which is why phase 1 leads and phase 4 is blocked at the back.
 |-------|------|-------|--------|
 | **0** | **Continuum subtraction.** Remove the broadband starlight a narrowband filter also passes, via a photometric star-flux fit against a matched broadband frame. Prerequisite for everything below: without it the "line" images are line + continuum. | `TianWen.Lib/Imaging/`, new `ContinuumSubtractor` | NOT STARTED |
 | 1 | **Robust channel normalization.** Align G and B to R by median offset then MAD/percentile gain, about the background. No catalog, no spectra, no new data. | `TianWen.Lib/Imaging/`, new `NarrowbandNormalizer` | NOT STARTED |
-| 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, with presets that carry the physics (see "The HOO blue problem"). Naive HOO, natural blend, tweaked natural, pseudo-SHO, custom. | same | NOT STARTED |
+| 2 | **Palette mixer + named presets, signal-gated.** Mix coefficients are *fields*, not constants: a `BlendThroughMask` between two palettes driven by a signal-presence mask built from the line image (threshold auto-derived from `Background()` + MAD). Presets name which effect they apply. | same | NOT STARTED |
 | 3 | **Line unmixing.** Two-line Ha/OIII via DBXtract algebra + per-sensor crosstalk coefficients. **3a: the three-line Ha/Hb/OIII solve for Hb-passing filters is the high-value variant** (exactly determined, and the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
 | 4 | **SPCC narrowband mode.** Declared passbands convolved against real star spectra. Needs a Gaia DR3 spectra source. | `Astrometry/`, extends `Tycho2ColorCalibration` | NOT STARTED (blocked, see ADR-3) |
 | 5 | **Hue/chroma editing.** Value-domain luminance masks, then `L`/`S`/`C` domains, with `C` as a hue-preserving scale of Lab `a`,`b`. Reuses `FritschCarlsonSpline` (ADR-7). | `Image.Masks.cs`, `MasterPreviewRenderer` | NOT STARTED (separate concern, see ADR-4/8) |
@@ -181,10 +181,17 @@ mask  = min(lower, upper)
 ```
 
 Our `Image.LuminanceRangeMask` feathers with a **spatial** Gaussian (`blurSigma = 3f`). These are not
-the same thing. A value-domain roll-off has no spatial extent, so it cannot bleed a highlight
-selection across an edge into the adjacent background; a Gaussian blur can and does. For "apply this
-to the highlights only", the value-domain form is the more correct primitive. Both are then applied
-identically, as a lerp `original * (1 - mask) + transformed * mask`, which is our `BlendThroughMask`.
+the same thing: a value-domain roll-off has no spatial extent and so cannot bleed a selection across
+an edge, where a Gaussian blur can and does. Both are then applied identically, as a lerp
+`original * (1 - mask) + transformed * mask`, which is our `BlendThroughMask`.
+
+**Correction (2026-08-02):** an earlier version of this section called the value-domain form "the
+more correct primitive". That was too strong. PixInsight's `RangeSelection` deliberately combines a
+*hard* value threshold with *heavy* spatial smoothing (see the mask-gated section below, where the
+observed settings are fuzziness 0.00 and smoothness 35.5), because the spatial blur is not there to
+feather an edge. It is there to turn a noisy per-pixel threshold into a smooth **structural envelope**
+that follows the nebula rather than the noise. Both primitives are legitimate and they do different
+jobs; we already have the spatial one.
 
 **Their curve engine is Akima spline into a 65536-entry LUT. Do not copy that part** (see ADR-7).
 
@@ -349,6 +356,53 @@ Two further consequences worth stating before anyone builds on this:
 **Rationale (2), hue rotation, is filter-independent**, because it is colour geometry rather than
 physics: starving green to move OIII off cyan works the same whatever the filter passed. That
 asymmetry is what decides the default (ADR-5).
+
+### The mix is gated by a signal-presence mask, not applied globally
+
+The 2021 video does not apply those coefficients to the whole frame. It builds a **range mask from
+the OIII line image itself** and uses it to decide where the blue treatment lands (user screenshot;
+the narration is "will decide how much of the O3 will become a blue kind of..."). Observed
+`RangeSelection` settings, source image `O`:
+
+| Parameter | Value | What it does |
+|---|---|---|
+| Lower limit | 0.24 | Threshold: only pixels above 24% in the OIII image participate |
+| Upper limit | 1.00 | No upper bound |
+| Fuzziness | 0.00 | **Hard** threshold, no value-domain ramp |
+| Smoothness | 35.5 | **Heavy spatial blur** of the resulting mask |
+| Lightness | on | Mask from lightness rather than per-channel |
+
+Hard threshold plus heavy blur is a deliberate pairing, not a contradiction. The threshold answers
+"is there OIII here", which per-pixel is a noisy binary question; the large smoothing turns that into
+a smooth envelope tracking the **structure** of the nebula. The output (visible in the screenshot) is
+a soft grey map of where the OIII actually lives.
+
+**Why this matters more than the coefficients do.** A global mix tints the entire frame, including
+regions with no OIII at all, where "rescuing the blue" just means colouring noise and Ha-only
+structure. Gating on the line image means the enhancement is applied **only where there is real
+signal to enhance**, which is the plan's governing principle (ADR-9) expressed as a mask rather than
+as a model. It also makes the strong coefficients safe: you can push a much more aggressive blue
+inside the mask than you would ever dare apply globally.
+
+So the mixer's real shape is not three constants but three **fields**:
+
+```
+mix_b(x,y) = mix_b_base + mask(x,y) * (mix_b_gated - mix_b_base)
+```
+
+which is a `BlendThroughMask` between two palettes, both primitives we already have.
+
+**We can automate the one manual step.** The 0.24 threshold is hand-tuned per image, which is why
+this reads as a fiddly manual process. It is really asking "where is this pixel above the noise?",
+which is a question we already answer: `Image.Background()` plus a MAD-scaled sigma gives a
+signal-detection threshold directly, the same machinery `FindStarsAsync` uses. Deriving the threshold
+from the OIII image's own statistics turns the manual step into a default, with the slider kept as an
+override.
+
+**And phase 0 makes the mask honest.** On a continuum-contaminated OIII frame, a brightness threshold
+selects "anything bright", which includes stars and reflection nebulosity. After continuum
+subtraction the OIII image is pure line emission, so the same threshold becomes a genuine "is there
+OIII here" test. The phases compound.
 
 **And yes, the modern scripts subsume this entirely.** Alchemy's `mix_r/mix_g/mix_b` is exactly this
 PixelMath with a live preview instead of three dialog round-trips; the 2021 video is the manual form
@@ -571,6 +625,34 @@ is why phase 1 (statistics, no physics, fixes the actual complaint) leads and ph
 physics, minimal payoff) is at the back. It also means the mode flag is a late, thin decision about
 what to add, not a fork in the pipeline; and anything synthetic must be **recorded as synthetic** in
 the output provenance, so a science-mode consumer can reject it rather than having to trust a label.
+
+### ADR-11: The mix is a field gated on signal presence, not a global constant
+
+**Decision.** Phase 2 applies its palette through a **signal-presence mask built from the line image**
+(`BlendThroughMask` between a base palette and a gated one), and derives the mask threshold
+automatically from the line image's own statistics rather than exposing a raw slider as the primary
+control.
+
+**Why gated.** A global mix tints every pixel, including regions with no OIII at all, where the blue
+treatment is colouring noise and Ha-only structure. Gating means the enhancement lands **only where
+there is signal to enhance**, which is ADR-9 expressed as a mask instead of as a model. It is also
+what makes strong coefficients usable: inside a mask you can push a blue that would be indefensible
+applied frame-wide.
+
+**Why automatic.** The reference workflow hand-tunes a threshold (0.24 in the observed case), which
+is most of why it reads as fiddly manual work. The question it actually asks is "is this pixel above
+the noise", and we answer that already: `Image.Background()` plus a MAD-scaled sigma, the same
+machinery behind `FindStarsAsync`. So the manual step becomes a default with an override, which is a
+genuine improvement on the reference rather than a port of it.
+
+**Consequence.** The mixer's inputs are three coefficient *fields*, not three constants, so phase 2
+needs mask plumbing from the start. Both primitives exist (`LuminanceRangeMask`-style thresholding,
+`BlendThroughMask`); what is new is sourcing the mask from a **line image** rather than from composite
+luminance. Note the phase ordering compounds here: on a continuum-contaminated frame a brightness
+threshold selects "anything bright" including stars, whereas after phase 0 it is a true
+"is there OIII here" test. And keep the mask primitive spatial-blur capable: the reference pairs a
+hard threshold with heavy smoothing deliberately, to get a structural envelope rather than a
+per-pixel selection.
 
 ### ADR-10: Continuum subtraction is phase 0, and it is not a star-removal method
 
