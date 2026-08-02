@@ -121,6 +121,41 @@ shared between sessions**, per-session folders cannot be assumed). Any physical
 extraction/filing of BobbyBox uniques into Astro-Pics happens as a user-reviewed step from these
 reports; the script itself never moves or deletes anything.
 
+**Declaring a filter the capture software never recorded (`.tianwen-meta.json`).** N.I.N.A. models a
+motorised filter wheel and writes its slot name to `FILTER`; it does not model a filter screwed onto
+the nosepiece by hand, so those frames carry no `FILTER` card at all. That is the worst case for
+grouping, since a manual holder is how a dual-band usually goes onto an OSC: the frames that most
+need separating from the broadband ones are the ones with nothing to separate them by. Drop a file
+next to them:
+
+```json
+{
+  // screwed onto the nosepiece, NINA has no wheel configured
+  "filter": "Antlia ALP-T"
+}
+```
+
+- **It cascades like `.gitignore`**: a file applies to its directory and everything beneath it, and
+  the nearest file wins wholesale. Put it on the session directory and both `LIGHT/` and `FLAT/`
+  inherit it. Resolution never escapes the archive root, so two roots cannot leak into each other.
+- **Fill-only, never override.** A frame that recorded its own `FILTER` is left alone, so a
+  declaration can never relabel a frame that told the truth about itself. Correcting a header that
+  is present but wrong is a different job and wants a deliberate rewrite of the file.
+- **Applied at the frame source**, so lights and their calibration frames learn it together. This is
+  not a detail: `CalibrationResolver.BestFlat` scores a filter mismatch at +1000, so giving the
+  lights a filter while their flats kept none would be worse than leaving both blank.
+- **A recognised name canonicalises** exactly as a recorded one does, so a declared `"Ha"` and a
+  wheel-written `"Ha"` group and calibrate together. Anything unrecognised stands as its own
+  identity, which is all grouping needs.
+- **Nothing is silent.** `tianwen dataset build --discover-only` prints a filter census
+  (`[dataset] filters: HydrogenAlpha x412, (no FILTER header) x1240, ...`), which is how you find
+  out a night needs a declaration, followed by what the declarations did, including a count of files
+  that parsed but changed nothing (usually a misplaced file) and of files that failed to parse. A
+  malformed sidecar never aborts a sweep and never passes unnoticed.
+
+Comments and trailing commas are accepted, since the file is written by hand. Filter is the only
+field so far; the shape allows more.
+
 Load-bearing hazards for the dataset builder (all detailed with examples in the survey doc): (1)
 dedup across Astro-Pics ↔ BobbyBox-Temp *and* within Astro-Pics itself — content-hash + `DATE-OBS`
 pass (Step 0's `dup-files.csv`); (2) never ingest `AutoSave`/`PROC`/`pixinsight`/XISF processed intermediates — gate on

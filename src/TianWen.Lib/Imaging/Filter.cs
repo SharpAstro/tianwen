@@ -14,6 +14,29 @@ public readonly partial record struct Filter(string Name, string ShortName, stri
     /// </summary>
     public readonly string FilterNameForFits => RawName ?? DisplayName;
 
+    /// <summary>
+    /// The string that identifies this filter for **grouping**: the canonical <see cref="Name"/>
+    /// when the header text parsed to a known filter, the trimmed <see cref="RawName"/> when it did
+    /// not, and empty when there is no filter at all. Empty is the "no filter" answer that callers
+    /// test for, so it is also the "should a sidecar declaration fill this in" test.
+    ///
+    /// <para><b>The raw fallback is load-bearing.</b> <see cref="FromName"/>'s patterns are anchored,
+    /// so descriptive header text ("Ha 3nm", "OIII 3nm", "Antlia ALP-T") matches none of them and
+    /// canonicalises to <see cref="Unknown"/>. Grouping on the canonical name alone would therefore
+    /// merge every unrecognised filter into one bucket, which for a narrowband archive means merging
+    /// the lines. <see cref="Bandpass"/> is deliberately not part of this: it is a function of the
+    /// canonical name for every recognised filter and <see cref="Imaging.Bandpass.None"/> for every
+    /// unrecognised one, so it distinguishes nothing the name does not.</para>
+    ///
+    /// <para>This is <b>identity, not interpretation</b>. It answers "are these two frames the same
+    /// filter", cheaply and synchronously. It does not answer "what lines does this filter pass",
+    /// which needs a spectral curve (<see cref="FilterCurveDatabase"/>) rather than a name.</para>
+    /// </summary>
+    public readonly string IdentityKey
+        => Name == None.Name ? ""
+         : Name == Unknown.Name ? RawName?.Trim() ?? ""
+         : Name;
+
     public static readonly Filter None = new(nameof(None), nameof(None), nameof(None), Bandpass.None);
     public static readonly Filter Unknown = new(nameof(Unknown), nameof(Unknown), nameof(Unknown), Bandpass.None);
     public static readonly Filter Luminance = new(nameof(Luminance), "L", "Luminance", Bandpass.Luminance);

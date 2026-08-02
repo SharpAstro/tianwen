@@ -5,6 +5,7 @@ using System.CommandLine;
 using System.IO;
 using System.Linq;
 using TianWen.AI.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.UI.Abstractions;
 
@@ -187,6 +188,31 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 $"{stats.PathExcluded} excluded-path, " +
                 $"{stats.ProductExcluded} products, {stats.Duplicates} duplicates, " +
                 $"{stats.SessionsTooSmall} too-small sessions");
+
+            // The filter census, printed before the per-session lines: it is what tells you whether
+            // a night needs a sidecar (a large "(no FILTER header)" count) and whether one filter is
+            // spelled two ways, both of which are invisible in the session list itself.
+            var byFilter = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            foreach (var session in sessions)
+            {
+                var key = session.FilterName.Length > 0 ? session.FilterName : "(no FILTER header)";
+                byFilter[key] = byFilter.GetValueOrDefault(key) + session.Lights.Length;
+            }
+            if (byFilter.Count > 0)
+            {
+                consoleHost.WriteScrollable(
+                    "[dataset] filters: " + string.Join(", ", byFilter.Select(kv => $"{kv.Key} x{kv.Value}")));
+            }
+
+            if (stats.Sidecar is { IsEmpty: false } sc)
+            {
+                consoleHost.WriteScrollable(
+                    $"[dataset] {FrameMetaSidecarResolver.FileName}: {sc.Files} file(s), " +
+                    $"filled {sc.FilterFilled} frame filter(s)" +
+                    (sc.FilterAlreadyPresent > 0 ? $", {sc.FilterAlreadyPresent} frame(s) already had one" : "") +
+                    (sc.Malformed > 0 ? $", {sc.Malformed} MALFORMED (ignored)" : ""));
+            }
+
             foreach (var session in sessions)
             {
                 var first = session.Lights[0].Meta;
