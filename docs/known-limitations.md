@@ -104,7 +104,7 @@ Two separate things, both easily mistaken for a broken colour pipeline.
 a Pickles SED against QE x CFA across the whole visible band. That is the right model for an OSC
 broadband frame and the wrong one for a 3 nm passband, so an Ha/OIII/SII master gets no calibration
 at all: the palette is whatever channel assignment plus per-channel autostretch produce. Do not
-"fix" this by pointing a narrow passband at the existing SEDs -- a Pickles template is a spectral
+"fix" this by pointing a narrow passband at the existing SEDs: a Pickles template is a spectral
 *type average* and cannot know whether a given star shows Ha in absorption or emission over 3 nm, so
 it would return a confidently wrong answer rather than no answer.
 
