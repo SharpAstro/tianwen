@@ -28,6 +28,7 @@ unit of real signal you correctly separate is a unit you no longer have to inven
 
 | Step | Science value | Picture value |
 |---|---|---|
+| Phase 0 continuum subtraction | Standard photometric practice; the line image is finally the line | **Removes stars physically rather than by inpainting**, and stops continuum being mixed into every channel |
 | Phase 1 normalization | Makes channels commensurate | **This is the red-dominance fix.** Purely aesthetic motivation, achieved by a statistical method |
 | Phase 3 unmixing | Recovers true line images | Cleaner line separation = more *real* colour separation for the mixer to work with |
 | Three-line solve (Hb) | Correct OIII, uncontaminated | **A real, measured blue channel** instead of one synthesised from Ha |
@@ -42,6 +43,7 @@ work**, which is why phase 1 leads and phase 4 is blocked at the back.
 
 | Phase | What | Where | Status |
 |-------|------|-------|--------|
+| **0** | **Continuum subtraction.** Remove the broadband starlight a narrowband filter also passes, via a photometric star-flux fit against a matched broadband frame. Prerequisite for everything below: without it the "line" images are line + continuum. | `TianWen.Lib/Imaging/`, new `ContinuumSubtractor` | NOT STARTED |
 | 1 | **Robust channel normalization.** Align G and B to R by median offset then MAD/percentile gain, about the background. No catalog, no spectra, no new data. | `TianWen.Lib/Imaging/`, new `NarrowbandNormalizer` | NOT STARTED |
 | 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, with presets that carry the physics (see "The HOO blue problem"). Naive HOO, natural blend, tweaked natural, pseudo-SHO, custom. | same | NOT STARTED |
 | 3 | **Line unmixing.** Two-line Ha/OIII via DBXtract algebra + per-sensor crosstalk coefficients. **3a: the three-line Ha/Hb/OIII solve for Hb-passing filters is the high-value variant** (exactly determined, and the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
@@ -185,6 +187,49 @@ to the highlights only", the value-domain form is the more correct primitive. Bo
 identically, as a lerp `original * (1 - mask) + transformed * mask`, which is our `BlendThroughMask`.
 
 **Their curve engine is Akima spline into a 65536-entry LUT. Do not copy that part** (see ADR-7).
+
+### E. Continuum subtraction (PixInsight, SETI Astro, and standard observational practice)
+
+**Not modelled anywhere in TianWen today** (zero occurrences of "continuum" in code, docs, plans or
+TODO, checked 2026-08-02). It is also the step that logically precedes everything else here.
+
+**The problem.** A 3 nm Ha filter does not pass only Ha. It passes a 3 nm slice of *everything*,
+including the broadband continuum. Nebula emission is a line, so it appears only at 656.3 nm, but
+stars are continuum sources and radiate across the whole band. So an "Ha" frame is really
+`Ha_line + continuum`, and the continuum part is mostly stars plus any continuum-bright structure
+(reflection nebulosity, galaxy disks). Every downstream number in this plan is computed on that sum.
+
+**The fix.** Scale a matched broadband frame and subtract it:
+
+```
+Ha_pure = Ha - k * (R - median(R))
+```
+
+The `- median(R)` matters: subtracting the broadband *structure above its own background* rather than
+the raw frame keeps the operation background-neutral instead of dragging a second pedestal in.
+
+**Everything hinges on `k`**, and there are three ways to get it, in ascending order of quality:
+
+1. **By hand.** Trial and error until stars stop standing out. Over-subtract and you punch dark holes
+   where stellar contribution was high; under-subtract and residual star cores remain.
+2. **From filter profiles.** Integrate the digitised narrowband and continuum transmission curves and
+   take the ratio. Principled, but ignores the actual SED of the field and the real throughput.
+3. **Photometrically, from the stars in the frame** (PixInsight's `PhotometricContinuumSubtraction`,
+   and the standard observational method). Detect stars in both registered frames, measure flux in
+   each, plot narrowband flux against broadband flux, and **the slope of the linear fit is `k`** by
+   construction, since it is the ratio that forces stellar images to cancel. PCS defaults to 400
+   stars and rejects anything peaking above 0.8 of full scale, because saturated stars are the fastest
+   way to bend the fit. A visibly non-linear plot means too few stars, not a broken model.
+
+**We already have most of method 3.** `FindStarsAsync` detects and measures, the frames are already
+registered by the stacker's quad matcher, and `Tycho2ColorCalibration` already does star-flux fitting
+for SPCC. What is missing is the pairing of a narrowband group with its broadband counterpart and the
+robust fit itself. That makes the *good* version the cheap one for us, which is unusual and worth
+exploiting.
+
+**Cost to the user:** a matched broadband frame. Mono imagers shooting Ha/OIII/SII plus RGB have it
+already. An OSC dual-band user needs a separate broadband session, which is a real ask and the reason
+this cannot be mandatory.
 
 ## The HOO blue problem (why the mixer needs presets, not just sliders)
 
@@ -365,6 +410,11 @@ The row that decides it is "new data dependency" crossed with "fixes the actual 
 **Decision.** Implement Alchemy-style normalization plus the palette mixer (phases 1 and 2) before
 any spectral work, and treat it as the answer to "narrowband colour" for now.
 
+**Still true after phase 0 was added (2026-08-02):** continuum subtraction precedes these in the
+*pipeline*, but it is **conditional** (it needs a matched broadband frame the user may not have),
+whereas phases 1 and 2 are **universal** and apply to any narrowband stack. So this remains the first
+thing to build: it is the first step that always runs.
+
 **Why.** It needs no catalog, no plate solve, no new data asset and no user input, it is built almost
 entirely from primitives we already have (`GetPedestralMedianAndMADScaledToUnit`, the percentile
 path, the MTF), and it targets the specific failure the user actually sees. A calibrator that needs a
@@ -522,12 +572,44 @@ physics, minimal payoff) is at the back. It also means the mode flag is a late, 
 what to add, not a fork in the pipeline; and anything synthetic must be **recorded as synthetic** in
 the output provenance, so a science-mode consumer can reject it rather than having to trust a label.
 
+### ADR-10: Continuum subtraction is phase 0, and it is not a star-removal method
+
+**Decision.** Continuum subtraction runs **before** normalization, unmixing and mixing, on linear
+registered frames, and is offered as an optional preprocessing step gated on a matched broadband
+frame being present. It is deliberately **not** wired into the `IStarRemover` role.
+
+**Why phase 0.** Everything else in this plan computes on the line images. If those images are
+`line + continuum`, then phase 1's median/MAD/p99.5 statistics are measuring a broadband pedestal and
+a field of stars alongside the line signal, and phase 2's palette mix blends continuum into every
+output channel. Subtracting afterwards cannot undo that; the numbers were already fitted to the wrong
+quantity. It is also the purest instance of ADR-9: it is precise physical modelling whose direct
+product is *more real signal correctly separated*, which is exactly what buys colour headroom.
+
+**Why not a star remover.** It does remove stars, and it removes them *physically* rather than by
+inpainting, which is strictly more honest than `StarXTerminator` or the SAS star remover where the
+data supports it. But the two are not interchangeable and conflating them would be a mistake:
+continuum subtraction requires a matched broadband frame, only removes the *continuum* component (an
+emission-line star, or a star with strong Ha, leaves residual), and its by-product is a corrected
+science frame rather than a starless plate. `IStarRemover` must keep working with no broadband frame
+at all. Treat continuum subtraction as calibration that happens to remove stars, not as a star
+remover that happens to calibrate.
+
+**Consequence.** It needs frame pairing that the stacker does not currently model: a narrowband
+`MasterGroupKey` has to be associated with its broadband counterpart from the same target. That
+pairing is the actual new work, since the fit itself is largely assembled from parts we own
+(`FindStarsAsync`, the quad-match registration, and the flux-fitting shape `Tycho2ColorCalibration`
+already uses). Absent a broadband frame the step is skipped, and everything downstream behaves
+exactly as it does today.
+
 ## Invariants
 
 - **Linear in, linear out** for phases 1 to 3. The output is stretch-ready and must not be
   pre-stretched, mirroring how the technique was designed and how our own masters flow.
 - **Gain is applied about the background, never about zero.** `(G - med_r) * gain + med_r`. Getting
   this wrong silently moves the black point every time the gain is not 1.0.
+- **Continuum subtraction happens first or not at all.** Never after normalization or mixing: those
+  steps fit their coefficients to whatever is in the frame, so a late subtraction leaves numbers
+  derived from `line + continuum` in place. See ADR-10.
 - **Normalization is not calibration.** See ADR-1. Do not write an SPCC-style provenance card for it.
 - **Degenerate coefficients fall back, they do not throw.** The unmixing path has three separate
   guards (`|r2| < eps`, and each denominator) and every one drops to `Ha = R, OIII = (G+B)/2`. An
