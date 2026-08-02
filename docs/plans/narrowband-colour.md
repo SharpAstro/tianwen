@@ -6,10 +6,13 @@ model for a broadband OSC frame and the wrong one for a 3 nm passband. So a narr
 whatever the channel assignment plus per-channel autostretch happen to produce, which in practice
 means the familiar red-dominated HOO.
 
-Research source: four Cuiv videos the user saved, which turned out to be four *different*
-techniques rather than one (three recent, plus one 2021 tutorial). Investigated 2026-08-02; the
-algorithms below are recorded here because only one of the four has published maths. Two were read
-out of GPL source, and the fourth documents its model only inside the running app.
+Research source: five saved videos plus their transcripts, which turned out to cover **seven
+different techniques** rather than one. Investigated 2026-08-02. Only one of the seven has published
+maths; the rest were read out of GPL-3.0 source, nearly all of it in a single place (see Reference
+implementations below). Two attributions in the first draft of this document were wrong and are
+corrected in place rather than silently: the "Perfect Narrowband Colors" video is
+NarrowbandNormalization and not SPCC, and AstroColorMixer's model turned out to be public rather than
+locked inside the app.
 
 ## Two use cases, one engine (read this before prioritising anything)
 
@@ -82,17 +85,23 @@ exactly what the OIII range mask is.
 | 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, applied globally. Presets name which effect they apply (H-beta vs hue rotation). | same | NOT STARTED |
 | 3 | **Line unmixing: the OSC on-ramp only.** Recovers mono line planes from one dual/tri-band RGB frame, via DBXtract algebra + per-sensor crosstalk coefficients. **Mono imagers skip this entirely** and start at phase 1. **3a: the three-line Ha/Hb/OIII solve is the high-value variant** (exactly determined, the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
 | 4 | **SPCC narrowband mode.** Declared passbands convolved against real star spectra. Needs a Gaia DR3 spectra source. | `Astrometry/`, extends `Tycho2ColorCalibration` | NOT STARTED (blocked, see ADR-3) |
-| 5 | **Masked colour adjustment.** Curves over `L`/`S`/`C` + per-channel RGB, gated by a mask that may be sourced from a **line image** (ADR-11, threshold auto-derived from `Background()` + MAD). `C` is a hue-preserving scale of Lab `a`,`b`. Reuses `FritschCarlsonSpline` (ADR-7). | `Image.Masks.cs`, `MasterPreviewRenderer` | NOT STARTED (separate concern, see ADR-4/8) |
+| 6 | **Narrowband star colour.** Synthesize plausible RGB stars from the line planes and recombine with the starless narrowband image. Fixes the magenta stars that narrowband colour calibration produces. | `TianWen.Lib/Imaging/`, composes with `SharpenPipeline`'s star lineage | NOT STARTED |
+| 5 | **Masked colour adjustment.** Mask = (hue band and/or **line plane**) x luminance range, minus protection ramps (low-saturation / shadow / highlight). Then curves over Lab `L`/`C` + per-channel RGB, `C` as a hue-preserving scale of `a`,`b`. Reuses `FritschCarlsonSpline` (ADR-7). See ADR-8/11. | `Image.Masks.cs`, `MasterPreviewRenderer` | NOT STARTED (separate concern, see ADR-4/8) |
 
 Phases 1 and 2 are the useful minimum and are independent of everything else. Phase 3 improves
 phase 1 where the sensor is known. Phase 4 is a different feature that happens to share the word
 "narrowband". Phase 5 is a display stage and is not colour calibration at all.
 
-## The four techniques
+## The seven techniques
 
 ### A. Siril SPCC narrowband mode (built in, not a script)
 
-[Video](https://www.youtube.com/watch?v=uLy9TA2Bo2A) - [docs](https://siril.readthedocs.io/en/latest/processing/color-calibration/spcc.html)
+[docs](https://siril.readthedocs.io/en/latest/processing/color-calibration/spcc.html)
+
+**Attribution corrected 2026-08-02.** This section was originally headed by the "Perfect Narrowband
+Colors in Siril" video. The transcript shows that video is **not about SPCC at all**: it covers
+NarrowbandNormalization (technique F below). The SPCC description here is accurate, being taken from
+the Siril docs, but no video backs it and nothing in the saved set demonstrates it.
 
 Physics-based. You declare a **centre wavelength and a bandwidth per channel** (about 3 nm for
 ultra-narrowband mono, up to about 35 nm for a quad-band OSC filter). Siril synthesizes a passband
@@ -176,14 +185,68 @@ against.
 [Video](https://www.youtube.com/watch?v=oBRvQrOr8Yo) - [page](https://cosgrovescosmos.com/astro-color-mixer-web).
 Patrick Cosgrove's script, ported to Siril by Cuiv.
 
-Nonlinear RGB chroma-vector control: hue, saturation and luminance adjustment gated by range masks,
-composed in multi-pass layers, applied to **stretched** data. The published page has no maths (the
-technical appendix ships inside the app), so the model is not recorded here and would need the app
-installed to characterise.
+**Model recovered 2026-08-02.** The Siril port is public GPL-3.0 source
+([`processing/AstroColorMixer.py`](https://gitlab.com/free-astro/siril-scripts/-/blob/main/processing/AstroColorMixer.py),
+Yannick Dutertre / Cuiv 2026, ported from Patrick Cosgrove's PixInsight original with explicit
+permission, v1.1.9, 2767 lines). It is **richer than VeraLux Curves in the dimension that matters
+here**, and this section supersedes the earlier note that its maths was unobtainable.
 
-This is a finishing tool, not a calibrator, and it is the one we most nearly have already:
-`Image.MaskedBoost` composing `LuminanceRangeMask` -> `Saturate`/`ContrastBoost` ->
-`BlendThroughMask` is the same shape. What is missing is the hue axis and the layering.
+Operates on **stretched** nonlinear RGB, in **HSL** (not Lab). Three orthogonal pieces.
+
+**1. Hue-band selection, and the band labels give the game away.** Eight fixed bands plus a custom
+one, each named for what it means astronomically:
+
+| Band | Centre | Label in the source |
+|---|---|---|
+| red | 0 deg | **Red / H-alpha** |
+| orange | 30 | Orange / Galaxy Cores |
+| yellow | 60 | Yellow / Warm Stars |
+| green | 120 | Green / Cast Control |
+| cyan | 180 | **Cyan / OIII** |
+| blue | 240 | Blue / Reflection Nebula |
+| purple | 275 | Purple / Violet Cleanup |
+| magenta | 315 | Magenta / Halo Cleanup |
+
+The mask itself is a smoothstep on circular hue distance:
+
+```
+distance = min(|h - c|, 360 - |h - c|)
+inner    = width * (1 - feather)
+t        = clamp((distance - inner) / (outer - inner), 0, 1)
+mask     = 1 - t*t*(3 - 2t)
+```
+
+The custom band shapes a hue-arc triangle through **an MTF** (`balance = 1 - strength`; the source
+comments that this reproduces PixInsight's `ColorMask`), then weights by `s^0.35` in Chrominance mode
+or `l^0.45` in Lightness mode.
+
+**2. A luminance range mask, ANDed with the band mask.** Note it carries *both* feather axes, which
+settles the question raised in technique D:
+
+```
+m = smoothstep(low - feather, low, luma) * (1 - smoothstep(high, high + feather, luma))
+```
+
+value-domain feathering, plus an optional gamma boost `m^0.55`, plus an **independent spatial soften
+radius**. Presets: All, Shadows `0-0.35`, Midtones `0.20-0.78`, Highlights `0.55-1.0`, Bright Stars
+`0.78-1.0`. Final mask is band x range, and the UI can display the combined product.
+
+**3. Protection ramps that subtract from the mask**, with different presets for stars-present vs
+starless data: saturation floor (`satFloor` 0.03-0.05 to `satFull` 0.18-0.25), shadow floor, and
+highlight roll-off (`highlightStart` 0.70 with stars, 0.85 starless). The **low-saturation protection
+is the practically important one**: it stops the adjustment from saturating near-grey pixels, which
+is what would otherwise turn background noise into chroma noise.
+
+Per band you then get hue shift, saturation and luminance, with `SENSITIVITY_RANGES`
+(Fine/Normal/Advanced/Strong) scaling the slider ranges rather than changing the algorithm. Curves
+exist too (4096-entry LUT). Passes stack like Photoshop layers, and presets serialise to JSON.
+
+**Where our advantage is, and it is a real one.** Those band labels are the tell: "Cyan / OIII" and
+"Red / H-alpha" mean the tool is using **hue as a proxy for line identity**, because after mixing
+down to RGB that is all it has. It cannot distinguish cyan-because-OIII from cyan-because-gradient or
+cyan-because-noise. **We keep the line planes** (ADR-12), so our mask can be built from the actual
+OIII signal (ADR-11) instead of inferred from the colour of the result. Same selection intent,
+ground truth instead of inference.
 
 ### D. VeraLux Curves (GPL-3.0 Python script) - the readable reference for phase 5
 
@@ -261,16 +324,95 @@ the raw frame keeps the operation background-neutral instead of dragging a secon
    construction, since it is the ratio that forces stellar images to cancel. PCS defaults to 400
    stars and rejects anything peaking above 0.8 of full scale, because saturated stars are the fastest
    way to bend the fit. A visibly non-linear plot means too few stars, not a broken model.
+4. **By minimising the flatness of the residual, with no star detection at all.** This is what
+   Siril's [`ContinuumSubtraction.py`](https://gitlab.com/free-astro/siril-scripts/-/blob/main/processing/ContinuumSubtraction.py)
+   does, and it is both cheaper and more robust than method 3 for our purposes:
 
-**We already have most of method 3.** `FindStarsAsync` detects and measures, the frames are already
-registered by the stacker's quad matcher, and `Tycho2ColorCalibration` already does star-flux fitting
-for SPCC. What is missing is the pairing of a narrowband group with its broadband counterpart and the
-robust fit itself. That makes the *good* version the cheap one for us, which is unusual and worth
-exploiting.
+   ```
+   residual(k) = nb - (co - median(co)) * k
+   objective   = AAD(residual) = mean(|x - mean(x)|)
+   ```
+
+   Sweep `k` coarsely over `linspace(-1, 5, 12)` to bracket, then finely over 40 points, then **fit
+   an analytic smooth-V** `A*sqrt((k - s0)^2 + eps^2) + B` to the AAD-vs-k curve and take the vertex
+   `s0` as the answer, clipped to `[0, 1]`. The fit is what gives sub-grid precision instead of being
+   limited to the sweep resolution.
+
+   The insight is neat: **correct subtraction is the flattest residual.** All the continuum structure
+   cancels, so dispersion is minimised. Under-subtract and star cores survive; over-subtract and you
+   punch dark holes. Either way you have *added* structure back and the AAD rises. It needs no star
+   detection, no photometry and no catalog, just two registered frames and about 50 evaluations of a
+   cheap global statistic.
+
+   The same script also offers the inverse operation, blending the continuum-subtracted emission back
+   into RGB with per-channel weights: `R' = R + (cs - median(cs)) * q * w_R`.
+
+**Take method 4 first, and keep method 3 as a cross-check.** Method 4 needs nothing we do not
+already have (a 1-D optimisation over a global statistic, plus `curve_fit`-equivalent for the vertex),
+where method 3 needs star detection and matching across two frames. We *can* do method 3 cheaply
+(`FindStarsAsync` detects and measures, the stacker's quad matcher already registers the frames, and
+`Tycho2ColorCalibration` does star-flux fitting for SPCC), so it is worth having as a second opinion:
+if the two disagree materially, something is wrong with the pairing or the frames. The genuinely new
+work either way is associating a narrowband group with its broadband counterpart, which the stacker
+does not model.
 
 **Cost to the user:** a matched broadband frame. Mono imagers shooting Ha/OIII/SII plus RGB have it
 already. An OSC dual-band user needs a separate broadband session, which is a real ask and the reason
 this cannot be mandatory.
+
+### F. NarrowbandNormalization (the SHO answer, and what that video was actually about)
+
+[Video](https://www.youtube.com/watch?v=uLy9TA2Bo2A) -
+[source](https://gitlab.com/free-astro/siril-scripts/-/blob/main/processing/NarrowbandNormalization.py)
+(GPL-3.0, Yannick Dutertre / Cuiv 2026, **clean-room implementation of Bill Blanshan and Mike
+Cranfield's** PixInsight `NarrowbandNormalization` with Blanshan's permission; original at
+cosmicphotons.com). Note Cranfield is the same author as the GHS stretch we already implement.
+
+**The problem it solves is the one ADR-3 left open.** In SHO, Ha goes to green and Ha dominates, so
+the Hubble palette comes out overwhelmingly green. The traditional fix is SCNR (green removal), and
+the author's objection is exactly right: "you have removed a lot of information from your image".
+NarrowbandNormalization instead *renormalizes the channels against each other* so green stops
+dominating without discarding the green signal.
+
+Applies to **stretched** data (its own instructions say so), takes a palette selector (SHO etc.) plus
+per-line boosts (OIII boost, SII boost) and lightness controls.
+
+**Scope note from the author, which maps cleanly onto our phases:** this "complements the existing
+free script called VeraLux Alchemy which is more for HOO type of images with one-shot color cameras.
+This one is really more complete." So Alchemy is the OSC/HOO tool and NarrowbandNormalization is the
+mono/SHO tool. Our phase 1 plus phase 2 covers the same ground for both, which is the payoff of
+ADR-12's N-plane model.
+
+### G. Narrowband star colour (`NB_2_RGB`)
+
+[Video](https://www.youtube.com/watch?v=ijFpFiQrBhQ) (Rich, Deep Space Astro) -
+[source](https://gitlab.com/free-astro/siril-scripts/-/blob/main/processing/NB_2_RGB.py)
+(GPL-3.0, Cyril Richard from Franklin Marek / SAS code).
+
+**The gap this fills has been flagged twice in this document without a solution.** Stars are continuum
+sources, so through narrowband filters they carry no meaningful colour, and once you colour-calibrate
+for a palette they come out **magenta**. It is why the published HOO recipes push Ha into green partly
+just to stop stars going green, and why the RESCUE workflow removes stars before touching colour.
+
+The fix is to synthesize star colour from the line planes rather than inventing or importing it:
+
+```
+R = 0.5*Ha + 0.5*(SII or Ha)
+G = ratio*Ha + (1 - ratio)*OIII        # ratio default 0.30
+B = OIII
+```
+
+then a star stretch, SCNR, and a fixed saturation boost of 1.2. Workflow: strip stars from the
+palette composite and **discard them**, generate RGB stars from the narrowband planes, recombine.
+
+**Note the convergence.** That green row is our phase 2 lerp exactly, with `mix_g = 0.70`, which is
+*the same 0.7/0.3 split* the RESCUE video used for its nebula mix. Two independent sources landing on
+the same coefficient for the same reason (rotate hue off the Ha/OIII extremes) is decent evidence the
+number is not arbitrary.
+
+This composes with what we have: `SharpenPipeline` already models star removal with a
+stars/starless lineage (`SharpenIntermediates.StarsAndStarlessLineage`), so phase 6 is a different
+*filling* for the stars plate rather than new pipeline structure.
 
 ## The HOO blue problem (why the mixer needs presets, not just sliders)
 
@@ -532,6 +674,24 @@ PixelMath](https://jonrista.com/the-astrophotographers-guide/pixinsights/narrow-
 tutorial are the other standard references, both currently unreachable over TLS (expired certificate
 and a handshake failure respectively).
 
+## Reference implementations (all GPL-3.0, algorithms only per ADR-2)
+
+Nearly every phase of this plan has a readable reference in one place, the official Siril script
+repository, [`free-astro/siril-scripts`](https://gitlab.com/free-astro/siril-scripts). Recorded
+because it was discovered late and would have saved earlier guessing:
+
+| Phase | Script | What to take |
+|---|---|---|
+| 0 | `processing/ContinuumSubtraction.py` | The AAD-minimisation scale solver + smooth-V vertex fit |
+| 1-2 | `VeraLux/VeraLux_Alchemy.py` | Robust plane normalization; palette lerp (OSC/HOO) |
+| 1-2 | `processing/NarrowbandNormalization.py` | The mono/SHO counterpart; green-dominance fix without SCNR |
+| 2 | `processing/PalettePicker.py`, `Narrowband_Palette_Picker.py` | Palette presets |
+| 3 | **`processing/DBXtract.py`** | The crosstalk coefficients **at their actual source**, which is what ADR-2 requires rather than lifting them from Alchemy |
+| 3 | `processing/Hubble_Palette_from_Dual-Band_OSC.py` | The OSC on-ramp |
+| 5 | `processing/AstroColorMixer.py` | Hue-band masks, range masks, protection ramps |
+| 5 | `VeraLux/VeraLux_Curves.py` | Lab `L`/`C` curve domains |
+| 6 | `processing/NB_2_RGB.py` | Narrowband star colour |
+
 ## Pros and cons
 
 | | A. SPCC narrowband | B. VeraLux Alchemy | C. AstroColorMixer |
@@ -605,6 +765,12 @@ calibrator has no business producing it.
 **Consequence.** Narrowband SPCC is a Gaia DR3 project, not a colour project, and should be planned
 alongside the existing Gaia items in [inbox.md](../todo/inbox.md) (Stellarium `.dat` loader,
 Gaia SP download) rather than on its own.
+
+**What SHO gets instead (added 2026-08-02).** This ADR ruled SHO out of the *photometric* path but
+left it with no answer at all, which was a gap. The answer is technique F,
+NarrowbandNormalization: renormalize the channels against each other so Ha stops swamping green,
+rather than deleting green with SCNR. That is a normalization, not a calibration, and it belongs to
+phases 1-2 where it costs us nothing extra.
 
 ### ADR-4: Chroma editing stays a render stage and never touches a linear master
 
@@ -684,20 +850,39 @@ slots so the CPU path and the GLSL `applyCurveLUT` can share one layout, which i
 mirror rule. If 33 knots ever proves too coarse, the fix is to widen *both* paths together, never to
 let the CPU LUT grow on its own.
 
-### ADR-8: Phase 5's reference is VeraLux Curves, not AstroColorMixer
+### ADR-8: Phase 5 takes selection from AstroColorMixer and adjustment from VeraLux Curves
 
-**Decision.** Specify the hue/chroma work from `VeraLux_Curves.py` and drop the plan to characterise
-AstroColorMixer by installing it.
+**Superseded and rewritten 2026-08-02.** The original decision was to specify phase 5 from
+`VeraLux_Curves.py` alone and skip characterising AstroColorMixer, on the grounds that ACM's model
+lived only inside the running app. **That was wrong on the facts:** the Siril port is public GPL-3.0
+source, and reading it showed ACM is the *richer* reference for masking. Both are now used.
 
-**Why.** They fill the same role, but AstroColorMixer's model is only documented inside the running
-app, while Curves is readable source implementing the same idea in four lines of Lab arithmetic. A
-readable reference beats an opaque one even when the opaque one is more polished. The licence
-position is also already settled for this codebase by ADR-2, which applies unchanged here.
+**Decision.** Split the reference by concern.
 
-**Consequence.** Technique C stays in this document as context for what the category is, but nothing
-depends on it any more, and the "install it to read the appendix" item is dropped from Deferred.
-Phase 5 gains a concrete shape: value-domain luminance masks, then `L`/`S`/`C` domains in that order,
-with `C` implemented as a hue-preserving scale of `a` and `b` in Lab.
+- **Selection comes from AstroColorMixer:** hue-band masks (smoothstep on circular hue distance), a
+  luminance range mask carrying **both** a value-domain feather and an independent spatial soften
+  radius, protection ramps (low-saturation, shadow, highlight) subtracted from the result, and the
+  band x range product as the final mask.
+- **Adjustment comes from VeraLux Curves:** work in **Lab**, not ACM's HSL, so chroma is a
+  hue-preserving scale of `a` and `b` (`c_new/chroma` applied to both) rather than an HSL saturation
+  push. Lab `C` is the better-behaved axis and is four lines of arithmetic.
+- **Selection additionally comes from us:** masks may be sourced from a **line plane** (ADR-11),
+  which neither reference can do because both operate after the mix.
+
+**Why split rather than pick one.** They are strong in different dimensions and the union is
+coherent: ACM has almost nothing on colour-space handling (HSL saturation is the blunt option
+VeraLux explicitly improves on), and VeraLux has almost nothing on selection (luminance ranges only,
+no hue bands, no protection). Taking the better half of each costs no extra machinery.
+
+**The finding worth carrying beyond this ADR.** ACM's band labels are "Red / H-alpha" and
+"Cyan / OIII", which reveals that it is using **hue as a proxy for line identity** because after the
+mix that is all it has. It cannot tell cyan-because-OIII from cyan-because-gradient. We keep the line
+planes, so we select on ground truth rather than inference. That is the single clearest place where
+our architecture is better than the references rather than merely equivalent.
+
+**Consequence.** Phase 5 is: mask (hue band and/or line plane, x luminance range, minus protection)
+then curves over Lab `L`/`C` plus per-channel RGB. Licence position is unchanged, ADR-2 applies to
+both references. The "install ACM to read the appendix" item is dropped from Deferred as obsolete.
 
 ### ADR-9: Model as precisely as the data allows; the mode gates additions, not accuracy
 
