@@ -696,27 +696,76 @@ The same hole runs straight through the bandpass claim below. `Filter.Unknown` c
 `Bandpass.None`, and `FILTCLAS` (the coarse-classification card that would rescue the parse) is a
 **TianWen-written convention**, not something N.I.N.A. emits, so on a N.I.N.A.-captured archive the
 bandpass is derived from `FILTER` through that same anchored parse. **On `D:\Astro-Pics` a 3 nm Ha
-frame most likely reports `Bandpass.None`, not `Bandpass.Ha`.** So narrowband dispatch is *not* free
-after all, and the work the phases below inherit is one shared "what line is this frame" resolver
-that widens the parse (unanchored, substring-matched against the manufacturer strings actually
-present in the archive), used by every phase rather than reinvented per phase. Auditing the distinct
-`FILTER` values in the archive is the first thing the sweep should print.
+frame most likely reports `Bandpass.None`, not `Bandpass.Ha`.** Auditing the distinct `FILTER` values
+in the archive is the first thing the sweep should print.
+
+### The resolver is mostly already shipped, and it covers the OSC case first
+
+An earlier draft of this section called for a new widened name parser. That was written without
+checking, and it is wrong for the case that matters most here: **`FilterCurveDatabase` already ships
+spectral transmission curves**, embedded as `filter_curves.gs.gz`, with `TryMatchFilter` doing
+token-overlap matching from a user filter string onto them. A curve beats a name map outright,
+because the bandpass is not looked up, it is **measured**: interpolate throughput at 4861 / 5007 /
+6563 / 6717 Å and the answer falls out, multi-line filters included.
+
+Coverage is the inverse of what this plan assumed. Of 176 curves:
+
+- **The OSC dual-band case is covered, pre-convolved with the CFA.** Entries exist as
+  `SONY_CMOS_{R,G,B}-UVIRCUT_/_<filter>` and `CANON_FULL_SPECTRUM_{R,G,B}_/_<filter>` for
+  **L-eNhance, L-eXtreme, Antlia ALP-T and Antlia Triband**. That is sensor CFA times filter, per
+  channel, which is exactly the quantity phase 3 unmixing needs.
+- **Mono narrowband is not covered at all.** There is not one standalone Ha / OIII / SII / Hb curve
+  in the file; the Astronomik / Astrodon / Chroma / ZWO entries are LRGB sets. So the widened name
+  parse is still needed, but only for the mono path, and it is the smaller half.
+
+**Measured from the shipped curves** (Sony CMOS UV/IR-cut CFA, transmission at each line):
+
+| Filter | passbands (>30%) | Hb 4861 | OIII 5007 | Ha 6563 | SII 6717 |
+|---|---|---|---|---|---|
+| L-eNhance | R 6500-6620, G/B 4820-5100 | **64-67%** | 44-87% | 74% (R) | 0% |
+| L-eXtreme | R 6520-6600, G/B 4960-5040 | **0%** | 38-75% | 71% (R) | 0% |
+| Antlia ALP-T | R 6540-6600, G/B 4980-5040 | **0%** | 33-65% | 75% (R) | 0% |
+| Antlia Triband | R 6500-6820, G 4920-5220, B 4260-4480 + 4940-5140 | **~0.4%** | 44-88% | 79% (R) | **74% (R)** |
+
+Three things fall out, two of which correct claims made above.
+
+1. **ADR-5's H-beta question is answerable today, per filter, from our own data.** L-eNhance passes
+   Hb at 64-67% because its blue-green band is one wide 4820-5100 Å window covering Hb *and* OIII;
+   L-eXtreme and ALP-T cut at 4960-4980 and block it outright. That is the user's "an L-eNhance does,
+   an Antlia 3nm probably doesn't", now measured rather than assumed.
+2. **"Tri-band" does not mean `Ha | Hb | OIII`, and the claim below that it does is wrong.** Antlia
+   Triband's three bands are a blue 4260-4480 window (which contains Hγ, *not* Hb), OIII, and a wide
+   6500-6820 red window. So it blocks Hb while a filter marketed as narrower passes it, and its red
+   band is broad enough to pass SII at 74% (not a designed SII channel: the band is continuous from
+   Ha through SII, so those two lines are **not separable** on this filter). A marketing category
+   name predicts nothing. Only the curve knows.
+3. **This may retire ADR-2's crosstalk-table question for OSC.** DBXtract hardcodes per-channel line
+   responses for one sensor and filter; the table above *is* that quantity, derived from data we
+   already ship, for four real filters on two CFA families. Worth checking our numbers against the
+   script before relying on it, and one discrepancy is already visible: the Ha green-over-red ratio
+   is ~0.19 for every one of these filters, where DBXtract clamps its analogous term to 0.12.
+
+Note what this does **not** change: the session key. Grouping asks "are these two frames the same
+filter", which raw header text answers correctly, cheaply and synchronously. Resolving to a curve
+would make grouping depend on an async resource load, and worse, would let two genuinely different
+filters that fuzzy-match one curve entry collapse into a single session, which is the exact merge
+this all exists to prevent. Identity and interpretation are different jobs.
 
 **What we already have that this plan assumed we would need to build.** `MasterGroupKey` carries
 `FilterName` *and* `FilterBandpass`, and `Bandpass` is a bit-flags enum whose members are exactly
 `Red|Green|Blue` and **`Ha`, `Hb`, `OIII`, `SII`**. So:
 
-- **Narrowband-vs-broadband dispatch needs no new metadata**, but it does need a wider parse. Test
-  the bandpass bits, once the bits are actually populated (see the paragraph above: a descriptive
-  `FILTER` string currently yields `Bandpass.None`). The data model is right and the recogniser is
-  too narrow, which is a much better position than the reverse.
-- **ADR-5's filter dependence is expressible in the model we have.** A dual-band is `Ha | OIII`, a
-  tri-band is `Ha | Hb | OIII`. The "does this filter pass H-beta" question that decides whether the
-  H-beta preset is legitimate or double-counts is a single bit test rather than a new profile field.
-  Note what that costs if the bits are wrong: an unrecognised tri-band reads as `None`, which is
-  neither "passes Hb" nor "blocks Hb", so the preset gate has to treat an unresolved filter as
-  unknown and fall back to hue rotation (the blind-safe default ADR-5 already names) instead of
-  guessing. The widened resolver is what turns that fallback from the common case into the rare one.
+- **Narrowband-vs-broadband dispatch needs no new metadata**, but the bits have to get populated
+  first. Test the bandpass bits *after* resolving through `FilterCurveDatabase` (OSC dual-band) or a
+  widened name parse (mono); a descriptive `FILTER` string currently yields `Bandpass.None` on its
+  own. The data model is right and only the recogniser was missing, which is a much better position
+  than the reverse.
+- **ADR-5's filter dependence is expressible in the model we have**, but do not populate it from the
+  filter's marketing category. `Ha | OIII` for a dual-band is right; `Ha | Hb | OIII` for a
+  "tri-band" is **not** (see the measured table above: Antlia Triband blocks Hb and passes SII).
+  Derive the bits from the curve. Note what an unresolved filter costs: `None` is neither "passes
+  Hb" nor "blocks Hb", so the preset gate must treat unresolved as unknown and fall back to hue
+  rotation, the blind-safe default ADR-5 already names, rather than guessing.
 - **Phase 0's frame pairing is nearly free.** `LightGroupKey(MasterGroupKey, ObjectName)` is almost
   the pairing key already: same `ObjectName`, one narrowband bandpass and one broadband, same train.
 
