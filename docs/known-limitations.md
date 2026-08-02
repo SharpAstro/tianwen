@@ -66,18 +66,20 @@ every stage is mirrored. Concrete bugs this produced: bisection direction invert
 `stretchMode` enum mapped wrong so Unlinked hit the Luma path on GPU only. See the
 "Stretch Pipeline: CPU/GPU Mirror" section in `../CLAUDE.md` for the contract that prevents this.
 
-### Dataset session discovery groups by target but not by FILTER
+### A dataset session is one target through one FILTER, and the canonical filter name cannot say which
 
-`SessionDiscovery.GroupSessions` keys sessions on `(SessionDir, Instrument, Target)`. Filter is not
-in the key, although `ImageMeta.Filter` is populated and `MasterGroupKey` already carries both
-`FilterName` and a `Bandpass`.
+**Fixed 2026-08-02**, before it was ever observed: the build had only been exercised on the broadband
+reference archive, and this would have surfaced on the first narrowband-bearing run of
+`D:\Astro-Pics`. Recorded because the obvious fix is the wrong one, and because the same reasoning
+will apply to whatever gets added to the session key next.
 
-The code argues against itself. The comment immediately above the key says a dated LIGHT folder
+`SessionDiscovery.GroupSessions` keyed sessions on `(SessionDir, Instrument, Target)` with no filter.
+The code argued against itself: the comment immediately above the key says a dated LIGHT folder
 "routinely holds several pointings distinguished only by OBJECT, and mixing them would both break
-registration and poison the session-relative star-count gate". That is exactly the right reasoning,
-applied to Target and not to Filter.
+registration and poison the session-relative star-count gate". Exactly the right reasoning, applied
+to Target and not to Filter.
 
-On a **mono narrowband archive** the consequences are concrete, because Ha and OIII of one target on
+On a **mono narrowband archive** the consequences were concrete, because Ha and OIII of one target on
 one night land in one folder under one OBJECT:
 
 1. **The star-count gate sees a bimodal population.** `SessionFrameAnalyzer.ApplyGate` is MAD-based
@@ -88,12 +90,30 @@ one night land in one folder under one OBJECT:
 2. **`SessionRegistrar` integrates one master per session**, so Ha and OIII frames are stacked
    together. The result is not a line master and not anything else either. For an N2N dataset that is
    a corrupted training target, produced silently.
-3. **Flats are filter-specific**, so calibration matching within a filter-mixed session is ambiguous.
+3. **Flats are filter-specific**, and `CalibrationResolver` picks the flat from `Lights[0]`, so a
+   filter-mixed session calibrates everything against whichever filter happened to sort first.
 
-Not yet observed, because the build has only been exercised on the broadband reference archive; it
-would surface on the first narrowband-bearing run of `D:\Astro-Pics`. Fix is to add the filter
-(canonical `Filter.Name`, or `Bandpass`, matching what `MasterGroupKey` compares on) to the session
-key. See [docs/plans/narrowband-colour.md](plans/narrowband-colour.md) for what the archive sweep is
+**The trap: keying on the canonical filter name does not fix it.** The natural move is to copy what
+`MasterGroupKey` compares on, which is `Filter.Name` plus `Bandpass`. That fails on real data, because
+`Filter.FromName`'s patterns are **anchored** (`^\s*...\s*$`): `"Ha"` parses, but `"Ha 3nm"`,
+`"OIII 3nm"` and `"Antlia ALP-T"` match nothing and all canonicalise to the single value
+`Filter.Unknown`. A key built from the canonical name alone therefore merges Ha and OIII right back
+together for precisely the archives the split exists to separate, while looking correct in any test
+whose fixture spells its filters `"Ha"` and `"OIII"`.
+
+The session key is `(SessionDir, Instrument, Target, FilterOf(frame))`, where `FilterOf` is the
+canonical name when the header parsed and the **trimmed raw header text** when it did not.
+`Bandpass` is deliberately absent: it is a function of the canonical name for every recognised
+filter and `None` for every unrecognised one, so it partitions nothing the name does not.
+
+Two properties worth keeping if this key changes again. **Over-splitting is the safe direction**: an
+over-split session still registers to a valid master and any remainder below `MinSubsPerSession` is
+dropped through a reported counter, whereas a merge corrupts a master silently. And **the id only
+grows when the new field is present**, because `test-sessions.txt` is a stable per-id hash, so an id
+that does not move cannot change train/test sets; every broadband session built before filters
+entered the key keeps its exact id and its exact assignment.
+
+See [docs/plans/narrowband-colour.md](plans/narrowband-colour.md) for what the archive sweep is
 otherwise wanted for.
 
 ### A narrowband stack has no colour path, and naive HOO is uniformly cyan by construction

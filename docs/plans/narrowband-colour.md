@@ -681,21 +681,42 @@ The dataset builder's archive sweep (`tianwen dataset build`, P0 shipped, not ye
 archive) is the natural vehicle for both *using* and *verifying* everything above. Recorded here
 because the two workstreams need each other and neither plan said so.
 
-**Blocker first.** `SessionDiscovery.GroupSessions` keys sessions on `(SessionDir, Instrument,
-Target)` with **no filter**, so a mono Ha+OIII night collapses into one session: the star-count gate
-sees a bimodal population and rejects the OIII frames, and `SessionRegistrar` stacks both filters
-into one meaningless master. Full write-up in
-[known-limitations.md](../known-limitations.md). **Fix that before any narrowband archive run**, or
-every downstream measurement here is taken on corrupted masters.
+**The blocker this exposed is now cleared (2026-08-02).** `SessionDiscovery.GroupSessions` keyed
+sessions on `(SessionDir, Instrument, Target)` with **no filter**, so a mono Ha+OIII night collapsed
+into one session: the star-count gate saw a bimodal population and rejected the OIII frames, and
+`SessionRegistrar` stacked both filters into one meaningless master. The key now carries the filter.
+
+**And it disproved an assumption this section made**, which matters more than the fix. Keying on the
+canonical `Filter.Name` (what `MasterGroupKey` compares on) would not have worked:
+`Filter.FromName`'s patterns are **anchored**, so real header text like `"Ha 3nm"`, `"OIII 3nm"` or
+`"Antlia ALP-T"` matches nothing and canonicalises to a single `Filter.Unknown`. The session key
+therefore falls back to the raw header text; see [known-limitations.md](../known-limitations.md).
+
+The same hole runs straight through the bandpass claim below. `Filter.Unknown` carries
+`Bandpass.None`, and `FILTCLAS` (the coarse-classification card that would rescue the parse) is a
+**TianWen-written convention**, not something N.I.N.A. emits, so on a N.I.N.A.-captured archive the
+bandpass is derived from `FILTER` through that same anchored parse. **On `D:\Astro-Pics` a 3 nm Ha
+frame most likely reports `Bandpass.None`, not `Bandpass.Ha`.** So narrowband dispatch is *not* free
+after all, and the work the phases below inherit is one shared "what line is this frame" resolver
+that widens the parse (unanchored, substring-matched against the manufacturer strings actually
+present in the archive), used by every phase rather than reinvented per phase. Auditing the distinct
+`FILTER` values in the archive is the first thing the sweep should print.
 
 **What we already have that this plan assumed we would need to build.** `MasterGroupKey` carries
 `FilterName` *and* `FilterBandpass`, and `Bandpass` is a bit-flags enum whose members are exactly
 `Red|Green|Blue` and **`Ha`, `Hb`, `OIII`, `SII`**. So:
 
-- **Narrowband-vs-broadband dispatch needs no new metadata.** Test the bandpass bits.
-- **ADR-5's filter dependence is already expressible.** A dual-band is `Ha | OIII`, a tri-band is
-  `Ha | Hb | OIII`. The "does this filter pass H-beta" question that decides whether the H-beta
-  preset is legitimate or double-counts is a single bit test, not a new profile field.
+- **Narrowband-vs-broadband dispatch needs no new metadata**, but it does need a wider parse. Test
+  the bandpass bits, once the bits are actually populated (see the paragraph above: a descriptive
+  `FILTER` string currently yields `Bandpass.None`). The data model is right and the recogniser is
+  too narrow, which is a much better position than the reverse.
+- **ADR-5's filter dependence is expressible in the model we have.** A dual-band is `Ha | OIII`, a
+  tri-band is `Ha | Hb | OIII`. The "does this filter pass H-beta" question that decides whether the
+  H-beta preset is legitimate or double-counts is a single bit test rather than a new profile field.
+  Note what that costs if the bits are wrong: an unrecognised tri-band reads as `None`, which is
+  neither "passes Hb" nor "blocks Hb", so the preset gate has to treat an unresolved filter as
+  unknown and fall back to hue rotation (the blind-safe default ADR-5 already names) instead of
+  guessing. The widened resolver is what turns that fallback from the common case into the rare one.
 - **Phase 0's frame pairing is nearly free.** `LightGroupKey(MasterGroupKey, ObjectName)` is almost
   the pairing key already: same `ObjectName`, one narrowband bandpass and one broadband, same train.
 
