@@ -66,6 +66,36 @@ every stage is mirrored. Concrete bugs this produced: bisection direction invert
 `stretchMode` enum mapped wrong so Unlinked hit the Luma path on GPU only. See the
 "Stretch Pipeline: CPU/GPU Mirror" section in `../CLAUDE.md` for the contract that prevents this.
 
+### Dataset session discovery groups by target but not by FILTER
+
+`SessionDiscovery.GroupSessions` keys sessions on `(SessionDir, Instrument, Target)`. Filter is not
+in the key, although `ImageMeta.Filter` is populated and `MasterGroupKey` already carries both
+`FilterName` and a `Bandpass`.
+
+The code argues against itself. The comment immediately above the key says a dated LIGHT folder
+"routinely holds several pointings distinguished only by OBJECT, and mixing them would both break
+registration and poison the session-relative star-count gate". That is exactly the right reasoning,
+applied to Target and not to Filter.
+
+On a **mono narrowband archive** the consequences are concrete, because Ha and OIII of one target on
+one night land in one folder under one OBJECT:
+
+1. **The star-count gate sees a bimodal population.** `SessionFrameAnalyzer.ApplyGate` is MAD-based
+   and session-relative, which is right, but OIII detects far fewer stars than Ha through equivalent
+   filters. The OIII frames sit in the left tail and are rejected as `StarCountTooLow` for being a
+   different filter rather than for being bad. `maxRejectFraction` caps the damage at 50%, which is
+   still half a night of good data.
+2. **`SessionRegistrar` integrates one master per session**, so Ha and OIII frames are stacked
+   together. The result is not a line master and not anything else either. For an N2N dataset that is
+   a corrupted training target, produced silently.
+3. **Flats are filter-specific**, so calibration matching within a filter-mixed session is ambiguous.
+
+Not yet observed, because the build has only been exercised on the broadband reference archive; it
+would surface on the first narrowband-bearing run of `D:\Astro-Pics`. Fix is to add the filter
+(canonical `Filter.Name`, or `Bandpass`, matching what `MasterGroupKey` compares on) to the session
+key. See [docs/plans/narrowband-colour.md](plans/narrowband-colour.md) for what the archive sweep is
+otherwise wanted for.
+
 ### A narrowband stack has no colour path, and naive HOO is uniformly cyan by construction
 
 Two separate things, both easily mistaken for a broken colour pipeline.
@@ -86,7 +116,7 @@ to introduce a third quantity, normally ~15% Ha mixed into blue standing for H-b
 decrement ties Hb to Ha; intrinsic ratio 2.86, with dust extinction accounting for the gap between
 that 0.35 and the 15-20% used in practice).
 
-Both are planned, with the algorithms and six ADRs, in
+Both are planned, with the algorithms and thirteen ADRs, in
 [docs/plans/narrowband-colour.md](plans/narrowband-colour.md).
 
 ### Normalisation invalidates derived floors
