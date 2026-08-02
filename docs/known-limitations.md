@@ -106,6 +106,15 @@ canonical name when the header parsed and the **trimmed raw header text** when i
 `Bandpass` is deliberately absent: it is a function of the canonical name for every recognised
 filter and `None` for every unrecognised one, so it partitions nothing the name does not.
 
+**Identity is not interpretation, and the key deliberately stays on the identity side.**
+`FilterCurveDatabase` ships 176 spectral curves with fuzzy name matching, and it is the right tool
+for asking *what lines does this filter pass* (measure the throughput at 4861 / 5007 / 6563 / 6717 Å;
+see [plans/narrowband-colour.md](plans/narrowband-colour.md)). It is the wrong tool for asking
+*are these two frames the same filter*. Resolving the session key through it would make a pure,
+synchronous grouping function depend on an async embedded-resource load, and fuzzy matching would let
+two genuinely different filters that both land on one curve entry collapse into a single session,
+which is the merge this whole entry is about.
+
 Two properties worth keeping if this key changes again. **Over-splitting is the safe direction**: an
 over-split session still registers to a valid master and any remainder below `MinSubsPerSession` is
 dropped through a reported counter, whereas a merge corrupts a master silently. And **the id only
