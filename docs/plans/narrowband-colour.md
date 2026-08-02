@@ -391,6 +391,55 @@ Two further consequences worth stating before anyone builds on this:
 physics: starving green to move OIII off cyan works the same whatever the filter passed. That
 asymmetry is what decides the default (ADR-5).
 
+### The full workflow, from the author's transcript
+
+The user supplied the video transcript, which settles several things this document had inferred from
+screenshots. Timestamps are from that transcript.
+
+**The order of operations, start to finish:**
+
+1. Background extraction (ABE + DBE) on each **linear mono** plane (02:17).
+2. **`EZ_SoftStretch` on each plane separately**, Ha and OIII (03:32).
+3. PixelMath mix into RGB (03:56).
+4. **StarNet++ on all three images**, keeping a star mask for later (05:07).
+5. `RangeSelection` on **OIII** to build `range_mask` (06:16).
+6. Curves through that mask: B, then c, then G, then R, then saturation (08:10).
+7. **The same again with a Ha-derived mask** and warmer curves (10:03).
+8. ABE + DBE *again*, because the masked work amplified vignetting into blue corners (11:38).
+9. Global curves on the whole image, RGB contrast plus c (13:21).
+10. `DarkStructureEnhance`, default parameters (14:35).
+11. Stars added back: PixelMath `$T + star_mask` (15:01), then `EZ_StarReduction`, then denoise.
+
+**Four corrections and confirmations this forces:**
+
+- **ADR-12 is confirmed in the author's own words** (03:07): "you could use here it's h alpha and
+  oxygen 3 directly from a monochrome camera, but if you had an L-eXtreme it works exactly the same
+  way: you separate your RGB channels and then you combine green and blue in PixelMath to create an
+  oxygen 3 and you use red as h alpha". Mono is the native form and OSC is an on-ramp, exactly as
+  ADR-12 states. Note his on-ramp is the naive `OIII = (G+B)/2`, not a crosstalk unmix, which is
+  precisely the gap phase 3 fills.
+- **The entire colour workflow runs STARLESS**, which this document had missed. Stars are removed
+  before the masks are built and added back at the very end. That is load-bearing rather than
+  incidental: it keeps stars out of the range mask (a star is bright in OIII and would otherwise be
+  selected) and stops the colour curves from tinting star cores.
+- **Each plane is stretched *before* the mix**, so the mix is on display-referred data. This differs
+  from Alchemy, which is emphatically linear-domain, and the per-plane soft stretch is effectively
+  doing phase 1's job: separately auto-stretching each plane is a crude way of making planes
+  commensurate. Two valid orderings therefore exist, and we chose linear (see ADR-13).
+- **There are two masked passes, one per line**, not one. OIII mask drives the blue; Ha mask drives
+  the warm tones. The technique generalises to "for each line plane, build a mask from it and adjust
+  colour through it", which extends to SHO for free.
+
+**Two things the author says that are worth quoting.** On the 5% Ha in blue (04:24): the original
+recipe "had oxygen 3 times 0.95 plus 0.05 times h alpha... **that might be psychological**". So even
+the author doubts the blue term does anything, which independently supports this document's finding
+that the *green* term is what rotates the hue. And on the ethic (18:52), which is ADR-9 arrived at
+from the other direction: "without betraying the spirit of the data... because we're using only masks
+and range masks we're using the original data to pull that blue back... we're not selecting a
+specific area that we like to be blue, we're actually using the original data".
+
+Credit, per the author, belongs to an unnamed Cloudy Nights post he could not relocate.
+
 ### The mix is gated by a signal-presence mask, not applied globally
 
 The 2021 video keeps the PixelMath mix global, then builds a **range mask from the OIII line image
@@ -761,12 +810,39 @@ makes the better-equipped user route through machinery they do not need.
 - Phase 0 and phase 5 need no change: continuum subtraction runs per plane, and the phase 5 mask is
   built from one plane, which is exactly what the OIII range mask is.
 
+### ADR-13: Mix in the linear domain, not after a per-plane stretch
+
+**Decision.** Phases 1 and 2 operate on **linear** planes, per Alchemy's model, even though the
+reference workflow stretches each plane first and mixes afterwards.
+
+**Why.** Mixing linear signals preserves the physical ratio between the lines, which is what makes a
+palette coefficient mean something and what lets phase 0 and phase 3 feed it sensibly. Once each
+plane has been through its own independent auto-stretch, the ratio between them has been rescaled by
+two different non-linear functions, so `0.7 O + 0.3 H` is no longer mixing 70/30 of anything
+physical.
+
+**What the reference gains that we lose, and how we get it back.** Per-plane stretching does make the
+planes commensurate, which is genuinely the problem phase 1 solves; it is just a blunt way to do it,
+because the stretch is chosen for display rather than for matching. Phase 1's median-offset plus
+signal-strength gain does the same job in the linear domain and deliberately, so we keep the benefit
+without the coupling.
+
+**Consequence.** Our order is: phase 0, phase 1 normalization, phase 2 mix, *then* stretch, then
+phase 5's masked colour work on the stretched result. The reference's order is stretch, mix, mask,
+curves. Do not port its ordering along with its coefficients; the coefficients were tuned against
+stretched planes, so treat the published numbers as a starting point rather than as calibrated
+values.
+
 ## Invariants
 
 - **Linear in, linear out** for phases 1 to 3. The output is stretch-ready and must not be
   pre-stretched, mirroring how the technique was designed and how our own masters flow.
 - **Gain is applied about the background, never about zero.** `(G - med_r) * gain + med_r`. Getting
   this wrong silently moves the black point every time the gain is not 1.0.
+- **The masked colour work runs on starless planes.** Stars are removed before masks are built and
+  recombined afterwards. Otherwise a star, which is bright in every line, gets selected by every
+  signal-presence mask and has colour curves applied to its core. We already have the star
+  remove/recombine structure in `SharpenPipeline` (`SharpenIntermediates.StarsAndStarlessLineage`).
 - **Continuum subtraction happens first or not at all.** Never after normalization or mixing: those
   steps fit their coefficients to whatever is in the frame, so a late subtraction leaves numbers
   derived from `line + continuum` in place. See ADR-10.

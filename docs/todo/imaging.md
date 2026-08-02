@@ -97,7 +97,9 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
   noise floor as the first bin whose cumulative exceeds `(totalPixels / 10000) * aggressiveness`;
   least-squares fit a line to the cumulative between that floor and the histogram peak; **the black point
   is that line's x-intercept** (`-c/m`). It also computes **R-squared as a confidence measure** and falls back
-  to 0 with a warning when the fit fails or lands above the median. Two things we do not have: a black
+  to 0 with a warning when the fit fails or lands above the median. Verified identical in the 2023
+  build (v0.11, from the user's `EZ_Suite.zip`) as in the GitHub archive; defaults are
+  `aggressiveness = 10` and `htExpandLow = 0.05`. Two things we do not have: a black
   point that does not assume a Gaussian background, and a *confidence* number telling us when the estimate
   is untrustworthy (today a bad MAD silently produces a bad stretch). Its other idea is `htExpandLow`, fed
   as a **negative output shadow** in the histogram transform so input-black maps above 0: a deliberate
@@ -107,6 +109,19 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
   licence grant at all**, which is all-rights-reserved, not GPL. Take the algorithm, never the code.
   (Surfaced 2026-08-02 via the "RESCUE the BLUE" video's reference thread; adjacent to
   [narrowband-colour](../plans/narrowband-colour.md) but a stretch concern, not a colour one.)
+- [ ] **DarkStructureEnhance: a one-sided unsharp mask that darkens dust lanes.** Read from source
+  (`DarkStructureEnhance.js`, Carlos Sonnenstein + Oriol Lehmkuhl, PTeam). Two steps. **Mask:** an
+  a-trous wavelet pass strips the small scales to leave a large-scale (locally smoothed) version, then
+  `mask = large_scale - original`, converted to grayscale, rescaled to [0,1] and noise-reduced. Where a
+  pixel sits *below* its local large-scale average the difference is positive, so the mask lights up on
+  exactly the dark structures (dust lanes, dark nebulae) and is near zero elsewhere. It is an unsharp
+  mask kept only on its negative side. **Apply:** a `HistogramTransformation` whose RGB midtones balance
+  is the "Amount" parameter, applied *through* that mask; a midtones value below 0.5 darkens, so only
+  the dark structures get pushed down. Repeated `iterations` times through a ProcessContainer. Runs on
+  **stretched** data, typically last in the workflow, no user mask needed. **Cheap for us:** we already
+  have a-trous wavelets (`WaveletSharpen`, from the planetary stacker), the MTF (`Image.StretchValue`)
+  and `BlendThroughMask`, so this is composition rather than new maths. Same licence caution as
+  EZ_SoftStretch: take the algorithm, not the code. (2026-08-02, from the "RESCUE the BLUE" workflow.)
 - [ ] **`tianwen image adjust` standalone verb** — apply `Image.MaskedBoost` (and the raw mask primitives, e.g. `--export-mask` for previewing what a step will touch) to an already-stretched TIFF/FITS plate outside the stack/render flow. The primitives + CLI parsing shape (mirror `image render`'s flags) are in place; deferred until a concrete need.
 - [ ] **Mask morphology (dilate / erode)** — the remaining classic mask ops beyond invert/feather/binarize; useful for growing a star mask before protection. Deferred until a consumer exists.
 
