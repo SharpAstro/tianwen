@@ -992,15 +992,15 @@ stay on the SPCC calibration; every plate's background lands neutral.
 
 **SPCC is BROADBAND-ONLY, and a narrowband master has no colour path at all.** The white balance
 above integrates a Pickles SED against QE x CFA over the whole visible band, which is correct for an
-OSC broadband frame and meaningless for a 3 nm passband -- so an Ha/OIII/SII stack renders with
+OSC broadband frame and meaningless for a 3 nm passband, so an Ha/OIII/SII stack renders with
 whatever the channel assignment plus per-channel autostretch produce. Two traps follow. **Do not
 extend SPCC to narrowband by swapping in a narrow passband over the existing SEDs**: a Pickles
 template is a spectral *type average*, so over 3 nm it cannot know whether a star shows Ha in
 absorption or emission, and it would return a confidently wrong calibration rather than none (Siril
 uses Gaia DR3 `xp_sampled` per-star spectra for this, which we do not have). And **naive HOO is
-rank-deficient** -- `R = Ha`, `G = OIII`, `B = OIII` makes G and B the same array, so every OIII
+rank-deficient**: `R = Ha`, `G = OIII`, `B = OIII` makes G and B the same array, so every OIII
 region is exactly cyan and no stretch or WB can make blue; a uniformly teal HOO render is the
-palette, not a renderer bug. Planned with the algorithms + six ADRs in
+palette, not a renderer bug. Planned with the algorithms + thirteen ADRs in
 [docs/plans/narrowband-colour.md](docs/plans/narrowband-colour.md); root cause also recorded in
 [docs/known-limitations.md](docs/known-limitations.md).
 

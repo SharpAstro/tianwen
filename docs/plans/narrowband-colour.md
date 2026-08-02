@@ -85,8 +85,8 @@ exactly what the OIII range mask is.
 | 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, applied globally. Presets name which effect they apply (H-beta vs hue rotation). | same | NOT STARTED |
 | 3 | **Line unmixing: the OSC on-ramp only.** Recovers mono line planes from one dual/tri-band RGB frame, via DBXtract algebra + per-sensor crosstalk coefficients. **Mono imagers skip this entirely** and start at phase 1. **3a: the three-line Ha/Hb/OIII solve is the high-value variant** (exactly determined, the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
 | 4 | **SPCC narrowband mode.** Declared passbands convolved against real star spectra. Needs a Gaia DR3 spectra source. | `Astrometry/`, extends `Tycho2ColorCalibration` | NOT STARTED (blocked, see ADR-3) |
-| 6 | **Narrowband star colour.** Synthesize plausible RGB stars from the line planes and recombine with the starless narrowband image. Fixes the magenta stars that narrowband colour calibration produces. | `TianWen.Lib/Imaging/`, composes with `SharpenPipeline`'s star lineage | NOT STARTED |
 | 5 | **Masked colour adjustment.** Mask = (hue band and/or **line plane**) x luminance range, minus protection ramps (low-saturation / shadow / highlight). Then curves over Lab `L`/`C` + per-channel RGB, `C` as a hue-preserving scale of `a`,`b`. Reuses `FritschCarlsonSpline` (ADR-7). See ADR-8/11. | `Image.Masks.cs`, `MasterPreviewRenderer` | NOT STARTED (separate concern, see ADR-4/8) |
+| 6 | **Narrowband star colour.** Synthesize plausible RGB stars from the line planes and recombine with the starless narrowband image. Fixes the magenta stars that narrowband colour calibration produces. | `TianWen.Lib/Imaging/`, composes with `SharpenPipeline`'s star lineage | NOT STARTED |
 
 Phases 1 and 2 are the useful minimum and are independent of everything else. Phase 3 improves
 phase 1 where the sensor is known. Phase 4 is a different feature that happens to share the word
@@ -630,10 +630,11 @@ that vary per pixel for reasons the user cannot see.
 
 **We can automate the one manual step.** The 0.24 threshold is hand-tuned per image, which is why
 this reads as a fiddly manual process. It is really asking "where is this pixel above the noise?",
-which is a question we already answer: `Image.Background()` plus a MAD-scaled sigma gives a
-signal-detection threshold directly, the same machinery `FindStarsAsync` uses. Deriving the threshold
-from the OIII image's own statistics turns the manual step into a default, with the slider kept as an
-override.
+which is a question we already answer: `Image.Background()`'s iteratively sigma-clipped noise
+estimate is exactly the quantity `FindStarsAsync` builds its detection level from (`3.5 x noise`).
+Deriving the threshold from the OIII image's own statistics turns the manual step into a default,
+with the slider kept as an override. (Precision note: `Background()`'s noise term is a clipped SD,
+not MAD; the codebase computes MAD separately in `GetPedestralMedianAndMADScaledToUnit`.)
 
 **And phase 0 makes the mask honest.** On a continuum-contaminated OIII frame, a brightness threshold
 selects "anything bright", which includes stars and reflection nebulosity. After continuum
@@ -745,6 +746,12 @@ because it was discovered late and would have saved earlier guessing:
 | 6 | `processing/NB_2_RGB.py` | Narrowband star colour |
 
 ## Pros and cons
+
+(Historical note: this table compares the three techniques known when ADR-1 was decided, and it is
+what that decision was argued from. Techniques D-G arrived later and are decided in their own
+sections; they are deliberately not retrofitted into the table, because the decision it justified
+has not changed.)
+
 
 | | A. SPCC narrowband | B. VeraLux Alchemy | C. AstroColorMixer |
 |---|---|---|---|
@@ -1010,9 +1017,10 @@ question being asked. This is the one real capability gap: `Image.LuminanceRange
 composite luminance and has no line-image source.
 
 **Why automatic.** The reference hand-tunes the threshold (0.24 observed), which is most of why the
-workflow reads as fiddly. It is asking "is this above the noise", which `Image.Background()` plus a
-MAD-scaled sigma already answers, the same machinery behind `FindStarsAsync`. The manual step becomes
-a default with an override: an improvement on the reference, not a port of it.
+workflow reads as fiddly. It is asking "is this above the noise", which `Image.Background()`'s
+iteratively sigma-clipped noise estimate already answers; it is the same quantity `FindStarsAsync`
+derives its detection level from. The manual step becomes a default with an override: an improvement
+on the reference, not a port of it.
 
 **Consequence.** Phase 5 gains a mask-source parameter; phase 2 is unchanged. Keep the mask primitive
 **spatial-blur capable**: the reference deliberately pairs a hard threshold (fuzziness 0.00) with
@@ -1065,7 +1073,9 @@ signal-strength gain does the same job in the linear domain and deliberately, so
 without the coupling.
 
 **Consequence.** Our order is: phase 0, phase 1 normalization, phase 2 mix, *then* stretch, then
-phase 5's masked colour work on the stretched result. The reference's order is stretch, mix, mask,
+phase 5's masked colour work on the stretched result, and phase 6's star recombination last (stars
+were removed before the colour work per the starless invariant, and the synthesized RGB star plate
+goes back in at the very end, exactly where the reference workflow re-adds its stars). The reference's order is stretch, mix, mask,
 curves. Do not port its ordering along with its coefficients; the coefficients were tuned against
 stretched planes, so treat the published numbers as a starting point rather than as calibrated
 values.
