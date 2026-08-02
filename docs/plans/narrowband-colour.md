@@ -226,6 +226,32 @@ roughly even mix of both. **Presets must therefore name which effect they are ap
 because the first version of this section asserted the H-beta rationale for all of it, on the
 strength of one reference, before the actual coefficients were available.
 
+**The H-beta rationale is filter-dependent, and gets it wrong in both directions.** This is the
+detail that makes rationale (1) unsafe as a blanket default, and it splits the hardware in two:
+
+| Filter | H-beta 486.1 nm | Consequence for "mix Ha into blue" |
+|---|---|---|
+| Mono 3 nm Ha + 3 nm OIII (e.g. Antlia) | **Blocked.** 486.1 is 14.6 nm off OIII 500.7, far outside a 3 nm passband | Hb was never measured. The blend *invents* it from Ha |
+| Optolong L-eXtreme (dual 7 nm) | **Blocked deliberately**, for contrast in light pollution | Same as above |
+| Optolong L-eNhance (tri-band) | **Passes.** Its 24 nm bandpass spans both OIII and Hb | Hb is already in the blue data. Adding Ha **double-counts it** |
+| Quad-band (Ha/Hb/OIII/SII) | **Passes** | Same double-count |
+
+So the same coefficient is a reasonable estimate on one filter and a straightforward error on
+another. Two further consequences worth stating before anyone builds on this:
+
+- **On an Hb-passing filter the "OIII" channel is not OIII.** A 24 nm window covering both 500.7 and
+  486.1 delivers OIII **plus** Hb summed into one measurement. That is a real contamination, not a
+  labelling quibble, and it means phase 3's unmixing (a strictly two-line Ha/OIII model) is solving
+  the wrong system for exactly the filters where a third line is present. Three lines in three
+  channels is potentially exactly determined and therefore *more* tractable, but it is a different
+  system with a different coefficient set.
+- **Phase 4 cannot describe these filters either.** SPCC narrowband takes one centre wavelength and
+  one bandwidth per channel, which cannot represent a channel that sees two lines.
+
+**Rationale (2), hue rotation, is filter-independent**, because it is colour geometry rather than
+physics: starving green to move OIII off cyan works the same whatever the filter passed. That
+asymmetry is what decides the default (ADR-5).
+
 **And yes, the modern scripts subsume this entirely.** Alchemy's `mix_r/mix_g/mix_b` is exactly this
 PixelMath with a live preview instead of three dialog round-trips; the 2021 video is the manual form
 of the same arithmetic. Nothing here needs implementing twice.
@@ -345,8 +371,10 @@ The linear FITS and EXR masters and the `--split-plates` TIFFs stay untouched by
 
 ### ADR-5: Palette presets are physics, and the default is a natural blend
 
-**Decision.** Phase 2 ships **named presets**, not bare sliders, defaulting to a natural blend
-(roughly 15% Ha into blue) rather than to naive HOO. Each preset records what its coefficients mean.
+**Decision.** Phase 2 ships **named presets**, not bare sliders, and never defaults to naive HOO.
+The default is the **hue-rotation** preset (Ha into green), *not* the H-beta blend, and each preset
+records which of the two effects it applies. The H-beta presets are gated on knowing the filter
+blocks H-beta, and are not offered blind.
 
 **Why.** Naive HOO is rank-deficient (G and B identical), so it can only ever produce cyan, and
 defaulting to it would ship a known-degenerate result as if it were the neutral choice. The
@@ -355,8 +383,18 @@ H-alpha by the Balmer decrement. A number with a physical meaning should not be 
 unlabelled slider, because the user cannot then reason about when to change it (low-extinction
 target: push toward the intrinsic 0.35; dusty target: leave it).
 
+**Amended 2026-08-02 (user).** The first version of this ADR defaulted to the H-beta blend, which is
+wrong on any filter that actually passes H-beta: an L-eNhance or a quad-band already has Hb in the
+blue data, so adding Ha on top double-counts it, while an Antlia 3 nm or an L-eXtreme blocks Hb
+entirely and the blend is a synthetic estimate of a line that was never measured. Hue rotation has
+no such dependency, so it is the only safe blind default.
+
 **Consequence.** The mixer needs no new mechanism, only presets over the lerp Phase 2 already has.
-It also means the UI owes a short explanation per preset, not just a name.
+The UI owes a short explanation per preset, not just a name. And an H-beta preset needs the **filter
+set**, which is rig configuration rather than frame data: it belongs in the profile beside the other
+static equipment facts (the filter wheel's installed filters), and is resolvable from the FITS
+`FILTER` cards the stacker already groups on. Absent that knowledge, offer hue rotation and say why
+the physical blend is unavailable rather than guessing.
 
 ### ADR-6: Phases 2 and 3 conflict over blue, and Phase 3 must not be applied blindly
 
@@ -434,5 +472,9 @@ with `C` implemented as a hue-preserving scale of `a` and `b` in Lab.
   technique D's is a sigmoid on the luminance value, which cannot bleed a selection across an edge.
   Worth adding as an option (not a replacement: spatial feathering is still right for some masks),
   but it is an independent improvement to an existing primitive rather than part of this plan.
-- **Tri-band and quad-band unmixing.** The DBXtract algebra recorded above is Ha/OIII only. Quad-band
-  filters pass SII and Hb as well, which is a larger linear system and a different coefficient set.
+- **Tri-band and quad-band unmixing.** The DBXtract algebra recorded above is a strictly two-line
+  Ha/OIII model. An L-eNhance passes Hb and a quad-band passes Hb and SII, so on exactly those
+  filters the "OIII" measurement is a sum of two lines and the two-line solve is answering the wrong
+  question. Note this is not simply harder: three lines across three channels is potentially
+  *exactly* determined, so it may be better conditioned than the two-line case, but it needs its own
+  coefficient set and its own derivation.
