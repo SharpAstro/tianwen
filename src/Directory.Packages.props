@@ -9,8 +9,12 @@
          the SharpAstro.Codecs facade) ships in lockstep from the Codecs repo, so they
          must all resolve to the SAME minor (mixing minors across a lockstep break is a
          runtime hazard). Bump this ONE prefix on a family minor/major; the X.Y.* float
-         still auto-picks CI patch builds within the minor. -->
-    <SharpAstroCodecsVersion>3.6.*</SharpAstroCodecsVersion>
+         still auto-picks CI patch builds within the minor.
+         3.7 added SharpAstro.Jbig2 (clean-room ITU-T T.88, for PDF's /JBIG2Decode) to the family and
+         3.8 gave it resource limits, after the shipped 3.7 decoder was found to accept decompression
+         bombs. TianWen references neither package, so 3.6 -> 3.8 carries no API change here; the bump
+         is to keep the matched set matched, which is the whole reason this one property exists. -->
+    <SharpAstroCodecsVersion>3.8.*</SharpAstroCodecsVersion>
   </PropertyGroup>
   <ItemGroup>
     <!-- Source generator packages -->
@@ -159,8 +163,15 @@
          measure context and the paint loop, two copies kept in step by hand, and per-axis scales would
          have turned that into text painted at a size it was never measured at. Additive, since the scalar
          overloads delegate to the context ones with an isotropic context, so every existing TianWen call
-         site paints byte-identically. -->
-    <PackageVersion Include="DIR.Lib" Version="7.4.*" />
+         site paints byte-identically.
+         7.5 is the current pin: a font now resolves by its DECLARED family rather than by file identity,
+         so every face in a family is reachable, and a run a face cannot cover falls back per RUN instead
+         of per request. The fallback split is allocation-free and gated on an allocation-free
+         PrimaryCoversAll, so text needing no fallback costs nothing; the all-ASCII shortcut was fixed to
+         check that the primary actually covers ASCII. 7.5 also collapsed every package in that repo onto
+         one version property, which is how DIR.Lib.Shaping stopped shipping a full major behind the
+         library it ships with. -->
+    <PackageVersion Include="DIR.Lib" Version="7.5.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -268,9 +279,10 @@
          The three-overload cascade collapses into fields on RowContext, so the next capability adds a
          field rather than a rung an implementation can silently ignore. See Console.Lib's MIGRATION.md
          and CLAUDE.md's Layout DSL section.
-         4.11 is the current pin: a no-code lockstep rebuild against DIR.Lib 7.4, so the family restores
-         one DIR.Lib instead of two. Nothing in the TUI changes. -->
-    <PackageVersion Include="Console.Lib" Version="4.11.*" />
+         4.11 was a no-code lockstep rebuild against DIR.Lib 7.4, so the family restores one DIR.Lib
+         instead of two. 4.12 is the current pin and is the same thing against DIR.Lib 7.5. Nothing in
+         the TUI changes in either. -->
+    <PackageVersion Include="Console.Lib" Version="4.12.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -322,23 +334,32 @@
          with it. 7.3 completed the inspector consolidation upstream (one
          dir-inspect protocol shared with the terminal inspector, loopback-only bind, the SDL-side
          transport deleted; batch and wait became core verbs). 7.4 is the current pin: a no-code lockstep
-         rebuild against DIR.Lib 7.4. No render-path change, so these are
-         rebuilds from TianWen's side, pinned forward to keep the family on one DIR.Lib. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.4.*" />
+         rebuild against DIR.Lib 7.4, and 7.5 is the current pin, the same against DIR.Lib 7.5. No
+         render-path change in either, so these are rebuilds from TianWen's side, pinned forward to keep
+         the family on one DIR.Lib. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.5.*" />
     <!-- The WebGL2 backend for the same DIR.Lib Renderer, consumed ONLY by TianWen.UI.Web (which sits
          outside TianWen.slnx). It lives here, next to its desktop counterpart, because it used to be
          pinned inline in that csproj instead: a sibling-family bump that swept this file could not see
          it, so it silently sat two minors behind at 1.12 while 1.13 was published, and stayed the last
          member built against DIR.Lib 7.0 after the rest moved to 7.4. The package graph then unified
          DIR.Lib by taking the highest version rather than by intent. Bump it with the family.
-         1.14 is the current pin: the no-code lockstep rebuild against DIR.Lib 7.4. -->
-    <PackageVersion Include="WebGl.Renderer" Version="1.14.*" />
+         1.14 was the no-code lockstep rebuild against DIR.Lib 7.4; 1.15 is the current pin, the same
+         against DIR.Lib 7.5. It moved with the family this time rather than being found two minors
+         behind, which is the point of it living here. -->
+    <PackageVersion Include="WebGl.Renderer" Version="1.15.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
-    <!-- Canon DSLR -->
-    <PackageVersion Include="FC.SDK" Version="1.4.*" />
-    <!-- Floating: Canon raw decoder (.cr2/.cr3 -> mosaic). Tracks FC.SDK repo CI (1.3.x). -->
-    <PackageVersion Include="FC.SDK.Raw" Version="1.4.*" />
+    <!-- Canon DSLR. Both packages ship from the FC.SDK repo at one release line, so they move
+         together. 1.4 -> 1.7 catches up three lines: 1.5 added the device report (the one artefact to
+         ask a bug reporter for) and stopped two settings leaking their storage details to the caller,
+         1.6 drove the WPD driver over raw ioctl as a sibling of the COM path, and 1.7 opened the
+         current line. The EVF zoom accessor the planetary ROI-jog work is waiting on is still NOT here:
+         Evf_ZoomPosition / Evf_ZoomRect remain bare property ids with no point/rect accessor. So that
+         deferral stands, and it is no longer "pending 1.5". -->
+    <PackageVersion Include="FC.SDK" Version="1.7.*" />
+    <!-- Floating: Canon raw decoder (.cr2/.cr3 -> mosaic). Same repo + release line as FC.SDK. -->
+    <PackageVersion Include="FC.SDK.Raw" Version="1.7.*" />
     <!-- Image encoding -->
     <PackageVersion Include="StbImageWriteSharp" Version="1.16.7" />
     <!-- Blazor WebAssembly host for TianWen.UI.Web. That project is outside TianWen.slnx and is not
