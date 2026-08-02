@@ -168,6 +168,52 @@ cadence forces a version bump), commit + push + wait for NuGet publish — **do 
 local nupkg feeds or run `dotnet pack` to short-circuit the release dance, since CI builds
 will still pull from nuget.org and a local-only nupkg will mask version-skew bugs.
 
+### How every sibling repo is versioned (one property, read back in CI)
+
+**To cut a release in ANY SharpAstro repo, edit `<VersionMajorMinor>` in its `Directory.Build.props`
+and nothing else.** Every repo now uses the same shape, under the same property name, so the answer to
+"where does this repo's version live" never varies:
+
+- **`Directory.Build.props`** (repo root, or `src/` where the repo keeps one there) holds
+  `<VersionMajorMinor>X.Y</VersionMajorMinor>`. Everything else in the repo derives from it:
+  `<VersionPrefix Condition="'$(VersionPrefix)' == ''">$(VersionMajorMinor).0</VersionPrefix>` for local
+  builds, and `AssemblyVersion` as `$(VersionMajorMinor).0.0` where a repo pins one.
+- **The workflow READS IT BACK** rather than restating it. A `dotnet msbuild <props> -getProperty:VersionMajorMinor`
+  step writes `VERSION_PREFIX=<X.Y>.<run>` into `$GITHUB_ENV` before restore. `-getProperty` only
+  *evaluates* the file, so it needs no restore and runs first.
+
+**Why it is read back rather than duplicated:** CI stamps one `-p:Version` across the whole repo, so a
+per-csproj version only ever surfaces in a *local* build, which is exactly where nobody looks, while a
+workflow copy silently decides what ships. Nothing compared them, and they drifted — DIR.Lib.Shaping
+sat at 6.8.0 while DIR.Lib was 7.5.0, so a local `dotnet pack` shipped the satellite a full major
+behind the library it ships with; SdlVulkan's Inspector/WebView trio sat at 6.0.0 against 7.4.0; and
+Codecs' own comment recorded the 3.5 work shipping as 3.4.49 because only one of its two copies moved.
+The SDK repos had the inverse: no csproj version at all, so a local pack produced the SDK default
+1.0.0 against a package whose real line was 4.2 or 2.0.
+
+Two rules that make the step safe, both load-bearing:
+- **`DOTNET_NOLOGO: 1` in the workflow `env:`.** The value is captured from stdout, so the SDK's
+  first-run banner must not be able to land in it.
+- **A shape check that fails the run.** An unresolvable or renamed property must not quietly stamp
+  every package as `.<run>`.
+
+**Release notes stay in the workflow `env:`, not next to the number.** Several entries contain a double
+hyphen, which XML forbids inside a comment. Add the entry there when you bump the property here.
+
+**`LALR.CC` is deliberately exempt** and should stay that way. It is tag-driven, not run-number driven:
+the package version *is* `<Version>` in `LALR.CC.csproj`, and its workflow already has a guard step that
+fails when a pushed `vX.Y.Z` tag disagrees with it. That is the same invariant — one place, CI verifies
+instead of duplicating — expressed for a different release model, and converting it would break the
+tag-to-version contract the guard enforces.
+
+**A live failure mode worth knowing** (it cost WebGl.Renderer a stray published package on every run
+for fifteen releases): if a **test step rebuilds a `GeneratePackageOnBuild` project without
+`-p:Version`**, it packs a *second* time at the csproj default `X.Y.0`, into the same `bin/Release` the
+publish job globs with `**/*.nupkg`. Both get pushed, and `--skip-duplicate` hides it by making the
+re-push a no-op rather than an error. Either pass `--no-build` to `dotnet test` (what most repos here
+do) or `-p:GeneratePackageOnBuild=false`. To audit: list a package's versions and look for a bare
+`X.Y.0` sitting beside the run-numbered ones.
+
 ## Key Technologies
 
 | Area | Technology |
