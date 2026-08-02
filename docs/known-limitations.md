@@ -66,6 +66,29 @@ every stage is mirrored. Concrete bugs this produced: bisection direction invert
 `stretchMode` enum mapped wrong so Unlinked hit the Luma path on GPU only. See the
 "Stretch Pipeline: CPU/GPU Mirror" section in `../CLAUDE.md` for the contract that prevents this.
 
+### A narrowband stack has no colour path, and naive HOO is uniformly cyan by construction
+
+Two separate things, both easily mistaken for a broken colour pipeline.
+
+**SPCC is broadband-only.** `Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance` integrates
+a Pickles SED against QE x CFA across the whole visible band. That is the right model for an OSC
+broadband frame and the wrong one for a 3 nm passband, so an Ha/OIII/SII master gets no calibration
+at all: the palette is whatever channel assignment plus per-channel autostretch produce. Do not
+"fix" this by pointing a narrow passband at the existing SEDs -- a Pickles template is a spectral
+*type average* and cannot know whether a given star shows Ha in absorption or emission over 3 nm, so
+it would return a confidently wrong answer rather than no answer.
+
+**Naive HOO is rank-deficient.** `R = Ha`, `G = OIII`, `B = OIII` makes G and B the *same array*.
+Two independent signals in a three-dimensional colour space means every OIII region lands on exactly
+one hue (cyan), and no stretch, saturation, WB or curve can produce blue from it. If an HOO master
+renders uniformly teal, the renderer is working correctly and the palette is the problem. The fix is
+to introduce a third quantity, normally ~15% Ha mixed into blue standing for H-beta (the Balmer
+decrement ties Hb to Ha; intrinsic ratio 2.86, with dust extinction accounting for the gap between
+that 0.35 and the 15-20% used in practice).
+
+Both are planned, with the algorithms and six ADRs, in
+[docs/plans/narrowband-colour.md](plans/narrowband-colour.md).
+
 ### Normalisation invalidates derived floors
 
 `ScaleFloatValuesToUnitInPlace` sets `MaxValue = 1`. A MAD floor written as `invMax * 0.5f` then
