@@ -35,8 +35,15 @@ namespace TianWen.Lib.Tests
             int height = 3008,
             string objectName = "",
             string root = "",
-            bool isMaster = false)
+            bool isMaster = false,
+            string filterName = "")
         {
+            // Built exactly as Image.Fits.cs builds it on read: canonicalise the header text, then
+            // carry the raw text alongside. That is what lets a descriptive name ("Ha 3nm") land as
+            // Filter.Unknown with a populated RawName, which is the case the filter key turns on.
+            var filter = filterName.Length > 0
+                ? Filter.FromName(filterName) with { RawName = filterName }
+                : Filter.None;
             var meta = new ImageMeta(
                 Instrument: instrument,
                 ExposureStartTime: start ?? new DateTimeOffset(2025, 8, 20, 12, 0, 0, TimeSpan.Zero),
@@ -47,7 +54,7 @@ namespace TianWen.Lib.Tests
                 PixelSizeY: 3.76f,
                 FocalLength: 135,
                 FocusPos: -1,
-                Filter: Filter.None,
+                Filter: filter,
                 BinX: 1,
                 BinY: 1,
                 CCDTemperature: -10f,
@@ -106,6 +113,90 @@ namespace TianWen.Lib.Tests
             vela.Id.ShouldBe("2026-01-23|ZWO ASI533MC Pro|Vela SNR");
             sessions.Single(s => s.Target == "HD 71272").Lights.Length.ShouldBe(2);
             stats.Lights.ShouldBe(4);
+        }
+
+        [Fact]
+        public void GivenOneFolderWithTwoFiltersOfOneTarget_WhenGrouping_ThenOneSessionPerFilter()
+        {
+            // A mono narrowband night: both lines of one pointing land in one dated LIGHT folder
+            // under one OBJECT, separated only by FILTER. Merged, the MAD star-count gate would see
+            // a bimodal population and reject the star-poor OIII half as a left tail, and whatever
+            // survived would integrate into a master that is neither line.
+            var (sessions, stats) = Group(Options(),
+            [
+                (Frame("2026-02-14/LIGHT/h1.fits", objectName: "NGC 281", filterName: "Ha", start: T(0)), Root),
+                (Frame("2026-02-14/LIGHT/h2.fits", objectName: "NGC 281", filterName: "Ha", start: T(1)), Root),
+                (Frame("2026-02-14/LIGHT/o1.fits", objectName: "NGC 281", filterName: "OIII", start: T(2)), Root),
+            ]);
+
+            sessions.Length.ShouldBe(2);
+            sessions.Select(s => s.Id).ShouldBe(
+                ["2026-02-14|ZWO ASI533MC Pro|NGC 281|HydrogenAlpha", "2026-02-14|ZWO ASI533MC Pro|NGC 281|OxygenIII"],
+                ignoreOrder: true);
+            sessions.Single(s => s.FilterName == "HydrogenAlpha").Lights.Length.ShouldBe(2);
+            sessions.Single(s => s.FilterName == "OxygenIII").Lights.Length.ShouldBe(1);
+            stats.Lights.ShouldBe(3);
+        }
+
+        [Fact]
+        public void GivenUnrecognisedFilterNames_WhenGrouping_ThenRawHeaderTextStillSplitsThem()
+        {
+            // Filter.FromName's patterns are anchored, so real descriptive header text canonicalises
+            // to Filter.Unknown. Keying on the canonical name alone would merge these right back
+            // together, which is the whole failure this split exists to prevent.
+            Filter.FromName("Ha 3nm").ShouldBe(Filter.Unknown);
+            Filter.FromName("OIII 3nm").ShouldBe(Filter.Unknown);
+
+            var (sessions, _) = Group(Options(),
+            [
+                (Frame("n/LIGHT/h1.fits", objectName: "Sh2-155", filterName: "Ha 3nm", start: T(0)), Root),
+                (Frame("n/LIGHT/o1.fits", objectName: "Sh2-155", filterName: "OIII 3nm", start: T(1)), Root),
+            ]);
+
+            sessions.Select(s => s.FilterName).ShouldBe(["Ha 3nm", "OIII 3nm"], ignoreOrder: true);
+        }
+
+        [Fact]
+        public void GivenTwoSpellingsOfOneRecognisedFilter_WhenGrouping_ThenTheyStayOneSession()
+        {
+            // The counterweight to the raw fallback: canonicalisation still folds spelling variants
+            // of a recognised filter, so the fallback cannot over-split the common case.
+            var (sessions, _) = Group(Options(),
+            [
+                (Frame("n/LIGHT/a.fits", objectName: "M 42", filterName: "Ha", start: T(0)), Root),
+                (Frame("n/LIGHT/b.fits", objectName: "M 42", filterName: "H-alpha", start: T(1)), Root),
+                (Frame("n/LIGHT/c.fits", objectName: "M 42", filterName: "ha", start: T(2)), Root),
+            ]);
+
+            sessions.ShouldHaveSingleItem().FilterName.ShouldBe("HydrogenAlpha");
+            sessions[0].Lights.Length.ShouldBe(3);
+        }
+
+        [Fact]
+        public void GivenAFilterButNoObject_WhenGrouping_ThenTheIdKeepsAnEmptyTargetSlot()
+        {
+            // Both slots are emitted whenever a filter is present, so this can never collide with a
+            // filterless session whose OBJECT happens to be "Ha".
+            var (sessions, _) = Group(Options(),
+                [(Frame("n/LIGHT/h1.fits", filterName: "Ha", start: T(0)), Root)]);
+
+            sessions.ShouldHaveSingleItem().Id.ShouldBe("n|ZWO ASI533MC Pro||HydrogenAlpha");
+        }
+
+        [Fact]
+        public void GivenNoFilterHeader_WhenGrouping_ThenTheIdIsUnchangedFromBeforeFiltersWereKeyed()
+        {
+            // Load-bearing for the pinned train/test split: it is a stable per-id hash, so an id
+            // that does not move cannot change sets. Every broadband session built before the filter
+            // entered the key must keep its exact id, with and without an OBJECT.
+            var (sessions, _) = Group(Options(),
+            [
+                (Frame("2025/Helix/LIGHT/l1.fits", start: T(0)), Root),
+                (Frame("2026-01-23/LIGHT/v1.fits", objectName: "Vela SNR", start: T(1)), Root),
+            ]);
+
+            sessions.Select(s => s.Id).ShouldBe(
+                ["2025/Helix|ZWO ASI533MC Pro", "2026-01-23|ZWO ASI533MC Pro|Vela SNR"], ignoreOrder: true);
         }
 
         [Fact]

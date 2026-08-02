@@ -67,10 +67,12 @@ public static class SessionDiscovery
     {
         int notLight = 0, exposureOut = 0, instrumentExcluded = 0, softwareExcluded = 0, objectExcluded = 0, pathExcluded = 0, productExcluded = 0, duplicates = 0;
         var seen = new HashSet<(string Camera, DateTimeOffset Start, TimeSpan Exposure, int Width, int Height)>();
-        // Grouped per target as well as per directory + camera: a single dated LIGHT folder
-        // routinely holds several pointings distinguished only by OBJECT, and mixing them would
-        // both break registration and poison the session-relative star-count gate.
-        var bySession = new Dictionary<(string SessionDir, string Camera, string Target), (string Root, List<FrameInfo> Lights)>();
+        // Grouped per target AND per filter as well as per directory + camera: a single dated LIGHT
+        // folder routinely holds several pointings distinguished only by OBJECT, and on a mono
+        // narrowband night it holds both lines of one pointing distinguished only by FILTER. Mixing
+        // either breaks registration and poisons the session-relative star-count gate; see the
+        // remarks on ImagingSession for why the filter half matters even more than the target half.
+        var bySession = new Dictionary<(string SessionDir, string Camera, string Target, string FilterName), (string Root, List<FrameInfo> Lights)>();
 
         foreach (var (frame, root) in frames)
         {
@@ -98,7 +100,7 @@ public static class SessionDiscovery
                 pathExcluded++;
                 continue;
             }
-            var key = (sessionDir, frame.Meta.Instrument, TargetOf(frame));
+            var key = (sessionDir, frame.Meta.Instrument, TargetOf(frame), FilterOf(frame));
             if (!bySession.TryGetValue(key, out var entry))
             {
                 bySession[key] = entry = (root, new List<FrameInfo>());
@@ -108,7 +110,7 @@ public static class SessionDiscovery
 
         int tooSmall = 0, lightCount = 0;
         var sessions = ImmutableArray.CreateBuilder<ImagingSession>();
-        foreach (var ((sessionDir, camera, target), (root, lights)) in bySession)
+        foreach (var ((sessionDir, camera, target, filterName), (root, lights)) in bySession)
         {
             if (lights.Count < options.MinSubsPerSession)
             {
@@ -117,7 +119,7 @@ public static class SessionDiscovery
             }
             lights.Sort(static (a, b) => a.Meta.ExposureStartTime.CompareTo(b.Meta.ExposureStartTime));
             var relative = Path.GetRelativePath(root, sessionDir).Replace(Path.DirectorySeparatorChar, '/');
-            sessions.Add(new ImagingSession(sessionDir, relative, camera, target, [.. lights]));
+            sessions.Add(new ImagingSession(sessionDir, relative, camera, target, filterName, [.. lights]));
             lightCount += lights.Count;
         }
         // Deterministic order regardless of dictionary iteration: by portable id.
@@ -131,6 +133,38 @@ public static class SessionDiscovery
 
     /// <summary>The session-grouping target key: the trimmed OBJECT header, or empty when unset.</summary>
     private static string TargetOf(FrameInfo frame) => frame.Meta.ObjectName?.Trim() ?? "";
+
+    /// <summary>
+    /// The session-grouping filter key: the canonical <see cref="Filter.Name"/> when the header
+    /// parsed to a known filter, else the trimmed raw <c>FILTER</c> text, else empty.
+    ///
+    /// <para><b>The raw fallback is what makes the split real on an actual archive.</b>
+    /// <see cref="Filter.FromName"/>'s patterns are anchored, so descriptive header text ("Ha 3nm",
+    /// "OIII 3nm", "Antlia ALP-T") matches none of them and canonicalises to
+    /// <see cref="Filter.Unknown"/>. Keying on the canonical name alone (what
+    /// <see cref="MasterGroupKey"/> does, correctly, for a different job) would therefore merge Ha
+    /// and OIII straight back together for exactly the archives this split exists to separate.
+    /// <see cref="Bandpass"/> is the redundant half and is deliberately not in the key: it is a
+    /// function of the canonical name for every recognised filter and None for every unrecognised
+    /// one, so it partitions nothing the name does not.</para>
+    ///
+    /// <para>Raw text is compared verbatim (ordinal, as <see cref="TargetOf"/> compares OBJECT),
+    /// which can over-split if one directory's capture software spelled one filter two ways. That
+    /// is tolerable in a way a merge is not: an over-split session still registers to a valid
+    /// master, and any remainder falling under <c>MinSubsPerSession</c> is dropped through the
+    /// reported <see cref="DiscoveryStats.SessionsTooSmall"/> counter rather than silently. Every
+    /// recognised filter is immune regardless, since the canonical name already folds "Ha", "ha"
+    /// and "H-alpha" onto one key.</para>
+    /// </summary>
+    private static string FilterOf(FrameInfo frame)
+    {
+        var filter = frame.Meta.Filter;
+        if (filter.Name == Filter.None.Name)
+        {
+            return "";
+        }
+        return filter.Name == Filter.Unknown.Name ? filter.RawName?.Trim() ?? "" : filter.Name;
+    }
 
     private enum LightGate { Pass, NotLight, ExposureOutOfRange, InstrumentExcluded, SoftwareExcluded, ObjectExcluded, Product }
 

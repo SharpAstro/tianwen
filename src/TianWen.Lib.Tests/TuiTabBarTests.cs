@@ -74,6 +74,10 @@ namespace TianWen.Lib.Tests
             public readonly List<(int Column, int Row, string Text)> Runs = [];
             public void MoveTo(int column, int row) => _at = (column, row);
             public void SetPen(VtStyle style, bool reverse) { }
+            // ICellSink makes this required rather than defaulted so a real sink cannot silently
+            // drop every hyperlink in a frame. This sink measures cell churn, not link fidelity,
+            // and the tab bar emits no links at all, so dropping it here loses nothing.
+            public void SetLink(string? url) { }
             public void Write(System.ReadOnlySpan<char> run) => Runs.Add((_at.Column, _at.Row, run.ToString()));
         }
 
