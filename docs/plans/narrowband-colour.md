@@ -11,13 +11,40 @@ techniques rather than one (three recent, plus one 2021 tutorial). Investigated 
 algorithms below are recorded here because only one of the four has published maths. Two were read
 out of GPL source, and the fourth documents its model only inside the running app.
 
+## Two use cases, one engine (read this before prioritising anything)
+
+**The primary goal is a richer picture, not a photometric measurement.** A narrowband stack that
+renders as two colours is the actual complaint; getting the line ratios provably right is not, on its
+own, worth anything to that user. Where there is real signal, the job is to find it and bring it out.
+
+**A true science mode is nonetheless in scope**, and the two are not in tension. The organising
+principle for this whole plan:
+
+> **Model as precisely as the data allows, always. The mode governs what you are permitted to ADD on
+> top, not how well you model.**
+
+Precise modelling is what *creates* aesthetic headroom rather than competing with it, because every
+unit of real signal you correctly separate is a unit you no longer have to invent:
+
+| Step | Science value | Picture value |
+|---|---|---|
+| Phase 1 normalization | Makes channels commensurate | **This is the red-dominance fix.** Purely aesthetic motivation, achieved by a statistical method |
+| Phase 3 unmixing | Recovers true line images | Cleaner line separation = more *real* colour separation for the mixer to work with |
+| Three-line solve (Hb) | Correct OIII, uncontaminated | **A real, measured blue channel** instead of one synthesised from Ha |
+| Phase 4 SPCC | Photometric truth | Little. Explicitly cannot produce the palettes people want (ADR-3) |
+
+Note the last row: the *most* scientific item is the one with the least aesthetic payoff, and the
+purely statistical item in row 1 is the one that fixes the complaint. Rigour is worth pursuing where
+it yields signal, not as an end in itself. So the ordering is by **signal recovered per unit of
+work**, which is why phase 1 leads and phase 4 is blocked at the back.
+
 ## Status: NOT STARTED (research + decision recorded 2026-08-02)
 
 | Phase | What | Where | Status |
 |-------|------|-------|--------|
 | 1 | **Robust channel normalization.** Align G and B to R by median offset then MAD/percentile gain, about the background. No catalog, no spectra, no new data. | `TianWen.Lib/Imaging/`, new `NarrowbandNormalizer` | NOT STARTED |
 | 2 | **Palette mixer + named presets.** `Ha`/`OIII` to RGB as a per-channel lerp, with presets that carry the physics (see "The HOO blue problem"). Naive HOO, natural blend, tweaked natural, pseudo-SHO, custom. | same | NOT STARTED |
-| 3 | **Dual-band unmixing.** DBXtract algebra + per-sensor crosstalk coefficients, for OSC dual/tri/quad-band filters. Optional, gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
+| 3 | **Line unmixing.** Two-line Ha/OIII via DBXtract algebra + per-sensor crosstalk coefficients. **3a: the three-line Ha/Hb/OIII solve for Hb-passing filters is the high-value variant** (exactly determined, and the only source of *measured* blue). Gated on a known sensor. | same, plus a coefficient table asset | NOT STARTED |
 | 4 | **SPCC narrowband mode.** Declared passbands convolved against real star spectra. Needs a Gaia DR3 spectra source. | `Astrometry/`, extends `Tycho2ColorCalibration` | NOT STARTED (blocked, see ADR-3) |
 | 5 | **Hue/chroma editing.** Value-domain luminance masks, then `L`/`S`/`C` domains, with `C` as a hue-preserving scale of Lab `a`,`b`. Reuses `FritschCarlsonSpline` (ADR-7). | `Image.Masks.cs`, `MasterPreviewRenderer` | NOT STARTED (separate concern, see ADR-4/8) |
 
@@ -237,7 +264,33 @@ detail that makes rationale (1) unsafe as a blanket default, and it splits the h
 | Quad-band (Ha/Hb/OIII/SII) | **Passes** | Same double-count |
 
 So the same coefficient is a reasonable estimate on one filter and a straightforward error on
-another. Two further consequences worth stating before anyone builds on this:
+another.
+
+**But framing the Hb-passing filter as "contaminated" is backwards, and this is the important
+correction.** Under the picture-first goal above, an L-eNhance is not a filter with a polluted OIII
+channel. It is a filter that **captured a third real emission line**. Hb at 486.1 nm is genuinely
+blue and genuinely measured, so:
+
+- **The rank-2 problem is solved physically, not cosmetically.** With Ha, Hb and OIII there are three
+  independent line images, which is exactly the third degree of freedom that naive HOO lacks. Blue
+  stops being something you synthesise from Ha and becomes something you **recover from signal that
+  is already in the file**.
+- **Three lines across three channels is exactly determined.** Ha lands in R, OIII 500.7 in G and B,
+  Hb 486.1 mostly in B with some G. Three measurements, three unknowns. So the harder-looking case is
+  the one with a unique solution, where the two-line dual-band case is genuinely underdetermined and
+  can only ever be estimated.
+
+That inverts the priority. A three-line solve is not a purist refinement to bolt on after the easy
+work; it is **the single largest source of real colour** available to a tri-band or quad-band user,
+and it delivers to the picture use case and the science use case with the same computation. It is
+still sequenced after phases 1-2 because those are cheap and universal, but it should be understood
+as high-value rather than as pedantry.
+
+Caveat worth carrying: Hb is intrinsically about 1/2.86 of Ha and is often faint, so how much real
+blue this recovers is object-dependent and SNR-limited. Exactly determined does not mean
+well-conditioned.
+
+Two further consequences worth stating before anyone builds on this:
 
 - **On an Hb-passing filter the "OIII" channel is not OIII.** A 24 nm window covering both 500.7 and
   486.1 delivers OIII **plus** Hb summed into one measurement. That is a real contamination, not a
@@ -369,7 +422,7 @@ render stage because it can only be a render stage.
 merged into one "narrowband colour" step, however much the UI might want to present them together.
 The linear FITS and EXR masters and the `--split-plates` TIFFs stay untouched by phase 5.
 
-### ADR-5: Palette presets are physics, and the default is a natural blend
+### ADR-5: Presets must name which effect they apply, and the blind default is hue rotation
 
 **Decision.** Phase 2 ships **named presets**, not bare sliders, and never defaults to naive HOO.
 The default is the **hue-rotation** preset (Ha into green), *not* the H-beta blend, and each preset
@@ -448,6 +501,27 @@ depends on it any more, and the "install it to read the appendix" item is droppe
 Phase 5 gains a concrete shape: value-domain luminance masks, then `L`/`S`/`C` domains in that order,
 with `C` implemented as a hue-preserving scale of `a` and `b` in Lab.
 
+### ADR-9: Model as precisely as the data allows; the mode gates additions, not accuracy
+
+**Decision.** There is one modelling engine, run at full precision in every mode. A "science mode"
+does not make the maths better and a "picture mode" does not make it sloppier. What the mode selects
+is whether *synthetic* content is permitted on top: invented lines (the H-beta blend on a filter that
+blocked H-beta), aesthetic hue remaps, and palette presets that are not physical.
+
+**Why.** The two goals looked opposed and are not. Every unit of signal correctly separated is a unit
+that does not have to be invented, so accuracy is the thing that *buys* aesthetic freedom. The
+clearest case is the Hb-passing filter: read as contamination it is a defect to work around, read as
+a third measured line it is the best available source of real blue, and the same three-line solve
+serves both readings. Conversely the most rigorous item in the plan, SPCC narrowband, has almost no
+aesthetic payoff and is explicitly unable to produce the palettes people want, which is why rigour is
+not the ordering principle on its own.
+
+**Consequence.** Prioritise by **signal recovered per unit of work**, not by scientific purity. That
+is why phase 1 (statistics, no physics, fixes the actual complaint) leads and phase 4 (maximum
+physics, minimal payoff) is at the back. It also means the mode flag is a late, thin decision about
+what to add, not a fork in the pipeline; and anything synthetic must be **recorded as synthetic** in
+the output provenance, so a science-mode consumer can reject it rather than having to trust a label.
+
 ## Invariants
 
 - **Linear in, linear out** for phases 1 to 3. The output is stretch-ready and must not be
@@ -472,9 +546,7 @@ with `C` implemented as a hue-preserving scale of `a` and `b` in Lab.
   technique D's is a sigmoid on the luminance value, which cannot bleed a selection across an edge.
   Worth adding as an option (not a replacement: spatial feathering is still right for some masks),
   but it is an independent improvement to an existing primitive rather than part of this plan.
-- **Tri-band and quad-band unmixing.** The DBXtract algebra recorded above is a strictly two-line
-  Ha/OIII model. An L-eNhance passes Hb and a quad-band passes Hb and SII, so on exactly those
-  filters the "OIII" measurement is a sum of two lines and the two-line solve is answering the wrong
-  question. Note this is not simply harder: three lines across three channels is potentially
-  *exactly* determined, so it may be better conditioned than the two-line case, but it needs its own
-  coefficient set and its own derivation.
+- **Quad-band (SII) unmixing.** Four lines across three channels is underdetermined and needs either
+  a constraint or a fourth measurement. Genuinely deferred.
+  (**The three-line Hb case is NOT deferred** and moved into phase 3a: it is exactly determined and
+  is the largest available source of real blue. See the HOO section and ADR-9.)
