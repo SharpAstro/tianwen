@@ -674,6 +674,58 @@ PixelMath](https://jonrista.com/the-astrophotographers-guide/pixinsights/narrow-
 tutorial are the other standard references, both currently unreachable over TLS (expired certificate
 and a handshake failure respectively).
 
+## Validating this against the `D:\Astro-Pics` archive
+
+The dataset builder's archive sweep (`tianwen dataset build`, P0 shipped, not yet run on the real
+archive) is the natural vehicle for both *using* and *verifying* everything above. Recorded here
+because the two workstreams need each other and neither plan said so.
+
+**Blocker first.** `SessionDiscovery.GroupSessions` keys sessions on `(SessionDir, Instrument,
+Target)` with **no filter**, so a mono Ha+OIII night collapses into one session: the star-count gate
+sees a bimodal population and rejects the OIII frames, and `SessionRegistrar` stacks both filters
+into one meaningless master. Full write-up in
+[known-limitations.md](../known-limitations.md). **Fix that before any narrowband archive run**, or
+every downstream measurement here is taken on corrupted masters.
+
+**What we already have that this plan assumed we would need to build.** `MasterGroupKey` carries
+`FilterName` *and* `FilterBandpass`, and `Bandpass` is a bit-flags enum whose members are exactly
+`Red|Green|Blue` and **`Ha`, `Hb`, `OIII`, `SII`**. So:
+
+- **Narrowband-vs-broadband dispatch needs no new metadata.** Test the bandpass bits.
+- **ADR-5's filter dependence is already expressible.** A dual-band is `Ha | OIII`, a tri-band is
+  `Ha | Hb | OIII`. The "does this filter pass H-beta" question that decides whether the H-beta
+  preset is legitimate or double-counts is a single bit test, not a new profile field.
+- **Phase 0's frame pairing is nearly free.** `LightGroupKey(MasterGroupKey, ObjectName)` is almost
+  the pairing key already: same `ObjectName`, one narrowband bandpass and one broadband, same train.
+
+### (a) Use
+
+- **Phase 0 needs a matched broadband frame**, and the archive scan is precisely the thing that can
+  find one. Pair on object plus optical train, differing in bandpass.
+- The scan can report **what narrowband data actually exists**: which targets, filters, sensors, and
+  crucially which targets have both narrowband and broadband coverage. That inventory is the
+  precondition for every item below, and nothing currently produces it.
+
+### (b) Verify
+
+- **Measure our own crosstalk coefficients instead of sourcing DBXtract's table.** This is the one
+  worth doing. ADR-2 says reimplement the algebra and source the coefficients from DBXtract rather
+  than lifting them from Alchemy. Better still: **fit them from our own data**, wherever the archive
+  has the same target through a dual-band OSC and through mono narrowband, or dual-band data with a
+  known sensor. Measured coefficients are our own measurements, which retires the licence question
+  entirely and grounds phase 3 in this rig rather than a published average.
+- **Does the AAD scale solver converge on real pairs?** Cheap to check: run it across every
+  narrowband/broadband pair the scan finds and look at the distribution of `k` and the residual
+  curvature. A well-behaved solver should give a tight `k` per filter/sensor combination.
+- **Does phase 1 normalization actually fix red-dominance?** Measure channel medians and the
+  post-mix hue distribution before and after, across many targets rather than the one example every
+  tutorial uses.
+- **Cross-check phase 0 method 3 against method 4** on the same pairs. Material disagreement means
+  the pairing or the frames are wrong, which is exactly what an archive sweep should surface.
+
+Note the shape: these are *measurements over a corpus*, which is what the dataset builder already is.
+`DatasetPsfNoiseReport` is the precedent, a report emitted from the same scan.
+
 ## Reference implementations (all GPL-3.0, algorithms only per ADR-2)
 
 Nearly every phase of this plan has a readable reference in one place, the official Siril script
