@@ -645,11 +645,18 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     }
 
     /// <summary>
-    /// Reads the C.Fn block, flips Long Exposure NR to Off using whichever of the
-    /// known per-generation function IDs (6D-class or Rebel-class) is present on this
-    /// body, and writes it back. Silent no-op if the ID isn't found or the camera
-    /// doesn't expose a C.Fn block.
+    /// Reads the C.Fn block, flips Long Exposure NR to Off, and writes it back. Silent
+    /// no-op when this body keeps the setting somewhere other than a C.Fn, when its C.Fn
+    /// ID has not been verified against real hardware, or when it exposes no C.Fn block.
     /// </summary>
+    /// <remarks>
+    /// The ID comes from <see cref="CanonCustomFunctionId.LongExposureNrIdFor"/>, which owns the
+    /// per-model table. This used to try two IDs of its own, a "6D" one and a "Rebel" one, and both
+    /// were guesses: on the 6D long-exposure NR is a plain shooting-menu property with no C.Fn ID at
+    /// all. So the call could only ever no-op, or write into whatever function a body happened to
+    /// keep at that address. FC.SDK deleted both constants and grew this resolver instead, which is
+    /// the right home for it: a C.Fn ID is camera-specific, so guessing one is never safe.
+    /// </remarks>
     private async ValueTask DisableLongExposureNRAsync(CancellationToken ct)
     {
         if (_camera is null)
@@ -659,6 +666,12 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
 
         try
         {
+            if (CanonCustomFunctionId.LongExposureNrIdFor(_camera.Model) is not { } cfnId)
+            {
+                Logger.LogDebug("Canon LongExposureNR: no verified C.Fn ID for {Model}", _camera.Model);
+                return;
+            }
+
             var (err, block) = await _camera.GetCustomFunctionBlockAsync(ct);
             if (err is not EdsError.OK || block is null)
             {
@@ -666,10 +679,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                 return;
             }
 
-            var offValue = (uint)EdsLongExposureNR.Off;
-            var patched = block.SetValue(CanonCustomFunctionId.LongExposureNR_6D, offValue)
-                       || block.SetValue(CanonCustomFunctionId.LongExposureNR_Rebel, offValue);
-            if (!patched)
+            if (!block.SetValue(cfnId, (uint)EdsLongExposureNR.Off))
             {
                 Logger.LogDebug("Canon LongExposureNR: C.Fn ID not present on this body");
                 return;
