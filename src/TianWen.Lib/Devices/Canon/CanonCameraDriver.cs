@@ -1,4 +1,4 @@
-using FC.SDK;
+﻿using FC.SDK;
 using FC.SDK.Canon;
 using FC.SDK.Transport;
 using Microsoft.Extensions.DependencyInjection;
@@ -727,12 +727,18 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     // no temp-file round-trip) and yield it; the planetary live-stack pipeline consumes it as a colour master.
     //
     // Core (this build): full-frame framing / EAA streaming, mutually exclusive with single-shot capture.
-    // Deferred (needs an FC.SDK point/rect property accessor): the 5x/10x EVF-zoom planetary regime + its
-    // pannable zoom crop as the host-side ROI jog. Evf_Zoom (the magnification level) is a plain uint and is
-    // reachable today, but Evf_ZoomPosition (0x508) / Evf_ZoomRect (0x541) are POINT/RECT properties (8+ bytes)
-    // and FC.SDK only exposes a uint32 property accessor -- so CanJogRoi is false here and the recenter loop
-    // falls back to mount jog (PlanetaryRecenterController already degrades cleanly). EVF exposure is also
-    // EVF-auto, not a true integration time (ISO/gain tuning still works via ApplyVideoControlsAsync).
+    // Not yet wired: the 5x/10x EVF-zoom planetary regime and its pannable crop as the host-side ROI jog, so
+    // CanJogRoi is false and the recenter loop falls back to mount jog (PlanetaryRecenterController already
+    // degrades cleanly). EVF exposure is also EVF-auto, not a true integration time (ISO/gain tuning still
+    // works via ApplyVideoControlsAsync).
+    //
+    // This used to be recorded as blocked on "an FC.SDK point/rect property accessor for Evf_ZoomPosition
+    // (0x508) / Evf_ZoomRect (0x541)". That was wrong: over PTP there is NO such property. Those are EDSDK's
+    // model of the feature. The camera takes zoom and pan as operations (0x9158 / 0x9159) and describes the
+    // resulting crop in a live-view frame record, so the accessor being waited on could never have existed.
+    // FC.SDK 3.0 implements the real shape and is hardware-verified; it is simply not published yet (newest on
+    // NuGet is 2.0.671, and we pin 1.7.*). See docs/plans/planetary-native-video.md Phase E for the four
+    // measured behaviours the wiring has to respect.
 
     /// <summary>EVF poll cadence floor -- the feed runs at its own fps; we treat the requested exposure as a
     /// poll interval clamped to this range so a large "exposure" can't stall the feed to one frame per minute.</summary>
@@ -743,16 +749,16 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     public bool CanVideoCapture => Connected;
 
     /// <inheritdoc/>
-    // Canon EVF has no host-side ROI pan through the currently-published FC.SDK (see the region banner);
-    // the recenter loop falls back to mount jog. Promote to true once EVF-zoom-pan lands.
+    // No host-side ROI pan through the FC.SDK version we pin (see the region banner); the recenter loop falls
+    // back to mount jog. Promote to "true while zoomed" once we are on an FC.SDK that has SetEvfZoomPositionAsync.
     public bool CanJogRoi => false;
 
     /// <inheritdoc/>
     public int DroppedFrames => 0; // EVF has no drop counter.
 
     /// <inheritdoc/>
-    // Full-frame window: without an FC.SDK zoom-rect read we can't report a magnified EVF crop's origin/size,
-    // and CanJogRoi is false so the recenter loop never reads this for panning. Sensor-sized default.
+    // Full-frame window: without a zoom-rect read we cannot report a magnified EVF crop's origin/size, and
+    // CanJogRoi is false so the recenter loop never reads this for panning. Sensor-sized default.
     public RoiRect VideoRoi => new(0, 0, CameraXSize, CameraYSize);
 
     /// <inheritdoc/>
@@ -876,8 +882,8 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     /// <inheritdoc/>
     public ValueTask JogRoiAsync(int dxPixels, int dyPixels, CancellationToken cancellationToken = default)
         => throw new InvalidOperationException(
-            "Canon Live View does not support host-side ROI jog (EVF zoom pan needs an FC.SDK point-property "
-            + "accessor); CanJogRoi is false and the recenter loop uses mount jog instead.");
+            "Canon Live View ROI jog is not wired: panning the EVF zoom crop needs an FC.SDK release we do not "
+            + "pin yet. CanJogRoi is false and the recenter loop uses mount jog instead.");
 
     /// <inheritdoc/>
     public async ValueTask ApplyVideoControlsAsync(VideoCaptureOptions controls, CancellationToken cancellationToken = default)

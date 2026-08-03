@@ -1148,14 +1148,21 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   `TryReadViaCodecs`, no temp-file round-trip) into a **3-channel [0,1] RGB `Image`** (EVF is camera-processed,
   not raw CFA), single-stream gated + mutually exclusive with the single-shot CR2 path, ISO live-tunable via
   `ApplyVideoControlsAsync`. `CanVideoCapture => Connected`; **`CanJogRoi => false`** — Canon EVF has no
-  host-side ROI pan through FC.SDK as published (`Evf_ZoomPosition`/`Evf_ZoomRect` are POINT/RECT
-  properties but FC.SDK exposes only a `uint32` accessor), so the recenter loop falls back to mount jog. The
-  5x/10x EVF-zoom planetary regime + zoom-crop ROI-jog is **deferred** pending a point/rect property
-  accessor in FC.SDK (see [`docs/plans/planetary-native-video.md`](docs/plans/planetary-native-video.md)
-  Phase E). **Do not date that on a version:** it was written as "pending FC.SDK 1.5", and 1.5, 1.6 and 1.7
-  have all shipped without it, so the note read as satisfied when nothing had changed. The blocker is the
-  accessor existing, not a release going by. `DALCameraDriver` (ZWO/QHY native raw video) is Phase D — not
-  yet implemented.
+  host-side ROI pan through the FC.SDK version we pin, so the recenter loop falls back to mount jog. The
+  5x/10x EVF-zoom planetary regime + zoom-crop ROI-jog is **unblocked in FC.SDK source but not yet
+  consumable**: FC.SDK 3.0 has `SetEvfZoomAsync` / `SetEvfZoomPositionAsync` / `GetEvfZoomRectAsync`,
+  hardware-verified on a 6D, while the newest published version is 2.0.671 and we pin `1.7.*`. See
+  [`docs/plans/planetary-native-video.md`](docs/plans/planetary-native-video.md) Phase E for the four measured
+  behaviours the wiring must respect (threshold-not-value zoom factors, `LiveFace` AF silently blocking
+  magnification, `Factor` 4.96 for a nominal 5x, and a ~1 s apply during which the rect still reads stale).
+  **That note was wrong twice, in two different ways, and both are the lesson.** It was first dated on a
+  version ("pending FC.SDK 1.5") and 1.5, 1.6 and 1.7 all shipped without it. It was then restated as pending
+  "a point/rect property accessor", which could never arrive: over PTP there is **no** `Evf_ZoomPosition` or
+  `Evf_ZoomRect` property at all. Those are EDSDK's model of the feature; the camera takes zoom and pan as
+  *operations* (0x9158 / 0x9159) and reports the crop in a live-view frame record. **So do not date a blocker
+  on a release, and state it in terms of the protocol rather than of a wrapper's shape**, or the note describes
+  something that cannot happen. `DALCameraDriver` (ZWO/QHY native raw video) is Phase D, not yet
+  implemented.
 - **COM recenter loop** (Phase C — hold the planet centred): `PlanetaryRecenterController.Decide` (pure, in
   `TianWen.Lib/Imaging/Planetary/`) takes the disk centre of mass + the readout-window geometry and returns a
   `RecenterDecision` — a **per-axis-deadband** (not distance — a big offset on one axis must not drag the other
