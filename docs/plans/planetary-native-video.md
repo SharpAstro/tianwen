@@ -254,11 +254,14 @@ publish latency.
 
 # Phase E -- Canon Live View (JPEG)
 
-> **Status (2026-08-03): E core SHIPPED; EVF-zoom-pan UNBLOCKED in FC.SDK source, waiting on its release.**
+> **Status (2026-08-03): E core SHIPPED. E.3 EVF zoom + pannable ROI SHIPPED on FC.SDK 3.0.751.**
 > `CanonCameraDriver` implements `IVideoCameraDriver`: full-frame Live View streaming (EVF JPEG -> 3-channel
 > [0,1] `Image` via the in-memory `Image.TryDecodeRaster`, no temp-file round-trip), single-stream gate + mutual
-> exclusion with the single-shot CR2 path, and ISO live-tuning. `CanJogRoi` is still **false** (recenter falls
-> back to mount jog, which `PlanetaryRecenterController` already handles).
+> exclusion with the single-shot CR2 path, ISO live-tuning, and now the magnified regime: `NumX` snaps to a zoom
+> level, `VideoRoi` reports the body's own crop, and `CanJogRoi` / `JogRoiAsync` pan it. `CanJogRoi` is **true
+> exactly while the feed is a magnified, pannable crop**, so at 1x the recenter loop still falls back to mount
+> jog, which is the correct answer rather than a limitation: at 1x the crop is the whole frame and the accepted
+> pan range collapses to a point.
 >
 > **The reason this was deferred was wrong, twice, and it is worth reading before writing another such note.**
 > First it was dated on a release ("pending FC.SDK 1.5"), and 1.5, 1.6 and 1.7 all shipped without it. Then it
@@ -266,13 +269,8 @@ publish latency.
 > **there is no `Evf_Zoom` or `Evf_ZoomPosition` property at all**. Those are EDSDK's *model* of the feature.
 > The camera exposes zoom and pan as PTP **operations** (`0x9158` / `0x9159`), and it reports the resulting crop
 > as a **record inside the live-view frame** (record type 18), not as a readable property. So the plan was
-> waiting on a shape the protocol does not have, which is exactly why no release ever satisfied it.
->
-> FC.SDK 3.0 implements the real shape, hardware-verified on a 6D: `SupportsEvfZoom` / `SupportsEvfZoomPosition`,
-> `SetEvfZoomAsync(CanonEvfZoom.X5)`, `SetEvfZoomPositionAsync(x, y)` (clamped, and it reports where it landed),
-> and `GetEvfZoomRectAsync()` -> `CanonEvfZoomRect(X, Y, Width, Height, SensorWidth, SensorHeight)`. **Not yet
-> consumable:** the newest published FC.SDK is 2.0.671, which predates the zoom work, and TianWen pins `1.7.*`.
-> Sequence is FC.SDK merge -> CI publishes `3.0.<run>` -> re-pin TianWen -> the E.3 work below.
+> waiting on a shape the protocol does not have, which is exactly why no release ever satisfied it. **Do not
+> date a blocker on a release, and state it in terms of the protocol rather than of a wrapper's shape.**
 
 Canon EOS bodies stream a live host feed only one way through FC.SDK: **Live View (EVF) JPEG**. That feed has
 two regimes -- full-frame (downscaled, framing quality) and **5x/10x zoom** (a near-1:1-pixel crop of a small
@@ -349,9 +347,9 @@ accessor of any width could have unblocked this. The camera takes zoom and pan a
 `0x9158`, `CanonZoomPosition` `0x9159`) and describes the resulting crop in a **live-view frame record**
 (type 18), which is also the only trustworthy account of whether either took effect.
 
-FC.SDK 3.0 exposes exactly that, so the remaining TianWen work is: set the zoom in `CaptureVideoAsync`, wire
-`JogRoiAsync` -> `SetEvfZoomPositionAsync`, report `GetEvfZoomRectAsync` from `VideoRoi`, and flip `CanJogRoi`
-to true while zoomed. Four things measured on a 6D that the implementation has to respect:
+FC.SDK 3.0 exposes exactly that, and it is **wired** (FC.SDK `3.0.751`): `CaptureVideoAsync` sets the zoom,
+`JogRoiAsync` -> `SetEvfZoomPositionAsync`, `VideoRoi` reports the body's rect, `CanJogRoi` is true while that
+rect is a pannable crop. Four things measured on a 6D that the implementation has to respect:
 
 - **The zoom factor is a threshold, not a value.** 1-4 give 1x, 5-8 give 5x, 10 and above give 10x. Ask for
   what you want and read the rect back for what you got.
@@ -363,22 +361,47 @@ to true while zoomed. Four things measured on a 6D that the implementation has t
   rect read after the call reliably returns the OLD rect. FC.SDK's own `verify` polls for this; do not
   re-implement a one-shot check on top of it.
 
-Also newly available and directly useful here: `GetEvfHistogramAsync` returns the camera's own four-channel
-exposure histogram for the live frame, which is the only live metering an EOS offers over PTP and the obvious
-input for auto-exposing a DSLR planetary or EAA run whose dial is in Manual.
+Because the zoom crop is pannable, it **is** the Canon ROI jog. The Phase C recenter loop drives it unchanged,
+which is the point: it gets the same mount-free actuator ZWO gets from `ASISetStartPos`. As shipped:
 
-Because the zoom crop is pannable, it **is** the Canon ROI jog:
-- **`CanJogRoi` -> true** (when zoomed). `JogRoiAsync(dx, dy)` writes a new `Evf_ZoomPosition` -- the same
-  mount-free recenter actuator ZWO gets from `ASISetStartPos`. The Phase C recenter loop drives it unchanged.
-- **`VideoRoi`** reports the zoom rect (origin + crop size), so the recenter math knows the remaining pan
-  range before an edge.
-- When **not** zoomed (full-frame framing), `CanJogRoi` is false and recenter falls back to mount jog -- the
-  Phase C fallback already covers this, so the two regimes degrade cleanly into each other.
+- **`CanJogRoi`** is true exactly while the crop is magnified *and* the body advertises `0x9159`. At 1x the
+  crop is the whole frame and the accepted range collapses to a point, so recenter falls back to mount jog, and
+  the two regimes degrade cleanly into each other with no branch in the loop.
+- **`VideoRoi`** reports the body's rect, so the loop knows the pan range left before an edge.
+- **The window SIZE stays `NumX`/`NumY`**, per the `IVideoCameraDriver` contract. An EOS offers three discrete
+  crops rather than a free rectangle, so `ZoomForWindow` snaps a requested width to the nearest level, with the
+  thresholds *between* the nominal factors. That is load-bearing for the round trip: the body's 5x reports a
+  1104 px crop of a 5472 px sensor, so a threshold placed *on* 5 would answer `Fit` when fed the body's own
+  width and the stream would drop out of magnification on its first resize check.
+- **`VideoRoi` is sensor px, and is deliberately NOT the size of the yielded frame.** The EVF renders that
+  1104x736 crop as a ~1024x680 JPEG, so one frame px is ~1.08 sensor px at 5x. `PlanetaryRecenterController`
+  measures its offset in frame px and applies it as sensor px, so it under-corrects by that ratio, which a
+  damped loop absorbs as a slightly lower gain. Reporting frame px instead would break the pan-range
+  arithmetic (`sensorWidth - roi.Width`), which is the part the loop cannot be allowed to get wrong.
+- **The pan is clamped host-side** into `[0, sensor - crop]` before it is sent, because a coordinate beyond
+  that is *discarded* by the body and the axis silently keeps its old value. Asking for "the far corner" with
+  a large number therefore moves nothing at all.
+- **`SetEvfZoomPositionAsync(verify: false)` on the jog path.** The verify polls frames for up to a second to
+  watch the move land, and the jog runs on the capture loop between frames. Since the coordinate was clamped
+  into the accepted range, the position adopted is the one asked for, so the cached window is updated from the
+  request. Level *changes* keep `verify: true` (behaviour 4 above); only the pan skips it.
+- **The AF-method write is gated on actually magnifying.** `Live` is required for zoom to take effect, but it
+  is a setting the user can see in the body's own menus, so plain full-frame streaming does not touch it.
+- **1x is still applied explicitly at stream start**, because zoom and pan persist on the body: a stream that
+  inherited a magnified crop from an earlier session would otherwise open on a corner of the sensor.
 
-The original "defer it, `CanJogRoi=false`" stance was wrong: EVF zoom is not a nicety, it is the only way to
-get planetary-useful resolution **and** a host-side ROI jog out of a Canon, and it is fully reachable through
-the already-published FC.SDK. The remaining risk is per-body quirks in the zoom-position units (verify on
-hardware; the Phase C per-axis cap bounds a wrong guess to a small mis-pan, never a runaway).
+Pinned by `CanonEvfZoomTests` (19 cases over the three pure decisions, using the measured 6D geometry). The
+remaining risk is per-body quirks in the zoom-position units, which libgphoto2 measured as "approx 64 pixel
+steps on the EOS 1000D": verify on hardware, and note the Phase C per-axis cap bounds a wrong guess to a small
+mis-pan rather than a runaway.
+
+**Deferred, and only an optimisation:** the crop arrives *inside* a live-view frame, and the capture loop
+already fetches one per pass, but `GetEvfZoomRectAsync` fetches its own envelope. One FC.SDK call returning
+frame plus decoded metadata together would make the rect free instead of a second round-trip. It is not on the
+hot path today (the rect is read only at a level change), so it buys nothing until something wants per-frame
+geometry. `GetEvfHistogramAsync` has the same shape and the same fix: it is the camera's own four-channel
+metering of the live frame, the only live metering an EOS offers over PTP, and the obvious input for
+auto-exposing a DSLR planetary or EAA run whose dial is in Manual.
 
 ## E.4 Canon movie recording: out of scope for the *live* path (and the offline path that uses it)
 

@@ -1147,21 +1147,32 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   decodes straight from the SDK `byte[]` via `Image.TryDecodeRaster` (the in-memory core of
   `TryReadViaCodecs`, no temp-file round-trip) into a **3-channel [0,1] RGB `Image`** (EVF is camera-processed,
   not raw CFA), single-stream gated + mutually exclusive with the single-shot CR2 path, ISO live-tunable via
-  `ApplyVideoControlsAsync`. `CanVideoCapture => Connected`; **`CanJogRoi => false`** — Canon EVF has no
-  host-side ROI pan through the FC.SDK version we pin, so the recenter loop falls back to mount jog. The
-  5x/10x EVF-zoom planetary regime + zoom-crop ROI-jog is **unblocked in FC.SDK source but not yet
-  consumable**: FC.SDK 3.0 has `SetEvfZoomAsync` / `SetEvfZoomPositionAsync` / `GetEvfZoomRectAsync`,
-  hardware-verified on a 6D, while the newest published version is 2.0.671 and we pin `1.7.*`. See
-  [`docs/plans/planetary-native-video.md`](docs/plans/planetary-native-video.md) Phase E for the four measured
-  behaviours the wiring must respect (threshold-not-value zoom factors, `LiveFace` AF silently blocking
-  magnification, `Factor` 4.96 for a nominal 5x, and a ~1 s apply during which the rect still reads stale).
-  **That note was wrong twice, in two different ways, and both are the lesson.** It was first dated on a
-  version ("pending FC.SDK 1.5") and 1.5, 1.6 and 1.7 all shipped without it. It was then restated as pending
-  "a point/rect property accessor", which could never arrive: over PTP there is **no** `Evf_ZoomPosition` or
-  `Evf_ZoomRect` property at all. Those are EDSDK's model of the feature; the camera takes zoom and pan as
-  *operations* (0x9158 / 0x9159) and reports the crop in a live-view frame record. **So do not date a blocker
-  on a release, and state it in terms of the protocol rather than of a wrapper's shape**, or the note describes
-  something that cannot happen. `DALCameraDriver` (ZWO/QHY native raw video) is Phase D, not yet
+  `ApplyVideoControlsAsync`. **The 5x/10x EVF-zoom planetary regime and its pannable crop are SHIPPED** on
+  FC.SDK `3.0.751`: `NumX` snaps to a zoom level (`ZoomForWindow`), `VideoRoi` reports the body's own crop, and
+  `CanJogRoi` / `JogRoiAsync` pan it via `SetEvfZoomPositionAsync`. `CanJogRoi` is true **exactly while the crop
+  is magnified and the body advertises the pan operation**, so at 1x the recenter loop falls back to mount jog,
+  which is correct rather than a limitation: at 1x the crop is the whole frame and the accepted pan range
+  collapses to a point. Five things this path must keep right, every one of which fails silently:
+  (1) the zoom factor is a **threshold, not a value** (1-4 give 1x, 5-8 give 5x, 10+ give 10x), so the level
+  thresholds sit *between* the nominal factors, or feeding back the body's own 1104 px crop of a 5472 px sensor
+  answers `Fit` and the stream drops out of magnification on its first resize check; (2) `Evf_AFMode = LiveFace`
+  silently blocks magnification while ACKing the zoom, so `Live` is written first, but **only when actually
+  magnifying**, since it is a setting the user sees in the body's own menus; (3) `Factor` is **4.96** for a
+  nominal 5x, so pixel scale comes from the rect, never the level asked for; (4) a zoom takes ~1 s during which
+  the body streams PRE-zoom frames, so level changes use `verify: true` while the per-frame **pan** uses
+  `verify: false` (a second of polling on the capture loop is the thing to avoid) and updates the cached window
+  from the clamped request; (5) a pan coordinate past `[0, sensor - crop]` is **discarded**, not clamped, by the
+  body, so the far corner is computed host-side. **`VideoRoi` is sensor px and deliberately NOT the yielded
+  frame size** (the EVF renders a 1104x736 crop as ~1024x680, so one frame px is ~1.08 sensor px at 5x): the
+  recenter loop under-corrects by that ratio, which a damped loop absorbs as lower gain, whereas frame px would
+  break the `sensorWidth - roi.Width` pan-range arithmetic it cannot get wrong. Pinned by `CanonEvfZoomTests`.
+  **The old blocker note was wrong twice, in two different ways, and both are the lesson.** It was first dated
+  on a version ("pending FC.SDK 1.5") and 1.5, 1.6 and 1.7 all shipped without it. It was then restated as
+  pending "a point/rect property accessor", which could never arrive: over PTP there is **no**
+  `Evf_ZoomPosition` or `Evf_ZoomRect` property at all. Those are EDSDK's model of the feature; the camera takes
+  zoom and pan as *operations* (0x9158 / 0x9159) and reports the crop in a live-view frame record. **So do not
+  date a blocker on a release, and state it in terms of the protocol rather than of a wrapper's shape**, or the
+  note describes something that cannot happen. `DALCameraDriver` (ZWO/QHY native raw video) is Phase D, not yet
   implemented.
 - **COM recenter loop** (Phase C — hold the planet centred): `PlanetaryRecenterController.Decide` (pure, in
   `TianWen.Lib/Imaging/Planetary/`) takes the disk centre of mass + the readout-window geometry and returns a
