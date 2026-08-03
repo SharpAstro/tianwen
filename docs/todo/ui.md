@@ -94,7 +94,61 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 Vulkan/SDL migration rationale moved to `../SdlVulkan.Renderer/README.md` ("Rationale: Why SDL3 + Vortice.Vulkan" section).
 
-## Sky Map (first-open perf, LOW PRIORITY)
+## Sky Map (interaction + selection, reported 2026-08-03)
+
+Three user-reported defects. Root causes below are from reading the code, not from a repro run, so
+confirm before fixing; the line numbers are as of this entry.
+
+- [ ] **A selected extended object gets a circle instead of its own shape.** The shape-hugging path
+  already exists (`SkyMapTab.Search.cs` `TryDrawShapeMarker`, which traces the true ellipse through the
+  shared `OverlayEngine.ComputeEllipseScreenAxes`), but it **bails when `semiMajorPx < 10f * dpiScale`**
+  and falls back to a fixed `DrawCircle(sx, sy, 14f * dpiScale, ...)` plus crosshair
+  (`SkyMapTab.Search.cs:449`). At ordinary zooms most galaxies project under that floor, so the
+  fallback circle is *larger* than the ellipse still being drawn underneath it, which is exactly the
+  "shape is an ellipse, selection is a circle" mismatch. **What the user asked for:** keep the object's
+  own shape and make it read as selected, either inflated (same shape, grown to a legibility floor) or
+  same size with a thicker stroke / different colour. So the fix is to replace the size gate with an
+  inflate-to-minimum on the ellipse path, and keep the crosshair strictly for genuinely shapeless
+  entries (stars, which `ChooseMarkerKind` already separates out for a good reason).
+- [ ] **The pinned-target halo is a circle even for an ellipse marker.** Same complaint, second site:
+  `SkyMapTab.ObjectOverlay.cs:130-140` computes `haloPx` from `e.SemiMajArcmin` for an
+  `OverlayCandidateMarker.Ellipse` and then draws it with `DrawCircle`, so an elongated object gets a
+  circular halo sized to its *major* axis. `DrawOverlayEllipse` is right there in the same file.
+- [ ] **Panning near the pole (EQ) / zenith (horizon) swings the field.** Not a pan-math bug:
+  `SkyMapTab.HandleDrag` builds a correct great-circle quaternion. The problem is that it stores only
+  **two** of the rotation's three degrees of freedom (`State.CenterRA` / `CenterDec`) and throws the
+  roll away, so every frame re-derives orientation in `SkyMapState.ComputeViewMatrix` as
+  `right = forward x upRef` with `upRef` = celestial pole (EQ) or local zenith (Horizon). As the centre
+  approaches that reference, `rLen` goes to 0, so the right-vector *direction* becomes arbitrarily
+  sensitive to a tiny mouse move (the field spins), and at the singularity the code snaps to a hardcoded
+  `(1,0,0)`, which is a visible discontinuity. **The user's suggested mitigation was to silently pan in
+  alt-az while in EQ near the pole and in EQ while in alt-az near the zenith.** That would work in the
+  sense of avoiding each frame's own singular point, but it only *moves* the singularity and adds a
+  mode-dependent discontinuity at the swap, so prefer the root fix: carry the accumulated orientation
+  (the quaternion, or a roll angle beside the centre) and let the view matrix come from it, so the pole
+  stops being a special place at all. The arbitrary-right fallback then becomes unreachable rather than
+  merely rare.
+- [ ] **The web sky map has no grid by default**, which is what makes the above disorientation land
+  instead of being readable. Check the web showcase's initial `SkyMapState` against the desktop default
+  and turn the grid on, at least in Horizon mode where there is no other horizon reference.
+
+## Planner (reported 2026-08-03)
+
+- [ ] **The "Observation Schedule" title is drawn outside its own chart area, and on top of the twilight
+  labels.** Two independent geometry bugs in `AltitudeChartRenderer` (both verifiable by reading):
+  1. **Horizontal:** `var titleRect = MakeRect(0, areaY + 2, w, titleH)` (line ~198) passes `x = 0`
+     where `w = areaW`, so the title is centred at `areaW / 2` instead of `areaX + areaW / 2`. It is the
+     **only** `MakeRect(0, ...)` in the file; every other element offsets by `areaX` / `plotX`. With the
+     planner list occupying the left column, the title therefore slides left out of the chart column.
+     One-line fix: `MakeRect(areaX, areaY + 2, w, titleH)`.
+  2. **Vertical:** the title occupies `areaY + 2` down to `areaY + 2 + h/35`, while the twilight zone
+     labels are anchored *upward* from the plot at `plotY - 24` and `plotY - 10`
+     (`labelRow0Y`, whose text rect starts at `labelRow0Y - 14`), with
+     `plotY = areaY + max(30, h/22) + WeatherMargin`. With no weather forecast, the title clears the top
+     label row only when `2 + h/35 < h/22 - 38`, i.e. above about **2370 px** of chart height, so at
+     every realistic size they overlap. That is the "Civ" / "Naut." collision in the report. Reserve the
+     title's height in `yMarginTop` (as `WeatherMargin` already does for the weather band) rather than
+     letting two independently-anchored rows share the space.
 
 Context: the first Sky Atlas open stalled ~800 ms in dev. Most of it is already fixed or
 AOT-free after the `perf(skymap)` commits (async Milky Way decode + VSOP87 pre-warm); full
