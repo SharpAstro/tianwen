@@ -334,6 +334,14 @@ public static class FitsHeaderEditor
     /// 1-8, <c>"= "</c> in 9-10, quoted value from byte 11, optional <c>" / comment"</c>.</summary>
     internal static string FormatStringCard(string keyword, string value, string comment)
     {
+        // A header is restricted ASCII (0x20-0x7E) by the standard, and the card is emitted with
+        // Encoding.ASCII, which silently substitutes '?' for anything else. Left unchecked, a filter
+        // name like "H-alpha" written with the actual Greek letter (our own Filter.ShortName spells
+        // it that way) would be stamped into an irreplaceable file as "H?", wrong and unnoticed.
+        // Refusing is the only acceptable behaviour when the output cannot be taken back.
+        RejectNonAscii(value, nameof(value));
+        RejectNonAscii(comment, nameof(comment));
+
         var escaped = value.Replace("'", "''", StringComparison.Ordinal);
         // The standard requires at least 8 characters between the quotes.
         var card = $"{keyword.PadRight(8)}= '{escaped.PadRight(8)}'";
@@ -349,5 +357,20 @@ public static class FitsHeaderEditor
             card += " / " + (comment.Length <= room ? comment : comment[..room]);
         }
         return card.PadRight(CardSize);
+    }
+
+    /// <summary>Throws unless every character is a printable ASCII the FITS standard permits in a
+    /// header (0x20 space through 0x7E tilde).</summary>
+    private static void RejectNonAscii(string text, string paramName)
+    {
+        foreach (var ch in text)
+        {
+            if (ch is < ' ' or > '~')
+            {
+                throw new ArgumentException(
+                    $"FITS headers are restricted ASCII (0x20-0x7E); '{text}' contains U+{(int)ch:X4}.",
+                    paramName);
+            }
+        }
     }
 }
