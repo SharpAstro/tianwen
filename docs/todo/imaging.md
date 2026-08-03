@@ -2,6 +2,44 @@
 
 Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the active/high-priority list.
 
+## Calibration + integration gaps vs Siril / APP / PixInsight WBPP
+
+Filed 2026-08-03 from a stage-by-stage comparison of `StackingPipeline` against the three tools,
+prompted by finding that the master flat was never calibrated. Ordered by value per unit of work.
+The flat gap itself is **fixed** (see [known-limitations](../known-limitations.md)); these are what
+the comparison turned up alongside it.
+
+- [ ] **Per-frame weighting in the combine.** We gate binary (`FrameQualityFilter` keeps or rejects)
+  and then combine with an unweighted mean. Siril weights by wFWHM / star count / noise, PixInsight
+  by `SubframeSelector` output, APP by its own quality measure. This is free SNR on any session with
+  variable transparency, and **the seam already exists**: `MeanCombiner.Combine` computes
+  `sum += v * k; cnt += k` over the keepMask, so a keepMask entry carrying the frame's weight
+  instead of 1.0 is a correct weighted mean with no change to the math. The work is threading a
+  per-frame weight from `FrameMetrics` (which already carries median HFD, FWHM, ellipticity and star
+  count) down through the strategies to where the mask is built. Cheapest real win on this list.
+- [ ] **Local normalisation.** `Normalizer` applies one global per-channel affine
+  (`(x - min) * target/median`). A gradient that changes SHAPE between subs (rising moon, drifting
+  light pollution) cannot be followed by a single scalar pair. PixInsight has `LocalNormalization`,
+  APP has LNC to degree 4. This is also the blocker for mosaics: APP pairs LNC with multi-band
+  blending to kill panel seams, and we have no answer for that at all, which matters because the
+  Vela project is a 20-panel mosaic.
+- [ ] **Cosmetic correction is narrower than it looks.** `BadPixelDetection.BuildMaskFromDark` builds
+  a good iterative-MAD hot-pixel mask, but only the drizzle strategies consume
+  `IntegrationJob.BadPixelMask`; everything else leans on sigma-clip across frames, which does
+  nothing for a 10-frame group. Siril (`-cc=dark`) and PI (`CosmeticCorrection`) apply it per frame
+  BEFORE registration, which also cleans up star detection. We also have no cold-pixel path.
+- [ ] **Registration has no distortion model.** Star-quad match solves an affine. PI offers thin-plate
+  splines and APP several projective models. Matters most on wide fields, which is what the Samyang
+  135 f/2 shoots, and for mosaic panel joins.
+- [ ] **Dark optimisation is deliberately absent; keep it that way or do it properly.** Siril `-opt`
+  and PI both least-squares-scale a mismatched dark, which requires a bias-subtracted dark that we
+  do not build. We instead refuse anything outside 0.5x to 2.0x exposure. That strictness is load
+  bearing: it is what keeps the 2,220 mislabelled dark-flats from ever being selected as a light's
+  dark. Anyone implementing scaling needs to read that note first.
+- [ ] **Prefer an exposure-matched dark-flat over bias as the flat pedestal.** Worth single-digit ADU
+  (784 vs 788 measured), so this is a refinement, not a fix. Blocked on the `IMAGETYP` labelling
+  above being resolvable without guessing from exposure.
+
 ## Imaging
 
 - [ ] Not sure if `SensorType` LRGB check is correct (`SensorType.cs:54`)

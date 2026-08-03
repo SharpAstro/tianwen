@@ -7,8 +7,15 @@ manifest -> PSF/noise report -> pinned by-session split -> in-run parity gate) i
 validated on synthetic data; the classes are `SessionDiscovery`, `MasterCache`, `SessionFrameAnalyzer`,
 `SessionRegistrar`, `CalibrationResolver` (all `TianWen.Lib/Imaging/Dataset/`), `DatasetTileExporter` +
 `DatasetBuildRunner` (`TianWen.AI.Imaging/`, which own the zero-skew `ChunkedNafnetRunner.ApplyInputStretch`
-seam), and `DatasetPsfNoiseReport` + `DatasetSplitWriter` (Lib). Remaining before the big train: run it on
-the real archive to bake the tiles.
+seam), and `DatasetPsfNoiseReport` + `DatasetSplitWriter` (Lib).
+
+**The real-archive run happened on 2026-07-15** (this line used to say it was still to do). Output is
+`D:\Astro-Dataset\2025-2026\`: **45 sessions, 4,958 subs, 121,500 tiles** (every session hits the same
+300-cell x 9 cap), plus `test-sessions.txt` pinning 5 held-out sessions, and
+`stats/psf-noise-report.md`. Note the report's header reads 31 sessions / 3,433 subs against the
+manifest's 45 / 4,958: that is the documented resume behaviour, since a resumed run's report covers
+only the sessions it registered, not a discrepancy. Cameras: ASI533MC Pro 30, SV605CC 12,
+ASI585MC Pro 2, ASI1600MM Pro 1. See § "Running it again" below before regenerating.
 Goal: train our own CNN denoiser (`IDenoiseEnhancer`) and non-stellar deconvolver
 (`INonStellarDeconvolver`) on the user's own image archive, shipped as versioned ONNX models through
 the existing `TianWen.AI` / `TianWen.AI.Imaging` stack — a third backend tier alongside RC-Astro
@@ -167,6 +174,41 @@ patterns (RGGB vs GRBG) and mono+FILTER sessions need per-camera debayer; (4) `2
 EXAMPLES` (33 hand-flagged bad frames) is a free validation set for the quality gate; (5) 39+4
 `.7z` archives (~100 GB, mostly pre-2023/planetary, already out of v1 scope) are invisible to a
 folder scan unless extracted — watch for new ones under future 2024+ sessions.
+
+### 2.3b Running it again (facts from the 2026-07-15 run, re-measured 2026-08-03)
+
+Four things that are not inferable from the code and cost real time to rediscover.
+
+**Root order is `2025` and `2026`, never the Vela tree first.** The Vela panel folders are a
+user-made reorganisation of nights that also live under `2026\` by date, and step 0 then hard-linked
+the copies, so 2,822 frames are shared between the two trees. The copy was **partial per night**, so
+neither tree is a superset. Measured both ways over `2026` + Vela:
+
+| first root | sessions | lights kept | too-small |
+|---|---|---|---|
+| `2026` | 39 | 4,406 | 1 |
+| Vela | 43 | 4,376 | 9 |
+
+Vela-first strands each night's un-copied remainder in the date tree as fragments (`2026-01-05/Panel 6`
+42 lights beside the Vela copy's 132, `2026-02-10 HD 71526` 13 beside 143), nine of which fall under
+the 10-sub floor, losing 30 lights. Dedup drops the same 2,822 either way, so root order only decides
+which path names the session. The panel names read better and cost frames.
+
+**The Vela tree adds about 450 lights, not thousands.** Genuinely unique to it: `2025-12-17 Panel 1`
+Vela SNR 137 (gain 252, the only one), `2025-12-27 Panel 2` RCW 32 146, and `2026-02-20 P15 HD 70414`
+x2 at 56 + 54. Plus 60 `Vela SNR` lights under `2026-01-23` that the 2026-07-15 run's
+`--exclude-object *vela*` removed from the date tree. Anything sourced from
+`fits-index.jsonl` overstates this: that index predates the hardlink pass and is stale.
+
+**Two things must stay out of a training run**, neither excluded by any header gate:
+`2026-02-20 BAD LIGHT EXAMPLES` (33 frames, reserved as the quality-gate validation set) and
+`2026-02-20 SW8Q ...` under camera `QHY294PROC` (3 sessions, 193 lights at gain 1600, and `PROC` in
+the camera name says what it is).
+
+**Filters do not perturb the existing split.** All 11,554 lights in the built set carry no `FILTER`
+card, so the filter component of `ImagingSession.Id` stays empty for every one of the 45 and the
+stable hash buckets do not move. `test-sessions.txt` remains valid as written. The archive's 618
+FILTER-bearing lights are all in the older mono era, outside this set.
 
 ### 2.4 Dataset builder (`tianwen dataset build`, new CLI subcommand)
 
@@ -338,7 +380,7 @@ preferred until it passes).
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
 | **Step 0 — Archive organization** | `tools/astro-archive-dedup.py` READ-ONLY scan (header index + dup-files / nights-rollup / calibration-coverage reports); user-reviewed filing of BobbyBox uniques into Astro-Pics from the reports | Dup report reviewed; unique-to-BobbyBox sessions identified/filed; calibration coverage map exists (feeds P0's header-matched calibration) |
-| **P0 — Dataset + stats** ✅ SHIPPED 2026-07-12 | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command ✅; gate rejects transparency/focus-bad frames (star-count-led; §2.4) ✅; parity check green (maxDiff 0, in-run gate) ✅. **Remaining: run on the real archive to produce the tiles.** |
+| **P0 — Dataset + stats** ✅ SHIPPED 2026-07-12 | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command ✅; gate rejects transparency/focus-bad frames (star-count-led; §2.4) ✅; parity check green (maxDiff 0, in-run gate) ✅. **Real-archive run DONE 2026-07-15** (`D:\Astro-Dataset\2025-2026`, 45 sessions / 121,500 tiles); see § 2.3b for root order and the two session groups that must stay excluded. Tiles predate the master-flat pedestal fix (2026-08-03), so a regenerate is wanted before P1 trains on them. |
 | **P1 — Denoiser v1** | `training/` N2N pipeline; NAFNet-32 color run on RunPod; ONNX + contract; `OnnxTianWenDenoiser` + `--ai-backend tianwen`; eval report | Beats classical baseline + no photometric regression (§7) on held-out sessions; visually clean on 3 reference masters |
 | **P2 — Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
 | **P3 — Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
