@@ -1,10 +1,12 @@
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.CommandLine;
 using System.IO;
 using System.Linq;
 using TianWen.AI.Imaging;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.UI.Abstractions;
@@ -249,7 +251,124 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand },
+            Subcommands = { buildCommand, BuildTagFilterCommand() },
         };
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset tag-filter</c> writes a FILTER card into frames whose capture software
+    /// never recorded one (a hand-fitted filter: N.I.N.A. only models a motorised wheel).
+    ///
+    /// <para>The alternative is <c>.tianwen-meta.json</c>, which declares the same thing and writes
+    /// nothing. This exists for when you want the fact in the frames themselves, where every other
+    /// tool can see it. It edits the primary header surgically and copies every other byte verbatim
+    /// (see <see cref="FitsHeaderEditor"/>), and it is a DRY RUN unless <c>--apply</c> is passed.</para>
+    /// </summary>
+    private Command BuildTagFilterCommand()
+    {
+        var pathOpt = new Option<string>("--path")
+        {
+            Description = "Directory holding the frames to tag (see --recursive).",
+            Required = true,
+        };
+        var filterOpt = new Option<string>("--filter")
+        {
+            Description = "Filter name to write, exactly as the capture software would have (e.g. \"Optolong L-Ultimate 3nm\").",
+            Required = true,
+        };
+        var recursiveOpt = new Option<bool>("--recursive") { Description = "Descend into subdirectories.", DefaultValueFactory = _ => true };
+        var applyOpt = new Option<bool>("--apply") { Description = "Actually write. Omit for a dry run that reports what would change." };
+        var overwriteOpt = new Option<bool>("--overwrite-existing")
+        {
+            Description = "Also replace a FILTER card that already has a value. Off by default: filling in what " +
+                          "was never recorded is a different and far safer act than relabelling a frame that stated its own.",
+        };
+        var frameTypesOpt = new Option<string[]>("--frame-type")
+        {
+            Description = "IMAGETYP values to tag. Defaults to Light+Flat+DarkFlat, the types a filter is " +
+                          "meaningful for, so bad-pixel maps and master darks sitting in the same folder are left alone.",
+            AllowMultipleArgumentsPerToken = true,
+            DefaultValueFactory = _ => ["Light", "Flat", "DarkFlat"],
+        };
+
+        var command = new Command("tag-filter", "Write a FILTER card into frames that never recorded one (header-surgical; dry run by default).")
+        {
+            pathOpt, filterOpt, recursiveOpt, applyOpt, overwriteOpt, frameTypesOpt,
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var path = parseResult.GetValue(pathOpt)!;
+            if (!Directory.Exists(path))
+            {
+                consoleHost.WriteError($"Directory does not exist: {path}");
+                return 1;
+            }
+            var filterName = parseResult.GetValue(filterOpt)!;
+            var apply = parseResult.GetValue(applyOpt);
+            var overwrite = parseResult.GetValue(overwriteOpt);
+
+            var allowed = new HashSet<FrameType>();
+            foreach (var name in parseResult.GetValue(frameTypesOpt)!)
+            {
+                if (FrameType.FromFITSValue(name) is { } ft)
+                {
+                    allowed.Add(ft);
+                }
+                else
+                {
+                    consoleHost.WriteError($"Unrecognised frame type: {name}");
+                    return 1;
+                }
+            }
+
+            var option = parseResult.GetValue(recursiveOpt) ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+            var files = Directory.EnumerateFiles(path, "*.*", option)
+                .Where(p => FitsFolderFrameSource.FitsExtensions.Any(e => p.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            consoleHost.WriteScrollable(
+                $"[tag-filter] {(apply ? "APPLYING" : "DRY RUN")}: FILTER='{filterName}' over {files.Length} FITS file(s) under {path}");
+
+            var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            var failures = 0;
+            foreach (var file in files)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var result = await FitsHeaderEditor.SetStringCardAsync(
+                        file, "FILTER", filterName, "Filter name", allowed, overwrite, apply, ct);
+                    var key = result.Outcome switch
+                    {
+                        FitsHeaderEditor.TagOutcome.Tagged => "tagged",
+                        FitsHeaderEditor.TagOutcome.AlreadyPresent => $"skipped (already has {result.ExistingValue})",
+                        FitsHeaderEditor.TagOutcome.FrameTypeExcluded => $"skipped ({result.Detail})",
+                        _ => $"UNREADABLE ({result.Detail})",
+                    };
+                    counts[key] = counts.GetValueOrDefault(key) + 1;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // Report and continue: one locked or bad file must not abandon the rest, and the
+                    // editor guarantees it left that original untouched.
+                    failures++;
+                    consoleHost.WriteError($"[tag-filter] FAILED {file}: {ex.Message}");
+                }
+            }
+
+            foreach (var (key, count) in counts)
+            {
+                consoleHost.WriteScrollable($"[tag-filter]   {key}: {count}");
+            }
+            if (!apply)
+            {
+                consoleHost.WriteScrollable("[tag-filter] nothing was written; re-run with --apply to commit.");
+            }
+            return failures > 0 ? 1 : 0;
+        });
+
+        return command;
     }
 }
