@@ -17,12 +17,13 @@ public class MasterFrameBuilderTests
     // depending on a seeded RNG. The Bayer-flat tests build similar
     // synthetic patterns where each Bayer quadrant has a known mean.
 
-    private static Image MonoFrame(float[] flat, FrameType type = FrameType.Bias, SensorType sensor = SensorType.Monochrome)
+    private static Image MonoFrame(
+        float[] flat, FrameType type = FrameType.Bias, SensorType sensor = SensorType.Monochrome, int side = 4)
     {
-        var channel = new float[4, 4];
+        var channel = new float[side, side];
         for (var i = 0; i < flat.Length; i++)
         {
-            channel[i / 4, i % 4] = flat[i];
+            channel[i / side, i % side] = flat[i];
         }
         var meta = new ImageMeta(
             Instrument: "synthetic",
@@ -152,6 +153,66 @@ public class MasterFrameBuilderTests
             master[0, i / 4, i % 4].ShouldBe(1.0f, tolerance: 1e-5f);
         }
         master.ImageMeta.FrameType.ShouldBe(FrameType.Flat);
+    }
+
+    [Fact]
+    public void BuildFlatMaster_WithoutAPedestal_UnderCorrectsByTheOffsetFraction()
+    {
+        // The defect this documents, in the numbers measured off a real ASI533MC Pro frame: bias
+        // 788 ADU under a flat that peaks at 38912. A true 20% corner falloff, recorded on top of
+        // that offset, comes out of an uncalibrated master as LESS than 20%, so the correction
+        // applied to the lights is short by the same fraction.
+        const float bias = 788f, peak = 38912f, trueFalloff = 0.80f;  // corner at 80% of centre
+        var recorded = new float[16];
+        Array.Fill(recorded, bias + peak);
+        recorded[0] = bias + peak * trueFalloff;
+
+        var raw = MasterFrameBuilder.BuildFlatMaster([MonoFrame(recorded, FrameType.Flat)]);
+
+        // Measured falloff in the master, corner relative to centre.
+        var observed = raw[0, 0, 0] / raw[0, 1, 1];
+        observed.ShouldBeGreaterThan(trueFalloff);
+        // Algebraically the shortfall is exactly offset/(offset + signal) of the correction, so
+        // this pins the 2% rather than merely asserting "some error".
+        var shortfall = (observed - trueFalloff) / (1f - trueFalloff);
+        shortfall.ShouldBe(bias / (bias + peak), tolerance: 1e-5f);
+    }
+
+    [Fact]
+    public void BuildFlatMaster_WithAPedestal_RecoversTheTrueIlluminationProfile()
+    {
+        const float bias = 788f, peak = 38912f, trueFalloff = 0.80f;
+        var recorded = new float[16];
+        Array.Fill(recorded, bias + peak);
+        recorded[0] = bias + peak * trueFalloff;
+        var pedestal = new float[16];
+        Array.Fill(pedestal, bias);
+
+        var master = MasterFrameBuilder.BuildFlatMaster(
+            [MonoFrame(recorded, FrameType.Flat)], MonoFrame(pedestal, FrameType.Bias));
+
+        (master[0, 0, 0] / master[0, 1, 1]).ShouldBe(trueFalloff, tolerance: 1e-5f);
+    }
+
+    [Fact]
+    public void BuildFlatMaster_WithAMismatchedPedestal_FallsBackToTheUncalibratedBuild()
+    {
+        // The pedestal is resolved by header matching, so a wrongly-shaped one must degrade to the
+        // previous behaviour rather than fail a stack that would otherwise have run.
+        var flat = new float[16];
+        Array.Fill(flat, 2f);
+        flat[0] = 1f;
+        var wrongShape = new float[9];
+        Array.Fill(wrongShape, 0.5f);
+
+        var master = MasterFrameBuilder.BuildFlatMaster(
+            [MonoFrame(flat, FrameType.Flat)], MonoFrame(wrongShape, FrameType.Bias, side: 3));
+        var unpedestalled = MasterFrameBuilder.BuildFlatMaster([MonoFrame(flat, FrameType.Flat)]);
+
+        for (var i = 0; i < 16; i++)
+        {
+            master[0, i / 4, i % 4].ShouldBe(unpedestalled[0, i / 4, i % 4], tolerance: 1e-6f);
+        }
     }
 
     [Fact]

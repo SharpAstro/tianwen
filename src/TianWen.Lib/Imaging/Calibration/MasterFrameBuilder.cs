@@ -57,20 +57,41 @@ public static class MasterFrameBuilder
         return BuildDarkMaster(images);
     }
 
-    /// <summary>Combines flat frames: per-frame normalize each to mean=1
+    /// <summary>Combines flat frames: subtract the <paramref name="pedestal"/> (master bias or
+    /// master dark-flat) if one is supplied, per-frame normalize each to mean=1
     /// (Bayer-aware), then per-pixel median across the stack. The
     /// normalization step is essential — flats with different transparency
     /// or illumination level would otherwise contribute unequally to the
     /// median. Bayer flats normalize each of the four R/G/G/B Bayer
     /// positions independently so the CFA channel balance is preserved
     /// (different colours hit different cell types at different
-    /// efficiencies, even on a "uniform" light source).</summary>
+    /// efficiencies, even on a "uniform" light source).
+    ///
+    /// <para><b>Why the pedestal has to come off first.</b> A recorded flat is
+    /// <c>offset + signal</c>, and normalising that to mean=1 divides the offset in too, which
+    /// makes the master flatter than the illumination it is meant to describe. The flat then
+    /// UNDER-corrects: the correction it applies is scaled by <c>signal / (offset + signal)</c>.
+    /// Measured on a real ASI533MC Pro frame, the bias sits at 788 ADU against a flat level of
+    /// 38,912, so 2.03%, which leaves about 0.41% of a 20% corner vignette uncorrected. That is
+    /// invisible in a finished picture and is NOT invisible to a denoiser trained on the result:
+    /// it is a smooth position-dependent error identical in every sub of a session, so it
+    /// survives every Noise2Noise pair intact and can be learned as signal.</para>
+    ///
+    /// <para>A bias is the right pedestal at typical flat exposures and a dark-flat is
+    /// interchangeable with it there: on the reference archive a 1.09 s dark-flat medians 784 ADU
+    /// against the bias's 788, because dark current over a second on a cooled sensor is nil. Bias
+    /// is preferred because it needs no exposure match and because <c>IMAGETYP</c> is reliable for
+    /// it, whereas 11% of that archive's dark-flats are written as <c>DARK</c>.</para></summary>
+    /// <param name="frames">Raw flat frames to combine.</param>
+    /// <param name="pedestal">Master bias or master dark-flat to remove from each flat BEFORE
+    /// normalising, or null to combine the flats raw (the historical behaviour).</param>
+    /// <param name="cancellationToken">Cancellation.</param>
     public static async Task<Image> BuildFlatMasterAsync(
-        IReadOnlyList<FrameInfo> frames, CancellationToken cancellationToken = default)
+        IReadOnlyList<FrameInfo> frames, Image? pedestal = null, CancellationToken cancellationToken = default)
     {
         ValidateInput(frames);
         var images = await LoadAllAsync(frames, cancellationToken);
-        return BuildFlatMaster(images);
+        return BuildFlatMaster(images, pedestal);
     }
 
     // ---------- Pure-math overloads (testable without FITS I/O) ----------
@@ -87,7 +108,7 @@ public static class MasterFrameBuilder
         return CombineMedian(images, FrameType.Dark);
     }
 
-    internal static Image BuildFlatMaster(IReadOnlyList<Image> images)
+    internal static Image BuildFlatMaster(IReadOnlyList<Image> images, Image? pedestal = null)
     {
         ValidateShapes(images);
         // Normalize each input to mean=1 in place. Inputs are throwaway —
@@ -95,9 +116,42 @@ public static class MasterFrameBuilder
         // memory tax to keep originals + scaled copies in flight.
         foreach (var image in images)
         {
+            // Same reason the subtraction is in place: Image.Subtract would allocate a second
+            // full-frame copy per flat, and the input is about to be normalised in place anyway.
+            if (pedestal is not null)
+            {
+                SubtractInPlace(image, pedestal);
+            }
             NormalizeFlatInPlace(image);
         }
         return CombineMedian(images, FrameType.Flat);
+    }
+
+    /// <summary>Subtracts <paramref name="pedestal"/> from <paramref name="image"/> in place,
+    /// clamped at zero. A shape mismatch is a no-op rather than a throw: the pedestal is an
+    /// optional improvement resolved by header matching, so a wrongly-sized one must degrade to
+    /// the previous uncalibrated behaviour instead of failing a stack that would otherwise run.
+    /// Callers that can validate the shape should do so and log.</summary>
+    private static void SubtractInPlace(Image image, Image pedestal)
+    {
+        if (pedestal.Width != image.Width || pedestal.Height != image.Height
+            || pedestal.ChannelCount != image.ChannelCount)
+        {
+            return;
+        }
+        for (var c = 0; c < image.ChannelCount; c++)
+        {
+            var target = image.GetChannelArray(c);
+            var source = pedestal.GetChannelArray(c);
+            for (var y = 0; y < image.Height; y++)
+            {
+                for (var x = 0; x < image.Width; x++)
+                {
+                    var v = target[y, x] - source[y, x];
+                    target[y, x] = v > 0f ? v : 0f;
+                }
+            }
+        }
     }
 
     // ---------- Helpers ----------

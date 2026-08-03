@@ -60,15 +60,21 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
     /// from the lights' storage bit depth (Int16 -&gt; 65535); null when it can't be determined (a
     /// float light), in which case a normalised subtractive master is skipped rather than
     /// mis-subtracted. Ignored for raw builds and for flats (divisive, re-normalised to mean~1).</param>
+    /// <param name="flatPedestal">Bias (or dark-flat) group to remove from each raw flat before it
+    /// is normalised; see <see cref="MasterFrameBuilder.BuildFlatMasterAsync"/> for why that matters.
+    /// Resolved recursively through this same cache, so the pedestal master is itself built once and
+    /// shared. Ignored for every type but a raw <see cref="FrameType.Flat"/> build.</param>
     public Task<Image?> GetOrBuildAsync(
         MasterGroupKey key, CalibrationResolver.CalTrain train, IReadOnlyList<FrameInfo> inputs,
-        bool isMaster = false, float? normalizedAduScale = null, CancellationToken cancellationToken = default)
+        bool isMaster = false, float? normalizedAduScale = null,
+        CalibrationResolver.CalGroup? flatPedestal = null, CancellationToken cancellationToken = default)
         => _inFlight.GetOrAdd((key, train, isMaster), _ => isMaster
             ? LoadForeignMasterAsync(key, inputs, normalizedAduScale, cancellationToken)
-            : BuildOrLoadAsync(key, train, inputs, cancellationToken));
+            : BuildOrLoadAsync(key, train, inputs, flatPedestal, cancellationToken));
 
     private async Task<Image?> BuildOrLoadAsync(
-        MasterGroupKey key, CalibrationResolver.CalTrain train, IReadOnlyList<FrameInfo> inputs, CancellationToken ct)
+        MasterGroupKey key, CalibrationResolver.CalTrain train, IReadOnlyList<FrameInfo> inputs,
+        CalibrationResolver.CalGroup? flatPedestal, CancellationToken ct)
     {
         if (inputs.Count < 2)
         {
@@ -80,7 +86,15 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
         // The train suffix keeps two same-sensor cameras' masters on distinct paths (empty for a
         // header-less archive, preserving the legacy filename).
         var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{train.SlugSuffix()}.fits");
-        var fingerprint = ComputeFingerprint(inputs);
+
+        // A pedestal changes the master's PIXELS without changing its input set, so folding the
+        // pedestal group's own fingerprint into this one is what stops a flat cached before the
+        // subtraction existed (or built against a since-grown bias library) from being served
+        // forever on a slug match.
+        var usePedestal = key.Type is FrameType.Flat && flatPedestal is not null;
+        var fingerprint = usePedestal && flatPedestal is not null
+            ? ComputeFingerprint(inputs) + "+" + ComputeFingerprint(flatPedestal.Frames)
+            : ComputeFingerprint(inputs);
 
         if (File.Exists(masterPath))
         {
@@ -93,11 +107,23 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
             logger?.LogInformation("  master {File} stale (input set changed) — rebuilding", Path.GetFileName(masterPath));
         }
 
+        // Resolved only on a cache MISS: the fingerprint above already accounts for the pedestal, so
+        // a valid cached flat never pays for building one.
+        Image? pedestalMaster = null;
+        if (usePedestal && flatPedestal is not null)
+        {
+            pedestalMaster = await GetOrBuildAsync(
+                flatPedestal.Key, flatPedestal.Train, flatPedestal.Frames, flatPedestal.IsMaster,
+                cancellationToken: ct);
+            logger?.LogInformation("  flat {Slug} pedestal: {Pedestal}",
+                key.Slug(), pedestalMaster is null ? "NONE (unbuildable)" : flatPedestal.Key.Slug());
+        }
+
         var master = key.Type switch
         {
             FrameType.Bias => await MasterFrameBuilder.BuildBiasMasterAsync(inputs, ct),
             FrameType.Dark or FrameType.DarkFlat => await MasterFrameBuilder.BuildDarkMasterAsync(inputs, ct),
-            FrameType.Flat => await MasterFrameBuilder.BuildFlatMasterAsync(inputs, ct),
+            FrameType.Flat => await MasterFrameBuilder.BuildFlatMasterAsync(inputs, pedestalMaster, ct),
             _ => throw new ArgumentException($"Not a calibration frame type: {key.Type}", nameof(key)),
         };
         var extraHeaders = new Dictionary<string, (object Value, string Comment)>
