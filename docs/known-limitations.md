@@ -164,6 +164,49 @@ the moment the image is rescaled. Use a fixed bin-width floor (`0.5/65535`) that
 regardless of normalisation state. (See also the `Image` mutability notes in `../CLAUDE.md` --
 `ScaleFloatValuesToUnitInPlace` mutates in place and leaves the original `MaxValue` inconsistent.)
 
+### An uncalibrated master flat under-corrects by its own offset fraction (FIXED 2026-08-03)
+
+A recorded flat is `offset + signal`. `BuildFlatMaster` normalised each frame to mean=1 and
+medianed them, which divides the offset in, so the master described a flatter field than the
+illumination it stood for and the correction applied to the lights was scaled by
+`signal / (offset + signal)`. Measured on a real ASI533MC Pro frame: bias 788 ADU under a flat at
+38,912, so 2.03%, leaving about 0.41% of a 20% corner vignette uncorrected.
+
+Two reasons it went unnoticed for so long, both worth remembering. Half a percent of residual
+vignetting is genuinely invisible in a stretched picture, so no amount of looking at output would
+have found it. And the archive's dark-flats made the gap look filled: 17,697 of them were scanned,
+grouped and cached by every run, and never handed to a builder, so the folder listing said the
+calibration existed.
+
+It matters for the training set more than for a picture. The residual is a smooth,
+position-dependent multiplicative error that is **identical in every sub of a session**, so it
+survives every Noise2Noise pair intact and is exactly the kind of structure a denoiser learns as
+signal rather than removes.
+
+Fixed by subtracting a master bias from each flat before normalising. Bias rather than dark-flat
+because at flat exposures they are the same measurement (a 1.09 s dark-flat medians 784 against the
+bias's 788, dark current over a second on a cooled sensor being nil) and bias needs no exposure
+match. See `MasterFrameBuilder.BuildFlatMaster`, pinned by `MasterFrameBuilderTests`.
+
+### Some dark-flats are recorded as `IMAGETYP='DARK'`
+
+On the reference archive, 2,220 dark-flat frames sit in a `DARKFLAT` folder while their header says
+`DARK` (against 17,697 that say `DARKFLAT`), and in the Vela tree it is all 340 of them. The tell is
+the exposure: they match the flats to the millisecond (4.46 s, 4.61 s, 1.09 s), and a
+`MASTERDARKFLAT` exists at those same exposures. It is a capture-time configuration, not a bug in
+anything we own.
+
+**It is currently harmless, and only just.** `CalibrationResolver.BestDark` gates candidates to a
+0.5x to 2.0x exposure window whose comment says it excludes dark-flats, and no camera in the archive
+has a mislabelled dark-flat inside that window for any of its lights. The closest is ASI533MC Pro:
+6.7 s mislabelled darks against 15 s lights, which is 0.45x, under the cutoff by 0.05. SV605CC has
+them at exactly 10 s and 15 s but no lights below 60 s.
+
+**Do not narrow that window** without re-checking this, and do not "fix" the labels by reclassifying
+a short `DARK` as a dark-flat on exposure alone: a genuine short dark library would be
+indistinguishable. Preferring an exposure-matched dark-flat as the flat pedestal is the change that
+would make the labels start to matter; bias was chosen partly to avoid depending on them.
+
 ## GPU / rendering
 
 ### Dangling stack pointer via single-argument Vortice ctors
