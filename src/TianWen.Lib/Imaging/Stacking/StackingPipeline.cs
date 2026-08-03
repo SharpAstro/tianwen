@@ -264,7 +264,26 @@ public sealed class StackingPipeline(
         sw.Restart();
         var biasMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Bias), MasterFrameBuilder.BuildBiasMasterAsync, mastersDir, ct);
         var darkMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Dark), MasterFrameBuilder.BuildDarkMasterAsync, mastersDir, ct);
-        var flatMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Flat), MasterFrameBuilder.BuildFlatMasterAsync, mastersDir, ct);
+
+        // Flats are built AFTER bias so each can have its own pedestal removed before it is
+        // normalised (a raw flat is offset + signal, and normalising that divides the offset in, so
+        // the master under-corrects by offset/(offset+signal): about 2% on a real ASI533 frame).
+        // The "_bs" suffix is load-bearing, not cosmetic. This cache trusts any file it finds, so
+        // without a new name every existing masters/ directory would keep serving the uncalibrated
+        // flat it cached before this existed.
+        var flatFrames = byType.GetValueOrDefault(FrameType.Flat);
+        var flatMasters = await BuildMastersAsync(
+            flatFrames,
+            async (list, token) =>
+            {
+                // Matched against the FLAT's own key, not a light's: the offset being removed is
+                // the one this flat was recorded with. MatchMaster's exposure term is a constant
+                // across bias candidates (they are all ~0 s), so temperature decides, as it should.
+                var (pedestal, pedestalKey) = MatchMaster(biasMasters, MasterGroupKey.FromFrame(list[0]));
+                logger.LogInformation("  flat pedestal: {Pedestal}", pedestalKey?.Slug() ?? "NONE");
+                return await MasterFrameBuilder.BuildFlatMasterAsync(list, pedestal, token);
+            },
+            mastersDir, ct, pathSuffix: biasMasters.Count > 0 ? "_bs" : "");
         logger.LogInformation("[masters] {Bias} bias, {Dark} dark, {Flat} flat ready in {ElapsedMs} ms",
             biasMasters.Count, darkMasters.Count, flatMasters.Count, sw.ElapsedMilliseconds);
         hostTracker.Log(logger, "masters");
@@ -996,11 +1015,21 @@ public sealed class StackingPipeline(
     // chatter; behaviour-identical)
     // =====================================================================
 
+    /// <param name="frames">Calibration frames of one type; grouped internally by
+    /// <see cref="MasterGroupKey"/>.</param>
+    /// <param name="builder">Combiner for this frame type.</param>
+    /// <param name="mastersDir">Where masters are cached.</param>
+    /// <param name="pathSuffix">Appended to the cached master's filename. Used to give a master
+    /// built a NEW way a new name, so a file cached by an older version is simply not found and is
+    /// rebuilt. This cache trusts any file it finds (no fingerprint), so the name is the only place
+    /// a change in how the master is built can be recorded.</param>
+    /// <param name="ct">Cancellation.</param>
     private async Task<List<(MasterGroupKey Key, Image Master)>> BuildMastersAsync(
         List<FrameInfo>? frames,
         Func<IReadOnlyList<FrameInfo>, CancellationToken, Task<Image>> builder,
         string mastersDir,
-        CancellationToken ct)
+        CancellationToken ct,
+        string pathSuffix = "")
     {
         var masters = new List<(MasterGroupKey, Image)>();
         if (frames is null || frames.Count == 0) return masters;
@@ -1011,7 +1040,7 @@ public sealed class StackingPipeline(
             var list = group.ToList();
             if (list.Count < 2) continue;
 
-            var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}.fits");
+            var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{pathSuffix}.fits");
 
             // Cache hit: master from a previous run. Bias/dark/flat
             // masters are pure functions of their inputs + builder

@@ -198,11 +198,20 @@ public static class CalibrationResolver
         // (null for a float light: no fixed container, so a normalised master can't be reconciled).
         var normalizedAduScale = light.BitDepth.UnsignedFullScale is { } fullScale ? (float)fullScale : (float?)null;
 
-        var dark = darkGroup is null ? null : await masterCache.GetOrBuildAsync(darkGroup.Key, darkGroup.Train, darkGroup.Frames, darkGroup.IsMaster, normalizedAduScale, cancellationToken);
-        var flat = flatGroup is null ? null : await masterCache.GetOrBuildAsync(flatGroup.Key, flatGroup.Train, flatGroup.Frames, flatGroup.IsMaster, normalizedAduScale, cancellationToken);
+        // The flat's own pedestal. A raw flat is offset + signal, and normalising that to mean=1
+        // divides the offset in, so the master under-corrects by offset/(offset+signal): about 2%
+        // on the reference archive. Only a RAW flat group needs it: a foreign master flat arrives
+        // already calibrated by whatever produced it.
+        var flatPedestalGroup = flatGroup is { IsMaster: false }
+            ? BestFlatPedestal(calGroups.GetValueOrDefault(FrameType.Bias), flatGroup)
+            : null;
 
-        logger?.LogInformation("  [{Session}] calibration: dark={Dark} flat={Flat}",
-            session.Id, darkGroup is null ? "NONE" : darkGroup.Key.Slug(), flatGroup is null ? "NONE" : flatGroup.Key.Slug());
+        var dark = darkGroup is null ? null : await masterCache.GetOrBuildAsync(darkGroup.Key, darkGroup.Train, darkGroup.Frames, darkGroup.IsMaster, normalizedAduScale, cancellationToken: cancellationToken);
+        var flat = flatGroup is null ? null : await masterCache.GetOrBuildAsync(flatGroup.Key, flatGroup.Train, flatGroup.Frames, flatGroup.IsMaster, normalizedAduScale, flatPedestalGroup, cancellationToken);
+
+        logger?.LogInformation("  [{Session}] calibration: dark={Dark} flat={Flat} flat-pedestal={Pedestal}",
+            session.Id, darkGroup is null ? "NONE" : darkGroup.Key.Slug(), flatGroup is null ? "NONE" : flatGroup.Key.Slug(),
+            flatPedestalGroup is null ? "NONE" : flatPedestalGroup.Key.Slug());
 
         if (dark is null && flat is null)
         {
@@ -329,6 +338,42 @@ public static class CalibrationResolver
     /// frame is loaded directly) or it holds &gt;= 2 raw frames to combine. Guards the Best* candidate
     /// filters so an unbuildable raw singleton is never selected (which would resolve to a null master
     /// and, under RequireDarkCalibration, wrongly skip a session).</summary>
+    /// <summary>
+    /// Best pedestal to remove from a raw flat group before it is normalised: same CAMERA,
+    /// dimension-compatible, ranked by closest temperature then matching gain/offset. Scored
+    /// against the FLAT's own header, not the light's, because the offset being removed is the one
+    /// the flat was recorded with.
+    ///
+    /// <para><b>Bias rather than dark-flat, deliberately.</b> At flat exposures the two are the
+    /// same measurement: on the reference archive a 1.09 s dark-flat medians 784 ADU against the
+    /// bias's 788, since dark current over a second on a cooled sensor is nil. Bias then wins on
+    /// two counts. It needs no exposure match, so one library serves every flat set; and its
+    /// <c>IMAGETYP</c> is trustworthy, whereas 2,220 of that archive's dark-flats are written as
+    /// <c>DARK</c> and would have to be recovered by guessing from exposure. Preferring an
+    /// exposure-matched dark-flat where one is unambiguously identifiable is a refinement, and it
+    /// buys single-digit ADU.</para>
+    /// </summary>
+    internal static CalGroup? BestFlatPedestal(List<CalGroup>? biases, CalGroup flatGroup)
+    {
+        if (biases is null || flatGroup.Frames.Length == 0) return null;
+        var flat = flatGroup.Frames[0];
+        var flatKey = MasterGroupKey.FromFrame(flat);
+        var flatCamera = CalTrain.Camera(flat);
+        CalGroup? best = null;
+        var bestScore = double.PositiveInfinity;
+        foreach (var g in biases)
+        {
+            if (!Buildable(g) || !DimensionCompatible(g.Key, flatKey) || !g.Train.CameraCompatibleWith(flatCamera)) continue;
+            var score = TempPenalty(g.Key, flatKey) * 10.0 + GainPenalty(g.Key, flatKey);
+            if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
+            {
+                bestScore = score;
+                best = g;
+            }
+        }
+        return best;
+    }
+
     private static bool Buildable(CalGroup g) => g.Frames.Length >= (g.IsMaster ? 1 : 2);
 
     /// <summary>The strict gain gate (opt-in via RequireGainMatch): when on, a dark whose gain is
