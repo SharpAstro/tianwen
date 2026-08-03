@@ -293,6 +293,120 @@ namespace TianWen.Lib.Tests
             Directory.GetFiles(dir).ShouldHaveSingleItem().ShouldBe(path);
         }
 
+        [Fact]
+        public async Task GivenOneCardOfSlackInTheBlock_WhenTagging_ThenTheFileLengthIsUnchanged()
+        {
+            // The complement of the overflow test, and the common case: 6 structural + 28 fillers
+            // + FILTER + END = 36, exactly filling the block with no shift at all.
+            var dir = CreateTempDir();
+            var filler = Enumerable.Range(0, 28).Select(i => $"FILLER{i:D2}= {i,20} / padding");
+            var (path, payload) = WriteFits(dir, "snug.fits", [.. filler]);
+            var lengthBefore = new FileInfo(path).Length;
+            var before = Sha(payload);
+
+            await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Ha", apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            new FileInfo(path).Length.ShouldBe(lengthBefore, "the card fit the existing block");
+            Sha(PayloadOf(path)).ShouldBe(before);
+            HeaderValue(path, "FILTER").ShouldBe("Ha");
+        }
+
+        [Fact]
+        public async Task GivenAFullHeader_WhenReplacingAnExistingCard_ThenNoBlockIsAdded()
+        {
+            // Replacement cannot overflow: the card count does not change. Worth pinning, because
+            // the append path and the replace path share the same serialiser.
+            var dir = CreateTempDir();
+            var filler = Enumerable.Range(0, 28).Select(i => $"FILLER{i:D2}= {i,20} / padding");
+            var (path, payload) = WriteFits(dir, "full.fits", [.. filler, "FILTER  = 'Ha'"]);
+            var lengthBefore = new FileInfo(path).Length;
+            var before = Sha(payload);
+
+            await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "OIII", overwriteExisting: true, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            new FileInfo(path).Length.ShouldBe(lengthBefore);
+            Sha(PayloadOf(path)).ShouldBe(before);
+            HeaderValue(path, "FILTER").ShouldBe("OIII");
+        }
+
+        [Fact]
+        public async Task GivenAnExtensionAfterTheData_WhenTheHeaderOverflows_ThenTheExtensionShiftsIntact()
+        {
+            // FITS offsets are sequential, never absolute, so shifting everything by one block is
+            // correct rather than merely tolerable. This proves a trailing HDU survives the move.
+            var dir = CreateTempDir();
+            var filler = Enumerable.Range(0, 29).Select(i => $"FILLER{i:D2}= {i,20} / padding");
+            var (path, payload) = WriteFits(dir, "ext.fits", [.. filler]);
+
+            // Append a second HDU: its own header block plus a data block.
+            var extHeader = new byte[Block];
+            extHeader.AsSpan().Fill((byte)' ');
+            Encoding.ASCII.GetBytes("XTENSION= 'IMAGE   '".PadRight(Card), extHeader.AsSpan(0, Card));
+            Encoding.ASCII.GetBytes("END".PadRight(Card), extHeader.AsSpan(Card, Card));
+            var extData = new byte[Block];
+            for (var i = 0; i < extData.Length; i++) extData[i] = (byte)(255 - (i & 0xFF));
+            using (var fs = new FileStream(path, FileMode.Append))
+            {
+                fs.Write(extHeader);
+                fs.Write(extData);
+            }
+            var tailBefore = Sha([.. payload, .. extHeader, .. extData]);
+
+            await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Ha", apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            Sha(PayloadOf(path)).ShouldBe(tailBefore, "data AND the trailing extension must move together, byte for byte");
+        }
+
+        [Fact]
+        public async Task GivenAHeaderOnlyFileWithNoData_WhenTagging_ThenItStillWorks()
+        {
+            var dir = CreateTempDir();
+            var (path, _) = WriteFits(dir, "empty.fits", ["IMAGETYP= 'LIGHT'"], payloadBytes: 0);
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Ha", apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
+            HeaderValue(path, "FILTER").ShouldBe("Ha");
+            PayloadOf(path).Length.ShouldBe(0);
+        }
+
+        [Fact]
+        public async Task GivenAHeaderLongerThanWeWillWalk_WhenTagging_ThenItIsRefusedAndUntouched()
+        {
+            // Better to decline an unfamiliar file than to rewrite one we only half understand.
+            var dir = CreateTempDir();
+            var filler = Enumerable.Range(0, 36 * 40).Select(i => $"F{i:D7}= {i,20} / padding");
+            var (path, _) = WriteFits(dir, "huge.fits", [.. filler]);
+            var before = Sha(File.ReadAllBytes(path));
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Ha", apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Unreadable);
+            Sha(File.ReadAllBytes(path)).ShouldBe(before);
+        }
+
+        [Fact]
+        public async Task GivenANonAsciiValue_WhenTagging_ThenItThrowsBeforeOpeningTheFile()
+        {
+            // Encoding.ASCII substitutes '?' silently, so "Hα" would be stamped as "H?" into a
+            // file that cannot be restored. Our own Filter.ShortName spells it with the Greek
+            // letter, which is exactly how someone would come to type it.
+            var dir = CreateTempDir();
+            var (path, _) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
+            var before = Sha(File.ReadAllBytes(path));
+
+            await Should.ThrowAsync<ArgumentException>(async () => await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Hα 3nm", apply: true, cancellationToken: TestContext.Current.CancellationToken));
+
+            Sha(File.ReadAllBytes(path)).ShouldBe(before);
+        }
+
         [Theory]
         [InlineData("Ha", "FILTER  = 'Ha      '")]
         [InlineData("Optolong L-Ultimate 3nm", "FILTER  = 'Optolong L-Ultimate 3nm'")]
