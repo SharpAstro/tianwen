@@ -19,18 +19,19 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
       MSB-aligned/left-shifted (max ~65532) — `OutputDataAlignment` is the hook, deliberately not acted on
       without hardware (a wrong guess over-scales → clips highlights). ZWO needs nothing
       (`ASI_CAMERA_INFO.BitDepth` is the true ADC depth, e.g. 14 for ASI533).
-- [~] **Canon Live View video: EVF-zoom planetary regime + host-side ROI jog (Phase E zoom-pan).** Phase E
-      *core* shipped 2026-07-16 (`CanonCameraDriver : IVideoCameraDriver`, full-frame EVF JPEG streaming,
-      `CanJogRoi=false` → recenter falls back to mount jog). The 5x/10x zoom crop — the DSLR planetary regime
-      and its pannable host-side ROI jog — is deferred because it needs an **FC.SDK 1.5** addition: the zoom
-      *level* `Evf_Zoom` (0x507) is a plain `uint` (reachable today via the generic accessor), but the pan
-      actuator `Evf_ZoomPosition` (0x508) is an `EdsPoint` and `Evf_ZoomRect` (0x541) an `EdsRect` (8+ byte
-      payloads), and FC.SDK exposes only `GetPropertyUInt32Async` / a 4-byte `SetPropValue`. Work: (1) FC.SDK
-      1.5 — typed `SetEvfZoomAsync` + `SetEvfZoomPositionAsync` (byte[]-payload `SetPropValue`, mirroring
-      `SetCustomFunctionBlockAsync`) + an `Evf_ZoomRect` read; wait for NuGet; (2) TianWen — set zoom in
-      `CaptureVideoAsync`, wire `JogRoiAsync` → `SetEvfZoomPositionAsync`, report the rect from `VideoRoi`,
-      flip `CanJogRoi` to true when zoomed. Per-body zoom-position units vary → verify on hardware (the Phase C
-      per-axis cap bounds a wrong guess to a small mis-pan). Detail:
+- [x] **Canon Live View video: EVF-zoom planetary regime + host-side ROI jog (Phase E zoom-pan).** Phase E
+      *core* shipped 2026-07-16; the zoom crop and its pannable ROI shipped 2026-08-03 on FC.SDK `3.0.751`.
+      `NumX` snaps to a zoom level, `VideoRoi` reports the body's own rect, `CanJogRoi` / `JogRoiAsync` pan it,
+      and `CanJogRoi` is true only while magnified and the body advertises the pan operation, so 1x still falls
+      back to mount jog by design. **This entry described the blocker wrongly, which is why it outlived three
+      FC.SDK releases**, and the mistake is the reusable part: it asked for typed accessors for
+      `Evf_ZoomPosition` (0x508) and `Evf_ZoomRect` (0x541) on the theory that they were properties whose
+      payloads were too wide for a 4-byte `SetPropValue`. Over PTP **those properties do not exist at all**;
+      they are EDSDK's model of the feature. The camera takes zoom and pan as *operations* (`0x9158` / `0x9159`)
+      and reports the crop as a record inside the live-view frame, so no accessor of any width could ever have
+      unblocked it. State a blocker in terms of the protocol, and never date one on a release. Not yet verified
+      from TianWen on hardware (the FC.SDK side is, on a 6D), and per-body zoom-position units vary, so the
+      Phase C per-axis cap is still what bounds a wrong guess to a small mis-pan. Detail:
       [../plans/planetary-native-video.md](../plans/planetary-native-video.md) Phase E.
 
 ## Cover / Calibrator (`ICoverDriver`)
