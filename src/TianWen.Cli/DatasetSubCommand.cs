@@ -290,10 +290,16 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             AllowMultipleArgumentsPerToken = true,
             DefaultValueFactory = _ => ["Light", "Flat", "DarkFlat"],
         };
+        var allowLinkedOpt = new Option<bool>("--allow-hardlinked")
+        {
+            Description = "Also tag frames that other paths point at. Off by default: the write re-points one " +
+                          "directory entry, so a de-duplicated archive would end up with one filing of a night " +
+                          "tagged and the other not. Prefer a .tianwen-meta.json sidecar for those trees.",
+        };
 
         var command = new Command("tag-filter", "Write a FILTER card into frames that never recorded one (header-surgical; dry run by default).")
         {
-            pathOpt, filterOpt, recursiveOpt, applyOpt, overwriteOpt, frameTypesOpt,
+            pathOpt, filterOpt, recursiveOpt, applyOpt, overwriteOpt, frameTypesOpt, allowLinkedOpt,
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -307,6 +313,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             var filterName = parseResult.GetValue(filterOpt)!;
             var apply = parseResult.GetValue(applyOpt);
             var overwrite = parseResult.GetValue(overwriteOpt);
+            var allowLinked = parseResult.GetValue(allowLinkedOpt);
 
             var allowed = new HashSet<FrameType>();
             foreach (var name in parseResult.GetValue(frameTypesOpt)!)
@@ -333,20 +340,28 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
 
             var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
             var failures = 0;
+            var linked = 0;
             foreach (var file in files)
             {
                 ct.ThrowIfCancellationRequested();
                 try
                 {
                     var result = await FitsHeaderEditor.SetStringCardAsync(
-                        file, "FILTER", filterName, "Filter name", allowed, overwrite, apply, ct);
+                        file, "FILTER", filterName, "Filter name", allowed,
+                        overwriteExisting: overwrite, allowMultiplyLinked: allowLinked, apply: apply,
+                        cancellationToken: ct);
                     var key = result.Outcome switch
                     {
                         FitsHeaderEditor.TagOutcome.Tagged => "tagged",
                         FitsHeaderEditor.TagOutcome.AlreadyPresent => $"skipped (already has {result.ExistingValue})",
                         FitsHeaderEditor.TagOutcome.FrameTypeExcluded => $"skipped ({result.Detail})",
+                        FitsHeaderEditor.TagOutcome.MultiplyLinked => "SKIPPED (hard-linked, see below)",
                         _ => $"UNREADABLE ({result.Detail})",
                     };
+                    if (result.Outcome is FitsHeaderEditor.TagOutcome.MultiplyLinked)
+                    {
+                        linked++;
+                    }
                     counts[key] = counts.GetValueOrDefault(key) + 1;
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -361,6 +376,14 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             foreach (var (key, count) in counts)
             {
                 consoleHost.WriteScrollable($"[tag-filter]   {key}: {count}");
+            }
+            if (linked > 0)
+            {
+                consoleHost.WriteScrollable(
+                    $"[tag-filter] {linked} file(s) are hard-linked, so another path holds the same data and would " +
+                    "keep the untagged header. That is how one night ends up filed twice and grouped as two " +
+                    "different sessions. Either declare the filter with a .tianwen-meta.json sidecar instead " +
+                    "(writes nothing, breaks no links), or pass --allow-hardlinked if the copies are meant to diverge.");
             }
             if (!apply)
             {
