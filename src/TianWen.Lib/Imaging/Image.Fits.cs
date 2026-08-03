@@ -205,7 +205,12 @@ public partial class Image
         var frameTypeRaw = hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP");
         var frameType = FrameType.FromFITSValue(frameTypeRaw) ?? FrameType.None;
         var isMaster = FrameType.IsMasterFITSValue(frameTypeRaw);
-        var filter = Filter.FromName(filterClassName) is var f && f != Filter.Unknown
+        // Prefer FILTCLAS, fall back to FILTER. The blank guard is load-bearing: FromName(null)
+        // returns None, NOT Unknown, so testing only `!= Unknown` accepted a missing FILTCLAS as a
+        // definitive "no filter" and discarded FILTER unread. FILTCLAS is our own convention, so
+        // that silently made EVERY third-party file with a filter (all of N.I.N.A.'s) read as
+        // unfiltered. Pinned by FitsHeaderEditorTests + FilterHeaderFallbackTests.
+        var filter = !string.IsNullOrWhiteSpace(filterClassName) && Filter.FromName(filterClassName) is var f && f != Filter.Unknown
             ? f : Filter.FromName(filterName);
         filter = filter with { RawName = filterName };
         var (isCFA, cfaPattern) = ParseCfaImageCard(hdu.Header);
@@ -385,8 +390,9 @@ public partial class Image
         var frameTypeRaw = hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP");
         var frameType = FrameType.FromFITSValue(frameTypeRaw) ?? FrameType.None;
         var isMaster = FrameType.IsMasterFITSValue(frameTypeRaw);
-        // Prefer FILTCLAS for coarse classification; fall back to parsing FILTER (backward compat)
-        var filter = Filter.FromName(filterClassName) is var f && f != Filter.Unknown
+        // Prefer FILTCLAS for coarse classification; fall back to parsing FILTER (backward compat).
+        // The blank guard is load-bearing; see the identical site in TryReadFitsHeader for why.
+        var filter = !string.IsNullOrWhiteSpace(filterClassName) && Filter.FromName(filterClassName) is var f && f != Filter.Unknown
             ? f : Filter.FromName(filterName);
         // Carry the raw FILTER value in the Filter for SPCC curve matching
         filter = filter with { RawName = filterName };
