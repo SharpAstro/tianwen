@@ -42,6 +42,10 @@ internal static partial class HardLinkProbe
     private const int ErrorMoreData = 234;
     private const int ErrorHandleEof = 38;
 
+    /// <summary>Stack room for one volume-relative link name, comfortably past MAX_PATH (260) so the
+    /// grow-and-retry path is reachable but effectively never taken.</summary>
+    private const int StackNameBuffer = 512;
+
     /// <summary>
     /// Which physical file a path names, plus how many names point at it. Two paths naming one file
     /// report equal <see cref="VolumeSerial"/> and <see cref="FileIndex"/>; a normal file reports
@@ -123,7 +127,15 @@ internal static partial class HardLinkProbe
         }
         var prefix = root.TrimEnd(Path.DirectorySeparatorChar);
 
-        var buffer = new char[1024];
+        // The buffer is normally the stack's: a volume-relative path sits well inside MAX_PATH, and
+        // this runs once per hard-linked frame across a sweep of tens of thousands. `scoped` is what
+        // permits it. A Span local declared without an initialiser is otherwise assumed to be able
+        // to outlive the method, and stack memory cannot be assigned to one that can; saying scoped
+        // states the opposite, which is what leaves room to reassign the same local to a heap array
+        // if the API asks for more room.
+        scoped Span<char> buffer = stackalloc char[StackNameBuffer];
+        char[]? grown = null;
+
         var length = (uint)buffer.Length;
         var find = FindFirstFileName(full, 0, ref length, ref Start(buffer));
         if (find == InvalidHandle)
@@ -133,8 +145,10 @@ internal static partial class HardLinkProbe
                 return [];
             }
             // Both entry points answer ERROR_MORE_DATA with the size they need, so one retry at the
-            // demanded size is always enough.
-            buffer = new char[length];
+            // demanded size is always enough. Growing goes to the heap rather than a second
+            // stackalloc, which inside a loop would grow the frame on every pass.
+            grown = new char[length];
+            buffer = grown;
             find = FindFirstFileName(full, 0, ref length, ref Start(buffer));
             if (find == InvalidHandle)
             {
@@ -147,7 +161,11 @@ internal static partial class HardLinkProbe
             var names = ImmutableArray.CreateBuilder<string>();
             while (true)
             {
-                names.Add(prefix + NameFrom(buffer));
+                // One allocation per name: the span overload of Concat writes the volume root and the
+                // volume-relative name straight into the result. The length the API reports back is
+                // documented only for the ERROR_MORE_DATA case, so the NUL is the reliable end.
+                var nul = buffer.IndexOf('\0');
+                names.Add(string.Concat(prefix, nul < 0 ? buffer : buffer[..nul]));
 
                 length = (uint)buffer.Length;
                 if (FindNextFileName(find, ref length, ref Start(buffer)))
@@ -157,7 +175,8 @@ internal static partial class HardLinkProbe
                 var error = Marshal.GetLastWin32Error();
                 if (error == ErrorMoreData)
                 {
-                    buffer = new char[length];
+                    grown = new char[length];
+                    buffer = grown;
                     if (FindNextFileName(find, ref length, ref Start(buffer)))
                     {
                         continue;
@@ -196,18 +215,11 @@ internal static partial class HardLinkProbe
         return false;
     }
 
-    /// <summary>The NUL-terminated name in a Win32 output buffer. The length the API reports back is
-    /// documented only for the ERROR_MORE_DATA case, so the terminator is the reliable end.</summary>
-    private static string NameFrom(char[] buffer)
-    {
-        var nul = Array.IndexOf(buffer, '\0');
-        return new string(buffer, 0, nul < 0 ? buffer.Length : nul);
-    }
-
-    /// <summary>The buffer's first code unit as the <c>ushort</c> the imports are declared over.
-    /// Passing a byref to a P/Invoke pins the array for the duration of the call.</summary>
-    private static ref ushort Start(char[] buffer)
-        => ref Unsafe.As<char, ushort>(ref MemoryMarshal.GetArrayDataReference(buffer));
+    /// <summary>The buffer's first code unit as the <c>ushort</c> the imports are declared over. A
+    /// static method rather than a local function on purpose: a local function cannot take a span at
+    /// all (CS8175), so the reinterpretation has to happen behind a real parameter.</summary>
+    private static ref ushort Start(Span<char> buffer)
+        => ref Unsafe.As<char, ushort>(ref MemoryMarshal.GetReference(buffer));
 
     [LibraryImport("kernel32.dll", EntryPoint = "GetFileInformationByHandle", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -52,6 +53,10 @@ public static class FitsHeaderEditor
     /// <summary>Longest header we will walk before declaring the file malformed (~1170 cards).
     /// A real primary header is one or two blocks; anything past this is not a header we understand.</summary>
     private const int MaxHeaderBlocks = 32;
+
+    /// <summary>Chunk the verification pass compares in. Rented rather than allocated, so the size is
+    /// a throughput choice and not an allocation cost.</summary>
+    private const int CompareChunk = 1 << 20;
 
     /// <summary>Scratch name a re-pointed hard link is created under before it is renamed over the
     /// sibling it replaces. Distinct from the temp/backup suffixes so a leftover says which step
@@ -153,7 +158,7 @@ public static class FitsHeaderEditor
 
         var newCard = FormatStringCard(keyword, value, comment);
 
-        byte[] headerBytes;
+        int headerLength;
         List<string> cards;
         try
         {
@@ -163,7 +168,7 @@ public static class FitsHeaderEditor
             {
                 return new TagResult(path, TagOutcome.Unreadable, "not a FITS primary header");
             }
-            (headerBytes, cards) = parsed.Value;
+            (headerLength, cards) = parsed.Value;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -212,7 +217,7 @@ public static class FitsHeaderEditor
         }
 
         var rewritten = RewriteHeader(cards, keyword, newCard);
-        await ReplaceHeaderAsync(path, headerBytes.Length, rewritten, cancellationToken);
+        await ReplaceHeaderAsync(path, headerLength, rewritten, cancellationToken);
 
         if (!relink || before is not { } original)
         {
@@ -326,40 +331,41 @@ public static class FitsHeaderEditor
         => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Reads the primary header: the raw bytes up to and including the block holding <c>END</c>,
-    /// plus the parsed cards. Null when the file is not a FITS primary HDU.
+    /// Reads the primary header: how many bytes it occupies, up to and including the block holding
+    /// <c>END</c>, plus the parsed cards. Null when the file is not a FITS primary HDU.
+    ///
+    /// <para>The length rather than the bytes, because the length is all the caller ever wanted: it
+    /// passes it to <see cref="ReplaceHeaderAsync"/> as the offset to resume copying from, and the
+    /// content it needs is already in <c>Cards</c>. This used to keep every block and then
+    /// concatenate them, so each file paid for N block arrays, one header-sized array, and a full
+    /// copy of its own header, to arrive at a number.</para>
     /// </summary>
-    private static async Task<(byte[] Raw, List<string> Cards)?> ReadPrimaryHeaderAsync(Stream stream, CancellationToken ct)
+    private static async Task<(int Length, List<string> Cards)?> ReadPrimaryHeaderAsync(Stream stream, CancellationToken ct)
     {
-        var blocks = new List<byte[]>();
+        // One buffer reused for every block, which is only correct because no block outlives its own
+        // pass now. It cannot be a stackalloc: a span may not be held across an await.
+        var block = new byte[BlockSize];
         var cards = new List<string>();
         for (var b = 0; b < MaxHeaderBlocks; b++)
         {
-            var block = new byte[BlockSize];
             var read = await stream.ReadAtLeastAsync(block, BlockSize, throwOnEndOfStream: false, ct);
             if (read < BlockSize)
             {
                 return null; // truncated: never a header we should be editing
             }
-            blocks.Add(block);
 
             for (var offset = 0; offset < BlockSize; offset += CardSize)
             {
                 var card = Encoding.ASCII.GetString(block, offset, CardSize);
                 // The very first card of a primary HDU must be SIMPLE, per the standard. Checking it
                 // is what stops this from happily "editing" a JPEG.
-                if (blocks.Count == 1 && offset == 0 && !card.StartsWith("SIMPLE  =", StringComparison.Ordinal))
+                if (b == 0 && offset == 0 && !card.StartsWith("SIMPLE  =", StringComparison.Ordinal))
                 {
                     return null;
                 }
                 if (card.StartsWith("END", StringComparison.Ordinal) && card[3..].AsSpan().Trim().IsEmpty)
                 {
-                    var raw = new byte[blocks.Count * BlockSize];
-                    for (var i = 0; i < blocks.Count; i++)
-                    {
-                        blocks[i].CopyTo(raw, i * BlockSize);
-                    }
-                    return (raw, cards);
+                    return ((b + 1) * BlockSize, cards);
                 }
                 cards.Add(card);
             }
@@ -453,23 +459,40 @@ public static class FitsHeaderEditor
         a.Seek(oldHeaderLength, SeekOrigin.Begin);
         b.Seek(newHeaderLength, SeekOrigin.Begin);
 
-        var bufA = new byte[1 << 20];
-        var bufB = new byte[1 << 20];
-        long compared = 0;
-        while (compared < expected)
+        // Rented, not allocated. At a mebibyte each these are well past the 85 KB large-object
+        // threshold, so a sweep of tens of thousands of frames would put tens of gigabytes through
+        // the LOH and then collect all of it, for buffers whose whole life is this one comparison.
+        // They cannot be spans: a span may not be held across an await, and every read here is one.
+        var pool = ArrayPool<byte>.Shared;
+        var bufA = pool.Rent(CompareChunk);
+        var bufB = pool.Rent(CompareChunk);
+        try
         {
-            var want = (int)Math.Min(bufA.Length, expected - compared);
-            var readA = await a.ReadAtLeastAsync(bufA.AsMemory(0, want), want, throwOnEndOfStream: false, ct);
-            var readB = await b.ReadAtLeastAsync(bufB.AsMemory(0, want), want, throwOnEndOfStream: false, ct);
-            if (readA != want || readB != want)
+            long compared = 0;
+            while (compared < expected)
             {
-                throw new IOException($"Verification failed for {original}: short read at byte {compared}.");
+                // Against the constant, not the array length: Rent may hand back a larger buffer, and
+                // the chunk size should be the one this code chose.
+                var want = (int)Math.Min(CompareChunk, expected - compared);
+                var readA = await a.ReadAtLeastAsync(bufA.AsMemory(0, want), want, throwOnEndOfStream: false, ct);
+                var readB = await b.ReadAtLeastAsync(bufB.AsMemory(0, want), want, throwOnEndOfStream: false, ct);
+                if (readA != want || readB != want)
+                {
+                    throw new IOException($"Verification failed for {original}: short read at byte {compared}.");
+                }
+                if (!bufA.AsSpan(0, want).SequenceEqual(bufB.AsSpan(0, want)))
+                {
+                    throw new IOException($"Verification failed for {original}: payload differs at byte {compared}.");
+                }
+                compared += want;
             }
-            if (!bufA.AsSpan(0, want).SequenceEqual(bufB.AsSpan(0, want)))
-            {
-                throw new IOException($"Verification failed for {original}: payload differs at byte {compared}.");
-            }
-            compared += want;
+        }
+        finally
+        {
+            // No clearOnReturn: this held file bytes the caller already owns, not a secret, and
+            // zeroing a mebibyte per frame would cost more than the rent saved.
+            pool.Return(bufA);
+            pool.Return(bufB);
         }
     }
 
