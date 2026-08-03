@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,6 +33,13 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// which is then verified against the original before anything is replaced, and the replace itself
 /// keeps a backup until the result has been re-verified on disk. A crash at any point leaves either
 /// the untouched original or the original plus a recoverable backup, never a half-written frame.</para>
+///
+/// <para><b>Because the write is a replace, a frame with several names needs a decision.</b> A
+/// replace re-points one directory entry, so on a hard-linked frame it would amend one name and
+/// leave the others on the old file. <see cref="HardLinkPolicy"/> is that decision, and
+/// <see cref="HardLinkPolicy.Relink"/> is the one that matches what the links mean: they are one
+/// physical frame under several names, so a card describing the frame belongs to all of them. See
+/// <c>RelinkSiblings</c> for the ordering that makes it safe.</para>
 /// </summary>
 public static class FitsHeaderEditor
 {
@@ -43,6 +52,11 @@ public static class FitsHeaderEditor
     /// <summary>Longest header we will walk before declaring the file malformed (~1170 cards).
     /// A real primary header is one or two blocks; anything past this is not a header we understand.</summary>
     private const int MaxHeaderBlocks = 32;
+
+    /// <summary>Scratch name a re-pointed hard link is created under before it is renamed over the
+    /// sibling it replaces. Distinct from the temp/backup suffixes so a leftover says which step
+    /// stopped.</summary>
+    private const string RelinkSuffix = ".tianwen-relink";
 
     /// <summary>Why a file was left alone, or how it changed.</summary>
     public enum TagOutcome
@@ -58,13 +72,46 @@ public static class FitsHeaderEditor
         /// <summary>Other paths share this file's data (see <see cref="HardLinkProbe"/>), so
         /// replacing it would edit one name and silently leave its siblings on the old content.</summary>
         MultiplyLinked,
+        /// <summary>The card was written and every other name for the frame was re-pointed at the
+        /// amended file, so the archive still holds one physical frame under all of them.</summary>
+        TaggedAndRelinked,
+    }
+
+    /// <summary>What to do about a frame that more than one path points at.</summary>
+    public enum HardLinkPolicy
+    {
+        /// <summary>Leave it alone and report it. The right default: the edit is a replace, and a
+        /// replace re-points one name.</summary>
+        Refuse,
+        /// <summary>Amend one name, then re-point every other name at the amended frame. This is the
+        /// semantically correct answer rather than a convenience, because the links are ONE physical
+        /// frame under several names and a FILTER card describes the frame, so it applies to every
+        /// name equally. It also keeps the de-duplication, and makes a later divergence impossible
+        /// rather than merely unlikely.</summary>
+        Relink,
+        /// <summary>Amend this name only and let the other names keep the old header. Correct only
+        /// when the copies are genuinely meant to differ, which for a de-duplicated archive is
+        /// essentially never.</summary>
+        Diverge,
     }
 
     /// <param name="Path">The file considered.</param>
     /// <param name="Outcome">What happened, or would happen on a dry run.</param>
     /// <param name="Detail">Human-readable reason, empty when tagged normally.</param>
     /// <param name="ExistingValue">The keyword's current value when it already had one.</param>
-    public sealed record TagResult(string Path, TagOutcome Outcome, string Detail = "", string? ExistingValue = null);
+    /// <param name="OtherLinks">The other paths that point at this same frame, whenever there were
+    /// any, whatever the outcome. Populated on a dry run too, because "which other files does this
+    /// reach" is the question a dry run exists to answer.</param>
+    public sealed record TagResult(
+        string Path,
+        TagOutcome Outcome,
+        string Detail = "",
+        string? ExistingValue = null,
+        ImmutableArray<string> OtherLinks = default)
+    {
+        /// <summary>The other names for this frame, never a default (unset) array.</summary>
+        public ImmutableArray<string> OtherLinks { get; init; } = OtherLinks.IsDefault ? [] : OtherLinks;
+    }
 
     /// <summary>
     /// Sets or replaces a string-valued card in <paramref name="path"/>'s primary header.
@@ -80,11 +127,10 @@ public static class FitsHeaderEditor
     /// <param name="overwriteExisting">Replace a keyword that already has a non-blank value. Off by
     /// default: the job is filling in what was never recorded, and silently relabelling a frame that
     /// stated its own filter is a different and far more dangerous operation.</param>
-    /// <param name="allowMultiplyLinked">Amend a file that other paths also point at. Off by
-    /// default: the replace re-points ONE directory entry, so a hard-linked frame would come out
-    /// edited under one name and untouched under the others, and the two copies of what was one
-    /// night would then disagree. Only pass this when every link is meant to diverge, which for a
-    /// de-duplicated archive is essentially never.</param>
+    /// <param name="hardLinks">What to do when other paths point at the same frame. Defaults to
+    /// <see cref="HardLinkPolicy.Refuse"/>, because the replace re-points ONE directory entry, so a
+    /// hard-linked frame would otherwise come out edited under one name and untouched under the
+    /// others, and the two copies of what was one night would then disagree.</param>
     /// <param name="apply">When false (the default) nothing is written and the returned outcome is
     /// what *would* happen.</param>
     public static async Task<TagResult> SetStringCardAsync(
@@ -94,7 +140,7 @@ public static class FitsHeaderEditor
         string comment = "",
         IReadOnlySet<FrameType>? allowedFrameTypes = null,
         bool overwriteExisting = false,
-        bool allowMultiplyLinked = false,
+        HardLinkPolicy hardLinks = HardLinkPolicy.Refuse,
         bool apply = false,
         CancellationToken cancellationToken = default)
     {
@@ -140,23 +186,144 @@ public static class FitsHeaderEditor
             return new TagResult(path, TagOutcome.AlreadyPresent, $"{keyword}={existing}", existing);
         }
 
-        // Checked BEFORE the dry-run return on purpose: the whole value of a dry run is finding out
-        // what a real run would do, and "this edit would reach one of three names for the same
-        // frame" is the single most consequential thing it can tell you.
-        if (!allowMultiplyLinked && HardLinkProbe.TryGetLinkCount(path) is { } links && links > 1)
+        // Resolved BEFORE the dry-run return on purpose: the whole value of a dry run is finding out
+        // what a real run would do, and "this edit reaches one of three names for the same frame,
+        // one of them outside the directory you pointed at" is the single most consequential thing
+        // it can tell you. The link walk only runs when the cheap count says it is worth it.
+        var before = HardLinkProbe.TryGetIdentity(path);
+        var otherLinks = before is { LinkCount: > 1 }
+            ? [.. HardLinkProbe.EnumerateLinks(path).Where(other => !PathsEqual(other, path))]
+            : ImmutableArray<string>.Empty;
+
+        if (before is { LinkCount: > 1 } shared && hardLinks is HardLinkPolicy.Refuse)
         {
-            return new TagResult(path, TagOutcome.MultiplyLinked, $"{links} hard links", existing);
+            return new TagResult(path, TagOutcome.MultiplyLinked, $"{shared.LinkCount} hard links", existing, otherLinks);
         }
+
+        // Relinking needs both the pre-edit identity and the list of names to move, so a walk that
+        // came back empty (an unsupported platform, or a failed enumeration) falls back to editing
+        // this one name rather than silently doing half the job.
+        var relink = hardLinks is HardLinkPolicy.Relink && before is { LinkCount: > 1 } && otherLinks.Length > 0;
 
         if (!apply)
         {
-            return new TagResult(path, TagOutcome.Tagged, "dry run", existing);
+            return new TagResult(
+                path, relink ? TagOutcome.TaggedAndRelinked : TagOutcome.Tagged, "dry run", existing, otherLinks);
         }
 
         var rewritten = RewriteHeader(cards, keyword, newCard);
         await ReplaceHeaderAsync(path, headerBytes.Length, rewritten, cancellationToken);
-        return new TagResult(path, TagOutcome.Tagged, "", existing);
+
+        if (!relink || before is not { } original)
+        {
+            return new TagResult(path, TagOutcome.Tagged, "", existing, otherLinks);
+        }
+
+        RelinkSiblings(path, otherLinks, original);
+        return new TagResult(
+            path, TagOutcome.TaggedAndRelinked, $"{otherLinks.Length} other name(s) re-pointed", existing, otherLinks);
     }
+
+    /// <summary>
+    /// Re-points every other name for a frame at the amended file, so a de-duplicated archive keeps
+    /// one physical frame under all its names instead of forking into a tagged and an untagged copy.
+    ///
+    /// <para><b>Every expectation is verified, not assumed.</b> The replace should have left
+    /// <paramref name="path"/> naming NEW data with exactly one link, and every sibling still naming
+    /// the ORIGINAL data with its link count down by the one name that moved away. Where there were
+    /// only two names that reads as "the sibling is now the sole remaining name for the file as it
+    /// was", which is the case worth stating out loud. Any of it not holding means something other
+    /// than this edit changed the file while we worked, and re-pointing names is then the very last
+    /// thing that should happen, so the whole set is checked before a single name moves.</para>
+    /// </summary>
+    /// <returns>How many names were re-pointed, always <c>siblings.Length</c> on success.</returns>
+    private static int RelinkSiblings(string path, ImmutableArray<string> siblings, HardLinkProbe.FileIdentity before)
+    {
+        if (HardLinkProbe.TryGetIdentity(path) is not { } amended)
+        {
+            throw new IOException(
+                $"The header of {path} was amended, but its identity is unreadable, so the other " +
+                $"{siblings.Length} name(s) for it were left on the original frame.");
+        }
+        if (amended.IsSameFileAs(before))
+        {
+            throw new IOException(
+                $"Refusing to re-link {path}: the edit left it naming the same file as before ({before}), " +
+                "which no replace should do.");
+        }
+        if (amended.LinkCount != 1)
+        {
+            throw new IOException(
+                $"Refusing to re-link {path}: the amended file already has {amended.LinkCount} names, expected 1.");
+        }
+
+        var expected = before.LinkCount - 1;
+        foreach (var sibling in siblings)
+        {
+            if (HardLinkProbe.TryGetIdentity(sibling) is not { } current)
+            {
+                throw new IOException($"Refusing to re-link {path}: {sibling} cannot be read.");
+            }
+            if (!current.IsSameFileAs(before))
+            {
+                throw new IOException(
+                    $"Refusing to re-link {path}: {sibling} no longer holds the original frame " +
+                    $"(it names {current}, expected {before}).");
+            }
+            if (current.LinkCount != expected)
+            {
+                throw new IOException(
+                    $"Refusing to re-link {path}: {sibling} reports {current.LinkCount} names for the " +
+                    $"original frame, expected {expected} after one moved away.");
+            }
+        }
+
+        var moved = 0;
+        foreach (var sibling in siblings)
+        {
+            var staging = sibling + RelinkSuffix;
+            try
+            {
+                // Link first, then rename over the sibling: a replacing rename is one atomic
+                // directory operation, so the sibling's path is never absent even for an instant.
+                // The opposite order, delete then link, has a window in which a crash loses a name
+                // outright, and a name in this archive is how a night is found.
+                if (!HardLinkProbe.TryCreateHardLink(staging, path, out var error))
+                {
+                    throw new IOException($"Could not add a name for the amended frame at {staging}: {error}");
+                }
+                File.Move(staging, sibling, overwrite: true);
+
+                if (HardLinkProbe.TryGetIdentity(sibling) is not { } relinked || !relinked.IsSameFileAs(amended))
+                {
+                    throw new IOException($"{sibling} still does not name the amended frame after re-linking.");
+                }
+                moved++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                TryDelete(staging);
+                throw new IOException(
+                    $"Amended {path} and re-pointed {moved} of {siblings.Length} other name(s) before failing " +
+                    $"on {sibling}: {ex.Message} The names not yet re-pointed still hold the original, " +
+                    "untagged frame, so nothing is lost; re-running tags each of them separately.",
+                    ex);
+            }
+        }
+
+        // Every name accounted for. The original file now has no name at all, so NTFS has already
+        // reclaimed it, and the space de-duplication saved is still saved.
+        if (HardLinkProbe.TryGetIdentity(path) is { } final && final.LinkCount != before.LinkCount)
+        {
+            throw new IOException(
+                $"Re-linking {path} ended with {final.LinkCount} names, expected the original {before.LinkCount}.");
+        }
+        return moved;
+    }
+
+    /// <summary>Two paths naming the same entry, compared the way the file system does.</summary>
+    private static bool PathsEqual(string a, string b)
+        => string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Reads the primary header: the raw bytes up to and including the block holding <c>END</c>,

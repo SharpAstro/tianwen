@@ -263,6 +263,11 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
     /// nothing. This exists for when you want the fact in the frames themselves, where every other
     /// tool can see it. It edits the primary header surgically and copies every other byte verbatim
     /// (see <see cref="FitsHeaderEditor"/>), and it is a DRY RUN unless <c>--apply</c> is passed.</para>
+    ///
+    /// <para>A de-duplicated archive files some nights twice, as hard links to one frame, and those
+    /// are refused by default. <c>--hard-links relink</c> brings the other names along; because a
+    /// shared frame has no per-name header, that necessarily changes files outside <c>--path</c>, so
+    /// the summary lists them and the dry run lists them first.</para>
     /// </summary>
     private Command BuildTagFilterCommand()
     {
@@ -290,16 +295,19 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             AllowMultipleArgumentsPerToken = true,
             DefaultValueFactory = _ => ["Light", "Flat", "DarkFlat"],
         };
-        var allowLinkedOpt = new Option<bool>("--allow-hardlinked")
+        var hardLinksOpt = new Option<FitsHeaderEditor.HardLinkPolicy>("--hard-links")
         {
-            Description = "Also tag frames that other paths point at. Off by default: the write re-points one " +
-                          "directory entry, so a de-duplicated archive would end up with one filing of a night " +
-                          "tagged and the other not. Prefer a .tianwen-meta.json sidecar for those trees.",
+            Description = "What to do with a frame that other paths also point at (a de-duplicated archive files " +
+                          "one night twice). refuse: skip it and report where the other names are (default). " +
+                          "relink: amend one name, then re-point the others at the amended frame, so all the names " +
+                          "keep sharing one physical file. diverge: amend this name only and leave the others on " +
+                          "the old header.",
+            DefaultValueFactory = _ => FitsHeaderEditor.HardLinkPolicy.Refuse,
         };
 
         var command = new Command("tag-filter", "Write a FILTER card into frames that never recorded one (header-surgical; dry run by default).")
         {
-            pathOpt, filterOpt, recursiveOpt, applyOpt, overwriteOpt, frameTypesOpt, allowLinkedOpt,
+            pathOpt, filterOpt, recursiveOpt, applyOpt, overwriteOpt, frameTypesOpt, hardLinksOpt,
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -313,7 +321,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             var filterName = parseResult.GetValue(filterOpt)!;
             var apply = parseResult.GetValue(applyOpt);
             var overwrite = parseResult.GetValue(overwriteOpt);
-            var allowLinked = parseResult.GetValue(allowLinkedOpt);
+            var hardLinks = parseResult.GetValue(hardLinksOpt);
 
             var allowed = new HashSet<FrameType>();
             foreach (var name in parseResult.GetValue(frameTypesOpt)!)
@@ -340,7 +348,11 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
 
             var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
             var failures = 0;
-            var linked = 0;
+            var refused = 0;
+            // Every other name a relink reaches, so the summary can say what was touched beyond the
+            // files that were actually walked. A shared frame cannot be tagged under one name only,
+            // so this list is the honest scope of the command and not a footnote.
+            var reached = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var file in files)
             {
                 ct.ThrowIfCancellationRequested();
@@ -348,11 +360,13 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 {
                     var result = await FitsHeaderEditor.SetStringCardAsync(
                         file, "FILTER", filterName, "Filter name", allowed,
-                        overwriteExisting: overwrite, allowMultiplyLinked: allowLinked, apply: apply,
+                        overwriteExisting: overwrite, hardLinks: hardLinks, apply: apply,
                         cancellationToken: ct);
                     var key = result.Outcome switch
                     {
                         FitsHeaderEditor.TagOutcome.Tagged => "tagged",
+                        FitsHeaderEditor.TagOutcome.TaggedAndRelinked =>
+                            $"tagged + {(apply ? "re-pointed" : "would re-point")} its other names",
                         FitsHeaderEditor.TagOutcome.AlreadyPresent => $"skipped (already has {result.ExistingValue})",
                         FitsHeaderEditor.TagOutcome.FrameTypeExcluded => $"skipped ({result.Detail})",
                         FitsHeaderEditor.TagOutcome.MultiplyLinked => "SKIPPED (hard-linked, see below)",
@@ -360,7 +374,14 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                     };
                     if (result.Outcome is FitsHeaderEditor.TagOutcome.MultiplyLinked)
                     {
-                        linked++;
+                        refused++;
+                    }
+                    if (result.Outcome is FitsHeaderEditor.TagOutcome.TaggedAndRelinked)
+                    {
+                        foreach (var other in result.OtherLinks)
+                        {
+                            reached.Add(other);
+                        }
                     }
                     counts[key] = counts.GetValueOrDefault(key) + 1;
                 }
@@ -377,13 +398,37 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             {
                 consoleHost.WriteScrollable($"[tag-filter]   {key}: {count}");
             }
-            if (linked > 0)
+            if (refused > 0)
             {
                 consoleHost.WriteScrollable(
-                    $"[tag-filter] {linked} file(s) are hard-linked, so another path holds the same data and would " +
+                    $"[tag-filter] {refused} file(s) are hard-linked, so another path holds the same frame and would " +
                     "keep the untagged header. That is how one night ends up filed twice and grouped as two " +
-                    "different sessions. Either declare the filter with a .tianwen-meta.json sidecar instead " +
-                    "(writes nothing, breaks no links), or pass --allow-hardlinked if the copies are meant to diverge.");
+                    "different sessions. Pass --hard-links relink to bring the other names along (they name the " +
+                    "same frame, so the same filter applies to all of them), or declare the filter with a " +
+                    ".tianwen-meta.json sidecar instead, which writes nothing and breaks no links.");
+            }
+            // Names already in the walked set are reported by their own outcome line, so what is left
+            // is the honest answer to "what did this change that I did not point it at". Subtracting
+            // them also makes a dry run and an --apply agree: without it the dry run counts a swept
+            // sibling that the real run finds already tagged, and the two totals disagree for no
+            // reason a reader could work out.
+            reached.ExceptWith(files.Select(Path.GetFullPath));
+            if (reached.Count > 0)
+            {
+                // Worth its own paragraph rather than a footnote: the command was given one directory
+                // and this is what it touches beyond it. Unavoidable, since a shared frame has no
+                // per-name header to differ in, but never something to discover afterwards.
+                consoleHost.WriteScrollable(
+                    $"[tag-filter] {reached.Count} further file(s) are OTHER NAMES for the same frames, outside the " +
+                    $"{files.Length} walked, and are amended with them (a shared frame cannot carry two headers):");
+                foreach (var other in reached.Take(20))
+                {
+                    consoleHost.WriteScrollable($"[tag-filter]     {other}");
+                }
+                if (reached.Count > 20)
+                {
+                    consoleHost.WriteScrollable($"[tag-filter]     ... and {reached.Count - 20} more");
+                }
             }
             if (!apply)
             {

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -408,9 +407,24 @@ namespace TianWen.Lib.Tests
             Sha(File.ReadAllBytes(path)).ShouldBe(before);
         }
 
-        [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool CreateHardLink(string newFile, string existingFile, IntPtr attributes);
+        /// <summary>Adds <paramref name="link"/> as another name for <paramref name="existing"/>,
+        /// skipping the test when the volume cannot do it. Goes through the production helper so the
+        /// fixture and the code under test agree about what a hard link is.</summary>
+        private static void LinkOrSkip(string link, string existing)
+        {
+            Assert.SkipUnless(OperatingSystem.IsWindows(), "Hard links are only handled on Windows.");
+            Assert.SkipUnless(
+                HardLinkProbe.TryCreateHardLink(link, existing, out var error),
+                $"Could not create a hard link on this volume: {error}");
+        }
+
+        /// <summary>The identity of the file a path names, failing the test if it cannot be read.</summary>
+        private static HardLinkProbe.FileIdentity IdentityOf(string path)
+        {
+            var identity = HardLinkProbe.TryGetIdentity(path);
+            identity.ShouldNotBeNull($"the identity of {path} must be readable");
+            return identity.Value;
+        }
 
         [Fact]
         public async Task GivenAHardLinkedFrame_WhenTagging_ThenItIsRefusedAndNeitherNameChanges()
@@ -418,11 +432,10 @@ namespace TianWen.Lib.Tests
             // The real archive de-duplicates with hard links (a Vela panel and its dated filing are
             // one file under two names). File.Replace re-points ONE directory entry, so tagging
             // would leave the sibling on the old header and split one night into two sessions.
-            Assert.SkipUnless(OperatingSystem.IsWindows(), "Hard-link count is only probed on Windows.");
             var dir = CreateTempDir();
             var (path, _) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
             var sibling = Path.Combine(dir, "same-frame-other-name.fits");
-            Assert.SkipUnless(CreateHardLink(sibling, path, IntPtr.Zero), "Could not create a hard link on this volume.");
+            LinkOrSkip(sibling, path);
             var before = Sha(File.ReadAllBytes(path));
 
             var dryRun = await FitsHeaderEditor.SetStringCardAsync(
@@ -432,8 +445,10 @@ namespace TianWen.Lib.Tests
                 path, "FILTER", "Optolong L-Ultimate 3nm", apply: true,
                 cancellationToken: TestContext.Current.CancellationToken);
 
-            // The dry run must surface it too: finding out before committing is the point.
+            // The dry run must surface it too: finding out before committing is the point, and the
+            // report has to name WHERE the other copy is or it cannot be acted on.
             dryRun.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.MultiplyLinked);
+            dryRun.OtherLinks.ShouldHaveSingleItem().ShouldBe(sibling);
             applied.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.MultiplyLinked);
             applied.Detail.ShouldBe("2 hard links");
             Sha(File.ReadAllBytes(path)).ShouldBe(before);
@@ -441,19 +456,20 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public async Task GivenAnExplicitOverride_WhenTaggingAHardLinkedFrame_ThenOnlyTheNamedPathChanges()
+        public async Task GivenTheDivergePolicy_WhenTaggingAHardLinkedFrame_ThenOnlyTheNamedPathChanges()
         {
-            // Pins the hazard itself rather than only the guard: with the override the link IS
-            // broken and the sibling keeps the old header. Anyone tempted to make --allow-hardlinked
-            // the default should read this test first.
-            Assert.SkipUnless(OperatingSystem.IsWindows(), "Hard-link count is only probed on Windows.");
+            // Pins the hazard itself rather than only the guard: under Diverge the link IS broken and
+            // the sibling keeps the old header. Anyone tempted to make this the default should read
+            // this test first. It is also the exact state Relink exists to avoid.
             var dir = CreateTempDir();
             var (path, payload) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
             var sibling = Path.Combine(dir, "same-frame-other-name.fits");
-            Assert.SkipUnless(CreateHardLink(sibling, path, IntPtr.Zero), "Could not create a hard link on this volume.");
+            LinkOrSkip(sibling, path);
+            var shared = IdentityOf(path);
 
             var result = await FitsHeaderEditor.SetStringCardAsync(
-                path, "FILTER", "Optolong L-Ultimate 3nm", allowMultiplyLinked: true, apply: true,
+                path, "FILTER", "Optolong L-Ultimate 3nm",
+                hardLinks: FitsHeaderEditor.HardLinkPolicy.Diverge, apply: true,
                 cancellationToken: TestContext.Current.CancellationToken);
 
             result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
@@ -462,6 +478,138 @@ namespace TianWen.Lib.Tests
             // Both still hold the same pixels; only the headers have diverged.
             Sha(PayloadOf(path)).ShouldBe(Sha(payload));
             Sha(PayloadOf(sibling)).ShouldBe(Sha(payload));
+            // And the sharing is gone: two files of one frame's size where there was one.
+            var amended = IdentityOf(path);
+            amended.IsSameFileAs(shared).ShouldBeFalse("the replace produced a new file");
+            amended.LinkCount.ShouldBe(1);
+            IdentityOf(sibling).IsSameFileAs(shared).ShouldBeTrue("the sibling kept the original file");
+            IdentityOf(sibling).LinkCount.ShouldBe(1, "and is now its only name");
+        }
+
+        [Fact]
+        public async Task GivenTwoNamesForOneFrame_WhenRelinking_ThenBothEndOnTheAmendedFileWithTheOriginalPixels()
+        {
+            // The two-name case stated explicitly, because it is the one the verification phrases
+            // differently: after the edit the sibling must still be the SAME file it was, and now
+            // the only name for it. Then both names come back together on the amended file.
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
+            var sibling = Path.Combine(dir, "same-frame-other-name.fits");
+            LinkOrSkip(sibling, path);
+            var shared = IdentityOf(path);
+            shared.LinkCount.ShouldBe(2);
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Optolong L-Ultimate 3nm",
+                hardLinks: FitsHeaderEditor.HardLinkPolicy.Relink, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.TaggedAndRelinked);
+            result.OtherLinks.ShouldHaveSingleItem().ShouldBe(sibling);
+            HeaderValue(path, "FILTER").ShouldBe("Optolong L-Ultimate 3nm");
+            HeaderValue(sibling, "FILTER").ShouldBe("Optolong L-Ultimate 3nm");
+
+            var amended = IdentityOf(path);
+            amended.IsSameFileAs(shared).ShouldBeFalse("the edit is a replace, so the file is a new one");
+            amended.LinkCount.ShouldBe(2, "both names are back on one file, so nothing was de-duplicated away");
+            IdentityOf(sibling).ShouldBe(amended);
+            Sha(PayloadOf(path)).ShouldBe(Sha(payload));
+            Sha(PayloadOf(sibling)).ShouldBe(Sha(payload));
+        }
+
+        [Fact]
+        public async Task GivenThreeNamesForOneFrame_WhenRelinking_ThenEveryNameCarriesTheCardAndTheyStillShareOneFile()
+        {
+            // More than two matters because the verification checks each remaining name against a
+            // link count that dropped by exactly one, not against 1.
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
+            var second = Path.Combine(dir, "panel-2-filing.fits");
+            var third = Path.Combine(dir, "dated-filing.fits");
+            LinkOrSkip(second, path);
+            LinkOrSkip(third, path);
+            var shared = IdentityOf(path);
+            shared.LinkCount.ShouldBe(3);
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Ha", hardLinks: FitsHeaderEditor.HardLinkPolicy.Relink, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.TaggedAndRelinked);
+            result.OtherLinks.ShouldBe([second, third], ignoreOrder: true);
+
+            var amended = IdentityOf(path);
+            amended.LinkCount.ShouldBe(3);
+            foreach (var name in (string[])[path, second, third])
+            {
+                HeaderValue(name, "FILTER").ShouldBe("Ha", $"{name} must carry the card");
+                IdentityOf(name).ShouldBe(amended, $"{name} must name the one amended file");
+                Sha(PayloadOf(name)).ShouldBe(Sha(payload), $"{name} must keep every pixel");
+            }
+            // No scratch link left behind under any name.
+            Directory.GetFiles(dir).Length.ShouldBe(3);
+        }
+
+        [Fact]
+        public async Task GivenADryRunWithRelink_WhenTagging_ThenItNamesTheOtherLinksAndWritesNothing()
+        {
+            var dir = CreateTempDir();
+            var (path, _) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
+            var sibling = Path.Combine(dir, "same-frame-other-name.fits");
+            LinkOrSkip(sibling, path);
+            var before = Sha(File.ReadAllBytes(path));
+            var shared = IdentityOf(path);
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Ha", hardLinks: FitsHeaderEditor.HardLinkPolicy.Relink, apply: false,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.TaggedAndRelinked);
+            result.Detail.ShouldBe("dry run");
+            result.OtherLinks.ShouldHaveSingleItem().ShouldBe(sibling);
+            Sha(File.ReadAllBytes(path)).ShouldBe(before);
+            IdentityOf(path).ShouldBe(shared, "not one name may have moved");
+            Directory.GetFiles(dir).Length.ShouldBe(2);
+        }
+
+        [Fact]
+        public async Task GivenRelinkRequested_WhenTheFrameHasOnlyOneName_ThenItIsAnOrdinaryTag()
+        {
+            // The policy must be safe to pass for a whole sweep, most of which is ordinary files.
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Ha", hardLinks: FitsHeaderEditor.HardLinkPolicy.Relink, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
+            result.OtherLinks.ShouldBeEmpty();
+            HeaderValue(path, "FILTER").ShouldBe("Ha");
+            Sha(PayloadOf(path)).ShouldBe(Sha(payload));
+            Directory.GetFiles(dir).ShouldHaveSingleItem().ShouldBe(path);
+        }
+
+        [Fact]
+        public async Task GivenAHardLinkedFrameThatAlreadyStatesItsFilter_WhenRelinking_ThenNothingMoves()
+        {
+            // Relink must not become a reason to touch a file that needed no edit. It also makes the
+            // sweep idempotent: reaching the sibling later reports AlreadyPresent, not a second edit.
+            var dir = CreateTempDir();
+            var (path, _) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'", "FILTER  = 'Ha'"]);
+            var sibling = Path.Combine(dir, "same-frame-other-name.fits");
+            LinkOrSkip(sibling, path);
+            var before = Sha(File.ReadAllBytes(path));
+            var shared = IdentityOf(path);
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "OIII", hardLinks: FitsHeaderEditor.HardLinkPolicy.Relink, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.AlreadyPresent);
+            Sha(File.ReadAllBytes(path)).ShouldBe(before);
+            IdentityOf(path).ShouldBe(shared);
+            IdentityOf(sibling).ShouldBe(shared);
         }
 
         [Theory]
