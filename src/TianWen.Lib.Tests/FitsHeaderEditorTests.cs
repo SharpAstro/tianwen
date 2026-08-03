@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -405,6 +406,62 @@ namespace TianWen.Lib.Tests
                 path, "FILTER", "Hα 3nm", apply: true, cancellationToken: TestContext.Current.CancellationToken));
 
             Sha(File.ReadAllBytes(path)).ShouldBe(before);
+        }
+
+        [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CreateHardLink(string newFile, string existingFile, IntPtr attributes);
+
+        [Fact]
+        public async Task GivenAHardLinkedFrame_WhenTagging_ThenItIsRefusedAndNeitherNameChanges()
+        {
+            // The real archive de-duplicates with hard links (a Vela panel and its dated filing are
+            // one file under two names). File.Replace re-points ONE directory entry, so tagging
+            // would leave the sibling on the old header and split one night into two sessions.
+            Assert.SkipUnless(OperatingSystem.IsWindows(), "Hard-link count is only probed on Windows.");
+            var dir = CreateTempDir();
+            var (path, _) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
+            var sibling = Path.Combine(dir, "same-frame-other-name.fits");
+            Assert.SkipUnless(CreateHardLink(sibling, path, IntPtr.Zero), "Could not create a hard link on this volume.");
+            var before = Sha(File.ReadAllBytes(path));
+
+            var dryRun = await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Optolong L-Ultimate 3nm", apply: false,
+                cancellationToken: TestContext.Current.CancellationToken);
+            var applied = await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Optolong L-Ultimate 3nm", apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            // The dry run must surface it too: finding out before committing is the point.
+            dryRun.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.MultiplyLinked);
+            applied.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.MultiplyLinked);
+            applied.Detail.ShouldBe("2 hard links");
+            Sha(File.ReadAllBytes(path)).ShouldBe(before);
+            Sha(File.ReadAllBytes(sibling)).ShouldBe(before);
+        }
+
+        [Fact]
+        public async Task GivenAnExplicitOverride_WhenTaggingAHardLinkedFrame_ThenOnlyTheNamedPathChanges()
+        {
+            // Pins the hazard itself rather than only the guard: with the override the link IS
+            // broken and the sibling keeps the old header. Anyone tempted to make --allow-hardlinked
+            // the default should read this test first.
+            Assert.SkipUnless(OperatingSystem.IsWindows(), "Hard-link count is only probed on Windows.");
+            var dir = CreateTempDir();
+            var (path, payload) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'"]);
+            var sibling = Path.Combine(dir, "same-frame-other-name.fits");
+            Assert.SkipUnless(CreateHardLink(sibling, path, IntPtr.Zero), "Could not create a hard link on this volume.");
+
+            var result = await FitsHeaderEditor.SetStringCardAsync(
+                path, "FILTER", "Optolong L-Ultimate 3nm", allowMultiplyLinked: true, apply: true,
+                cancellationToken: TestContext.Current.CancellationToken);
+
+            result.Outcome.ShouldBe(FitsHeaderEditor.TagOutcome.Tagged);
+            HeaderValue(path, "FILTER").ShouldBe("Optolong L-Ultimate 3nm");
+            HeaderValue(sibling, "FILTER").ShouldBeNull();
+            // Both still hold the same pixels; only the headers have diverged.
+            Sha(PayloadOf(path)).ShouldBe(Sha(payload));
+            Sha(PayloadOf(sibling)).ShouldBe(Sha(payload));
         }
 
         [Theory]

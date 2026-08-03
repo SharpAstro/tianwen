@@ -55,6 +55,9 @@ public static class FitsHeaderEditor
         FrameTypeExcluded,
         /// <summary>Not a FITS file, or a header we could not parse. Never modified.</summary>
         Unreadable,
+        /// <summary>Other paths share this file's data (see <see cref="HardLinkProbe"/>), so
+        /// replacing it would edit one name and silently leave its siblings on the old content.</summary>
+        MultiplyLinked,
     }
 
     /// <param name="Path">The file considered.</param>
@@ -77,6 +80,11 @@ public static class FitsHeaderEditor
     /// <param name="overwriteExisting">Replace a keyword that already has a non-blank value. Off by
     /// default: the job is filling in what was never recorded, and silently relabelling a frame that
     /// stated its own filter is a different and far more dangerous operation.</param>
+    /// <param name="allowMultiplyLinked">Amend a file that other paths also point at. Off by
+    /// default: the replace re-points ONE directory entry, so a hard-linked frame would come out
+    /// edited under one name and untouched under the others, and the two copies of what was one
+    /// night would then disagree. Only pass this when every link is meant to diverge, which for a
+    /// de-duplicated archive is essentially never.</param>
     /// <param name="apply">When false (the default) nothing is written and the returned outcome is
     /// what *would* happen.</param>
     public static async Task<TagResult> SetStringCardAsync(
@@ -86,6 +94,7 @@ public static class FitsHeaderEditor
         string comment = "",
         IReadOnlySet<FrameType>? allowedFrameTypes = null,
         bool overwriteExisting = false,
+        bool allowMultiplyLinked = false,
         bool apply = false,
         CancellationToken cancellationToken = default)
     {
@@ -129,6 +138,14 @@ public static class FitsHeaderEditor
         if (existing is { Length: > 0 } && !overwriteExisting)
         {
             return new TagResult(path, TagOutcome.AlreadyPresent, $"{keyword}={existing}", existing);
+        }
+
+        // Checked BEFORE the dry-run return on purpose: the whole value of a dry run is finding out
+        // what a real run would do, and "this edit would reach one of three names for the same
+        // frame" is the single most consequential thing it can tell you.
+        if (!allowMultiplyLinked && HardLinkProbe.TryGetLinkCount(path) is { } links && links > 1)
+        {
+            return new TagResult(path, TagOutcome.MultiplyLinked, $"{links} hard links", existing);
         }
 
         if (!apply)
