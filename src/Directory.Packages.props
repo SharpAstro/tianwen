@@ -351,15 +351,16 @@
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR. Both packages ship from the FC.SDK repo at one release line, so they move
-         together. 1.4 -> 1.7 catches up three lines: 1.5 added the device report (the one artefact to
-         ask a bug reporter for) and stopped two settings leaking their storage details to the caller,
-         1.6 drove the WPD driver over raw ioctl as a sibling of the COM path, and 1.7 opened the
-         current line. The EVF zoom accessor the planetary ROI-jog work is waiting on is still NOT here:
-         Evf_ZoomPosition / Evf_ZoomRect remain bare property ids with no point/rect accessor. So that
-         deferral stands, and it is no longer "pending 1.5". -->
-    <PackageVersion Include="FC.SDK" Version="1.7.*" />
+         together. 1.7 -> 3.0 crosses two majors: 2.0 reshaped the property surface, and 3.0 adds
+         live-view magnification, which is what the planetary EVF-zoom ROI jog needed and now uses.
+         That work was deferred for three releases on a stated blocker that could not be satisfied:
+         it asked for a point/rect accessor for Evf_ZoomPosition / Evf_ZoomRect, and over PTP no such
+         property exists. Zoom and pan are OPERATIONS (0x9158 / 0x9159) and the resulting crop is a
+         record inside the live-view frame, so 3.0 ships SetEvfZoomAsync / SetEvfZoomPositionAsync /
+         GetEvfZoomRectAsync instead. Do not re-word that as pending a version again. -->
+    <PackageVersion Include="FC.SDK" Version="3.0.*" />
     <!-- Floating: Canon raw decoder (.cr2/.cr3 -> mosaic). Same repo + release line as FC.SDK. -->
-    <PackageVersion Include="FC.SDK.Raw" Version="1.7.*" />
+    <PackageVersion Include="FC.SDK.Raw" Version="3.0.*" />
     <!-- Image encoding -->
     <PackageVersion Include="StbImageWriteSharp" Version="1.16.7" />
     <!-- Blazor WebAssembly host for TianWen.UI.Web. That project is outside TianWen.slnx and is not

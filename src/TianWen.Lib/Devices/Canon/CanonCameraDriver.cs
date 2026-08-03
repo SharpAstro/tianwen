@@ -726,40 +726,70 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     // We decode each frame straight from the SDK byte[] into a 3-channel [0,1] Image (Image.TryDecodeRaster,
     // no temp-file round-trip) and yield it; the planetary live-stack pipeline consumes it as a colour master.
     //
-    // Core (this build): full-frame framing / EAA streaming, mutually exclusive with single-shot capture.
-    // Not yet wired: the 5x/10x EVF-zoom planetary regime and its pannable crop as the host-side ROI jog, so
-    // CanJogRoi is false and the recenter loop falls back to mount jog (PlanetaryRecenterController already
-    // degrades cleanly). EVF exposure is also EVF-auto, not a true integration time (ISO/gain tuning still
-    // works via ApplyVideoControlsAsync).
+    // The 5x/10x magnified feed IS the planetary regime: at 5x the body sends a near-1:1-pixel crop of a
+    // small sensor region instead of a downscaled whole frame, and that crop is pannable, which makes it the
+    // host-side ROI jog the COM-recenter loop wants. Both are PTP operations (0x9158 zoom / 0x9159 pan) and
+    // the resulting crop arrives as a record inside the live-view frame. There is no Evf_ZoomPosition or
+    // Evf_ZoomRect property to read, which is why this sat deferred behind a request for an accessor that
+    // could never exist; FC.SDK 3.0 ships the operations, so it is wired here.
     //
-    // This used to be recorded as blocked on "an FC.SDK point/rect property accessor for Evf_ZoomPosition
-    // (0x508) / Evf_ZoomRect (0x541)". That was wrong: over PTP there is NO such property. Those are EDSDK's
-    // model of the feature. The camera takes zoom and pan as operations (0x9158 / 0x9159) and describes the
-    // resulting crop in a live-view frame record, so the accessor being waited on could never have existed.
-    // FC.SDK 3.0 implements the real shape and is hardware-verified; it is simply not published yet (newest on
-    // NuGet is 2.0.671, and we pin 1.7.*). See docs/plans/planetary-native-video.md Phase E for the four
-    // measured behaviours the wiring has to respect.
+    // Four behaviours measured on an EOS 6D that the wiring has to respect, every one of which fails
+    // SILENTLY if ignored (see docs/plans/planetary-native-video.md Phase E):
+    //   1. The zoom factor is a THRESHOLD, not a value: 1-4 give 1x, 5-8 give 5x, 10 and up give 10x. So a
+    //      requested window size selects a level, and the body's own rect is the only truth about scale.
+    //   2. Evf_AFMode = LiveFace disables magnification on a body with a lens attached and ACKs the zoom
+    //      anyway, so the AF method is set to Live before asking.
+    //   3. Factor is 4.96 for a nominal 5x, because the crop is a whole number of pixels. Planetary pixel
+    //      scale must come from the rect, never from the level requested.
+    //   4. A zoom takes about a second to apply while the body keeps streaming PRE-zoom frames, so a rect
+    //      read straight after the call reports the OLD crop. Hence verify: true at every level change,
+    //      which waits for the crop to actually move.
+    //
+    // EVF exposure is still EVF-auto rather than a true integration time (ISO/gain tuning works through
+    // ApplyVideoControlsAsync), and streaming stays mutually exclusive with single-shot capture.
 
     /// <summary>EVF poll cadence floor -- the feed runs at its own fps; we treat the requested exposure as a
     /// poll interval clamped to this range so a large "exposure" can't stall the feed to one frame per minute.</summary>
     private static readonly TimeSpan MinVideoPace = TimeSpan.FromMilliseconds(15);
     private static readonly TimeSpan MaxVideoPace = TimeSpan.FromMilliseconds(500);
 
+    /// <summary>
+    /// The live-view crop the body last confirmed, in the body's OWN sensor coordinate space, plus whether it
+    /// can be panned. Held as a record so the whole snapshot swaps in one reference write: the rect alone is
+    /// 16 bytes, well past a pointer, and <see cref="VideoRoi"/> / <see cref="CanJogRoi"/> are polled from the
+    /// render thread while the capture loop writes them. <see langword="null"/> means no stream is running.
+    /// </summary>
+    /// <param name="Roi">The magnified region in sensor px, as the body reports it.</param>
+    /// <param name="SensorWidth">The body's own full-frame width, which is what bounds the pan range. Taken
+    /// from the frame record rather than <see cref="CameraXSize"/>, because the body clamps a pan in the space
+    /// it reported and the two need not agree (active area against total).</param>
+    /// <param name="SensorHeight">The body's own full-frame height.</param>
+    /// <param name="CanPan">Magnified AND the body advertises the pan operation. False at 1x, where the crop is
+    /// the whole frame and the accepted range collapses to a single point.</param>
+    internal sealed record EvfWindow(RoiRect Roi, int SensorWidth, int SensorHeight, bool CanPan);
+
+    private EvfWindow? _evfWindow;
+
     /// <inheritdoc/>
     public bool CanVideoCapture => Connected;
 
     /// <inheritdoc/>
-    // No host-side ROI pan through the FC.SDK version we pin (see the region banner); the recenter loop falls
-    // back to mount jog. Promote to "true while zoomed" once we are on an FC.SDK that has SetEvfZoomPositionAsync.
-    public bool CanJogRoi => false;
+    // True only while the feed is a magnified, pannable crop. At 1x there is nowhere to pan to, so the
+    // recenter loop falls back to the mount on its own without needing to know why.
+    public bool CanJogRoi => Volatile.Read(ref _evfWindow) is { CanPan: true };
 
     /// <inheritdoc/>
     public int DroppedFrames => 0; // EVF has no drop counter.
 
     /// <inheritdoc/>
-    // Full-frame window: without a zoom-rect read we cannot report a magnified EVF crop's origin/size, and
-    // CanJogRoi is false so the recenter loop never reads this for panning. Sensor-sized default.
-    public RoiRect VideoRoi => new(0, 0, CameraXSize, CameraYSize);
+    // The magnified crop in SENSOR px, which is the space the pan range and JogRoiAsync are measured in.
+    // Deliberately not the size of the yielded frame: the EVF renders a 1104x736 crop as a ~1024x680 JPEG, so
+    // one frame px is ~1.08 sensor px at 5x. The recenter controller measures its offset in frame px and
+    // applies it as sensor px, so it under-corrects by that ratio, which a damped loop absorbs as a slightly
+    // lower gain. Reporting frame px instead would break the pan-range arithmetic (sensorWidth - roi.Width),
+    // which is the part the loop cannot be allowed to get wrong.
+    public RoiRect VideoRoi =>
+        Volatile.Read(ref _evfWindow)?.Roi ?? new RoiRect(0, 0, CameraXSize, CameraYSize);
 
     /// <inheritdoc/>
     public async IAsyncEnumerable<Image> CaptureVideoAsync(
@@ -789,6 +819,13 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                 throw new CanonDriverException(startErr, "Failed to start Canon Live View");
             }
 
+            // The readout-window SIZE comes from NumX/NumY, per IVideoCameraDriver. An EOS offers three
+            // discrete crops rather than a free rectangle, so the request snaps to the nearest zoom level.
+            // Applied even when that is 1x, because zoom and pan PERSIST on the body: a stream that inherited
+            // a magnified crop from an earlier session would otherwise start on a corner of the sensor.
+            var zoom = ZoomForWindow(NumX, CameraXSize);
+            await ApplyEvfZoomAsync(camera, zoom, cancellationToken);
+
             // Requested exposure as a poll-cadence floor (EVF has no true integration time), clamped so a huge
             // value can't stall the feed. Live-tunable exposure is not modelled on EVF; ISO is (ApplyVideoControls).
             var pace = options.Exposure <= TimeSpan.Zero ? MinVideoPace
@@ -802,6 +839,16 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
                 if (!Connected)
                 {
                     yield break;
+                }
+
+                // Live-resizable, like every other streaming driver: re-read the requested window each pass
+                // and re-zoom when it now maps to a different level. ApplyEvfZoomAsync is total, so a
+                // cancellation here falls through to the token check that ends the loop.
+                var wanted = ZoomForWindow(NumX, CameraXSize);
+                if (wanted != zoom)
+                {
+                    zoom = wanted;
+                    await ApplyEvfZoomAsync(camera, zoom, cancellationToken);
                 }
 
                 // Fetch the next EVF JPEG. The await carries no yield, so its OCE is caught here and turned
@@ -861,6 +908,9 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             {
                 Logger.LogDebug(ex, "Canon Live View stop failed");
             }
+            // No stream, no window: CanJogRoi goes false and VideoRoi reverts to the full-frame default rather
+            // than reporting the last crop as though it were still live.
+            Volatile.Write(ref _evfWindow, null);
             Interlocked.Exchange(ref _videoActive, 0);
         }
     }
@@ -880,10 +930,167 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     }
 
     /// <inheritdoc/>
-    public ValueTask JogRoiAsync(int dxPixels, int dyPixels, CancellationToken cancellationToken = default)
-        => throw new InvalidOperationException(
-            "Canon Live View ROI jog is not wired: panning the EVF zoom crop needs an FC.SDK release we do not "
-            + "pin yet. CanJogRoi is false and the recenter loop uses mount jog instead.");
+    public async ValueTask JogRoiAsync(int dxPixels, int dyPixels, CancellationToken cancellationToken = default)
+    {
+        if (_camera is not { } camera || Volatile.Read(ref _evfWindow) is not { CanPan: true } window)
+        {
+            throw new InvalidOperationException(
+                "Canon Live View ROI jog needs a magnified, pannable EVF crop. CanJogRoi reports when that "
+                + "holds; at 1x the crop is the whole frame and the recenter loop uses mount jog instead.");
+        }
+
+        var (x, y) = ClampPan(window, dxPixels, dyPixels);
+        if (x == window.Roi.X && y == window.Roi.Y)
+        {
+            return; // Already against that edge; nothing to send.
+        }
+
+        // verify: false deliberately. The verify path polls live-view frames for up to a second to watch the
+        // move land, and this runs on the capture loop between frames, where a second of stall is the whole
+        // point of not doing it. Since the coordinate was clamped into the range the body accepts, the
+        // position it adopts is the one asked for, so the window is updated from the request.
+        var (err, _) = await camera.SetEvfZoomPositionAsync((uint)x, (uint)y, verify: false, cancellationToken);
+        if (err is not EdsError.OK)
+        {
+            Logger.LogDebug("Canon EVF pan to ({X},{Y}) failed: {Error}", x, y, err);
+            return;
+        }
+
+        Volatile.Write(ref _evfWindow, window with { Roi = window.Roi with { X = x, Y = y } });
+    }
+
+    /// <summary>
+    /// Puts the feed at <paramref name="zoom"/> and publishes the crop the body actually adopted.
+    /// </summary>
+    /// <remarks>
+    /// Verifies, because the zoom operation ACKs unconditionally and the body then streams pre-zoom frames for
+    /// about a second, so an unverified call followed by a rect read reports the PREVIOUS crop. Best-effort
+    /// throughout: a body that refuses to magnify keeps streaming whatever it is showing, and the window
+    /// published from its own rect then simply reports no pan range.
+    /// </remarks>
+    private async Task ApplyEvfZoomAsync(CanonCamera camera, CanonEvfZoom zoom, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // The AF method gates magnification: LiveFace refuses to magnify on a body with a lens attached
+            // and ACKs the zoom regardless, so switch to the method that works first. Only when actually
+            // magnifying, because this WRITES a camera setting the user can see in the body's own menus, and
+            // plain full-frame streaming has no business changing it. Best-effort: a body that rejects the
+            // write just stays where it is, and the zoom verify below is what reports the consequence.
+            if (zoom is not CanonEvfZoom.Fit)
+            {
+                var afErr = await camera.SetEvfAfSystemAsync(CanonEvfAfSystem.Live, cancellationToken);
+                if (afErr is not EdsError.OK)
+                {
+                    Logger.LogDebug(
+                        "Canon EVF AF method could not be set to Live ({Error}); magnification may be refused",
+                        afErr);
+                }
+            }
+
+            var err = await camera.SetEvfZoomAsync(zoom, verify: true, cancellationToken);
+            if (err is not EdsError.OK)
+            {
+                Logger.LogWarning(
+                    "Canon EVF zoom {Zoom} was not adopted ({Error}); staying at the current magnification",
+                    zoom, err);
+            }
+
+            // Read the rect whatever the zoom answered: it is the only account of where the crop sits and how
+            // big it is, which is what the recenter loop pans, and it is right even when the zoom was refused.
+            PublishEvfWindow(camera, await camera.GetEvfZoomRectAsync(cancellationToken));
+        }
+        catch (OperationCanceledException)
+        {
+            // The stream is shutting down; the caller's own token check ends the enumeration.
+        }
+        catch (Exception ex)
+        {
+            Logger.LogDebug(ex, "Canon EVF zoom {Zoom} failed", zoom);
+        }
+    }
+
+    /// <summary>
+    /// Records the body's reported crop as the live ROI. A rect the body did not describe publishes a
+    /// full-frame window with no pan range, which is the honest answer: unknown geometry must never read as
+    /// pannable, or the recenter loop would jog against a window it cannot place.
+    /// </summary>
+    private void PublishEvfWindow(CanonCamera camera, CanonEvfZoomRect? rect)
+    {
+        var window = WindowFor(rect, camera.SupportsEvfZoomPosition, CameraXSize, CameraYSize);
+        Volatile.Write(ref _evfWindow, window);
+        Logger.LogDebug("Canon EVF window {Roi} of {W}x{H}, pannable {CanPan}",
+            window.Roi, window.SensorWidth, window.SensorHeight, window.CanPan);
+    }
+
+    /// <summary>
+    /// The window a reported zoom rect describes, or a non-pannable full-frame window when the body did not
+    /// describe one. Pure, so the rule that matters can be pinned: a rect we cannot place must never come back
+    /// pannable.
+    /// </summary>
+    /// <param name="rect">What the body reported, or <see langword="null"/> when it reported nothing.</param>
+    /// <param name="bodySupportsPan">Whether the body advertises the pan operation at all (0x9159).</param>
+    /// <param name="fallbackWidth">Sensor width to fall back on when the rect is absent or unusable.</param>
+    /// <param name="fallbackHeight">Sensor height to fall back on.</param>
+    internal static EvfWindow WindowFor(
+        CanonEvfZoomRect? rect, bool bodySupportsPan, int fallbackWidth, int fallbackHeight)
+    {
+        // A rect with no sensor bounds cannot answer "is this magnified" or "how far can it pan", and a zero
+        // crop is not a window at all, so both fall through to the full-frame default rather than being
+        // half-trusted.
+        if (rect is { SensorWidth: > 0, SensorHeight: > 0, Width: > 0, Height: > 0 } r)
+        {
+            return new EvfWindow(
+                new RoiRect((int)r.X, (int)r.Y, (int)r.Width, (int)r.Height),
+                (int)r.SensorWidth,
+                (int)r.SensorHeight,
+                r.IsMagnified && bodySupportsPan);
+        }
+
+        return new EvfWindow(
+            new RoiRect(0, 0, fallbackWidth, fallbackHeight), fallbackWidth, fallbackHeight, false);
+    }
+
+    /// <summary>
+    /// Where a pan of (<paramref name="dxPixels"/>, <paramref name="dyPixels"/>) from
+    /// <paramref name="window"/> may actually land.
+    /// </summary>
+    /// <remarks>
+    /// Clamped here rather than left to the body. A coordinate up to (sensor - crop) is accepted and then
+    /// clamped inwards by the body itself, but anything BEYOND that is discarded outright and the axis silently
+    /// keeps its previous value, which is indistinguishable from a pan that did not work. So asking for "the
+    /// far corner" with a large number moves nothing at all, and the far corner is computed instead.
+    /// </remarks>
+    internal static (int X, int Y) ClampPan(EvfWindow window, int dxPixels, int dyPixels)
+    {
+        var maxX = Math.Max(0, window.SensorWidth - window.Roi.Width);
+        var maxY = Math.Max(0, window.SensorHeight - window.Roi.Height);
+        return (
+            Math.Clamp(window.Roi.X + dxPixels, 0, maxX),
+            Math.Clamp(window.Roi.Y + dyPixels, 0, maxY));
+    }
+
+    /// <summary>
+    /// The zoom level whose crop is closest to a requested window width.
+    /// </summary>
+    /// <remarks>
+    /// An EOS offers three discrete magnifications rather than a free rectangle, so a requested size snaps to
+    /// one and the body's own rect is then the truth about what that means in pixels (a nominal 5x measures
+    /// 4.96x). Thresholds sit between the nominal factors, so a full-frame request gives 1x and a request for
+    /// a tenth gives 10x. A width of 0, the default before anything sets NumX, is a full-frame request.
+    /// </remarks>
+    internal static CanonEvfZoom ZoomForWindow(int requestedWidth, int sensorWidth)
+    {
+        if (requestedWidth <= 0 || sensorWidth <= 0 || requestedWidth >= sensorWidth)
+        {
+            return CanonEvfZoom.Fit;
+        }
+
+        var factor = (double)sensorWidth / requestedWidth;
+        return factor < 3.0 ? CanonEvfZoom.Fit
+            : factor < 7.5 ? CanonEvfZoom.X5
+            : CanonEvfZoom.X10;
+    }
 
     /// <inheritdoc/>
     public async ValueTask ApplyVideoControlsAsync(VideoCaptureOptions controls, CancellationToken cancellationToken = default)
