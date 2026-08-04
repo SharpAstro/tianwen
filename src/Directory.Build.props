@@ -49,10 +49,17 @@
 
     Both conditions, so the constant means what its name says. CI builds Release, which is why this was
     only ever a local-build trap.
+
+    It lives in Directory.Build.TARGETS, not here. This file is imported from the TOP of
+    Microsoft.Common.props, which is before the SDK defaults $(Configuration) to Debug, so the
+    property is EMPTY here unless a build passes it explicitly. The condition was therefore false for
+    every plain `dotnet build` / `dotnet run`, the constant went undefined, and the inspector wiring
+    compiled out of exactly the local Debug runs it exists for. Silently, too, since an #if that is
+    simply false is not a warning. `dotnet build -c Debug` worked, which is what made it look
+    intermittent. Directory.Build.targets is imported at the END, after the default is applied, and
+    DefineConstants set there still reaches the compiler.
   -->
-  <PropertyGroup Condition="'$(Configuration)' == 'Debug' AND '$(UseLocalSiblings)' == 'true'">
-    <DefineConstants>$(DefineConstants);SIBLING_DEBUG_INSPECTORS</DefineConstants>
-  </PropertyGroup>
+
 
   <!--
     Local AOT publishes of the browser app (perf-comparison builds served on :5100) get their
