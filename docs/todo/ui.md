@@ -144,9 +144,22 @@ confirm before fixing; the line numbers are as of this entry.
   (the quaternion, or a roll angle beside the centre) and let the view matrix come from it, so the pole
   stops being a special place at all. The arbitrary-right fallback then becomes unreachable rather than
   merely rare.
-- [ ] **The web sky map has no grid by default**, which is what makes the above disorientation land
-  instead of being readable. Check the web showcase's initial `SkyMapState` against the desktop default
-  and turn the grid on, at least in Horizon mode where there is no other horizon reference.
+- [x] **The web sky map has no grid by default.** **DONE (2026-08-05), and the recorded root cause was
+  wrong.** `SkyMapState.ShowGrid` already defaults to `true` and the WebGL pipeline honours it, so
+  there was nothing to turn on; the guess to "check the initial state" would have found nothing. The
+  real defect is that the two pipelines each carried their own scale-selection rule and the browser's
+  had a **lower FOV bound** (`fov >= minFov`). The scales are **complementary**, not alternatives:
+  `BuildGridLines` omits every line a coarser scale draws, so gating one off deletes its lines instead
+  of thinning the grid. Below 30 degrees the browser therefore dropped scale 0 and with it the
+  celestial equator, the +/-30 and +/-60 parallels and the 0h/6h/12h/18h meridians, leaving only the
+  in-between lines: zoom in, and the anchors vanish. It also drew at a flat alpha (0x70 against the
+  desktop's 0xB0 at full fade), so a crowded scale never faded and the grid was dimmer everywhere.
+  Selection, fade and colour now live in `SkyMapGpuGeometry.TryGetGridFade` / `GridColorAt`, used by
+  both pipelines. Pinned by `SkyMapGridScaleTests` (the anchor scale is active across the whole
+  [0.5, 180] zoom clamp, some scale is always active, fine scales still drop when the view is wide).
+  The Horizon-mode remark also does not hold up: `ShowAltAzGrid` is opt-in and `ShowHorizon` is on by
+  default on **both** surfaces, so an alt-az grid is not a web-only gap and the horizon line is
+  already the reference. Original analysis:
 
 ## Planner (reported 2026-08-03)
 
