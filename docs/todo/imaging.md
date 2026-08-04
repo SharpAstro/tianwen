@@ -40,6 +40,82 @@ the comparison turned up alongside it.
   (784 vs 788 measured), so this is a refinement, not a fix. Blocked on the `IMAGETYP` labelling
   above being resolvable without guessing from exposure.
 
+## Archive filter inference (committing a validated method)
+
+Filed 2026-08-04. The method is validated on 48 sessions / 7,161 frames and the *write* end is
+committed (`dataset tag-filter` + `FitsHeaderEditor`), but every measurement lives in scratch scripts
+plus a `_provenance` folder on `D:`, so a fresh checkout re-derives nothing. Full method, the
+reference bias table, the resolution limits and four recorded negative results:
+[docs/plans/filter-inference.md](../plans/filter-inference.md).
+
+- [ ] **F1 `dataset bias-library`.** Group `IMAGETYP=BIAS` on `(camera, gain, offset, temperature)`
+  and emit **per-channel** medians plus n. Per-channel is not optional: one era ran with ZWO white
+  balance on, so its bias is `649/516/649` rather than grey, and the pipeline undoes WB from the bias
+  frame's own channel ratios. Everything downstream keys on this artifact.
+- [ ] **F2 frame-scale detection.** GCD of pixel values tells N.I.N.A.'s times-four 14-to-16-bit
+  recording scale from an unscaled writer. Today this is an assumption in a comment, and it is why
+  every SharpCap session was set aside wholesale. Must be per frame and reported, never inferred
+  from `SWCREATE`.
+- [ ] **F3 `dataset measure-filter`.** Per session, sample frames from the middle of the run, resolve
+  bias from F1, and emit sky rate (e-/px/s / airmass) plus background B/G. Read-only.
+- [ ] **F4 band derivation.** Match F3 rows against a committed reference band table and propose a
+  `FILTER` per session with its basis and deviation. Keep it a **proposal a human locks in**: B/G
+  cleanly separates 3 nm from quad-band (43 sd) but cannot separate two dual-bands from each other.
+- [ ] **F5 `archive organize`.** The copy-to-a-new-root tool: verify both sides, never write to the
+  source, collapse hard-linked frames to one copy, file calibration by what it is. Proven once at
+  5,750 files / 96.95 GiB with 0 failures; needs to become code. Two layout rules it must keep:
+  flats belong under **their own** `DATE-OBS` (filing them under the session date left 10 of 18
+  session dates with no flats folder), and calibration folders must key on **temperature** (without
+  it a bias folder merged two sets seven months and 5 C apart, and daylight dark-flats at +22 C hid
+  inside `DARK`).
+- [ ] **Groups C and beyond are unmeasured**: 16 SV605CC + SH61 EDPH sessions (same IMX533, so the
+  bands transfer, but they need their own bias frames), the 18,354 frames with `TELESCOP='?'`, and
+  the Newtonian, which appears exactly once as `SWQ8`. Askar D1/D2 and IDAS D3 have **zero** textual
+  presence anywhere, so only pixels can place them.
+- [ ] **Settle the times-four claim for the 12-bit ASI585.** CLAUDE.md's "the vendor SDK does not
+  left-shift" was established on the 14-bit ASI533. A 16-ADU comb is measurable (53% of values on an
+  exact 16-ADU grid against 6.25% expected flat), which fits the SDK left-shifting RAW16 for a 12-bit
+  sensor. That is inference, so it wants a live capture rather than a doc edit.
+
+### Do NOT discard the SharpCap era on the focus assumption (measured 2026-08-04)
+
+The working assumption was that only N.I.N.A. sessions are worth keeping, because SharpCap will not
+refocus on temperature drift without hassle. **The first half is true and the conclusion does not
+follow.** Measured with `tianwen image stats` on the one rig that spans both programs (ASI533MC Pro
+at FL 130, the Samyang 135, so identical 5.97 arcsec/px), 23 distinct sessions, `FOCUSPOS` and
+`FOCTEMP` read from every frame:
+
+| | focuser moved mid-run | HFD drift start to end | mid-session HFD |
+|---|---|---|---|
+| N.I.N.A. (12) | **11 of 12** | -3.2% to +3.4%, median **-0.1%** | median **2.45 px** |
+| SharpCap (11) | **0 of 11** | -8.3% to +10.5%, median **+6.2%** | median **2.71 px** |
+
+- **The mechanism is confirmed by direct evidence, not inference.** Zero SharpCap sessions moved the
+  focuser, across every run, while `FOCTEMP` fell 0.7 to 3.8 C. That is the focuser's own reported
+  position, so it needs no argument from image quality.
+- **But the quality distributions overlap, so a blanket discard is wrong.** The best SharpCap session
+  (2024-07-06 Rim Nebula SII, 2.42 px, drift -0.3%) is **sharper than 9 of the 12 N.I.N.A. sessions**.
+  Discarding by program label would throw away frames better than most of what is already kept.
+- **There is a free triage signal.** SharpCap sessions split cleanly on thermal drift: all 4 with
+  `|FOCTEMP delta| <= 1.1 C` held focus, and 6 of the 7 above 1.4 C degraded by 6 to 10%. That is
+  readable **from headers alone**, with no pixel reads, so all 45,134 SharpCap frames can be triaged
+  cheaply before any measurement. The categorical split is much stronger than the linear fit
+  (Pearson r is only +0.31, dragged down by the two anomalies below), so use a threshold, not a slope.
+- **A N.I.N.A. session fails the same way.** `HIP 80609` 2026-04-21 is the **softest** session in the
+  whole sample (2.89 px) and its focuser never moved. Judge per session, never per program.
+- **Two SharpCap sessions improved through the night** (-8.3% and -7.8%). Both have healthy star
+  counts (1,316 and 1,005), so this is real and not noise; a manual mid-session refocus would explain
+  it and the data cannot distinguish that.
+
+**Two limits on how far this generalises.** Star counts were 791 to 1,710 everywhere, so no session
+was noise-limited, but (1) at 5.97 arcsec/px an HFD of 2.4 px is 14.3 arcsec and the rig is heavily
+undersampled, so HFD is partly floor-limited and the differences above **understate** the true focus
+error; and (2) this covers the ASI533-at-FL130 years only. The 2021 to 2022 era was **not** tested,
+because 511 of its directories carry no `IMAGETYP` card at all and were skipped by the session gate.
+
+- [ ] **Triage the SharpCap era on `FOCTEMP` delta + measured HFD** rather than discarding it, and
+  give the 511 no-`IMAGETYP` directories a gate that does not depend on that card.
+
 ## Imaging
 
 - [ ] Not sure if `SensorType` LRGB check is correct (`SensorType.cs:54`)
