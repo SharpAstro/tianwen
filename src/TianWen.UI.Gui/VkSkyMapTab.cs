@@ -429,24 +429,39 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             var alpha = dimBelowHorizon && !site.IsAboveHorizon(cand.RA, cand.Dec) ? 0.35f : 1.0f;
             if (!cand.IsPinned) alpha *= fovAlpha;
 
-            // Pinned halo (emitted first so it's behind the marker). 1.5x marker size
-            // with a 16-px floor so a pinned planner target is visible at any zoom.
+            // Pinned halo (emitted first so it's behind the marker), sized from the shared
+            // OverlayEngine.PinnedHalo* geometry the CPU overlay path also uses. An ELLIPSE marker
+            // gets an ellipse halo: one uniform scale on both semi-axes plus the marker's own PA, so
+            // the halo keeps the object's shape. Emitting equal axes (which this did, from the major
+            // axis alone) puts a wide circular halo around an edge-on galaxy.
             if (cand.IsPinned)
             {
-                var haloPx = 16f * dpiScale;
-                switch (cand.Marker)
+                var haloFloorPx = OverlayEngine.PinnedHaloMinSemiMajorPx * dpiScale;
+                if (cand.Marker is OverlayCandidateMarker.Ellipse he)
                 {
-                    case OverlayCandidateMarker.Ellipse e:
-                        haloPx = MathF.Max(e.SemiMajArcmin * arcminToPx * 1.5f, haloPx);
-                        break;
-                    case OverlayCandidateMarker.Circle c:
-                        haloPx = MathF.Max(c.RadiusPxAtDpi1 * dpiScale * 1.5f, haloPx);
-                        break;
+                    var haloScale = OverlayEngine.EllipseLegibilityScale(
+                        he.SemiMajArcmin * arcminToPx, haloFloorPx, OverlayEngine.PinnedHaloScale);
+                    // Same 1 px / 0.5 px floors as the marker below, so a catalog shape with a zero
+                    // minor axis still traces a visible ring rather than a degenerate line.
+                    var haloMajArcmin = MathF.Max(he.SemiMajArcmin * haloScale, pxToArcmin);
+                    var haloMinArcmin = MathF.Max(he.SemiMinArcmin * haloScale, 0.5f * pxToArcmin);
+                    var haloPaRad = Half.IsNaN(he.PositionAngle)
+                        ? 0f
+                        : (float)((double)he.PositionAngle * Math.PI / 180.0);
+                    AppendEllipseInstance(cand.UnitVec,
+                        haloMajArcmin, haloMinArcmin, haloPaRad, OverlayEngine.PinnedHaloStrokePx,
+                        pinnedHaloR, pinnedHaloG, pinnedHaloB, pinnedHaloA);
                 }
-                var haloArcmin = haloPx * pxToArcmin;
-                AppendEllipseInstance(cand.UnitVec,
-                    haloArcmin, haloArcmin, 0f, 3f,
-                    pinnedHaloR, pinnedHaloG, pinnedHaloB, pinnedHaloA);
+                else
+                {
+                    var haloPx = cand.Marker is OverlayCandidateMarker.Circle hc
+                        ? MathF.Max(hc.RadiusPxAtDpi1 * dpiScale * OverlayEngine.PinnedHaloScale, haloFloorPx)
+                        : haloFloorPx;
+                    var haloArcmin = haloPx * pxToArcmin;
+                    AppendEllipseInstance(cand.UnitVec,
+                        haloArcmin, haloArcmin, 0f, OverlayEngine.PinnedHaloStrokePx,
+                        pinnedHaloR, pinnedHaloG, pinnedHaloB, pinnedHaloA);
+                }
             }
 
             float mainR, mainG, mainB, mainA;

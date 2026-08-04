@@ -118,7 +118,15 @@ confirm before fixing; the line numbers are as of this entry.
   same size with a thicker stroke / different colour. So the fix is to replace the size gate with an
   inflate-to-minimum on the ellipse path, and keep the crosshair strictly for genuinely shapeless
   entries (stars, which `ChooseMarkerKind` already separates out for a good reason).
-- [ ] **The pinned-target halo is a circle even for an ellipse marker.** Same complaint, second site:
+- [x] **The pinned-target halo is a circle even for an ellipse marker.** **DONE (2026-08-05).** Both
+  halo paths now trace the marker's own ellipse scaled by `OverlayEngine.EllipseLegibilityScale`
+  (uniform, so the axis ratio and position angle survive), and the 1.5x / 16 px / 3 px numbers moved
+  to `OverlayEngine.PinnedHalo*` because they were restated in the CPU code, the GPU code, and both
+  comments. Note the report named one site but there were **two**: `VkSkyMapTab` had the same defect
+  independently, and since that is the desktop GPU path, fixing only the CPU one would have left the
+  GUI unchanged. Pinned by `SkyMapPinnedHaloTests`, which asserts halo and marker are similar figures
+  by comparing their radii about their own centroids (a rotated ellipse's bounding box is near-square
+  at PA 45, so a box cannot see elongation at all). Original analysis:
   `SkyMapTab.ObjectOverlay.cs:130-140` computes `haloPx` from `e.SemiMajArcmin` for an
   `OverlayCandidateMarker.Ellipse` and then draws it with `DrawCircle`, so an elongated object gets a
   circular halo sized to its *major* axis. `DrawOverlayEllipse` is right there in the same file.
