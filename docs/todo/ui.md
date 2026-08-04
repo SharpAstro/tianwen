@@ -150,8 +150,19 @@ confirm before fixing; the line numbers are as of this entry.
 
 ## Planner (reported 2026-08-03)
 
-- [ ] **The "Observation Schedule" title is drawn outside its own chart area, and on top of the twilight
-  labels.** Two independent geometry bugs in `AltitudeChartRenderer` (both verifiable by reading):
+- [x] **The "Observation Schedule" title is drawn outside its own chart area, and on top of the twilight
+  labels.** **DONE (2026-08-05).** Both halves fixed: the rect starts at `areaX`, and `VerticalLayout`
+  now allocates the space above the plot top-down (title band, weather band, twilight-label band), with
+  `DrawTwilightZones` anchoring its rows off the same constants so the reservation cannot drift from
+  what is drawn. Two things the analysis below did not anticipate. Reserving the title outright would
+  have made `plotH` NEGATIVE on the ~117 px portrait chart that `PlannerTabLayoutTests` pins, so the
+  top margin is shaved to keep a minimum plot and the title is then **dropped rather than overlapped**,
+  which is what makes "no two rows share space" true at every size instead of only comfortable ones.
+  And `GetChartPlotLayout` / `GetWeatherBandLayout` restated the same arithmetic, so they now share
+  `VerticalLayout` with `Render`, which is also the only reason the hit-test geometry still matches.
+  Pinned by `AltitudeChartTitleLayoutTests` (centring at three `areaX` offsets, no label overlap at
+  five heights including 2400 px where the old code happened to work, the too-short case, and getter
+  vs renderer agreement). Original analysis:
   1. **Horizontal:** `var titleRect = MakeRect(0, areaY + 2, w, titleH)` (line ~198) passes `x = 0`
      where `w = areaW`, so the title is centred at `areaW / 2` instead of `areaX + areaW / 2`. It is the
      **only** `MakeRect(0, ...)` in the file; every other element offsets by `areaX` / `plotX`. With the
