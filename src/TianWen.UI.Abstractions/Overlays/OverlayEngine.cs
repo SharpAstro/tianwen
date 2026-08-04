@@ -247,6 +247,21 @@ public static class OverlayEngine
         return (majorX, majorY, minorX, minorY);
     }
 
+    /// <summary>Pinned-target halo geometry, shared by the CPU primitive overlay
+    /// (<c>SkyMapTab.RenderObjectOverlayPrimitive</c>) and the GPU instanced overlay
+    /// (<c>VkSkyMapTab</c>) so the two surfaces draw the same halo. The numbers used to be
+    /// restated in both, in code and again in each comment.</summary>
+    /// <remarks>1.5x the marker's own size, never under 16 px (dpi-scaled) on the semi-major
+    /// axis, stroked 3 px. Feed the first two to <see cref="EllipseLegibilityScale"/> for an
+    /// ellipse marker so the halo keeps the object's axis ratio.</remarks>
+    public const float PinnedHaloScale = 1.5f;
+
+    /// <inheritdoc cref="PinnedHaloScale"/>
+    public const float PinnedHaloMinSemiMajorPx = 16f;
+
+    /// <inheritdoc cref="PinnedHaloScale"/>
+    public const float PinnedHaloStrokePx = 3f;
+
     /// <summary>
     /// Uniform scale factor that grows a projected ellipse to a legibility floor on its
     /// semi-major axis, never returning less than <paramref name="minScale"/>.

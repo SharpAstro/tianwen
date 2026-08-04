@@ -127,17 +127,30 @@ namespace TianWen.UI.Abstractions
                     ? new RGBAColor32(0xFF, 0x70, 0x30, (byte)(alpha * 255f))
                     : RGBAColor32.FromFloat(cr, cg, cb, alpha);
 
-                // Pinned halo behind the marker: 1.5x the marker size, floored at 16px, so a planned
-                // target is spottable at any zoom.
+                // Pinned halo behind the marker (geometry shared with the GPU path via
+                // OverlayEngine.PinnedHalo*), so a planned target is spottable at any zoom. An
+                // ELLIPSE marker gets an ellipse halo: one uniform scale on both semi-axes, keeping
+                // the object's axis ratio and position angle. It used to size a CIRCLE from the major
+                // axis alone, so a pinned edge-on galaxy wore a halo far wider than itself; that is
+                // the same ellipse-reads-as-a-circle defect the search selection marker had.
                 if (cand.IsPinned)
                 {
-                    var haloPx = cand.Marker switch
+                    var haloColor = new RGBAColor32(0xFF, 0x60, 0x20, (byte)(0x50 * fovAlpha));
+                    var haloFloorPx = OverlayEngine.PinnedHaloMinSemiMajorPx * dpiScale;
+                    if (cand.Marker is OverlayCandidateMarker.Ellipse he)
                     {
-                        OverlayCandidateMarker.Ellipse e => MathF.Max(e.SemiMajArcmin * arcminToPixels * 1.5f, 16f * dpiScale),
-                        OverlayCandidateMarker.Circle c => MathF.Max(c.RadiusPxAtDpi1 * dpiScale * 1.5f, 16f * dpiScale),
-                        _ => 16f * dpiScale,
-                    };
-                    DrawCircle(sx, sy, haloPx, new RGBAColor32(0xFF, 0x60, 0x20, (byte)(0x50 * fovAlpha)), 3f);
+                        var haloScale = OverlayEngine.EllipseLegibilityScale(
+                            he.SemiMajArcmin * arcminToPixels, haloFloorPx, OverlayEngine.PinnedHaloScale);
+                        DrawOverlayEllipse(cand.RA, cand.Dec, he, arcminToPixels, ppr, cxView, cyView,
+                            sx, sy, haloColor, haloScale, OverlayEngine.PinnedHaloStrokePx);
+                    }
+                    else
+                    {
+                        var haloPx = cand.Marker is OverlayCandidateMarker.Circle hc
+                            ? MathF.Max(hc.RadiusPxAtDpi1 * dpiScale * OverlayEngine.PinnedHaloScale, haloFloorPx)
+                            : haloFloorPx;
+                        DrawCircle(sx, sy, haloPx, haloColor, OverlayEngine.PinnedHaloStrokePx);
+                    }
                 }
 
                 switch (cand.Marker)
@@ -251,13 +264,16 @@ namespace TianWen.UI.Abstractions
         // Trace a rotated ellipse for an extended catalog object, oriented by the object's true sky
         // position angle -- same construction as TryDrawShapeMarker (the selection ellipse) and the GPU
         // overlay shader, via the shared OverlayEngine.ComputeEllipseScreenAxes.
+        // scale grows both semi-axes by the SAME factor (so the traced shape keeps the object's axis
+        // ratio); the pinned halo passes OverlayEngine.EllipseLegibilityScale, the marker itself 1.
         private void DrawOverlayEllipse(
             double raHours, double decDeg, OverlayCandidateMarker.Ellipse e,
             float arcminToPixels, double ppr, float cxView, float cyView,
-            float centerX, float centerY, RGBAColor32 color)
+            float centerX, float centerY, RGBAColor32 color,
+            float scale = 1f, float strokeWidth = 1f)
         {
-            var semiMajorPx = MathF.Max(e.SemiMajArcmin * arcminToPixels, 1f);
-            var semiMinorPx = MathF.Max(e.SemiMinArcmin * arcminToPixels, 0.5f);
+            var semiMajorPx = MathF.Max(e.SemiMajArcmin * arcminToPixels * scale, 1f);
+            var semiMinorPx = MathF.Max(e.SemiMinArcmin * arcminToPixels * scale, 0.5f);
 
             // Screen-space direction of celestial north at the object (project a point 1' north and
             // subtract), so the ellipse stays correctly oriented under view rotation + stereographic
@@ -291,7 +307,7 @@ namespace TianWen.UI.Abstractions
                 var ey = (float)(semiMinorPx * sinT);
                 ring[i] = (centerX + ex * majorX + ey * minorX, centerY + ex * majorY + ey * minorY);
             }
-            Renderer.DrawPolyline(ring, color);
+            Renderer.DrawPolyline(ring, color, (int)MathF.Max(1f, MathF.Round(strokeWidth)));
         }
 
         // A star cross: two short arms. Mirrors VkOverlayShapes.DrawCross on the GPU side.
