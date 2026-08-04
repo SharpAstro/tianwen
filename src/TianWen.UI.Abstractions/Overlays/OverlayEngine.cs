@@ -248,6 +248,34 @@ public static class OverlayEngine
     }
 
     /// <summary>
+    /// Uniform scale factor that grows a projected ellipse to a legibility floor on its
+    /// semi-major axis, never returning less than <paramref name="minScale"/>.
+    /// <para>
+    /// Shared by the three places that need a marker to stay visible when the object projects
+    /// to a couple of pixels: the search selection ellipse
+    /// (<c>SkyMapTab.TryDrawShapeMarker</c>) and the pinned-target halo on both the CPU
+    /// (<c>SkyMapTab.DrawOverlayEllipse</c>) and GPU (<c>VkSkyMapTab</c>) overlay paths. The
+    /// factor is deliberately UNIFORM (callers apply it to both semi-axes), so the marker
+    /// keeps the object's real axis ratio and position angle. Sizing one axis alone (or
+    /// substituting a circle of the major-axis radius, which both halo paths used to do) turns
+    /// an elongated galaxy's marker into a circle, which is what made a selected or pinned
+    /// ellipse read as a circle at ordinary zooms.
+    /// </para>
+    /// </summary>
+    /// <param name="semiMajorPx">Projected semi-major axis in screen pixels.</param>
+    /// <param name="minSemiMajorPx">Legibility floor for the semi-major axis, in screen pixels
+    /// (callers pass a dpi-scaled value).</param>
+    /// <param name="minScale">Scale applied even when the projected size already clears the
+    /// floor; 1 keeps the true size, more sits outside the object's own outline.</param>
+    /// <returns>A factor >= <paramref name="minScale"/>. A non-positive or non-finite
+    /// <paramref name="semiMajorPx"/> yields <paramref name="minScale"/> rather than an
+    /// infinite or NaN scale.</returns>
+    public static float EllipseLegibilityScale(float semiMajorPx, float minSemiMajorPx, float minScale)
+        => semiMajorPx > 0f && float.IsFinite(semiMajorPx)
+            ? MathF.Max(minSemiMajorPx / semiMajorPx, minScale)
+            : minScale;
+
+    /// <summary>
     /// Computes a label priority score (higher = more important) used to decide
     /// which labels to place when crowded. Factors in: has-common-name bonus,
     /// brightness (V_Mag), and on-sky size (shape major axis).

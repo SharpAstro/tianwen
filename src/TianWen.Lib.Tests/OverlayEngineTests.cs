@@ -365,6 +365,56 @@ public class OverlayEngineTests
         ny.ShouldBe(1f);
     }
 
+    // --- EllipseLegibilityScale (selection ellipse + pinned halo sizing) ---
+
+    [Fact]
+    public void EllipseLegibilityScale_SmallShape_GrowsToTheFloor()
+    {
+        // A 2 px semi-major axis (a typical galaxy at an ordinary zoom) is scaled until it
+        // reaches the 10 px floor. This is the case that used to BAIL out of the ellipse path
+        // and fall back to a fixed circle LARGER than the ellipse drawn underneath.
+        var scale = OverlayEngine.EllipseLegibilityScale(2f, 10f, 1f);
+        scale.ShouldBe(5f, 1e-5f);
+        (2f * scale).ShouldBe(10f, 1e-4f);
+    }
+
+    [Fact]
+    public void EllipseLegibilityScale_IsUniform_SoTheAxisRatioSurvives()
+    {
+        // The whole point of a scale factor (rather than a per-axis floor or a circle of the
+        // major-axis radius) is that the marker keeps the object's shape. A 6:1 needle stays
+        // 6:1 after being grown to the floor.
+        const float semiMajor = 3f, semiMinor = 0.5f;
+        var scale = OverlayEngine.EllipseLegibilityScale(semiMajor, 12f, 1f);
+        var ratioBefore = semiMajor / semiMinor;
+        var ratioAfter = semiMajor * scale / (semiMinor * scale);
+        ratioAfter.ShouldBe(ratioBefore, 1e-4f);
+    }
+
+    [Fact]
+    public void EllipseLegibilityScale_LargeShape_GetsOnlyTheMinScale()
+    {
+        // Already well past the floor: the object's true projected size is kept, with just the
+        // caller's slack (the selection ring sits outside the object's own outline; the pinned
+        // halo sits 1.5x outside its marker).
+        OverlayEngine.EllipseLegibilityScale(400f, 10f, 1.15f).ShouldBe(1.15f, 1e-5f);
+        OverlayEngine.EllipseLegibilityScale(400f, 16f, 1.5f).ShouldBe(1.5f, 1e-5f);
+    }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(-3f)]
+    [InlineData(float.NaN)]
+    [InlineData(float.PositiveInfinity)]
+    public void EllipseLegibilityScale_DegenerateSize_YieldsMinScaleNotNaN(float semiMajorPx)
+    {
+        // Guards the division: a degenerate projection must not produce an infinite or NaN
+        // scale, which would push the traced ring's vertices to non-finite coordinates.
+        var scale = OverlayEngine.EllipseLegibilityScale(semiMajorPx, 10f, 1.5f);
+        scale.ShouldBe(1.5f);
+        float.IsFinite(scale).ShouldBeTrue();
+    }
+
     // --- GetOverlayColor edge cases ---
 
     [Fact]
