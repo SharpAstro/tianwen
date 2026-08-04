@@ -1,0 +1,223 @@
+using System;
+using System.Numerics;
+using Shouldly;
+using TianWen.UI.Abstractions;
+using Xunit;
+
+namespace TianWen.Lib.Tests;
+
+/// <summary>
+/// Orientation has three degrees of freedom and the view centre carries two. The missing one used to
+/// be re-derived per frame as <c>forward x reference</c>, which is singular where the view axis meets
+/// the reference: the cross product's length goes to zero, so a small pan swings the field, and at
+/// exact parallelism the code substituted a hardcoded right vector. <c>CenterRoll</c> stores it
+/// instead, so no view direction is special.
+/// </summary>
+public class SkyMapViewOrientationTests
+{
+    private static void ShouldBeOrthonormalRotation(Matrix4x4 m, string because)
+    {
+        var right = new Vector3(m.M11, m.M12, m.M13);
+        var up = new Vector3(m.M21, m.M22, m.M23);
+        var back = new Vector3(m.M31, m.M32, m.M33);
+
+        foreach (var (v, name) in new[] { (right, "right"), (up, "up"), (back, "back") })
+        {
+            float.IsFinite(v.X).ShouldBeTrue($"{name}.X must be finite: {because}");
+            v.Length().ShouldBe(1f, 1e-4f, $"{name} must be unit length: {because}");
+        }
+
+        Vector3.Dot(right, up).ShouldBe(0f, 1e-4f, $"right must be perpendicular to up: {because}");
+        Vector3.Dot(right, back).ShouldBe(0f, 1e-4f, $"right must be perpendicular to back: {because}");
+        Vector3.Dot(up, back).ShouldBe(0f, 1e-4f, $"up must be perpendicular to back: {because}");
+    }
+
+    // The construction the code used before CenterRoll existed: right = normalize(forward x
+    // reference), up = right x forward. Kept here as the oracle, so the new matrix is pinned to the
+    // old one wherever the old one was well-conditioned, i.e. no visible change in ordinary use.
+    private static Matrix4x4 LegacyReferenceMatrix(double raHours, double decDeg, Vector3 reference)
+    {
+        var (sinRA, cosRA) = Math.SinCos(raHours * (Math.PI / 12.0));
+        var (sinDec, cosDec) = Math.SinCos(double.DegreesToRadians(decDeg));
+        var forward = new Vector3((float)(cosDec * cosRA), (float)(cosDec * sinRA), (float)sinDec);
+
+        var right = Vector3.Normalize(Vector3.Cross(forward, reference));
+        var up = Vector3.Cross(right, forward);
+        return new Matrix4x4(
+            right.X, right.Y, right.Z, 0f,
+            up.X, up.Y, up.Z, 0f,
+            -forward.X, -forward.Y, -forward.Z, 0f,
+            0f, 0f, 0f, 1f);
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.0)]
+    [InlineData(6.0, 45.0)]
+    [InlineData(13.7, -30.0)]
+    [InlineData(18.0, 80.0)]
+    [InlineData(23.9, -89.0)]
+    public void EquatorialRollZero_MatchesTheOldReferenceConstruction(double ra, double dec)
+    {
+        // roll 0 IS north-up at every declination: forward x zhat equals cosDec times the roll-0
+        // right vector, so normalising it lands on exactly the same frame. This is what makes the
+        // rewrite safe rather than a change of look.
+        var state = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = ra, CenterDec = dec };
+
+        // In Equatorial mode the refresh lands on roll 0 whether or not it ran: outside the lock cone
+        // it solves for 0, and inside it holds the 0 the view started at. Dec -89 is inside the cone,
+        // which is why this asserts the roll and not the return value.
+        state.UpdateRollForReference();
+        state.CenterRoll.ShouldBe(0.0, 1e-6);
+
+        var actual = state.ComputeViewMatrix();
+        var expected = LegacyReferenceMatrix(ra, dec, new Vector3(0f, 0f, 1f));
+
+        actual.M11.ShouldBe(expected.M11, 1e-4f);
+        actual.M12.ShouldBe(expected.M12, 1e-4f);
+        actual.M13.ShouldBe(expected.M13, 1e-4f);
+        actual.M21.ShouldBe(expected.M21, 1e-4f);
+        actual.M22.ShouldBe(expected.M22, 1e-4f);
+        actual.M23.ShouldBe(expected.M23, 1e-4f);
+        actual.M31.ShouldBe(expected.M31, 1e-4f);
+        actual.M32.ShouldBe(expected.M32, 1e-4f);
+        actual.M33.ShouldBe(expected.M33, 1e-4f);
+    }
+
+    [Theory]
+    [InlineData(0.0, true)]
+    [InlineData(80.0, true)]
+    [InlineData(-80.0, true)]
+    [InlineData(86.0, false)]
+    [InlineData(-89.5, false)]
+    public void EquatorialRefresh_IsHeldInsideTheLockConeAroundThePole(double dec, bool expectedRefreshed)
+    {
+        // The conditioning of the old cross product IS cos(Dec) in Equatorial mode, so the lock cone
+        // is the last 5 degrees before the pole. Inside it a pan is what owns the roll.
+        var state = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 6.0, CenterDec = dec };
+        state.UpdateRollForReference().ShouldBe(expectedRefreshed);
+    }
+
+    [Theory]
+    [InlineData(90.0)]
+    [InlineData(-90.0)]
+    [InlineData(89.5)]
+    public void AtThePole_TheMatrixIsStillARotation(double dec)
+    {
+        // The old construction divided by a vanishing length here and fell back to a hardcoded
+        // right vector at exactly +/-90, which is a visible discontinuity.
+        var state = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 7.5, CenterDec = dec };
+        ShouldBeOrthonormalRotation(state.ComputeViewMatrix(), $"Dec {dec}");
+    }
+
+    [Fact]
+    public void AtTheZenith_TheRollIsHeldRatherThanRecomputed()
+    {
+        // Horizon mode's reference is the local zenith, and unlike the pole in Equatorial mode the
+        // view CAN point exactly at it. Inside the lock cone the reference cannot name an up
+        // direction, so the roll must be kept, not solved for.
+        var zenith = SkyMapState.RaDecToUnitVec(4.0, 40.0);
+        var state = new SkyMapState
+        {
+            Mode = SkyMapMode.Horizon,
+            CenterRA = 4.0,
+            CenterDec = 40.0,
+            CenterRoll = 0.75,
+        };
+
+        state.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z)
+            .ShouldBeFalse("the view axis is the reference, so there is no up to derive");
+        state.CenterRoll.ShouldBe(0.75, 1e-9, "the last good roll must survive");
+        ShouldBeOrthonormalRotation(state.ComputeViewMatrix(), "centre at the zenith");
+    }
+
+    [Fact]
+    public void AwayFromTheZenith_TheRollPutsTheZenithUp()
+    {
+        var zenith = SkyMapState.RaDecToUnitVec(4.0, 40.0);
+        var state = new SkyMapState { Mode = SkyMapMode.Horizon, CenterRA = 8.0, CenterDec = 10.0 };
+
+        state.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z).ShouldBeTrue();
+
+        var m = state.ComputeViewMatrix();
+        ShouldBeOrthonormalRotation(m, "horizon mode away from the zenith");
+
+        // Screen-up must lie in the plane spanned by the view axis and the zenith, on the zenith's
+        // side: that is what "the horizon stays level" means.
+        var forward = new Vector3(-m.M31, -m.M32, -m.M33);
+        var up = new Vector3(m.M21, m.M22, m.M23);
+        var zenithVec = new Vector3(zenith.X, zenith.Y, zenith.Z);
+        var expectedUp = Vector3.Normalize(zenithVec - forward * Vector3.Dot(zenithVec, forward));
+        Vector3.Dot(up, expectedUp).ShouldBe(1f, 1e-3f);
+    }
+
+    [Fact]
+    public void NoUsableReference_KeepsTheRollInsteadOfPickingOne()
+    {
+        // An invalid site hands Horizon mode a zero-length zenith. That used to reach the arbitrary
+        // right vector; now it simply leaves the view as it is.
+        var state = new SkyMapState { Mode = SkyMapMode.Horizon, CenterRA = 2.0, CenterDec = 20.0, CenterRoll = -0.3 };
+        state.UpdateRollForReference(0f, 0f, 0f).ShouldBeFalse();
+        state.CenterRoll.ShouldBe(-0.3, 1e-9);
+    }
+
+    [Theory]
+    [InlineData(0.0, 0.0, 0.0)]
+    [InlineData(11.0, 60.0, 1.2)]
+    [InlineData(19.5, -75.0, -2.9)]
+    [InlineData(3.0, 89.9, 0.4)]
+    [InlineData(3.0, 90.0, 0.4)]
+    public void FrameToCenter_RoundTripsComputeViewMatrix(double ra, double dec, double roll)
+    {
+        // The pan gesture rotates the frame rigidly and then has to store it back into three
+        // scalars, so the decomposition has to be exact, including at the pole where RA and roll
+        // trade off against each other.
+        var state = new SkyMapState { CenterRA = ra, CenterDec = dec, CenterRoll = roll };
+        var m = state.ComputeViewMatrix();
+
+        var forward = new Vector3(-m.M31, -m.M32, -m.M33);
+        var right = new Vector3(m.M11, m.M12, m.M13);
+        var (ra2, dec2, roll2) = SkyMapState.FrameToCenter(forward, right);
+
+        var rebuilt = new SkyMapState { CenterRA = ra2, CenterDec = dec2, CenterRoll = roll2 }.ComputeViewMatrix();
+        rebuilt.M11.ShouldBe(m.M11, 1e-4f);
+        rebuilt.M12.ShouldBe(m.M12, 1e-4f);
+        rebuilt.M13.ShouldBe(m.M13, 1e-4f);
+        rebuilt.M21.ShouldBe(m.M21, 1e-4f);
+        rebuilt.M22.ShouldBe(m.M22, 1e-4f);
+        rebuilt.M23.ShouldBe(m.M23, 1e-4f);
+        rebuilt.M31.ShouldBe(m.M31, 1e-4f);
+        rebuilt.M32.ShouldBe(m.M32, 1e-4f);
+        rebuilt.M33.ShouldBe(m.M33, 1e-4f);
+    }
+
+    [Fact]
+    public void ARigidRotationNearThePole_DoesNotSwingTheField()
+    {
+        // The reported symptom, as a number. Rotate a near-pole view by a small angle the way a pan
+        // does, store it through the three scalars, and the field must have turned by that same small
+        // angle. Deriving the roll from the reference instead amplifies it by roughly 1 / cos(Dec),
+        // which at Dec 89.5 is a factor of about 115.
+        var start = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 6.0, CenterDec = 89.5 };
+        var m0 = start.ComputeViewMatrix();
+        var forward0 = new Vector3(-m0.M31, -m0.M32, -m0.M33);
+        var right0 = new Vector3(m0.M11, m0.M12, m0.M13);
+
+        // A 0.1 degree pan across the pole's neighbourhood, about an axis in the view plane.
+        const float panDeg = 0.1f;
+        var q = Quaternion.CreateFromAxisAngle(right0, float.DegreesToRadians(panDeg));
+        var forward1 = Vector3.Transform(forward0, q);
+        var right1 = Vector3.Transform(right0, q);
+
+        var (ra, dec, roll) = SkyMapState.FrameToCenter(forward1, right1);
+        var end = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = ra, CenterDec = dec, CenterRoll = roll };
+        var m1 = end.ComputeViewMatrix();
+
+        // Angle between the two "up" vectors is how much the field appears to rotate.
+        var up0 = new Vector3(m0.M21, m0.M22, m0.M23);
+        var up1 = new Vector3(m1.M21, m1.M22, m1.M23);
+        var swingDeg = float.RadiansToDegrees(MathF.Acos(Math.Clamp(Vector3.Dot(up0, up1), -1f, 1f)));
+
+        swingDeg.ShouldBeLessThan(panDeg * 1.5f,
+            "a rigid pan must turn the field by the pan angle, not by an amplified one");
+    }
+}

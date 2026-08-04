@@ -1073,7 +1073,6 @@ namespace TianWen.UI.Abstractions
             // Convert to unit vectors
             var v1 = SkyMapState.RaDecToUnitVec(ra1, dec1);
             var v2 = SkyMapState.RaDecToUnitVec(ra2, dec2);
-            var vc = SkyMapState.RaDecToUnitVec(startRA, startDec);
 
             // Build quaternion rotation from v2 to v1: q = (cross(v2,v1), 1 + dot(v2,v1))
             var from = new System.Numerics.Vector3(v2.X, v2.Y, v2.Z);
@@ -1083,16 +1082,33 @@ namespace TianWen.UI.Abstractions
             var q = System.Numerics.Quaternion.Normalize(
                 new System.Numerics.Quaternion(cross, 1f + dot));
 
-            // Apply rotation to the start center
-            var center = new System.Numerics.Vector3(vc.X, vc.Y, vc.Z);
-            var rotated = System.Numerics.Vector3.Transform(center, q);
+            // Rotate the WHOLE start frame, not just the centre. The rotation has three degrees of
+            // freedom; applying it to the centre alone discarded the roll, and the roll then got
+            // re-derived from the mode's reference direction, which is what made a pan near the pole
+            // or the zenith swing the field. Rotating forward AND right keeps the gesture rigid: the
+            // sky turns under the pointer by exactly the rotation the drag describes, wherever the
+            // view happens to point. The start frame is the matrix that was on screen when the drag
+            // began, whose rows are (right, up, -forward).
+            var startForward = new System.Numerics.Vector3(-startMatrix.M31, -startMatrix.M32, -startMatrix.M33);
+            var startRight = new System.Numerics.Vector3(startMatrix.M11, startMatrix.M12, startMatrix.M13);
+            if (startForward.LengthSquared() < 1e-6f || startRight.LengthSquared() < 1e-6f)
+            {
+                // No frame has been stamped yet (a drag that lands before the first rendered frame
+                // sees a default matrix), so start from the centre the drag began at instead of
+                // normalising a zero vector into a NaN the state would then keep.
+                var (fallbackForward, fallbackRight, _) = SkyMapState.ReferenceFrame(startRA, startDec);
+                startForward = fallbackForward;
+                startRight = fallbackRight;
+            }
 
-            // Convert back to RA/Dec
-            var newDec = double.RadiansToDegrees(Math.Asin(Math.Clamp(rotated.Z, -1f, 1f)));
-            var newRA = Math.Atan2(rotated.Y, rotated.X) / (Math.PI / 12.0);
+            var forward = System.Numerics.Vector3.Transform(startForward, q);
+            var right = System.Numerics.Vector3.Transform(startRight, q);
+
+            var (newRA, newDec, newRoll) = SkyMapState.FrameToCenter(forward, right);
 
             State.CenterRA = newRA;
             State.CenterDec = newDec;
+            State.CenterRoll = newRoll;
             State.NormalizeCenter();
             State.NeedsRedraw = true;
             return true;

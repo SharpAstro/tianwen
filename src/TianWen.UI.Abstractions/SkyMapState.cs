@@ -802,73 +802,140 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Compute the J2000 → camera rotation matrix for the current view center.
-        /// The matrix maps the view direction to -Z (camera forward), with X = right and Y = up.
-        /// In equatorial mode, "up" is toward the celestial north pole.
-        /// In horizon mode, "up" is toward the local zenith (horizon stays horizontal).
-        /// Returns a <see cref="Matrix4x4"/> (column-major layout matches std140 mat4).
+        /// Roll about the view axis, in radians, and the view's THIRD degree of freedom.
+        /// <para>
+        /// Zero means screen-up points along celestial north, so an Equatorial view is north-up at
+        /// roll 0 for every declination. Horizon mode carries the roll that puts the local zenith up,
+        /// refreshed each frame by <see cref="UpdateRollForReference"/> as the sky turns.
+        /// </para>
+        /// <para>
+        /// It exists because orientation has three degrees of freedom and the centre only carries
+        /// two. Re-deriving the missing one per frame as <c>forward x reference</c> is what made the
+        /// pole (Equatorial) and the zenith (Horizon) singular: the cross product's LENGTH goes to
+        /// zero there, so its direction becomes arbitrarily sensitive to a small pan (the field
+        /// swings), and at exact parallelism the old code substituted a hardcoded right vector.
+        /// Storing the roll removes the derivation, so no view direction is special.
+        /// </para>
         /// </summary>
-        /// <param name="zenithX">J2000 X component of the local zenith (only used in Horizon mode).</param>
-        /// <param name="zenithY">J2000 Y component of the local zenith.</param>
-        /// <param name="zenithZ">J2000 Z component of the local zenith.</param>
-        public Matrix4x4 ComputeViewMatrix(float zenithX = 0f, float zenithY = 0f, float zenithZ = 1f)
+        public double CenterRoll { get; set; }
+
+        /// <summary>
+        /// How close the view axis may come to the mode's reference direction before
+        /// <see cref="UpdateRollForReference"/> stops trusting it, as the sine of the angle between
+        /// them (about 5 degrees). Inside that cone the reference cannot say which way is up, so the
+        /// roll is left as it is instead of being recomputed from a vanishing cross product.
+        /// </summary>
+        private const double ReferenceRollLockSin = 0.0872; // sin(5 deg)
+
+        /// <summary>
+        /// The view frame at <see cref="CenterRA"/> / <see cref="CenterDec"/> with
+        /// <see cref="CenterRoll"/> = 0: forward toward the centre, right toward DECREASING RA (the
+        /// sky map is east-left) and up toward celestial north.
+        /// <para>
+        /// This frame is well-conditioned at every declination, including the poles, which is the
+        /// whole point: <c>forward x zhat</c> equals <c>cosDec</c> times this right vector, so
+        /// normalising it reproduces exactly this frame wherever the old construction worked, and
+        /// this one keeps going where that one divided by zero. At the pole it resolves to the limit
+        /// along the centre's own meridian, which is what someone panning up a meridian expects.
+        /// </para>
+        /// </summary>
+        public static (Vector3 Forward, Vector3 Right, Vector3 Up) ReferenceFrame(double raHours, double decDeg)
         {
-            var (sinRA, cosRA) = Math.SinCos(CenterRA * Hours2Rad);
-            var (sinDec, cosDec) = Math.SinCos(double.DegreesToRadians(CenterDec));
+            var (sinRA, cosRA) = Math.SinCos(raHours * Hours2Rad);
+            var (sinDec, cosDec) = Math.SinCos(double.DegreesToRadians(decDeg));
 
-            // Forward direction: unit vector toward (CenterRA, CenterDec)
-            var fx = (float)(cosDec * cosRA);
-            var fy = (float)(cosDec * sinRA);
-            var fz = (float)sinDec;
+            var forward = new Vector3((float)(cosDec * cosRA), (float)(cosDec * sinRA), (float)sinDec);
+            // Unit and perpendicular to forward for EVERY Dec: right . forward = cosDec * (sinRA *
+            // cosRA - cosRA * sinRA) = 0, and its length does not depend on Dec at all.
+            var right = new Vector3((float)sinRA, (float)-cosRA, 0f);
+            var up = Vector3.Cross(right, forward);
+            return (forward, right, up);
+        }
 
-            // "Up" reference direction depends on mode:
-            // Equatorial: celestial north pole (0, 0, 1)
-            // Horizon: local zenith (cosLat*cosLST, cosLat*sinLST, sinLat)
-            float upRefX, upRefY, upRefZ;
-            if (Mode == SkyMapMode.Horizon)
-            {
-                upRefX = zenithX;
-                upRefY = zenithY;
-                upRefZ = zenithZ;
-            }
-            else
-            {
-                upRefX = 0f;
-                upRefY = 0f;
-                upRefZ = 1f;
-            }
+        /// <summary>
+        /// Compute the J2000 → camera rotation matrix for the current view centre and roll.
+        /// The matrix maps the view direction to -Z (camera forward), with X = right and Y = up.
+        /// Returns a <see cref="Matrix4x4"/> (column-major layout matches std140 mat4).
+        /// <para>
+        /// Reads no reference direction: the mode's "up" arrives through <see cref="CenterRoll"/>,
+        /// which <see cref="UpdateRollForReference"/> maintains once per frame. So this is a pure
+        /// function of three angles and cannot be singular.
+        /// </para>
+        /// </summary>
+        public Matrix4x4 ComputeViewMatrix()
+        {
+            var (forward, right0, up0) = ReferenceFrame(CenterRA, CenterDec);
+            var (sinRoll, cosRoll) = Math.SinCos(CenterRoll);
 
-            // Right = forward × upRef, then normalize
-            var rx = fy * upRefZ - fz * upRefY;
-            var ry = fz * upRefX - fx * upRefZ;
-            var rz = fx * upRefY - fy * upRefX;
-            var rLen = MathF.Sqrt(rx * rx + ry * ry + rz * rz);
-            if (rLen > 1e-6f)
-            {
-                rx /= rLen;
-                ry /= rLen;
-                rz /= rLen;
-            }
-            else
-            {
-                // Forward is parallel to up reference — pick an arbitrary right vector
-                rx = 1f;
-                ry = 0f;
-                rz = 0f;
-            }
-
-            // Up = right × forward (already unit length since right ⊥ forward and both unit)
-            var ux = ry * fz - rz * fy;
-            var uy = rz * fx - rx * fz;
-            var uz = rx * fy - ry * fx;
+            // Rotate the frame about the view axis. up stays right x forward, as before.
+            var right = (float)cosRoll * right0 + (float)sinRoll * up0;
+            var up = Vector3.Cross(right, forward);
 
             // View matrix: rows are (right, up, -forward)
             // Matrix4x4 constructor takes row-major arguments (M11..M44)
             return new Matrix4x4(
-                rx,  ry,  rz,  0f,
-                ux,  uy,  uz,  0f,
-                -fx, -fy, -fz, 0f,
-                0f,  0f,  0f,  1f);
+                right.X, right.Y, right.Z, 0f,
+                up.X, up.Y, up.Z, 0f,
+                -forward.X, -forward.Y, -forward.Z, 0f,
+                0f, 0f, 0f, 1f);
+        }
+
+        /// <summary>
+        /// Refreshes <see cref="CenterRoll"/> so screen-up points along the mode's reference
+        /// direction: celestial north in Equatorial (roll 0 by construction), the supplied local
+        /// zenith in Horizon. Called once per frame from <see cref="SkyMapUbo.Write"/>, which is
+        /// also where the zenith is known.
+        /// <para>
+        /// Inside <see cref="ReferenceRollLockSin"/> of the reference, or with no usable reference at
+        /// all (an invalid site hands Horizon mode a zero zenith, which used to reach the arbitrary
+        /// right vector), the roll is KEPT rather than recomputed. That is what stops the field
+        /// swinging: near the reference a small pan changes the reference-derived up by a large angle,
+        /// while a drag that rotates the whole frame carries its own roll and needs no reference.
+        /// </para>
+        /// </summary>
+        /// <returns>True when the roll was refreshed from the reference; false while it is held.</returns>
+        public bool UpdateRollForReference(float zenithX = 0f, float zenithY = 0f, float zenithZ = 1f)
+        {
+            var reference = Mode == SkyMapMode.Horizon
+                ? new Vector3(zenithX, zenithY, zenithZ)
+                : new Vector3(0f, 0f, 1f);
+
+            var refLen = reference.Length();
+            if (refLen < 1e-6f)
+            {
+                return false;
+            }
+            reference /= refLen;
+
+            var (forward, right0, up0) = ReferenceFrame(CenterRA, CenterDec);
+
+            // Component of the reference perpendicular to the view axis. Its LENGTH is the sine of
+            // the angle between them, i.e. exactly the conditioning of the old cross product.
+            var perpendicular = reference - forward * Vector3.Dot(reference, forward);
+            if (perpendicular.Length() < ReferenceRollLockSin)
+            {
+                return false;
+            }
+
+            // up(roll) = cos(roll) * up0 - sin(roll) * right0, so solve for up == perpendicular.
+            CenterRoll = Math.Atan2(-Vector3.Dot(perpendicular, right0), Vector3.Dot(perpendicular, up0));
+            return true;
+        }
+
+        /// <summary>
+        /// Decomposes a view frame back into centre RA / Dec / roll, the inverse of
+        /// <see cref="ComputeViewMatrix"/>. Used by the pan gesture, which rotates the whole frame
+        /// rigidly and then has to store it in the three scalars.
+        /// </summary>
+        public static (double RaHours, double DecDeg, double Roll) FrameToCenter(Vector3 forward, Vector3 right)
+        {
+            forward = Vector3.Normalize(forward);
+            var decDeg = double.RadiansToDegrees(Math.Asin(Math.Clamp(forward.Z, -1f, 1f)));
+            var raHours = Math.Atan2(forward.Y, forward.X) / Hours2Rad;
+
+            var (_, right0, up0) = ReferenceFrame(raHours, decDeg);
+            var roll = Math.Atan2(Vector3.Dot(right, up0), Vector3.Dot(right, right0));
+            return (raHours, decDeg, roll);
         }
 
         /// <summary>
