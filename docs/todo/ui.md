@@ -99,7 +99,15 @@ Vulkan/SDL migration rationale moved to `../SdlVulkan.Renderer/README.md` ("Rati
 Three user-reported defects. Root causes below are from reading the code, not from a repro run, so
 confirm before fixing; the line numbers are as of this entry.
 
-- [ ] **A selected extended object gets a circle instead of its own shape.** The shape-hugging path
+- [x] **A selected extended object gets a circle instead of its own shape.** **DONE (2026-08-05).** The
+  size gate is now an inflate: `TryDrawShapeMarker` scales BOTH semi-axes by one factor from the new
+  shared `OverlayEngine.EllipseLegibilityScale` (floor 10 px on the semi-major axis, plus a 1.15 slack
+  that applies at every size so the ring sits just outside the object's own outline instead of coinciding
+  with it), so the marker keeps the object's real axis ratio and position angle at any zoom. The scale is
+  deliberately uniform, and the helper is shared with both pinned-halo paths. The crosshair now appears
+  only for genuinely shapeless entries: no usable shape, a star (`ChooseMarkerKind`), or a degenerate
+  projection. Pinned by four `OverlayEngineTests` cases (floor, ratio preserved, large shape untouched,
+  degenerate size yields no NaN). Original analysis:
   already exists (`SkyMapTab.Search.cs` `TryDrawShapeMarker`, which traces the true ellipse through the
   shared `OverlayEngine.ComputeEllipseScreenAxes`), but it **bails when `semiMajorPx < 10f * dpiScale`**
   and falls back to a fixed `DrawCircle(sx, sy, 14f * dpiScale, ...)` plus crosshair

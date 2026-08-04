@@ -30,6 +30,14 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 GotoButtonBg     = new(0x5A, 0x3A, 0x5A, 0xFF);
         private static readonly RGBAColor32 GotoDisabledBg   = new(0x38, 0x38, 0x3C, 0xFF);
 
+        // Selection-ellipse sizing (see TryDrawShapeMarker). Both factors scale the ellipse
+        // UNIFORMLY, so the marker always keeps the object's real axis ratio and position angle:
+        // the floor is a legibility minimum on the projected semi-major axis (most galaxies
+        // project to a couple of pixels at ordinary zooms), and the slack keeps the ring just
+        // outside the object's own overlay ellipse rather than coinciding with it.
+        private const float MinSelectionSemiMajorPx = 10f;
+        private const float SelectionSlack = 1.15f;
+
         private const float SearchPanelWidth  = 480f;
         private const float SearchPanelHeight = 500f;
         private const float SearchRowHeight   = 28f;
@@ -529,8 +537,10 @@ namespace TianWen.UI.Abstractions
         }
 
         // Trace a rotated ellipse approximating the catalog object's shape. Returns
-        // false when there is no usable shape or the projected size is too small to
-        // distinguish from a crosshair — the caller falls back to the circle marker.
+        // false when there is no usable shape (or it belongs to a star, or the projection
+        // is degenerate); the caller then falls back to the circle+crosshair marker. On-screen
+        // size is NOT a reason to return false: a small shape is inflated to a legibility
+        // floor instead, so an extended object always reads as its own shape.
         //
         // Orientation uses the object's actual sky-projected north/east directions
         // (sampled via SkyMapProjection) rather than assuming north = screen up.
@@ -564,7 +574,21 @@ namespace TianWen.UI.Abstractions
             var semiMajorPx = (float)(majorArcmin * 0.5 * ArcminToRad * pixelsPerRadian);
             var semiMinorPx = (float)(effectiveMinor * 0.5 * ArcminToRad * pixelsPerRadian);
 
-            if (semiMajorPx < 10f * dpiScale) return false;
+            // A small projected shape used to BAIL here (semiMajorPx < 10 * dpi), which fell through to
+            // the caller's fixed 14 px crosshair circle, and at ordinary zooms that circle is LARGER
+            // than the object's own overlay ellipse still drawn underneath, which is exactly the
+            // reported "the shape is an ellipse but the selection is a circle" mismatch. So the size
+            // floor is an INFLATE, not a gate: scale both axes by the same factor, so the marker keeps
+            // the object's true axis ratio and position angle and only grows to a legibility floor.
+            // The slack factor applies at every size, so the ring sits just outside the object's own
+            // outline instead of coinciding with it (a marker drawn exactly on top of the overlay
+            // ellipse does not read as "selected"). The crosshair stays for genuinely shapeless
+            // entries: stars, which ChooseMarkerKind already separates out above.
+            if (!(semiMajorPx > 0f)) return false;
+            var inflate = Overlays.OverlayEngine.EllipseLegibilityScale(
+                semiMajorPx, MinSelectionSemiMajorPx * dpiScale, SelectionSlack);
+            semiMajorPx *= inflate;
+            semiMinorPx *= inflate;
 
             // Sample screen-space north unit vector by projecting a point 1' north
             // of the object and subtracting the projected centre. We only care about
