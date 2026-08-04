@@ -1,0 +1,23 @@
+<Project>
+
+  <!--
+    Whether the sibling libraries' DEBUG-only debug-inspector surface is available to compile against.
+    The reasoning for needing BOTH conditions is in Directory.Build.props, beside the block this
+    replaced; what matters here is WHY it is in .targets rather than .props.
+
+    Directory.Build.props is imported from the top of Microsoft.Common.props, before the SDK defaults
+    $(Configuration) to Debug. So `'$(Configuration)' == 'Debug'` is a comparison against an EMPTY
+    string there for any build that does not pass the configuration explicitly, which is every plain
+    `dotnet build` and `dotnet run`. The constant went undefined, the inspector wiring compiled out,
+    and nothing said so, because an #if that is merely false is not a diagnostic. Directory.Build.targets
+    is imported at the end of Microsoft.Common.targets, after the default has been applied, and
+    DefineConstants set here still reaches Csc.
+
+    The rule this is an instance of: NEVER test $(Configuration) (or anything else the SDK defaults)
+    from Directory.Build.props. Put it in Directory.Build.targets, where the value is settled.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug' AND '$(UseLocalSiblings)' == 'true'">
+    <DefineConstants>$(DefineConstants);SIBLING_DEBUG_INSPECTORS</DefineConstants>
+  </PropertyGroup>
+
+</Project>
