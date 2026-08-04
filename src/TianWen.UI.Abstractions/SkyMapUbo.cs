@@ -49,7 +49,13 @@ namespace TianWen.UI.Abstractions
             var zenithX = (float)(site.CosLat * fCosLST);
             var zenithY = (float)(site.CosLat * fSinLST);
             var zenithZ = (float)site.SinLat;
-            var viewMatrix = state.ComputeViewMatrix(zenithX, zenithY, zenithZ);
+            // Refresh the roll from the mode's reference (celestial north / the local zenith) before
+            // building the matrix. This is the one per-frame call site for both GPU backends, and it
+            // is where the zenith is known; ComputeViewMatrix itself takes no reference direction, so
+            // it cannot be singular. Near the reference the call holds the current roll instead of
+            // recomputing it from a vanishing cross product.
+            state.UpdateRollForReference(zenithX, zenithY, zenithZ);
+            var viewMatrix = state.ComputeViewMatrix();
             state.CurrentViewMatrix = viewMatrix;
             var ppr = (float)SkyMapProjection.PixelsPerRadian(viewportHeight, state.FieldOfViewDeg);
 

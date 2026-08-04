@@ -130,7 +130,25 @@ confirm before fixing; the line numbers are as of this entry.
   `SkyMapTab.ObjectOverlay.cs:130-140` computes `haloPx` from `e.SemiMajArcmin` for an
   `OverlayCandidateMarker.Ellipse` and then draws it with `DrawCircle`, so an elongated object gets a
   circular halo sized to its *major* axis. `DrawOverlayEllipse` is right there in the same file.
-- [ ] **Panning near the pole (EQ) / zenith (horizon) swings the field.** Not a pan-math bug:
+- [x] **Panning near the pole (EQ) / zenith (horizon) swings the field.** **DONE (2026-08-05), root fix,
+  not the mitigation.** `SkyMapState.CenterRoll` now stores the third degree of freedom and
+  `ComputeViewMatrix` takes NO reference direction, so it cannot be singular and the hardcoded
+  `(1,0,0)` fallback is gone. `HandleDrag` rotates the whole frame (forward AND right) and decomposes
+  via `FrameToCenter`, so a pan is rigid wherever the view points. `UpdateRollForReference` (one call
+  site, `SkyMapUbo.Write`, which is where the zenith is known) keeps the mode's promise of north-up /
+  zenith-up, and HOLDS the roll inside 5 degrees of the reference, where the reference cannot name an
+  up direction. Two things found while doing it. (1) The frame `right = (sinRA, -cosRA, 0)` is unit and
+  perpendicular to forward at EVERY Dec, and `forward x zhat` is exactly `cosDec` times it, so
+  **roll 0 reproduces the old matrix identically** wherever the old one was well-conditioned; that is
+  what makes this a rewrite rather than a change of look, and it is pinned against a legacy-oracle
+  matrix. Equatorial mode therefore needs no realignment at all (north-up IS roll 0). (2) Only Horizon
+  mode could actually reach the singularity: EQ is fenced off by `NormalizeCenter`'s +/-89.5 Dec clamp,
+  which remains as a separate projection guard, so the pole itself is still 0.5 degrees out of reach.
+  Residual, and inherent to a north-up mode rather than to this fix: crossing the pole flips north-up
+  by 180 degrees, so leaving the lock cone re-levels in one step; the drag itself is now continuous
+  instead of spinning. Pinned by `SkyMapViewOrientationTests`, including the reported symptom as a
+  number (a 0.1 degree pan at Dec 89.5 turns the field by 0.1 degrees, not by the roughly 115x
+  amplified angle `1 / cos(Dec)` gives). Original analysis:
   `SkyMapTab.HandleDrag` builds a correct great-circle quaternion. The problem is that it stores only
   **two** of the rotation's three degrees of freedom (`State.CenterRA` / `CenterDec`) and throws the
   roll away, so every frame re-derives orientation in `SkyMapState.ComputeViewMatrix` as
