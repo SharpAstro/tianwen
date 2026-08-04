@@ -741,23 +741,16 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
 
         for (var i = 0; i < GridScales.Length; i++)
         {
-            var (_, _, minFov, maxFov) = GridScales[i];
-            if (fov > maxFov)
+            // Selection + fade live in SkyMapGpuGeometry, so this pipeline and the WebGL one cannot
+            // disagree about which scales are active (they did: the browser also required
+            // fov >= minFov, which drops the coarse scale's anchor lines entirely once zoomed in).
+            if (!SkyMapGpuGeometry.TryGetGridFade(i, fov, out var fade))
             {
                 continue;
             }
 
-            // Fade in: full alpha when FOV < minFov*2, zero when FOV >= maxFov
-            var fade = fov < minFov * 2
-                ? 1.0
-                : Math.Clamp((maxFov - fov) / (maxFov - minFov * 2), 0, 1);
-            if (fade < 0.05)
-            {
-                continue;
-            }
-
-            var alpha = (byte)(0xB0 * fade);
-            PushLineColor(cmd, 0x30, 0x60, 0xA0, alpha);
+            var color = SkyMapGpuGeometry.GridColorAt(fade);
+            PushLineColor(cmd, color.Red, color.Green, color.Blue, color.Alpha);
 
             var (buffer, _, vertexCount) = _gridBuffers[i];
             if (vertexCount > 0)

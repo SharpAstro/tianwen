@@ -304,7 +304,9 @@ namespace TianWen.UI.Web.SkyMap
             """;
 
         // Line colors mirror VkSkyMapPipeline.Draw's PushLineColor constants.
-        private static readonly RGBAColor32 GridColor = new(0x30, 0x60, 0xA0, 0x70);
+        // The RA/Dec grid colour now comes from SkyMapGpuGeometry.GridColorAt(fade), shared with the
+        // Vulkan pipeline; this local copy was also a flat 0x70 against the desktop's 0xB0 at full
+        // fade, so the browser grid was dimmer than the desktop one at every zoom.
         private static readonly RGBAColor32 AltAzColor = new(0x80, 0xA0, 0x30, 0x80);
         private static readonly RGBAColor32 MeridianColor = new(0x30, 0xDD, 0x30, 0xA0);
         private static readonly RGBAColor32 EclipticColor = new(0xE0, 0xC0, 0x40, 0xB0);
@@ -540,12 +542,20 @@ namespace TianWen.UI.Web.SkyMap
                 var fov = state.FieldOfViewDeg;
                 for (var i = 0; i < _grids.Length; i++)
                 {
-                    var (_, _, minFov, maxFov) = SkyMapGpuGeometry.GridScales[i];
-                    if (fov >= minFov && fov <= maxFov && _grids[i].VertexCount > 0)
+                    // Shared with the Vulkan pipeline. This loop used to require fov >= minFov,
+                    // which reads as "this scale is for wider views" but the scales are
+                    // COMPLEMENTARY (BuildGridLines omits every line a coarser scale draws), so
+                    // below 30 degrees it deleted scale 0: no celestial equator, no +/-30 or +/-60
+                    // parallels, no 0h/6h/12h/18h meridians, just the lines between them. It also
+                    // drew at a flat alpha, so a crowded scale never faded out.
+                    if (!SkyMapGpuGeometry.TryGetGridFade(i, fov, out var fade)
+                        || _grids[i].VertexCount <= 0)
                     {
-                        _renderer.SetPipelineColor(GridColor);
-                        _renderer.DrawBuffer(_grids[i].Buffer, 0, _grids[i].VertexCount);
+                        continue;
                     }
+
+                    _renderer.SetPipelineColor(SkyMapGpuGeometry.GridColorAt(fade));
+                    _renderer.DrawBuffer(_grids[i].Buffer, 0, _grids[i].VertexCount);
                 }
             }
 

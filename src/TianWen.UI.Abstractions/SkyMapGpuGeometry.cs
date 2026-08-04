@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
@@ -17,8 +18,9 @@ namespace TianWen.UI.Abstractions
     public static class SkyMapGpuGeometry
     {
         /// <summary>Grid scale definitions: (raStepHours, decStepDeg, minFov, maxFov). A scale
-        /// draws only the lines coarser scales don't already draw; renderers overlay every scale
-        /// whose FOV window contains the current field of view.</summary>
+        /// draws only the lines coarser scales don't already draw (see
+        /// <see cref="BuildGridLines"/>), so the scales are COMPLEMENTARY and renderers stack every
+        /// active one. Selection and fade go through <see cref="TryGetGridFade"/>.</summary>
         public static readonly (double RaStep, double DecStep, double MinFov, double MaxFov)[] GridScales =
         [
             (6.0,  30.0,  30.0, 999.0),
@@ -27,6 +29,51 @@ namespace TianWen.UI.Abstractions
             (0.5,   5.0,   1.0,  15.0),
             (10.0 / 60.0, 1.0, 0.2, 5.0),
         ];
+
+        /// <summary>Below this alpha a scale is skipped rather than drawn invisibly.</summary>
+        private const double MinGridFade = 0.05;
+
+        /// <summary>RA/Dec grid line colour at full fade, shared by both GPU backends.</summary>
+        public static readonly RGBAColor32 GridLineColor = new RGBAColor32(0x30, 0x60, 0xA0, 0xB0);
+
+        /// <summary>
+        /// Whether grid scale <paramref name="scaleIndex"/> takes part at a field of view of
+        /// <paramref name="fovDeg"/>, and at what alpha fade (1 = full). The single selection rule
+        /// for every renderer: the Vulkan pipeline and the WebGL pipeline had their own, and they
+        /// did not agree.
+        /// <para>
+        /// Note what the rule deliberately does NOT have: a lower FOV bound. <c>MinFov</c> only
+        /// sets where the fade begins. Because the scales are complementary, gating a scale OFF as
+        /// you zoom in past its <c>MinFov</c> does not thin the grid, it DELETES that scale's
+        /// lines: the browser pipeline required <c>fovDeg >= minFov</c>, so below 30 degrees it
+        /// dropped scale 0 and with it the celestial equator, the +/-30 and +/-60 parallels and the
+        /// 0h/6h/12h/18h meridians, leaving only the in-between lines. That is what "the web sky
+        /// map has no grid" turned out to be: the anchor lines vanish the moment you zoom in.
+        /// </para>
+        /// </summary>
+        /// <returns>False when the view is too wide for this scale's density, or when the faded
+        /// alpha would be invisible anyway.</returns>
+        public static bool TryGetGridFade(int scaleIndex, double fovDeg, out double fade)
+        {
+            var (_, _, minFov, maxFov) = GridScales[scaleIndex];
+            fade = 0.0;
+            if (fovDeg > maxFov)
+            {
+                return false;
+            }
+
+            // Full alpha until the view is wide enough to crowd this scale (minFov * 2), then a
+            // linear fade out to maxFov.
+            fade = fovDeg < minFov * 2
+                ? 1.0
+                : Math.Clamp((maxFov - fovDeg) / (maxFov - minFov * 2), 0.0, 1.0);
+            return fade >= MinGridFade;
+        }
+
+        /// <summary>The grid line colour at the fade <see cref="TryGetGridFade"/> reported.</summary>
+        public static RGBAColor32 GridColorAt(double fade) => new RGBAColor32(
+            GridLineColor.Red, GridLineColor.Green, GridLineColor.Blue,
+            (byte)Math.Clamp(GridLineColor.Alpha * fade, 0.0, 255.0));
 
         /// <summary>
         /// The bright-star seed: 5 floats per star (unit x/y/z, vMag, B-V) for the ~1000
