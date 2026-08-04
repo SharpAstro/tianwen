@@ -144,11 +144,22 @@ confirm before fixing; the line numbers are as of this entry.
   matrix. Equatorial mode therefore needs no realignment at all (north-up IS roll 0). (2) Only Horizon
   mode could actually reach the singularity: EQ is fenced off by `NormalizeCenter`'s +/-89.5 Dec clamp,
   which remains as a separate projection guard, so the pole itself is still 0.5 degrees out of reach.
-  Residual, and inherent to a north-up mode rather than to this fix: crossing the pole flips north-up
-  by 180 degrees, so leaving the lock cone re-levels in one step; the drag itself is now continuous
-  instead of spinning. Pinned by `SkyMapViewOrientationTests`, including the reported symptom as a
-  number (a 0.1 degree pan at Dec 89.5 turns the field by 0.1 degrees, not by the roughly 115x
-  amplified angle `1 / cos(Dec)` gives). Original analysis:
+  **First cut had a visible seam and the user caught it in the GUI**, so it was fixed on top and the
+  lesson is worth keeping. Holding the roll inside a lock cone and re-levelling outside it means
+  crossing the boundary snaps the accumulated roll away in ONE frame: measured at 63 degrees at
+  Dec 85, which reads as the view flipping, not panning. Two causes, both now closed. The re-level ran
+  every frame INCLUDING mid-drag, so it fought the gesture that owns the roll; it is now suppressed
+  while `IsDragging`. And **Equatorial mode never needed a cone at all**, since north-up is
+  analytically roll 0 at every Dec in this frame, so there was nothing ill-conditioned to protect
+  against; the cone is now Horizon-only, where pointing at the zenith genuinely leaves "zenith up"
+  undefined. Re-levelling also *approaches* its target (a quarter of the remaining angle per frame,
+  shortest way round, landing exactly), so it reads as a movement rather than a jump; an
+  already-level view is inside the snap distance immediately and is untouched, which is the common
+  case since the Equatorial target is a constant 0. Pinned by `SkyMapViewOrientationTests`, including
+  the reported symptom as a number (a 0.1 degree pan at Dec 89.5 turns the field by 0.1 degrees, not
+  by the roughly 115x amplified angle `1 / cos(Dec)` gives) and the 63 degree roll travelling back
+  without a leap. Verified live in the GUI: panning RA 2.50h to 4.07h at Dec 85 keeps the SCP directly
+  below the view centre in both frames. Original analysis:
   `SkyMapTab.HandleDrag` builds a correct great-circle quaternion. The problem is that it stores only
   **two** of the rotation's three degrees of freedom (`State.CenterRA` / `CenterDec`) and throws the
   roll away, so every frame re-derives orientation in `SkyMapState.ComputeViewMatrix` as
