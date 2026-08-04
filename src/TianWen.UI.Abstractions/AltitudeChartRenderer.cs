@@ -69,6 +69,26 @@ public static class AltitudeChartRenderer
     // Default font family — callers may prefer to pass one via fontPath parameter
     private const string DefaultFontFamily = "monospace";
 
+    // --- Vertical band geometry above the plot ------------------------------------------------
+    // The rows above the plot are anchored from OPPOSITE ends: the title hangs down from the top of
+    // the chart area, while the twilight-zone labels are anchored UP from the plot. Nothing
+    // reconciled the two, so they only cleared each other above roughly 2370 px of chart height,
+    // i.e. they collided at every real size (the reported "Civ" / "Naut." drawn over the title).
+    // VerticalLayout now reserves both bands explicitly, and DrawTwilightZones anchors its rows off
+    // these same constants, so the reservation provably matches what is drawn.
+    private const int TitleTopGap = 2;
+    private const int TitleBottomGap = 2;
+    private const int ZoneLabelRow0Offset = 24;  // top label row, measured up from plotY
+    private const int ZoneLabelRow1Offset = 10;  // bottom label row, measured up from plotY
+    private const int ZoneLabelTextH = 14;
+    private const int TwilightLabelBandH = ZoneLabelRow0Offset + ZoneLabelTextH;
+
+    // Under this the bands cannot all fit (the portrait planner layout renders the chart about
+    // 117 px tall), and the plot is what has to survive. The top margin is shaved and the title is
+    // then dropped rather than drawn over the labels, which is what keeps "no two rows share
+    // space" true at every size instead of only at comfortable ones.
+    private const int MinPlotH = 24;
+
     // -----------------------------------------------------------------------
     // Public entry point
     // -----------------------------------------------------------------------
@@ -119,15 +139,12 @@ public static class AltitudeChartRenderer
         var h = areaH;
 
         // --- Layout (proportional to area size, offset by areaX/areaY) ---
-        var xMargin     = Math.Max(48, w / 14);
-        var yMarginTop  = Math.Max(30, h / 22) + WeatherMargin(state, h);
-        var yMarginBot  = Math.Max(44, h / 14);
-        var legendH     = Math.Max(20, h / 33);
+        var xMargin = Math.Max(48, w / 14);
+        var (yMarginTop, _, legendH, plotH, titleVisible) = VerticalLayout(state, h);
 
         var plotX = areaX + xMargin;
         var plotY = areaY + yMarginTop;
         var plotW = w - xMargin * 2;
-        var plotH = h - yMarginTop - yMarginBot - legendH;
 
         // --- Time range ---
         var tStart = (state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1)) - TimeSpan.FromMinutes(15);
@@ -193,21 +210,26 @@ public static class AltitudeChartRenderer
             DrawMoonCurve(renderer, moonProfile, state, TimeToX, AltToY, h, emojiFontPath ?? fontFamily);
         }
 
-        // --- Title (at very top, before weather band) ---
-        var titleH = Math.Max(16, h / 35);
-        var titleRect = MakeRect(0, areaY + 2, w, titleH);
-        var latSign   = state.SiteLatitude >= 0 ? "N" : "S";
-        var lonSign   = state.SiteLongitude >= 0 ? "E" : "W";
-        renderer.DrawText(
-            $"Observation Schedule — {Math.Abs(state.SiteLatitude):F1}°{latSign}, {Math.Abs(state.SiteLongitude):F1}°{lonSign}",
-            fontFamily, FontSize(h, 16), WhiteColor,
-            titleRect, TextAlign.Center, TextAlign.Near);
+        // --- Title (top band; the weather band and the twilight labels are reserved below it) ---
+        // MakeRect takes areaX, NOT 0: this was the file's only MakeRect(0, ...) while every other
+        // element offsets by areaX / plotX, so a centre-aligned title landed at areaW / 2 instead of
+        // areaX + areaW / 2 and slid left out of the chart column, under the planner's target list.
+        if (titleVisible)
+        {
+            var titleRect = MakeRect(areaX, areaY + TitleTopGap, w, TitleTextHeight(h));
+            var latSign = state.SiteLatitude >= 0 ? "N" : "S";
+            var lonSign = state.SiteLongitude >= 0 ? "E" : "W";
+            renderer.DrawText(
+                $"Observation Schedule — {Math.Abs(state.SiteLatitude):F1}°{latSign}, {Math.Abs(state.SiteLongitude):F1}°{lonSign}",
+                fontFamily, FontSize(h, 16), WhiteColor,
+                titleRect, TextAlign.Center, TextAlign.Near);
+        }
 
         // --- Weather band (above the twilight zone labels) ---
         if (state.WeatherForecast is { Count: > 0 } forecast)
         {
             var bandH = WeatherBandHeight(h);
-            var weatherBandY = areaY + titleH + 4;
+            var weatherBandY = areaY + TitleBandHeight(h);
             DrawWeatherBand(renderer, state, forecast, tStart, tEnd, TimeToX,
                 plotX, weatherBandY, plotW, bandH, h, fontFamily, emojiFontPath ?? fontFamily);
         }
@@ -317,8 +339,10 @@ public static class AltitudeChartRenderer
 
         // Draw zone boundary markers and labels above the plot (staggered two-row layout)
         var fs = FontSize((int)renderer.Height, 10);
-        var labelRow0Y = plotY - 24; // top row (even zones)
-        var labelRow1Y = plotY - 10; // bottom row (odd zones)
+        // Anchored UP from the plot, from the same constants the top margin reserves (see
+        // TwilightLabelBandH) so the labels cannot climb into the title band.
+        var labelRow0Y = plotY - ZoneLabelRow0Offset; // top row (even zones)
+        var labelRow1Y = plotY - ZoneLabelRow1Offset; // bottom row (odd zones)
 
         for (var zi = 0; zi < zones.Count; zi++)
         {
@@ -337,7 +361,7 @@ public static class AltitudeChartRenderer
             // Stagger: even zones on top row, odd on bottom row
             var labelY = (zi % 2 == 0) ? labelRow0Y : labelRow1Y;
             var cx = (x1 + x2) / 2;
-            var lRect = MakeRect(cx - 60, labelY - 14, 120, 14);
+            var lRect = MakeRect(cx - 60, labelY - ZoneLabelTextH, 120, ZoneLabelTextH);
             renderer.DrawText(label, fontFamily, fs, ZoneLabelColor, lRect, TextAlign.Center, TextAlign.Far);
         }
     }
@@ -567,14 +591,11 @@ public static class AltitudeChartRenderer
         GetChartPlotLayout(PlannerState state, int areaX, int areaY, int areaW, int areaH)
     {
         var xMargin = Math.Max(48, areaW / 14);
-        var yMarginTop = Math.Max(30, areaH / 22) + WeatherMargin(state, areaH);
-        var yMarginBot = Math.Max(44, areaH / 14);
-        var legendH = Math.Max(20, areaH / 33);
+        var (yMarginTop, _, _, plotH, _) = VerticalLayout(state, areaH);
 
         var plotX = areaX + xMargin;
         var plotY = areaY + yMarginTop;
         var plotW = areaW - xMargin * 2;
-        var plotH = areaH - yMarginTop - yMarginBot - legendH;
 
         var tStart = (state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1)) - TimeSpan.FromMinutes(15);
         var tEnd = (state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1)) + TimeSpan.FromMinutes(15);
@@ -596,10 +617,9 @@ public static class AltitudeChartRenderer
         }
 
         var xMargin = Math.Max(48, areaW / 14);
-        var titleH = Math.Max(16, areaH / 35);
         var bandX = areaX + xMargin;
         var bandW = areaW - xMargin * 2;
-        var bandY = areaY + titleH + 4;
+        var bandY = areaY + TitleBandHeight(areaH);
         var bandH = WeatherBandHeight(areaH) + HumidityRowHeight(areaH);
         return (bandX, bandY, bandW, bandH);
     }
@@ -629,6 +649,44 @@ public static class AltitudeChartRenderer
         => state.WeatherForecast is { Count: > 0 }
             ? WeatherBandHeight(chartH) + HumidityRowHeight(chartH) + Math.Max(16, chartH / 50)
             : 0;
+
+    /// <summary>Returns the title text height, proportional to chart height.</summary>
+    private static int TitleTextHeight(int chartH) => Math.Max(16, chartH / 35);
+
+    /// <summary>
+    /// Returns the height reserved for the title row, gaps included. The weather band starts at
+    /// exactly this offset, which is what keeps the two from overlapping.
+    /// </summary>
+    private static int TitleBandHeight(int chartH)
+        => TitleTopGap + TitleTextHeight(chartH) + TitleBottomGap;
+
+    /// <summary>
+    /// The chart's vertical layout, allocated top-down so no two rows can claim the same pixels:
+    /// title band, optional weather band, twilight-zone label band, the plot, then the time-axis
+    /// labels and the legend. <see cref="Render{TSurface}(Renderer{TSurface}, PlannerState, string, int, int, int, int, int?, DateTimeOffset?, ValueTuple{float, float}?, string)"/>
+    /// and the public layout getters all come through here, so the drawn chart and the hit-test
+    /// geometry cannot drift apart (they used to restate this arithmetic).
+    /// </summary>
+    /// <returns><c>TitleVisible</c> is false when the chart is too short to hold the title band
+    /// without eating into the plot; the caller then does not draw the title at all.</returns>
+    private static (int YMarginTop, int YMarginBot, int LegendH, int PlotH, bool TitleVisible)
+        VerticalLayout(PlannerState state, int chartH)
+    {
+        var legendH = Math.Max(20, chartH / 33);
+        var yMarginBot = Math.Max(44, chartH / 14);
+        var desiredTop = TitleBandHeight(chartH) + WeatherMargin(state, chartH)
+            + Math.Max(TwilightLabelBandH, chartH / 22);
+
+        var yMarginTop = desiredTop;
+        var plotH = chartH - yMarginTop - yMarginBot - legendH;
+        if (plotH < MinPlotH)
+        {
+            yMarginTop = Math.Max(0, yMarginTop - (MinPlotH - plotH));
+            plotH = chartH - yMarginTop - yMarginBot - legendH;
+        }
+
+        return (yMarginTop, yMarginBot, legendH, plotH, yMarginTop >= desiredTop);
+    }
 
     /// <summary>
     /// Maps relative humidity (%) to a dew-risk colour: green (dry) -> gold -> orange -> red
