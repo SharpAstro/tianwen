@@ -84,17 +84,108 @@ public class SkyMapViewOrientationTests
     }
 
     [Theory]
-    [InlineData(0.0, true)]
-    [InlineData(80.0, true)]
-    [InlineData(-80.0, true)]
-    [InlineData(86.0, false)]
-    [InlineData(-89.5, false)]
-    public void EquatorialRefresh_IsHeldInsideTheLockConeAroundThePole(double dec, bool expectedRefreshed)
+    [InlineData(0.0)]
+    [InlineData(80.0)]
+    [InlineData(86.0)]
+    [InlineData(-89.5)]
+    [InlineData(90.0)]
+    public void EquatorialMode_HasNoLockCone_BecauseNorthUpIsRollZeroEverywhere(double dec)
     {
-        // The conditioning of the old cross product IS cos(Dec) in Equatorial mode, so the lock cone
-        // is the last 5 degrees before the pole. Inside it a pan is what owns the roll.
+        // Equatorial mode's answer is analytically 0 at every declination, the pole included, so
+        // there is nothing ill-conditioned to protect against and it gets no cone. Giving it one was
+        // a real defect: a pan held its rigid roll inside the cone and then snapped it away on the
+        // way out, flipping the field by 63 degrees in one frame at Dec 85.
         var state = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 6.0, CenterDec = dec };
-        state.UpdateRollForReference().ShouldBe(expectedRefreshed);
+        state.UpdateRollForReference().ShouldBeTrue("Equatorial mode always knows where north is");
+        state.CenterRoll.ShouldBe(0.0, 1e-9);
+    }
+
+    [Fact]
+    public void WhileDragging_TheRollIsHeld_SoThePanCannotBeFoughtMidGesture()
+    {
+        // The pan rotates the whole frame rigidly and derives the roll from it. Re-levelling
+        // underneath it is what produced the reported flip.
+        var state = new SkyMapState
+        {
+            Mode = SkyMapMode.Equatorial,
+            CenterRA = 6.0,
+            CenterDec = 85.0,
+            CenterRoll = 1.1,
+            IsDragging = true,
+        };
+
+        state.UpdateRollForReference().ShouldBeFalse();
+        state.CenterRoll.ShouldBe(1.1, 1e-9);
+    }
+
+    [Fact]
+    public void AfterTheDrag_TheRollTravelsBackToLevel_WithoutSnapping()
+    {
+        // A rolled view re-levels over several frames, taking the SHORT way round, and lands exactly.
+        // One frame of it must be a small fraction of the journey, or it is the flip again.
+        var state = new SkyMapState
+        {
+            Mode = SkyMapMode.Equatorial,
+            CenterRA = 6.0,
+            CenterDec = 85.0,
+            CenterRoll = double.DegreesToRadians(63.0), // the angle measured off the report
+        };
+
+        state.UpdateRollForReference().ShouldBeTrue();
+        var afterOneFrame = double.RadiansToDegrees(state.CenterRoll);
+        afterOneFrame.ShouldBeLessThan(63.0, "it must move toward level");
+        afterOneFrame.ShouldBeGreaterThan(30.0, "but nothing like all the way, or it is a flip");
+        state.NeedsRedraw.ShouldBeTrue("the approach needs the next frame to continue");
+
+        var previous = double.MaxValue;
+        for (var frame = 0; frame < 200 && Math.Abs(state.CenterRoll) > 1e-9; frame++)
+        {
+            state.UpdateRollForReference();
+            var current = Math.Abs(state.CenterRoll);
+            current.ShouldBeLessThan(previous, "the approach must be monotonic, never overshoot");
+            previous = current;
+        }
+
+        state.CenterRoll.ShouldBe(0.0, 1e-9, "it has to land exactly, not creep forever");
+    }
+
+    [Theory]
+    [InlineData(-170.0)]
+    [InlineData(170.0)]
+    [InlineData(-95.0)]
+    [InlineData(20.0)]
+    public void TheApproach_TakesTheShortWayRound_AndNeverLeaps(double startRollDeg)
+    {
+        // From -170 the short way to 0 is +170 (up through -127), not -190. So the property to pin is
+        // the signed one: the step shrinks the wrapped distance to the target, and no single step
+        // covers more than its share of a half turn.
+        var state = new SkyMapState
+        {
+            Mode = SkyMapMode.Equatorial,
+            CenterRoll = double.DegreesToRadians(startRollDeg),
+        };
+
+        var before = Math.Abs(startRollDeg);
+        state.UpdateRollForReference();
+        var after = Math.Abs(double.RadiansToDegrees(state.CenterRoll));
+
+        after.ShouldBeLessThan(before, "one step must close some of the distance to level");
+        (before - after).ShouldBeLessThanOrEqualTo(180.0 * 0.25 + 1e-6,
+            "and no step may cover more than its fraction of a half turn, or it reads as a flip");
+    }
+
+    [Fact]
+    public void AlreadyLevel_IsUntouched_AndAsksForNoExtraFrame()
+    {
+        // The common case by far, since the Equatorial target is a constant 0: the approach must cost
+        // it nothing, including not requesting redraws forever.
+        var state = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 3.0, CenterDec = 20.0 };
+        state.NeedsRedraw = false;
+
+        state.UpdateRollForReference().ShouldBeTrue();
+
+        state.CenterRoll.ShouldBe(0.0);
+        state.NeedsRedraw.ShouldBeFalse("a level view is not travelling anywhere");
     }
 
     [Theory]
@@ -136,7 +227,12 @@ public class SkyMapViewOrientationTests
         var zenith = SkyMapState.RaDecToUnitVec(4.0, 40.0);
         var state = new SkyMapState { Mode = SkyMapMode.Horizon, CenterRA = 8.0, CenterDec = 10.0 };
 
-        state.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z).ShouldBeTrue();
+        // The roll APPROACHES its target a fraction per frame, so settle it before measuring; one
+        // call is deliberately only part of the way.
+        for (var frame = 0; frame < 200; frame++)
+        {
+            state.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z).ShouldBeTrue();
+        }
 
         var m = state.ComputeViewMatrix();
         ShouldBeOrthonormalRotation(m, "horizon mode away from the zenith");

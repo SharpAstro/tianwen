@@ -824,8 +824,29 @@ namespace TianWen.UI.Abstractions
         /// <see cref="UpdateRollForReference"/> stops trusting it, as the sine of the angle between
         /// them (about 5 degrees). Inside that cone the reference cannot say which way is up, so the
         /// roll is left as it is instead of being recomputed from a vanishing cross product.
+        /// <para>
+        /// Only Horizon mode can reach this: pointing at the zenith really does leave "zenith up"
+        /// undefined. Equatorial mode's answer is analytically 0 at every declination (north-up IS
+        /// roll 0 in this frame), so it needs no cone, and giving it one was a mistake: a pan then
+        /// held a drag's roll inside the cone and snapped it away on the way out, which at Dec 85
+        /// flipped the field by 63 degrees in a single frame.
+        /// </para>
         /// </summary>
         private const double ReferenceRollLockSin = 0.0872; // sin(5 deg)
+
+        /// <summary>
+        /// Fraction of the remaining angle that <see cref="UpdateRollForReference"/> takes per frame
+        /// when the roll has to travel back to the mode's reference, and the distance at which it
+        /// stops stepping and lands exactly.
+        /// <para>
+        /// The approach exists so re-levelling reads as a movement rather than a glitch. A view that
+        /// is already level (the overwhelmingly common case, since the target is a constant 0 in
+        /// Equatorial mode) is within the snap distance immediately, so this costs it nothing and
+        /// leaves it bit-identical.
+        /// </para>
+        /// </summary>
+        private const double RollRealignStep = 0.25;
+        private const double RollRealignSnapRad = 0.0035; // ~0.2 deg
 
         /// <summary>
         /// The view frame at <see cref="CenterRA"/> / <see cref="CenterDec"/> with
@@ -893,33 +914,74 @@ namespace TianWen.UI.Abstractions
         /// while a drag that rotates the whole frame carries its own roll and needs no reference.
         /// </para>
         /// </summary>
-        /// <returns>True when the roll was refreshed from the reference; false while it is held.</returns>
+        /// <returns>True when the roll is tracking the reference (whether it landed on it or is still
+        /// approaching it); false while it is held.</returns>
         public bool UpdateRollForReference(float zenithX = 0f, float zenithY = 0f, float zenithZ = 1f)
         {
-            var reference = Mode == SkyMapMode.Horizon
-                ? new Vector3(zenithX, zenithY, zenithZ)
-                : new Vector3(0f, 0f, 1f);
-
-            var refLen = reference.Length();
-            if (refLen < 1e-6f)
-            {
-                return false;
-            }
-            reference /= refLen;
-
-            var (forward, right0, up0) = ReferenceFrame(CenterRA, CenterDec);
-
-            // Component of the reference perpendicular to the view axis. Its LENGTH is the sine of
-            // the angle between them, i.e. exactly the conditioning of the old cross product.
-            var perpendicular = reference - forward * Vector3.Dot(reference, forward);
-            if (perpendicular.Length() < ReferenceRollLockSin)
+            // A pan OWNS the roll while it is happening. It rotates the whole frame rigidly, so
+            // re-deriving the roll underneath it is what made the field jump the instant a drag
+            // crossed out of the lock cone: 63 degrees in one frame at Dec 85, which reads as the
+            // view flipping rather than as a pan.
+            if (IsDragging)
             {
                 return false;
             }
 
-            // up(roll) = cos(roll) * up0 - sin(roll) * right0, so solve for up == perpendicular.
-            CenterRoll = Math.Atan2(-Vector3.Dot(perpendicular, right0), Vector3.Dot(perpendicular, up0));
+            double target;
+            if (Mode == SkyMapMode.Horizon)
+            {
+                var reference = new Vector3(zenithX, zenithY, zenithZ);
+                var refLen = reference.Length();
+                if (refLen < 1e-6f)
+                {
+                    return false;
+                }
+                reference /= refLen;
+
+                var (forward, right0, up0) = ReferenceFrame(CenterRA, CenterDec);
+
+                // Component of the reference perpendicular to the view axis. Its LENGTH is the sine
+                // of the angle between them, i.e. exactly the conditioning of the old cross product.
+                var perpendicular = reference - forward * Vector3.Dot(reference, forward);
+                if (perpendicular.Length() < ReferenceRollLockSin)
+                {
+                    return false;
+                }
+
+                // up(roll) = cos(roll) * up0 - sin(roll) * right0, so solve for up == perpendicular.
+                target = Math.Atan2(-Vector3.Dot(perpendicular, right0), Vector3.Dot(perpendicular, up0));
+            }
+            else
+            {
+                // Equatorial: up0 IS celestial north at every declination, the pole included, so the
+                // answer is exactly 0. No cross product, no conditioning test, and no cone.
+                target = 0.0;
+            }
+
+            var delta = NormalizeSignedAngle(target - CenterRoll);
+            if (Math.Abs(delta) <= RollRealignSnapRad)
+            {
+                CenterRoll = target;
+                return true;
+            }
+
+            // Travel the shortest way round, a fraction per frame, and keep asking for frames until
+            // it arrives. Snapping straight to the target is what the flip was.
+            CenterRoll = NormalizeSignedAngle(CenterRoll + delta * RollRealignStep);
+            NeedsRedraw = true;
             return true;
+        }
+
+        /// <summary>Wraps an angle in radians to (-pi, pi], so a roll correction always takes the
+        /// short way round rather than most of a turn the other way.</summary>
+        private static double NormalizeSignedAngle(double radians)
+        {
+            var wrapped = (radians + Math.PI) % Math.Tau;
+            if (wrapped < 0)
+            {
+                wrapped += Math.Tau;
+            }
+            return wrapped - Math.PI;
         }
 
         /// <summary>
