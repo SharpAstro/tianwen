@@ -24,7 +24,14 @@ namespace TianWen.RemoteClient
     /// <param name="Quality">JPEG quality 1-100; null uses the node's default (80).</param>
     /// <param name="Scale">Downscale factor in (0, 1); null or out of range means full resolution. A
     /// thumbnail strip wants something like 0.25.</param>
-    public readonly record struct PreviewOptions(int? Quality = null, double? Scale = null);
+    /// <param name="IncludeGuider">
+    /// Whether to also pull the guide-camera frame. Off by default, and separately from the OTA previews
+    /// on purpose: the two are wanted by different screens. A dashboard shows science thumbnails and never
+    /// a guide frame, so it would be paying an extra request and an extra decode per poll for a picture
+    /// nothing draws, while the guider view wants the guide frame at guiding cadence and is indifferent to
+    /// whether a sub has landed. Quality and Scale are shared, since they are properties of the link.
+    /// </param>
+    public readonly record struct PreviewOptions(int? Quality = null, double? Scale = null, bool IncludeGuider = false);
 
     /// <summary>
     /// A session running on another node, observed as an <see cref="ISessionTelemetry"/>.
@@ -123,6 +130,8 @@ namespace TianWen.RemoteClient
         // array per frame.
         private Image?[] _previews = [];
         private long?[] _previewFrameNumbers = [];
+        private Image? _guidePreview;
+        private long? _guidePreviewFrameNumber;
 
         private CancellationTokenSource? _cts;
         private Task? _pollLoop;
@@ -490,6 +499,60 @@ namespace TianWen.RemoteClient
             {
                 _previewFrameNumbers = numbers;
                 Volatile.Write(ref _previews, images);
+            }
+
+            await RefreshGuidePreviewAsync(state, options, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Pulls the guide-camera frame, after the OTA previews: the science frames are what the operator is
+        /// judging the night by, so if the link only has room for some of this, the guide picture is the
+        /// part that can wait a poll.
+        /// <para>
+        /// Gated on <see cref="PreviewOptions.IncludeGuider"/> AND on the node reporting a guider at all,
+        /// so a rig guiding through nothing (or a PHD2 setup, which serves no frames) costs no request per
+        /// poll rather than a 404 per poll.
+        /// </para>
+        /// </summary>
+        private async Task RefreshGuidePreviewAsync(
+            SessionStateDto state, PreviewOptions options, CancellationToken cancellationToken)
+        {
+            if (!options.IncludeGuider || state.Guider is null)
+            {
+                return;
+            }
+
+            PreviewResult result;
+            try
+            {
+                result = await _client
+                    .GetGuidePreviewAsync(options.Quality, options.Scale, _guidePreviewFrameNumber, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            if (result.IsUnchanged || !result.HasImage)
+            {
+                return;
+            }
+
+            if (result.Error is { } error)
+            {
+                _logger.LogDebug("Guide preview fetch on {Node} failed: {Error}", _client.BaseAddress, error);
+                return;
+            }
+
+            if (Image.TryDecodeRaster(result.Jpeg, out var decoded))
+            {
+                _guidePreviewFrameNumber = result.FrameNumber;
+                Volatile.Write(ref _guidePreview, decoded);
+            }
+            else
+            {
+                _logger.LogDebug("Guide preview frame on {Node} did not decode", _client.BaseAddress);
             }
         }
 
@@ -1032,23 +1095,33 @@ namespace TianWen.RemoteClient
         /// </summary>
         public Image?[] LastCapturedImages => Volatile.Read(ref _previews);
 
-        /// <summary>Local-only (tier 3): the guide-camera frame and star visuals are pixel streams no
-        /// endpoint serves.</summary>
-        public Image? LastGuideFrame => null;
+        /// <summary>
+        /// The mirrored guide-camera frame, present once <see cref="Previews"/> is on and the node has a
+        /// guider producing frames. Like <see cref="LastCapturedImages"/> this is an ordinary decoded
+        /// image the mirror owns, not a pinned camera buffer, so there is nothing to release.
+        /// </summary>
+        public Image? LastGuideFrame => Volatile.Read(ref _guidePreview);
 
-        /// <inheritdoc cref="LastGuideFrame"/>
-        public int LastGuideFrameNumber => 0;
+        /// <inheritdoc/>
+        public int LastGuideFrameNumber => Snapshot?.Guider?.GuideFrameNumber ?? 0;
 
-        /// <inheritdoc cref="LastGuideFrame"/>
-        public (double X, double Y)? GuideStarPosition => null;
+        /// <summary>Mirrored from the state poll, so the crosshair lands on the star the node is
+        /// actually tracking rather than on the brightest thing in a re-encoded preview.</summary>
+        public (double X, double Y)? GuideStarPosition =>
+            Snapshot?.Guider is { GuideStarX: { } x, GuideStarY: { } y } ? (x, y) : null;
 
-        /// <inheritdoc cref="LastGuideFrame"/>
-        public double? GuideStarSNR => null;
+        /// <inheritdoc cref="GuideStarPosition"/>
+        public double? GuideStarSNR => Snapshot?.Guider?.GuideStarSNR;
 
-        /// <inheritdoc cref="LastGuideFrame"/>
+        /// <summary>
+        /// Local-only. The profile is a per-poll pair of arrays feeding a panel that is often not even
+        /// visible, and it cannot be derived on this side: cross-sections taken from the stretched, lossy
+        /// preview would give a confidently wrong FWHM rather than no FWHM. It wants its own opt-in fetch,
+        /// like the frame itself got.
+        /// </summary>
         public (float[] H, float[] V)? GuideStarProfile => null;
 
-        /// <inheritdoc cref="LastGuideFrame"/>
+        /// <inheritdoc cref="GuideStarProfile"/>
         public CalibrationOverlayData? CalibrationOverlay => null;
 
         /// <summary>Empty: backlash estimates are mirrored back onto the node's own focuser URIs at its

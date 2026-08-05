@@ -151,6 +151,10 @@ public class RemoteSessionMirrorTests
                 PeakRa = 0.9,
                 PeakDec = 0.7,
                 GuideExposureSeconds = 2.5,
+                GuideStarX = 128.5,
+                GuideStarY = 96.25,
+                GuideStarSNR = 31.5,
+                GuideFrameNumber = 17,
                 RecentSteps =
                 [
                     new GuideStepDto
@@ -272,6 +276,14 @@ public class RemoteSessionMirrorTests
         telemetry.GuideSamples[0].RaError.ShouldBe(0.2, 1e-9);
         telemetry.GuideSamples[0].RaCorrectionMs.ShouldBe(120, 1e-9);
 
+        // The crosshair and SNR readout: without these the guide preview is a picture with no indication
+        // of which star the node is actually tracking.
+        telemetry.GuideStarPosition.ShouldNotBeNull();
+        telemetry.GuideStarPosition.Value.X.ShouldBe(128.5, 1e-9);
+        telemetry.GuideStarPosition.Value.Y.ShouldBe(96.25, 1e-9);
+        telemetry.GuideStarSNR.ShouldNotBeNull().ShouldBe(31.5, 1e-9);
+        telemetry.LastGuideFrameNumber.ShouldBe(17);
+
         telemetry.Observations.Count.ShouldBe(1);
         telemetry.Observations[0].Target.Name.ShouldBe("M42");
         telemetry.Observations[0].Duration.ShouldBe(TimeSpan.FromHours(1));
@@ -295,7 +307,7 @@ public class RemoteSessionMirrorTests
             Guider = new GuiderStateDto
             {
                 State = "Looping", TotalRMS = 0, RaRMS = 0, DecRMS = 0, PeakRa = 0, PeakDec = 0,
-                GuideExposureSeconds = 2, RecentSteps = [],
+                GuideExposureSeconds = 2, RecentSteps = [], GuideFrameNumber = 0,
             },
             Cameras = [], Observations = [], PhaseTimeline = [],
             CoolingSamples = [], FocusHistory = [], ActiveFocusSamples = [], ExposureLog = [],
