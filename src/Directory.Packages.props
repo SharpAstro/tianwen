@@ -180,13 +180,19 @@
          Additive: only LINKED text takes the new route. TianWen already has the desktop half of this
          (LinkHit -> OpenUrlSignal) from the planner Wikipedia links, so this is what a web host needs to
          render the same tree as a real anchor.
-         7.8 is the current pin, and it closes a silent overdraw: 7.7 shipped Trim as an author's
+         7.8 closes a silent overdraw: 7.7 shipped Trim as an author's
          declaration only the CELL painter acted on, while a pixel DrawText starts at its rect's edge and
          keeps going, so an over-wide run drew straight over its neighbour, and only at the surface sizes
          where it happened not to fit. PaintLayout now fits every Content.Text to its arranged rect
          through the new public TextFit. Relevant to every tab here, since the whole chrome is arranged
-         from one layout pass. -->
-    <PackageVersion Include="DIR.Lib" Version="7.8.*" />
+         from one layout pass.
+         7.9 is the current pin and is a PDF-font fix TianWen does not exercise: a font's own /Encoding
+         now decides which glyph a character code selects, so a name-keyed CFF subset stops drawing
+         unrelated glyphs. Pinned forward anyway to keep the family on ONE DIR.Lib, which is the standing
+         reason in this file. Additive from our side: RegisterPdfEncoding is new, the old
+         RegisterType1Encoding survives as an [Obsolete] forwarder, and nothing here calls either. It
+         requires SharpAstro.Fonts 1.8, which TianWen already resolves transitively. -->
+    <PackageVersion Include="DIR.Lib" Version="7.9.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -360,13 +366,23 @@
          render-path change in either, so these are rebuilds from TianWen's side, pinned forward to keep
          the family on one DIR.Lib. 7.6 continued that, rebuilt against DIR.Lib 7.8 (7.6 and 7.7 needed
          nothing there).
-         7.9 is the current pin and is the one that matters: a queue submit the driver REJECTS is no
+         7.9 is the one that matters: a queue submit the driver REJECTS is no
          longer treated as one in flight, which was the GPU-wedge root cause. This repo has chased that
          wedge from its own side (see the render-thread watchdog and the gpu-freeze hardening notes), so
          the fix belongs on the CI-restored path and not only in local sibling source. The inspector's
          batch steps also accept the same parameter spellings as the direct verbs now, though that half is
-         DEBUG-only and so reaches us through sibling SOURCE rather than through this package. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.9.*" />
+         DEBUG-only and so reaches us through sibling SOURCE rather than through this package.
+         7.10 is the current pin and carries the OFFSCREEN half of the same wedge: 7.9 dropped a rejected
+         frame on the swapchain path only, while an offscreen submit still went through CheckResult and
+         threw BEFORE advancing the frame index, so its fence sat reset with nothing behind it and the
+         next BeginOffscreenFrame waited on it with ulong.MaxValue. That is a permanent hang rather than
+         an escalating one, because the offscreen wait is unbounded. It reaches THIS repo through the GPU
+         test suite: OffscreenGpuFixture, VkRendererPrimitiveTests, VkHistogramPipelineTests and
+         GpuStretchPipelineTests all render offscreen, so a rejection on the CI runner could hang the job
+         instead of failing it. An offscreen submit now RETRIES a rejection instead of dropping the frame,
+         which is right because offscreen the frame IS the output and a dropped one reads back stale or
+         blank pixels indistinguishable from a render. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.10.*" />
     <!-- The WebGL2 backend for the same DIR.Lib Renderer, consumed ONLY by TianWen.UI.Web (which sits
          outside TianWen.slnx). It lives here, next to its desktop counterpart, because it used to be
          pinned inline in that csproj instead: a sibling-family bump that swept this file could not see
