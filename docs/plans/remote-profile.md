@@ -571,19 +571,54 @@ mode. Lean strongly toward the run kind: the lease already models exactly one ru
 `LiveSessionState.HasActiveRun` already asks that question, and a second parallel notion of
 "running" is precisely the mistake the P0 work just finished undoing.
 
-### Guide-cam image stream (likely next)
+### Guide-cam image stream -- **SHIPPED (2026-08-05)**
 
-The mirror gets guide *telemetry* today (`GUIDER-STATE-CHANGED`, `GUIDE-STEP`, the guide-sample
-ring) but no guide-camera frames and no star-profile bitmap, so a remote guider tab draws graphs
-over an empty image panel.
+**What landed:** `GET /api/v1/preview/guider` serving the live guide frame through the same
+`PreviewEncoder` and the same `X-Frame-Number` contract as the per-OTA previews, plus
+`RemoteSessionMirror` filling `LastGuideFrame` / `GuideStarPosition` / `GuideStarSNR` -- so the
+Guider tab renders a remote rig through the code that renders a local one, with no knowledge that
+it is remote. Its own route rather than an OTA index, because there is one guider for the whole
+rig, its frames arrive at guiding cadence rather than per sub, and it is wanted precisely while the
+science cameras are mid-exposure with nothing new to show; an OTA index would also collide with the
+real profile-ordered numbering.
 
-Nearly free in principle -- a `/preview/guider` sibling reusing `PreviewEncoder` verbatim with its
-own `X-Frame-Number` change token. The reason it did not land in P2 is structural, not hard:
-`PreviewEncoder` reads `LastCapturedImages`, which holds the *OTA* frames, and the guide frame
-lives inside the guider driver. So the work is exposing the guider's last frame through
-`ISessionTelemetry` (or a guider-specific accessor) **without pinning the driver's recycled
-buffer** -- the same rule the imaging preview follows, and the one thing here that can actually go
-wrong. The star-profile bitmap is a second, smaller payload on the same route.
+**The blocker recorded below was already stale when it was picked up.** `ISessionTelemetry.LastGuideFrame`
+existed and `Session` already forwarded it from the guider driver, and `PreviewEncoder.EncodeJpegAsync`
+already took any `Image`. The plumbing was in place.
+
+**The real hazard was sharper than the note, and the primitive for it was unsound.** `GuideLoop`
+does `LastFrame?.Release(); LastFrame = frame;` on every exposure, so at guiding cadence a request
+that holds the reference across an await is encoding a buffer the camera has already taken back.
+The failure is silent: a perfectly valid JPEG of a flat grey rectangle. The codebase had exactly
+the right mechanism, `ChannelBuffer.AddRef`, except it checked liveness and then incremented as two
+separate steps -- so a borrower could pass the check while the last holder took the count to zero,
+and resurrect a recycled buffer. Nothing called `AddRef`, so the bug was latent until something
+borrowed a live frame. Now:
+
+- **`ChannelBuffer.TryAddRef`** -- CAS loop, only increments from a positive count, so a zero
+  refcount stays terminal and the loser of the race learns it lost. `AddRef` delegates and keeps
+  throwing. Reverting to the old shape fails the race test in 64 ms.
+- **`Image.TryLease`** -- all-or-nothing over the planes, handing back a distinct `Image` whose own
+  one-shot `Release` returns exactly the refs taken. Losing the race answers `false`, because for a
+  poller "no frame right now" is the honest answer, not an error.
+
+**The change token needed a new counter, and the obvious one was a trap.** `GuideLoop._guideFrameCount`
+counts frames the loop *corrected on* and is incremented past the star-lost `continue`, so during an
+outage it stands still while the camera keeps publishing -- a poller keyed on it would stop
+refreshing at exactly the moment an operator wants to look at the guide camera and see the cloud.
+The new count sits where the frame is published; both drivers had several publish sites each, so the
+increment is funnelled through one setter rather than sprinkled, and the fake counts too since an
+unattended end-to-end run drives this path.
+
+**Guide frames are a separate opt-in** (`PreviewOptions.IncludeGuider`, default off) from the OTA
+thumbnails, because the screens that want them differ: the home dashboard draws science previews and
+never a guide frame, so bundling them made every dashboard poll pay a request and a decode for a
+picture nothing shows.
+
+**Still deferred:** the star-profile arrays and the calibration overlay. Both are per-poll array
+payloads feeding panels that are often not visible, and neither can be derived on the client side --
+cross-sections taken from the stretched, lossy preview would produce a confidently wrong FWHM rather
+than no FWHM. They want their own opt-in fetch, the way the frame itself now has one.
 
 ### Multi-rig dashboard -- **SHIPPED (2026-07-28)**
 
