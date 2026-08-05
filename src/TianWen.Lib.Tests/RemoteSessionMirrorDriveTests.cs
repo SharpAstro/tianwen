@@ -207,6 +207,52 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// The guide camera is a separate opt-in from the OTA thumbnails, because the screens that want
+        /// them are different: a dashboard draws science previews and never a guide frame, so it must not
+        /// pay a request and a decode per poll for a picture nothing shows.
+        /// </summary>
+        [Fact]
+        public async Task TheGuideFrameIsOnlyFetchedWhenAskedFor()
+        {
+            var jpeg = await RealPreviewJpegAsync();
+            var guiderRequests = 0;
+            var (mirror, _) = BuildMirror(request =>
+            {
+                var path = request.RequestUri!.AbsolutePath;
+                if (!path.Contains("/preview/"))
+                {
+                    return Json(ResponseEnvelope<SessionStateDto>.Ok(StateWith()));
+                }
+
+                if (path.EndsWith("/preview/guider", StringComparison.Ordinal))
+                {
+                    guiderRequests++;
+                }
+
+                // A fresh content per response: one shared HttpContent is read-once, and two preview
+                // routes per poll would trip over each other rather than over anything under test.
+                var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(jpeg) };
+                response.Headers.Add(TianWenNodeClient.PreviewFrameNumberHeader, "3");
+                return response;
+            });
+
+            await using (mirror)
+            {
+                mirror.Previews = new PreviewOptions();
+                await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+                guiderRequests.ShouldBe(0, "OTA previews alone must not pull the guide camera");
+                mirror.LastGuideFrame.ShouldBeNull();
+
+                mirror.Previews = new PreviewOptions(IncludeGuider: true);
+                await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+                guiderRequests.ShouldBe(1);
+                mirror.LastGuideFrame.ShouldNotBeNull();
+            }
+        }
+
         [Fact]
         public async Task PreviewOptionsReachTheNodeSoADownscaleActuallySavesBandwidth()
         {

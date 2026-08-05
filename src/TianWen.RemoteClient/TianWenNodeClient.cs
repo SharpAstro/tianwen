@@ -281,13 +281,32 @@ namespace TianWen.RemoteClient
         /// full-resolution frame twice a second would dominate the link for no benefit.
         /// </para>
         /// </summary>
-        public async Task<PreviewResult> GetPreviewAsync(
+        public Task<PreviewResult> GetPreviewAsync(
             int otaIndex, int? quality, double? scale, long? ifNotFrameNumber, CancellationToken cancellationToken)
+            => GetPreviewAsync(
+                otaIndex.ToString(CultureInfo.InvariantCulture), quality, scale, ifNotFrameNumber, cancellationToken);
+
+        /// <summary>
+        /// <c>GET /preview/guider</c> -- the latest guide-camera frame as JPEG, on the same conditional
+        /// -fetch contract as the per-OTA previews. Its own route because there is one guider per rig and
+        /// its frames arrive at guiding cadence, not per sub.
+        /// </summary>
+        public Task<PreviewResult> GetGuidePreviewAsync(
+            int? quality, double? scale, long? ifNotFrameNumber, CancellationToken cancellationToken)
+            => GetPreviewAsync("guider", quality, scale, ifNotFrameNumber, cancellationToken);
+
+        /// <summary>
+        /// The one preview fetch. Both callers want identical handling of the change-token short circuit,
+        /// the 404-is-not-a-fault rule and the two separate timeout budgets (headers, then body), and the
+        /// only thing that differs between them is the last path segment.
+        /// </summary>
+        private async Task<PreviewResult> GetPreviewAsync(
+            string segment, int? quality, double? scale, long? ifNotFrameNumber, CancellationToken cancellationToken)
         {
             var query = new List<string>(2);
             if (quality is { } q) query.Add($"quality={q}");
             if (scale is { } s) query.Add($"scale={s.ToString(CultureInfo.InvariantCulture)}");
-            var path = $"api/v1/preview/{otaIndex}{(query.Count > 0 ? "?" + string.Join("&", query) : "")}";
+            var path = $"api/v1/preview/{segment}{(query.Count > 0 ? "?" + string.Join("&", query) : "")}";
 
             using var request = new HttpRequestMessage(HttpMethod.Get, path);
             using var budgeted = WithBudget(_timeouts.Preview, cancellationToken);

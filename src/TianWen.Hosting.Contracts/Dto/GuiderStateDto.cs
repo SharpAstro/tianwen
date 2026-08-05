@@ -15,6 +15,30 @@ public sealed class GuiderStateDto
     public required double GuideExposureSeconds { get; init; }
     public required ImmutableArray<GuideStepDto> RecentSteps { get; init; }
 
+    /// <summary>
+    /// Guide star position in guide-frame pixels, and its SNR. Null when nothing is being tracked.
+    /// <para>
+    /// These are what turn the guide preview into a guider view: without the position the crosshair has
+    /// nowhere to go, and the SNR is the number that says whether a drifting graph means seeing or a
+    /// star about to be lost. Deliberately NOT <c>required</c> -- a nullable wire member that is also
+    /// required cannot round-trip, because the writer omits it when null.
+    /// </para>
+    /// </summary>
+    public double? GuideStarX { get; init; }
+
+    /// <inheritdoc cref="GuideStarX"/>
+    public double? GuideStarY { get; init; }
+
+    /// <inheritdoc cref="GuideStarX"/>
+    public double? GuideStarSNR { get; init; }
+
+    /// <summary>
+    /// Change token for the guide-camera preview, so a client polling <c>/preview/guider</c> can decide
+    /// from a state poll it was making anyway whether to refetch. Mirrors <c>CameraStateDto</c>'s frame
+    /// number serving the per-OTA previews.
+    /// </summary>
+    public required int GuideFrameNumber { get; init; }
+
     /// <summary>Projects the guider slice. <see cref="ISessionTelemetry"/> for the same reason as
     /// <see cref="SessionStateDto.FromSession"/>.</summary>
     public static GuiderStateDto FromSession(ISessionTelemetry session)
@@ -47,6 +71,13 @@ public sealed class GuiderStateDto
             PeakDec = JsonNumber.ForWire(stats?.PeakDec ?? 0),
             GuideExposureSeconds = session.GuideExposure.TotalSeconds,
             RecentSteps = steps.MoveToImmutable(),
+            // Through ForWire like every other double here: a centroid on a frame with no star can come
+            // back non-finite, and one NaN reaching the writer is a bodiless 500 for the WHOLE state
+            // response, not just this field.
+            GuideStarX = session.GuideStarPosition is { } p ? JsonNumber.ForWire(p.X) : null,
+            GuideStarY = session.GuideStarPosition is { } q ? JsonNumber.ForWire(q.Y) : null,
+            GuideStarSNR = session.GuideStarSNR is { } snr ? JsonNumber.ForWire(snr) : null,
+            GuideFrameNumber = session.LastGuideFrameNumber,
         };
     }
 }
