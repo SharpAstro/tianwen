@@ -98,7 +98,15 @@ public sealed class VkHistogramPipelineTests(VkHistogramGpuFixture gpuFixture, I
         firstDiff.ShouldBe(-1, "empty histogram should leave the framebuffer at the clear color");
     }
 
-    private unsafe byte[] RenderHistogramGpu(float[] hist0, float[] hist1, float[] hist2)
+    /// <summary>
+    /// Marshals onto the fixture's owning thread. These tests pass today only because xUnit happens to
+    /// run the class ctor and its methods on one thread; the device asserts single-owner submission, so
+    /// relying on that is a flake waiting for a scheduling change rather than a working arrangement.
+    /// </summary>
+    private byte[] RenderHistogramGpu(float[] hist0, float[] hist1, float[] hist2)
+        => gpuFixture.Invoke(() => RenderHistogramGpuCore(hist0, hist1, hist2));
+
+    private unsafe byte[] RenderHistogramGpuCore(float[] hist0, float[] hist1, float[] hist2)
     {
         // Reuse the class fixture's single Vulkan stack (created once; see VkHistogramGpuFixture).
         var ctx = gpuFixture.Ctx!;

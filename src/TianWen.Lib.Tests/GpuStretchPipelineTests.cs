@@ -1,4 +1,4 @@
-using DIR.Lib;
+﻿using DIR.Lib;
 using SdlVulkan.Renderer;
 using Shouldly;
 using System;
@@ -173,7 +173,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
 
         // -------- GPU render --------
 
-        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(debayered, uniforms, Width, Height, default, 0f), ct);
+        var gpuRgba = await _gpu.InvokeAsync(() => RenderViaOffscreenGpu(debayered, uniforms, Width, Height, default, 0f), ct);
         foreach (var line in _formatDiagBag)
             output.WriteLine(line);
 
@@ -361,7 +361,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         output.WriteLine($"[{label}] CPU RenderStretchedRgba ({w}x{h}): {cpuSw.Elapsed.TotalMilliseconds:F0}ms");
 
         // -------- GPU render --------
-        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(img, uniforms, w, h, curveKnots, hdrAmount), ct);
+        var gpuRgba = await _gpu.InvokeAsync(() => RenderViaOffscreenGpu(img, uniforms, w, h, curveKnots, hdrAmount), ct);
         foreach (var line in _formatDiagBag)
             output.WriteLine(line);
 
@@ -593,7 +593,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         var cpuRgba = new byte[w * h * 4];
         img.RenderStretchedRgba(uniforms, cpuRgba);
 
-        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(img, uniforms, w, h, default, 0f), ct);
+        var gpuRgba = await _gpu.InvokeAsync(() => RenderViaOffscreenGpu(img, uniforms, w, h, default, 0f), ct);
         foreach (var line in _formatDiagBag) output.WriteLine(line);
         _formatDiagBag.Clear();
 
@@ -626,7 +626,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         var cpuRgba = new byte[w * h * 4];
         img.RenderStretchedRgba(uniforms, cpuRgba);
 
-        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(img, uniforms, w, h, default, 0f), ct);
+        var gpuRgba = await _gpu.InvokeAsync(() => RenderViaOffscreenGpu(img, uniforms, w, h, default, 0f), ct);
         foreach (var line in _formatDiagBag) output.WriteLine(line);
         _formatDiagBag.Clear();
 
@@ -663,7 +663,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         var cpuRgba = new byte[w * h * 4];
         img.RenderStretchedRgba(uniforms, cpuRgba, hdrAmount: hdrAmount, hdrKnee: hdrKnee);
 
-        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(img, uniforms, w, h, default, hdrAmount), ct);
+        var gpuRgba = await _gpu.InvokeAsync(() => RenderViaOffscreenGpu(img, uniforms, w, h, default, hdrAmount), ct);
         foreach (var line in _formatDiagBag) output.WriteLine(line);
         _formatDiagBag.Clear();
 
@@ -720,7 +720,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         var cpuRgba = new byte[w * h * 4];
         oscImage.RenderStretchedRgba(uniforms, cpuRgba);
 
-        var gpuRgba = await Task.Run(() => RenderViaOffscreenGpu(oscImage, uniforms, w, h, default, 0f), ct);
+        var gpuRgba = await _gpu.InvokeAsync(() => RenderViaOffscreenGpu(oscImage, uniforms, w, h, default, 0f), ct);
         foreach (var line in _formatDiagBag) output.WriteLine(line);
         _formatDiagBag.Clear();
 

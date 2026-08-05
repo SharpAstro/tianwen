@@ -175,7 +175,15 @@ public sealed class VkRendererPrimitiveTests(VkPrimitiveGpuFixture gpuFixture, I
         return (cpu.Surface.Pixels, gpuRgba);
     }
 
-    private unsafe byte[] RenderViaOffscreenGpu(Action<VkRenderer> draw)
+    /// <summary>
+    /// Marshals onto the fixture's owning thread; see the note on
+    /// <see cref="OffscreenGpuFixtureBase"/> for why submitting from whichever thread xUnit provides is
+    /// not something to rely on.
+    /// </summary>
+    private byte[] RenderViaOffscreenGpu(Action<VkRenderer> draw)
+        => gpuFixture.Invoke(() => RenderViaOffscreenGpuCore(draw));
+
+    private unsafe byte[] RenderViaOffscreenGpuCore(Action<VkRenderer> draw)
     {
         // Reuse the class fixture's single Vulkan stack -- BeginOffscreenFrame clears to Black on
         // every call, so tests never leak state into one another.
