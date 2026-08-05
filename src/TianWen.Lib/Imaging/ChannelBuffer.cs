@@ -38,14 +38,44 @@ internal sealed class ChannelBuffer(float[,] data, Action<float[,]>? onRelease =
     /// </summary>
     /// <exception cref="ObjectDisposedException">Thrown if already fully released.</exception>
     public ChannelBuffer AddRef()
+        => TryAddRef()
+            ? this
+            : throw new ObjectDisposedException(nameof(ChannelBuffer), "Cannot AddRef on a released ChannelBuffer");
+
+    /// <summary>
+    /// Takes a reference only if the buffer is still alive, returning <see langword="false"/> once it
+    /// has reached zero. The caller owns a ref on success and must <see cref="Release"/> it.
+    /// <para>
+    /// <b>This has to be a CAS loop, not a check followed by an increment.</b> The obvious shape
+    /// (<c>if (!_released) Interlocked.Increment(...)</c>) lets a borrower pass the liveness check
+    /// on one thread while the last holder takes the count to zero on another, recycling the
+    /// backing array before the increment lands. The borrower then holds a "live" ref to a buffer
+    /// the camera has already reused, so it reads pixels from a frame it was never handed. A
+    /// zero refcount is terminal here (nothing resurrects a released buffer), so comparing against
+    /// the observed count and only incrementing from a positive value closes that window: the
+    /// loser of the race learns it lost and answers <see langword="false"/>.
+    /// </para>
+    /// <para>
+    /// The motivating borrower is a hosted preview encoding a live guide frame while the guide loop
+    /// swaps and releases it on the very next exposure, where losing the race is normal and means
+    /// "no frame right now", not an error.
+    /// </para>
+    /// </summary>
+    public bool TryAddRef()
     {
-        if (_released)
+        var observed = Volatile.Read(ref _refCount);
+        while (observed > 0)
         {
-            throw new ObjectDisposedException(nameof(ChannelBuffer), "Cannot AddRef on a released ChannelBuffer");
+            var actual = Interlocked.CompareExchange(ref _refCount, observed + 1, observed);
+            if (actual == observed)
+            {
+                return true;
+            }
+
+            observed = actual;
         }
 
-        Interlocked.Increment(ref _refCount);
-        return this;
+        return false;
     }
 
     /// <summary>

@@ -202,6 +202,13 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// </summary>
     private ChannelBuffer?[]? _channelBuffers = HarvestBuffers(channels);
 
+    /// <summary>
+    /// Whether <see cref="Release"/> has run. Distinct from a null <see cref="_channelBuffers"/>, which
+    /// is also how an image that never carried recyclable buffers looks - see <see cref="TryLease"/>,
+    /// which is the only thing that needs to tell those two apart.
+    /// </summary>
+    private volatile bool _released;
+
     private static ChannelBuffer?[]? HarvestBuffers(ImmutableArray<Channel> channels)
     {
         ChannelBuffer?[]? buffers = null;
@@ -223,6 +230,10 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// </summary>
     public void Release()
     {
+        // Set before the exchange so a concurrent TryLease that reads a null buffer array cannot then
+        // read a stale "not released yet" and hand out planes this call is about to give back.
+        _released = true;
+
         if (Interlocked.Exchange(ref _channelBuffers, null) is { } buffers)
         {
             for (var c = 0; c < buffers.Length; c++)
