@@ -6,6 +6,11 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="SdlVulkan.Renderer" Version="3.4.471" />
+    <!-- Floats with the family. It was pinned to the exact 3.4.471 that FIXED the dangling-pointer bug
+         it was written to investigate, which reads as deliberate but is not what this tool is for any
+         more: the README calls it a sanity check on the CURRENT offscreen path, and a renderer four
+         majors old cannot check that. This project sits outside src/, so it carries its own version
+         rather than a CPM entry. -->
+    <PackageReference Include="SdlVulkan.Renderer" Version="7.9.*" />
   </ItemGroup>
 </Project>
