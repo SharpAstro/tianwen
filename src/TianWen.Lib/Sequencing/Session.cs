@@ -176,6 +176,9 @@ internal partial record Session(
     public SettleProgress? GuiderSettleProgress => _guiderSettleProgress;
     public TimeSpan GuideExposure => _guideExposure;
     public Image? LastGuideFrame => Setup.Guider?.Driver?.LastGuideFrame;
+
+    /// <inheritdoc/>
+    public int LastGuideFrameNumber => Setup.Guider?.Driver?.LastGuideFrameNumber ?? 0;
     public (double X, double Y)? GuideStarPosition => Setup.Guider?.Driver?.GuideStarPosition;
     public double? GuideStarSNR => Setup.Guider?.Driver?.GuideStarSNR;
     public (float[] H, float[] V)? GuideStarProfile => Setup.Guider?.Driver?.GuideStarProfile;

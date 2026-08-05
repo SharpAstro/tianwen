@@ -124,6 +124,31 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     public Image? LastGuideFrame => _guideLoop?.LastFrame ?? _lastFrame;
 
+    /// <summary>
+    /// The non-loop publish path (calibration steps, looping between phases, star acquisition), funnelled
+    /// through one setter so the frame counter cannot be forgotten at one of the several assignment sites.
+    /// </summary>
+    private Image? LastCapturedFrame
+    {
+        get => _lastFrame;
+        set
+        {
+            _lastFrame = value;
+            Interlocked.Increment(ref _publishedFrameCount);
+        }
+    }
+
+    private int _publishedFrameCount;
+
+    /// <summary>
+    /// Change token for <see cref="LastGuideFrame"/>: it moves whenever a new frame is published, by
+    /// either path. Compare it for DIFFERENCE, not order -- it is the sum of this driver's own publishes
+    /// and the current loop's, so starting a new guide loop (whose count restarts) can make it jump
+    /// either way. That is all a "has the picture changed since I last drew it" check needs, and it keeps
+    /// both publish paths countable without either having to know about the other.
+    /// </summary>
+    public int LastGuideFrameNumber => Volatile.Read(ref _publishedFrameCount) + (_guideLoop?.PublishedFrameCount ?? 0);
+
     /// <summary>Guide star position in frame pixels.</summary>
     public (double X, double Y)? GuideStarPosition =>
         (_guideLoop?.LastCentroidResult ?? _calibrationTracker?.LastResult) is { } r ? (r.X, r.Y) : null;
@@ -427,13 +452,13 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
         _calibrationTracker = tracker;
         var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
-        _lastFrame = frame;
+        LastCapturedFrame = frame;
         tracker.ProcessFrame(frame.GetChannelArray(0));
 
         if (!tracker.IsAcquired)
         {
             frame.Release();
-            _lastFrame = null;
+            LastCapturedFrame = null;
             // Return null without raising a guiding error -- the caller retries (a cloud / poor seeing
             // is often transient) and raises the terminal error only once all attempts are exhausted.
             Logger.LogWarning("Built-in guider: calibration could not acquire a guide star (cloud / poor seeing?).");
@@ -445,7 +470,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         async ValueTask<Image> CaptureFrame(CancellationToken token)
         {
             var f = await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
-            _lastFrame = f;
+            LastCapturedFrame = f;
             return f;
         }
 
@@ -514,7 +539,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         var tracker = new GuiderCentroidTracker(maxStars: 1) { AcquisitionEdgeMargin = GuideStarAcquisitionMargin() };
         _calibrationTracker = tracker;
         var frame = await CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, ct);
-        _lastFrame = frame;
+        LastCapturedFrame = frame;
         tracker.ProcessFrame(frame.GetChannelArray(0));
 
         if (!tracker.IsAcquired)
@@ -528,7 +553,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         async ValueTask<Image> CaptureFrame(CancellationToken token)
         {
             var f = await CaptureGuideFrameAsync(camera, exposureTime, timeProvider, pollInterval, token);
-            _lastFrame = f;
+            LastCapturedFrame = f;
             return f;
         }
 
@@ -634,7 +659,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                     if (tracker.IsAcquired)
                     {
                         acquired = true;
-                        _lastFrame = frame;
+                        LastCapturedFrame = frame;
                         break;
                     }
 
