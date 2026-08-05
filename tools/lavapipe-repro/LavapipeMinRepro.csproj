@@ -10,7 +10,8 @@
          it was written to investigate, which reads as deliberate but is not what this tool is for any
          more: the README calls it a sanity check on the CURRENT offscreen path, and a renderer four
          majors old cannot check that. This project sits outside src/, so it carries its own version
-         rather than a CPM entry. -->
-    <PackageReference Include="SdlVulkan.Renderer" Version="7.9.*" />
+         rather than a CPM entry. Tracking current matters more than usual here: 7.10 fixes a hang on the
+         OFFSCREEN submit path, which is the only path this tool uses. -->
+    <PackageReference Include="SdlVulkan.Renderer" Version="7.10.*" />
   </ItemGroup>
 </Project>
