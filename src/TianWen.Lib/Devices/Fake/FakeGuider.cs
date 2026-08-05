@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -330,6 +330,26 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
     /// Returns the guide loop frame (when guiding) or the loop capture frame (when looping).</summary>
     public Image? LastGuideFrame => _guideLoop?.LastFrame ?? _lastLoopFrame;
 
+    /// <summary>
+    /// The loop-capture publish path, funnelled through one setter so every site bumps the frame
+    /// counter. The fake needs a moving change token as much as real hardware does: an unattended
+    /// end-to-end run drives a remote preview against exactly this driver.
+    /// </summary>
+    private Image? LastLoopFrame
+    {
+        get => _lastLoopFrame;
+        set
+        {
+            _lastLoopFrame = value;
+            Interlocked.Increment(ref _publishedFrameCount);
+        }
+    }
+
+    private int _publishedFrameCount;
+
+    /// <inheritdoc cref="BuiltInGuiderDriver.LastGuideFrameNumber"/>
+    public int LastGuideFrameNumber => Volatile.Read(ref _publishedFrameCount) + (_guideLoop?.PublishedFrameCount ?? 0);
+
     /// <summary>Guide star position in frame pixels.</summary>
     public (double X, double Y)? GuideStarPosition =>
         _guideLoop?.LastCentroidResult is { } r ? (r.X, r.Y) : null;
@@ -396,7 +416,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             if (_camera is { Connected: true } camera)
             {
                 var exposureTime = TimeSpan.FromSeconds(2);
-                _lastLoopFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, cancellationToken);
+                LastLoopFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, cancellationToken);
 
                 // Start the unified capture loop in background
                 _loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -443,7 +463,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
 
                 _lastLoopFrame?.Release();
                 var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, ct);
-                _lastLoopFrame = frame;
+                LastLoopFrame = frame;
             }
 
             // Continue capturing during settle — keeps the guider view updating
@@ -451,7 +471,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             {
                 _lastLoopFrame?.Release();
                 var settleFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, ct);
-                _lastLoopFrame = settleFrame;
+                LastLoopFrame = settleFrame;
             }
 
             if (ct.IsCancellationRequested || CurrentState is GuiderState.Idle) return;
@@ -459,7 +479,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             // Phase 2: Guided capture — acquire guide star, then run GuideLoop
             var tracker = new GuiderCentroidTracker(maxStars: 1);
             var initFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, ct);
-            _lastLoopFrame = initFrame;
+            LastLoopFrame = initFrame;
             tracker.ProcessFrame(initFrame.GetChannelArray(0));
             tracker.SetLockPosition();
 
@@ -481,7 +501,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
                 async token =>
                 {
                     var f = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, token);
-                    _lastLoopFrame = f; // same ref as GuideLoop.LastFrame — no extra Release needed
+                    LastLoopFrame = f; // same ref as GuideLoop.LastFrame — no extra Release needed
                     return f;
                 },
                 exposureTime, hourAngle, declination, siteLatitude, cancellationToken: ct);

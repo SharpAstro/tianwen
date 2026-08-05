@@ -75,6 +75,42 @@ namespace TianWen.Hosting.Api
                 return Results.Bytes(jpeg, "image/jpeg");
             });
 
+            // GET /api/v1/preview/guider?quality=&scale=
+            // Not an OTA index: one guider serves the whole rig, its frames arrive at guiding cadence
+            // rather than per sub, and a remote guider view needs it precisely while the science cameras
+            // are mid-exposure with nothing new to show. The int route constraint above keeps the two
+            // apart. Same X-Frame-Number contract, so the same polling logic applies.
+            group.MapGet("/guider", async (
+                int? quality,
+                double? scale,
+                HttpContext context,
+                IHostedSession hosted,
+                CancellationToken ct) =>
+            {
+                if (hosted.CurrentSession is not { } session)
+                {
+                    return Results.Json(
+                        ResponseEnvelope<string>.Fail("No active session", 404),
+                        HostingJsonContext.Default.ResponseEnvelopeString);
+                }
+
+                var (jpeg, frameNumber, failure) = await GuidePreview.RenderAsync(
+                    session,
+                    quality ?? PreviewEncoder.DefaultQuality,
+                    scale ?? 1.0,
+                    ct);
+
+                if (jpeg is null)
+                {
+                    return Results.Json(
+                        ResponseEnvelope<string>.Fail(failure ?? GuidePreview.NoFrameFailure, 404),
+                        HostingJsonContext.Default.ResponseEnvelopeString);
+                }
+
+                context.Response.Headers["X-Frame-Number"] = frameNumber.ToString(CultureInfo.InvariantCulture);
+                return Results.Bytes(jpeg, "image/jpeg");
+            });
+
             return group;
         }
     }

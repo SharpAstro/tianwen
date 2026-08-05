@@ -79,6 +79,9 @@ namespace TianWen.Lib.Sequencing
         /// <summary>Last guide camera frame as a mono Image, or null. Only populated when guider tab is active.</summary>
         Image? LastGuideFrame { get; }
 
+        /// <inheritdoc cref="Devices.Guider.IGuider.LastGuideFrameNumber"/>
+        int LastGuideFrameNumber { get; }
+
         /// <summary>Guide star position in frame pixels, or null if not tracking.</summary>
         (double X, double Y)? GuideStarPosition { get; }
 

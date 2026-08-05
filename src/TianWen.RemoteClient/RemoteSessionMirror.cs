@@ -1037,6 +1037,9 @@ namespace TianWen.RemoteClient
         public Image? LastGuideFrame => null;
 
         /// <inheritdoc cref="LastGuideFrame"/>
+        public int LastGuideFrameNumber => 0;
+
+        /// <inheritdoc cref="LastGuideFrame"/>
         public (double X, double Y)? GuideStarPosition => null;
 
         /// <inheritdoc cref="LastGuideFrame"/>

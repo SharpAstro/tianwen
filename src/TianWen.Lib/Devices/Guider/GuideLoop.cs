@@ -47,7 +47,30 @@ internal sealed class GuideLoop
 
     /// <summary>Last captured guide frame. Updated each iteration. Caller must Release() when replacing.</summary>
     private volatile Image? _lastFrame;
-    internal Image? LastFrame { get => _lastFrame; private set => _lastFrame = value; }
+    internal Image? LastFrame
+    {
+        get => _lastFrame;
+        private set
+        {
+            _lastFrame = value;
+            Interlocked.Increment(ref _publishedFrameCount);
+        }
+    }
+
+    private int _publishedFrameCount;
+
+    /// <summary>
+    /// How many frames this loop has published, counted where <see cref="LastFrame"/> is assigned so it
+    /// cannot drift from what a reader can actually see.
+    /// <para>
+    /// <b>Deliberately not <see cref="_guideFrameCount"/>.</b> That one counts frames the loop
+    /// corrected on, and it is incremented far down the correction path, past the star-lost
+    /// <c>continue</c>. So during an outage the camera keeps publishing frames while that counter
+    /// stands still, and a consumer using it as a change token would stop refreshing at exactly the
+    /// moment an operator most wants to look at the guide camera and see the cloud.
+    /// </para>
+    /// </summary>
+    internal int PublishedFrameCount => Volatile.Read(ref _publishedFrameCount);
 
     /// <summary>Last centroid result from the tracker. Null if star was lost.</summary>
     internal GuiderCentroidResult? LastCentroidResult { get; private set; }

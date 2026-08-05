@@ -436,6 +436,17 @@ public interface IGuider : IDeviceDriver
     Image? LastGuideFrame => null;
 
     /// <summary>
+    /// Change token for <see cref="LastGuideFrame"/>, moving whenever a new frame is published.
+    /// Compare for difference rather than order. Zero for guiders that expose no frames.
+    /// <para>
+    /// A remote consumer cannot poll frames without one: re-encoding a preview costs real work, and
+    /// without a token every poll either refetches an unchanged picture or has to guess from the
+    /// guide statistics, which stand still during a star loss while the camera keeps producing frames.
+    /// </para>
+    /// </summary>
+    int LastGuideFrameNumber => 0;
+
+    /// <summary>
     /// Current guide star position in frame coordinates (pixels), or null if not tracking.
     /// </summary>
     (double X, double Y)? GuideStarPosition => null;
