@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -404,9 +404,18 @@ public static class PlannerActions
         for (var i = 0; i < proposals.Length; i++)
         {
             var proposal = proposals[i];
-            if (proposal.Target.CatalogIndex is not { } idx
-                || idx.ToCatalog() != Catalog.Comet
-                || !comets.TryGetPosition(idx, state.AstroDark, out var ra, out var dec, out _)
+            if (proposal.Target.CatalogIndex is not { } idx || idx.ToCatalog() != Catalog.Comet)
+            {
+                continue;
+            }
+
+            // A pinned comet is by definition one the user means to point a telescope at, so it is
+            // exactly the case worth a network round-trip: upgrade it to the apparition in progress.
+            // Fire-and-forget and single-flight, so this is free once it has landed, and the position
+            // resolved below picks it up on the next recompute.
+            comets.RequestCurrentApparition(idx);
+
+            if (!comets.TryGetPosition(idx, state.AstroDark, out var ra, out var dec, out _)
                 || double.IsNaN(ra) || double.IsNaN(dec))
             {
                 continue;

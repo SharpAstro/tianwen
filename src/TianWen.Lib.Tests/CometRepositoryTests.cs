@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -56,8 +56,16 @@ public class CometRepositoryTests(ITestOutputHelper output)
     private FakeExternal CreateExternal()
         => CreateExternal(new FakeTimeProviderWrapper(new DateTimeOffset(2026, 7, 10, 0, 0, 0, TimeSpan.Zero)));
 
-    private CometRepository NewRepository(FakeExternal external, ISbdbCometSource source)
-        => new(source, external, external.TimeProvider, NullLogger<CometRepository>.Instance);
+    private CometRepository NewRepository(FakeExternal external, ISbdbCometSource source, IHorizonsCometSource? horizons = null)
+        => new(source, horizons ?? new NeverFetchesHorizons(), external, external.TimeProvider, NullLogger<CometRepository>.Instance);
+
+    /// <summary>The default for the bulk-cache tests: they are about SBDB and must never depend on the
+    /// per-object overlay, so this one answers "no refinement available" without touching a network.</summary>
+    private sealed class NeverFetchesHorizons : IHorizonsCometSource
+    {
+        public Task<CometElements?> TryFetchCurrentApparitionAsync(CometElements baseElements, DateTimeOffset at, CancellationToken cancellationToken)
+            => Task.FromResult<CometElements?>(null);
+    }
 
     [Fact]
     public async Task GivenNoCacheWhenEnsureLoadedThenItFetchesAndWritesCache()
@@ -162,5 +170,133 @@ public class CometRepositoryTests(ITestOutputHelper output)
         Parse("99P", out var unknown);
         unknown.TryToCatalogIndex(out var unknownIdx).ShouldBeTrue();
         repo.TryGetPosition(unknownIdx, time, out _, out _, out _).ShouldBeFalse();
+    }
+
+    // ---- Current-apparition overlay (the 9.3-degree fix) --------------------------------------
+
+    /// <summary>Hands back a canned refined set and counts calls, so single-flight and the
+    /// only-when-stale gate are observable without a network.</summary>
+    private sealed class FakeHorizons(CometElements? refined) : IHorizonsCometSource
+    {
+        public int FetchCount;
+
+        public Task<CometElements?> TryFetchCurrentApparitionAsync(CometElements baseElements, DateTimeOffset at, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref FetchCount);
+            return Task.FromResult(refined);
+        }
+    }
+
+    private sealed class ThrowingHorizons : IHorizonsCometSource
+    {
+        public Task<CometElements?> TryFetchCurrentApparitionAsync(CometElements baseElements, DateTimeOffset at, CancellationToken cancellationToken)
+            => throw new HttpRequestException("offline");
+    }
+
+    // A stale periodic comet: epoch two revolutions back, which is the shape that puts a marker degrees
+    // off and the only shape worth a network round-trip.
+    private static CometElements StaleComet()
+    {
+        Parse("10P", out var d);
+        return new CometElements(d, "Tempel", 1.4174, 0.53738, 12.03, 117.8, 195.53,
+            PerihelionJdTt: 2457340.741, EpochJdTt: 2457650.5, AbsoluteMagnitudeM1: 13.7, SlopeK1: 6.5);
+    }
+
+    private static CometElements RefreshedComet()
+        => StaleComet() with { PerihelionJdTt = 2461254.615, EpochJdTt = 2461258.5 };
+
+    private static async Task<CometRepository> LoadedWithStaleCometAsync(FakeExternal external, IHorizonsCometSource horizons, CancellationToken ct)
+    {
+        var repo = new CometRepository(new FakeSbdbCometSource([StaleComet()]), horizons, external, external.TimeProvider, NullLogger<CometRepository>.Instance);
+        await repo.EnsureLoadedAsync(ct);
+        return repo;
+    }
+
+    private static async Task<bool> WaitForAsync(Func<bool> condition)
+    {
+        // The upgrade is fire-and-forget by design (it is called from render paths that cannot await),
+        // so the test polls for the published swap rather than awaiting a Task it is not given.
+        for (var i = 0; i < 200 && !condition(); i++)
+        {
+            await Task.Delay(10, TestContext.Current.CancellationToken);
+        }
+        return condition();
+    }
+
+    [Fact]
+    public async Task GivenAStaleCometWhenRequestedThenItsElementsAreUpgraded()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = CreateExternal(new FakeTimeProviderWrapper(new DateTimeOffset(2026, 8, 6, 0, 0, 0, TimeSpan.Zero)));
+        var horizons = new FakeHorizons(RefreshedComet());
+        var repo = await LoadedWithStaleCometAsync(external, horizons, ct);
+        var index = StaleComet().CatalogIndex.ShouldNotBeNull();
+
+        // Before: the bulk record, whose perihelion is the previous apparition.
+        repo.TryGet(index, out var before).ShouldBeTrue();
+        before.PerihelionJdTt.ShouldBe(2457340.741, tolerance: 0.001);
+
+        repo.RequestCurrentApparition(index);
+
+        (await WaitForAsync(() => repo.TryGet(index, out var e) && e.EpochJdTt > 2461000)).ShouldBeTrue();
+        repo.TryGet(index, out var after).ShouldBeTrue();
+        after.PerihelionJdTt.ShouldBe(2461254.615, tolerance: 0.001);
+        horizons.FetchCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task ASecondRequestForAnAlreadyUpgradedCometFetchesNothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = CreateExternal(new FakeTimeProviderWrapper(new DateTimeOffset(2026, 8, 6, 0, 0, 0, TimeSpan.Zero)));
+        var horizons = new FakeHorizons(RefreshedComet());
+        var repo = await LoadedWithStaleCometAsync(external, horizons, ct);
+        var index = StaleComet().CatalogIndex.ShouldNotBeNull();
+
+        repo.RequestCurrentApparition(index);
+        (await WaitForAsync(() => horizons.FetchCount == 1)).ShouldBeTrue();
+
+        // This is called per drawn marker per frame, so "already upgraded" has to be free.
+        for (var i = 0; i < 50; i++)
+        {
+            repo.RequestCurrentApparition(index);
+        }
+
+        horizons.FetchCount.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task AFreshCometIsNeverFetched()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = CreateExternal(new FakeTimeProviderWrapper(new DateTimeOffset(2026, 8, 6, 0, 0, 0, TimeSpan.Zero)));
+        var horizons = new FakeHorizons(RefreshedComet());
+        // Epoch inside the current apparition: nothing to gain, so no round-trip.
+        var fresh = StaleComet() with { EpochJdTt = 2461200.0, PerihelionJdTt = 2461254.615 };
+        var repo = new CometRepository(new FakeSbdbCometSource([fresh]), horizons, external, external.TimeProvider, NullLogger<CometRepository>.Instance);
+        await repo.EnsureLoadedAsync(ct);
+
+        repo.RequestCurrentApparition(fresh.CatalogIndex.ShouldNotBeNull());
+        await Task.Delay(100, ct);
+
+        horizons.FetchCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task WhenHorizonsIsUnreachableTheBulkElementsStayInUse()
+    {
+        // Offline must degrade to "old but self-consistent", never to a missing comet -- and the flag
+        // must keep saying the position is approximate so the UI keeps showing its marker.
+        var ct = TestContext.Current.CancellationToken;
+        var external = CreateExternal(new FakeTimeProviderWrapper(new DateTimeOffset(2026, 8, 6, 0, 0, 0, TimeSpan.Zero)));
+        var repo = await LoadedWithStaleCometAsync(external, new ThrowingHorizons(), ct);
+        var index = StaleComet().CatalogIndex.ShouldNotBeNull();
+
+        repo.RequestCurrentApparition(index);
+        await Task.Delay(100, ct);
+
+        repo.TryGet(index, out var elements).ShouldBeTrue();
+        elements.PerihelionJdTt.ShouldBe(2457340.741, tolerance: 0.001);
+        elements.IsElementSetStale(2461258.5).ShouldBeTrue();
     }
 }

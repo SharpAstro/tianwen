@@ -12,12 +12,16 @@
 
   <ItemGroup>
     <None Remove="Data/*.gz" />
+    <None Remove="Data/horizons-*.txt" />
     <None Remove="Data/Focus/*.gz" />
     <None Remove="Data/Focus/NINA/*.json" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Data/*.gz" />
+    <!-- Frozen JPL Horizons responses: the element parser is pinned against the real wire format,
+         not a hand-written approximation of it. -->
+    <EmbeddedResource Include="Data/horizons-*.txt" />
     <EmbeddedResource Include="Data/Focus/*.gz" />
     <EmbeddedResource Include="Data/Focus/NINA/*.json" />
     <!-- SkyWatcher protocol oracle: wire transcripts recorded from GSServer's own

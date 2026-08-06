@@ -710,6 +710,15 @@ namespace TianWen.UI.Abstractions
                 {
                     continue;
                 }
+
+                // This comet is on screen and its elements are old enough to put it degrees away, so
+                // ask for the current-apparition set. Fire-and-forget, single-flight, and a no-op for
+                // anything already upgraded, so calling it per drawn marker per frame is free; the
+                // marker simply moves to the right place on a later frame once the fetch lands.
+                if (marker.PositionUncertain)
+                {
+                    comets.RequestCurrentApparition(marker.Index);
+                }
                 if (!SkyMapProjection.ProjectWithMatrix(marker.RA, marker.Dec, State.CurrentViewMatrix,
                         ppr, cx, cy, out var sx, out var sy)
                     || sx < rect.X || sx >= rect.X + rect.Width
