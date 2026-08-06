@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
@@ -329,15 +329,12 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
     /// <summary>Load + calibrate, no debayer. Used by Phase 8.6 pass 1 to
     /// cache the calibrated raw (3x denser than debayered RGB in the strong
     /// tier) and by pass 2 cache-miss recovery. The actual debayer happens
-    /// per-strip via <see cref="Image.DebayerRegionIntoAsync"/>.</summary>
+    /// per-strip via <see cref="Image.DebayerRegionIntoAsync"/>.
+    /// <para>Delegates to <see cref="RawLightDecoder"/>, which owns the raw
+    /// frame's buffer lifetime -- see there for why that rule cannot be
+    /// duplicated per strategy.</para></summary>
     private static Image DecodeCalibrate(RawLightSource source, Calibrator calibrator)
-    {
-        if (!Image.TryReadFitsFile(source.Path, out var raw))
-        {
-            throw new InvalidDataException($"TilePipelinedStrategy: failed to read raw FITS at {source.Path}");
-        }
-        return calibrator.Apply(raw);
-    }
+        => RawLightDecoder.DecodeCalibrate(source, calibrator, nameof(TilePipelinedStrategy));
 
     private static void CopyStripIntoMaster(Image stripImage, float[][,] masterData, int stripY0, int channelCount)
     {

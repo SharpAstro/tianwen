@@ -3,6 +3,7 @@ using nom.tam.fits;
 using nom.tam.util;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
@@ -22,9 +23,32 @@ public partial class Image
 
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs)
     {
+        return TryReadFitsFile(fileName, out image, out wcs, pooled: false);
+    }
+
+    /// <summary>
+    /// Reads a FITS file, optionally renting the channel arrays from <see cref="Array2DPool{T}"/>
+    /// so a bulk reader recycles them instead of handing the GC a fresh large-object array per file.
+    ///
+    /// <para><b>Pooling is opt-in, and the caller takes on an obligation.</b> With
+    /// <paramref name="pooled"/> set, the returned image's channels carry a
+    /// <see cref="ChannelBuffer"/> whose release returns the array to the pool, so
+    /// <see cref="Release"/> stops being a no-op: the caller must not touch the image afterwards,
+    /// exactly as for a camera frame. Every pre-existing call site passes <see langword="false"/>
+    /// and is byte-for-byte unchanged -- several of them <see cref="Release"/> an image and keep
+    /// reading it, which is harmless only while file loads own their arrays outright.</para>
+    ///
+    /// <para>Worth it only for a reader that loops over many frames: it is one full-size
+    /// <c>float[,]</c> per channel per file, on the large-object heap, and for any integer BITPIX
+    /// there are two live at once (FITS.Lib's typed array plus the float destination). Eight
+    /// concurrent readers over 4144x2822x3 int32 frames is ~2.2 GB of churn, which is an
+    /// <see cref="OutOfMemoryException"/> on a 16 GB box with other work running.</para>
+    /// </summary>
+    public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled)
+    {
         using var bufferedReader = new BufferedFile(fileName, FileAccess.Read, FileShare.Read, 1000 * 2088);
         using var fitsFile = new Fits(bufferedReader, fileName.EndsWith(".gz"));
-        return TryReadFitsFile(fitsFile, out image, out wcs);
+        return TryReadFitsFile(fitsFile, out image, out wcs, pooled);
     }
 
     /// <summary>
@@ -316,6 +340,44 @@ public partial class Image
     }
 
     /// <summary>
+    /// Hands every rented plane back to the pool. Used on the failure path, where no
+    /// <see cref="Image"/> is constructed and so nothing else will ever release them.
+    /// </summary>
+    private static void ReturnRented(float[][,] planes, bool[]? rented)
+    {
+        if (rented is null)
+        {
+            return;
+        }
+        for (var c = 0; c < rented.Length; c++)
+        {
+            if (rented[c] && planes[c] is { } plane)
+            {
+                Array2DPool<float>.Return(plane);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Wraps the planes as channels, giving each RENTED one a <see cref="ChannelBuffer"/> that
+    /// returns the array to <see cref="Array2DPool{T}"/> on release. This is the same ownership
+    /// protocol a camera frame uses (<c>DALCameraDriver._freeBuffers</c>); only the recycler
+    /// differs. A plane we did not rent gets no buffer, so <see cref="Release"/> leaves it alone.
+    /// </summary>
+    private static ImmutableArray<Channel> WrapPooledPlanes(float[][,] planes, bool[] rented, float minValue, float maxValue)
+    {
+        var builder = ImmutableArray.CreateBuilder<Channel>(planes.Length);
+        for (var c = 0; c < planes.Length; c++)
+        {
+            var channel = new Channel(planes[c], default, minValue, maxValue, (byte)c);
+            builder.Add(rented[c]
+                ? channel with { Buffer = new ChannelBuffer(planes[c], static array => Array2DPool<float>.Return(array)) }
+                : channel);
+        }
+        return builder.MoveToImmutable();
+    }
+
+    /// <summary>
     /// How many raw frames were integrated to make this file, or 0 when it is a raw sub. Non-zero
     /// is what marks a file as a stacking PRODUCT, so the scan can drop it instead of re-ingesting
     /// a master as if it were a fresh frame.
@@ -341,6 +403,12 @@ public partial class Image
     }
 
     public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image, out WCS? wcs)
+    {
+        return TryReadFitsFile(fitsFile, out image, out wcs, pooled: false);
+    }
+
+    /// <inheritdoc cref="TryReadFitsFile(string, out Image?, out WCS?, bool)"/>
+    public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled)
     {
         wcs = null;
         var hdu = fitsFile.ReadHDU();
@@ -448,6 +516,11 @@ public partial class Image
         bool trivialScaling = bscale == 1f && bzero == 0f;
         var imgChannels = new float[channelCount][,];
 
+        // Which channels were RENTED, so only those are handed back to the pool. The zero-copy
+        // branch adopts FITS.Lib's own array, which we never rented -- returning it would seed the
+        // pool with foreign arrays and blur who owns what.
+        bool[]? rented = null;
+
         // Use GetChannel API from FITS.Lib 4.2 for per-channel access
         for (int c = 0; c < channelCount; c++)
         {
@@ -460,7 +533,13 @@ public partial class Image
             }
             else
             {
-                imgChannels[c] = new float[height, width];
+                // A rented array arrives dirty (the pool clears on neither Rent nor Return), which
+                // is safe here only because ConvertChannel writes every pixel of the destination.
+                imgChannels[c] = pooled ? Array2DPool<float>.Rent(height, width) : new float[height, width];
+                if (pooled)
+                {
+                    (rented ??= new bool[channelCount])[c] = true;
+                }
                 switch (channelArray)
                 {
                     case byte[,] src: ConvertChannel(src, imgChannels[c]); break;
@@ -468,6 +547,7 @@ public partial class Image
                     case int[,] src: ConvertChannel(src, imgChannels[c]); break;
                     case float[,] src: ConvertChannel(src, imgChannels[c]); break;
                     default:
+                        ReturnRented(imgChannels, rented);
                         image = null;
                         return false;
                 }
@@ -545,7 +625,9 @@ public partial class Image
             SensorFullScaleAdu: saturate > 0 ? saturate : null
         )
         { IsMaster = isMaster };
-        image = new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta);
+        image = rented is null
+            ? new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta)
+            : new Image(WrapPooledPlanes(imgChannels, rented, minValue, maxValue), bitDepth, pedestal, imageMeta);
         wcs = WCS.FromHeader(hdu.Header);
         return true;
     }

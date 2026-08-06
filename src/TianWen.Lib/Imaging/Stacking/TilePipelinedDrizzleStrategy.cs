@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.IO;
 using System.Threading;
@@ -353,17 +353,10 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
     }
 
     /// <summary>Load + calibrate, no debayer. Same contract as
-    /// <see cref="TilePipelinedStrategy"/>'s private helper -- duplicated
-    /// rather than promoted to a shared internal because it's a trivial
-    /// 5-line wrapper around <see cref="Image.TryReadFitsFile"/> + the
-    /// calibrator and DRYing it would couple the two strategies through
-    /// a third file purely on convenience grounds.</summary>
+    /// <see cref="TilePipelinedStrategy"/>'s helper, and now literally the
+    /// same code: see <see cref="RawLightDecoder"/> for why the two copies
+    /// were merged once the body grew a buffer-ownership rule.</summary>
     private static Image DecodeCalibrate(RawLightSource source, Calibrator calibrator)
-    {
-        if (!Image.TryReadFitsFile(source.Path, out var raw))
-        {
-            throw new InvalidDataException($"TilePipelinedDrizzleStrategy: failed to read raw FITS at {source.Path}");
-        }
-        return calibrator.Apply(raw);
-    }
+        => RawLightDecoder.DecodeCalibrate(source, calibrator, nameof(TilePipelinedDrizzleStrategy));
+
 }

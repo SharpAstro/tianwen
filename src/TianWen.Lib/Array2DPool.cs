@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -52,6 +52,39 @@ public static class Array2DPool<T>
     /// <summary>Maximum arrays to retain per (height, width) bucket.</summary>
     private const int MaxPerBucket = 8; // AHD debayer uses 6 scratch arrays of the same size
 
+    /// <summary>
+    /// Ceiling on the TOTAL bytes retained across every bucket. A per-bucket cap alone bounds
+    /// nothing when the shapes vary: a five-year mixed archive hit 24 distinct frame sizes, so
+    /// 24 x 8 arrays of 36-140 MB could be pinned, and a survey over it ran out of memory MORE
+    /// often with pooling on (12 failures against 6) because the pool was holding arrays the GC
+    /// would otherwise have reclaimed.
+    ///
+    /// <para>A ceiling rather than weak references, though both were on the table. Weak refs let
+    /// the GC reclaim under pressure, but they also drop the buffer the camera path wants to reuse
+    /// on the very next exposure -- the steady-state case the pool exists for -- and they only
+    /// react once a collection runs. A byte budget keeps that hot case at a 100 % hit rate (one
+    /// sensor shape fits comfortably), bounds what we hold whatever the workload, and does so
+    /// deterministically. That matters because TianWen does NOT own the box: an enhance step
+    /// shells out to <c>rc-astro</c>, which wants GPU and host memory of its own while a stack is
+    /// still resident.</para>
+    ///
+    /// <para>256 MiB holds ~7 frames at 3008^2 float32, i.e. the whole working set of a normal
+    /// session, while being a rounding error next to an external enhancer's footprint.</para>
+    /// </summary>
+    private const long MaxRetainedBytes = 256L * 1024 * 1024;
+
+    private static long _retainedBytes;
+
+    /// <summary>Bytes currently retained across all buckets.</summary>
+    public static long RetainedBytes => Volatile.Read(ref _retainedBytes);
+
+    /// <summary>Arrays dropped because the pool was already at <see cref="MaxRetainedBytes"/>.</summary>
+    public static long BudgetEvictionCount => Volatile.Read(ref _budgetEvictions);
+
+    private static long _budgetEvictions;
+
+    private static long BytesOf(T[,] array) => (long)array.Length * Unsafe.SizeOf<T>();
+
     /// <summary>Arrays unused for longer than this are trimmed on Gen2 GC under moderate pressure.</summary>
     private const long TrimAfterMs = 30_000;
 
@@ -77,6 +110,7 @@ public static class Array2DPool<T>
             if (_buckets.TryGetValue(key, out var queue) && queue.TryDequeue(out var entry))
             {
                 Interlocked.Increment(ref _hits);
+                Interlocked.Add(ref _retainedBytes, -BytesOf(entry.Array));
                 return entry.Array;
             }
         }
@@ -92,11 +126,22 @@ public static class Array2DPool<T>
     {
         if (!Enabled) return;
         Interlocked.Increment(ref _returns);
+
+        // Budget first: a heterogeneous workload never fills a single bucket, so the per-bucket
+        // cap alone would let the pool grow without bound across shapes.
+        var bytes = BytesOf(array);
+        if (Volatile.Read(ref _retainedBytes) + bytes > MaxRetainedBytes)
+        {
+            Interlocked.Increment(ref _budgetEvictions);
+            return;
+        }
+
         var key = Key(array.GetLength(0), array.GetLength(1));
         var queue = _buckets.GetOrAdd(key, static _ => new ConcurrentQueue<PoolEntry>());
         if (queue.Count < MaxPerBucket)
         {
             queue.Enqueue(new PoolEntry(array, Environment.TickCount64));
+            Interlocked.Add(ref _retainedBytes, bytes);
         }
         // else: let GC collect it — pool is full for this size
     }
@@ -117,7 +162,7 @@ public static class Array2DPool<T>
             // High pressure: drop everything
             foreach (var queue in _buckets.Values)
             {
-                while (queue.TryDequeue(out _)) { }
+                while (queue.TryDequeue(out var dropped)) { Interlocked.Add(ref _retainedBytes, -BytesOf(dropped.Array)); }
             }
         }
         else if (pressure > 0.7)
@@ -128,7 +173,10 @@ public static class Array2DPool<T>
             {
                 while (queue.TryPeek(out var entry) && entry.Timestamp < cutoff)
                 {
-                    queue.TryDequeue(out _);
+                    if (queue.TryDequeue(out var dropped))
+                    {
+                        Interlocked.Add(ref _retainedBytes, -BytesOf(dropped.Array));
+                    }
                 }
             }
         }
