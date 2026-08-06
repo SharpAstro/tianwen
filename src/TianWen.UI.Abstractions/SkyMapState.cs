@@ -854,6 +854,16 @@ namespace TianWen.UI.Abstractions
         /// swings), and at exact parallelism the old code substituted a hardcoded right vector.
         /// Storing the roll removes the derivation, so no view direction is special.
         /// </para>
+        /// <para>
+        /// <b>Owned by the user's gestures.</b> A pan rotates the whole frame rigidly and keeps
+        /// whatever roll that earns; the mode's reference may only add the amount the reference itself
+        /// MOVED (nothing in Equatorial, the sky's rotation in Horizon). It must never servo to the
+        /// reference's absolute value, which is what it used to do: near the pole a change of RA is
+        /// itself a rotation, so a 100 px pan at Dec -89 legitimately earns 82 degrees of roll, and
+        /// erasing that on mouse-up threw the sky 132 px -- further than the gesture had moved it.
+        /// <see cref="RequestLevelToReference"/> (the L key) is the only way back to the reference, and
+        /// it is deliberate.
+        /// </para>
         /// </summary>
         public double CenterRoll { get; set; }
 
@@ -903,6 +913,47 @@ namespace TianWen.UI.Abstractions
         /// elapsed read for animation pacing, never a wall-clock read, so it does not belong to
         /// <c>ITimeProvider</c> (same rule the sky map's zoom-flood detector follows).</summary>
         private long _rollRealignTicks;
+
+        /// <summary>
+        /// The reference roll seen on the previous frame, and whether one has been seen at all.
+        /// <para>
+        /// The roll follows the reference's <b>motion</b>, never its absolute value. That distinction
+        /// is the whole fix for the pan bug: servoing to the absolute reference means every frame after
+        /// a gesture drags the view back toward it, so a pan that legitimately rolled the frame is
+        /// undone the instant the button comes up. Tracking the delta instead leaves a gesture alone
+        /// and still turns the field as the sky turns, which is the only thing the reference is
+        /// actually entitled to do.
+        /// </para>
+        /// <para>
+        /// Cleared whenever the reference is unusable (a drag in progress, an ill-conditioned zenith)
+        /// so the motion missed during the gap is never replayed as one jump on the way out.
+        /// </para>
+        /// </summary>
+        private double _lastReferenceRoll;
+        private bool _hasReferenceRoll;
+
+        /// <summary>Set by <see cref="RequestLevelToReference"/>; the one case that is allowed to servo
+        /// to the reference's absolute value, because the user asked for exactly that.</summary>
+        private bool _levelRequested;
+
+        /// <summary>
+        /// Level the view to the mode's reference (north-up in Equatorial, zenith-up in Horizon),
+        /// easing there over the next few frames rather than snapping.
+        /// <para>
+        /// This exists because the roll is now owned by the user's gestures and nothing takes it back
+        /// automatically. A drag near the pole legitimately rolls the frame by tens of degrees -- at
+        /// Dec -89 a 100 px pan earns 82 -- and without a deliberate way back the atlas would simply
+        /// stay tilted.
+        /// </para>
+        /// </summary>
+        public void RequestLevelToReference()
+        {
+            _levelRequested = true;
+            NeedsRedraw = true;
+        }
+
+        /// <summary>True while a requested re-level is still travelling, for tests and status text.</summary>
+        internal bool IsLevelling => _levelRequested;
 
         /// <summary>
         /// The view frame at <see cref="CenterRA"/> / <see cref="CenterDec"/> with
@@ -988,6 +1039,7 @@ namespace TianWen.UI.Abstractions
             // view flipping rather than as a pan.
             if (IsDragging)
             {
+                _hasReferenceRoll = false;
                 return false;
             }
 
@@ -998,6 +1050,7 @@ namespace TianWen.UI.Abstractions
                 var refLen = reference.Length();
                 if (refLen < 1e-6f)
                 {
+                    _hasReferenceRoll = false;
                     return false;
                 }
                 reference /= refLen;
@@ -1009,6 +1062,7 @@ namespace TianWen.UI.Abstractions
                 var perpendicular = reference - forward * Vector3.Dot(reference, forward);
                 if (perpendicular.Length() < ReferenceRollLockSin)
                 {
+                    _hasReferenceRoll = false;
                     return false;
                 }
 
@@ -1022,17 +1076,48 @@ namespace TianWen.UI.Abstractions
                 target = 0.0;
             }
 
-            var delta = NormalizeSignedAngle(target - CenterRoll);
-            if (Math.Abs(delta) <= RollRealignSnapRad)
+            // The deliberate re-level: the only path allowed to servo to the reference's ABSOLUTE
+            // value, because that is precisely what the user asked for.
+            if (_levelRequested)
             {
-                CenterRoll = target;
+                var toGo = NormalizeSignedAngle(target - CenterRoll);
+                if (Math.Abs(toGo) <= RollRealignSnapRad)
+                {
+                    CenterRoll = target;
+                    _levelRequested = false;
+                }
+                else
+                {
+                    // Travel the shortest way round at a fixed rate PER SECOND, and keep asking for
+                    // frames until it arrives. Snapping straight there is what the flip was.
+                    CenterRoll = NormalizeSignedAngle(CenterRoll + toGo * (1.0 - Math.Exp(-elapsed / RollRealignTimeConstantSec)));
+                    NeedsRedraw = true;
+                }
+                _lastReferenceRoll = target;
+                _hasReferenceRoll = true;
                 return true;
             }
 
-            // Travel the shortest way round at a fixed rate PER SECOND, and keep asking for frames
-            // until it arrives. Snapping straight to the target is what the flip was.
-            var step = 1.0 - Math.Exp(-elapsed / RollRealignTimeConstantSec);
-            CenterRoll = NormalizeSignedAngle(CenterRoll + delta * step);
+            // Otherwise follow only how far the reference MOVED since the previous frame. In
+            // Equatorial that is identically zero -- celestial north does not go anywhere -- so a pan
+            // keeps every degree of roll it earned. In Horizon it is the sky's own rotation, about
+            // 0.004 degrees per frame, which needs no easing and keeps the horizon level over a
+            // session without ever contradicting a gesture.
+            if (!_hasReferenceRoll)
+            {
+                _lastReferenceRoll = target;
+                _hasReferenceRoll = true;
+                return false;
+            }
+
+            var moved = NormalizeSignedAngle(target - _lastReferenceRoll);
+            _lastReferenceRoll = target;
+            if (moved == 0.0)
+            {
+                return false;
+            }
+
+            CenterRoll = NormalizeSignedAngle(CenterRoll + moved);
             NeedsRedraw = true;
             return true;
         }
@@ -1050,7 +1135,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Wraps an angle in radians to (-pi, pi], so a roll correction always takes the
         /// short way round rather than most of a turn the other way.</summary>
-        private static double NormalizeSignedAngle(double radians)
+        internal static double NormalizeSignedAngle(double radians)
         {
             var wrapped = (radians + Math.PI) % Math.Tau;
             if (wrapped < 0)

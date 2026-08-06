@@ -100,6 +100,7 @@ public class SkyMapViewOrientationTests
         // a real defect: a pan held its rigid roll inside the cone and then snapped it away on the
         // way out, flipping the field by 63 degrees in one frame at Dec 85.
         var state = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 6.0, CenterDec = dec };
+        state.RequestLevelToReference();
         state.UpdateRollForReference(deltaSeconds: FrameSeconds).ShouldBeTrue("Equatorial mode always knows where north is");
         state.CenterRoll.ShouldBe(0.0, 1e-9);
     }
@@ -123,10 +124,13 @@ public class SkyMapViewOrientationTests
     }
 
     [Fact]
-    public void AfterTheDrag_TheRollTravelsBackToLevel_WithoutSnapping()
+    public void AskedToLevel_TheRollTravelsBackToLevel_WithoutSnapping()
     {
         // A rolled view re-levels over several frames, taking the SHORT way round, and lands exactly.
         // One frame of it must be a small fraction of the journey, or it is the flip again.
+        //
+        // Note what triggers it: the USER asking (the L key). This travel used to run unbidden on
+        // every frame, which is what undid a pan the instant the button came up.
         var state = new SkyMapState
         {
             Mode = SkyMapMode.Equatorial,
@@ -135,6 +139,7 @@ public class SkyMapViewOrientationTests
             CenterRoll = double.DegreesToRadians(63.0), // the angle measured off the report
         };
 
+        state.RequestLevelToReference();
         state.UpdateRollForReference(deltaSeconds: FrameSeconds).ShouldBeTrue();
         var afterOneFrame = double.RadiansToDegrees(state.CenterRoll);
         afterOneFrame.ShouldBeLessThan(63.0, "it must move toward level");
@@ -165,12 +170,14 @@ public class SkyMapViewOrientationTests
         const double halfSecond = 0.5;
 
         var fast = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 6.0, CenterDec = 85.0, CenterRoll = double.DegreesToRadians(startRoll) };
+        fast.RequestLevelToReference();
         for (var i = 0; i < 30; i++)
         {
             fast.UpdateRollForReference(deltaSeconds: halfSecond / 30);
         }
 
         var slow = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 6.0, CenterDec = 85.0, CenterRoll = double.DegreesToRadians(startRoll) };
+        slow.RequestLevelToReference();
         for (var i = 0; i < 5; i++)
         {
             slow.UpdateRollForReference(deltaSeconds: halfSecond / 5);
@@ -182,12 +189,14 @@ public class SkyMapViewOrientationTests
 
         // And partway through, where the difference would actually show, they still track each other.
         var fastPartial = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 6.0, CenterDec = 85.0, CenterRoll = double.DegreesToRadians(startRoll) };
+        fastPartial.RequestLevelToReference();
         for (var i = 0; i < 6; i++)
         {
             fastPartial.UpdateRollForReference(deltaSeconds: 1.0 / 60);
         }
 
         var slowPartial = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 6.0, CenterDec = 85.0, CenterRoll = double.DegreesToRadians(startRoll) };
+        slowPartial.RequestLevelToReference();
         slowPartial.UpdateRollForReference(deltaSeconds: 6.0 / 60);
 
         double.RadiansToDegrees(fastPartial.CenterRoll)
@@ -208,15 +217,22 @@ public class SkyMapViewOrientationTests
             CenterDec = 85.0,
             CenterRoll = double.DegreesToRadians(63.0),
         };
+        state.RequestLevelToReference();
 
-        // First call has no previous instant, so it takes the nominal frame (1/60 s) and moves ~25%.
+        // First call has no previous instant, so it takes the NOMINAL frame (1/60 s). That is exact and
+        // owes nothing to the clock: 63 * exp(-(1/60) / 0.058) = 47.27 degrees remaining.
         state.UpdateRollForReference().ShouldBeTrue();
         var afterFirst = double.RadiansToDegrees(state.CenterRoll);
-        afterFirst.ShouldBeInRange(40.0, 55.0);
+        afterFirst.ShouldBe(63.0 * Math.Exp(-(1.0 / 60.0) / 0.058), 0.01);
 
-        // Immediately again: real elapsed time is microseconds, so this is nearly a no-op.
+        // Immediately again: now it MEASURES, so how far it travels depends on how long the machine
+        // took to get here -- which under a loaded full-suite run is milliseconds, not microseconds.
+        // Pinning a tight delta here made this flaky by design, so assert only what is true at any
+        // scheduling: it keeps approaching and never overshoots past the target.
         state.UpdateRollForReference().ShouldBeTrue();
-        double.RadiansToDegrees(state.CenterRoll).ShouldBe(afterFirst, tolerance: 1.0);
+        var afterSecond = double.RadiansToDegrees(state.CenterRoll);
+        afterSecond.ShouldBeLessThan(afterFirst, "a measured interval is still an interval, so it moves");
+        afterSecond.ShouldBeGreaterThanOrEqualTo(0.0, "and however long the gap, it may not sail past level");
     }
 
     [Theory]
@@ -234,6 +250,7 @@ public class SkyMapViewOrientationTests
             Mode = SkyMapMode.Equatorial,
             CenterRoll = double.DegreesToRadians(startRollDeg),
         };
+        state.RequestLevelToReference();
 
         var before = Math.Abs(startRollDeg);
         state.UpdateRollForReference(deltaSeconds: FrameSeconds);
@@ -247,15 +264,55 @@ public class SkyMapViewOrientationTests
     [Fact]
     public void AlreadyLevel_IsUntouched_AndAsksForNoExtraFrame()
     {
-        // The common case by far, since the Equatorial target is a constant 0: the approach must cost
-        // it nothing, including not requesting redraws forever.
+        // The common case by far: nobody asked for a re-level and celestial north has not moved, so
+        // the frame must cost nothing at all -- no roll change and no request for another frame.
         var state = new SkyMapState { Mode = SkyMapMode.Equatorial, CenterRA = 3.0, CenterDec = 20.0 };
         state.NeedsRedraw = false;
 
-        state.UpdateRollForReference(deltaSeconds: FrameSeconds).ShouldBeTrue();
+        state.UpdateRollForReference(deltaSeconds: FrameSeconds).ShouldBeFalse("nothing is travelling");
 
         state.CenterRoll.ShouldBe(0.0);
         state.NeedsRedraw.ShouldBeFalse("a level view is not travelling anywhere");
+    }
+
+    [Fact]
+    public void InHorizonMode_TheRollFOLLOWSTheZenithAsTheSkyTurns_ButOnlyByHowFarItMoved()
+    {
+        // Horizon mode's reference really does move (the sky turns ~15 deg/hr), and keeping the
+        // horizon level over a session is the one thing the per-frame realign is entitled to do.
+        // It must do it by tracking the reference's MOTION, never by servoing to its absolute value:
+        // servoing is what dragged a panned view back and made the sky slide after mouse-up.
+        var state = new SkyMapState { Mode = SkyMapMode.Horizon, CenterRA = 8.0, CenterDec = 10.0 };
+        var zenith = SkyMapState.RaDecToUnitVec(4.0, 40.0);
+        state.RequestLevelToReference();
+        for (var frame = 0; frame < 200; frame++)
+        {
+            state.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z, FrameSeconds);
+        }
+        var levelRoll = state.CenterRoll;
+
+        // A gesture rolls the frame off level. Nothing may take that back on its own.
+        state.CenterRoll = levelRoll + double.DegreesToRadians(30.0);
+        state.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z, FrameSeconds);
+        double.RadiansToDegrees(state.CenterRoll - levelRoll)
+            .ShouldBe(30.0, 1e-6, "a static zenith must leave the gesture's roll exactly alone");
+
+        // Now the sky turns. The roll follows it, carrying the gesture's 30 degrees along.
+        var rolled = state.CenterRoll;
+        var moved = SkyMapState.RaDecToUnitVec(4.25, 40.0); // a quarter hour of RA later
+        state.UpdateRollForReference(moved.X, moved.Y, moved.Z, FrameSeconds);
+        var followed = state.CenterRoll - rolled;
+        Math.Abs(followed).ShouldBeGreaterThan(1e-6, "the horizon must stay level as the sky turns");
+
+        // And it followed by exactly the reference's own motion, so the 30 degree offset survives.
+        var reference = new SkyMapState { Mode = SkyMapMode.Horizon, CenterRA = 8.0, CenterDec = 10.0 };
+        reference.RequestLevelToReference();
+        for (var frame = 0; frame < 200; frame++)
+        {
+            reference.UpdateRollForReference(moved.X, moved.Y, moved.Z, FrameSeconds);
+        }
+        double.RadiansToDegrees(state.CenterRoll - reference.CenterRoll)
+            .ShouldBe(30.0, 1e-3, "the gesture's offset rides along, it is not eaten by the tracking");
     }
 
     [Theory]
@@ -296,12 +353,13 @@ public class SkyMapViewOrientationTests
     {
         var zenith = SkyMapState.RaDecToUnitVec(4.0, 40.0);
         var state = new SkyMapState { Mode = SkyMapMode.Horizon, CenterRA = 8.0, CenterDec = 10.0 };
+        state.RequestLevelToReference(); // entering the mode establishes its frame (the P key does this)
 
         // The roll APPROACHES its target a fraction per frame, so settle it before measuring; one
         // call is deliberately only part of the way.
         for (var frame = 0; frame < 200; frame++)
         {
-            state.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z, FrameSeconds).ShouldBeTrue();
+            state.UpdateRollForReference(zenith.X, zenith.Y, zenith.Z, FrameSeconds);
         }
 
         var m = state.ComputeViewMatrix();
