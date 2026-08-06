@@ -39,6 +39,16 @@ namespace TianWen.Lib.Astrometry.PlateSolve;
 ///         orientations are attempted; the orientation with more matched stars is selected.</item>
 /// </list>
 ///
+/// <para><b>Dense-field hardening</b> (each attempt): a geometric pair-lock seed
+/// (<see cref="PairRansacLock"/>) locks translation + rotation + scale from bright star pairs
+/// verified against the whole detected field before the proximity iterations run, and each
+/// iteration's matching predicts projected positions through the latest affine's linear part so
+/// field rotation cannot starve the shrinking tolerance at the frame edges. A final
+/// <b>chance-aware acceptance gate</b> counts bright detected stars landing within a few px of a
+/// catalog star under the final WCS and rejects any solution that cannot beat the Poisson
+/// expectation of random alignment — the dense-field failure mode produced 1,400+ "matches" that
+/// were pure nearest-neighbour noise while reporting confident success.</para>
+///
 /// <para>Requires a pre-initialised <see cref="ICelestialObjectDB"/> with Tycho-2 data and a
 /// valid <c>searchOrigin</c>; blind solving (no search hint) is not supported and returns
 /// <c>null</c>.</para>
@@ -48,6 +58,25 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     private readonly ILogger _logger = logger;
 
     const int MinStarsForMatch = 6;
+
+    /// <summary>
+    /// Acceptance-gate probe radius in native pixels (scaled up by the detection binning
+    /// factor, whose centroid quantisation it must dominate). A genuine solve puts its true
+    /// matches within ~1px of the catalog projection; the dense-field failure mode puts them
+    /// at the field's random nearest-neighbour distance (tens of px), so 3px separates the
+    /// two regimes with a wide margin on both sides.
+    /// </summary>
+    private const double GateTolerancePx = 3.0;
+
+    /// <summary>
+    /// Acceptance-gate sample: the brightest N detected stars. Kept to the bright end where
+    /// Tycho-2 is complete, so every genuine detected star in the sample has a catalog
+    /// counterpart and a real solve scores near 100%.
+    /// </summary>
+    private const int GateSampleSize = 120;
+
+    /// <summary>Accepted gate hits must exceed this multiple of the Poisson chance expectation.</summary>
+    private const double GateChanceSafetyFactor = 5.0;
 
     /// <summary>
     /// Minimum inlier count required before we attempt a SIP polynomial fit
@@ -258,8 +287,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
         // Try both orientations in parallel; pick the one with lower re-projection error
         stageSw.Restart();
-        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, cancellationToken), cancellationToken);
-        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0, cancellationToken), cancellationToken);
+        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, cancellationToken), cancellationToken);
+        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, cancellationToken), cancellationToken);
         await Task.WhenAll(stdTask, mirrorTask);
 
         var std = stdTask.Result;
@@ -281,14 +310,14 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // bright catalog candidates almost always hits *some* nearby detected
         // star). That used to flip the parity at Dec near -90 deg, picking
         // std=3-matched garbage over mirror=30-matched correct.
-        SolveAttempt winner;
+        SolveAttempt winner, loser;
         if (std.MatchedStars >= 2 * Math.Max(mirror.MatchedStars, 1))
         {
-            winner = std;
+            (winner, loser) = (std, mirror);
         }
         else if (mirror.MatchedStars >= 2 * Math.Max(std.MatchedStars, 1))
         {
-            winner = mirror;
+            (winner, loser) = (mirror, std);
         }
         else
         {
@@ -297,10 +326,124 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             // projects bright catalog stars onto detected stars.
             var stdError = std.Wcs is { } ws ? ReProjectionError(ws, catalogCoords, detectedStars) : double.MaxValue;
             var mirrorError = mirror.Wcs is { } wm ? ReProjectionError(wm, catalogCoords, detectedStars) : double.MaxValue;
-            winner = stdError <= mirrorError ? std : mirror;
+            (winner, loser) = stdError <= mirrorError ? (std, mirror) : (mirror, std);
         }
 
+        // Chance-aware acceptance gate. In a dense field the proximity loop can hand back a
+        // full complement of matches that are pure nearest-neighbour noise -- observed on a
+        // Vela mosaic panel: 1,434 "matches" whose residual median (19.2px) and MAD (6.9px)
+        // reproduced the Poisson random-NN prediction (19.5 / 7.0) exactly, i.e. the solve
+        // matched nothing while reporting confident success. A genuine lock is separable by
+        // one cheap statistic: bright detected stars land within a few px of a catalog star
+        // under the final WCS at ~100x the chance rate. Reject anything that cannot beat
+        // chance -- a failed solve is recoverable (the factory falls through to ASTAP /
+        // astrometry.net), a silently wrong WCS is not.
+        winner = ApplyAcceptanceGate(winner, loser, catalogCoords, detectedStars, dim, Math.Max(GateTolerancePx, GateTolerancePx * detectionScale));
+
         return Result(winner);
+    }
+
+    /// <summary>
+    /// Verifies the picked parity against the chance model; falls back to the losing parity
+    /// when it verifies instead, and strips the WCS entirely when neither does.
+    /// </summary>
+    private SolveAttempt ApplyAcceptanceGate(
+        SolveAttempt winner,
+        SolveAttempt loser,
+        List<(double RA, double Dec, double VMag)> catalogCoords,
+        StarList detectedStars,
+        ImageDim dim,
+        double tolerancePx)
+    {
+        if (winner.Wcs is not { } wcs)
+        {
+            return winner;
+        }
+
+        var v = CountTightMatches(wcs, catalogCoords, detectedStars, dim, tolerancePx);
+        var threshold = Math.Max(MinStarsForMatch, GateChanceSafetyFactor * v.ExpectedChance);
+        if (v.Hits >= threshold)
+        {
+            _logger.LogDebug("CatalogPlateSolver: acceptance gate passed -- {Hits}/{Sampled} bright detected stars within {Tol:F1}px of a catalog star ({Chance:F1} expected by chance)",
+                v.Hits, v.Sampled, tolerancePx, v.ExpectedChance);
+            return winner;
+        }
+
+        if (loser.Wcs is { } loserWcs)
+        {
+            var lv = CountTightMatches(loserWcs, catalogCoords, detectedStars, dim, tolerancePx);
+            if (lv.Hits >= Math.Max(MinStarsForMatch, GateChanceSafetyFactor * lv.ExpectedChance))
+            {
+                _logger.LogInformation("CatalogPlateSolver: parity pick overturned by the acceptance gate -- winner scored {WHits}, other parity {LHits}/{Sampled} within {Tol:F1}px",
+                    v.Hits, lv.Hits, lv.Sampled, tolerancePx);
+                return loser;
+            }
+        }
+
+        _logger.LogWarning("CatalogPlateSolver: solve REJECTED by the acceptance gate -- {Hits} of {Sampled} bright detected stars have a catalog star within {Tol:F1}px under the final WCS, vs {Chance:F1} expected by chance (threshold {Threshold:F1}); the match set is indistinguishable from noise, reporting failure instead of a wrong WCS",
+            v.Hits, v.Sampled, tolerancePx, v.ExpectedChance, threshold);
+        return winner with { Wcs = null };
+    }
+
+    /// <summary>
+    /// Counts how many of the brightest detected stars have a catalog star within
+    /// <paramref name="tolerancePx"/> when the catalog is projected through the final WCS
+    /// (CD matrix + SIP), alongside the Poisson expectation of that count under a random
+    /// alignment -- the discriminator between a genuine lock and dense-field NN noise.
+    /// </summary>
+    private static (int Hits, int Sampled, int InFrame, double ExpectedChance) CountTightMatches(
+        WCS wcs,
+        List<(double RA, double Dec, double VMag)> catalogCoords,
+        StarList detectedStars,
+        ImageDim dim,
+        double tolerancePx)
+    {
+        var inFrame = new List<Vector2>(catalogCoords.Count / 2);
+        foreach (var (ra, dec, _) in catalogCoords)
+        {
+            if (wcs.SkyToPixel(ra, dec) is not { } px)
+            {
+                continue;
+            }
+            // NO origin shift. The WCS this gate is handed was built by AttachCDMatrix
+            // from the affine that maps PROJECTED pixels onto DETECTED CENTROIDS, and
+            // CRVAL is re-derived per iteration as the sky at the frame-centre pixel in
+            // that same detected space -- so SkyToPixel already answers in centroid
+            // coordinates. Subtracting 1 for a nominal 1-based FITS convention (which
+            // this line used to do, copying ReProjectionError) injected a constant
+            // (+0.91, +0.89) px bias: measured over 1,209 mutual matches on Vela panel 3
+            // and 1,225 on panel 11, a shift sweep put the mean residual at (-0.07, -0.10)
+            // px unshifted and grew monotonically with any shift applied. That bias ate
+            // 1.27 px of a 3 px tolerance, diluting exactly the count this gate decides on.
+            var x = (float)px.X;
+            var y = (float)px.Y;
+            if (x < -0.5f || x > dim.Width - 0.5f || y < -0.5f || y > dim.Height - 0.5f)
+            {
+                continue;
+            }
+            inFrame.Add(new Vector2(x, y));
+        }
+        if (inFrame.Count == 0)
+        {
+            return (0, 0, 0, 0);
+        }
+
+        var grid = new PairRansacLock.PointGrid(CollectionsMarshal.AsSpan(inFrame), dim.Width, dim.Height, (float)tolerancePx);
+
+        var ranked = new List<ImagedStar>(detectedStars);
+        ranked.Sort((a, b) => b.Flux.CompareTo(a.Flux));
+        var sampled = Math.Min(GateSampleSize, ranked.Count);
+        var hits = 0;
+        for (var i = 0; i < sampled; i++)
+        {
+            if (grid.HasWithin(ranked[i].XCentroid, ranked[i].YCentroid))
+            {
+                hits++;
+            }
+        }
+
+        var expected = sampled * (inFrame.Count / ((double)dim.Width * dim.Height)) * Math.PI * tolerancePx * tolerancePx;
+        return (hits, sampled, inFrame.Count, expected);
     }
 
     private SolveAttempt TrySolveWithProximityMatching(
@@ -312,6 +455,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         double cy,
         ImageDim dim,
         double xSign,
+        float scaleRange,
         CancellationToken cancellationToken
     )
     {
@@ -323,6 +467,45 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         double rmsResidual = 0, affineDet = 0;
 
         SolveAttempt MakeResult(WCS? wcs) => new SolveAttempt(wcs, projectedCount, matchedCount, iterCount, rmsResidual, affineDet);
+
+        // Rank detected stars by flux once (brightest first); the geometric seed and every
+        // matching iteration below consume this ordering.
+        var rankedDetected = new List<ImagedStar>(detectedStars);
+        rankedDetected.Sort((a, b) => b.Flux.CompareTo(a.Flux));
+
+        // The latest raw-projected -> detected affine. Its LINEAR part predicts where a
+        // projection should land before matching (rotation / scale aware); the translation is
+        // absorbed by the origin update each iteration, so predictions anchor at the frame
+        // centre. Without this, the shrinking tolerance schedule kills true matches at the
+        // frame edges of any field rotated more than ~0.1 degrees, because projections are
+        // axis-aligned and rotation only ever lived in the final CD matrix.
+        Matrix3x2? lastFitted = null;
+
+        // Geometric pair-lock seed (see PairRansacLock): locks translation + rotation + scale
+        // from bright-pair hypotheses verified against the whole detected field, immune to the
+        // dense-field failure mode where the bright-phase proximity iterations latch onto
+        // nearest-neighbour noise and freeze the WCS at the unrefined hint. No lock -> proceed
+        // exactly as before (sparse fields are proximity matching's home turf).
+        if (rankedDetected.Count >= MinStarsForMatch)
+        {
+            var detPts = new Vector2[rankedDetected.Count];
+            for (var i = 0; i < rankedDetected.Count; i++)
+            {
+                detPts[i] = new Vector2(rankedDetected[i].XCentroid, rankedDetected[i].YCentroid);
+            }
+
+            if (TrySeedPairLock(catalogCoords, detPts, currentOrigin, pixelScaleRad, cx, cy, dim, xSign,
+                    Math.Max(scaleRange, 0.02f), _logger) is { } locked
+                && Matrix3x2.Invert(locked.Transform, out var seedInv)
+                && InverseTanProject(Vector2.Transform(new Vector2((float)cx, (float)cy), seedInv),
+                    currentOrigin, pixelScaleRad, cx, cy, xSign) is { } seededWcs)
+            {
+                currentOrigin = seededWcs;
+                lastMinv = seedInv;
+                hasMinv = true;
+                lastFitted = locked.Transform;
+            }
+        }
 
         // Track the best-so-far match set so SIP can be fit on it after the
         // loop (or at an early-return). These trail one iteration behind the
@@ -380,10 +563,6 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             var spacingFraction = iteration == 0 ? 3.0 : iteration == 1 ? 2.0 : iteration == 2 ? 1.0 : 0.5;
             var matchTolerance = (float)Math.Min(diagonal * diagFraction, avgSpacing * spacingFraction);
 
-            // Rank detected stars by flux (brightest first) for brightness-aware matching.
-            var rankedDetected = new List<ImagedStar>(detectedStars);
-            rankedDetected.Sort((a, b) => b.Flux.CompareTo(a.Flux));
-
             // In dense fields (>500 projected), limit early iterations to brightest
             // stars where spatial matching is least ambiguous.
             var isDense = projected.Count > 500;
@@ -395,6 +574,27 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 : projected.Count;
 
             var rankPenaltyScale = projected.Count > 0 ? matchTolerance * 0.25f / projected.Count : 0f;
+
+            // Rotation / scale aware prediction: matching measures distance to where the last
+            // affine says each projection SHOULD land, while the fit below keeps consuming the
+            // RAW projected coordinates -- prediction only improves pair selection, never the
+            // fit target. Anchoring at the frame centre is exact to first order because the
+            // origin update each iteration removes the affine's translation component.
+            float[]? predX = null, predY = null;
+            if (lastFitted is { } fit)
+            {
+                predX = new float[maxProjectedForMatching];
+                predY = new float[maxProjectedForMatching];
+                var fcx = (float)cx;
+                var fcy = (float)cy;
+                for (var pi = 0; pi < maxProjectedForMatching; pi++)
+                {
+                    var ux = projected[pi].Pixel.XCentroid - fcx;
+                    var uy = projected[pi].Pixel.YCentroid - fcy;
+                    predX[pi] = fcx + fit.M11 * ux + fit.M21 * uy;
+                    predY[pi] = fcy + fit.M12 * ux + fit.M22 * uy;
+                }
+            }
 
             var matchedDetected = new List<Vector2>();
             var matchedProjected = new List<Vector2>();
@@ -418,8 +618,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 for (int catRank = 0; catRank < maxProjectedForMatching; catRank++)
                 {
                     var cat = projected[catRank];
-                    var dx = det.XCentroid - cat.Pixel.XCentroid;
-                    var dy = det.YCentroid - cat.Pixel.YCentroid;
+                    var dx = det.XCentroid - (predX is null ? cat.Pixel.XCentroid : predX[catRank]);
+                    var dy = det.YCentroid - (predY is null ? cat.Pixel.YCentroid : predY[catRank]);
                     var dist = MathF.Sqrt(dx * dx + dy * dy);
 
                     if (dist < matchTolerance)
@@ -495,6 +695,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
             lastMinv = Minv;
             hasMinv = true;
+            lastFitted = M.Value;
 
             // Track affine quality metrics
             affineDet = M.Value.M11 * M.Value.M22 - M.Value.M12 * M.Value.M21;
@@ -631,6 +832,19 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         {
             duFwdRaw[i] -= biasU;
             dvFwdRaw[i] -= biasV;
+            // CRPIX moves below, and (uDet, vDet) are offsets FROM CRPIX, so they must
+            // move with it: uDet' = det - (CRPIX - bias) = uDet + bias. Leaving them
+            // stale made the post-refit recomputation below mix reference pixels --
+            // uTrueNew came off the new CRPIX while uDet still came off the old one, so
+            // duFwd picked the bias straight back up. On Vela panel 19 that read as the
+            // affine refit "raising" rms from 0.26 to 0.72 px, which is exactly
+            // sqrt(0.26^2 + 0.47^2 + 0.47^2) for its bias of (0.47, 0.47) -- and since
+            // those recomputed values are what SipPolynomial.Fit is then handed, SIP was
+            // being trained to reproduce a constant offset the convention forbids it from
+            // having (i + j = 0 lives in CRPIX). It was rejected on 100% of 82 real
+            // frames; fail-safe, but for a manufactured reason.
+            uDetRaw[i] += biasU;
+            vDetRaw[i] += biasV;
         }
         linearWcs = linearWcs with
         {
@@ -960,15 +1174,19 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 continue;
             }
 
-            // Skip stars outside image bounds (1-based coordinates)
-            if (px.X < 0.5 || px.X > imgW + 0.5 || px.Y < 0.5 || px.Y > imgH + 0.5)
+            // Skip stars outside image bounds
+            if (px.X < -0.5 || px.X > imgW + 0.5 || px.Y < -0.5 || px.Y > imgH + 0.5)
             {
                 continue;
             }
 
-            // Convert from 1-based WCS to 0-based image coordinates
-            var wcsX = (float)(px.X - 1.0);
-            var wcsY = (float)(px.Y - 1.0);
+            // No origin shift -- see the note in CountTightMatches: a WCS from
+            // AttachCDMatrix maps sky straight into detected-centroid coordinates, so the
+            // 1-based-to-0-based conversion this used to apply was a pure 1.27 px bias.
+            // It mattered less here (the same bias lands on every candidate orientation
+            // being compared) but it still blunted the comparison it exists to make.
+            var wcsX = (float)px.X;
+            var wcsY = (float)px.Y;
 
             // Find nearest detected star
             var bestDistSq = float.MaxValue;
@@ -1009,7 +1227,14 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             dtJulianYears);
     }
 
-    private List<(double RA, double Dec, double VMag)> QueryCatalogStarsInRegion(WCS origin, double radiusDeg, double dtJulianYears)
+    /// <summary>
+    /// Queries every catalog star within <paramref name="radiusDeg"/> of <paramref name="origin"/>,
+    /// proper-motion propagated to the image epoch. <c>internal</c> rather than private so the
+    /// star-list export (see <c>VelaMosaicStarListExport</c> in the test project) freezes the
+    /// SAME catalog the solver sees -- a re-derived query in the test would silently diverge on
+    /// proper motion or the polar-cap path and turn a real regression into a data artefact.
+    /// </summary>
+    internal List<(double RA, double Dec, double VMag)> QueryCatalogStarsInRegion(WCS origin, double radiusDeg, double dtJulianYears)
     {
         var result = new List<(double RA, double Dec, double VMag)>();
 
@@ -1094,6 +1319,84 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         return result;
     }
 
+    /// <summary>
+    /// Searches for the geometric pair-lock seed for one parity, over BOTH anchor-pool policies.
+    /// <c>internal</c> so the frozen-star-list regressions
+    /// (<c>VelaMosaicFieldTests</c>) drive this exact code rather than a copy of the pool policy
+    /// that could silently drift from it.
+    /// </summary>
+    /// <remarks>
+    /// Two pools, tried in order, because the right one depends on how good the hint is and both
+    /// cases occur within one night's data.
+    /// <para>
+    /// STRICT (no margin) is the default: an anchor outside the frame cannot possibly be detected,
+    /// so it can only dilute the consensus -- and worse, since the pool is the brightest N of
+    /// whatever is kept, off-frame stars DISPLACE genuine in-frame stars out of it entirely. With
+    /// the matching loop's 0.1 margin the kept area is 1.44x the frame, so ~31% of anchors are
+    /// undetectable, which starves the staged gates (Stage 1 wants 3 hits among the 8 brightest).
+    /// Measured across the 24 Vela panels: strict locks 23 of 24 at 148-160 of 160 hits, while the
+    /// 0.1 margin drops that to 76-125 and loses panels 12, 14, 17 and 20 outright at 11-13 hits,
+    /// i.e. chance level -- the TRUE hypothesis was discarded at Stage 1 rather than losing on
+    /// merit, which is why raising the hypothesis cap to exhaustive coverage did not help them.
+    /// </para>
+    /// <para>
+    /// MARGINED is the fallback and earns its keep on a BAD hint: panel 20.2's header is 38 arcmin
+    /// off, which pushes real stars off the projected frame, and it locks only with the margin.
+    /// Neither pool alone covers the night.
+    /// </para>
+    /// </remarks>
+    internal static PairRansacLock.LockResult? TrySeedPairLock(
+        List<(double RA, double Dec, double VMag)> catalogCoords,
+        ReadOnlySpan<Vector2> rankedDetectedPoints,
+        WCS origin,
+        double pixelScaleRad,
+        double cx,
+        double cy,
+        ImageDim dim,
+        double xSign,
+        float scaleTolerance,
+        ILogger? logger = null)
+    {
+        foreach (var marginFraction in new[] { 0f, 0.1f })
+        {
+            var seedProjected = ProjectCatalogStars(catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign, marginFraction);
+            if (seedProjected.Count < MinStarsForMatch)
+            {
+                continue;
+            }
+
+            // catalogCoords is VMag-sorted, so the projected list is brightest-first.
+            var catPts = new Vector2[seedProjected.Count];
+            for (var i = 0; i < seedProjected.Count; i++)
+            {
+                catPts[i] = new Vector2(seedProjected[i].Pixel.XCentroid, seedProjected[i].Pixel.YCentroid);
+            }
+
+            var lockResult = PairRansacLock.TryLock(catPts, rankedDetectedPoints, rankedDetectedPoints,
+                dim.Width, dim.Height, scaleTolerance, out var lockDiagnostics);
+            if (lockResult is { } locked)
+            {
+                logger?.LogDebug("CatalogPlateSolver: pair-lock seed (xSign={XSign}, anchor margin {Margin:P0}) consensus {Hits}/{Census} (chance {Chance:F1}) after {Hypotheses} hypotheses",
+                    xSign, marginFraction, locked.Hits, locked.Census, locked.ExpectedChanceHits, locked.Hypotheses);
+                return locked;
+            }
+
+            // No seed is a legitimate outcome on a sparse field, but on a dense one it is the
+            // difference between "nothing correlates" and "the scan never got there" -- and only
+            // the diagnostics distinguish them.
+            logger?.LogDebug("CatalogPlateSolver: no pair-lock seed (xSign={XSign}, anchor margin {Margin:P0}): {Diagnostics}",
+                xSign, marginFraction, lockDiagnostics.ToString());
+        }
+
+        return null;
+    }
+
+    /// <param name="marginFraction">
+    /// How far outside the frame a projected star may fall and still be kept, as a fraction of
+    /// frame size. The matching loop wants the default 0.1: its early iterations work from a WCS
+    /// that is still wrong by up to the hint error, so a star just off the edge may well move in
+    /// as the fit converges. The pair-lock SEED wants 0 -- see <see cref="TrySeedPairLock"/>.
+    /// </param>
     private static List<ProjectedCatalogStar> ProjectCatalogStars(
         List<(double RA, double Dec, double VMag)> catalogCoords,
         WCS origin,
@@ -1101,7 +1404,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         double cx,
         double cy,
         ImageDim dim,
-        double xSign
+        double xSign,
+        float marginFraction = 0.1f
     )
     {
         var projected = new List<ProjectedCatalogStar>();
@@ -1109,8 +1413,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         var alpha0 = origin.CenterRA * HOURS2RADIANS;
         var (sinDelta0, cosDelta0) = Math.SinCos(double.DegreesToRadians(origin.CenterDec));
 
-        var marginX = dim.Width * 0.1;
-        var marginY = dim.Height * 0.1;
+        var marginX = dim.Width * marginFraction;
+        var marginY = dim.Height * marginFraction;
 
         foreach (var (ra, dec, _) in catalogCoords)
         {

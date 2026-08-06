@@ -216,8 +216,16 @@ public class PlateSolverTests(ITestOutputHelper output)
         var rtSepRA = Math.Abs(roundTrip.Value.RA - bestCatStar.Value.RA) * 15.0 * cosDec * 3600.0;
         var rtSepDec = Math.Abs(roundTrip.Value.Dec - bestCatStar.Value.Dec) * 3600.0;
         var rtSep = Math.Sqrt(rtSepRA * rtSepRA + rtSepDec * rtSepDec);
-        output.WriteLine($"  SkyToPixel→PixelToSky round-trip separation={rtSep:E2}\"");
-        rtSep.ShouldBeLessThan(0.001, "SkyToPixel→PixelToSky round-trip should be < 0.001 arcsec");
+        output.WriteLine($"  SkyToPixel→PixelToSky round-trip separation={rtSep:E2}\"" +
+            (solution.HasSip ? $" (SIP order {solution.SipOrder})" : " (linear)"));
+        // A linear WCS round-trips to floating-point noise, but a SIP one cannot: the inverse
+        // polynomial is FITTED (SipAP/SipBP), not an analytic inverse, so the round-trip carries
+        // that fit's own residual. 0.01 arcsec is 2e-6 of this frame's 5.6"/px sampling -- five
+        // thousand times finer than the centroids the solution was fitted from, so it still pins
+        // "forward and inverse agree" without asserting a precision the representation does not
+        // have. The threshold used to be 0.001 arcsec, which passed only because SIP was silently
+        // rejected on every frame (the CRPIX/uDet reference-pixel mismatch in AttachSipFit).
+        rtSep.ShouldBeLessThan(0.01, "SkyToPixel→PixelToSky round-trip should be < 0.01 arcsec");
     }
 
     [Theory]
@@ -397,6 +405,68 @@ public class PlateSolverTests(ITestOutputHelper output)
         solvedDec.ShouldBeInRange(targetDec - accuracy, targetDec + accuracy, $"Dec should be within {accuracy}° for {targetName}");
     }
 
+    /// <summary>
+    /// Regression pin for the dense-field silent-garbage failure: a Vela mosaic panel
+    /// (5,000+ in-frame catalog stars) solved with a hint pointing at the WRONG sky used to
+    /// return a confident "success" whose 1,434 matches were pure nearest-neighbour noise --
+    /// the residual median (19.2px) and MAD (6.9px) reproduced the Poisson random-NN
+    /// prediction (19.5 / 7.0) exactly. The acceptance gate must reject that and report
+    /// failure; a null solution falls through to the next solver, a wrong WCS poisons
+    /// polar alignment / SPCC / mosaic registration silently.
+    /// </summary>
+    [Fact]
+    public async Task GivenDenseFieldAndWrongSearchOriginWhenCatalogPlateSolvingThenItFailsInsteadOfReturningGarbage()
+    {
+        // given -- a synthetic dense southern field (the real COO 71 / Vela region)
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var db = await SharedCatalogDB.InitAsync(cancellationToken);
+
+        var targetRA = 8.468;
+        var targetDec = -41.24;
+        var focalLengthMm = 130;
+
+        var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 1, 1, 14, 0, 0, TimeSpan.Zero));
+        var external = new FakeExternal(output, timeProvider);
+        var camera = new FakeCameraDriver(new FakeDevice(DeviceType.Camera, 2), external.BuildServiceProvider());
+        await camera.ConnectAsync(cancellationToken);
+        camera.TrueBestFocus = 1000;
+        camera.FocusPosition = 1000;
+        camera.FocalLength = focalLengthMm;
+        camera.Target = new Target(targetRA, targetDec, "COO71", null);
+        camera.CelestialObjectDB = db;
+
+        var pixelScaleArcsec = 206264.806 * camera.PixelSizeX * 1e-3 / focalLengthMm;
+        var imageDim = new ImageDim(pixelScaleArcsec, camera.CameraXSize - 1, camera.CameraYSize - 1);
+
+        await camera.StartExposureAsync(TimeSpan.FromSeconds(60), cancellationToken: cancellationToken);
+        await timeProvider.SleepAsync(TimeSpan.FromSeconds(60), cancellationToken);
+        (await camera.GetImageReadyAsync(cancellationToken)).ShouldBeTrue();
+        ICameraDriver cameraDriver = camera;
+        var image = await cameraDriver.GetImageAsync(cancellationToken);
+        image.ShouldNotBeNull();
+
+        // when -- the hint is 6 degrees of Dec away, with a radius that keeps the TRUE field
+        // entirely outside the catalog query, so no correct correspondence exists at all.
+        // The region is still dense, which is exactly what used to fake a success.
+        var solver = new CatalogPlateSolver(db, NullLogger.Instance);
+        var wrongOrigin = new WCS(targetRA, targetDec - 6.0);
+        var result = await solver.SolveImageAsync(image, imageDim, searchOrigin: wrongOrigin, searchRadius: 2.5d, cancellationToken: cancellationToken);
+
+        output.WriteLine($"wrong-origin solve: {result.CatalogStars} catalog, {result.DetectedStars} detected, " +
+            $"{result.MatchedStars} matched, solution={(result.Solution is null ? "null" : "NON-NULL")}");
+
+        // then -- there is nothing to solve here, and the solver must say so.
+        result.Solution.ShouldBeNull("no correct correspondence exists; a non-null WCS here is the silent-garbage regression");
+
+        // and -- the same frame with the CORRECT hint must still solve.
+        var good = await solver.SolveImageAsync(image, imageDim, searchOrigin: new WCS(targetRA, targetDec), searchRadius: 3d, cancellationToken: cancellationToken);
+        good.Solution.ShouldNotBeNull("the dense field must still solve when the hint is right");
+        var (ra, dec) = good.Solution.Value;
+        output.WriteLine($"correct-origin solve: RA={ra:F4}h Dec={dec:F4} deg, {good.MatchedStars} matched");
+        ra.ShouldBeInRange(targetRA - 0.05, targetRA + 0.05);
+        dec.ShouldBeInRange(targetDec - 0.05, targetDec + 0.05);
+    }
+
     [Fact(Timeout = 30_000)]
     public async Task GivenRGGBCameraWhenRenderingThenBayerImageDebayersToColor()
     {
@@ -542,6 +612,165 @@ public class PlateSolverTests(ITestOutputHelper output)
         sw.Restart();
         var stars50cached = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50, cancellationToken: ct);
         output.WriteLine($"FindStarsAsync(... cached) -> {stars50cached.Count} stars in {sw.Elapsed.TotalMilliseconds:F0} ms");
+    }
+
+    /// <summary>
+    /// Manual diagnostic: can the ASTAP-style quad matcher (StarReferenceTable /
+    /// SortedStarList) lock projected CATALOG stars against DETECTED stars on a
+    /// locally-saved FITS? This is the feasibility probe for the hybrid
+    /// quad-seeded catalog solve: StarReferenceTable's doc comment historically
+    /// ruled quads out for catalog matching because the two populations differ,
+    /// but that reasoning applies to full-population quads -- top-K brightness
+    /// selection on both sides (the ASTAP trick FindQuadsAsync already
+    /// implements) restricts quads to stars present in both lists. Skipped
+    /// unless TIANWEN_DIAGNOSE_FITS points at a FITS with RA/DEC + FOCALLEN +
+    /// XPIXSZ headers.
+    /// </summary>
+    [Fact]
+    public async Task DiagnoseQuadLockAgainstCatalogOnSavedSnapshot()
+    {
+        var snapshotPath = Environment.GetEnvironmentVariable("TIANWEN_DIAGNOSE_FITS");
+        Assert.SkipWhen(string.IsNullOrEmpty(snapshotPath) || !System.IO.File.Exists(snapshotPath),
+            "Set TIANWEN_DIAGNOSE_FITS to a locally-saved FITS to enable this diagnostic.");
+
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var db = await SharedCatalogDB.InitAsync(cancellationToken);
+
+        Image.TryReadFitsFile(snapshotPath, out var image, out var fileWcs).ShouldBeTrue();
+        image.ShouldNotBeNull();
+        fileWcs.ShouldNotBeNull("FITS must carry RA/DEC headers for the hint");
+        var origin = fileWcs.Value;
+        var dim = image.GetImageDim().ShouldNotBeNull("FITS must carry FOCALLEN + XPIXSZ");
+
+        output.WriteLine($"{System.IO.Path.GetFileName(snapshotPath)}: {image.Width}x{image.Height}, " +
+            $"scale={dim.PixelScale:F3}\"/px, hint RA={origin.CenterRA:F4}h Dec={origin.CenterDec:F4}°");
+
+        // Catalog query around the hint, same radius the solver defaults to.
+        var fov = dim.FieldOfView;
+        var radiusDeg = Math.Max(fov.width, fov.height) * 0.75;
+        var cosDec = Math.Cos(double.DegreesToRadians(origin.CenterDec));
+        var radiusRA = cosDec > 0.01 ? radiusDeg / (15.0 * cosDec) : 24.0;
+        const double RaCellSize = 1.0 / 15.0;
+
+        var catalogCoords = new System.Collections.Generic.List<(double RA, double Dec, double VMag)>();
+        var seen = new System.Collections.Generic.HashSet<CatalogIndex>();
+        for (var cellRA = Math.Floor((origin.CenterRA - radiusRA) / RaCellSize) * RaCellSize + RaCellSize * 0.5;
+             cellRA <= origin.CenterRA + radiusRA;
+             cellRA += RaCellSize)
+        {
+            var qRA = CoordinateUtils.ConditionRA(cellRA);
+            for (var cellDec = Math.Floor(origin.CenterDec - radiusDeg) + 0.5; cellDec <= origin.CenterDec + radiusDeg; cellDec += 1.0)
+            {
+                foreach (var idx in db.CoordinateGrid[qRA, cellDec])
+                {
+                    if (seen.Add(idx) && db.TryLookupByIndex(idx, out var obj) && obj.ObjectType is ObjectType.Star)
+                    {
+                        catalogCoords.Add((obj.RA, obj.Dec, Half.IsNaN(obj.V_Mag) ? 99.0 : (double)obj.V_Mag));
+                    }
+                }
+            }
+        }
+        catalogCoords.Sort((a, b) => a.VMag.CompareTo(b.VMag));
+        output.WriteLine($"Catalog: {catalogCoords.Count} stars within {radiusDeg:F2}°");
+
+        // Detect with the same parameters the solver uses.
+        var detectedStars = await image.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50, maxRetries: 0, cancellationToken: cancellationToken);
+        output.WriteLine($"Detected: {detectedStars.Count} stars");
+
+        var pixelScaleRad = double.DegreesToRadians(dim.PixelScale / 3600.0);
+        var cx = image.Width / 2.0;
+        var cy = image.Height / 2.0;
+        var alpha0 = origin.CenterRA * (Math.PI / 12.0);
+        var (sinDelta0, cosDelta0) = Math.SinCos(double.DegreesToRadians(origin.CenterDec));
+
+        foreach (var xSign in new[] { 1.0, -1.0 })
+        {
+            // Gnomonic projection of the catalog at the hint (solver's ProjectCatalogStars).
+            var projected = new System.Collections.Generic.List<(float X, float Y, double RA, double Dec)>();
+            foreach (var (ra, dec, _) in catalogCoords)
+            {
+                var deltaAlpha = ra * (Math.PI / 12.0) - alpha0;
+                var (sinDelta, cosDelta) = Math.SinCos(double.DegreesToRadians(dec));
+                var cosC = sinDelta0 * sinDelta + cosDelta0 * cosDelta * Math.Cos(deltaAlpha);
+                if (cosC <= 0)
+                {
+                    continue;
+                }
+                var xi = cosDelta * Math.Sin(deltaAlpha) / cosC;
+                var eta = (cosDelta0 * sinDelta - sinDelta0 * cosDelta * Math.Cos(deltaAlpha)) / cosC;
+                var xPix = (float)(cx + xSign * xi / pixelScaleRad);
+                var yPix = (float)(cy - eta / pixelScaleRad);
+                if (xPix >= -image.Width * 0.1 && xPix <= image.Width * 1.1 && yPix >= -image.Height * 0.1 && yPix <= image.Height * 1.1)
+                {
+                    projected.Add((xPix, yPix, ra, dec));
+                }
+            }
+
+            output.WriteLine($"\nxSign={xSign:+0;-0}: {projected.Count} catalog stars project in-frame");
+
+            foreach (var k in new[] { 50, 100, 200, 350, 500 })
+            {
+                // Catalog-side star list: top-K brightest (catalogCoords is VMag-sorted,
+                // so the first K in-frame projections are the K brightest). Flux is
+                // synthesized descending so FindQuadsAsync's top-K pick agrees.
+                var catBag = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
+                for (var i = 0; i < Math.Min(k, projected.Count); i++)
+                {
+                    catBag.Add(new ImagedStar(2f, 2f, 100f, projected.Count - i, projected[i].X, projected[i].Y, 0f));
+                }
+
+                using var catSorted = new SortedStarList(new StarList(catBag));
+                using var detSorted = new SortedStarList(detectedStars);
+
+                var sw = Stopwatch.StartNew();
+                var (solution, quadTolerance) = await catSorted.FindOffsetAndRotationWithRetryAsync(
+                    detSorted, minimumCount: 6, solutionTolerance: 1e-2f, maxStars: k);
+                sw.Stop();
+
+                if (solution is not { } m)
+                {
+                    output.WriteLine($"  K={k}: NO quad lock ({sw.ElapsedMilliseconds} ms)");
+                    continue;
+                }
+
+                var rot = Math.Atan2(m.M12, m.M11) * 180.0 / Math.PI;
+                var scale = Math.Sqrt(m.M11 * m.M11 + m.M12 * m.M12);
+                output.WriteLine($"  K={k}: LOCKED tol={quadTolerance:F4} in {sw.ElapsedMilliseconds} ms " +
+                    $"rot={rot:F3}° scale={scale:F5} shift=({m.M31:F1}, {m.M32:F1}) px");
+
+                // Ground truth: transform ALL in-frame projections through M and
+                // nearest-neighbour them against every detected star. A genuine
+                // lock puts a large fraction within a few px; a false affine
+                // reproduces the chance rate (~2% at 3px in this density).
+                var tight = 0;
+                var residuals = new System.Collections.Generic.List<double>();
+                foreach (var p in projected)
+                {
+                    var tx = p.X * m.M11 + p.Y * m.M21 + m.M31;
+                    var ty = p.X * m.M12 + p.Y * m.M22 + m.M32;
+                    var best = double.MaxValue;
+                    foreach (var det in detectedStars)
+                    {
+                        var dx = det.XCentroid - tx;
+                        var dy = det.YCentroid - ty;
+                        var d2 = dx * dx + dy * dy;
+                        if (d2 < best)
+                        {
+                            best = d2;
+                        }
+                    }
+                    var dist = Math.Sqrt(best);
+                    residuals.Add(dist);
+                    if (dist <= 3.0)
+                    {
+                        tight++;
+                    }
+                }
+                residuals.Sort();
+                output.WriteLine($"        verify: {tight}/{projected.Count} projected within 3px of a detected star, " +
+                    $"median NN residual {residuals[residuals.Count / 2]:F2} px");
+            }
+        }
     }
 
     /// <summary>
