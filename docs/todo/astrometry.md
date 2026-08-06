@@ -47,15 +47,26 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
   - **Mitigated, not fixed.** `CometElements.IsElementSetStale` reports an element set at least one
     revolution old, and the sky-map marker appends "?" to the NAME (never to the magnitude, which is
     correct). The error is pinned as an upper bound so it cannot silently grow.
-- [ ] **Fix it properly: fetch current-apparition elements from Horizons.** Now scoped, because the
-  investigation found the endpoint. `EPHEM_TYPE=ELEMENTS` with `COMMAND='DES=<desig>;CAP;'` returns
-  the osculating set for the apparition in progress (for 10P: `Tp = 2461254.615`, `EC`, `QR`, `IN`,
-  `OM`, `W`), which is all `CometEphemeris` consumes, so it drops straight into `CometElements` with
-  no new maths and collapses the 9.3 degrees to arcseconds. This is much cheaper than the "per-object
-  Horizons ephemeris" originally deferred: a handful of numbers per comet, cacheable on the same
-  weather-pattern TTL as the bulk set, and needed only for comets the user actually looks at (pinned,
-  or bright enough to draw). Keep the SBDB bulk fetch as the base layer, since it is the thing that
-  makes 4,000 comets available offline; this is a per-object refinement on top.
+- [x] **FIXED: the comet is fetched at its current apparition.** `HorizonsCometSource` asks
+  `EPHEM_TYPE=ELEMENTS` with `COMMAND='DES=<desig>;CAP;'` for the osculating set at today's date, which
+  is all `CometEphemeris` consumes, so the SAME propagator lands on Horizons: **0.35 arcseconds**
+  against the 9.3 degrees from the 2016 record. Osculating elements at time T already carry the
+  perturbation state at T, which is why this needs no non-gravitational force model.
+  - **Per object, on demand, and only when it would help.** `ICometRepository.RequestCurrentApparition`
+    is fire-and-forget and single-flight, called for a pinned comet and for one actually drawn on the
+    map, and it returns immediately unless the bulk record is a revolution or more old. The SBDB bulk
+    fetch stays the base layer: it is what makes 4,000 comets available offline in one keyless request.
+  - **Overlaid, never replacing.** `TryGet` prefers the refined set, so the sky map, planner, search and
+    MCP all improve with no per-caller wiring. Cached to `AppData/SmallBodies/apparitions.json` with a
+    per-entry stamp (entries are fetched individually, so a shared stamp would make one fetch look like
+    it refreshed the rest). Offline degrades to the bulk elements with the "?" still showing.
+  - **Three traps worth keeping.** `OUT_UNITS='AU-D'` is load-bearing: the default is km, which parses
+    as a valid double and would put the comet 150 million times too far away, so the parser has a range
+    gate that rejects it. `CAP` picks the apparition in progress rather than leaving the request
+    ambiguous. And the parse is all-or-nothing, because half a refined orbit is worse than an old but
+    self-consistent one. Pinned against a FROZEN REAL RESPONSE in `HorizonsCometSourceTests`, since
+    every failure mode here is a parsing one and a hand-written fixture would agree with a
+    hand-written parser.
 - [x] **Two different comets rendered with the same label.** SBDB's `name` is the DISCOVERER, so it is
   shared by construction: "Tempel" is eight comets, "SOHO" is 1,465, and 3,563 of 4,069 share a name
   with something. Searching "Tempel" listed a dozen indistinguishable rows in the planner, while the

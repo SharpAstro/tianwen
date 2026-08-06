@@ -41,5 +41,10 @@ public static class AstrometryServiceCollectionExtensions
         // a null override is exactly the previous registration (live JPL API, shared static client).
         .AddSingleton<ISbdbCometSource>(sp => new SbdbCometSource(
             cometQueryUri, sp.GetRequiredService<ILogger<SbdbCometSource>>()))
+        // Per-object refinement over the bulk set: Horizons' osculating elements for the apparition in
+        // progress. Fetched only for a comet someone is looking at, and only when the bulk record is a
+        // revolution or more old -- which is the case that puts a marker degrees off (10P: 9.3).
+        .AddSingleton<IHorizonsCometSource>(sp => new HorizonsCometSource(
+            sp.GetRequiredService<ILogger<HorizonsCometSource>>()))
         .AddSingleton<ICometRepository, CometRepository>();
 }

@@ -130,8 +130,45 @@ public class CometEphemerisTests
         delta.ShouldBe(0.414855, tolerance: 0.010);
 
         // And the element set is old enough that the flag says so, which is what puts the "?" on the
-        // marker. This is the case the flag exists for.
+        // marker and triggers the current-apparition fetch. This is the case the flag exists for.
         TempelTwo.IsElementSetStale(2461258.5).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The fix, measured: the SAME propagator, handed the current apparition's osculating elements
+    /// instead of the 2016 ones, lands on Horizons. Nothing about the maths changed, which is the whole
+    /// argument for solving this with data rather than by modelling non-gravitational forces.
+    /// </summary>
+    [Fact]
+    public void GivenTempelTwoWithCurrentApparitionElementsThenItLandsOnHorizons()
+    {
+        // Horizons ELEMENTS for 10P at 2026-08-06 (the frozen response HorizonsCometSourceTests parses).
+        var current = TempelTwo with
+        {
+            PerihelionDistanceAu = 1.417737835301425,
+            Eccentricity = 0.5374514419364470,
+            InclinationDeg = 12.02722470731694,
+            AscendingNodeDeg = 117.7974885719829,
+            ArgumentOfPerihelionDeg = 195.4683316459254,
+            PerihelionJdTt = 2461254.615445367061,
+            EpochJdTt = 2461258.5,
+        };
+        var time = DateTimeOffset.Parse("2026-08-06T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal);
+
+        CometEphemeris.TryGetEquatorialJ2000(current, time, out var raHours, out var decDeg, out var r, out var delta)
+            .ShouldBeTrue();
+
+        var separationArcsec = AngularSeparationArcsec(raHours * 15.0, decDeg, 328.961250, -26.355861);
+        // MEASURED: 0.35 arcseconds, against 33,475 (9.3 degrees) from the 2016 elements. Same
+        // propagator, same instant, same comet; the only thing that changed is which osculating set it
+        // was handed. Bounded at 2 arcsec, which leaves room for JPL restating the solution without
+        // leaving room for the error to creep back toward arcminutes.
+        separationArcsec.ShouldBeLessThan(2.0,
+            $"separation was {separationArcsec:F2}\" (RA {raHours * 15.0:F6}, Dec {decDeg:F6})");
+
+        r.ShouldBe(1.418334, tolerance: 0.0005);
+        delta.ShouldBe(0.414855, tolerance: 0.0005);
+        current.IsElementSetStale(2461258.5).ShouldBeFalse();
     }
 
     [Fact]

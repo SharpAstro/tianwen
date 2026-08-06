@@ -1,4 +1,4 @@
-using Shouldly;
+﻿using Shouldly;
 using System;
 using System.Collections.Immutable;
 using System.Linq;
@@ -131,6 +131,8 @@ public class TonightsBestTests
             raJ2000Hours = decJ2000Deg = magnitude = double.NaN;
             return false;
         }
+
+        public void RequestCurrentApparition(CatalogIndex index) { /* no network in tests */ }
 
         public Task EnsureLoadedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task RefreshAsync(bool forceRefetch = false, CancellationToken cancellationToken = default) => Task.CompletedTask;

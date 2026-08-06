@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace TianWen.Lib.Astrometry.Comets;
@@ -14,6 +14,7 @@ namespace TianWen.Lib.Astrometry.Comets;
     NumberHandling = JsonNumberHandling.AllowNamedFloatingPointLiterals)]
 [JsonSerializable(typeof(SbdbQueryResponse))]
 [JsonSerializable(typeof(CometCacheFile))]
+[JsonSerializable(typeof(ApparitionCacheFile))]
 internal partial class SbdbJsonContext : JsonSerializerContext
 {
 }

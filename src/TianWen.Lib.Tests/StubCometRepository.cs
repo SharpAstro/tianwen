@@ -63,6 +63,12 @@ internal sealed class StubCometRepository(params CometElements[] comets) : ICome
         return false;
     }
 
+    /// <summary>Indices a caller asked to upgrade to current-apparition elements. Recorded rather than
+    /// ignored, so a test can assert that the surfaces which SHOULD ask actually do.</summary>
+    public List<CatalogIndex> ApparitionRequests { get; } = [];
+
+    public void RequestCurrentApparition(CatalogIndex index) => ApparitionRequests.Add(index);
+
     public Task EnsureLoadedAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public Task RefreshAsync(bool forceRefetch = false, CancellationToken cancellationToken = default) => Task.CompletedTask;
