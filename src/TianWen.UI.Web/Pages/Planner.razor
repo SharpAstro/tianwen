@@ -1,4 +1,4 @@
-@* No @page routes: this app mounts Planner DIRECTLY as the root component (Program.cs
+﻿@* No @page routes: this app mounts Planner DIRECTLY as the root component (Program.cs
    RootComponents.Add<Planner>("#app")) - there is no Blazor Router, so route templates and
    route parameters would be inert. Deep links + chip navigation carry the active view in a
    "?view=sky" query string (refresh-safe on GitHub Pages - the path stays at the app root, so a
@@ -138,6 +138,7 @@
         // Deep link: resolve the initial view from the URL, then track every later change
         // (chip NavigateTo + browser back/forward both raise LocationChanged).
         ApplyViewFromLocation();
+        ApplyObjectFromLocation();
         Nav.LocationChanged += OnLocationChanged;
 
         // Last-used site loads first (localStorage) so a reload shows it immediately instead of
@@ -199,6 +200,7 @@
             requestRedraw: RenderFrame);
         WireSkyMapSearch(_skyTab);
         WireSkyMapInteractions(_skyTab);
+        ApplyPendingObjectSelection();
 
         // E2E-only: when the app is opened with ?e2e=1, hand a .NET ref to the index.html shim so
         // browser tests can read LIVE sky-map view state (FOV/centre) via window.__tianwenTest -
@@ -654,7 +656,7 @@
             DeactivateTextInput();
             skyState.NeedsRedraw = true;
         });
-        _bus.Subscribe<SkyMapSearchCommitSignal>(_ =>
+        _bus.Subscribe<SkyMapSearchCommitSignal>(commit =>
         {
             if (skySearch.Interaction is not { } interaction
                 || interaction.SelectedIndex < 0
@@ -672,6 +674,7 @@
                 viewingUtc, site, _state.Comets);
             DeactivateTextInput();
             skyState.NeedsRedraw = true;
+            _ = InvokeAsync(SyncObjectToUrl);
         });
     }
 
@@ -695,6 +698,9 @@
                 skyState, Db, _state.SiteLatitude, _state.SiteLongitude, viewingUtc,
                 sig.ScreenX, sig.ScreenY, sig.Modifiers, _state.Proposals, _state.Comets);
             skyState.NeedsRedraw = true;
+            // Deferred for the same reason ViewInPlannerSignal defers its switch: this runs inside
+            // RenderFrame's bus pump and NavigateTo raises LocationChanged synchronously.
+            _ = InvokeAsync(SyncObjectToUrl);
         });
 
         _bus.Subscribe<SkyMapPinObjectSignal>(sig =>
@@ -1009,6 +1015,100 @@
         }
     }
 
+    // The selection currently written into the URL, so LocationChanged can tell "the user picked
+    // something and we are syncing the address bar" from "the address bar changed and we must apply
+    // it". Without it the two drive each other in a loop.
+    string? _urlObject;
+
+    // "?object=<canonical>" -> the token, or null when absent.
+    static string? ParseObjectFromQuery(string query)
+    {
+        foreach (var part in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = part.IndexOf('=');
+            if (eq > 0 && part.AsSpan(0, eq).Equals("object", StringComparison.OrdinalIgnoreCase))
+            {
+                var value = Uri.UnescapeDataString(part[(eq + 1)..]);
+                return string.IsNullOrWhiteSpace(value) ? null : value;
+            }
+        }
+        return null;
+    }
+
+    // Mirror the current sky-map selection into "?object=". REPLACE rather than push, so a session of
+    // clicking around the atlas does not bury the entry the user arrived on under one history entry
+    // per click; the address bar still holds a shareable link to whatever is selected right now.
+    void SyncObjectToUrl()
+    {
+        var token = _skyTab?.State.Search.InfoPanel is { } panel
+            ? (string.IsNullOrWhiteSpace(panel.Canonical) ? panel.Name : panel.Canonical)
+            : null;
+        if (string.Equals(token, _urlObject, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _urlObject = token;
+        var viewToken = _view == View.SkyMap ? "sky" : "planner";
+        var url = token is { Length: > 0 }
+            ? $"{Nav.BaseUri}?view={viewToken}&object={Uri.EscapeDataString(token)}"
+            : $"{Nav.BaseUri}?view={viewToken}";
+        Nav.NavigateTo(url, forceLoad: false, replace: true);
+    }
+
+    // Apply "?object=" from the address bar (deep link, refresh, back/forward). Resolves through the
+    // SEARCH resolver rather than a catalog lookup, so a comet designation restores too -- comets are
+    // not in the object DB, which is exactly the case a DB-only restore would silently drop.
+    void ApplyObjectFromLocation()
+    {
+        var token = ParseObjectFromQuery(Nav.ToAbsoluteUri(Nav.Uri).Query);
+        if (string.Equals(token, _urlObject, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _urlObject = token;
+        if (_skyTab is not { State: { } skyState })
+        {
+            return; // resolved again by ApplyPendingObjectSelection once the tab exists
+        }
+
+        if (token is not { Length: > 0 })
+        {
+            skyState.Search.InfoPanel = null;
+            skyState.NeedsRedraw = true;
+            return;
+        }
+
+        var viewingUtc = (_state.PlanningDate?.ToUniversalTime() ?? Time.GetUtcNow()) + skyState.TimeOffset;
+        var site = SiteContext.Create(_state.SiteLatitude, _state.SiteLongitude, viewingUtc);
+        SkyMapSearchActions.TrySelectByToken(
+            skyState.Search, skyState, Db, token,
+            _state.SiteLatitude, _state.SiteLongitude, viewingUtc, site, _state.Comets);
+        skyState.NeedsRedraw = true;
+    }
+
+    // A deep link is parsed before the catalog (and the comet set) has loaded, so the resolve above
+    // can legitimately fail on the first attempt. Retried once the tab and the catalog are up.
+    void ApplyPendingObjectSelection()
+    {
+        if (_urlObject is not { Length: > 0 } token
+            || _skyTab is not { State: { } skyState }
+            || skyState.Search.InfoPanel is not null)
+        {
+            return;
+        }
+
+        var viewingUtc = (_state.PlanningDate?.ToUniversalTime() ?? Time.GetUtcNow()) + skyState.TimeOffset;
+        var site = SiteContext.Create(_state.SiteLatitude, _state.SiteLongitude, viewingUtc);
+        if (SkyMapSearchActions.TrySelectByToken(
+                skyState.Search, skyState, Db, token,
+                _state.SiteLatitude, _state.SiteLongitude, viewingUtc, site, _state.Comets))
+        {
+            skyState.NeedsRedraw = true;
+        }
+    }
+
     // "?view=<alias>" -> the view; null when the query carries no view key (so the caller falls back
     // to the legacy path form).
     static View? ParseViewFromQuery(string query)
@@ -1038,6 +1138,7 @@
     void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
         ApplyViewFromLocation();
+        ApplyObjectFromLocation();
         StateHasChanged(); // chip active states + PageTitle (LocationChanged is not a Blazor event)
     }
 
@@ -1052,7 +1153,8 @@
         // keep the path at the app root, so a refresh/share stays 404-safe on GitHub Pages (see
         // ApplyViewFromLocation, which also treats a bare root as the Planner default).
         // OnLocationChanged syncs the URL back to the active view + chips.
-        Nav.NavigateTo($"{Nav.BaseUri}?view={(view == View.SkyMap ? "sky" : "planner")}");
+        var objectSuffix = _urlObject is { Length: > 0 } token ? $"&object={Uri.EscapeDataString(token)}" : "";
+        Nav.NavigateTo($"{Nav.BaseUri}?view={(view == View.SkyMap ? "sky" : "planner")}{objectSuffix}");
     }
 
     // --- E2E view-state inspection hook (activated by ?e2e=1) --------------------------------
@@ -1186,11 +1288,46 @@
         RenderFrame();
     }
 
+    // A browser reports a TOUCHPAD PINCH as a wheel event with ctrlKey set. There is no pinch event
+    // and no touch event, so without this the gesture arrived as a burst of plain scrolls and zoomed
+    // in coarse jumps -- it never reached HandlePinchZoom, never got tagged PinchSource.Touchpad, and
+    // so missed the centre-anchored, dedup-guarded path that exists for exactly this gesture (which is
+    // why the touchSCREEN pinch felt better: it is different code, arriving as a real Pinch).
+    //
+    // Pixels per e-fold of zoom. A cumulative deltaY of 100 px is then a factor of exp(100/144) ~ 2,
+    // which is about one comfortable pinch.
+    const double PinchPixelsPerEFold = 144.0;
+
+    // DeltaMode is an ENUM, not a unit: 0 = pixels, 1 = lines, 2 = pages. Chrome sends pixels with
+    // deltaY ~100 per wheel notch, Firefox sends lines with deltaY = 3. Dividing both by a hardcoded
+    // 100 (what this did) made one browser's notch a 15% zoom and the other's 0.45%, and made the same
+    // physical gesture behave differently per device on the same browser.
+    static double WheelPixels(CanvasWheelEventArgs e) => e.DeltaMode switch
+    {
+        1 => e.DeltaY * 16.0,   // lines -> px, at a nominal line height
+        2 => e.DeltaY * 800.0,  // pages -> px, at a nominal viewport height
+        _ => e.DeltaY,          // already pixels
+    };
+
     void OnWheel(CanvasWheelEventArgs e)
     {
         if (ActiveTab is not { } tab) return;
+        var pixels = WheelPixels(e);
+
+        if (e.Original.CtrlKey)
+        {
+            // Relative per-event factor, the same convention the touch bridge produces: fingers apart
+            // (deltaY < 0) gives Scale > 1. PinchEnd immediately after, because a wheel stream has no
+            // end event and IsPinching left latched would swallow every later drag.
+            var scale = Math.Exp(-pixels / PinchPixelsPerEFold);
+            tab.HandleInput(new InputEvent.Pinch((float)scale, e.X, e.Y) { Source = PinchSource.Touchpad });
+            tab.HandleInput(new InputEvent.PinchEnd());
+            RenderFrame();
+            return;
+        }
+
         // Browser deltaY > 0 = wheel down; the tab uses the SDL convention (positive = up).
-        var scrollY = (float)(-e.DeltaY / 100.0);
+        var scrollY = (float)(-pixels / 100.0);
         tab.HandleInput(new InputEvent.Scroll(scrollY, e.X, e.Y));
         RenderFrame();
     }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
@@ -10,6 +10,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.Abstractions
 {
@@ -132,18 +133,34 @@ namespace TianWen.UI.Abstractions
             // Viewing time: use the planning date (which preserves time-of-day across
             // date shifts) when set, otherwise live wall-clock time cached with 1s refresh.
             var nowTicks = timeProvider.GetTimestamp();
-            if (plannerState.PlanningDate is null
-                && timeProvider.GetElapsedTime(_liveTimeRefreshTicks, nowTicks) >= TimeSpan.FromSeconds(1))
+            var liveTime = _cachedLiveTime;
+            if (plannerState.PlanningDate is null)
             {
-                _cachedLiveTime = timeProvider.GetUtcNow();
-                _liveTimeRefreshTicks = nowTicks;
+                var sinceSync = timeProvider.GetElapsedTime(_liveTimeRefreshTicks, nowTicks);
+                if (_liveTimeRefreshTicks == 0 || sinceSync >= TimeSpan.FromSeconds(1))
+                {
+                    _cachedLiveTime = timeProvider.GetUtcNow();
+                    _liveTimeRefreshTicks = nowTicks;
+                    liveTime = _cachedLiveTime;
+                }
+                else
+                {
+                    // Advance from the last sync by the elapsed stopwatch interval rather than reusing
+                    // the sync instant for the whole second. The cache exists to keep GetUtcNow (a
+                    // syscall) off the per-frame path, and interpolating keeps that while making the
+                    // viewing time CONTINUOUS: every consumer downstream is a function of it, so a
+                    // once-a-second step moved the alt-az roll reference, the planet and comet
+                    // positions and the whole horizon-mode view matrix in 1 Hz jumps. During a slow pan
+                    // that reads as the sky twitching, which is exactly what was reported.
+                    liveTime = _cachedLiveTime + sinceSync;
+                }
             }
             // Base instant: the planner's absolute date (when set) else the live wall clock.
             // The sky-map scrub offset (Up/Down/Left/Right/PageUp/PageDown/N) stacks on top so
             // the scrubbed instant keeps advancing with real time in live mode (offset is fixed,
-            // _cachedLiveTime keeps refreshing). PlanningDate stays planner-driven; scrubbing
+            // liveTime keeps advancing). PlanningDate stays planner-driven; scrubbing
             // here never recomputes the planner.
-            var baseTime = plannerState.PlanningDate?.ToUniversalTime() ?? _cachedLiveTime;
+            var baseTime = plannerState.PlanningDate?.ToUniversalTime() ?? liveTime;
             var viewingTime = baseTime + State.TimeOffset;
 
             // Initialize view to zenith on first valid site, or re-center on profile switch
@@ -187,10 +204,17 @@ namespace TianWen.UI.Abstractions
             DrawPlanetLabels(db, viewingTime, siteLat, siteLon, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon);
 
             // Ephemeris-computed JPL comet markers (candidate set filtered to the zoom-aware magnitude
-            // limit). Drawn after planets so a bright comet's label sits above the planet layer.
-            if (State.ShowComets)
+            // limit, except for pinned ones). Drawn after planets so a bright comet's label sits above
+            // the planet layer.
+            //
+            // Runs when the layer is on OR anything is pinned, mirroring the object overlay below: a
+            // pinned target is a landmark and must be visible with its layer off. Comets need the rule
+            // stated HERE and not only there, because the overlay pass gathers out of the object DB and
+            // comets are deliberately not in it, so a pinned comet has no other path onto the map.
+            var pinnedIndices = PlannerActions.GetPinnedCatalogIndices(plannerState.Proposals);
+            if (State.ShowComets || pinnedIndices is not null)
             {
-                DrawCometLabels(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon);
+                DrawCometLabels(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon, pinnedIndices);
             }
 
             // Always render the object overlay pass — when [O] is off, only pinned
@@ -644,7 +668,8 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private void DrawCometLabels(
             DateTimeOffset viewingTime, RectF32 rect, float fontSize,
-            double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon)
+            double ppr, float cx, float cy, SiteContext site, bool dimBelowHorizon,
+            IReadOnlySet<CatalogIndex>? pinnedIndices = null)
         {
             var fontPath = FontPath;
             var comets = _plannerState?.Comets;
@@ -674,9 +699,14 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
+            var dpiScale = DpiScale;
+
             foreach (var marker in markers)
             {
-                if (marker.VMag > limit)
+                // Layer toggle + magnitude limit, both bypassed by a pin. Rule lives in
+                // SkyMapState.ShouldDrawCometMarker so it is testable without a renderer.
+                var isPinned = pinnedIndices is not null && pinnedIndices.Contains(marker.Index);
+                if (!SkyMapState.ShouldDrawCometMarker(State.ShowComets, isPinned, marker.VMag, limit))
                 {
                     continue;
                 }
@@ -705,13 +735,29 @@ namespace TianWen.UI.Abstractions
                     }
                 }
 
+                // Pinned halo behind the coma, the same ring a pinned DB object wears (geometry from the
+                // shared OverlayEngine.PinnedHalo* constants). A comet has no catalog shape, so it takes
+                // the floor radius, which is the circle branch the object overlay uses for a shapeless
+                // target.
+                if (isPinned)
+                {
+                    DrawCircle(sx, sy,
+                        OverlayEngine.PinnedHaloMinSemiMajorPx * dpiScale * OverlayEngine.PinnedHaloScale,
+                        DimmedIf(OverlayEngine.PinnedHaloColor, below), OverlayEngine.PinnedHaloStrokePx);
+                }
+
                 // Coma: filled dot + a soft ring so it reads distinctly from a star/planet dot.
                 FillCircle(sx, sy, 3f, comaColor);
                 DrawCircle(sx, sy, 5f, comaColor, 1f);
 
                 // Name + magnitude to the right, clickable (selects the comet at its dot). Mirrors how the
                 // planet label registers a hit box that synthesises a click-select at the marker position.
-                var text = $"{marker.Label}  {marker.VMag:F1}m";
+                // "?" after the NAME when the element set is a revolution or more old, because what is
+                // then uncertain is WHERE THE MARKER IS, not how bright it says the comet is. Measured
+                // on 10P in 2026: our two-body propagation lands 9.3 degrees from Horizons after two
+                // revolutions, while the magnitude agrees with Horizons to 0.03 mag. So the label
+                // qualifies the dot the user is looking at, and leaves the number alone.
+                var text = $"{marker.Label}{(marker.PositionUncertain ? "?" : "")}  {marker.VMag:F1}m";
                 DrawText(text.AsSpan(), fontPath,
                     sx + 10, sy - fontSize, 170, fontSize * 1.2f,
                     fontSize, labelColor, TextAlign.Near, TextAlign.Center);

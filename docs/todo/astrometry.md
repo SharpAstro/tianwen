@@ -19,31 +19,51 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 ## Astrometry / Comets (reported 2026-08-06)
 
-- [ ] **A comet near a close perihelion pass predicts far too faint, and the fault is the photometric
-  model rather than our maths.** Reported for 10P (Tempel 2) showing magnitude 12.75 while sitting near
-  both perihelion and Earth. Checked end to end and the pipeline is faithful:
-  - **The geometry agrees with the reporter.** Propagating the cached elements (q 1.418 AU, e 0.5374,
-    tp JD 2457340.74) two-body to 2026-08-06 gives r = 1.418 AU and delta = 0.412 AU, i.e. two days
-    before a perihelion that is also an unusually close approach. So the position half is right.
-  - **The magnitude then follows from SBDB's own parameters.** Queried live from the SBDB API, 10P
-    carries **M1 = 13.7, K1 = 6.5** (our 2026-07-29 cache holds 13.9 / 6.0 from an earlier solution).
-    The IAU total law gives `13.7 + 5*log10(0.412) + 6.5*log10(1.418) = 12.8`, which is what is
-    displayed. `CometEphemeris.PredictTotalMagnitude` is implementing the law correctly.
-  - **What is actually stale is JPL's default record.** Its orbit solution is epoch JD 2457650.5 (2016)
-    and the tp is the 2015 perihelion, so the photometric fit predates the apparition being observed by
-    two revolutions. Options, cheapest first: show the model's epoch beside the predicted magnitude so
-    it reads as a prediction from an old fit; flag a comet whose element epoch is more than one
-    revolution stale; allow a per-comet magnitude override; or do the already-deferred per-object
-    Horizons fetch, which would also bring non-gravitational forces.
-  - **Do not "fix" the formula.** Two plausible-looking wrong turns were checked and rejected. We are
-    not accidentally reading the NUCLEAR parameters: SBDB returns M2 and K2 as null for 10P, so M1/K1
-    are the only model it has. And the display name is not a truncation bug: SBDB's own `name` field
-    for 10P is literally "Tempel".
-- [ ] **Two different comets render with the same label.** Following from the above, SBDB's `name` is
-  "Tempel" for both 9P (Tempel 1) and 10P (Tempel 2), so `CometElements.DisplayName` produces
-  `9P/Tempel` and `10P/Tempel`. The periodic number disambiguates them but the label does not read as
-  the canonical IAU name. Fix belongs in `DisplayName`, not in the fetch: the number suffix is
-  recoverable from the designation, and inventing it during the parse would corrupt the cache.
+- [x] **The faint magnitude near perihelion was NOT a bug, and chasing it found a real one.** Reported
+  as "mag 12.75 looks wrong for 10P as it is near perihelion and near earth right now". Checked
+  against the JPL Horizons API rather than reasoned about, and Horizons answers **T-mag 12.776** for
+  the same instant, from the same M1 = 13.7 / K1 = 6.5, on solution JPL#K265/43 (soln.date
+  2026-Jul-28, 6,347 observations through 2026). Our 12.75 is right. A comet can simply be that faint
+  near perihelion. Pinned by `CometElementStalenessTests` so nobody edits the law.
+  - **Two plausible causes were wrong and are recorded so they are not retried.** We are not reading
+    the NUCLEAR parameters: SBDB and Horizons both report M2/K2 as n.a. for 10P. And the element
+    record is not a decade-old FIT: its EPOCH field is 2016 but that is the osculating reference
+    epoch, not the age of the solution, which is nine days old.
+- [x] **The real defect: a comet marker can be 9.3 DEGREES out.** Found while checking the above, by
+  comparing our propagator against Horizons for 10P at 2026-08-06 (a new case in
+  `CometEphemerisTests`; the two existing ones are evaluated at their own element epoch, where
+  two-body equals truth by definition, so nothing covered this).
+  - **It decomposes exactly.** Our period, from the 2016 osculating `a` = 3.063862 AU, is 1958.82 d;
+    JPL's for the current apparition is 1960.00 d. Propagating tp (2015-Nov-14) forward two
+    revolutions lands perihelion at JD 2461258.38 against JPL's JD 2461254.62, i.e. **3.76 days
+    late**. At perihelion 10P moves 31.0 km/s, so 3.76 days is 0.0674 AU of arc, and 0.0674 AU seen
+    from delta = 0.4149 AU is 9.3 degrees.
+  - So it is a pure TIMING error. The heliocentric and geocentric distances are right to a few parts
+    in ten thousand: the comet is at the correct point of its orbit and the wrong point along it.
+    Two-body propagation carries a fixed period while JPL fits non-gravitational terms (A1 = 2.5e-10,
+    A2 = 8.1e-12 au/d^2) that shift the period by roughly a day per revolution for an active comet,
+    and a period error integrates straight into phase. Worst exactly where it hurts: near perihelion,
+    where the comet is both fast and close, which is when anyone would want to observe it.
+  - **Mitigated, not fixed.** `CometElements.IsElementSetStale` reports an element set at least one
+    revolution old, and the sky-map marker appends "?" to the NAME (never to the magnitude, which is
+    correct). The error is pinned as an upper bound so it cannot silently grow.
+- [ ] **Fix it properly: fetch current-apparition elements from Horizons.** Now scoped, because the
+  investigation found the endpoint. `EPHEM_TYPE=ELEMENTS` with `COMMAND='DES=<desig>;CAP;'` returns
+  the osculating set for the apparition in progress (for 10P: `Tp = 2461254.615`, `EC`, `QR`, `IN`,
+  `OM`, `W`), which is all `CometEphemeris` consumes, so it drops straight into `CometElements` with
+  no new maths and collapses the 9.3 degrees to arcseconds. This is much cheaper than the "per-object
+  Horizons ephemeris" originally deferred: a handful of numbers per comet, cacheable on the same
+  weather-pattern TTL as the bulk set, and needed only for comets the user actually looks at (pinned,
+  or bright enough to draw). Keep the SBDB bulk fetch as the base layer, since it is the thing that
+  makes 4,000 comets available offline; this is a per-object refinement on top.
+- [x] **Two different comets rendered with the same label.** SBDB's `name` is the DISCOVERER, so it is
+  shared by construction: "Tempel" is eight comets, "SOHO" is 1,465, and 3,563 of 4,069 share a name
+  with something. Searching "Tempel" listed a dozen indistinguishable rows in the planner, while the
+  sky map showed exactly one (its 1:1 map kept the first and silently swallowed the rest). Suggestion
+  lists now carry `CometElements.DisplayName` (one per comet, designation embedded),
+  `CometSearchKeys.TryResolve` is two-pass so an unambiguous spelling always beats a bare shared name,
+  and the sky map matches shared names through a dedicated bounded pass over comet aliases instead of
+  the shared string index. Marker labels use the display name too.
 
 ## Astrometry / Catalogs (Queries)
 

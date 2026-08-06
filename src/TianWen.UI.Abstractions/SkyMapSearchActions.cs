@@ -66,13 +66,30 @@ public static class SkyMapSearchActions
             }
         }
 
-        // Every accepted comet key spelling (canonical / common name / parenthetical / slash), from the
-        // shared CometSearchKeys source so the sky-map + planner-tab searches stay identical. The label
-        // is always CometElements.DisplayName ("10P/Tempel" periodic, "C/2026 A1 (PANSTARRS)" provisional).
-        foreach (var (key, idx, display) in CometSearchKeys.Enumerate(comets))
+        // Only the spellings that identify ONE comet go in the 1:1 map. A bare common name is SBDB's
+        // discoverer field, shared by 3,563 of 4,069 comets ("Tempel" is eight, "SOHO" is 1,465), so
+        // putting it here meant TryAdd kept the first and silently swallowed the rest -- searching
+        // "Tempel" offered exactly one comet and 10P was reachable only by typing its designation.
+        // Ambiguous names are matched by ShortlistComets below instead, which can return all of them.
+        var aliases = ImmutableArray.CreateBuilder<(string Alias, CatalogIndex Index, string Display)>();
+        foreach (var el in comets?.All ?? [])
         {
-            AddCometKey(key, idx, display);
+            if (el.CatalogIndex is not { } idx)
+            {
+                continue;
+            }
+
+            var canonical = el.Designation.ToCanonical();
+            var display = el.DisplayName;
+            AddCometKey(canonical, idx, display);
+            if (el.CommonName is { Length: > 0 } commonName)
+            {
+                AddCometKey($"{canonical} ({commonName})", idx, display);
+                AddCometKey($"{canonical}/{commonName}", idx, display);
+                aliases.Add((commonName, idx, display));
+            }
         }
+        search.CometAliases = aliases.DrainToImmutable();
 
         entries.Sort(StringComparer.OrdinalIgnoreCase);
         return [.. entries];
@@ -148,6 +165,25 @@ public static class SkyMapSearchActions
             candidates.Add((entry, score));
         }
 
+        // 1b. Comet common names, ALWAYS, because they cannot be served by the shared index: a name
+        //     like "Tempel" belongs to eight comets and the index holds one string per entry. Bounded
+        //     by the comet count (~4 K, and only those with a name), so it is nothing against the
+        //     2.5 M-entry catalog scan it sits beside -- and it must not be conditional on the prefix
+        //     scan coming up empty the way step 2 is, or a single unrelated catalog entry starting
+        //     with the same letters would hide every comet the user was actually searching for.
+        //     Emits the DISPLAY string, so the resolve below finds it in CometEntries unchanged.
+        foreach (var (alias, _, display) in search.CometAliases)
+        {
+            var score = alias.Length == query.Length && alias.Equals(query, StringComparison.OrdinalIgnoreCase) ? 100
+                : alias.StartsWith(query, StringComparison.OrdinalIgnoreCase) ? 90
+                : alias.Contains(query, StringComparison.OrdinalIgnoreCase) ? 40
+                : 0;
+            if (score > 0)
+            {
+                candidates.Add((display, score));
+            }
+        }
+
         // 2. Substring fallback: only run when prefix yielded nothing -- with
         //    millions of entries a Contains scan is hundreds of ms, so we skip
         //    it when the prefix already produced anything useful.
@@ -206,6 +242,54 @@ public static class SkyMapSearchActions
         }
 
         return results.ToImmutable();
+    }
+
+    /// <summary>
+    /// Selects the object named by a single token, the way a deep link or a restored session does:
+    /// resolve, centre the view on it, and populate the info panel, exactly as if the user had
+    /// searched for it and pressed Enter.
+    ///
+    /// <para>Resolution order matters. A COMET is tried first, through
+    /// <see cref="CometSearchKeys.TryResolve"/>, because comets are not in the object DB and a
+    /// designation like <c>10P</c> would otherwise fall through to a catalog lookup that answers
+    /// nothing. Everything else goes through the same catalog resolve the search list uses, so a
+    /// canonical index, a common name and a Messier number all work.</para>
+    ///
+    /// <para>Deliberately does NOT need the search index built: a deep link arrives before the user
+    /// has ever opened the search modal, and building the ~200 K-entry index to resolve one string
+    /// would make the first paint wait on it.</para>
+    /// </summary>
+    public static bool TrySelectByToken(
+        SkyMapSearchState search,
+        SkyMapState skyMap,
+        ICelestialObjectDB db,
+        string token,
+        double siteLat, double siteLon,
+        DateTimeOffset viewingUtc,
+        in SiteContext site,
+        ICometRepository? comets = null)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return false;
+        }
+
+        var trimmed = token.Trim();
+        if (CometSearchKeys.TryResolve(comets, trimmed, out var cometIndex, out var cometDisplay))
+        {
+            return CommitResult(search, skyMap, db,
+                new SkyMapSearchResult(cometDisplay, cometIndex, ObjectType.Comet, float.NaN),
+                siteLat, siteLon, viewingUtc, site, comets);
+        }
+
+        if (TryResolveToObject(db, trimmed, out var obj))
+        {
+            return CommitResult(search, skyMap, db,
+                new SkyMapSearchResult(trimmed, obj.Index, obj.ObjectType, (float)obj.V_Mag),
+                siteLat, siteLon, viewingUtc, site, comets);
+        }
+
+        return false;
     }
 
     /// <summary>

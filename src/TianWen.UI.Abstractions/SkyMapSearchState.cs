@@ -59,6 +59,16 @@ public class SkyMapSearchState
     public Dictionary<string, (CatalogIndex Index, string Display)> CometEntries { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
+    /// The AMBIGUOUS comet spelling: SBDB's bare common name, which is the discoverer and therefore
+    /// shared (eight comets are "Tempel", 1,465 are "SOHO"). One row per comet that has a name, so the
+    /// same alias appears as many times as there are comets carrying it -- the whole point, since
+    /// <see cref="CometEntries"/> is a 1:1 map and can only keep one. Scanned in full on every
+    /// keystroke by <c>FilterResults</c>, which is affordable at ~4 K rows and is what makes all eight
+    /// Tempels appear instead of whichever one was enumerated first.
+    /// </summary>
+    public ImmutableArray<(string Alias, CatalogIndex Index, string Display)> CometAliases { get; set; } = [];
+
+    /// <summary>
     /// Selected object — shown in the info panel after Enter / click / click-on-map.
     /// Null when no object is selected.
     /// </summary>

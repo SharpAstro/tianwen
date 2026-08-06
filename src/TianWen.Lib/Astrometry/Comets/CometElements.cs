@@ -1,3 +1,4 @@
+﻿using System;
 using System.Text.Json.Serialization;
 using TianWen.Lib.Astrometry.Catalogs;
 
@@ -38,6 +39,48 @@ public readonly record struct CometElements(
     /// <summary>True when SBDB supplies both total-magnitude parameters, so a magnitude can be predicted.</summary>
     [JsonIgnore]
     public bool HasMagnitudeModel => !double.IsNaN(AbsoluteMagnitudeM1) && !double.IsNaN(SlopeK1);
+
+    /// <summary>
+    /// Orbital period in years for a closed orbit (Kepler's third law, <c>P = a^1.5</c> with a in AU),
+    /// or <see cref="double.NaN"/> for a parabolic or hyperbolic one, which never returns.
+    /// </summary>
+    [JsonIgnore]
+    public double OrbitalPeriodYears
+        => Eccentricity < 1.0 && PerihelionDistanceAu > 0.0
+            ? Math.Pow(PerihelionDistanceAu / (1.0 - Eccentricity), 1.5)
+            : double.NaN;
+
+    /// <summary>
+    /// How many revolutions have elapsed between the element set's epoch and <paramref name="jdTt"/>.
+    /// <see cref="double.NaN"/> for a non-periodic comet, where the question does not apply.
+    /// </summary>
+    public double RevolutionsSinceEpoch(double jdTt)
+        => OrbitalPeriodYears is var years and > 0.0 && !double.IsNaN(years)
+            ? (jdTt - EpochJdTt) / (years * 365.25)
+            : double.NaN;
+
+    /// <summary>
+    /// True when this element set is at least one full revolution old, at which point a POSITION
+    /// propagated from it carries an along-track error large enough to matter on a sky map.
+    ///
+    /// <para><b>The measured case.</b> 10P's published record is stated at an osculating epoch of
+    /// 2016-Sep-19, so by 2026 it is ~1.8 revolutions old, and our two-body propagation lands
+    /// <b>9.3 degrees</b> from JPL Horizons (pinned in <c>CometEphemerisTests</c>). The heliocentric
+    /// and geocentric distances are right to a few parts in ten thousand, so the comet is at the
+    /// correct place in its orbit and the wrong place ALONG it: JPL fits non-gravitational terms
+    /// (outgassing, A1/A2) that perturb the period, and a period error integrates straight into phase.
+    /// The fix is fresher elements, which is the deferred per-object Horizons fetch; until then the
+    /// marker is drawn and labelled as approximate.</para>
+    ///
+    /// <para><b>This says nothing about the magnitude, and that correction is the point.</b> The
+    /// obvious reading of a faint comet near perihelion is that its photometric model is out of date,
+    /// and for 10P that reading is WRONG: Horizons predicts 12.776 for the same instant from the same
+    /// M1 = 13.7 / K1 = 6.5, against our 12.75, and its solution is nine days old and fitted to 6,347
+    /// observations through 2026. A comet simply can be that faint near perihelion. Do not attach a
+    /// brightness caveat to this flag, and do not "fix" the magnitude law.</para>
+    /// </summary>
+    public bool IsElementSetStale(double jdTt)
+        => RevolutionsSinceEpoch(jdTt) is var revolutions && revolutions >= 1.0;
 
     /// <summary>
     /// The comet's human display label, following the IAU/Wikipedia convention and the single source of

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
 using Shouldly;
@@ -46,6 +46,26 @@ public class CometEphemerisTests
         AbsoluteMagnitudeM1: 8.9,
         SlopeK1: 5.5);
 
+    // 10P/Tempel 2 -- the case that asks a DIFFERENT question from the two above. They are evaluated at
+    // their own element epoch, where the osculating two-body orbit equals the integrated truth by
+    // definition. This one is evaluated TEN YEARS and roughly two revolutions past its epoch
+    // (2016-Sep-19), against a JPL solution that also carries a non-gravitational force model we do not
+    // implement (A1 = 2.5e-10, A2 = 8.1e-12 au/d^2). So it measures the drift our documented
+    // "arcminute-class near the element epoch" caveat is about, rather than the propagator's algebra.
+    // Full-precision elements from Horizons solution JPL#K265/43 (soln.date 2026-Jul-28).
+    private static readonly CometElements TempelTwo = new(
+        Designation: Parse("10P"),
+        CommonName: "Tempel",
+        PerihelionDistanceAu: 1.417400467387836,
+        Eccentricity: 0.5373811030007175,
+        InclinationDeg: 12.0291718465731,
+        AscendingNodeDeg: 117.8001776932984,
+        ArgumentOfPerihelionDeg: 195.5324954666831,
+        PerihelionJdTt: 2457340.7411673036,
+        EpochJdTt: 2457650.5,
+        AbsoluteMagnitudeM1: 13.7,
+        SlopeK1: 6.5);
+
     [Theory]
     // (comet, UTC at element epoch, Horizons astrometric RA deg, Dec deg)
     [InlineData(nameof(PonsBrooks), "2023-09-24T00:00:00Z", 259.674039938, 48.133491870)]
@@ -64,6 +84,54 @@ public class CometEphemerisTests
 
         var separationArcsec = AngularSeparationArcsec(raHours * 15.0, decDeg, expectedRaDeg, expectedDecDeg);
         separationArcsec.ShouldBeLessThan(60.0, $"separation was {separationArcsec:F2}\" (RA {raHours * 15.0:F6} vs {expectedRaDeg}, Dec {decDeg:F6} vs {expectedDecDeg})");
+    }
+
+    [Fact]
+    public void GivenTempelTwoTenYearsPastItsEpochThenPositionStillTracksHorizons()
+    {
+        // Horizons geocentric astrometric J2000 for 2026-08-06 00:00 UT: 21 55 50.70 / -26 21 21.1,
+        // r = 1.418334 AU, delta = 0.414855 AU (two days before the 2026 perihelion, and unusually
+        // close to Earth). Frozen from the API on 2026-08-06.
+        const double expectedRaDeg = 328.961250;
+        const double expectedDecDeg = -26.355861;
+        var time = DateTimeOffset.Parse("2026-08-06T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal);
+
+        CometEphemeris.TryGetEquatorialJ2000(TempelTwo, time, out var raHours, out var decDeg, out var r, out var delta)
+            .ShouldBeTrue();
+
+        // MEASURED: 9.3 degrees, and it decomposes exactly, which is worth writing out because a
+        // number that size looks like a broken transform and is not one.
+        //
+        //   Our period, from the 2016 osculating a = 3.063862 AU, is 1958.82 d.
+        //   JPL's period for the CURRENT apparition is 1960.00 d.
+        //   Propagating tp (2015-Nov-14) forward two revolutions therefore lands perihelion at
+        //   JD 2461258.38 where JPL puts it at JD 2461254.62: 3.76 days LATE.
+        //   At perihelion 10P moves 31.0 km/s, so 3.76 days is 0.0674 AU of arc,
+        //   and 0.0674 AU seen from delta = 0.4149 AU is 9.3 degrees.
+        //
+        // So this is a pure TIMING error, not a geometry error: the heliocentric distance is right
+        // (we sit at q, JPL is a few days past it) and so is the geocentric. Two-body propagation
+        // carries a fixed period, while JPL fits non-gravitational terms (A1 = 2.5e-10,
+        // A2 = 8.1e-12 au/d^2) that move the period by about a day per revolution for an active
+        // comet, and a period error integrates straight into phase. It is worst exactly where it
+        // hurts most: near perihelion, where the comet is both fast and close.
+        //
+        // Pinned as an upper bound rather than asserted away, because this is the honest current
+        // accuracy for a comet far from its element epoch and it must not silently get worse. The fix
+        // is fresher elements: Horizons EPHEM_TYPE=ELEMENTS returns the current apparition osculating
+        // set (Tp = 2461254.615 for this one), which would collapse this to arcseconds.
+        var separationArcsec = AngularSeparationArcsec(raHours * 15.0, decDeg, expectedRaDeg, expectedDecDeg);
+        separationArcsec.ShouldBeLessThan(11.0 * 3600.0,
+            $"separation was {separationArcsec:F0}\" (RA {raHours * 15.0:F6} vs {expectedRaDeg}, Dec {decDeg:F6} vs {expectedDecDeg})");
+
+        // The distances are the control: they show the orbit itself is right, so a regression that
+        // broke the propagator's algebra would move THESE and not just the phase.
+        r.ShouldBe(1.418334, tolerance: 0.005);
+        delta.ShouldBe(0.414855, tolerance: 0.010);
+
+        // And the element set is old enough that the flag says so, which is what puts the "?" on the
+        // marker. This is the case the flag exists for.
+        TempelTwo.IsElementSetStale(2461258.5).ShouldBeTrue();
     }
 
     [Fact]

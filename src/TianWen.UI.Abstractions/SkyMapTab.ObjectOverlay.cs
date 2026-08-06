@@ -135,7 +135,7 @@ namespace TianWen.UI.Abstractions
                 // the same ellipse-reads-as-a-circle defect the search selection marker had.
                 if (cand.IsPinned)
                 {
-                    var haloColor = new RGBAColor32(0xFF, 0x60, 0x20, (byte)(0x50 * fovAlpha));
+                    var haloColor = OverlayEngine.PinnedHaloColor with { Alpha = (byte)(OverlayEngine.PinnedHaloColor.Alpha * fovAlpha) };
                     var haloFloorPx = OverlayEngine.PinnedHaloMinSemiMajorPx * dpiScale;
                     if (cand.Marker is OverlayCandidateMarker.Ellipse he)
                     {
