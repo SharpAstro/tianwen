@@ -335,6 +335,9 @@
         await Db.InitDBAsync();
         Console.WriteLine($"[tianwen-web] catalog init: {sw.ElapsedMilliseconds} ms");
 
+        // The catalog is only NOW loaded, so a "?object=<dso>" deep link can finally resolve.
+        ApplyPendingObjectSelection();
+
         // The catalog sweep (or the lighter same-site rescore) + altitude profiles are one long
         // synchronous block; on the single browser thread nothing repaints while it runs.
         // SetStatusAsync yields first so the status above actually paints before the block starts.
@@ -778,6 +781,9 @@
             // AppSignalHandler rebuilds the cache on comet load).
             _autoComplete = PlannerActions.BuildAutoCompleteList(Db, Comets);
             Console.WriteLine($"[tianwen-web] comets loaded: {sw.ElapsedMilliseconds} ms");
+
+            // A "?object=<comet>" deep link could not resolve until the repository was populated.
+            ApplyPendingObjectSelection();
         }
         catch (Exception ex)
         {
@@ -1040,9 +1046,7 @@
     // per click; the address bar still holds a shareable link to whatever is selected right now.
     void SyncObjectToUrl()
     {
-        var token = _skyTab?.State.Search.InfoPanel is { } panel
-            ? (string.IsNullOrWhiteSpace(panel.Canonical) ? panel.Name : panel.Canonical)
-            : null;
+        var token = _skyTab?.State.Search.InfoPanel is { } panel ? UrlTokenFor(panel) : null;
         if (string.Equals(token, _urlObject, StringComparison.Ordinal))
         {
             return;
@@ -1051,10 +1055,27 @@
         _urlObject = token;
         var viewToken = _view == View.SkyMap ? "sky" : "planner";
         var url = token is { Length: > 0 }
-            ? $"{Nav.BaseUri}?view={viewToken}&object={Uri.EscapeDataString(token)}"
+            ? $"{Nav.BaseUri}?view={viewToken}&object={EscapeObjectToken(token)}"
             : $"{Nav.BaseUri}?view={viewToken}";
         Nav.NavigateTo(url, forceLoad: false, replace: true);
     }
+
+    // What to write into "?object=". A COMET takes its display name ("10P/Tempel"), not its canonical
+    // designation ("10P"): the designation alone is a bare catalogue number that says nothing about
+    // which comet it is, and the full form is what the object calls itself everywhere else in the app.
+    // Both resolve on the way back in -- CometSearchKeys.TryResolve accepts either -- so preferring the
+    // informative one costs nothing. Everything else keeps the canonical index, which is the stable
+    // identifier for a catalogued object (a common name like "Orion Nebula" is not).
+    static string UrlTokenFor(SkyMapInfoPanelData panel)
+        => panel.ObjType == ObjectType.Comet && !string.IsNullOrWhiteSpace(panel.Name)
+            ? panel.Name
+            : (string.IsNullOrWhiteSpace(panel.Canonical) ? panel.Name : panel.Canonical);
+
+    // Uri.EscapeDataString escapes "/" to %2F, which is correct for a path segment and needless in a
+    // query value -- RFC 3986 lists "/" among the characters a query may contain literally. Restoring
+    // it keeps "10P/Tempel" readable in the address bar instead of "10P%2FTempel", and it round-trips
+    // because UnescapeDataString leaves a bare "/" alone.
+    static string EscapeObjectToken(string token) => Uri.EscapeDataString(token).Replace("%2F", "/", StringComparison.Ordinal);
 
     // Apply "?object=" from the address bar (deep link, refresh, back/forward). Resolves through the
     // SEARCH resolver rather than a catalog lookup, so a comet designation restores too -- comets are
@@ -1089,7 +1110,15 @@
     }
 
     // A deep link is parsed before the catalog (and the comet set) has loaded, so the resolve above
-    // can legitimately fail on the first attempt. Retried once the tab and the catalog are up.
+    // can legitimately fail on the first attempt. Retried from every point where one of those inputs
+    // has just become available: after the sky tab is constructed, after InitDBAsync, and after the
+    // comet fetch settles.
+    //
+    // All three matter, and the first version only called it at the first, which is why "?object=M42"
+    // put M42 in the address bar and left the view at the default pole: at that point the tab existed
+    // but Db.InitDBAsync had not run yet (it is awaited inside ComputeAsync, further down
+    // OnInitializedAsync), so the catalog was empty and the resolve simply answered false with nothing
+    // to retry it. Idempotent and cheap -- it returns immediately once something is selected.
     void ApplyPendingObjectSelection()
     {
         if (_urlObject is not { Length: > 0 } token
@@ -1153,7 +1182,7 @@
         // keep the path at the app root, so a refresh/share stays 404-safe on GitHub Pages (see
         // ApplyViewFromLocation, which also treats a bare root as the Planner default).
         // OnLocationChanged syncs the URL back to the active view + chips.
-        var objectSuffix = _urlObject is { Length: > 0 } token ? $"&object={Uri.EscapeDataString(token)}" : "";
+        var objectSuffix = _urlObject is { Length: > 0 } token ? $"&object={EscapeObjectToken(token)}" : "";
         Nav.NavigateTo($"{Nav.BaseUri}?view={(view == View.SkyMap ? "sky" : "planner")}{objectSuffix}");
     }
 
