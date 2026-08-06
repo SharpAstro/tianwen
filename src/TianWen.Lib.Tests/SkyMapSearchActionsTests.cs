@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using DIR.Lib;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -436,6 +437,44 @@ public class SkyMapSearchActionsTests
         {
             public IReadOnlyCollection<CatalogIndex> this[double ra, double dec] => items;
         }
+    }
+
+    // A common name is SBDB's DISCOVERER, so it is shared by construction. The index is one string per
+    // entry and CometEntries is a 1:1 map, so neither can hold eight comets called "Tempel"; the alias
+    // pass in FilterResults is what makes them all reachable. Before it, TryAdd kept 9P and silently
+    // dropped the rest, so 10P was findable only by typing its designation.
+    [Fact]
+    public void SearchingASharedCometNameFindsEveryCometCarryingIt()
+    {
+        var search = new SkyMapSearchState();
+        var repo = new StubCometRepository(
+            StubCometRepository.Comet("9P", "Tempel"),
+            StubCometRepository.Comet("10P", "Tempel"),
+            StubCometRepository.Comet("C/1864 N1", "Tempel"));
+
+        SkyMapSearchActions.OpenSearch(search, new EmptyDb(), repo);
+        var results = SkyMapSearchActions.FilterResults(search, new EmptyDb(), "Tempel");
+
+        results.Select(r => r.Display).ShouldBe(
+            ["9P/Tempel", "10P/Tempel", "C/1864 N1 (Tempel)"], ignoreOrder: true);
+        results.Select(r => r.Index).Distinct().Count().ShouldBe(3);
+        results.ShouldAllBe(r => r.ObjType == ObjectType.Comet);
+    }
+
+    [Fact]
+    public void SearchingACometDesignationStillResolvesThroughTheIndex()
+    {
+        // The unambiguous spellings stay in the 1:1 map and the prefix index, so the fast path is
+        // unchanged; only the shared name needed the extra pass.
+        var search = new SkyMapSearchState();
+        var repo = new StubCometRepository(
+            StubCometRepository.Comet("9P", "Tempel"),
+            StubCometRepository.Comet("10P", "Tempel"));
+
+        SkyMapSearchActions.OpenSearch(search, new EmptyDb(), repo);
+        var results = SkyMapSearchActions.FilterResults(search, new EmptyDb(), "10P");
+
+        results.ShouldHaveSingleItem().Display.ShouldBe("10P/Tempel");
     }
 
     // Returns the given index as a NaN-coord solar-system stub (mirrors how planets sit in the real

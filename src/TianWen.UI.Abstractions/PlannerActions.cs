@@ -369,6 +369,70 @@ public static class PlannerActions
     /// the object is visible, reports no altitude, and -- the point -- is removable.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// How far a comet must have moved before its pin is rewritten, in degrees. A pin is compared by
+    /// OBJECT (<see cref="IsSameObject"/>) so rewriting the position is safe, but the proposal list is
+    /// an <see cref="ImmutableArray{T}"/> that the render thread reads, so it is only replaced when
+    /// there is something to see. One arcminute is well under any framing decision and well over the
+    /// arcsecond-level jitter of re-resolving the same instant.
+    /// </summary>
+    private const double CometPinRefreshDeg = 1.0 / 60.0;
+
+    /// <summary>
+    /// Re-resolves every pinned COMET's position from <see cref="ICometRepository"/>, because a comet
+    /// pin stores a position and a comet moves: a pin made last week points at empty sky, and the
+    /// altitude profile scored from it is for a place the comet has left.
+    ///
+    /// <para>Only comets. A planet's pin has the same property, but the planner already re-resolves
+    /// planets through its own sweep, and a DEEP-SKY target genuinely does not move, so rewriting it
+    /// would be churn. Identity is untouched either way: <see cref="IsSameObject"/> compares
+    /// solar-system bodies by <see cref="CatalogIndex"/> precisely so a position can be refreshed
+    /// without the pin becoming a different pin (see the planner-pin-identity rule in CLAUDE.md).</para>
+    ///
+    /// <para>Resolved at <see cref="PlannerState.AstroDark"/>, the same instant the planner scores
+    /// everything else at, so the row's coordinates and its altitude curve describe one moment.</para>
+    /// </summary>
+    internal static void RefreshCometProposalPositions(PlannerState state)
+    {
+        if (state.Comets is not { } comets || state.Proposals.IsDefaultOrEmpty)
+        {
+            return;
+        }
+
+        var proposals = state.Proposals;
+        ImmutableArray<ProposedObservation>.Builder? updated = null;
+        for (var i = 0; i < proposals.Length; i++)
+        {
+            var proposal = proposals[i];
+            if (proposal.Target.CatalogIndex is not { } idx
+                || idx.ToCatalog() != Catalog.Comet
+                || !comets.TryGetPosition(idx, state.AstroDark, out var ra, out var dec, out _)
+                || double.IsNaN(ra) || double.IsNaN(dec))
+            {
+                continue;
+            }
+
+            // RA is hours, Dec degrees; 1 hour of RA is 15 degrees of angle at the equator, and the
+            // cos(Dec) foreshortening is deliberately ignored -- this is a "has it moved enough to
+            // bother" test, not an angular separation.
+            var movedDeg = Math.Max(Math.Abs(ra - proposal.Target.RA) * 15.0, Math.Abs(dec - proposal.Target.Dec));
+            if (movedDeg < CometPinRefreshDeg)
+            {
+                continue;
+            }
+
+            updated ??= proposals.ToBuilder();
+            updated[i] = proposal with { Target = proposal.Target with { RA = ra, Dec = dec } };
+        }
+
+        if (updated is not null)
+        {
+            // One reference write, the shared-UI-state rule: the render thread must never see a
+            // half-rewritten proposal list.
+            state.Proposals = updated.DrainToImmutable();
+        }
+    }
+
     private static ScoredTarget ResolveProposalScore(
         PlannerState state,
         ProposedObservation proposal,
@@ -596,18 +660,28 @@ public static class PlannerActions
 
     /// <summary>
     /// Builds the planner autocomplete list: the catalog's
-    /// <see cref="ICelestialObjectDB.CreateAutoCompleteList"/> plus every comet key form (canonical /
-    /// common name / parenthetical / slash) from the shared <see cref="CometSearchKeys"/> source,
-    /// re-sorted ordinal-ignore-case. Comets are not in the DB, so this is how they reach the
-    /// planner-tab suggestions; rebuild it once <see cref="ICometRepository.EnsureLoadedAsync"/>
-    /// completes (comets load in the background after the catalog).
+    /// <see cref="ICelestialObjectDB.CreateAutoCompleteList"/> plus ONE entry per comet, its full
+    /// <see cref="CometElements.DisplayName"/>, re-sorted ordinal-ignore-case. Comets are not in the DB,
+    /// so this is how they reach the planner-tab suggestions; rebuild it once
+    /// <see cref="ICometRepository.EnsureLoadedAsync"/> completes (comets load in the background after
+    /// the catalog).
+    ///
+    /// <para><b>Display names, not match keys.</b> This used to add all four key spellings from
+    /// <see cref="CometSearchKeys.Enumerate"/>, one of which is the bare common name, and SBDB's common
+    /// name is the DISCOVERER: eight comets are called "Tempel", 1,465 are called "SOHO", and 3,563 of
+    /// 4,069 share a name with something. So typing "Tempel" produced a dozen rows all reading "Tempel",
+    /// no two distinguishable and all but the first unselectable, since
+    /// <see cref="CometSearchKeys.TryResolve"/> can only answer a bare shared name with one comet. The
+    /// display name embeds the designation, so every row is distinct and every comet is reachable, and
+    /// it costs nothing to match on because <see cref="ComputeSuggestions"/> is fuzzy rather than
+    /// prefix-anchored: "Tempel" still scores "10P/Tempel".</para>
     /// </summary>
     public static string[] BuildAutoCompleteList(ICelestialObjectDB objectDb, ICometRepository? comets)
     {
         var list = new List<string>(objectDb.CreateAutoCompleteList());
-        foreach (var (key, _, _) in CometSearchKeys.Enumerate(comets))
+        foreach (var (display, _) in CometSearchKeys.EnumerateSuggestions(comets))
         {
-            list.Add(key);
+            list.Add(display);
         }
         list.Sort(StringComparer.OrdinalIgnoreCase);
         return [.. list];
@@ -1384,6 +1458,12 @@ public static class PlannerActions
     /// </summary>
     public static void RecomputeHandoffSliders(PlannerState state)
     {
+        // A comet's pin carries a POSITION resolved when it was pinned, and a comet moves; a pin from
+        // last week points at empty sky. Refreshed here rather than at render time because this hook
+        // runs on every proposal change and every recompute (bounded), while the row is drawn every
+        // frame -- and the sky-map marker is separately live to the second already.
+        RefreshCometProposalPositions(state);
+
         // Shared post-proposal-change hook (called from every add/remove/toggle/commit/reorder path):
         // re-derive the smart framing groups here too, BEFORE the pinnedCount < 2 early return below --
         // a single pinned target still forms a group when it co-frames a discovered neighbour (M8 -> M20).

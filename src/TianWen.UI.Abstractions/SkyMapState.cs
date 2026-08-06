@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
@@ -291,10 +292,20 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// A ephemeris-computed comet marker for the sky map: its <see cref="Catalog.Comet"/> index, live
-        /// J2000 RA/Dec, predicted total magnitude, and the short display label (common name if SBDB has
-        /// one, else the canonical designation). The comet analogue of the planet cache tuple.
+        /// J2000 RA/Dec, predicted total magnitude, and the full display label
+        /// (<see cref="CometElements.DisplayName"/>). The comet analogue of the planet cache tuple.
         /// </summary>
-        public readonly record struct CometMarker(CatalogIndex Index, double RA, double Dec, float VMag, string Label);
+        /// <param name="PositionUncertain">The element set is at least one revolution old
+        /// (<see cref="CometElements.IsElementSetStale"/>), so this POSITION carries an along-track
+        /// error that grows with the number of revolutions propagated. Measured at 9.3 degrees for 10P
+        /// in 2026 (<c>CometEphemerisTests</c>), which is far more than a marker's width.
+        ///
+        /// <para>The MAGNITUDE is not qualified by this: it was checked against JPL Horizons for the
+        /// same object and instant and agrees to 0.03 mag, because Horizons predicts brightness from
+        /// the same M1/K1 this does. It is the two-body propagation over many revolutions, without the
+        /// non-gravitational terms JPL fits, that drifts.</para></param>
+        public readonly record struct CometMarker(
+            CatalogIndex Index, double RA, double Dec, float VMag, string Label, bool PositionUncertain = false);
 
         // Base naked-marker magnitude floor for comets. A comet fainter than this at the current view
         // never draws (unless zooming in raises the effective limit -- see the max() at the call sites),
@@ -329,6 +340,25 @@ namespace TianWen.UI.Abstractions
         /// cache stays zoom-independent. Uses <see cref="CometEphemeris.TryGetEquatorialJ2000WithMagnitude"/>,
         /// the same two-body path the ephemeris tests pin.
         /// </summary>
+        /// <summary>
+        /// Whether a comet marker is drawn: normally it needs the comet layer on AND a predicted
+        /// magnitude at or brighter than the zoom-aware limit, but a PINNED comet ignores both.
+        ///
+        /// <para>Pinned bypasses the layer toggle for the same reason a pinned catalog object does (a
+        /// planned target is a landmark and must stay on the map with its layer off), and it bypasses
+        /// the magnitude limit for a reason specific to comets: the limit is compared against a
+        /// PREDICTION, and a comet's predicted magnitude is the least reliable number on the map. SBDB's
+        /// photometric fit can be apparitions out of date, which is how 10P reads near 12.8 while
+        /// sitting two days from perihelion at 0.4 AU. Hiding the user's own pinned target behind that
+        /// guess is the wrong way round.</para>
+        ///
+        /// <para>Pure and static so it can be pinned by a test without a renderer: the comet layer is
+        /// the only path a pinned comet has onto the sky map, because comets are deliberately absent
+        /// from <c>ICelestialObjectDB</c> and so never reach the object-overlay pass.</para>
+        /// </summary>
+        public static bool ShouldDrawCometMarker(bool cometLayerOn, bool isPinned, double vmag, double magnitudeLimit)
+            => isPinned || (cometLayerOn && !(vmag > magnitudeLimit));
+
         public ReadOnlySpan<CometMarker> GetCometPositionsCached(ICometRepository? comets, DateTimeOffset viewingTime)
         {
             if (comets is null)
@@ -348,6 +378,10 @@ namespace TianWen.UI.Abstractions
                 _cometCache = new CometMarker[_cometCandidates.Length];
             }
 
+            // One conversion for the whole rebuild: staleness is per element set but the instant is not.
+            viewingTime.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
+            var jdTt = tt1 + tt2;
+
             var count = 0;
             foreach (var el in _cometCandidates)
             {
@@ -360,8 +394,12 @@ namespace TianWen.UI.Abstractions
                 {
                     continue;
                 }
-                var label = el.CommonName is { Length: > 0 } cn ? cn : el.Designation.ToCanonical();
-                _cometCache[count++] = new CometMarker(idx, ra, dec, (float)mag, label);
+                // DisplayName, not the bare common name: that field is SBDB's DISCOVERER, so a map
+                // showing two comets from the same discoverer labelled both of them identically
+                // ("Tempel" is 9P, 10P and six others). The display form carries the designation.
+                var label = el.DisplayName;
+                _cometCache[count++] = new CometMarker(idx, ra, dec, (float)mag, label,
+                    PositionUncertain: el.IsElementSetStale(jdTt));
             }
             _cometCacheCount = count;
             _cometCacheTime = viewingTime;
@@ -835,18 +873,36 @@ namespace TianWen.UI.Abstractions
         private const double ReferenceRollLockSin = 0.0872; // sin(5 deg)
 
         /// <summary>
-        /// Fraction of the remaining angle that <see cref="UpdateRollForReference"/> takes per frame
-        /// when the roll has to travel back to the mode's reference, and the distance at which it
-        /// stops stepping and lands exactly.
+        /// Exponential time constant for the roll's travel back to the mode's reference, and the
+        /// distance at which it stops stepping and lands exactly.
         /// <para>
         /// The approach exists so re-levelling reads as a movement rather than a glitch. A view that
         /// is already level (the overwhelmingly common case, since the target is a constant 0 in
         /// Equatorial mode) is within the snap distance immediately, so this costs it nothing and
         /// leaves it bit-identical.
         /// </para>
+        /// <para>
+        /// <b>Per SECOND, not per frame.</b> This was a flat 0.25 of the remaining angle per call, so
+        /// the travel took a fixed number of FRAMES and therefore a duration that depended entirely on
+        /// frame rate: the same ten frames are 0.17 s at 60 fps and a full second at 10 fps, which is
+        /// why the re-level read as a smooth settle on the desktop and as the view continuing to turn
+        /// by itself on the web build. 0.058 s reproduces the old 0.25-per-frame feel exactly at 60 fps
+        /// (0.25 = 1 - exp(-(1/60) / 0.058)) and now means the same thing everywhere else.
+        /// </para>
         /// </summary>
-        private const double RollRealignStep = 0.25;
+        private const double RollRealignTimeConstantSec = 0.058;
         private const double RollRealignSnapRad = 0.0035; // ~0.2 deg
+
+        /// <summary>Nominal frame time used for the very first step, before an interval exists to
+        /// measure, and the ceiling on a measured one so a frame the app spent loading cannot turn
+        /// into a single jump that is indistinguishable from the snap this exists to avoid.</summary>
+        private const double RollRealignNominalFrameSec = 1.0 / 60.0;
+        private const double RollRealignMaxFrameSec = 0.25;
+
+        /// <summary>Timestamp of the previous <see cref="UpdateRollForReference"/> call. A monotonic
+        /// elapsed read for animation pacing, never a wall-clock read, so it does not belong to
+        /// <c>ITimeProvider</c> (same rule the sky map's zoom-flood detector follows).</summary>
+        private long _rollRealignTicks;
 
         /// <summary>
         /// The view frame at <see cref="CenterRA"/> / <see cref="CenterDec"/> with
@@ -916,8 +972,16 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         /// <returns>True when the roll is tracking the reference (whether it landed on it or is still
         /// approaching it); false while it is held.</returns>
-        public bool UpdateRollForReference(float zenithX = 0f, float zenithY = 0f, float zenithZ = 1f)
+        /// <param name="deltaSeconds">Seconds since the previous call. Null measures it, which is what
+        /// a render loop wants; a caller that steps deterministically (a test, or a host that already
+        /// knows its frame time) passes it, because a tight loop measures ~0 and would never
+        /// converge.</param>
+        public bool UpdateRollForReference(float zenithX = 0f, float zenithY = 0f, float zenithZ = 1f, double? deltaSeconds = null)
         {
+            // Stamped before every exit so a held roll (dragging, inside the cone, no usable
+            // reference) does not accumulate into one big step the moment the hold ends.
+            var elapsed = deltaSeconds ?? MeasureRollFrameSeconds();
+
             // A pan OWNS the roll while it is happening. It rotates the whole frame rigidly, so
             // re-deriving the roll underneath it is what made the field jump the instant a drag
             // crossed out of the lock cone: 63 degrees in one frame at Dec 85, which reads as the
@@ -965,11 +1029,23 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // Travel the shortest way round, a fraction per frame, and keep asking for frames until
-            // it arrives. Snapping straight to the target is what the flip was.
-            CenterRoll = NormalizeSignedAngle(CenterRoll + delta * RollRealignStep);
+            // Travel the shortest way round at a fixed rate PER SECOND, and keep asking for frames
+            // until it arrives. Snapping straight to the target is what the flip was.
+            var step = 1.0 - Math.Exp(-elapsed / RollRealignTimeConstantSec);
+            CenterRoll = NormalizeSignedAngle(CenterRoll + delta * step);
             NeedsRedraw = true;
             return true;
+        }
+
+        /// <summary>Seconds since the previous call, clamped, and stamps the new instant.</summary>
+        private double MeasureRollFrameSeconds()
+        {
+            var now = Stopwatch.GetTimestamp();
+            var previous = _rollRealignTicks;
+            _rollRealignTicks = now;
+            return previous == 0
+                ? RollRealignNominalFrameSec
+                : Math.Clamp((now - previous) / (double)Stopwatch.Frequency, 0.0, RollRealignMaxFrameSec);
         }
 
         /// <summary>Wraps an angle in radians to (-pi, pi], so a roll correction always takes the

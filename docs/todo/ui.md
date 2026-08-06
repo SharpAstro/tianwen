@@ -190,78 +190,63 @@ confirm before fixing; the line numbers are as of this entry.
   default on **both** surfaces, so an alt-az grid is not a web-only gap and the horizon line is
   already the reference. Original analysis:
 
-## Sky Map + web input (reported 2026-08-06)
+## Sky Map + web input (reported and fixed 2026-08-06)
 
-Five user-reported items. Causes below are from reading the code, not from a repro run, so confirm
-before fixing. The reporter noted some may be web-only, and two of them provably are.
+Five user-reported items, all fixed the same day. Two of the causes recorded when these were first
+written turned out to be wrong; both corrections are kept below, because each was the plausible
+reading and the next person will reach for it again.
 
-- [ ] **Panning jerks, and the view keeps rotating after the mouse is released.** Three
-  contributions, all confirmed by reading, and the reporter's own guess about the third is right.
-  1. `SkyMapState.UpdateRollForReference` eases `CenterRoll` toward the mode's reference by
-     `RollRealignStep = 0.25` of the remaining angle **per FRAME**, snapping inside
-     `RollRealignSnapRad` (about 0.2 deg). A drag rotates the whole frame rigidly, which is what the
-     2026-08-03 pole fix bought and is correct, so on release the roll is off-reference and the view
-     spends the next several frames easing back. That is the reported post-release rotation, and it
-     is by design. Being per-frame rather than per-second makes its DURATION frame-rate dependent:
-     the same ten frames are 0.17 s at 60 fps and 1 s at 10 fps, which is a plausible reason it reads
-     as a glitch on the web build and not on the desktop.
-  2. The same easing also runs **during** the drag. `HandleDrag` recomputes the roll absolutely from
-     `DragStartViewMatrix` on every mouse-move, then that frame's `UpdateRollForReference` pulls it
-     25% back toward the reference, then the next mouse-move overwrites it. So the rendered roll sits
-     permanently short of the gesture's true roll and wobbles with the ratio of mouse-move events to
-     frames, which fits "can also happen at the start of panning". Fix: suppress the realignment while
-     `State.IsDragging`, and make the step a rate per second (via `TimeProvider.GetElapsedTime`)
-     instead of a fraction per frame.
-  3. `SkyMapTab` caches the live viewing time and refreshes it **once per second**
-     (`_cachedLiveTime`, `SkyMapTab.cs:50` and `:136`). In horizon / alt-az framing the roll reference
-     is the zenith, which is a function of that time, so the easing target steps at 1 Hz and the
-     realignment chases it in visible jumps. Either interpolate the reference between ticks or advance
-     the zenith at sidereal rate between them, which is arithmetic and needs no `GetUtcNow`.
+- [x] **Panning jerks, and the view keeps rotating after the mouse is released.** Two real causes,
+  not three.
+  1. `SkyMapState.UpdateRollForReference` eased `CenterRoll` toward the mode's reference by a flat
+     fraction of the remaining angle **per FRAME**, so the travel took a fixed number of frames and
+     therefore a duration that scaled with frame time: the same ten frames are 0.17 s at 60 fps and a
+     full second at 10 fps, which is why it read as a settle on the desktop and as the view turning
+     by itself on the web build. Now an exponential rate **per second** (time constant 0.058 s, which
+     reproduces the old feel exactly at 60 fps), measured from a monotonic `Stopwatch` read, with an
+     optional explicit `deltaSeconds` for callers that step deterministically. Pinned by
+     `SkyMapViewOrientationTests`: the same simulated half-second converges the same at 5 fps and at
+     60 fps.
+  2. `SkyMapTab` refreshed its cached viewing time **once per second** and reused that instant for
+     every frame in between. In horizon framing the roll reference is the zenith, a function of that
+     time, so the realignment target and the whole view matrix stepped at 1 Hz, which during a slow
+     pan reads as the sky twitching. The cache now interpolates between syncs (`_cachedLiveTime +
+     elapsed`), so the viewing time is continuous while `GetUtcNow` still runs only once a second.
+     **The reporter diagnosed this one unaided.**
+  - **WRONG when first recorded:** that the easing also fought the drag. It does not; there has been
+    an explicit `if (IsDragging) return false` guard since the pole fix. Do not "fix" it again.
 
-- [ ] **A pinned comet does not appear in the atlas, while pinned fixed objects do** (reported for
-  10P). Two independent causes, either one sufficient on its own.
-  - The pinned-landmark path is `RenderObjectOverlay`, which gathers candidates out of
-    `ICelestialObjectDB` and marks those in `PlannerActions.GetPinnedCatalogIndices`. **Comets are
-    deliberately not in the DB** (a CLAUDE.md invariant: every consumer augments from
-    `ICometRepository`), so a pinned comet index matches nothing and neither a marker nor a halo is
-    produced.
-  - The layer that could draw it, `SkyMapTab.DrawCometLabels`, filters `if (marker.VMag > limit)
-    continue` against the zoom-aware limit with **no pinned bypass**. 10P currently predicts at about
-    magnitude 12.8 (see the astrometry entry), well past any limit reached at normal zoom, so it is
-    dropped there too. Pinned targets bypassing the layer toggles is already the stated rule for DB
-    objects; the comet layer never got it. Fix: thread the pinned set into `DrawCometLabels` and let a
-    pinned comet through the magnitude gate wearing the pinned halo, so one rule covers both kinds.
+- [x] **A pinned comet does not appear in the atlas, while pinned fixed objects do** (reported for
+  10P). Both causes were real and either was sufficient. The pinned-landmark path gathers out of
+  `ICelestialObjectDB`, where comets deliberately are not, so a pinned comet index matched nothing;
+  and the comet layer that could draw it filtered on the zoom-aware magnitude limit with no pinned
+  bypass. `DrawCometLabels` now takes the pinned set, the layer runs when anything is pinned even
+  with the comet toggle off, and a pinned comet draws with the shared pinned halo whatever its
+  magnitude. The rule is a pure predicate (`SkyMapState.ShouldDrawCometMarker`) so it is testable
+  without a renderer, which matters because the comet layer is the ONLY route a comet has onto the
+  map. Halo colour moved to `OverlayEngine.PinnedHaloColor` so a pinned comet and a pinned DSO cannot
+  drift apart.
 
-- [ ] **A pinned comet's RA/Dec is a snapshot rather than a live position.** The sky-map markers are
-  already live to within the clock tick: `GetCometPositionsCached` keys on the exact viewing time and
-  re-solves every candidate through `CometEphemeris` when it changes, so that path already does what
-  was asked, at one Kepler solve per candidate per second. The frozen value is on the **planner pin**:
-  `PlannerActions.AddCometSearchResult` resolves RA/Dec once when the search result is built and the
-  proposal carries that pair forever, which is also exactly why `PlannerActions.IsSameObject` compares
-  solar-system bodies by index and never by `Target` equality. So the work is display-side: resolve a
-  pinned comet through `ICometRepository` wherever the pin's coordinates are shown, as the marker
-  layer does. Cheap enough to do on the same 1 Hz tick.
+- [x] **A pinned comet's RA/Dec was a snapshot.** The sky-map markers were already live to the clock
+  tick; the frozen value was the planner pin, which resolves its position once when the search result
+  is built. `PlannerActions.RefreshCometProposalPositions` now re-resolves every pinned comet from
+  `ICometRepository` on the proposal-change hook (bounded, not per frame), rewriting only when the
+  comet has moved more than an arcminute so the render thread's `ImmutableArray` is not churned.
+  Identity is untouched because `IsSameObject` matches solar-system bodies by `CatalogIndex`.
 
-- [ ] **[web] The selected object should be in the URL** (`?object=...`), so a view can be linked and
-  restored. Nothing reads or writes query state today: `Program.cs` is 31 lines and touches the URI
-  only for the `HttpClient` base address and the comet JSON. Needs the click-select and F3-search
-  resolve paths to push the canonical form (`CatalogIndex.ToCanonical()`, already derived for the
-  planner Wikipedia links) and a startup read that resolves it back through the **search** resolver
-  rather than a DB lookup, so comets and planets restore too. Use replace-state on selection so the
-  back button does not collect one entry per click.
+- [x] **[web] The selected object is in the URL** as `?object=<canonical>`, alongside the existing
+  `?view=`. Written with replace-state so a session of clicking does not bury the entry the user
+  arrived on, carried across a view switch, and resolved back through the SEARCH resolver
+  (`SkyMapSearchActions.TrySelectByToken`) rather than a catalog lookup, so comets restore too. A
+  deep link parsed before the catalog loads is retried once the tab exists.
 
-- [ ] **[web] A touchpad pinch is not treated as a pinch, so it zooms in janky steps.**
-  `Planner.razor:1189` maps every wheel event to `InputEvent.Scroll` with
-  `scrollY = -e.DeltaY / 100.0`, which loses two things the desktop path already handles. A browser
-  reports a **touchpad pinch as a wheel event with `ctrlKey` set**, so it never reaches
-  `HandlePinchZoom`, never gets tagged `PinchSource.Touchpad`, and so misses the centre-anchored,
-  dedup-guarded route built for that exact gesture. And `DeltaMode` is ignored: the divisor is a
-  hardcoded 100 whether the browser reported pixels, lines or pages, so one physical gesture zooms by
-  different amounts per browser and per device. The touchscreen pinch feels better because it is
-  genuinely different code, not a better-tuned version of the same: `webgl-canvas.js` bridges
-  two-finger touches into `OnTouchPinchAsync` as a relative distance ratio, arriving as a real
-  `InputEvent.Pinch`. Fix: read `ctrlKey` off the wheel args and emit `InputEvent.Pinch` with
-  `PinchSource.Touchpad`, and normalise by `DeltaMode` before scaling.
+- [x] **[web] A touchpad pinch is treated as a pinch.** A browser reports one as a wheel event with
+  `ctrlKey` set, so it never reached `HandlePinchZoom` or got tagged `PinchSource.Touchpad`, and the
+  touchSCREEN pinch felt better because it is genuinely different code arriving as a real
+  `InputEvent.Pinch`. `OnWheel` now branches on `ctrlKey`, emits a relative-scale `Pinch` +
+  `PinchEnd` (a wheel stream has no end event, and a latched `IsPinching` would swallow every later
+  drag), and normalises by `DeltaMode` first, since the divisor was a hardcoded 100 whether the browser
+  reported pixels, lines or pages, which made one notch a 15% zoom in Chrome and 0.45% in Firefox.
 
 ## Planner (reported 2026-08-03)
 

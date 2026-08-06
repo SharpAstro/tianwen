@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
@@ -284,6 +285,81 @@ namespace TianWen.Lib.Tests
             // And it lists, so it can be removed.
             PlannerActions.GetFilteredTargets(state);
             state.PinnedCount.ShouldBe(1);
+        }
+
+        // A comet pin stores a position, and a comet MOVES: a pin made last week points at empty sky,
+        // and the altitude profile scored from it is for a place the comet has left. The refresh runs
+        // on the proposal-change hook (bounded) rather than per frame; the sky-map marker is separately
+        // live to the second.
+        private static CometElements TenP => StubCometRepository.Comet("10P", "Tempel");
+
+        [Fact]
+        public void APinnedCometsPositionIsRefreshedFromTheEphemeris()
+        {
+            var comet = TenP;
+            var index = comet.CatalogIndex.ShouldNotBeNull();
+            var repo = new StubCometRepository(comet);
+            repo.Positions[index] = (RaHours: 6.0, DecDeg: -20.0, VMag: 12.8);
+
+            var state = StateWith();
+            state.Comets = repo;
+            // Pinned days ago, 15 degrees away from where it is now.
+            state.Proposals = [new ProposedObservation(new Target(5.0, -20.0, "10P/Tempel", index), ObjectType.Comet)];
+
+            PlannerActions.RefreshCometProposalPositions(state);
+
+            var refreshed = state.Proposals.ShouldHaveSingleItem();
+            refreshed.Target.RA.ShouldBe(6.0);
+            refreshed.Target.Dec.ShouldBe(-20.0);
+            // Identity is unchanged, which is what makes rewriting the position safe: a pin is matched
+            // by CatalogIndex for a solar-system body, never by the Target's value.
+            refreshed.Target.CatalogIndex.ShouldBe(index);
+            refreshed.ObjectType.ShouldBe(ObjectType.Comet);
+        }
+
+        [Fact]
+        public void ACometThatHasBarelyMovedIsLeftAlone()
+        {
+            // The proposal list is an ImmutableArray the render thread reads, so it is only replaced
+            // when there is something to see; re-resolving the same instant must not churn it.
+            var comet = TenP;
+            var index = comet.CatalogIndex.ShouldNotBeNull();
+            var repo = new StubCometRepository(comet);
+            repo.Positions[index] = (RaHours: 5.0 + 0.0001, DecDeg: -20.0, VMag: 12.8);
+
+            var state = StateWith();
+            state.Comets = repo;
+            var original = state.Proposals = [new ProposedObservation(new Target(5.0, -20.0, "10P/Tempel", index), ObjectType.Comet)];
+
+            PlannerActions.RefreshCometProposalPositions(state);
+
+            state.Proposals.ShouldBe(original);
+        }
+
+        [Fact]
+        public void ADeepSkyPinIsNeverRewritten()
+        {
+            // A DSO does not move, so touching it would be pure churn -- and the refresh must not
+            // reach for a comet ephemeris on an index that is not a comet.
+            var repo = new StubCometRepository(TenP);
+            var state = StateWith();
+            state.Comets = repo;
+            var original = state.Proposals = [new ProposedObservation(Dso("NGC 1976"), ObjectType.Galaxy)];
+
+            PlannerActions.RefreshCometProposalPositions(state);
+
+            state.Proposals.ShouldBe(original);
+        }
+
+        [Fact]
+        public void WithNoCometRepositoryTheProposalsAreUntouched()
+        {
+            var state = StateWith();
+            var original = state.Proposals = [new ProposedObservation(Dso("NGC 1976"), ObjectType.Galaxy)];
+
+            PlannerActions.RefreshCometProposalPositions(state);
+
+            state.Proposals.ShouldBe(original);
         }
     }
 }

@@ -263,6 +263,15 @@ public static class OverlayEngine
     public const float PinnedHaloStrokePx = 3f;
 
     /// <summary>
+    /// The halo's colour, here for the same reason the geometry is: it is drawn by the object overlay
+    /// for a pinned catalog target AND by the comet layer for a pinned comet (which cannot go through
+    /// the overlay at all, since comets are not in the object DB), and a pinned target that changes
+    /// colour depending on which layer happens to draw it is not a landmark. Callers scale
+    /// <see cref="RGBAColor32.Alpha"/> for the wide-FOV fade rather than restating the RGB.
+    /// </summary>
+    public static readonly RGBAColor32 PinnedHaloColor = new(0xFF, 0x60, 0x20, 0x50);
+
+    /// <summary>
     /// Uniform scale factor that grows a projected ellipse to a legibility floor on its
     /// semi-major axis, never returning less than <paramref name="minScale"/>.
     /// <para>
