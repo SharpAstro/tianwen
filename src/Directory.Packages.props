@@ -394,7 +394,7 @@
          backend). It has moved with the family each time rather than being found two minors behind, which
          is the point of it living here. DIR.Lib 7.7's tree-stated hyperlinks matter most on this backend,
          since a web host is the one that can render a real anchor. -->
-    <PackageVersion Include="WebGl.Renderer" Version="1.16.*" />
+    <PackageVersion Include="WebGl.Renderer" Version="1.17.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR. Both packages ship from the FC.SDK repo at one release line, so they move
