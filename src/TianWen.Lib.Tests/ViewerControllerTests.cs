@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -166,13 +166,21 @@ public class ViewerControllerTests
     public async Task ReleaseCompletedTasks_ClearsFinishedTaskReferences()
     {
         var (controller, state, cache, _, _) = CreateSut();
+
+        // The load must be GENUINELY in flight when the first assertion runs, so the cache is gated on
+        // a TaskCompletionSource the test completes rather than an already-finished Task.FromResult.
+        // With a completed task the load can finish between HandleFileRequest and the assertion, and
+        // IsLoadPending is then legitimately false -- which is exactly how this failed on the arm64 CI
+        // leg while passing everywhere else. Same shape as ShutdownAsync_AwaitsRunningTasks below.
+        var load = new TaskCompletionSource<AstroImageDocument?>();
         cache.GetOrLoadAsync(Arg.Any<string>(), Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>())
-            .Returns(Task.FromResult<AstroImageDocument?>(null));
+            .Returns(load.Task);
 
         state.RequestedFilePath = "/test/image.fits";
         controller.HandleFileRequest(CancellationToken.None);
-        controller.IsLoadPending.ShouldBeTrue();
+        controller.IsLoadPending.ShouldBeTrue("the load cannot have completed: nothing has resolved it yet");
 
+        load.SetResult(null);
         await WaitForLoadAsync(controller);
 
         controller.ReleaseCompletedTasks();
