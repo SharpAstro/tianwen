@@ -809,10 +809,15 @@ namespace TianWen.UI.Abstractions
                 : $"FOV: {State.FieldOfViewDeg:F1}\u00B0";
             var modeLabel = State.Mode == SkyMapMode.Equatorial ? "EQ" : "AZ";
             var skyHint = State.MilkyWayAvailable ? " [S]ky" : "";
+            // Surfaced only while the view is actually off its reference, so the way back appears at
+            // exactly the moment it is wanted instead of sitting in the strip as one more letter.
+            // A pan near the pole rolls the frame by design and this is the only route back.
+            var rollDeg = double.RadiansToDegrees(SkyMapState.NormalizeSignedAngle(State.CenterRoll));
+            var levelHint = Math.Abs(rollDeg) >= 1.0 ? $"  [L]evel ({rollDeg:+0;-0}°)" : "";
             // Limiting magnitude actually rendered (FOV-aware; grows as you zoom in). Gives the
             // +/- magnitude-floor keys visible feedback, which they previously lacked.
             var magText = $"Lim mag {State.EffectiveMagnitudeLimit:F1}";
-            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [D]ark [M]ount com[e]t{skyHint}";
+            var info = $"RA: {State.CenterRA:F2}h  Dec: {State.CenterDec:F1}\u00B0    {fovText}    {magText}    [{modeLabel}]  [H]orizon [G]rid [A]lt/Az [B]oundaries [C]onst [P]roj [O]bjects [D]ark [M]ount com[e]t{skyHint}{levelHint}";
 
             DrawText(info.AsSpan(), fontPath,
                 rect.X + 8, stripY, rect.Width - 16, stripH,
@@ -1223,10 +1228,21 @@ namespace TianWen.UI.Abstractions
                     State.ShowComets = !State.ShowComets;
                     State.NeedsRedraw = true;
                     return true;
+                // Level the view back to the mode's reference. Needed because a pan owns the roll and
+                // nothing takes it back on its own any more: a drag near the pole legitimately rolls
+                // the frame by tens of degrees, and this is the way back to north-up (zenith-up in
+                // Horizon mode).
+                case InputKey.L:
+                    State.RequestLevelToReference();
+                    return true;
                 case InputKey.P:
                     State.Mode = State.Mode == SkyMapMode.Equatorial
                         ? SkyMapMode.Horizon
                         : SkyMapMode.Equatorial;
+                    // Establish the new mode's frame. Nothing else does it any more: the roll now
+                    // belongs to the user's gestures, so entering Horizon mode with a pan's roll
+                    // still on the view would leave the horizon tilted and never straighten it.
+                    State.RequestLevelToReference();
                     State.NeedsRedraw = true;
                     return true;
                 // Ctrl +/- : keyboard zoom (centre-anchored, spin-free). Plain +/- adjusts the
