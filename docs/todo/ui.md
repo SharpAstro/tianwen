@@ -196,8 +196,11 @@ Five user-reported items, all fixed the same day. Two of the causes recorded whe
 written turned out to be wrong; both corrections are kept below, because each was the plausible
 reading and the next person will reach for it again.
 
-- [x] **Panning jerks, and the view keeps rotating after the mouse is released.** Two real causes,
-  not three.
+- [x] **Panning jerks, and the view keeps rotating after the mouse is released.** Three causes. The
+  two below were both real and both fixed, but **neither was the reported symptom** -- that was (3),
+  found only after the reporter said it was still happening and that it eased away from the pole.
+  Recorded in this order because the order is the lesson: (1) and (2) were the visible, plausible
+  suspects, and fixing them changed how fast the wrong thing happened rather than stopping it.
   1. `SkyMapState.UpdateRollForReference` eased `CenterRoll` toward the mode's reference by a flat
      fraction of the remaining angle **per FRAME**, so the travel took a fixed number of frames and
      therefore a duration that scaled with frame time: the same ten frames are 0.17 s at 60 fps and a
@@ -213,6 +216,29 @@ reading and the next person will reach for it again.
      pan reads as the sky twitching. The cache now interpolates between syncs (`_cachedLiveTime +
      elapsed`), so the viewing time is continuous while `GetUtcNow` still runs only once a second.
      **The reporter diagnosed this one unaided.**
+
+  3. **The real one.** `UpdateRollForReference` servoed `CenterRoll` to the mode's ABSOLUTE
+     reference every frame, and in Equatorial that reference is the constant 0 -- so it had no
+     legitimate work at all (celestial north does not move) and existed only to undo the user's own
+     pan. A drag rotates the whole frame rigidly and near the pole legitimately earns a large roll,
+     because a change of RA at the pole IS a rotation; that roll is precisely what holds the sky
+     still under the pointer. Measured over a 100 px pan: 82.5 deg of roll earned at Dec -89, 56.7 at
+     -85, 13.0 at -60, 4.4 at -30, exactly 0 at the equator -- which is the "less severe away from the
+     pole" the reporter noticed, and why (1) and (2) could never have explained it. The grabbed star
+     landed under the cursor at release at every declination and was then thrown **131.9 px** by the
+     unwind, further than the 100 px the gesture had moved it.
+
+     The roll now follows how far the reference MOVED since the previous frame instead of servoing to
+     its value: identically nothing in Equatorial, the sky's own rotation in Horizon (so the horizon
+     still self-levels over a session, carrying a gesture's offset along untouched). Nothing re-levels
+     unprompted any more, so **L** levels the view and the status strip shows a `[L]evel` hint only
+     while the view is off its reference; **P** re-establishes the new mode's frame on a switch.
+     Pinned by `SkyMapPanTests`, which measures what the user actually sees -- where the grabbed star
+     is, in pixels -- in both modes, at the zenith, and just outside the old lock cone.
+
+     **Behaviour change:** the atlas now stays where you drag it, so a pole pan leaves the view
+     genuinely tilted until L. That is the cost of keeping the sky under the pointer, and it is the
+     right trade only because the alternative is the view moving on its own after you let go.
   - **WRONG when first recorded:** that the easing also fought the drag. It does not; there has been
     an explicit `if (IsDragging) return false` guard since the pole fix. Do not "fix" it again.
 
