@@ -17,6 +17,34 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 - [ ] `IncrementalSolver` polar-align fast path is *slower* than the full solve (~1.2 s vs ~0.85 s) -- `FindOffsetAndRotationWithRetryAsync` starts the quad-tolerance sweep at 0.0001 and burns ~50 `FindFit` iterations before reaching the converging range (~0.005-0.05). Fixes: bias the start tolerance higher (~0.005) for the polar-align caller, and/or cache the previous frame's resolved tolerance and start each refine at `prev x 0.5`. Perf-only; correctness + gauge stability already fixed (see `docs/known-limitations.md` "Near-pole plate-solve").
 - [ ] Rewrite the skipped `IncrementalSolverTests` for the quad-matching contract -- the old tests targeted the retired ROI-centroid path (`[Fact(Skip = ...)]`); the solver now quad-matches against a frozen seed via `StarReferenceTable.FindFit`.
 
+## Astrometry / Comets (reported 2026-08-06)
+
+- [ ] **A comet near a close perihelion pass predicts far too faint, and the fault is the photometric
+  model rather than our maths.** Reported for 10P (Tempel 2) showing magnitude 12.75 while sitting near
+  both perihelion and Earth. Checked end to end and the pipeline is faithful:
+  - **The geometry agrees with the reporter.** Propagating the cached elements (q 1.418 AU, e 0.5374,
+    tp JD 2457340.74) two-body to 2026-08-06 gives r = 1.418 AU and delta = 0.412 AU, i.e. two days
+    before a perihelion that is also an unusually close approach. So the position half is right.
+  - **The magnitude then follows from SBDB's own parameters.** Queried live from the SBDB API, 10P
+    carries **M1 = 13.7, K1 = 6.5** (our 2026-07-29 cache holds 13.9 / 6.0 from an earlier solution).
+    The IAU total law gives `13.7 + 5*log10(0.412) + 6.5*log10(1.418) = 12.8`, which is what is
+    displayed. `CometEphemeris.PredictTotalMagnitude` is implementing the law correctly.
+  - **What is actually stale is JPL's default record.** Its orbit solution is epoch JD 2457650.5 (2016)
+    and the tp is the 2015 perihelion, so the photometric fit predates the apparition being observed by
+    two revolutions. Options, cheapest first: show the model's epoch beside the predicted magnitude so
+    it reads as a prediction from an old fit; flag a comet whose element epoch is more than one
+    revolution stale; allow a per-comet magnitude override; or do the already-deferred per-object
+    Horizons fetch, which would also bring non-gravitational forces.
+  - **Do not "fix" the formula.** Two plausible-looking wrong turns were checked and rejected. We are
+    not accidentally reading the NUCLEAR parameters: SBDB returns M2 and K2 as null for 10P, so M1/K1
+    are the only model it has. And the display name is not a truncation bug: SBDB's own `name` field
+    for 10P is literally "Tempel".
+- [ ] **Two different comets render with the same label.** Following from the above, SBDB's `name` is
+  "Tempel" for both 9P (Tempel 1) and 10P (Tempel 2), so `CometElements.DisplayName` produces
+  `9P/Tempel` and `10P/Tempel`. The periodic number disambiguates them but the label does not read as
+  the canonical IAU name. Fix belongs in `DisplayName`, not in the fetch: the number suffix is
+  recoverable from the designation, and inventing it during the parse would corrupt the cache.
+
 ## Astrometry / Catalogs (Queries)
 
 - [ ] Check if SIMBAD supports angular size + dimensions in queries
