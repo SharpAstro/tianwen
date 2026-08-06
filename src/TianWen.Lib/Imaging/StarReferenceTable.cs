@@ -43,8 +43,14 @@ namespace TianWen.Lib.Imaging;
 /// <b>catalog plate solving</b>, where projected catalog stars and detected image stars have
 /// different populations (faint catalog stars below the detection threshold, detected artefacts
 /// absent from the catalog). The differing nearest-neighbour sets produce incompatible quad
-/// geometries, yielding too few matches for a reliable affine fit. Plate solving therefore uses
-/// proximity-based matching with brightness-rank penalties instead
+/// geometries, yielding too few matches for a reliable affine fit — and top-K brightness
+/// selection does <em>not</em> rescue it: probed on a dense Vela field (5,080 in-frame catalog
+/// stars, 1,580 detected), no quad lock formed at any K from 50 to 500 in either parity,
+/// because saturation scrambles the bright-end flux-vs-magnitude ranking and a quad needs the
+/// same four stars with the same three-nearest-neighbour relations on both sides. Plate solving
+/// therefore locks geometry with two-star pair hypotheses instead
+/// (<c>PairRansacLock</c>, which needs only two common members per hypothesis and verifies by
+/// global consensus), followed by proximity matching with brightness-rank penalties
 /// (see <c>CatalogPlateSolver</c>).</para>
 /// </summary>
 public class StarReferenceTable

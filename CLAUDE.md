@@ -543,6 +543,32 @@ fast path (`_isInitialized`), so any caller (CLI, hosted API, tests) works witho
 remembering to init upstream. First call pays the Tycho-2 bulk-decode cost (~500 ms
 typical); subsequent calls are free.
 
+**A solver-built WCS answers in DETECTED-CENTROID coordinates -- never subtract 1 from
+`SkyToPixel`.** `AttachCDMatrix` derives the CD matrix from the affine that maps projected
+pixels onto detected centroids and re-derives CRVAL per iteration as the sky at the frame-centre
+pixel in that same space, so the emitted WCS is self-consistent with the centroids and needs no
+1-based-to-0-based conversion. Applying one (the plausible-looking `px.X - 1.0`) injects a
+constant (+0.91, +0.89) px bias -- measured over 1,209 mutual matches on Vela panel 3 and 1,225
+on panel 11, where a shift sweep put the mean residual at (-0.07, -0.10) px unshifted and growing
+monotonically with any shift. It had cost the acceptance gate 1.27 px of its 3 px tolerance, and
+`ReProjectionError` the sharpness of the parity comparison it exists to make.
+
+**Frozen real-field regressions: `TianWen.Lib.Tests/Data/vela-mosaic-starlists.json.gz`**
+(2.1 MiB) holds STAR LISTS -- not FITS -- from 24 real Vela mosaic pointings / 96 frames /
+78k catalog stars: per-frame detected centroids + the gate-verified WCS (incl. SIP) as an oracle,
+plus one mosaic-wide catalog so a catalog index is the same physical star in every panel.
+`VelaMosaicFieldTests` drives `CatalogPlateSolver.TrySeedPairLock` and `PairRansacLock` over them;
+`VelaMosaicStarListExport` (env-gated, needs the user's archive) regenerates the file. Star lists
+because the dense-field failure was purely geometric -- reproducing it needs the positions and the
+DENSITY, not the pixels, and 96 frames of FITS is ~9 GB against 2 MiB of lists. **Three of the
+four bugs this data set found would have passed a synthetic suite**, because a synthetic field is
+built from a transform the test already knows: the gate's origin bias above, the SIP fit's
+reference-pixel mismatch, and the seed's anchor pool being diluted by undetectable off-frame
+stars. What it covers that synthetic fields cannot: ~4,000 catalog stars per 5-degree frame, a
+bright end scrambled by saturation, mount hints wrong by up to 40 arcmin, a meridian flip
+mid-mosaic, and 106 overlapping / 272 disjoint panel pairs (the disjoint ones are the
+dense-unrelated-field negative case at real density, and none of them lock).
+
 **DI registration uses a factory lambda** (`AstrometryServiceCollectionExtensions.cs`):
 
 ```csharp
