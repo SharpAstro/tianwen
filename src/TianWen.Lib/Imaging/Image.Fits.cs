@@ -80,11 +80,7 @@ public partial class Image
             }
 
             var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
-            // STACK_N is stamped by IntegrationFitsWriter on every stacking product
-            // (masters + rejection maps). Carrying it on FrameInfo lets the
-            // pipeline drop these at scan time when a stale output-*/ dir sits
-            // alongside the lights, otherwise they get treated as fresh frames.
-            var stackedFrameCount = hdu.Header.GetIntValue("STACK_N", 0);
+            var stackedFrameCount = ReadStackedFrameCount(hdu.Header);
             frameInfo = new Calibration.FrameInfo(fileName, width, height, channelCount, bitDepth, imageMeta, stackedFrameCount);
             return true;
         }
@@ -318,6 +314,26 @@ public partial class Image
         }
         return Devices.PointingState.Unknown;
     }
+
+    /// <summary>
+    /// How many raw frames were integrated to make this file, or 0 when it is a raw sub. Non-zero
+    /// is what marks a file as a stacking PRODUCT, so the scan can drop it instead of re-ingesting
+    /// a master as if it were a fresh frame.
+    ///
+    /// <para>Two spellings, because two producers: <c>STACK_N</c> is what
+    /// <see cref="Stacking.IntegrationFitsWriter"/> stamps on our own masters and rejection maps,
+    /// and <c>NUMFRAME</c> is Astro Pixel Processor's equivalent. Reading only the first missed
+    /// every APP product, and for APP's LIGHT integrations it missed them ENTIRELY: APP marks a
+    /// calibration master with <c>IMAGETYP='MASTERFLAT'</c> and friends (which
+    /// <see cref="FrameType.IsMasterFITSValue"/> catches), but a light integration keeps
+    /// <c>IMAGETYP='LIGHT'</c> and copies the reference sub's header verbatim -- right down to
+    /// <c>SWCREATE='N.I.N.A. ...'</c> -- so neither the master flag nor the TianWen-product check
+    /// can see it. <c>NUMFRAME</c> is the one card present on all five APP product kinds.</para>
+    /// </summary>
+    private static int ReadStackedFrameCount(Header header)
+        => header.GetIntValue("STACK_N", 0) is var stackN and > 0
+            ? stackN
+            : header.GetIntValue("NUMFRAME", 0);
 
     public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image)
     {
