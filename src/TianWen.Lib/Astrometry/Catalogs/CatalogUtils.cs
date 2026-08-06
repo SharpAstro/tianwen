@@ -53,7 +53,9 @@ public static partial class CatalogUtils
     private static partial Regex WDSPatternGen();
     private static readonly Regex WDSPattern = WDSPatternGen();
 
-    [GeneratedRegex(@"(?:TYC) ([0-9]{1,4})-([0-9]{1,5})-([1-3])", CommonOpts)]
+    // IgnoreCase so "Tyc"/"tyc" parse as well as "TYC". Safe to fold on this pattern specifically:
+    // the only letters in it are the catalog tag, so nothing else can match more widely.
+    [GeneratedRegex(@"(?:TYC) ([0-9]{1,4})-([0-9]{1,5})-([1-3])", CommonOpts | RegexOptions.IgnoreCase)]
     private static partial Regex Tyc2PatternGen();
     private static readonly Regex Tyc2Pattern = Tyc2PatternGen();
 
@@ -427,7 +429,18 @@ public static partial class CatalogUtils
         var secondChar = noSpaces[1];
         var secondIsDigit = char.IsDigit(secondChar);
 
-        (template, catalog) = noSpaces[0] switch
+        // The LEADING catalog letter is matched case-insensitively; the rest of the input is passed
+        // through untouched. Case tolerance below is hand-rolled per arm and lands almost entirely on
+        // the SECOND character ("NGC"/"ngc", "Sh2"/"sh2"), so "M42" resolved while "m42" did not --
+        // which a deep link ("?object=m42") or a lower-cased shared URL hits immediately, and the
+        // search box does not, because it binary-searches OrdinalIgnoreCase.
+        //
+        // Only the first character is folded, deliberately. trimmedInput is handed on to the RA/Dec
+        // regexes (2MASS, PSR, WDS, BD) and to the template arms that match specific lowercase letters
+        // ("Mel", "Sh2", "Messier"), so upper-casing the whole string would change what those match.
+        // Folding one character is strictly additive instead: correctly-cased input takes the identical
+        // path, and input that used to fail either resolves now or fails exactly as it did.
+        (template, catalog) = char.ToUpperInvariant(noSpaces[0]) switch
         {
             // Numbered comets ("13P", "73P-C", "24P/Schaumasse") must be probed before the 2MASS arms:
             // "24P/S..." would otherwise satisfy the '2' + [4]=='S' check.
@@ -468,7 +481,7 @@ public static partial class CatalogUtils
             'M' => secondChar switch
             {
                 'e' when noSpaces.Length > 2 && noSpaces[2] == 'l' => ("Mel000", Catalog.Melotte),
-                'e' when noSpaces.Length > 6 && noSpaces[0..7] == "Messier" => ("M00*", Catalog.Messier),
+                'e' or 'E' when noSpaces.Length > 6 && noSpaces.AsSpan(0, 7).Equals("Messier", StringComparison.OrdinalIgnoreCase) => ("M00*", Catalog.Messier),
                 'W' => ("MWSC0000", Catalog.MWSC),
                 _ when secondIsDigit => ("M00*", Catalog.Messier),
                 _ => ("", 0)
@@ -482,9 +495,10 @@ public static partial class CatalogUtils
             'R' when secondChar == 'C' => ("RCW000*", Catalog.RCW),
             'S' when secondChar is 'H' or 'h' && noSpaces.Length > 2 && noSpaces[2] is '2' or 'a' => ("Sh2-000*", Catalog.Sharpless),
             'T' when secondIsDigit || secondChar == 'r' => ("TrES00", Catalog.TrES),
-            'T' when secondChar is 'Y' or 'Y' => ("TYC 0000-00000-0", Catalog.Tycho2),
+            'T' when secondChar is 'Y' or 'y' => ("TYC 0000-00000-0", Catalog.Tycho2),
             'U' when secondIsDigit || secondChar == 'G' => ("U00000", Catalog.UGC),
-            'v' or 'V' when secondChar is 'd' or 'D' => ("vdB000*", Catalog.vdB),
+            // (first char is already folded above, so 'V' alone covers "vdB" and "VdB")
+            'V' when secondChar is 'd' or 'D' => ("vdB000*", Catalog.vdB),
             'W' when secondChar == 'D' && noSpaces.Length > 2 && noSpaces[2] == 'S' => ("", Catalog.WDS),
             'W' when secondIsDigit || secondChar == 'A' => ("WASP000", Catalog.WASP),
             'X' when secondIsDigit || secondChar == 'O' => ("XO000*", Catalog.XO),

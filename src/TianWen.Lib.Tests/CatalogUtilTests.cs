@@ -130,6 +130,37 @@ public class CatalogUtilTests
     }
 
     [Theory]
+    // The leading catalog letter is case-folded, so the spellings people actually type into a URL or
+    // a search box resolve. Before this, "M42" worked and "m42" did not: case tolerance was hand-rolled
+    // per arm and landed almost entirely on the SECOND character.
+    [InlineData("m42", "M042", Catalog.Messier)]
+    [InlineData("m 42", "M042", Catalog.Messier)]
+    [InlineData("ngc1976", "N1976", Catalog.NGC)]
+    [InlineData("ngc 1976", "N1976", Catalog.NGC)]
+    [InlineData("n11", "N0011", Catalog.NGC)]
+    [InlineData("ic434", "I0434", Catalog.IC)]
+    [InlineData("messier 120", "M120", Catalog.Messier)]
+    [InlineData("vdB 1", "vdB0001", Catalog.vdB)]  // the one arm that already paired 'v' with 'V'
+    [InlineData("VdB 1", "vdB0001", Catalog.vdB)]
+    public void TheLeadingCatalogLetterIsCaseInsensitive(string input, string expectedAbbreviation, Catalog expectedCatalog)
+    {
+        CatalogUtils.TryGetCleanedUpCatalogName(input, out var index).ShouldBeTrue();
+        index.ToAbbreviation().ShouldBe(expectedAbbreviation);
+        index.ToCatalog().ShouldBe(expectedCatalog);
+    }
+
+    [Theory]
+    // Every neighbouring arm pairs an upper-case second letter with its lower-case twin; this one read
+    // 'Y' or 'Y', so the lower-case spelling of the most-typed star catalog silently did not parse.
+    [InlineData("TYC 4038-2410-1")]
+    [InlineData("Tyc 4038-2410-1")]
+    public void TychoParsesWhicheverWayTheSecondLetterIsCased(string input)
+    {
+        CatalogUtils.TryGetCleanedUpCatalogName(input, out var index).ShouldBeTrue();
+        index.ToCatalog().ShouldBe(Catalog.Tycho2);
+    }
+
+    [Theory]
     [InlineData("Not an index")]
     [InlineData("   ")]
     [InlineData("")]
