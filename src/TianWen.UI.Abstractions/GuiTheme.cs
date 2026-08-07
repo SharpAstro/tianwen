@@ -165,6 +165,20 @@ namespace TianWen.UI.Abstractions
             return true;
         }
 
+        /// <summary>
+        /// Text to lay ON a filled colour chip, chosen from the fill's own lightness.
+        /// </summary>
+        /// <remarks>
+        /// A semantic fill's lightness flips between states: <see cref="UiPalette.Warn"/> is a dark ochre
+        /// in Light and a bright amber in Dark, and <see cref="UiPalette.Success"/> is a deep green in
+        /// Light and a light one in Dark. So ANY fixed ink is legible in one state and invisible in
+        /// another, and a de-emphasised role is wrong in all of them: a <c>DimText</c> label on the green
+        /// Connect All fill measured about 1.4:1. Ask here instead of picking a colour per call site.
+        /// </remarks>
+        public static RGBAColor32 InkOn(RGBAColor32 fill) => fill.Luminance < 0x80
+            ? new RGBAColor32(0xff, 0xff, 0xff, 0xff)
+            : new RGBAColor32(0x14, 0x10, 0x08, 0xff);
+
         // What Night was toggled ON from, so toggling OFF restores it rather than guessing. Seeded to
         // the startup state so an F12 pressed before anything else has touched the theme still returns
         // somewhere sensible.

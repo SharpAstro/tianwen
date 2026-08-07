@@ -64,14 +64,9 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        /// <summary>
-        /// Text to lay ON a filled colour chip. The prompt badge fills with <c>Warn</c>, whose own
-        /// lightness flips between states (a dark ochre in Light, a bright amber in Dark), so a fixed
-        /// ink colour is legible in one state and invisible in the other.
-        /// </summary>
-        private static RGBAColor32 Ink(RGBAColor32 fill) => fill.Luminance < 0x80
-            ? new RGBAColor32(0xff, 0xff, 0xff, 0xff)
-            : new RGBAColor32(0x14, 0x10, 0x08, 0xff);
+        // Ink-on-fill moved to GuiTheme.InkOn when the Connect All button became the second caller;
+        // a second copy of the rule is how one of them drifts.
+        private static RGBAColor32 Ink(RGBAColor32 fill) => GuiTheme.InkOn(fill);
     }
 
     /// <summary>

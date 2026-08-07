@@ -209,21 +209,34 @@ namespace TianWen.UI.Gui
             [GuiTab.Notifications] = ("\U0001F514",        "Notifications (Ctrl+N)"),
         };
 
-        // Sidebar colors
-        private static readonly RGBAColor32 SidebarBg     = new RGBAColor32(0x1a, 0x1a, 0x22, 0xff);
-        private static readonly RGBAColor32 ActiveTabBg   = new RGBAColor32(0x20, 0x30, 0x50, 0xff);
-        private static readonly RGBAColor32 HoverTabBg    = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
-        private static readonly RGBAColor32 IconColor     = new RGBAColor32(0xcc, 0xcc, 0xcc, 0xff);
-        private static readonly RGBAColor32 ActiveIcon    = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-        private static readonly RGBAColor32 LockedIcon    = new RGBAColor32(0x44, 0x44, 0x50, 0xff);
+        // Window chrome, entirely from the shared palette. PROPERTIES, not static readonly fields: a
+        // field initialiser snapshots at type-init, which is how the one palette-derived colour that was
+        // already here (ContentBg) still failed to follow a theme switch.
+        //
+        // The sidebar is a panel that the active tab lifts off, so it takes PanelBg and the active tab
+        // takes Selection: the selected-surface role IS what "the tab you are on" means, and it already
+        // carries the cool lift the hand-picked 0x203050 was reaching for. Hover sits between the two on
+        // HeaderBg. An inactive icon is de-emphasised text and an active one is body text, so they are
+        // DimText and BodyText rather than two greys; a locked tab is not text at all, so it takes the
+        // heavier rule weight instead of a third one.
+        private static RGBAColor32 SidebarBg       => Palette.PanelBg;
+        private static RGBAColor32 ActiveTabBg     => Palette.Selection;
+        private static RGBAColor32 HoverTabBg      => Palette.HeaderBg;
+        private static RGBAColor32 IconColor       => Palette.DimText;
+        private static RGBAColor32 ActiveIcon      => Palette.BodyText;
+        private static RGBAColor32 LockedIcon      => Palette.SeparatorStrong;
 
-        // Status bar colors
-        private static readonly RGBAColor32 StatusBarBg   = new RGBAColor32(0x22, 0x22, 0x28, 0xff);
-        private static readonly RGBAColor32 StatusText    = new RGBAColor32(0xaa, 0xaa, 0xaa, 0xff);
+        // Status bar
+        private static RGBAColor32 StatusBarBg     => Palette.HeaderBg;
+        private static RGBAColor32 StatusText      => Palette.DimText;
 
         // Content area placeholder
-        private static readonly RGBAColor32 ContentBg     = TianWen.UI.Abstractions.GuiTheme.Palette.ContentBg;
-        private static readonly RGBAColor32 PlaceholderText = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
+        private static RGBAColor32 ContentBg       => Palette.ContentBg;
+        private static RGBAColor32 PlaceholderText => Palette.SeparatorStrong;
+
+        // Local alias so the chrome above reads as roles rather than as a namespace walk. UiPalette is
+        // DIR.Lib's (already in scope via the using); only GuiTheme is TianWen's.
+        private static UiPalette Palette => TianWen.UI.Abstractions.GuiTheme.Palette;
 
         public VkGuiRenderer(VkRenderer renderer, uint width, uint height, SignalBus? bus = null, ILogger? logger = null) : base(renderer)
         {
@@ -431,11 +444,12 @@ namespace TianWen.UI.Gui
             var x = anchorX;
             var y = anchorY - h * 0.5f;
 
-            // Border + fill
-            FillRect(x - 1, y - 1, w + 2, h + 2, new RGBAColor32(0x50, 0x50, 0x60, 0xFF));
-            FillRect(x, y, w, h, new RGBAColor32(0x22, 0x22, 0x2C, 0xF0));
+            // Border + fill. The fill keeps its near-opaque alpha so the tooltip still reads as floating
+            // over the content rather than cut into it; only the hue comes from the palette.
+            FillRect(x - 1, y - 1, w + 2, h + 2, Palette.SeparatorStrong);
+            FillRect(x, y, w, h, Palette.HeaderBg.WithAlpha(0xF0));
             _renderer.DrawText(text.AsSpan(), FontPath, fontSize,
-                new RGBAColor32(0xE6, 0xE6, 0xE6, 0xFF),
+                Palette.BodyText,
                 new RectInt(new PointInt((int)(x + w), (int)(y + h)), new PointInt((int)(x + pad), (int)y)),
                 TextAlign.Near, TextAlign.Center);
         }
@@ -481,13 +495,15 @@ namespace TianWen.UI.Gui
             {
                 dateStr = isTonight ? "Tonight" : planDate.ToString("ddd d MMM");
             }
-            var dateColor = plannerState.PlanningDate.HasValue ? new RGBAColor32(0x88, 0xcc, 0xff, 0xff) : StatusText;
+            // A pinned planning date is the one thing in this bar that differs from "now", so it takes the
+            // accent; an unpinned date is ordinary de-emphasised chrome.
+            var dateColor = plannerState.PlanningDate.HasValue ? Palette.Accent : StatusText;
 
             // The whole bar is one layout tree: three star-weighted zones (left | centre | right), so
             // placement is "weights + spacers", not pixel arithmetic. Sizes/fonts are design units;
             // RenderLayout scales them by DpiScale. Every leaf is .HStar() so it fills the bar height and
             // VAlign=Center centres the glyph (a horizontal stack top-aligns Auto-height children).
-            var arrowBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+            var arrowBg = Palette.HeaderBg;
             const float gapDu = 6f; // design-unit inter-element gap
 
             // LEFT: the (truncated) status message.
@@ -504,7 +520,7 @@ namespace TianWen.UI.Gui
                 var contentW = w - (SidebarWidth + 6f) - 4f;
                 var msgCellW = Math.Max(contentW / 3f, 40f);
                 var displayMsg = TruncateToFit(msg, msgCellW, FontSize * 0.85f);
-                statusNode = Layout.Builder.Text(displayMsg, BaseFontSize * 0.85f, new RGBAColor32(0xff, 0xcc, 0x66, 0xff), TextAlign.Near, TextAlign.Center)
+                statusNode = Layout.Builder.Text(displayMsg, BaseFontSize * 0.85f, Palette.Warn, TextAlign.Near, TextAlign.Center)
                     .WStar().HStar();
             }
             else
@@ -555,8 +571,17 @@ namespace TianWen.UI.Gui
                     EquipmentState.IsDiscovering);
                 if (ca.Visible)
                 {
-                    var caLabelColor = ca.Enabled ? StatusText : new RGBAColor32(0x99, 0x99, 0xa3, 0xff);
-                    var caBg = ca.Enabled ? new RGBAColor32(0x2e, 0x7d, 0x32, 0xff) : new RGBAColor32(0x30, 0x30, 0x3a, 0xff);
+                    // Connect All was the loudest literal left in the chrome: a fixed green that ignored
+                    // the theme entirely and, in a dark-adaptation palette, became the brightest thing on
+                    // screen. Success is the role for it, and in a palette with no green to spend it
+                    // resolves to the accent instead of insisting on one. Disabled is a plain rule fill.
+                    // Enabled is a FILLED chip, so its label is ink chosen from the fill, not a text role:
+                    // DimText on the green Success fill measured about 1.4:1 and was effectively unreadable.
+                    // Disabled is a plain rule fill, where the ordinary de-emphasised role is right.
+                    var caBg = ca.Enabled ? Palette.Success : Palette.Separator;
+                    var caLabelColor = ca.Enabled
+                        ? TianWen.UI.Abstractions.GuiTheme.InkOn(caBg)
+                        : Palette.DimText;
                     var caButton = Layout.Builder.HStack(
                             Layout.Builder.Spacer().WFixed(gapDu * 2f),
                             Layout.Builder.Text(ca.Label, BaseFontSize * 0.9f, caLabelColor, TextAlign.Center, TextAlign.Center).WAuto().HStar(),
