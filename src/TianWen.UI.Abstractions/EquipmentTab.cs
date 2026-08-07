@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -36,24 +36,24 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 DeviceListBg     = new RGBAColor32(0x18, 0x18, 0x22, 0xff);
         // Slot/OTA/filter chrome colours live on EquipmentPanelStyle.Default (the single source shared
         // with the data-driven EquipmentPanelLayout); reference them here rather than re-declaring literals.
-        private static readonly RGBAColor32 SlotNormal       = EquipmentPanelStyle.Default.SlotNormal;
-        private static readonly RGBAColor32 SlotActive       = EquipmentPanelStyle.Default.SlotActive;
+        private static RGBAColor32 SlotNormal                => EquipmentPanelStyle.Default.SlotNormal;
+        private static RGBAColor32 SlotActive                => EquipmentPanelStyle.Default.SlotActive;
         private static readonly RGBAColor32 DeviceRowBg      = new RGBAColor32(0x20, 0x20, 0x2c, 0xff);
         private static readonly RGBAColor32 DeviceRowBgAlt   = new RGBAColor32(0x25, 0x25, 0x33, 0xff);
         private static readonly RGBAColor32 AssignedGreen    = new RGBAColor32(0x40, 0xc0, 0x40, 0xff);
         private static readonly RGBAColor32 DimmedText       = new RGBAColor32(0x60, 0x60, 0x70, 0xff);
         private static readonly RGBAColor32 CreateButton     = new RGBAColor32(0x30, 0x60, 0x90, 0xff);
-        private static readonly RGBAColor32 HeaderText       = GuiTheme.Palette.HeaderText;
-        private static readonly RGBAColor32 BodyText         = GuiTheme.Palette.BodyText;
-        private static readonly RGBAColor32 DimText          = GuiTheme.Palette.DimText;
-        private static readonly RGBAColor32 SeparatorColor   = GuiTheme.Palette.Separator;
+        private static RGBAColor32 HeaderText                => GuiTheme.Palette.HeaderText;
+        private static RGBAColor32 BodyText                  => GuiTheme.Palette.BodyText;
+        private static RGBAColor32 DimText                   => GuiTheme.Palette.DimText;
+        private static RGBAColor32 SeparatorColor            => GuiTheme.Palette.Separator;
         private static readonly RGBAColor32 BadgeBg          = new RGBAColor32(0x28, 0x28, 0x38, 0xff);
         private static readonly RGBAColor32 SiteText         = new RGBAColor32(0x99, 0xbb, 0x99, 0xff);
-        private static readonly RGBAColor32 OtaHeaderBg      = EquipmentPanelStyle.Default.OtaHeaderBg;
-        private static readonly RGBAColor32 ContentBg        = GuiTheme.Palette.ContentBg;
+        private static RGBAColor32 OtaHeaderBg               => EquipmentPanelStyle.Default.OtaHeaderBg;
+        private static RGBAColor32 ContentBg                 => GuiTheme.Palette.ContentBg;
         private static readonly RGBAColor32 BottomBarBg      = new RGBAColor32(0x14, 0x14, 0x1c, 0xff);
         private static readonly RGBAColor32 AccentInstruct   = new RGBAColor32(0x88, 0xcc, 0xff, 0xff);
-        private static readonly RGBAColor32 FilterTableBg    = EquipmentPanelStyle.Default.FilterTableBg;
+        private static RGBAColor32 FilterTableBg             => EquipmentPanelStyle.Default.FilterTableBg;
         private static readonly RGBAColor32 FilterRowAlt     = new RGBAColor32(0x20, 0x20, 0x2e, 0xff);
         private static readonly RGBAColor32 EditButtonBg     = new RGBAColor32(0x2a, 0x40, 0x5a, 0xff);
         private static readonly RGBAColor32 RemoveButtonBg   = new RGBAColor32(0x6a, 0x2a, 0x2a, 0xff); // muted red: arm OTA removal

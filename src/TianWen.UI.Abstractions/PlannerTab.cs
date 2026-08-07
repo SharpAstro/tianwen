@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -42,10 +42,14 @@ namespace TianWen.UI.Abstractions
 
         // Colors
         private static readonly RGBAColor32 PanelBgOpaque   = new RGBAColor32(0x1a, 0x1a, 0x22, 0xff);
-        private static readonly RGBAColor32 HeaderBg        = GuiTheme.Palette.HeaderBg;
+        // The palette-derived colours here are PROPERTIES, not static readonly fields: a field
+        // initialiser snapshots the palette at type-init, so this tab went on painting the startup
+        // scheme through every theme switch. RGBAColor32 is a struct, so reading through allocates
+        // nothing. The literals alongside have no role yet and still need Night variants.
+        private static RGBAColor32 HeaderBg                 => GuiTheme.Palette.HeaderBg;
         private static readonly RGBAColor32 HeaderText      = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-        private static readonly RGBAColor32 ItemText        = GuiTheme.Palette.BodyText;
-        private static readonly RGBAColor32 SelectedBg      = GuiTheme.Palette.Selection;
+        private static RGBAColor32 ItemText                 => GuiTheme.Palette.BodyText;
+        private static RGBAColor32 SelectedBg               => GuiTheme.Palette.Selection;
         private static readonly RGBAColor32 SelectedText    = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
         private static readonly RGBAColor32 PinnedBg        = new RGBAColor32(0x18, 0x2a, 0x28, 0xff);
         private static readonly RGBAColor32 PinnedText      = new RGBAColor32(0x66, 0xdd, 0xcc, 0xff);
@@ -55,12 +59,12 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 DetailsBg       = new RGBAColor32(0x14, 0x14, 0x1e, 0xff);
         private static readonly RGBAColor32 DetailsNameText = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
         private static readonly RGBAColor32 DetailsInfoText = new RGBAColor32(0xaa, 0xaa, 0xaa, 0xff);
-        private static readonly RGBAColor32 SeparatorColor  = GuiTheme.Palette.Separator;
+        private static RGBAColor32 SeparatorColor           => GuiTheme.Palette.Separator;
         private static readonly RGBAColor32 FilterBtnBg     = new RGBAColor32(0x35, 0x35, 0x48, 0xff);
         private static readonly RGBAColor32 ActiveFilterBg  = new RGBAColor32(0x30, 0x50, 0x30, 0xff);
         private static readonly RGBAColor32 FilterBtnText   = new RGBAColor32(0xdd, 0xdd, 0xdd, 0xff);
         private static readonly RGBAColor32 DropdownBg       = new RGBAColor32(0x22, 0x22, 0x35, 0xff);
-        private static readonly RGBAColor32 DropdownSelBg    = GuiTheme.Palette.Selection;
+        private static RGBAColor32 DropdownSelBg            => GuiTheme.Palette.Selection;
         private static readonly RGBAColor32 DropdownBorder   = new RGBAColor32(0x44, 0x44, 0x60, 0xff);
 
         private IReadOnlyList<ScoredTarget> _lastFilteredTargets = [];

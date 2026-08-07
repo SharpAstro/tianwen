@@ -37,13 +37,16 @@ namespace TianWen.UI.Abstractions
         private const string TargetFillKey = "targetView";
         private const string GraphFillKey = "guideGraph";
 
-        // Colors
-        private static readonly RGBAColor32 ContentBg = GuiTheme.Palette.ContentBg;
-        private static readonly RGBAColor32 PanelBg = GuiTheme.Palette.PanelBg;
-        private static readonly RGBAColor32 HeaderBg = GuiTheme.Palette.HeaderBg;
-        private static readonly RGBAColor32 HeaderText = GuiTheme.Palette.HeaderText;
-        private static readonly RGBAColor32 BodyText = GuiTheme.Palette.BodyText;
-        private static readonly RGBAColor32 DimText = GuiTheme.Palette.DimText;
+        // Colors. The palette-derived ones are PROPERTIES, not static readonly fields: a field
+        // initialiser snapshots the palette at type-init, so this tab went on painting the startup
+        // scheme through every theme switch. RGBAColor32 is a struct, so reading through allocates
+        // nothing. The literals below have no role yet and still need Night variants.
+        private static RGBAColor32 ContentBg => GuiTheme.Palette.ContentBg;
+        private static RGBAColor32 PanelBg => GuiTheme.Palette.PanelBg;
+        private static RGBAColor32 HeaderBg => GuiTheme.Palette.HeaderBg;
+        private static RGBAColor32 HeaderText => GuiTheme.Palette.HeaderText;
+        private static RGBAColor32 BodyText => GuiTheme.Palette.BodyText;
+        private static RGBAColor32 DimText => GuiTheme.Palette.DimText;
         private static readonly RGBAColor32 PlaceholderText = new RGBAColor32(0x66, 0x66, 0x88, 0xff);
         private static readonly RGBAColor32 AlertText = new RGBAColor32(0xff, 0x55, 0x44, 0xff);
 
