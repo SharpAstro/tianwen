@@ -12,17 +12,20 @@ namespace TianWen.UI.Abstractions
     public class NotificationsTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
         // Colours — muted, readable on the standard dark chrome background.
-        private static readonly RGBAColor32 ContentBg    = GuiTheme.Palette.ContentBg;
-        private static readonly RGBAColor32 HeaderBg     = GuiTheme.Palette.HeaderBg;
-        private static readonly RGBAColor32 HeaderText   = GuiTheme.Palette.HeaderText;
-        private static readonly RGBAColor32 RowAltBg     = new(0x1a, 0x1a, 0x24, 0xff);
-        private static readonly RGBAColor32 BodyText     = new(0xdd, 0xdd, 0xdd, 0xff);
-        private static readonly RGBAColor32 DimText      = new(0x80, 0x80, 0x90, 0xff);
-        private static readonly RGBAColor32 EmptyText    = new(0x55, 0x55, 0x66, 0xff);
+        // Properties, NOT static readonly fields. A field initialiser snapshots the palette at
+        // type-init, so this feed would have gone on painting the old scheme through every theme
+        // switch. RGBAColor32 is a struct, so reading through per access allocates nothing.
+        private static RGBAColor32 ContentBg    => GuiTheme.Palette.ContentBg;
+        private static RGBAColor32 HeaderBg     => GuiTheme.Palette.HeaderBg;
+        private static RGBAColor32 HeaderText   => GuiTheme.Palette.HeaderText;
+        private static RGBAColor32 RowAltBg     => GuiTheme.Palette.HeaderBg;
+        private static RGBAColor32 BodyText     => GuiTheme.Palette.BodyText;
+        private static RGBAColor32 DimText      => GuiTheme.Palette.DimText;
+        private static RGBAColor32 EmptyText    => GuiTheme.Palette.DimText;
         // Shared with the home card's last-note line, so the same warning is the same colour on both.
-        private static readonly RGBAColor32 InfoStripe   = GuiTheme.SeverityInfo;
-        private static readonly RGBAColor32 WarnStripe   = GuiTheme.SeverityWarn;
-        private static readonly RGBAColor32 ErrorStripe  = GuiTheme.SeverityError;
+        private static RGBAColor32 InfoStripe   => GuiTheme.Palette.Info;
+        private static RGBAColor32 WarnStripe   => GuiTheme.Palette.Warn;
+        private static RGBAColor32 ErrorStripe  => GuiTheme.Palette.Error;
 
         private const float BaseRowHeight = 32f;
         private const float BaseFontSize  = 13f;

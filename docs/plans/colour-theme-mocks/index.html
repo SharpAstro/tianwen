@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TianWen colour core candidates</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b0d12; --card:#12151d; --line:#222836;
+           --tx:#dfe4ee; --dim:#8b95a8; }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:32px; background:var(--bg); color:var(--tx);
+          font:15px/1.55 "Segoe UI",system-ui,sans-serif; }
+  h1 { font-size:26px; margin:0 0 6px; letter-spacing:-.01em; }
+  .lede { color:var(--dim); max-width:70ch; margin:0 0 8px; }
+  .note { color:var(--dim); max-width:78ch; margin:0 0 28px; font-size:13.5px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px;
+             padding:20px; margin-bottom:24px; }
+  h2 { font-size:18px; margin:0 0 4px; }
+  .pitch { color:var(--dim); margin:0 0 12px; font-size:13.5px; }
+  .sws { display:flex; gap:3px; margin-bottom:16px; }
+  .sw { width:34px; height:16px; border-radius:3px; border:1px solid #0006; }
+  .row { display:grid; grid-template-columns:repeat(auto-fit,minmax(330px,1fr));
+          gap:16px; }
+  figure { margin:0; }
+  img { width:100%; height:auto; display:block; border-radius:6px;
+         border:1px solid var(--line); }
+  figcaption { color:var(--dim); font-size:12px; margin-top:6px;
+                text-transform:uppercase; letter-spacing:.08em; }
+  table { margin-top:18px; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:5px 20px 5px 0; border-bottom:1px solid var(--line); }
+  th { color:var(--dim); font-weight:600; font-size:11.5px;
+        text-transform:uppercase; letter-spacing:.07em; }
+  .n { font-family:Consolas,ui-monospace,monospace; font-variant-numeric:tabular-nums; }
+</style></head><body>
+<h1>Colour core candidates</h1>
+<p class="lede">Three cores, each in Light / Dark / Night, drawn as the same slice of the
+GUI so they are comparable.</p>
+<p class="note"><strong>text/bg</strong> and <strong>error/bg</strong> are WCAG contrast
+ratios (4.5:1 is AA for body text). <strong>rod</strong> is scotopic stimulation, averaged
+over the four foreground colours, weighted by V'(lambda) at each sRGB primary's dominant
+wavelength. It is what Night mode exists to minimise: lower is darker-adapted. Red is
+roughly 30 to 40 times cheaper than green or blue, so any G or B in a Night palette is a
+cost paid for hue separation.</p>
+<section><h2>D. Chosen</h2><p class="pitch">Plate for Light and Dark, Ember for Night. The hue jump at the boundary is deliberate.</p><div class="sws"><span class="sw" style="background:#101318" title="void #101318"></span><span class="sw" style="background:#171b22" title="panel #171b22"></span><span class="sw" style="background:#1e232c" title="panel2 #1e232c"></span><span class="sw" style="background:#2a3039" title="line #2a3039"></span><span class="sw" style="background:#3c444f" title="line_strong #3c444f"></span><span class="sw" style="background:#e2e6ec" title="text #e2e6ec"></span><span class="sw" style="background:#8b939f" title="dim #8b939f"></span><span class="sw" style="background:#7cc4ff" title="accent #7cc4ff"></span><span class="sw" style="background:#7cc4ff" title="accent2 #7cc4ff"></span></div><div class="row"><figure><img src="D-chosen-light.png" alt="D-chosen Light" width="1320" height="940" loading="lazy"><figcaption>Light</figcaption></figure><figure><img src="D-chosen-dark.png" alt="D-chosen Dark" width="1320" height="940" loading="lazy"><figcaption>Dark</figcaption></figure><figure><img src="D-chosen-night.png" alt="D-chosen Night" width="1320" height="940" loading="lazy"><figcaption>Night</figcaption></figure></div><table><thead><tr><th>state</th><th>text/bg</th><th>error/bg</th><th>rod</th></tr></thead><tbody><tr><td>Light</td><td class="n">17.82:1</td><td class="n">6.57:1</td><td class="n">0.0956</td></tr><tr><td>Dark</td><td class="n">13.78:1</td><td class="n">6.80:1</td><td class="n">0.5560</td></tr><tr><td>Night</td><td class="n">4.98:1</td><td class="n">5.19:1</td><td class="n">0.0531</td></tr></tbody></table></section>
+<section><h2>A. Observatory</h2><p class="pitch">The site palette, extended to the app. Teal reads as instrument readout.</p><div class="sws"><span class="sw" style="background:#070a12" title="void #070a12"></span><span class="sw" style="background:#0d1220" title="panel #0d1220"></span><span class="sw" style="background:#111829" title="panel2 #111829"></span><span class="sw" style="background:#1b2334" title="line #1b2334"></span><span class="sw" style="background:#2b3550" title="line_strong #2b3550"></span><span class="sw" style="background:#dbe2ee" title="text #dbe2ee"></span><span class="sw" style="background:#8895ac" title="dim #8895ac"></span><span class="sw" style="background:#66ddcc" title="accent #66ddcc"></span><span class="sw" style="background:#ffb35c" title="accent2 #ffb35c"></span></div><div class="row"><figure><img src="A-observatory-light.png" alt="A-observatory Light" width="1320" height="940" loading="lazy"><figcaption>Light</figcaption></figure><figure><img src="A-observatory-dark.png" alt="A-observatory Dark" width="1320" height="940" loading="lazy"><figcaption>Dark</figcaption></figure><figure><img src="A-observatory-night.png" alt="A-observatory Night" width="1320" height="940" loading="lazy"><figcaption>Night</figcaption></figure></div><table><thead><tr><th>state</th><th>text/bg</th><th>error/bg</th><th>rod</th></tr></thead><tbody><tr><td>Light</td><td class="n">18.47:1</td><td class="n">6.54:1</td><td class="n">0.0689</td></tr><tr><td>Dark</td><td class="n">14.34:1</td><td class="n">6.73:1</td><td class="n">0.5272</td></tr><tr><td>Night</td><td class="n">4.13:1</td><td class="n">5.29:1</td><td class="n">0.0341</td></tr></tbody></table></section>
+<section><h2>B. Plate</h2><p class="pitch">Cool neutrals, one accent, no secondary. Closest to today's GUI.</p><div class="sws"><span class="sw" style="background:#101318" title="void #101318"></span><span class="sw" style="background:#171b22" title="panel #171b22"></span><span class="sw" style="background:#1e232c" title="panel2 #1e232c"></span><span class="sw" style="background:#2a3039" title="line #2a3039"></span><span class="sw" style="background:#3c444f" title="line_strong #3c444f"></span><span class="sw" style="background:#e2e6ec" title="text #e2e6ec"></span><span class="sw" style="background:#8b939f" title="dim #8b939f"></span><span class="sw" style="background:#7cc4ff" title="accent #7cc4ff"></span><span class="sw" style="background:#7cc4ff" title="accent2 #7cc4ff"></span></div><div class="row"><figure><img src="B-plate-light.png" alt="B-plate Light" width="1320" height="940" loading="lazy"><figcaption>Light</figcaption></figure><figure><img src="B-plate-dark.png" alt="B-plate Dark" width="1320" height="940" loading="lazy"><figcaption>Dark</figcaption></figure><figure><img src="B-plate-night.png" alt="B-plate Night" width="1320" height="940" loading="lazy"><figcaption>Night</figcaption></figure></div><table><thead><tr><th>state</th><th>text/bg</th><th>error/bg</th><th>rod</th></tr></thead><tbody><tr><td>Light</td><td class="n">17.82:1</td><td class="n">6.57:1</td><td class="n">0.0956</td></tr><tr><td>Dark</td><td class="n">13.78:1</td><td class="n">6.80:1</td><td class="n">0.5560</td></tr><tr><td>Night</td><td class="n">3.60:1</td><td class="n">5.28:1</td><td class="n">0.0239</td></tr></tbody></table></section>
+<section><h2>C. Ember</h2><p class="pitch">Warm neutrals, amber-led. Dark to Night becomes a shift in degree, not kind.</p><div class="sws"><span class="sw" style="background:#0d0b09" title="void #0d0b09"></span><span class="sw" style="background:#16130f" title="panel #16130f"></span><span class="sw" style="background:#1f1a15" title="panel2 #1f1a15"></span><span class="sw" style="background:#2e2720" title="line #2e2720"></span><span class="sw" style="background:#453b30" title="line_strong #453b30"></span><span class="sw" style="background:#ece4d8" title="text #ece4d8"></span><span class="sw" style="background:#a29685" title="dim #a29685"></span><span class="sw" style="background:#ffb055" title="accent #ffb055"></span><span class="sw" style="background:#6fd0c0" title="accent2 #6fd0c0"></span></div><div class="row"><figure><img src="C-ember-light.png" alt="C-ember Light" width="1320" height="940" loading="lazy"><figcaption>Light</figcaption></figure><figure><img src="C-ember-dark.png" alt="C-ember Dark" width="1320" height="940" loading="lazy"><figcaption>Dark</figcaption></figure><figure><img src="C-ember-night.png" alt="C-ember Night" width="1320" height="940" loading="lazy"><figcaption>Night</figcaption></figure></div><table><thead><tr><th>state</th><th>text/bg</th><th>error/bg</th><th>rod</th></tr></thead><tbody><tr><td>Light</td><td class="n">18.19:1</td><td class="n">6.44:1</td><td class="n">0.0359</td></tr><tr><td>Dark</td><td class="n">14.69:1</td><td class="n">7.25:1</td><td class="n">0.3928</td></tr><tr><td>Night</td><td class="n">4.98:1</td><td class="n">5.19:1</td><td class="n">0.0531</td></tr></tbody></table></section>
+</body></html>

@@ -29,23 +29,49 @@ namespace TianWen.UI.Abstractions
         /// The shared board palette. One instance for every surface: the GPU tab and the TUI tab draw the
         /// same tree, so a second copy of these colours would be a second thing to keep in step.
         /// </summary>
-        public static HomeBoardStyle Default { get; } = new HomeBoardStyle(
-            ContentBg:    GuiTheme.Palette.ContentBg,
-            HeaderBg:     GuiTheme.Palette.HeaderBg,
-            HeaderText:   GuiTheme.Palette.HeaderText,
-            EmptyText:    new RGBAColor32(0x55, 0x55, 0x66, 0xff),
-            CardBg:       GuiTheme.Palette.PanelBg,
-            ViewedCardBg: GuiTheme.Palette.Selection,
-            BodyText:     GuiTheme.Palette.BodyText,
-            DimText:      GuiTheme.Palette.DimText,
-            OnlineDot:    new RGBAColor32(0x55, 0xbb, 0x66, 0xff),
-            OfflineDot:   new RGBAColor32(0x66, 0x66, 0x74, 0xff),
-            RunningDot:   new RGBAColor32(0x55, 0x99, 0xdd, 0xff),
-            PromptBg:     new RGBAColor32(0xbb, 0x88, 0x22, 0xff),
-            PromptText:   new RGBAColor32(0x18, 0x14, 0x08, 0xff),
-            // Shared with the notifications feed's row stripes, so one warning is one colour app-wide.
-            WarnText:     GuiTheme.SeverityWarn,
-            ErrorText:    GuiTheme.SeverityError);
+        /// <remarks>
+        /// A computed property, NOT a <c>static readonly</c> initialiser. It used to be the latter,
+        /// which snapshots the palette at type-init and then never moves again -- so the board would
+        /// have kept its old colours through every theme switch, silently and only on this screen.
+        /// <see cref="HomeBoardStyle"/> is a struct, so recomputing per access costs a copy and no
+        /// allocation.
+        /// </remarks>
+        public static HomeBoardStyle Default
+        {
+            get
+            {
+                var p = GuiTheme.Palette;
+                return new HomeBoardStyle(
+                    ContentBg:    p.ContentBg,
+                    HeaderBg:     p.HeaderBg,
+                    HeaderText:   p.HeaderText,
+                    EmptyText:    p.DimText,
+                    CardBg:       p.PanelBg,
+                    ViewedCardBg: p.Selection,
+                    BodyText:     p.BodyText,
+                    DimText:      p.DimText,
+                    // Online is the one dot with a conventional colour (green) that a palette may be
+                    // unable to spend -- Night cannot -- so it goes through the Success role, which
+                    // falls back to the accent exactly there.
+                    OnlineDot:    p.Success,
+                    OfflineDot:   p.DimText,
+                    RunningDot:   p.Info,
+                    PromptBg:     p.Warn,
+                    PromptText:   Ink(p.Warn),
+                    // Shared with the notifications feed's row stripes, so one warning is one colour app-wide.
+                    WarnText:     p.Warn,
+                    ErrorText:    p.Error);
+            }
+        }
+
+        /// <summary>
+        /// Text to lay ON a filled colour chip. The prompt badge fills with <c>Warn</c>, whose own
+        /// lightness flips between states (a dark ochre in Light, a bright amber in Dark), so a fixed
+        /// ink colour is legible in one state and invisible in the other.
+        /// </summary>
+        private static RGBAColor32 Ink(RGBAColor32 fill) => fill.Luminance < 0x80
+            ? new RGBAColor32(0xff, 0xff, 0xff, 0xff)
+            : new RGBAColor32(0x14, 0x10, 0x08, 0xff);
     }
 
     /// <summary>

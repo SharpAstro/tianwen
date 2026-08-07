@@ -630,6 +630,12 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
         case InputKey.F11:
             sdlWindow.ToggleFullscreen();
             return true;
+        // F12 = dark-adaptation mode, matching SharpCap's night-vision key so it is the one an
+        // observer already has in their fingers at the mount. Posted rather than applied here: the
+        // theme is app state, so the handler that owns it lives in AppSignalHandler.
+        case InputKey.F12:
+            bus.Post(new ToggleNightModeSignal());
+            return true;
     }
 
     return true;
