@@ -1,3 +1,4 @@
+using System;
 using DIR.Lib;
 
 namespace TianWen.UI.Abstractions
@@ -112,7 +113,15 @@ namespace TianWen.UI.Abstractions
             Accent          = new RGBAColor32(0xff, 0x6a, 0x00, 0xff),
             AccentAlt       = new RGBAColor32(0xa8, 0x3c, 0x00, 0xff),
             Selection       = new RGBAColor32(0x3a, 0x10, 0x00, 0xff),
-            Info            = new RGBAColor32(0x8c, 0x30, 0x00, 0xff),
+            // Info carries the BodyText value on purpose. It was its own dim red (#8c3000) and measured
+            // 2.46:1 on PanelBg, which is unreadable; every value that IS readable collides with Warn,
+            // because with blue at zero and green rationed there is not enough room for a fourth
+            // distinguishable semantic hue. The way out is not a compromise colour: informational IS the
+            // baseline weight, so Info reads as ordinary text and the two severities that must interrupt
+            // keep the hue budget (Warn orange, Error pure red). Same reasoning as Success borrowing the
+            // accent. An info message therefore reads as text in Night and as blue in Light and Dark,
+            // which is correct rather than a shortcoming.
+            Info            = new RGBAColor32(0xe0, 0x4a, 0x00, 0xff),
             Warn            = new RGBAColor32(0xcc, 0x5c, 0x00, 0xff),
             Error           = new RGBAColor32(0xff, 0x15, 0x00, 0xff),
         };
@@ -175,9 +184,35 @@ namespace TianWen.UI.Abstractions
         /// another, and a de-emphasised role is wrong in all of them: a <c>DimText</c> label on the green
         /// Connect All fill measured about 1.4:1. Ask here instead of picking a colour per call site.
         /// </remarks>
-        public static RGBAColor32 InkOn(RGBAColor32 fill) => fill.Luminance < 0x80
-            ? new RGBAColor32(0xff, 0xff, 0xff, 0xff)
-            : new RGBAColor32(0x14, 0x10, 0x08, 0xff);
+        public static RGBAColor32 InkOn(RGBAColor32 fill)
+        {
+            // Pick whichever ink MEASURES better, rather than branching on a lightness threshold. Two
+            // reasons. RGBAColor32.Luminance is the gamma-encoded NTSC approximation, which is fine for
+            // "is this dark" and is not the quantity a contrast ratio is defined on; and a threshold has
+            // to guess at the crossover, which it got wrong for Night's Warn, Error and Info fills (all
+            // three landed near 4:1 on white when black would have given 4.5 or better). Comparing the
+            // two candidates has no crossover to get wrong.
+            var white = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+            var ink = new RGBAColor32(0x14, 0x10, 0x08, 0xff);
+            return Contrast(white, fill) >= Contrast(ink, fill) ? white : ink;
+        }
+
+        // WCAG relative luminance + contrast ratio. Small enough to keep here rather than take a
+        // dependency, and it is the only place production code needs it.
+        private static double Contrast(RGBAColor32 a, RGBAColor32 b)
+        {
+            double x = RelativeLuminance(a), y = RelativeLuminance(b);
+            return (Math.Max(x, y) + 0.05) / (Math.Min(x, y) + 0.05);
+        }
+
+        private static double RelativeLuminance(RGBAColor32 c)
+            => (0.2126 * Linearise(c.Red)) + (0.7152 * Linearise(c.Green)) + (0.0722 * Linearise(c.Blue));
+
+        private static double Linearise(byte channel)
+        {
+            var v = channel / 255.0;
+            return v <= 0.04045 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+        }
 
         // What Night was toggled ON from, so toggling OFF restores it rather than guessing. Seeded to
         // the startup state so an F12 pressed before anything else has touched the theme still returns

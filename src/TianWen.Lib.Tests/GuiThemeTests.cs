@@ -70,6 +70,125 @@ namespace TianWen.Lib.Tests
             Contrast(p.Error, p.PanelBg).ShouldBeGreaterThanOrEqualTo(4.5);
         }
 
+        // Every (text role, surface role) pair the UI actually paints, checked in one place. This exists
+        // because eyeballing screenshots missed three real failures that arithmetic caught at once:
+        // SeparatorStrong used as placeholder text (1.5-1.9:1, invisible in ALL three states), DimText on
+        // the green Success fill (1.4:1), and Night's own Info at 2.46:1. A role lookup makes a colour
+        // consistent, not legible; only the pairing is legible or not.
+        //
+        // Night is held to a LOWER floor than Light and Dark, and that is not a concession to sloppiness:
+        // red on black caps at 5.25:1, so the whole ladder lives under that ceiling and a 4.5 floor would
+        // leave no room for a secondary weight at all. 3.4 keeps every pair perceptible while preserving
+        // the body/dim distinction; the standing rule is that anything which MUST be read uses BodyText.
+        public static TheoryData<string, string, string> TextPairs => new()
+        {
+            { "BodyText",   "PanelBg",   "body text on a panel" },
+            { "BodyText",   "ContentBg", "body text on the backdrop" },
+            { "BodyText",   "HeaderBg",  "body text on chrome" },
+            { "BodyText",   "Selection", "text on a selected row" },
+            { "DimText",    "PanelBg",   "secondary text on a panel" },
+            { "DimText",    "ContentBg", "secondary text on the backdrop" },
+            { "DimText",    "HeaderBg",  "the status bar clock" },
+            { "HeaderText", "HeaderBg",  "a header label" },
+            { "HeaderText", "PanelBg",   "a panel header" },
+            { "Accent",     "PanelBg",   "an accented value" },
+            { "Accent",     "HeaderBg",  "a pinned planning date" },
+            { "Info",       "PanelBg",   "an info message" },
+            { "Warn",       "PanelBg",   "a warning" },
+            { "Warn",       "HeaderBg",  "the status message in the top bar" },
+            { "Error",      "PanelBg",   "an error" },
+            { "Success",    "PanelBg",   "a positive mark" },
+        };
+
+        private static RGBAColor32 Role(UiPalette p, string name) => name switch
+        {
+            "ContentBg" => p.ContentBg,
+            "PanelBg" => p.PanelBg,
+            "HeaderBg" => p.HeaderBg,
+            "Selection" => p.Selection,
+            "BodyText" => p.BodyText,
+            "DimText" => p.DimText,
+            "HeaderText" => p.HeaderText,
+            "Accent" => p.Accent,
+            "Info" => p.Info,
+            "Warn" => p.Warn,
+            "Error" => p.Error,
+            "Success" => p.Success,
+            _ => throw new ArgumentOutOfRangeException(nameof(name), name, "unknown role"),
+        };
+
+        [Theory]
+        [MemberData(nameof(TextPairs))]
+        public void EveryTextPairIsPerceptibleInEveryState(string text, string surface, string usage)
+        {
+            foreach (var state in new[] { "Light", "Dark", "Night" })
+            {
+                var p = ByName(state);
+                var floor = state == "Night" ? 3.4 : 4.5;
+                var ratio = Contrast(Role(p, text), Role(p, surface));
+
+                ratio.ShouldBeGreaterThanOrEqualTo(
+                    floor,
+                    $"{state}: {text} on {surface} ({usage}) is {ratio:F2}:1, below the {floor:F1} floor");
+            }
+        }
+
+        // The one text pair deliberately left OUT of the matrix above, recorded here so it is a decision
+        // rather than a gap: Night's DimText on Selection is 2.94:1.
+        //
+        // Lightening Selection to lift it is the wrong trade, and the numbers say so. A selection fill is
+        // SUPPOSED to be subtle: it measures 1.27:1 in Light and 1.28:1 in Dark against the panel it sits
+        // on, and Night's 1.21:1 is the same order, so it is not anomalous. Pushing Night's lighter to
+        // "fix" the dim label drops BodyText on Selection from 4.11 to about 2.9, trading a pair that
+        // works for a fill nobody asked to be louder. So the standing rule resolves it instead: anything
+        // that must be read on a selected row uses BodyText.
+        [Theory]
+        [InlineData("Light")]
+        [InlineData("Dark")]
+        [InlineData("Night")]
+        public void ASelectionFillIsSubtleInEveryStateByDesign(string state)
+        {
+            var p = ByName(state);
+
+            // Present, but nowhere near a text-contrast ratio; all three states sit in a narrow band.
+            var visibility = Contrast(p.Selection, p.PanelBg);
+            visibility.ShouldBeGreaterThan(1.15);
+            visibility.ShouldBeLessThan(1.6);
+
+            // Which is what makes BodyText the required choice on a selected row.
+            Contrast(p.BodyText, p.Selection).ShouldBeGreaterThanOrEqualTo(state == "Night" ? 3.4 : 4.5);
+        }
+
+        [Fact]
+        public void NightDimTextOnSelectionIsKnowinglyBelowTheFloor()
+        {
+            var p = GuiTheme.NightPalette;
+
+            Contrast(p.DimText, p.Selection).ShouldBeLessThan(3.4);
+            Contrast(p.BodyText, p.Selection).ShouldBeGreaterThanOrEqualTo(3.4);
+        }
+
+        // A filled semantic chip takes ink from its FILL, never a text role. The bug this pins shipped in
+        // the chrome sweep: Connect All fills with Success and labelled itself DimText, which measured
+        // 1.4:1 on the Dark green. Any FIXED ink is wrong too, because a semantic fill's lightness flips
+        // between states, so the check is that InkOn's answer clears AA on the fill in every state.
+        [Theory]
+        [InlineData("Success")]
+        [InlineData("Warn")]
+        [InlineData("Error")]
+        [InlineData("Info")]
+        public void InkOnAFilledChipIsLegibleAgainstThatFill(string fillRole)
+        {
+            foreach (var state in new[] { "Light", "Dark", "Night" })
+            {
+                var fill = Role(ByName(state), fillRole);
+                var ratio = Contrast(GuiTheme.InkOn(fill), fill);
+
+                ratio.ShouldBeGreaterThanOrEqualTo(
+                    4.5, $"{state}: ink on the {fillRole} fill is {ratio:F2}:1");
+            }
+        }
+
         // The home board's status dot is a THREE-way mark -- offline / online / running, drawn from
         // DimText / Success / Info -- so those three must be three colours. Leaving Success to its
         // accent fallback shipped a real regression: in Dark, Info IS Accent, so online and running
