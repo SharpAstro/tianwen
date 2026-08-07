@@ -224,6 +224,10 @@ namespace TianWen.UI.Gui
         private static RGBAColor32 HoverTabBg      => Palette.HeaderBg;
         private static RGBAColor32 IconColor       => Palette.DimText;
         private static RGBAColor32 ActiveIcon      => Palette.BodyText;
+        // A locked tab's icon is deliberately the heaviest RULE weight rather than a text role: it marks an
+        // affordance that is unavailable, and WCAG exempts inactive components from the contrast minimums
+        // (it measures 1.45-1.75:1, close to the 1.95 the hand-picked 0x444450 gave). Do NOT "fix" this to
+        // DimText, which would make a locked tab look merely de-emphasised.
         private static RGBAColor32 LockedIcon      => Palette.SeparatorStrong;
 
         // Status bar
@@ -232,7 +236,9 @@ namespace TianWen.UI.Gui
 
         // Content area placeholder
         private static RGBAColor32 ContentBg       => Palette.ContentBg;
-        private static RGBAColor32 PlaceholderText => Palette.SeparatorStrong;
+        // Text that must be READ, so a text role and not a rule weight. SeparatorStrong measured
+        // 1.5-1.9:1 here in every state, which is invisible rather than subdued.
+        private static RGBAColor32 PlaceholderText => Palette.DimText;
 
         // Local alias so the chrome above reads as roles rather than as a namespace walk. UiPalette is
         // DIR.Lib's (already in scope via the using); only GuiTheme is TianWen's.
