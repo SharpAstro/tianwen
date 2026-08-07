@@ -33,6 +33,15 @@
        AppContext.BaseDirectory/Data/CR2 or /CR3/<file> at test time. Tests skip
        gracefully if the file is missing (clones without `git lfs pull`). -->
   <ItemGroup>
+    <!-- Caps concurrent COLLECTIONS. Without this xUnit defaults maxParallelThreads to the core
+         count (12 here), so a dozen collections run at once, each free to spawn Task.Run capture
+         loops, FakeTimeProvider timers and offscreen GPU contexts. That leaves the box no headroom
+         and starves the tests that busy-wait on a real Task.Delay. The sibling .Functional and
+         .Simulators projects always had this file; this one did not, despite CLAUDE.md saying so. -->
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="Data\CR2\*.CR2" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Data\CR3\*.CR3" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
