@@ -380,14 +380,21 @@ public sealed class ObservationDto
     public required bool AcrossMeridian { get; init; }
 
     /// <summary>
-    /// Frames the filter plan asks for, per OTA -- the denominator for "frame 23/100". Null when the
-    /// observation carries no filter plan, which is what a bare target queued through <c>/targets</c> looks
-    /// like, and also what a node too old to send this produces.
+    /// Frames this slot is expected to yield, per OTA -- the denominator for "frame 23/100". Null when
+    /// the observation carries no filter plan, which is what a bare target queued through <c>/targets</c>
+    /// looks like, and also what a node too old to send this produces.
     /// <para>
-    /// Summed from the plan rather than derived from <see cref="DurationMinutes"/>: duration is the
-    /// scheduler's slot, which a run can leave early or overrun, while the plan is what the imaging loop
-    /// actually works through. It is <b>per OTA</b>, because each OTA works the same plan in parallel -- a
-    /// client comparing it against a session-wide frame count has to multiply by the camera count.
+    /// An <b>estimate</b>, derived from <see cref="DurationMinutes"/> and the plan's sub-exposures;
+    /// clients should present it as approximate, because a run can leave a slot early or overrun it. It
+    /// is <b>per OTA</b>, because each OTA works the same plan in parallel -- a client comparing it
+    /// against a session-wide frame count has to multiply by the camera count.
+    /// </para>
+    /// <para>
+    /// This used to be summed from the filter plan's frame counts, on the stated grounds that "the plan
+    /// is what the imaging loop actually works through". That is not true of a single-filter plan: the
+    /// loop only advances on <c>Count</c> when the plan has more than one entry, so it shoots until the
+    /// slot's time runs out and the duration is what it works through. The sum reported 1 for every rig
+    /// without a filter wheel.
     /// </para>
     /// </summary>
     public int? PlannedFrameCount { get; init; }
@@ -402,7 +409,7 @@ public sealed class ObservationDto
         DurationMinutes = obs.Duration.TotalMinutes,
         AcrossMeridian = obs.AcrossMeridian,
         // Null rather than 0 for "no plan", so a client can tell "not stated" from "stated as none" -- the
-        // sum itself comes from the observation, which is where it is defined.
+        // estimate itself comes from the observation, which is where it is defined.
         PlannedFrameCount = obs.PlannedFrameCount is var planned and > 0 ? planned : null,
     };
 }

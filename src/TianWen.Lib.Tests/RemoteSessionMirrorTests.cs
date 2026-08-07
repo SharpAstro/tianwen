@@ -793,7 +793,7 @@ public class RemoteSessionMirrorTests
     }
 
     [Fact]
-    public async Task ThePlanFrameTotalCrossesSoProgressHasOnePathLocallyAndRemotely()
+    public async Task TheFrameEstimateCrossesSoProgressHasOnePathLocallyAndRemotely()
     {
         var session = Substitute.For<ISessionTelemetry>();
         session.Phase.Returns(SessionPhase.Observing);
@@ -805,21 +805,23 @@ public class RemoteSessionMirrorTests
         session.LastFrameMetrics.Returns([]);
         session.PhaseTimeline.Returns([]);
         session.GuideSamples.Returns([]);
-        // Three filter entries: the per-filter breakdown does NOT cross, but the total must.
+        // A ladder with UNEQUAL sub-exposures, so the estimate depends on weighting each entry by its
+        // frame count and not on a plain average: one cycle is 3 x (50 + 10) + 1 x (110 + 10) = 300 s for
+        // 4 frames, i.e. 75 s a frame, so a 1 h slot holds 48. An unweighted mean of the two entries
+        // would give 90 s a frame and 40 -- a different number, which is what makes this worth asserting.
         session.Observations.Returns(new ScheduledObservationTree(
             [new ScheduledObservation(new Target(5.588, -5.39, "M42", null),
                 new DateTimeOffset(2026, 7, 26, 19, 45, 0, TimeSpan.Zero), TimeSpan.FromHours(1),
                 AcrossMeridian: false,
                 FilterPlan:
                 [
-                    new FilterExposure(0, TimeSpan.FromSeconds(300), 40),
-                    new FilterExposure(1, TimeSpan.FromSeconds(300), 35),
-                    new FilterExposure(2, TimeSpan.FromSeconds(300), 25),
+                    new FilterExposure(0, TimeSpan.FromSeconds(50), 3),
+                    new FilterExposure(1, TimeSpan.FromSeconds(110), 1),
                 ],
                 Gain: null, Offset: null)]));
 
         var projected = SessionStateDto.FromSession(session);
-        projected.Observations[0].PlannedFrameCount.ShouldBe(100);
+        projected.Observations[0].PlannedFrameCount.ShouldBe(48);
 
         var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(projected)));
         await using var _mirror = mirror;
@@ -827,8 +829,10 @@ public class RemoteSessionMirrorTests
         await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
 
         // PlannedFrameCount answers the same on the mirror as on the session, which is what lets the home
-        // card's progress row read one property instead of branching on local-vs-remote.
-        mirror.ActiveObservation.ShouldNotBeNull().PlannedFrameCount.ShouldBe(100);
+        // card's progress row read one property instead of branching on local-vs-remote. The per-filter
+        // breakdown does not cross, so the mirror rebuilds a single entry by INVERTING the estimate --
+        // collapsing the ladder to its first entry's 50 s subs instead would answer 60, not 48.
+        mirror.ActiveObservation.ShouldNotBeNull().PlannedFrameCount.ShouldBe(48);
     }
 
     // -------------------------------------------------------------------------------------------

@@ -21,29 +21,18 @@ public record ScheduledObservation(
     public TimeSpan SubExposure => FilterPlan is { IsDefaultOrEmpty: false } ? FilterPlan[0].SubExposure : TimeSpan.Zero;
 
     /// <summary>
-    /// Frames the whole plan asks for, <b>per OTA</b> (each OTA works the same plan in parallel), or 0 when
-    /// there is no plan -- which is what a bare target queued without one looks like.
+    /// Frames this slot is expected to yield, <b>per OTA</b> (each OTA works the same plan in parallel),
+    /// or 0 when there is no plan -- which is what a bare target queued without one looks like.
     /// <para>
-    /// The one place this sum is computed. Progress displays and the wire projection both need it, and a
-    /// second loop over <see cref="FilterPlan"/> elsewhere is a second answer waiting to disagree.
+    /// An <b>estimate</b>, derived from <see cref="Duration"/> via <see cref="FrameCountEstimate"/>;
+    /// present it as approximate. It used to be the sum of <see cref="FilterExposure.Count"/> over the
+    /// plan, which answers a different question -- see the remarks on <see cref="FrameCountEstimate"/>
+    /// for why the imaging loop makes that sum wrong (it reported 1 for any rig with no filter wheel).
+    /// </para>
+    /// <para>
+    /// Progress displays and the wire projection both need this number, and a second formula elsewhere
+    /// is a second answer waiting to disagree -- which is exactly what had happened.
     /// </para>
     /// </summary>
-    public int PlannedFrameCount
-    {
-        get
-        {
-            if (FilterPlan.IsDefaultOrEmpty)
-            {
-                return 0;
-            }
-
-            var total = 0;
-            foreach (var entry in FilterPlan)
-            {
-                total += entry.Count;
-            }
-
-            return total;
-        }
-    }
+    public int PlannedFrameCount => FrameCountEstimate.ForPlan(Duration, FilterPlan);
 }
