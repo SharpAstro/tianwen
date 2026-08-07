@@ -127,6 +127,22 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
       `SharpAstro.Fonts.Tables.OpenTypeMath`). If a new sibling is added to the switch, add it here
       too or VS Go-To-Definition drops into the stale NuGet package instead of source.
 
+- [x] **Harden `Planetary/PlanetaryCaptureControllerTests` off the wall clock** (2026-08-07). Was six
+      spin loops of up to 5000 iterations, each doing a real `await Task.Delay(2)`, plus one of 600,
+      while the capture loop rendered synthetic frames flat out on a background task. That budget
+      measured the wrong thing twice: it burned ~10 s of wall clock in the good case, and under a
+      loaded suite `Task.Delay(2)` stretched toward 10 ms so one test spent 50-75 s and then failed
+      its own iteration bound. Fixed with a frame-arrival seam --
+      `PlanetaryCaptureController.WaitForNextFrameAsync` (internal, one `TaskCompletionSource`
+      completed per fully-processed frame) and a `PumpAsync` helper that ticks the render thread in
+      lock-step with the producer on a FRAME budget. `FakeTimeProviderWrapper.SleepAsync` advances
+      fake time synchronously, so planet drift / stack depth / the ROI chase are all deterministic
+      functions of the frame count -- the wall clock was never the right axis. Class went 9 s -> 4 s
+      run alone, and no longer degrades under load. The terminal signal is deliberately **sticky**
+      (completed in place, never re-armed) so a stopped or faulted producer surfaces as a failed
+      predicate instead of a `[Fact]` timeout; pinned by
+      `Pumping_past_the_end_of_a_capture_bounds_out_instead_of_hanging`, verified to hang without it.
+
 ## Upstream Extraction (to SharpAstro NuGet packages)
 
 - [ ] Move `FileDialogHelper` to DIR.Lib — cross-platform native file picker (comdlg32/zenity/osascript), zero TianWen dependencies

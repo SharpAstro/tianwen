@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -94,6 +94,30 @@ public sealed class PlanetaryCaptureController(
     private long _lastOffsetXBits;
     private long _lastOffsetYBits;
     private int _lastActuator;
+
+    // Frame-arrival signal. The app never needs this -- its render loop ticks on its own frame clock and
+    // does not care when a CAPTURED frame landed. A test has no such clock, so without it a test must
+    // sleep-poll the wall clock between Ticks, which is the flake CLAUDE.md warns about: under a loaded
+    // suite a 2 ms poll stretches toward 10 ms, so the pump exhausts its iteration budget long before the
+    // capture has produced the frames the assertion needs. Completing one TCS per fully-processed frame
+    // lets a test advance in lock-step with the producer instead.
+    private TaskCompletionSource _frameSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>
+    /// Completes once the NEXT frame has been captured AND fully processed (pushed, recentred, live
+    /// controls drained) -- never a frame already received, so a caller cannot observe a half-applied
+    /// iteration. Also completes when the capture loop ends, so a waiter re-checks its own predicate and
+    /// sees <see cref="IsCapturing"/> false rather than hanging. Test seam; production drives
+    /// <see cref="Tick"/> from the render loop.
+    /// </summary>
+    internal Task WaitForNextFrameAsync(CancellationToken cancellationToken)
+        => Volatile.Read(ref _frameSignal).Task.WaitAsync(cancellationToken);
+
+    // Releases everything waiting on the current frame and arms the signal for the next one.
+    private void SignalFrame()
+        => Interlocked
+            .Exchange(ref _frameSignal, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously))
+            .TrySetResult();
 
     /// <summary>True while a capture loop is running.</summary>
     public bool IsCapturing => Volatile.Read(ref _captureActive) == 1;
@@ -192,6 +216,10 @@ public sealed class PlanetaryCaptureController(
         Interlocked.Exchange(ref _lastOffsetXBits, 0);
         Interlocked.Exchange(ref _lastOffsetYBits, 0);
 
+        // Re-arm the frame signal: the previous run's was completed when its loop ended, and a waiter must
+        // never be released by the run before the one it is watching.
+        Interlocked.Exchange(ref _frameSignal, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+
         _camera = camera;
         Interlocked.Exchange(ref _framesReceived, 0);
         _captureStartTimestamp = timeProvider.GetTimestamp();
@@ -281,6 +309,10 @@ public sealed class PlanetaryCaptureController(
 
                 // Apply any live-control changes (exposure / gain / ROI size / pan) staged by the render thread.
                 await ApplyPendingControlsAsync(camera, token).ConfigureAwait(false);
+
+                // Last thing in the iteration, so a waiter observes a fully-settled frame: pushed, recentred,
+                // and with this frame's staged ROI jog already on the camera.
+                SignalFrame();
             }
         }
         catch (OperationCanceledException)
@@ -294,6 +326,12 @@ public sealed class PlanetaryCaptureController(
         finally
         {
             Interlocked.Exchange(ref _captureActive, 0);
+
+            // Release anyone waiting on a frame that will now never arrive. Completed in place WITHOUT
+            // re-arming (unlike the per-frame signal), so this is sticky: every later wait returns at once
+            // too, and a stopped or faulted loop surfaces as a failed predicate rather than as a hang.
+            // Start arms a fresh signal for the next run.
+            Volatile.Read(ref _frameSignal).TrySetResult();
         }
     }
 
