@@ -909,6 +909,15 @@ namespace TianWen.UI.Abstractions
             SubscribeFlats(bus);
             SubscribePreview(bus, shutdownToken);
 
+            // Theme is app state, not host state, so it lives here rather than in a host's own
+            // subscriptions the way SDL text input does -- the TUI and web hosts get F12 for free by
+            // posting the same signal. GuiTheme owns the remember-and-restore, so this only routes.
+            bus.Subscribe<ToggleNightModeSignal>(_ =>
+            {
+                GuiTheme.ToggleNight();
+                _appState.NeedsRedraw = true;
+            });
+
             // Store autocomplete cache setter as a public action
             SetAutoCompleteCache = cache => _autoCompleteCache = cache;
         }

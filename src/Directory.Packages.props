@@ -186,13 +186,18 @@
          where it happened not to fit. PaintLayout now fits every Content.Text to its arranged rect
          through the new public TextFit. Relevant to every tab here, since the whole chrome is arranged
          from one layout pass.
-         7.9 is the current pin and is a PDF-font fix TianWen does not exercise: a font's own /Encoding
-         now decides which glyph a character code selects, so a name-keyed CFF subset stops drawing
-         unrelated glyphs. Pinned forward anyway to keep the family on ONE DIR.Lib, which is the standing
-         reason in this file. Additive from our side: RegisterPdfEncoding is new, the old
-         RegisterType1Encoding survives as an [Obsolete] forwarder, and nothing here calls either. It
-         requires SharpAstro.Fonts 1.8, which TianWen already resolves transitively. -->
-    <PackageVersion Include="DIR.Lib" Version="7.9.*" />
+         7.11 is the current pin, and unlike the last few it is one TianWen asked for. UiPalette gained
+         eight roles (Accent, AccentAlt, Focus, SeparatorStrong, Success, Info, Warn, Error) and became a
+         sealed record with required members, which is what GuiTheme's Light/Dark/Night palettes are built
+         on; see MIGRATION.md in that repo. BREAKING there, so this pin cannot go backwards. 7.10 (TabBar
+         takes a colour palette) and 7.9 (a PDF font's own /Encoding selects the glyph) are both in this
+         range and neither is exercised here; TianWen draws its own sidebar chrome rather than DIR.Lib's
+         TabBar, and references TabBarColors zero times.
+         Console.Lib, SdlVulkan.Renderer and WebGl.Renderer still pin DIR.Lib 7.8.* and are NOT being
+         re-released for this: all three reference UiPalette zero times, so there is nothing to port, and
+         the graph unifies DIR.Lib upward to 7.11 for us anyway. That unification is the standing smell
+         noted elsewhere in this file, not something this bump introduces. -->
+    <PackageVersion Include="DIR.Lib" Version="7.11.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is

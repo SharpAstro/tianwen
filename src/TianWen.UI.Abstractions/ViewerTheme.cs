@@ -3,50 +3,64 @@ using DIR.Lib;
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
-    /// The FITS viewer's own chrome theme -- the single source of truth for the colours that were
-    /// previously hardcoded as inline float-RGB literals throughout <see cref="ImageRendererBase{TSurface}"/>.
-    /// Distinct from <see cref="GuiTheme"/>: the viewer runs at an 18px base font (vs the GUI's 14px) and
-    /// has its own panel backgrounds (toolbar / status bar / file list / info panel / histogram) that are
-    /// alpha-blended over the image, so they don't map onto the shared 8-role <see cref="UiPalette"/>.
-    /// Values match the pre-existing literals (via <see cref="RGBAColor32.FromFloat"/>) so adopting the
-    /// theme is a pure dedup with no visual change. App/feature-specific colours (grid labels, star/object
-    /// overlays, plate-solve markers, toolbar hover lerps) deliberately stay local to their draw site.
+    /// The FITS viewer's chrome theme. Distinct from <see cref="GuiTheme"/> only in its
+    /// <see cref="UiMetrics"/> (18px base font against the GUI's 14px) and in the five translucent
+    /// panel fills below, which are alpha-blended over the rendered image and so do not map onto
+    /// the opaque shared roles.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The colours are <see cref="GuiTheme"/>'s, not a second scheme.</b> They used to be an
+    /// independent neutral-grey ramp (R=G=B exactly), which read visibly colder and flatter than
+    /// the GUI hosting it in a tab -- two palettes side by side on one screen, agreeing about
+    /// nothing. Following the shared state also means the viewer goes Night with everything else,
+    /// which a private palette could not.
+    /// </para>
+    /// <para>
+    /// The panel fills derive their alpha from the state: over a dark image a light scrim would
+    /// wash it out and vice versa, so <see cref="UiPalette.IsDark"/> selects which way to tint.
+    /// </para>
+    /// </remarks>
     public static class ViewerTheme
     {
-        /// <summary>Shared chrome colour roles (the values the info panel + status bar text use).</summary>
-        public static UiPalette Palette { get; } = new(
-            ContentBg:  RGBAColor32.FromFloat(0.10f, 0.10f, 0.10f, 1f),  // window clear behind the image
-            PanelBg:    RGBAColor32.FromFloat(0.15f, 0.15f, 0.15f, 1f),  // opaque panel base
-            HeaderBg:   RGBAColor32.FromFloat(0.18f, 0.18f, 0.20f, 1f),  // toolbar strip
-            HeaderText: RGBAColor32.FromFloat(0.60f, 0.80f, 1.00f, 1f),  // cyan section headers ("-- Metadata --")
-            BodyText:   RGBAColor32.FromFloat(0.90f, 0.90f, 0.90f, 1f),  // primary panel text
-            DimText:    RGBAColor32.FromFloat(0.70f, 0.70f, 0.70f, 1f),  // secondary / controls help
-            Separator:  RGBAColor32.FromFloat(0.30f, 0.30f, 0.35f, 1f),  // divider lines
-            Selection:  RGBAColor32.FromFloat(0.25f, 0.35f, 0.55f, 1f)); // selected file / active button
+        /// <summary>Shared chrome colour roles, following the app-wide theme state.</summary>
+        public static UiPalette Palette => GuiTheme.Palette;
 
         /// <summary>Base (unscaled) layout metrics. The viewer renders at an 18px base font.</summary>
-        public static UiMetrics Metrics { get; } = new(
+        public static UiMetrics Metrics { get; } = new UiMetrics(
             BaseFontSize: 18f,
             Padding:      6f,
             HeaderHeight: 40f,   // toolbar
             ItemHeight:   24f,   // status bar / list row
             ButtonHeight: 28f);
 
-        /// <summary>The combined viewer theme (palette + metrics).</summary>
-        public static UiTheme Theme { get; } = new(Palette, Metrics);
+        /// <summary>The combined viewer theme (palette + viewer metrics).</summary>
+        public static UiTheme Theme => new UiTheme { Palette = Palette, Metrics = Metrics };
 
-        // Viewer-specific panel fills, alpha-blended over the rendered image (so they don't fit the
-        // opaque shared-palette roles). Values match the literals previously inlined in the renderer.
+        // Viewer-specific panel fills, alpha-blended over the rendered image. Derived from the
+        // shared roles at a stated alpha rather than hardcoded, so they follow the theme; the alpha
+        // IS the design here and only the hue comes from the palette.
+
         /// <summary>Toolbar strip background (opaque).</summary>
-        public static RGBAColor32 ToolbarBg { get; } = RGBAColor32.FromFloat(0.18f, 0.18f, 0.20f, 1f);
+        public static RGBAColor32 ToolbarBg => Palette.HeaderBg;
+
         /// <summary>Status bar background (slightly translucent).</summary>
-        public static RGBAColor32 StatusBarBg { get; } = RGBAColor32.FromFloat(0.20f, 0.20f, 0.20f, 0.95f);
+        public static RGBAColor32 StatusBarBg => WithAlpha(Palette.HeaderBg, 0xf2);
+
         /// <summary>File-list sidebar background (translucent).</summary>
-        public static RGBAColor32 FileListBg { get; } = RGBAColor32.FromFloat(0.13f, 0.13f, 0.15f, 0.95f);
+        public static RGBAColor32 FileListBg => WithAlpha(Palette.PanelBg, 0xf2);
+
         /// <summary>Info-panel background (translucent so the image shows faintly behind it).</summary>
-        public static RGBAColor32 InfoPanelBg { get; } = RGBAColor32.FromFloat(0.15f, 0.15f, 0.15f, 0.85f);
-        /// <summary>Histogram overlay background (mostly transparent black).</summary>
-        public static RGBAColor32 HistogramBg { get; } = RGBAColor32.FromFloat(0f, 0f, 0f, 0.6f);
+        public static RGBAColor32 InfoPanelBg => WithAlpha(Palette.PanelBg, 0xd9);
+
+        /// <summary>
+        /// Histogram overlay background. Tints toward the extreme the image is NOT, so the plot
+        /// stays legible over both a dense star field and a blown flat.
+        /// </summary>
+        public static RGBAColor32 HistogramBg => Palette.IsDark
+            ? new RGBAColor32(0x00, 0x00, 0x00, 0x99)
+            : new RGBAColor32(0xff, 0xff, 0xff, 0x99);
+
+        private static RGBAColor32 WithAlpha(RGBAColor32 c, byte alpha) => new RGBAColor32(c.Red, c.Green, c.Blue, alpha);
     }
 }

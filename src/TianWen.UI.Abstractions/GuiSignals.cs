@@ -105,6 +105,12 @@ public readonly record struct BuildScheduleSignal;
 public readonly record struct ToggleFullscreenSignal;
 
 /// <summary>
+/// Toggle dark-adaptation (Night) mode on or off -- F12, matching SharpCap's night-vision gesture.
+/// Toggling off returns to whichever state Night was entered from, not to a fixed default.
+/// </summary>
+public readonly record struct ToggleNightModeSignal;
+
+/// <summary>
 /// Open an external URL in the user's default browser. Posted by desktop (SDL/Vulkan) hosts, which have
 /// no DOM and handle it through the OS shell; the web host renders links as real &lt;a&gt; elements and
 /// never posts this. A host with no subscriber simply drops it (no-op), so it is safe to post anywhere.
