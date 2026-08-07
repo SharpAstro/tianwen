@@ -135,12 +135,21 @@ namespace TianWen.Lib.Tests
             cards[0].FramesWritten.ShouldBe(412);
         }
 
+        // The progress denominator comes from the SLOT, not from a number written into the filter plan:
+        // 50 s subs plus the 10 s per-frame overhead is one frame a minute, and a 1 h 40 m slot holds 100
+        // of them. These used to be a `planned` argument stuffed into FilterExposure.Count, which decides
+        // nothing -- that count is a cycling quantum, and reading it as a total is the defect these tests
+        // now guard (it reported 1 for every rig without a filter wheel).
+        private static readonly TimeSpan SlotSubExposure = TimeSpan.FromSeconds(50);
+        private static readonly TimeSpan SlotDuration = TimeSpan.FromMinutes(100);
+        private const int SlotPlannedFrames = 100;
+
         /// <summary>
-        /// Puts a run on the local context: <paramref name="written"/> frames of the active target already in
-        /// the log, out of a plan asking for <paramref name="planned"/> per OTA.
+        /// Puts a run on the local context: <paramref name="written"/> frames of the active target already
+        /// in the log, against a slot expected to yield <see cref="SlotPlannedFrames"/> per OTA.
         /// </summary>
         private static LiveSessionState RunningSession(
-            ViewContexts contexts, int written, int planned, int scheduled = 1, int activeIndex = 0)
+            ViewContexts contexts, int written, int scheduled = 1, int activeIndex = 0)
         {
             var session = contexts.Local.LiveSession;
             session.IsRunning = true;
@@ -152,8 +161,8 @@ namespace TianWen.Lib.Tests
             for (var i = 0; i < scheduled; i++)
             {
                 observations.Add(new ScheduledObservation(
-                    new Target(1.0, 2.0, $"T{i}", null), Now, TimeSpan.FromHours(1), false,
-                    FilterPlan: [new FilterExposure(-1, TimeSpan.FromSeconds(300), planned)],
+                    new Target(1.0, 2.0, $"T{i}", null), Now, SlotDuration, false,
+                    FilterPlan: [new FilterExposure(-1, SlotSubExposure)],
                     Gain: null, Offset: null));
             }
 
@@ -177,7 +186,7 @@ namespace TianWen.Lib.Tests
         public void ProgressCountsTheCurrentTargetsFramesNotTheWholeNights()
         {
             var (contexts, rigs, appState) = Board();
-            var session = RunningSession(contexts, written: 23, planned: 100, scheduled: 3, activeIndex: 1);
+            var session = RunningSession(contexts, written: 23, scheduled: 3, activeIndex: 1);
 
             // Frames from an EARLIER target sit ahead of the current one's in the log. A session total would
             // fold them in and report 31/100 for a target that has taken 23.
@@ -190,7 +199,7 @@ namespace TianWen.Lib.Tests
             progress.TargetIndex.ShouldBe(2);
             progress.TargetCount.ShouldBe(3);
             progress.FramesDone.ShouldBe(23);
-            progress.FramesPlanned.ShouldBe(100);
+            progress.FramesPlanned.ShouldBe(SlotPlannedFrames);
             progress.Describe().ShouldBe("target 2/3 · frame 23/100");
         }
 
@@ -210,14 +219,14 @@ namespace TianWen.Lib.Tests
         public void TheDenominatorScalesWithTheOtasThatAreShooting()
         {
             var (contexts, rigs, appState) = Board();
-            var session = RunningSession(contexts, written: 10, planned: 50);
+            var session = RunningSession(contexts, written: 10);
             // A dual-OTA rig works the same plan on both cameras, and the log counts both OTAs' frames, so
             // the planned side has to scale too or a two-scope rig reads as twice as far along as it is.
             session.CameraStates = [default, default];
 
             var progress = HomeBoard.BuildCards(contexts, rigs, appState, Now)[0].Progress.ShouldNotBeNull();
 
-            progress.FramesPlanned.ShouldBe(100);
+            progress.FramesPlanned.ShouldBe(SlotPlannedFrames * 2);
         }
 
         [Fact]

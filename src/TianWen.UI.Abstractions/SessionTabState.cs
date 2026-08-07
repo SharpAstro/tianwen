@@ -273,19 +273,15 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Estimates the number of frames given window duration and sub-exposure.
-        /// Accounts for ~10s overhead per frame (download, dither, settle).
+        /// <para>
+        /// Delegates to <see cref="FrameCountEstimate"/> in the Lib, which is the single source: this
+        /// used to carry its own copy of the arithmetic, and the copy disagreed with
+        /// <see cref="ScheduledObservation.PlannedFrameCount"/> by 245x on the same observation --
+        /// this tab said "~245" while the Home board said "1". Do not re-inline it.
+        /// </para>
         /// </summary>
         public static int EstimateFrameCount(TimeSpan window, TimeSpan subExposure)
-        {
-            if (subExposure <= TimeSpan.Zero)
-            {
-                return 0;
-            }
-
-            const double overheadSeconds = 10.0;
-            var cycleSeconds = subExposure.TotalSeconds + overheadSeconds;
-            return Math.Max(0, (int)(window.TotalSeconds / cycleSeconds));
-        }
+            => FrameCountEstimate.ForWindow(window, subExposure);
 
         /// <summary>
         /// Finds the <see cref="ConfigFieldDescriptor"/> at the given flat field index
