@@ -26,14 +26,17 @@ namespace TianWen.UI.Abstractions
         private const float BaseSeparatorW    = 1f;
         private const float BaseObsPanelWidth = 440f;
 
-        // Colors
-        private static readonly RGBAColor32 ContentBg      = GuiTheme.Palette.ContentBg;
-        private static readonly RGBAColor32 PanelBg        = GuiTheme.Palette.PanelBg;
-        private static readonly RGBAColor32 HeaderBg       = GuiTheme.Palette.HeaderBg;
-        private static readonly RGBAColor32 HeaderText     = GuiTheme.Palette.HeaderText;
-        private static readonly RGBAColor32 BodyText       = GuiTheme.Palette.BodyText;
-        private static readonly RGBAColor32 DimText        = GuiTheme.Palette.DimText;
-        private static readonly RGBAColor32 SeparatorColor = GuiTheme.Palette.Separator;
+        // Colors. The palette-derived ones are PROPERTIES, not static readonly fields: a field
+        // initialiser snapshots the palette at type-init, so this tab went on painting the startup
+        // scheme through every theme switch. RGBAColor32 is a struct, so reading through allocates
+        // nothing. The literals below have no role yet and still need Night variants.
+        private static RGBAColor32 ContentBg      => GuiTheme.Palette.ContentBg;
+        private static RGBAColor32 PanelBg        => GuiTheme.Palette.PanelBg;
+        private static RGBAColor32 HeaderBg       => GuiTheme.Palette.HeaderBg;
+        private static RGBAColor32 HeaderText     => GuiTheme.Palette.HeaderText;
+        private static RGBAColor32 BodyText       => GuiTheme.Palette.BodyText;
+        private static RGBAColor32 DimText        => GuiTheme.Palette.DimText;
+        private static RGBAColor32 SeparatorColor => GuiTheme.Palette.Separator;
         private static readonly RGBAColor32 StepperBg      = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
         private static readonly RGBAColor32 ToggleOnBg     = new RGBAColor32(0x30, 0x60, 0x40, 0xff);
         private static readonly RGBAColor32 ToggleOffBg    = new RGBAColor32(0x40, 0x30, 0x30, 0xff);
@@ -44,7 +47,7 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 HintText       = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
         private static readonly RGBAColor32 OtaHeaderBg    = new RGBAColor32(0x24, 0x24, 0x32, 0xff);
         private static readonly RGBAColor32 FrameCountText = new RGBAColor32(0x88, 0xdd, 0x88, 0xff);
-        private static readonly RGBAColor32 SelectedRowBg  = GuiTheme.Palette.Selection;
+        private static RGBAColor32 SelectedRowBg           => GuiTheme.Palette.Selection;
 
         private float _totalConfigHeight;
 

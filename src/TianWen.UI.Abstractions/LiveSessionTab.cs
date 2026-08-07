@@ -91,15 +91,18 @@ namespace TianWen.UI.Abstractions
         private const float BaseRowHeight      = 20f;
         private const float BaseProgressBarH   = 14f;
 
-        // Colors
-        private static readonly RGBAColor32 ContentBg        = GuiTheme.Palette.ContentBg;
-        private static readonly RGBAColor32 PanelBg          = GuiTheme.Palette.PanelBg;
-        private static readonly RGBAColor32 HeaderBg         = GuiTheme.Palette.HeaderBg;
-        private static readonly RGBAColor32 HeaderText       = GuiTheme.Palette.HeaderText;
-        private static readonly RGBAColor32 BodyText         = GuiTheme.Palette.BodyText;
-        private static readonly RGBAColor32 DimText          = GuiTheme.Palette.DimText;
+        // Colors. The palette-derived ones are PROPERTIES, not static readonly fields: a field
+        // initialiser snapshots the palette at type-init, so this tab went on painting the startup
+        // scheme through every theme switch. RGBAColor32 is a struct, so reading through allocates
+        // nothing. The literals below have no role yet and still need Night variants.
+        private static RGBAColor32 ContentBg        => GuiTheme.Palette.ContentBg;
+        private static RGBAColor32 PanelBg          => GuiTheme.Palette.PanelBg;
+        private static RGBAColor32 HeaderBg         => GuiTheme.Palette.HeaderBg;
+        private static RGBAColor32 HeaderText       => GuiTheme.Palette.HeaderText;
+        private static RGBAColor32 BodyText         => GuiTheme.Palette.BodyText;
+        private static RGBAColor32 DimText          => GuiTheme.Palette.DimText;
         private static readonly RGBAColor32 BrightText       = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-        private static readonly RGBAColor32 SeparatorColor   = GuiTheme.Palette.Separator;
+        private static RGBAColor32 SeparatorColor   => GuiTheme.Palette.Separator;
         private static readonly RGBAColor32 GraphBg          = new RGBAColor32(0x12, 0x12, 0x1a, 0xff);
         private static readonly RGBAColor32 RaColor          = new RGBAColor32(0x44, 0x88, 0xff, 0xff); // blue
         private static readonly RGBAColor32 DecColor         = new RGBAColor32(0xff, 0x88, 0x44, 0xff); // orange

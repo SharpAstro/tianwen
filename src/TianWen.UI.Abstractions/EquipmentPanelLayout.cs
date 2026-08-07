@@ -17,8 +17,17 @@ namespace TianWen.UI.Abstractions
         RGBAColor32 OtaHeaderBg,
         RGBAColor32 FilterTableBg)
     {
-        /// <summary>The default dark equipment palette (matches the values previously inlined in EquipmentTab).</summary>
-        public static EquipmentPanelStyle Default { get; } = new(
+        /// <summary>
+        /// The default equipment palette (the values previously inlined in EquipmentTab).
+        /// </summary>
+        /// <remarks>
+        /// A computed property, NOT <c>{ get; } = new(...)</c>. An auto-property initialiser runs once at
+        /// type-init, so this captured whichever <see cref="GuiTheme.Theme"/> happened to be current then
+        /// and went on handing out that palette through every later theme switch. The four slot/OTA
+        /// colours below are still literals because no palette role covers them; giving them Night
+        /// variants is the remaining part of the sweep.
+        /// </remarks>
+        public static EquipmentPanelStyle Default => new(
             GuiTheme.Theme,
             SlotNormal:    new RGBAColor32(0x2a, 0x2a, 0x35, 0xff),
             SlotActive:    new RGBAColor32(0x2a, 0x6b, 0xb8, 0xff),

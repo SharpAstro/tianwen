@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using DIR.Lib;
 using SdlVulkan.Renderer;
@@ -44,9 +44,9 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     private const int PlanetaryOtaIndex = 0;
 
     private static readonly RGBAColor32 ContentBg = new RGBAColor32(0x06, 0x06, 0x08, 0xff);
-    private static readonly RGBAColor32 PanelBg = GuiTheme.Palette.HeaderBg;
-    private static readonly RGBAColor32 HeaderText = GuiTheme.Palette.HeaderText;
-    private static readonly RGBAColor32 DimText = GuiTheme.Palette.DimText;
+    private static RGBAColor32 PanelBg => GuiTheme.Palette.HeaderBg;
+    private static RGBAColor32 HeaderText => GuiTheme.Palette.HeaderText;
+    private static RGBAColor32 DimText => GuiTheme.Palette.DimText;
     private static readonly RGBAColor32 StartBg = new RGBAColor32(0x1e, 0x5e, 0x2e, 0xff);
     private static readonly RGBAColor32 StopBg = new RGBAColor32(0x6e, 0x24, 0x24, 0xff);
     private static readonly RGBAColor32 ButtonText = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
