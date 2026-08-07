@@ -137,32 +137,39 @@ public static class SkyMapSearchActions
         //    while StartsWith(query) holds. The sorted array means this prefix
         //    range is contiguous -- a couple log2(N) ~ 22 string compares followed
         //    by O(matches) of linear scan.
-        var startIdx = LowerBound(index, query);
-        for (var i = startIdx; i < index.Length; i++)
+        ScanPrefix(index, query, candidates);
+
+        // 1a. The index stores each designation in the catalog's OWN canonical spelling, and this
+        //     scan is ORDINAL, so a query typed with different separators cannot prefix-match:
+        //     "NGC7000" never reaches the stored "NGC 7000", and the substring fallback at step 2
+        //     cannot rescue it either, since neither string contains the other. Re-scan using the
+        //     canonical spellings of whatever the query parses to.
+        //
+        //     Parse with TryGetCleanedUpCatalogName rather than normalising here, because the
+        //     separator is PER CATALOG and not guessable from the string: ToCanonical gives NGC a
+        //     space ("NGC 7000"), Messier none ("M31"), Sharpless a hyphen ("Sh2-155"). Anything
+        //     hand-rolled here would re-encode those rules and drift from the parser the moment one
+        //     changed. It is also the same method the commit and deep-link paths already resolve
+        //     through, which is why THEY always accepted "NGC7000" while the list did not; the two
+        //     now agree by construction.
+        //
+        //     Partial numbers keep working: "NGC700" parses to NGC 700, whose canonical prefix-matches
+        //     NGC 700, NGC 7000, NGC 7001 and so on. A query that is not a designation at all (a
+        //     common name) simply fails to parse and keeps whatever the raw scan found.
+        if (CatalogUtils.TryGetCleanedUpCatalogName(query, out var designation))
         {
-            var entry = index[i];
-            if (!entry.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+            var normal = designation.ToCanonical(CanonicalFormat.Normal);
+            if (!normal.Equals(query, StringComparison.OrdinalIgnoreCase))
             {
-                // The sorted order means once StartsWith stops, no later entry
-                // can satisfy it either. Stop scanning.
-                break;
+                ScanPrefix(index, normal, candidates);
             }
 
-            // Score the prefix match by whether it covers a complete catalog
-            // token (followed by a delimiter or end-of-string) vs sits in the
-            // middle of a longer token. The boundary case wins so e.g.
-            // "TYC 425" surfaces TYC 425-2502-1 ahead of TYC 4250-1960-1.
-            int score;
-            if (entry.Length == query.Length)
+            var alternative = designation.ToCanonical(CanonicalFormat.Alternative);
+            if (!alternative.Equals(query, StringComparison.OrdinalIgnoreCase)
+                && !alternative.Equals(normal, StringComparison.Ordinal))
             {
-                score = 100;  // exact
+                ScanPrefix(index, alternative, candidates);
             }
-            else
-            {
-                var next = entry[query.Length];
-                score = next is '-' or ' ' or '/' or '.' ? 95 : 80;
-            }
-            candidates.Add((entry, score));
         }
 
         // 1b. Comet common names, ALWAYS, because they cannot be served by the shared index: a name
@@ -211,10 +218,14 @@ public static class SkyMapSearchActions
             return c != 0 ? c : string.Compare(a.Entry, b.Entry, StringComparison.OrdinalIgnoreCase);
         });
 
-        var take = Math.Min(candidates.Count, MaxResults);
-        var results = ImmutableArray.CreateBuilder<SkyMapSearchResult>(take);
+        // Fill up to MaxResults *results*, rather than walking a fixed MaxResults *candidates*:
+        // several entries can resolve to one object (a canonical designation, its alternative
+        // spelling and a common name all name the same thing, and now the raw and space-inserted
+        // scans can each contribute one), and seenIndices drops the repeats. Capping the walk
+        // instead of the output let those duplicates eat visible rows.
+        var results = ImmutableArray.CreateBuilder<SkyMapSearchResult>(Math.Min(candidates.Count, MaxResults));
         var seenIndices = new HashSet<CatalogIndex>();
-        for (var i = 0; i < take; i++)
+        for (var i = 0; i < candidates.Count && results.Count < MaxResults; i++)
         {
             var entry = candidates[i].Entry;
             // A real catalog object wins a name tie; a comet-only string (designation or common name)
@@ -290,6 +301,43 @@ public static class SkyMapSearchActions
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Collect every entry in the sorted <paramref name="index"/> that starts with
+    /// <paramref name="query"/>, scored. Binary-searches to the first entry &gt;= the query then walks
+    /// the contiguous prefix run, so it is O(log N) plus O(matches). Appends to
+    /// <paramref name="candidates"/> rather than returning, because it is run more than once per
+    /// query (see the space-inserted second pass in <see cref="FilterResults"/>).
+    /// </summary>
+    private static void ScanPrefix(ImmutableArray<string> index, string query, List<(string Entry, int Score)> candidates)
+    {
+        for (var i = LowerBound(index, query); i < index.Length; i++)
+        {
+            var entry = index[i];
+            if (!entry.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+            {
+                // The sorted order means once StartsWith stops, no later entry
+                // can satisfy it either. Stop scanning.
+                break;
+            }
+
+            // Score the prefix match by whether it covers a complete catalog
+            // token (followed by a delimiter or end-of-string) vs sits in the
+            // middle of a longer token. The boundary case wins so e.g.
+            // "TYC 425" surfaces TYC 425-2502-1 ahead of TYC 4250-1960-1.
+            int score;
+            if (entry.Length == query.Length)
+            {
+                score = 100;  // exact
+            }
+            else
+            {
+                var next = entry[query.Length];
+                score = next is '-' or ' ' or '/' or '.' ? 95 : 80;
+            }
+            candidates.Add((entry, score));
+        }
     }
 
     /// <summary>
