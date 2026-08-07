@@ -43,6 +43,94 @@ public class SkyMapSearchActionsTests
         results.ShouldBeEmpty();
     }
 
+    // A designation typed without the catalog's own separator must still find the object. The index
+    // stores canonical spellings and is scanned by ORDINAL prefix, so "NGC7000" can never reach the
+    // stored "NGC 7000" on its own, and the substring fallback cannot either (neither contains the
+    // other). The separator is PER CATALOG -- NGC takes a space, Messier takes none -- so it has to
+    // work in BOTH directions, which is exactly why the query goes through the catalog's own parser
+    // instead of being normalised by hand at the search site.
+    [Theory]
+    [InlineData("NGC 7331")]   // the canonical spelling, which always worked
+    [InlineData("NGC7331")]    // the reported bug
+    [InlineData("ngc7331")]    // and case-insensitively
+    [InlineData("  NGC7331 ")] // surrounding whitespace is the parser's problem, not the caller's
+    public void ADesignationIsFoundWhicheverSeparatorWasTyped(string query)
+    {
+        var (search, db, ngc) = DesignationFixture("NGC 7331");
+
+        var results = SkyMapSearchActions.FilterResults(search, db, query);
+
+        results.ShouldNotBeEmpty();
+        results[0].Index.ShouldBe(ngc);
+    }
+
+    // The other direction: Messier's canonical carries NO separator, so a user who types the space
+    // is the one who needs rescuing. A hand-rolled "insert a space before the digits" normaliser
+    // would fix NGC and do nothing for this.
+    [Theory]
+    [InlineData("M31")]
+    [InlineData("M 31")]
+    [InlineData("Messier 31")]
+    public void AMessierDesignationIsFoundWithOrWithoutTheSpace(string query)
+    {
+        var (search, db, messier) = DesignationFixture("M31");
+
+        var results = SkyMapSearchActions.FilterResults(search, db, query);
+
+        results.ShouldNotBeEmpty();
+        results[0].Index.ShouldBe(messier);
+    }
+
+    // A partial number still behaves like a prefix: "NGC73" parses to NGC 73, whose canonical
+    // spelling prefix-matches NGC 73 and NGC 7331 alike. Pinned because routing the query through a
+    // parser could plausibly have collapsed it to one exact object and broken autocomplete.
+    [Fact]
+    public void APartialDesignationStillPrefixMatchesTheLongerOnes()
+    {
+        var (search, db, _) = DesignationFixture("NGC 73", "NGC 7331");
+
+        var results = SkyMapSearchActions.FilterResults(search, db, "NGC73");
+
+        results.Length.ShouldBe(2);
+        results.Select(r => r.Index).ShouldBe(
+            [CleanedUp("NGC 73"), CleanedUp("NGC 7331")], ignoreOrder: true);
+    }
+
+    // A query that is not a designation at all must not be disturbed by the parse attempt.
+    [Fact]
+    public void ACommonNameQueryIsUnaffected()
+    {
+        var (search, db, ngc) = DesignationFixture("NGC 7331");
+        search.SearchIndex = [.. search.SearchIndex.Add("Deer Lick Galaxy").Order(StringComparer.OrdinalIgnoreCase)];
+        db.CommonNameMap["Deer Lick Galaxy"] = ngc;
+
+        var results = SkyMapSearchActions.FilterResults(search, db, "Deer");
+
+        results.ShouldNotBeEmpty();
+        results[0].Index.ShouldBe(ngc);
+    }
+
+    private static CatalogIndex CleanedUp(string designation)
+    {
+        CatalogUtils.TryGetCleanedUpCatalogName(designation, out var idx).ShouldBeTrue();
+        return idx;
+    }
+
+    // Builds the search index the way CreateAutoCompleteList does -- both canonical formats per
+    // object, sorted ordinal-ignore-case, which is what the binary search relies on.
+    private static (SkyMapSearchState Search, DesignationDb Db, CatalogIndex First) DesignationFixture(
+        params string[] designations)
+    {
+        var indices = designations.Select(CleanedUp).ToArray();
+        var entries = indices
+            .SelectMany(i => new[] { i.ToCanonical(CanonicalFormat.Normal), i.ToCanonical(CanonicalFormat.Alternative) })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase);
+
+        var search = new SkyMapSearchState { SearchIndex = [.. entries] };
+        return (search, new DesignationDb(indices), indices[0]);
+    }
+
     [Fact]
     public void CloseSearchDeactivatesInputAndClearsOpenFlag()
     {
@@ -400,13 +488,47 @@ public class SkyMapSearchActionsTests
         public bool TryLookupHIP(int hipNumber, out double ra, out double dec, out float vMag, out float bv)
         { ra = dec = 0; vMag = bv = 0; return false; }
 
-        public bool TryResolveCommonName(string name, out System.Collections.Generic.IReadOnlyList<TianWen.Lib.Astrometry.Catalogs.CatalogIndex> matches)
+        public virtual bool TryResolveCommonName(string name, out System.Collections.Generic.IReadOnlyList<TianWen.Lib.Astrometry.Catalogs.CatalogIndex> matches)
         { matches = Array.Empty<TianWen.Lib.Astrometry.Catalogs.CatalogIndex>(); return false; }
 
         private sealed class EmptyIndex : TianWen.Lib.Astrometry.Catalogs.IRaDecIndex
         {
             public System.Collections.Generic.IReadOnlyCollection<TianWen.Lib.Astrometry.Catalogs.CatalogIndex> this[double ra, double dec]
                 => Array.Empty<TianWen.Lib.Astrometry.Catalogs.CatalogIndex>();
+        }
+    }
+
+    // Resolves exactly the designations it was given, with a placeholder object per index. Enough
+    // for the search list, which only needs TryLookupByIndex to succeed to emit a row.
+    private sealed class DesignationDb(CatalogIndex[] indices) : EmptyDb
+    {
+        /// <summary>Common name -> index, so the non-designation search path can be exercised too.</summary>
+        public Dictionary<string, CatalogIndex> CommonNameMap { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public override bool TryResolveCommonName(string name, out IReadOnlyList<CatalogIndex> matches)
+        {
+            if (CommonNameMap.TryGetValue(name, out var idx))
+            {
+                matches = [idx];
+                return true;
+            }
+
+            matches = [];
+            return false;
+        }
+
+        public override bool TryLookupByIndex(CatalogIndex index, out CelestialObject celestialObject)
+        {
+            if (Array.IndexOf(indices, index) >= 0)
+            {
+                celestialObject = new CelestialObject(index, ObjectType.Galaxy,
+                    22.617, 34.42, Constellation.Pegasus, Half.NaN, Half.NaN, Half.NaN,
+                    new HashSet<string>());
+                return true;
+            }
+
+            celestialObject = default;
+            return false;
         }
     }
 
