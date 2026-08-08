@@ -312,10 +312,14 @@
          Together with DIR.Lib 7.8's pixel-side TextFit, that is the same authored tree behaving the same
          way on both of TianWen's surfaces, which is the whole premise of TuiHomeTab sharing the rig-card
          tree with the GPU board.
-         4.17 is the current pin: ConsoleSize reads the terminal's REAL size when stdout is redirected,
-         which is exactly how this repo runs the TUI (`2> tui-stderr.log`, and every scripted run through
-         the console inspector). -->
-    <PackageVersion Include="Console.Lib" Version="4.17.*" />
+         4.17 makes ConsoleSize read the terminal's REAL size when stdout is redirected, which is exactly
+         how this repo runs the TUI (`2> tui-stderr.log`, and every scripted run through the console
+         inspector).
+         4.19 is the current pin, and the reason for the bump: TextBar.Caret parks the terminal's own
+         cursor at a column of a bar's text. TuiEquipmentTab's site row needs it — three fields in one bar
+         means the caret column is an offset into the joined string, which no single-field widget can
+         derive. 4.18 is what put the caret on ITerminalViewport in the first place. -->
+    <PackageVersion Include="Console.Lib" Version="4.19.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan

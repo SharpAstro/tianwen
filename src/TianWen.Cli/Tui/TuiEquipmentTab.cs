@@ -121,6 +121,16 @@ internal sealed class TuiEquipmentTab(
 
     private static readonly string[] FieldLabels = ["Lat", "Lon", "Elev"];
 
+    /// <summary>Between two site fields on the composed row.</summary>
+    private const string FieldSeparator = "  ";
+
+    /// <summary>Leading indent of the site row, matching the other bars.</summary>
+    private const string RowIndent = " ";
+
+    /// <summary>Opens the edited field's value. Its length is part of the caret arithmetic, so it is a
+    /// constant rather than a literal spelled twice.</summary>
+    private const string EditOpen = ": [";
+
     private TextInputState ActiveEditField => _editFieldIndex switch
     {
         0 => eqState.LatitudeInput,
@@ -145,6 +155,10 @@ internal sealed class TuiEquipmentTab(
         // Left panel: profile picker
         BuildProfileList();
 
+        // Null on every path but site editing, and passed to the bar unconditionally below: the caret is
+        // sticky terminal state, so the frame that stops editing has to say so or it stays parked.
+        int? siteCaretColumn = null;
+
         if (appState.ActiveProfile is { Data: { } data })
         {
             // Right panel: settings list or device picker
@@ -160,13 +174,12 @@ internal sealed class TuiEquipmentTab(
             // Site bar
             if (eqState.IsEditingSite)
             {
-                var fields = new[] { eqState.LatitudeInput, eqState.LongitudeInput, eqState.ElevationInput };
-                var parts = new string[3];
-                for (var i = 0; i < 3; i++)
-                {
-                    parts[i] = FormatField(i, fields[i]);
-                }
-                _siteBar.Text($" {string.Join("  ", parts)}");
+                var (row, caretColumn) = ComposeSiteRow(
+                    [eqState.LatitudeInput.Text, eqState.LongitudeInput.Text, eqState.ElevationInput.Text],
+                    _editFieldIndex,
+                    ActiveEditField.CursorPos);
+                _siteBar.Text(row);
+                siteCaretColumn = caretColumn;
                 _siteBar.RightText("Tab:next  Enter:save  Esc:cancel");
             }
             else
@@ -182,6 +195,8 @@ internal sealed class TuiEquipmentTab(
             _siteBar.Text(" Site: \u2014");
             _siteBar.RightText("");
         }
+
+        _siteBar.Caret(siteCaretColumn, CaretStyle.BlinkingBar);
 
         // Status bar varies by mode
         var statusText = _mode switch
@@ -654,20 +669,48 @@ internal sealed class TuiEquipmentTab(
         return null;
     }
 
-    private string FormatField(int index, TextInputState field)
+    /// <summary>
+    /// One field of the site row, bracketed while it is the one being edited. The edited field carries no
+    /// cursor of its own: the terminal's REAL caret marks the insertion point (see
+    /// <see cref="ComposeSiteRow"/>), which is why this can be plain text.
+    /// </summary>
+    private static string FormatField(int index, string value, int editIndex)
+        => index == editIndex
+            ? $"{FieldLabels[index]}{EditOpen}{value}]"
+            : $"{FieldLabels[index]}: {(value.Length > 0 ? value : "...")}";
+
+    /// <summary>
+    /// The site row — <c>Lat: [..]  Lon: [..]  Elev: [..]</c> — and the column the caret occupies within
+    /// it. The offset is computed here rather than inside <see cref="FormatField"/> because it is an offset
+    /// into the JOINED string: the indent, then every earlier field and its separator, then the edited
+    /// field's own <c>Lat: [</c> prefix, then the cursor's position in the value. A caret at the end of the
+    /// value lands on the closing bracket's cell, which is exactly where a thin bar belongs — between the
+    /// last character and the <c>]</c>.
+    /// <para>
+    /// Whether that column survives the row's truncation is <see cref="TextBar"/>'s decision, not ours: it
+    /// owns the ellipsis, so it owns the clipping.
+    /// </para>
+    /// </summary>
+    internal static (string Text, int CaretColumn) ComposeSiteRow(string[] values, int editIndex, int cursorPos)
     {
-        var label = FieldLabels[index];
-        var value = field.Text;
-        if (_editFieldIndex != index)
+        editIndex = Math.Clamp(editIndex, 0, values.Length - 1);
+
+        var parts = new string[values.Length];
+        var caretColumn = RowIndent.Length;
+
+        for (var i = 0; i < values.Length; i++)
         {
-            return $"{label}: {(value.Length > 0 ? value : "...")}";
+            parts[i] = FormatField(i, values[i], editIndex);
+            if (i < editIndex)
+            {
+                caretColumn += parts[i].Length + FieldSeparator.Length;
+            }
         }
 
-        var pos = Math.Clamp(field.CursorPos, 0, value.Length);
-        var before = value[..pos];
-        var cursorChar = pos < value.Length ? value[pos].ToString() : " ";
-        var after = pos < value.Length ? value[(pos + 1)..] : "";
-        return $"{label}: [{before}{VtStyle.ReverseOn}{cursorChar}{VtStyle.ReverseOff}{after}]";
+        caretColumn += FieldLabels[editIndex].Length + EditOpen.Length
+            + Math.Clamp(cursorPos, 0, values[editIndex].Length);
+
+        return ($"{RowIndent}{string.Join(FieldSeparator, parts)}", caretColumn);
     }
 
     private void RefreshProfiles()
