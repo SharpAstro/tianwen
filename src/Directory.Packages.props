@@ -197,7 +197,7 @@
          re-released for this: all three reference UiPalette zero times, so there is nothing to port, and
          the graph unifies DIR.Lib upward to 7.11 for us anyway. That unification is the standing smell
          noted elsewhere in this file, not something this bump introduces. -->
-    <PackageVersion Include="DIR.Lib" Version="7.11.*" />
+    <PackageVersion Include="DIR.Lib" Version="7.12.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
