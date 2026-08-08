@@ -19,7 +19,7 @@ internal sealed partial class AscomDispatchDevice : IDisposable
         _dispatch = DispatchTransportFactory.Create(progId, serviceProvider);
     }
 
-    // Common ASCOM device members — generated implementations via source generator
+    // Common ASCOM device members: generated implementations via source generator
     public partial string Name { get; }
     public partial string? Description { get; }
     public partial string? DriverInfo { get; }

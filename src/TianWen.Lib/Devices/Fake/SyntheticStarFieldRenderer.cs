@@ -167,10 +167,10 @@ internal static class SyntheticStarFieldRenderer
             }
         }
 
-        // Render stars with shot noise (separate RNG — clipping differences don't affect positions).
+        // Render stars with shot noise (separate RNG, clipping differences don't affect positions).
         // Fully overcast (cloudCoverage >= 1.0) is a blackout: no star photons reach the
         // sensor at all. The partial-cloud path below deliberately caps attenuation at 90%
-        // so bright stars survive a passing cloud — total cover needs this explicit gate.
+        // so bright stars survive a passing cloud: total cover needs this explicit gate.
         var renderStarCount = cloudCoverage >= 1.0 ? 0 : starCount;
         var shotRng = new Random(noiseSeed.HasValue ? noiseSeed.Value + 1 : seed + 2);
         var sigma2x2 = 2.0 * sigma * sigma;
@@ -378,7 +378,7 @@ internal static class SyntheticStarFieldRenderer
     /// threshold <see cref="Imaging.Image.FindStarsAsync"/> uses to decide whether a
     /// candidate is a real star (snrMin = 5 by default). Picking the synth's magnitude
     /// cutoff from the same condition keeps "stars I render" aligned with "stars the
-    /// detector can find" — without it the synth happily draws mag-12 stars at SNR<<1
+    /// detector can find", without it the synth happily draws mag-12 stars at SNR<<1
     /// and the catalog plate solver gets handed 600 projected vs 30 detected,
     /// quadrupling its match-search work for no actual signal.
     /// </summary>
@@ -506,7 +506,7 @@ internal static class SyntheticStarFieldRenderer
     /// <summary>
     /// Generates a cloud opacity map using multi-octave value noise.
     /// Produces soft, streaky cloud patches that partially obscure stars
-    /// and add diffuse background glow — matching real thin/medium cloud behaviour.
+    /// and add diffuse background glow: matching real thin/medium cloud behaviour.
     /// </summary>
     /// <param name="width">Image width in pixels.</param>
     /// <param name="height">Image height in pixels.</param>
@@ -530,7 +530,7 @@ internal static class SyntheticStarFieldRenderer
         // Accumulate weighted octaves into a float buffer
         var noise = new double[height, width];
         var totalWeight = 0.0;
-        var cellSize = 128.0; // coarse first octave — large cloud features
+        var cellSize = 128.0; // coarse first octave; large cloud features
         var weight = 1.0;
 
         for (var oct = 0; oct < octaves; oct++)
@@ -622,7 +622,7 @@ internal static class SyntheticStarFieldRenderer
     /// <summary>
     /// Fully-overcast sky (coverage >= 1.0): attenuates everything by the same 90% cap the
     /// partial-cloud path uses and adds a UNIFORM glow. The textured cloud map is deliberately
-    /// not used here — its glow knots read as SNR ~4 pseudo-stars to a centroid tracker, but a
+    /// not used here: its glow knots read as SNR ~4 pseudo-stars to a centroid tracker, but a
     /// solid deck is featureless.
     /// </summary>
     /// <param name="data">Image data array to modify in-place.</param>

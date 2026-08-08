@@ -141,7 +141,7 @@ public class GuiderCentroidTrackerTests(ITestOutputHelper output)
         // Re-lock at current position (like after dither)
         tracker.SetLockPosition();
 
-        // Same frame again — delta should be zero now
+        // Same frame again: delta should be zero now
         var result2 = tracker.ProcessFrame(frame1);
         result2.ShouldNotBeNull();
         result2.Value.DeltaX.ShouldBe(0, 1.0);
@@ -160,7 +160,7 @@ public class GuiderCentroidTrackerTests(ITestOutputHelper output)
         tracker.ProcessFrame(frame0);
         tracker.IsAcquired.ShouldBeTrue();
 
-        // Track with offset and seeing — verify star is still tracked
+        // Track with offset and seeing: verify star is still tracked
         var frame1 = SyntheticStarFieldRenderer.Render(320, 240, 0,
             offsetX: 2.0, offsetY: -1.5, starCount: 5, seed: 42,
             seeingArcsec: 2.0, pixelScaleArcsec: 1.5);
@@ -264,7 +264,7 @@ public class GuiderCentroidTrackerTests(ITestOutputHelper output)
         initialCount.ShouldBeGreaterThan(1, "need multiple stars for this test");
         output.WriteLine($"Initially tracking {initialCount} stars");
 
-        // Track with small offset — all stars should survive
+        // Track with small offset, all stars should survive
         var frame1 = SyntheticStarFieldRenderer.Render(640, 480, 0,
             offsetX: 1.0, offsetY: 0.5, starCount: 30, seed: 42);
 

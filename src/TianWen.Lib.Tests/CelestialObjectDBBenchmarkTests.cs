@@ -111,7 +111,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
     [Fact]
     public async Task GivenInitializedDBWhenLookingUpCrossIndicesThenItIsMuchFasterThanInit()
     {
-        // given — measure initialization cost per entry
+        // given: measure initialization cost per entry
         var db = new CelestialObjectDB();
         var initSw = Stopwatch.StartNew();
         await db.InitDBAsync(cancellationToken: TestContext.Current.CancellationToken);
@@ -130,7 +130,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
             db.TryGetCrossIndices(idx, out _);
         }
 
-        // when — measure lookup cost
+        // when: measure lookup cost
         var sw = Stopwatch.StartNew();
         const int iterations = 1_000;
         for (var i = 0; i < iterations; i++)
@@ -142,7 +142,7 @@ public class CelestialObjectDBBenchmarkTests(ITestOutputHelper output)
         }
         sw.Stop();
 
-        // then — lookups should be O(1) hash-table access, expected sub-µs on dev hardware
+        // then: lookups should be O(1) hash-table access, expected sub-µs on dev hardware
         // and well under 100 µs even on noisy CI runners. Asserting absolute lookup time
         // (not a ratio to init) avoids flaking when init I/O is fast and the ratio compresses.
         var avgLookupNs = sw.Elapsed.TotalNanoseconds / (iterations * indices.Length);

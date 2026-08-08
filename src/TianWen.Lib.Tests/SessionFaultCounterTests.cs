@@ -127,7 +127,7 @@ public class SessionFaultCounterTests(ITestOutputHelper output)
 
         static ValueTask<double> Failing(CancellationToken _) => throw new IOException("simulated poll fault");
 
-        // 5 failures in a row — threshold is 3, so reconnect should fire once, not thrice.
+        // 5 failures in a row: threshold is 3, so reconnect should fire once, not thrice.
         for (var i = 0; i < 5; i++)
         {
             await ctx.Session.PollDriverReadAsync(ctx.Mount, Failing, fallback: 0.0, TestContext.Current.CancellationToken);

@@ -6,7 +6,7 @@ namespace TianWen.Lib.Sequencing;
 /// Polled mount state snapshot for the live session UI.
 /// <para>
 /// <see cref="RightAscension"/> / <see cref="Declination"/> are in the mount's native
-/// epoch (<see cref="IMountDriver.EquatorialSystem"/> — typically topocentric).
+/// epoch (<see cref="IMountDriver.EquatorialSystem"/>, typically topocentric).
 /// <see cref="RaJ2000"/> / <see cref="DecJ2000"/> are the precessed J2000 coordinates,
 /// populated via the poller's cached SOFA <see cref="Astrometry.SOFA.Transform"/>.
 /// Sky-map overlays should always read the J2000 fields so they render in the

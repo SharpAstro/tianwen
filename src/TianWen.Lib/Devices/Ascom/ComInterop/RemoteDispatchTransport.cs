@@ -8,7 +8,7 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 /// <summary>
 /// An <see cref="IDispatchTransport"/> that drives a COM object living in an out-of-process CET-off
 /// <c>tianwen-ascomhost</c> helper. Each typed call is projected onto the helper's JSON-RPC vocabulary
-/// (<c>get*</c>/<c>set*</c>/<c>invoke*</c>, keyed by an object handle) — the mechanical mirror of
+/// (<c>get*</c>/<c>set*</c>/<c>invoke*</c>, keyed by an object handle); the mechanical mirror of
 /// <see cref="AscomComHost"/>'s handler. Used only for CET-incompatible in-proc .NET Framework drivers
 /// (see <see cref="AscomComServerClassifier"/>); every other driver uses <see cref="DispatchObject"/>
 /// in-proc. See docs/plans/ascom-oop-host.md.

@@ -17,7 +17,7 @@ namespace TianWen.Lib.Tests;
 /// Exercises <see cref="SkywatcherSerialProbeBase"/> against an in-memory scripted
 /// serial connection. Verifies that a valid <c>:e1</c> response produces a
 /// <see cref="SerialProbeMatch"/> whose URI carries the stable identity and the
-/// probe's baud rate — no dependency on real hardware. The protocol parsing itself
+/// probe's baud rate: no dependency on real hardware. The protocol parsing itself
 /// is covered by <see cref="SkywatcherProtocolTests"/>; this test covers the glue
 /// between the probe, the connection, and the URI.
 /// </summary>
@@ -28,7 +28,7 @@ public class SkywatcherSerialProbeTests
     [InlineData(SkywatcherProtocol.DEFAULT_LEGACY_BAUD)]
     public async Task ValidFirmwareResponseProducesMatchWithPortAndBaudInUri(int baud)
     {
-        // EQ6-R firmware blob: model 0x23 (Eq6R), minor 0x28 (40), major 0x04 — "=23", "2804" payload.
+        // EQ6-R firmware blob: model 0x23 (Eq6R), minor 0x28 (40), major 0x04; "=23", "2804" payload.
         // Skywatcher responds with '=' prefix + hex firmware + '\r'. See SkywatcherProtocol.TryParseResponse.
         var scriptedConn = new ScriptedSerialConnection(
             expectedWrite: SkywatcherProtocol.BuildCommand('e', '1'),
@@ -42,7 +42,7 @@ public class SkywatcherSerialProbeTests
 
         match.ShouldNotBeNull();
         match.Port.ShouldBe("serial:COM5");
-        // System.Uri lower-cases both scheme and host — SerialProbeService.IdentityMatches
+        // System.Uri lower-cases both scheme and host: SerialProbeService.IdentityMatches
         // uses OrdinalIgnoreCase, so this is expected and harmless.
         match.DeviceUri.Scheme.ShouldBe("mount");
         match.DeviceUri.Host.ShouldBe(nameof(SkywatcherDevice).ToLowerInvariant());

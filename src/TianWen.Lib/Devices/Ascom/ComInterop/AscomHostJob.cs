@@ -8,7 +8,7 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 /// <summary>
 /// A process-wide Win32 Job Object with <c>KILL_ON_JOB_CLOSE</c> that every spawned
 /// <c>tianwen-ascomhost</c> helper is assigned to. When our process exits (even a hard kill), the OS
-/// closes the job handle and terminates every assigned helper — no orphaned CET-off hosts.
+/// closes the job handle and terminates every assigned helper; no orphaned CET-off hosts.
 /// <para>
 /// This is a backstop. The primary lifetime tie is the loopback socket: when the parent dies its TCP
 /// connection closes, the helper's server loop sees EOF and exits on its own. The Job Object covers the

@@ -110,12 +110,12 @@ internal sealed class Tycho2RaDecIndex
     /// scanning each overlapping GSC region's binary entries exactly once.
     ///
     /// The general per-cell path (<see cref="GetStarsInCell"/>) is O(cells x
-    /// stars-in-overlapping-regions) — when the search radius covers the full
+    /// stars-in-overlapping-regions), when the search radius covers the full
     /// 24h of RA at the pole the same polar GSC regions get linearly re-scanned
     /// hundreds of times and one CatalogPlateSolver invocation explodes from
     /// seconds to minutes. By collecting the unique regions across the Dec band
     /// and walking each region's entries once with a Dec-only filter, this
-    /// drops to O(unique-regions x entries) — typically 100x faster near
+    /// drops to O(unique-regions x entries), typically 100x faster near
     /// |Dec| = 90°. Mirrors the polar-pan optimisation in commit 69c7266.
     /// </summary>
     /// <param name="minDec">Lower Dec bound in degrees (inclusive).</param>

@@ -127,7 +127,7 @@ public class EquipmentContent(IDeviceHub? registry = null)
 
     /// <summary>
     /// Extra profile-level device slots (weather, future device types).
-    /// Rendered dynamically in a loop — no special UI between them.
+    /// Rendered dynamically in a loop: no special UI between them.
     /// </summary>
     public List<DeviceSlotRow> GetExtraProfileSlots(ProfileData data)
     {

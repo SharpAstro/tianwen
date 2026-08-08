@@ -23,7 +23,7 @@ public static class VkOverlayShapes
         float semiMajor, float semiMinor, float angleRad,
         RGBAColor32 color, float thickness)
     {
-        // Bounding box of the rotated ellipse — see https://iquilezles.org/articles/ellipses/
+        // Bounding box of the rotated ellipse: see https://iquilezles.org/articles/ellipses/
         var cosA = MathF.Cos(angleRad);
         var sinA = MathF.Sin(angleRad);
         var bboxW = MathF.Sqrt(semiMajor * semiMajor * cosA * cosA + semiMinor * semiMinor * sinA * sinA);
@@ -70,7 +70,7 @@ public static class VkOverlayShapes
     /// Draws a Stellarium-style mount reticle: an outer circle with an inner crosshair
     /// (with a gap at the centre so the exact pointing coordinate stays readable). Used
     /// by the sky map's mount-position overlay. The reticle is always drawn as an
-    /// outline — no fill — so catalog markers underneath remain visible.
+    /// outline, no fill, so catalog markers underneath remain visible.
     /// </summary>
     /// <param name="radius">Outer circle radius in screen pixels (before DPI scaling).</param>
     /// <param name="armLength">Crosshair arm length in pixels (before DPI scaling).</param>

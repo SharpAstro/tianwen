@@ -143,7 +143,7 @@ public static class Array2DPool<T>
             queue.Enqueue(new PoolEntry(array, Environment.TickCount64));
             Interlocked.Add(ref _retainedBytes, bytes);
         }
-        // else: let GC collect it — pool is full for this size
+        // else: let GC collect it; pool is full for this size
     }
 
     /// <summary>
@@ -167,7 +167,7 @@ public static class Array2DPool<T>
         }
         else if (pressure > 0.7)
         {
-            // Moderate pressure: trim stale entries (FIFO order — oldest first)
+            // Moderate pressure: trim stale entries (FIFO order, oldest first)
             var cutoff = Environment.TickCount64 - TrimAfterMs;
             foreach (var queue in _buckets.Values)
             {

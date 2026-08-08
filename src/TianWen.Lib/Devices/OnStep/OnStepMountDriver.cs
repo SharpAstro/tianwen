@@ -15,7 +15,7 @@ namespace TianWen.Lib.Devices.OnStep;
 /// tracking rates.
 ///
 /// Generic over <typeparamref name="TDevice"/> to mirror the LX200 base class
-/// pattern — lets <see cref="Fake.FakeOnStepMountDriver"/> subclass with
+/// pattern: lets <see cref="Fake.FakeOnStepMountDriver"/> subclass with
 /// <c>FakeDevice</c> while production uses <see cref="OnStepDevice"/>.
 /// </summary>
 internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider serviceProvider)
@@ -107,7 +107,7 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
     private static readonly ReadOnlyMemory<byte> SetParkCommand = "hQ"u8.ToArray();
 
     /// <summary>
-    /// Park polling cadence — picked to match the base IsSlewingAsync ~250 ms cadence
+    /// Park polling cadence: picked to match the base IsSlewingAsync ~250 ms cadence
     /// so a Park then poll-loop does not flood the serial line.
     /// </summary>
     private static readonly TimeSpan ParkPollInterval = TimeSpan.FromMilliseconds(250);

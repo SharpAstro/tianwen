@@ -207,7 +207,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
                 Exposure: TimeSpan.FromSeconds(2), Gain: 0)
         ]);
 
-        // Move to index 1 — scout will compare against baseline at index 0
+        // Move to index 1: scout will compare against baseline at index 0
         ctx.Session.AdvanceObservationForTest();
         ctx.Session.AdvanceObservationForTest();
 
@@ -229,7 +229,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenAllScoutsLowStarsWhenScoutAndProbeThenTransparency()
     {
-        // Heavy cloud cover throughout — pre-scout fails, nudge does not recover.
+        // Heavy cloud cover throughout: pre-scout fails, nudge does not recover.
         // Classifier flags as Obstruction tentatively, nudge confirms Transparency.
         var ct = TestContext.Current.CancellationToken;
         var observations = new[] { Obs(3.79, 24.1, "M45 prev"), Obs(3.79, 24.1, "M45 next") };
@@ -298,7 +298,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
     {
         // Inverse of the above: when the scout exposure didn't actually run (default
         // FrameMetrics with Exposure = 0), the classifier should treat it as inconclusive
-        // — NOT as 0 stars / obstruction. Otherwise a single transient driver fault would
+        //, NOT as 0 stars / obstruction. Otherwise a single transient driver fault would
         // skip a healthy target.
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await CreateScoutSessionAsync(SessionTestHelper.DefaultScheduledObservations, cancellationToken: ct);
@@ -407,7 +407,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
     {
         // Defence-in-depth: if ScoutAndProbeAsync itself throws (driver fault that all
         // retries failed, ephemeris transform unavailable, anything unexpected),
-        // RunObstructionScoutAsync must default to Proceed — not bubble the exception
+        // RunObstructionScoutAsync must default to Proceed, not bubble the exception
         // up to Session.RunAsync's outer catch and end the night.
         // Simulate by disconnecting the camera before running the scout: GetCameraStateAsync
         // throws on a disconnected fake camera, ResilientCall's NonIdempotent retry budget
@@ -451,7 +451,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         clearIn.ShouldNotBeNull();
         clearIn!.Value.ShouldBeGreaterThan(TimeSpan.Zero);
         clearIn.Value.ShouldBeLessThan(TimeSpan.FromMinutes(30));
-        output.WriteLine($"Seagull rising — estimated clear in {clearIn}.");
+        output.WriteLine($"Seagull rising, estimated clear in {clearIn}.");
     }
 
     [Fact(Timeout = 30_000)]

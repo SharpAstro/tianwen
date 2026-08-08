@@ -194,7 +194,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         var northMove = (dec1 - dec0) * 3600;
         output.WriteLine($"North move: {northMove:F2} arcsec");
 
-        // Now guide south (reversal) — first 5" should be consumed by backlash
+        // Now guide south (reversal): first 5" should be consumed by backlash
         // Guide rate ~10.028 arcsec/sec, so 1 second pulse = ~10" total
         await mount.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
         var dec2 = await mount.GetDeclinationAsync(ct);
@@ -215,7 +215,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         mount.DecBacklashArcsec = 5.0;
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
-        // Two north pulses in same direction — no backlash
+        // Two north pulses in same direction: no backlash
         await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(1), ct);
         var dec1 = await mount.GetDeclinationAsync(ct);
 
@@ -433,7 +433,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
             decErrors[i] = await mount.GetTrackingErrorDecArcsecAsync(ct);
         }
 
-        // Compute variance — should be non-zero (wind is active)
+        // Compute variance: should be non-zero (wind is active)
         var raVariance = Variance(raErrors);
         var decVariance = Variance(decErrors);
         output.WriteLine($"RA wind variance: {raVariance:F4}, Dec wind variance: {decVariance:F4}");
@@ -531,7 +531,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         await mount.SetPositionAsync(12.0, 45.0, ct);
         await mount.SetTrackingAsync(true, ct);
 
-        // Only advance 30s — snag at 60s should not fire
+        // Only advance 30s: snag at 60s should not fire
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(30), ct);
 
         (await mount.GetTrackingErrorRaArcsecAsync(ct)).ShouldBe(0.0, 0.01);

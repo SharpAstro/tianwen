@@ -15,7 +15,7 @@ namespace TianWen.UI.Abstractions.Overlays
     /// Composition for the polar-alignment side panel:
     /// <list type="bullet">
     /// <item>True-pole cross (white) labelled "NCP/SCP (True)".</item>
-    /// <item>Refracted-pole cross (green) labelled "NCP/SCP (Refracted)" — the
+    /// <item>Refracted-pole cross (green) labelled "NCP/SCP (Refracted)"; the
     /// refraction-corrected target the rotation axis should hit.</item>
     /// <item>Current rotation-axis crosshair (red, plain Cross glyph at 32px) --
     /// "center of rotation": where the camera sweeps around as the RA encoder

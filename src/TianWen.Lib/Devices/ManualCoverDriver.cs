@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace TianWen.Lib.Devices;
 
 /// <summary>
-/// Cover/calibrator driver for a manual (dumb) flat light panel — a hand-switched light source with no
+/// Cover/calibrator driver for a manual (dumb) flat light panel; a hand-switched light source with no
 /// hardware interface (e.g. an analog LED panel with a physical brightness knob). It reports NO cover flap
 /// (<see cref="CoverStatus.NotPresent"/>) and treats the calibrator as user-operated: <see cref="BeginCalibratorOn"/>
 /// simply reports the panel <see cref="CalibratorStatus.Ready"/> (the user has switched it on) and
@@ -23,7 +23,7 @@ internal sealed class ManualCoverDriver(ManualCoverDevice device, IServiceProvid
     private int _brightness;
 
     // A hand-set analog panel exposes no software brightness range; report a nominal full scale so the
-    // calibrator-brightness percentage math stays well-defined (the requested value is otherwise ignored —
+    // calibrator-brightness percentage math stays well-defined (the requested value is otherwise ignored, 
     // see BeginCalibratorOn).
     public int MaxBrightness => 255;
 
@@ -31,7 +31,7 @@ internal sealed class ManualCoverDriver(ManualCoverDevice device, IServiceProvid
     // actual light. The flat routine reads this to prompt the user to switch the panel on before capturing.
     public bool CanControlBrightness => false;
 
-    // No motorised flap — a bare light panel, like the Gemini FlatPanel Lite.
+    // No motorised flap: a bare light panel, like the Gemini FlatPanel Lite.
     public ValueTask<CoverStatus> GetCoverStateAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(CoverStatus.NotPresent);
 
@@ -41,7 +41,7 @@ internal sealed class ManualCoverDriver(ManualCoverDevice device, IServiceProvid
     public ValueTask<int> GetBrightnessAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(_brightness);
 
-    // No flap to move — no-op (the equivalent of ManualFilterWheelDriver's no-op BeginMoveAsync).
+    // No flap to move: no-op (the equivalent of ManualFilterWheelDriver's no-op BeginMoveAsync).
     public Task BeginOpen(CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public Task BeginClose(CancellationToken cancellationToken = default) => Task.CompletedTask;

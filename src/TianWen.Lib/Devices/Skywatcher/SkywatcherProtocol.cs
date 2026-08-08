@@ -62,7 +62,7 @@ internal static class SkywatcherMotionFuncExtensions
         public bool IsGoto => func is SkywatcherMotionFunc.HighSpeedGoto or SkywatcherMotionFunc.LowSpeedGoto;
 
         /// <summary>True when the :I T1 preset is interpreted at the high-speed
-        /// (1/highSpeedRatio) timer scale — pair with <c>ComputeT1Preset(highSpeed: true)</c>.</summary>
+        /// (1/highSpeedRatio) timer scale: pair with <c>ComputeT1Preset(highSpeed: true)</c>.</summary>
         public bool IsHighSpeed => func is SkywatcherMotionFunc.HighSpeedGoto or SkywatcherMotionFunc.HighSpeedSlew;
     }
 }
@@ -144,7 +144,7 @@ internal static class SkywatcherProtocol
     /// Encode the 2-char data payload of the :G (set motion mode) command:
     /// <c>&lt;func&gt;&lt;dir&gt;</c>. The dir char is a bit field: bit 0 = reverse
     /// (0 = forward/CW, 1 = reverse), bit 1 = southern hemisphere. Matches the real
-    /// motor-controller firmware and GSServer <c>Commands.SetMotionMode</c> — any
+    /// motor-controller firmware and GSServer <c>Commands.SetMotionMode</c>; any
     /// other payload shape (notably the former 3-char "hex mode byte + dir" dialect)
     /// is misparsed by real hardware.
     /// </summary>
@@ -311,7 +311,7 @@ internal static class SkywatcherProtocol
     /// </summary>
     internal static bool SupportsAdvancedCommands(int intVersion, SkywatcherMountModel mountModel)
     {
-        // Star Adventurer with exact version 0x038207 — excluded
+        // Star Adventurer with exact version 0x038207: excluded
         if (intVersion == 0x038207)
         {
             return false;

@@ -10,7 +10,7 @@ namespace TianWen.Lib.Tests;
 [Collection("Scheduling")]
 public sealed class MosaicGeneratorTests
 {
-    // M31 — Andromeda Galaxy: RA=0.712h, Dec=41.27°, MajorAxis=178', MinorAxis=63', PA=35°
+    // M31: Andromeda Galaxy: RA=0.712h, Dec=41.27°, MajorAxis=178', MinorAxis=63', PA=35°
     private const double M31_RA = 0.712;
     private const double M31_Dec = 41.27;
     private const double M31_MajorArcmin = 178;
@@ -52,7 +52,7 @@ public sealed class MosaicGeneratorTests
     [Fact]
     public void GeneratePanels_ZeroSizeObject_ReturnsSinglePanel()
     {
-        // Object with no known size (0 arcmin) — single panel at center
+        // Object with no known size (0 arcmin): single panel at center
         var panels = MosaicGenerator.GeneratePanels(
             10.0, 30.0, 0, 0, 0,
             FovW_500mm, FovH_500mm);
@@ -185,7 +185,7 @@ public sealed class MosaicGeneratorTests
     [Fact]
     public void GeneratePanels_NearPole_HandlesCosDeclination()
     {
-        // Object near Dec=80° — cos(Dec) is small, so RA steps should be wider
+        // Object near Dec=80°: cos(Dec) is small, so RA steps should be wider
         var panels = MosaicGenerator.GeneratePanels(
             centerRA: 6.0, centerDec: 80.0,
             majorAxisArcmin: 120, minorAxisArcmin: 60, positionAngleDeg: 0,
@@ -349,7 +349,7 @@ public sealed class MosaicGeneratorTests
                 continue;
             }
 
-            // RA check — convert hour difference to sky degrees via cos(Dec)
+            // RA check: convert hour difference to sky degrees via cos(Dec)
             var cosDec = Math.Cos(panel.Target.Dec * Math.PI / 180.0);
             var halfFovRA = cosDec > 0.01 ? fovWidthDeg / (2.0 * 15.0 * cosDec) : 12.0;
             var dRA = Math.Abs(pointRA - panel.Target.RA);

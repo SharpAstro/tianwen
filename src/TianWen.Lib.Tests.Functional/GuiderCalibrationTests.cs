@@ -28,7 +28,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         await mount.ConnectAsync(ct);
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
-        // Record initial position — guide camera sees star shift relative to this
+        // Record initial position: guide camera sees star shift relative to this
         var initialRa = await mount.GetRightAscensionAsync(ct);
         var initialDec = await mount.GetDeclinationAsync(ct);
 
@@ -56,7 +56,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
                 pixelScaleArcsec: PixelScaleArcsec));
         }
 
-        // Initial frame — acquire guide star
+        // Initial frame: acquire guide star
         tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
         tracker.IsAcquired.ShouldBeTrue();
 
@@ -129,7 +129,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         tracker.Reset();
         tracker.ProcessFrame((await RenderFrame(ct)).GetChannelArray(0));
 
-        // Validate with same mount/conditions — should be Valid
+        // Validate with same mount/conditions: should be Valid
         var result = await calibration.ValidateAsync(calResult.Value, pulseTarget, tracker, RenderFrame, timeProvider, ct);
         output.WriteLine($"Validation result: {result}");
         result.ShouldBe(CalibrationValidationResult.Valid);
@@ -460,7 +460,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             output.WriteLine($"Calibration round-trip: angle={loadedCalibration.Value.CameraAngleDeg:F1}°, " +
                 $"RA rate={loadedCalibration.Value.RaRatePixPerSec:F3}, {loadedWeights.Length} weights verified");
 
-            // Save again — should replace the old file, not accumulate
+            // Save again: should replace the old file, not accumulate
             await NeuralGuideModelPersistence.SaveAsync(loadedModel, loadedCalibration.Value, tempDir, ct);
             ngmFiles = new DirectoryInfo(Path.Combine(tempDir.FullName, "NeuralGuider")).GetFiles("*.ngm");
             ngmFiles.Length.ShouldBe(1, "old .ngm files should be cleaned up after save");

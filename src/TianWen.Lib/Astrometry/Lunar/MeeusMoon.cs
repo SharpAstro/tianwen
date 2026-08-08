@@ -8,7 +8,7 @@ namespace TianWen.Lib.Astrometry.Lunar;
 /// Simplified lunar ephemeris based on Meeus "Astronomical Algorithms" chapter 47.
 /// Computes geocentric ecliptic longitude, latitude, and distance, then converts
 /// to heliocentric J2000 XYZ for integration with the VSOP87a pipeline.
-/// Accuracy: ~0.3° in longitude, ~0.1° in latitude — sufficient for planner use.
+/// Accuracy: ~0.3° in longitude, ~0.1° in latitude; sufficient for planner use.
 /// </summary>
 internal static class MeeusMoon
 {
@@ -24,15 +24,15 @@ internal static class MeeusMoon
         var T = et * 10.0;
 
         // Fundamental arguments (degrees)
-        // L' — Moon's mean longitude
+        // L': Moon's mean longitude
         var Lp = Normalize(218.3164477 + 481267.88123421 * T - 0.0015786 * T * T + T * T * T / 538841.0);
-        // D — Mean elongation of the Moon
+        // D: Mean elongation of the Moon
         var D = Normalize(297.8501921 + 445267.1114034 * T - 0.0018819 * T * T + T * T * T / 545868.0);
-        // M — Sun's mean anomaly
+        // M: Sun's mean anomaly
         var M = Normalize(357.5291092 + 35999.0502909 * T - 0.0001536 * T * T);
-        // M' — Moon's mean anomaly
+        // M': Moon's mean anomaly
         var Mp = Normalize(134.9633964 + 477198.8675055 * T + 0.0087414 * T * T + T * T * T / 69699.0);
-        // F — Moon's argument of latitude
+        // F: Moon's argument of latitude
         var F = Normalize(93.2720950 + 483202.0175233 * T - 0.0036539 * T * T - T * T * T / 3526000.0);
 
         // Additional arguments
@@ -47,7 +47,7 @@ internal static class MeeusMoon
         // Sum of principal terms for longitude (Σl) and distance (Σr)
         double sumL = 0, sumR = 0;
 
-        // Longitude and distance terms (Meeus Table 47.A — largest 60 terms, here top 30)
+        // Longitude and distance terms (Meeus Table 47.A, largest 60 terms, here top 30)
         sumL += 6288774 * SinD(Mp);
         sumL += 1274027 * SinD(2 * D - Mp);
         sumL += 658314 * SinD(2 * D);
@@ -82,7 +82,7 @@ internal static class MeeusMoon
         // Additional corrections for longitude
         sumL += 3958 * SinD(A1) + 1962 * SinD(Lp - F) + 318 * SinD(A2);
 
-        // Distance terms (Meeus Table 47.A — top 15)
+        // Distance terms (Meeus Table 47.A, top 15)
         sumR += -20905355 * CosD(Mp);
         sumR += -3699111 * CosD(2 * D - Mp);
         sumR += -2955968 * CosD(2 * D);
@@ -99,7 +99,7 @@ internal static class MeeusMoon
         sumR += 10321 * CosD(2 * D - 2 * F);
         sumR += 79661 * CosD(Mp - 2 * F);
 
-        // Latitude terms (Meeus Table 47.B — top 20)
+        // Latitude terms (Meeus Table 47.B, top 20)
         double sumB = 0;
         sumB += 5128122 * SinD(F);
         sumB += 280602 * SinD(Mp + F);
@@ -190,7 +190,7 @@ internal static class MeeusMoon
 
     /// <summary>
     /// Returns the Unicode moon phase emoji for the given illumination and hemisphere.
-    /// Southern hemisphere sees the illumination mirrored on the X axis — a waxing crescent
+    /// Southern hemisphere sees the illumination mirrored on the X axis; a waxing crescent
     /// (lit on right in north) appears lit on the left in south. We pick the visually
     /// mirrored emoji: e.g. waxing crescent in south uses the waning crescent glyph (🌘).
     /// </summary>

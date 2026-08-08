@@ -12,7 +12,7 @@ namespace TianWen.UI.Abstractions
     /// J2000 unit-vector line lists (constellation figures/boundaries, RA/Dec grid, ecliptic,
     /// horizon, meridian, Alt/Az grid) and the 5-float star instance stream
     /// (<see cref="SkyMapState.FloatsPerStar"/>). The Vulkan pipeline (TianWen.UI.Shared) and the
-    /// WebGL pipeline (TianWen.UI.Web) both upload these into their own persistent GPU buffers —
+    /// WebGL pipeline (TianWen.UI.Web) both upload these into their own persistent GPU buffers; 
     /// the geometry math has exactly one implementation here.
     /// </summary>
     public static class SkyMapGpuGeometry
@@ -77,7 +77,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// The bright-star seed: 5 floats per star (unit x/y/z, vMag, B-V) for the ~1000
-        /// constellation-figure HIP stars — the buffer the Vulkan pipeline shows while the full
+        /// constellation-figure HIP stars: the buffer the Vulkan pipeline shows while the full
         /// Tycho-2 build runs, and the WHOLE star field for the Lightweight/browser build
         /// (naked-eye sky; tyc2 is stripped there).
         /// </summary>
@@ -109,7 +109,7 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// The full HR (Bright Star) catalog as star instances (~9k stars, the naked-eye sky) —
+        /// The full HR (Bright Star) catalog as star instances (~9k stars, the naked-eye sky); 
         /// the browser star field. Unlike the HIP-keyed figure seed this needs no cross-identity
         /// resolution (a Lightweight build has no Tycho-2), just catalog enumeration. Do NOT
         /// combine with <see cref="BuildFigureStarInstances"/> in one buffer: the figure stars
@@ -217,7 +217,7 @@ namespace TianWen.UI.Abstractions
                 }
                 else if (edge.Type == ConstellationEdges.EdgeType.Meridian)
                 {
-                    // Constant B1875 RA arc from Dec1 to Dec2 — precessed per step.
+                    // Constant B1875 RA arc from Dec1 to Dec2: precessed per step.
                     var decRange = edge.Dec2 - edge.Dec1;
                     var steps = Math.Max(5, (int)(Math.Abs(decRange) / 2));
                     TessellateArc(floats, steps, i =>
@@ -247,7 +247,7 @@ namespace TianWen.UI.Abstractions
             var (raStep, decStep, _, _) = GridScales[scaleIndex];
             var floats = new List<float>(32768);
 
-            // RA lines (constant RA, varying Dec — great circles)
+            // RA lines (constant RA, varying Dec, great circles)
             var lineSteps = Math.Max(60, Math.Min(200, (int)(180.0 / decStep * 2)));
             for (var ra = 0.0; ra < 24.0; ra += raStep)
             {
@@ -258,7 +258,7 @@ namespace TianWen.UI.Abstractions
                 TessellateArc(floats, lineSteps, j => (ra, -90.0 + j * 180.0 / lineSteps));
             }
 
-            // Dec lines (constant Dec, varying RA — small circles)
+            // Dec lines (constant Dec, varying RA, small circles)
             var raSteps = Math.Max(60, Math.Min(200, (int)(24.0 / raStep * 2)));
             for (var dec = -90.0 + decStep; dec < 90.0; dec += decStep)
             {

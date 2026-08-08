@@ -13,7 +13,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// configured window size.</description></item>
     /// <item><description><b>Settled flag</b>: true when the magnitude
     /// standard deviation across the recent window drops below the configured
-    /// sigma. Settled means the user has stopped turning the knobs — does
+    /// sigma. Settled means the user has stopped turning the knobs; does
     /// not imply alignment is good.</description></item>
     /// </list>
     ///

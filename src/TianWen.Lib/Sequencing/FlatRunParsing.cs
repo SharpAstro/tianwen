@@ -12,7 +12,7 @@ public static class FlatRunParsing
 {
     /// <summary>
     /// Parses a flat illumination source: <c>calibrator</c>/<c>panel</c> or <c>sky</c>/<c>twilight</c>. A manual
-    /// (hand-switched) panel is not a source — it is a <see cref="Devices.ManualCoverDevice"/> assigned to the
+    /// (hand-switched) panel is not a source: it is a <see cref="Devices.ManualCoverDevice"/> assigned to the
     /// OTA's cover slot, captured through the <c>calibrator</c> path.
     /// </summary>
     public static bool TryParseSource(string? text, out FlatIlluminationSource source)

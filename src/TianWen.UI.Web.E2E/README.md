@@ -7,12 +7,12 @@ The planner list and sky map are drawn into a `<canvas>`, so the tests deliberat
 the observable **chrome DOM** that the unit tests can't reach:
 
 - the titlebar **view chips** (`[data-view=planner]` / `[data-view=sky]` and their `active` class),
-- the **address bar** (there is no Blazor Router — the chips navigate via `NavigationManager` and the
+- the **address bar** (there is no Blazor Router, the chips navigate via `NavigationManager` and the
   component parses the path itself; deep links `/planner`, `/sky-atlas`, aliases `skymap`/`sky`),
 - the document **title** (`<PageTitle>` → `Astro - Planner` / `Astro - Sky Atlas`),
 - the aria-live **status line** (`.status`),
 - and the **catalog-loading indicator** (`.catalog-loading`, shown beside the chips while the shared
-  catalog loads — the chips never block).
+  catalog loads; the chips never block).
 
 This suite exists because the same navigation bug shipped three times in one session (chip clicks
 changing the URL but not the active view; the chip blocked during the catalog load). Each test fails

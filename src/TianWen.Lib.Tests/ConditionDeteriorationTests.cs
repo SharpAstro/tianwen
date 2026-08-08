@@ -71,7 +71,7 @@ public sealed class ConditionDeteriorationTests
             cloudCoverage: 0.9, cloudSeed: 77);
         var overcastStars = await ToImage(overcastData).FindStarsAsync(0, snrMin: 5, maxStars: 200, cancellationToken: TestContext.Current.CancellationToken);
 
-        // 90% coverage attenuates most stars but bright ones punch through — expect significant drop
+        // 90% coverage attenuates most stars but bright ones punch through; expect significant drop
         overcastStars.Count.ShouldBeLessThan(clearStars.Count,
             "Heavy clouds should reduce detected star count");
         var ratio = (float)overcastStars.Count / clearStars.Count;

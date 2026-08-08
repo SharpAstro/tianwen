@@ -61,8 +61,8 @@ internal abstract class SerialConnectionBase : ISerialConnection
     /// override this to discard the native receive buffer before the next probe
     /// sends a command on the shared handle. Overrides should read any pending
     /// bytes first (via <see cref="LogDrained"/>) so the operator can see what
-    /// the device actually sent — e.g. OnStep's unterminated "0" left over from
-    /// a prior LX200 probe's timeout — before the bytes are discarded.
+    /// the device actually sent, e.g. OnStep's unterminated "0" left over from
+    /// a prior LX200 probe's timeout, before the bytes are discarded.
     /// </summary>
     public virtual void DiscardInBuffer() { }
 
@@ -308,7 +308,7 @@ internal abstract class SerialConnectionBase : ISerialConnection
         }
     }
 
-    // Squash newlines/trailing whitespace — IOException.Message from SerialStream is
+    // Squash newlines/trailing whitespace: IOException.Message from SerialStream is
     // often multi-line ("The I/O operation has been aborted...\r\n"), which shreds
     // the one-line-per-exchange probe log.
     private static string SanitizeReason(Exception ex) => SanitizeReasonString(ex.Message);

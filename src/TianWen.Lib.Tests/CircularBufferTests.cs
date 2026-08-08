@@ -6,7 +6,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Ring semantics of the lock-free <see cref="CircularBuffer{T}"/> (ImmutableArray atomic
-/// replacement — readers get torn-free snapshots without a lock).
+/// replacement: readers get torn-free snapshots without a lock).
 /// </summary>
 public class CircularBufferTests
 {
@@ -34,7 +34,7 @@ public class CircularBufferTests
         buffer.Add(3);
         buffer.Add(4);
 
-        // The snapshot taken earlier is immutable — later writes replace the backing
+        // The snapshot taken earlier is immutable: later writes replace the backing
         // array instead of mutating it under the reader.
         snapshot.ShouldBe([1, 2]);
         buffer.Snapshot.ShouldBe([2, 3, 4]);

@@ -29,7 +29,7 @@ public class Tycho2PhotometryTests
         db.TryLookupByIndex("TYC 9372-1058-1", out var star).ShouldBeTrue();
         star.ObjectType.ShouldBe(ObjectType.Star);
 
-        // Position sanity — catalogued ICRS coords (~04h12m / -80deg11').
+        // Position sanity: catalogued ICRS coords (~04h12m / -80deg11').
         star.RA.ShouldBe(4.211, 0.01);
         star.Dec.ShouldBe(-80.189, 0.01);
 

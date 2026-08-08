@@ -20,7 +20,7 @@ internal sealed class ConsoleImageRenderer
     }
 
     /// <summary>
-    /// Wraps an existing renderer — use this to render directly into a Canvas's surface.
+    /// Wraps an existing renderer: use this to render directly into a Canvas's surface.
     /// </summary>
     public ConsoleImageRenderer(SixelRgbaImageRenderer renderer)
     {

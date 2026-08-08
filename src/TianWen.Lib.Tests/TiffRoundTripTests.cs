@@ -17,10 +17,10 @@ public class TiffRoundTripTests(ITestOutputHelper testOutput)
     [InlineData("RGGB_frame_bx0_by0_top_down", DebayerAlgorithm.VNG)]
     public async Task GivenFitsFileWhenSavedAsTiffAndReloadedThenPixelDataIsPreserved(string name, DebayerAlgorithm algorithm, CancellationToken cancellationToken = default)
     {
-        // given — load FITS
+        // given: load FITS
         var original = await SharedTestData.ExtractGZippedFitsImageAsync(name, isReadOnly: false, cancellationToken: cancellationToken);
 
-        // when — save as TIFF via DIR.Lib and reload via TryReadImageFile
+        // when: save as TIFF via DIR.Lib and reload via TryReadImageFile
         var testDir = SharedTestData.CreateTempTestOutputDir();
         var tiffPath = Path.Combine(testDir, $"{name}.tiff");
         await original.WriteTiffAsync(tiffPath, algorithm, cancellationToken);
@@ -28,7 +28,7 @@ public class TiffRoundTripTests(ITestOutputHelper testOutput)
 
         var loaded = Image.TryReadImageFile(tiffPath, out var reloaded);
 
-        // then — image loads and dimensions match
+        // then: image loads and dimensions match
         loaded.ShouldBeTrue("TryReadImageFile should succeed");
         reloaded.ShouldNotBeNull();
 
@@ -79,7 +79,7 @@ public class TiffRoundTripTests(ITestOutputHelper testOutput)
     [InlineData("Vela_SNR_Panel_10-Multi-NB-color-Hydrogen-alpha-Oxygen_III-crop", false)]
     public async Task GivenUnstretchedFitsWhenSavedAsTiffThenDetectedAsNotPreStretched(string name, bool expectedPreStretched, CancellationToken cancellationToken = default)
     {
-        // given — load FITS, save as TIFF (unstretched, linear data)
+        // given: load FITS, save as TIFF (unstretched, linear data)
         var original = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
 
         var testDir = SharedTestData.CreateTempTestOutputDir();

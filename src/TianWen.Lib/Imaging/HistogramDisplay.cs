@@ -100,7 +100,7 @@ public sealed class HistogramDisplay
 
             if (stretchMode is StretchMode.None)
             {
-                // No stretch — downsample by summing groups
+                // No stretch: downsample by summing groups
                 var binsPerGroup = (float)RawBinCount / BinCount;
                 for (var i = 0; i < BinCount; i++)
                 {

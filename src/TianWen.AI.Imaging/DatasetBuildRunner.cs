@@ -13,7 +13,7 @@ namespace TianWen.AI.Imaging;
 
 /// <summary>
 /// End-to-end <c>tianwen dataset build</c> orchestration (docs/plans/ai-denoise-deconv.md §2.4, task
-/// P0/#43) — the one-command run that turns a raw archive into a regenerable training tile set. It
+/// P0/#43): the one-command run that turns a raw archive into a regenerable training tile set. It
 /// scans the archive ONCE, then:
 /// <list type="number">
 ///   <item>groups lights into sessions (<see cref="SessionDiscovery"/>) and calibration frames into
@@ -26,7 +26,7 @@ namespace TianWen.AI.Imaging;
 ///   <item>runs the zero-skew parity check on the first exported session as an in-run gate;</item>
 ///   <item>writes the PSF/noise distribution report.</item>
 /// </list>
-/// Lives here (not in Lib) because it drives <see cref="DatasetTileExporter"/> — the only piece
+/// Lives here (not in Lib) because it drives <see cref="DatasetTileExporter"/>; the only piece
 /// coupled to the AI input pre-stretch; everything else is Lib.
 /// </summary>
 public static class DatasetBuildRunner
@@ -34,17 +34,17 @@ public static class DatasetBuildRunner
     /// <summary>Outcome of one build run.</summary>
     /// <param name="Failed">Sessions that threw mid-pipeline (unreadable pixel data, I/O faults)
     /// and were skipped. Discovery only validates HEADERS, so a truncated file with a clean header
-    /// surfaces here, at register time — fault-isolated per session so one bad frame can never
+    /// surfaces here, at register time: fault-isolated per session so one bad frame can never
     /// abort a multi-hour archive bake. Failures are logged per session; a crashed-then-restarted
     /// run starts fresh (the manifest is regenerated) unless <see cref="DatasetBuildOptions.Resume"/>
     /// checkpoints it, so partial output never needs repairing.</param>
     /// <param name="SkippedNoDark">Sessions skipped because no master dark could be resolved and
-    /// <see cref="DatasetBuildOptions.RequireDarkCalibration"/> is set — an uncalibrated N2N pair
+    /// <see cref="DatasetBuildOptions.RequireDarkCalibration"/> is set; an uncalibrated N2N pair
     /// shares the sensor's fixed-pattern dark signal (correlated between subs), so it is not a valid
     /// training sample. Distinct from <paramref name="Failed"/> (an error), and from the silent
     /// too-few-subs skip.</param>
     /// <param name="Resumed">Sessions skipped wholesale because their tiles were already in the
-    /// manifest (<see cref="DatasetBuildOptions.Resume"/>) — their prior tile counts fold into
+    /// manifest (<see cref="DatasetBuildOptions.Resume"/>); their prior tile counts fold into
     /// <paramref name="TotalTiles"/> but they are NOT re-registered, so the PSF/noise report of a
     /// resumed run covers only the sessions registered in THAT run.</param>
     public sealed record RunResult(

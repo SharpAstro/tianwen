@@ -100,7 +100,7 @@ public class ColorCalibrationTests(ITestOutputHelper output)
     [Fact]
     public void ComputeMultipliers_ClampsToRange()
     {
-        // Extreme cast — should clamp to [0.5, 2.0] range.
+        // Extreme cast: should clamp to [0.5, 2.0] range.
         // Values outside this range indicate sensor/model mismatch, not correctable colour cast.
         var obsR = new[] { 1f };
         var obsG = new[] { 1000f }; // huge green cast
@@ -181,7 +181,7 @@ public class ColorCalibrationTests(ITestOutputHelper output)
         // (FilterCurveDatabase.TryGetSedByBv returns false when not loaded)
         if (FilterCurveDatabase.IsLoaded)
         {
-            output.WriteLine("Database already loaded — skipping fallback test.");
+            output.WriteLine("Database already loaded, skipping fallback test.");
             return;
         }
 

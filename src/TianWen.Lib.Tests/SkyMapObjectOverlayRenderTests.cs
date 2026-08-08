@@ -15,8 +15,8 @@ namespace TianWen.Lib.Tests;
 /// <summary>
 /// Offline render test for the shared CPU-primitive object-overlay path
 /// (<c>SkyMapTab.RenderObjectOverlayPrimitive</c>) that the browser sky map uses in place of the
-/// desktop GPU instanced-ellipse pipeline. Rendered over the CPU <see cref="RgbaImageRenderer"/> — no
-/// GPU/device — so it pins that the [O] overlay actually draws markers + labels (the net-new code), by
+/// desktop GPU instanced-ellipse pipeline. Rendered over the CPU <see cref="RgbaImageRenderer"/>; no
+/// GPU/device, so it pins that the [O] overlay actually draws markers + labels (the net-new code), by
 /// diffing an overlay-off frame against an overlay-on frame over a DSO-dense region.
 /// </summary>
 [Collection("Astrometry")]
@@ -24,7 +24,7 @@ public sealed class SkyMapObjectOverlayRenderTests
 {
     // A SkyMapTab over the CPU surface that routes the object overlay through the shared primitive path
     // (exactly what WebSkyMapTab does over WebGL) and publishes the view matrix each frame the way the
-    // real GPU pipelines do — so the overlay + label projections have a matrix consistent with the centre.
+    // real GPU pipelines do, so the overlay + label projections have a matrix consistent with the centre.
     private sealed class OverlayTestSkyMapTab(RgbaImageRenderer renderer) : SkyMapTab<RgbaImage>(renderer)
     {
         protected override void RenderSkyMap(
@@ -66,7 +66,7 @@ public sealed class SkyMapObjectOverlayRenderTests
         var content = new RectF32(0, 0, w, h);
 
         // First render initialises the view to the celestial pole; then aim at the Sagittarius Milky Way
-        // (RA 18h, Dec -24 deg) — packed with Messier nebulae / clusters — at a wide FOV, overlay OFF.
+        // (RA 18h, Dec -24 deg), packed with Messier nebulae / clusters, at a wide FOV, overlay OFF.
         tab.State.ShowObjectOverlay = false;
         tab.Render(state, content, time);
 
@@ -99,7 +99,7 @@ public sealed class SkyMapObjectOverlayRenderTests
         // footprint is well into the thousands of pixels. 500 cleanly separates "the overlay drew" from
         // "nothing changed" (the pre-wiring web behaviour, where the base RenderObjectOverlay is a no-op).
         changed.ShouldBeGreaterThan(500,
-            "enabling the [O] overlay drew too few pixels — the primitive overlay path may not be rendering");
+            "enabling the [O] overlay drew too few pixels; the primitive overlay path may not be rendering");
 
         // The overlay-on render must ALSO register clickable label regions, so a click on a label selects
         // the object (the web-only "clicking the label doesn't select" bug: the CPU/primitive path drew the

@@ -14,7 +14,7 @@ public sealed class SessionPhaseChangedEventArgs(SessionPhase oldPhase, SessionP
 }
 
 /// <summary>
-/// Event args for <see cref="ISession.PromptRequested"/> — a request for the user to perform a physical
+/// Event args for <see cref="ISession.PromptRequested"/>; a request for the user to perform a physical
 /// step (e.g. "switch on the flat panel", "cover the scope for darks") and confirm before the session
 /// proceeds. The session raises this and awaits <see cref="Respond"/>; a headless caller that does not
 /// subscribe causes the session to auto-proceed. The completion is a
@@ -93,7 +93,7 @@ public sealed class SessionPromptEventArgs(
 
     /// <summary>
     /// Signals the session's decision: <c>true</c> = proceed, <c>false</c> = decline (skip this step).
-    /// Idempotent — a second call is ignored (the first response wins), so a Continue click racing a
+    /// Idempotent: a second call is ignored (the first response wins), so a Continue click racing a
     /// session-cancel cannot throw.
     /// </summary>
     public void Respond(bool proceed) => _completion.TrySetResult(proceed);
@@ -130,7 +130,7 @@ public sealed class GuiderStateChangedEventArgs(string? oldState, string? newSta
 /// <summary>
 /// Event args for <see cref="ISession.ScoutCompleted"/>. Fired after the FOV-obstruction
 /// scout returns its routing decision (Proceed / Advance) so UIs can surface what just
-/// happened — currently an opaque ~30-90s pause between centering and guider start.
+/// happened: currently an opaque ~30-90s pause between centering and guider start.
 /// </summary>
 public sealed class ScoutCompletedEventArgs(
     Target target,

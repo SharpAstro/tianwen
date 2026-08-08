@@ -272,7 +272,7 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     // so the download + FromWxHImageData transpose must happen exactly once per exposure. The cache
     // restores the "ImageData reads null after GetImageAsync" contract (ReleaseImageData clears it)
     // that the old computed property silently broke, and StartExposureAsync drops a stale frame so
-    // the next read re-downloads — mirroring AlpacaCameraDriver.
+    // the next read re-downloads: mirroring AlpacaCameraDriver.
     private Imaging.Channel? _imageData;
 
     // Recycled frame buffers returned by consumers via ChannelBuffer.onRelease (the DAL pattern);
@@ -397,7 +397,7 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public SensorType SensorType => Connected ? SafeGet(() => (SensorType)_camera.SensorType, SensorType.Unknown) : SensorType.Unknown;
 
     /// <summary>
-    /// ASCOM doesn't expose sensor die model natively — use the camera name.
+    /// ASCOM doesn't expose sensor die model natively; use the camera name.
     /// <see cref="FilterCurveDatabase.TryMatchSensor"/> can resolve e.g. "ZWO ASI533MC Pro" → "IMX533".
     /// </summary>
     public string? SensorModelName => Name;

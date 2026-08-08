@@ -108,7 +108,7 @@ while (true)
 
     if (wlCol < 0 || valCol < 0)
     {
-        Console.Error.WriteLine($"Warning: skipping HDU {hduCount} '{extname}' (CTYPE={ctype}) — missing WAVELENGTH or FLUX/THROUGHPUT column.");
+        Console.Error.WriteLine($"Warning: skipping HDU {hduCount} '{extname}' (CTYPE={ctype}), missing WAVELENGTH or FLUX/THROUGHPUT column.");
         continue;
     }
 

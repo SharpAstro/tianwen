@@ -81,7 +81,7 @@ internal sealed class ChannelBuffer(float[,] data, Action<float[,]>? onRelease =
     /// <summary>
     /// Decrements the reference count. When it reaches zero, fires the <c>onRelease</c>
     /// callback so the camera can recycle the backing <c>float[,]</c>.
-    /// Idempotent after reaching zero — extra calls are no-ops.
+    /// Idempotent after reaching zero: extra calls are no-ops.
     /// </summary>
     public void Release()
     {
@@ -95,7 +95,7 @@ internal sealed class ChannelBuffer(float[,] data, Action<float[,]>? onRelease =
         }
         else if (count < 0)
         {
-            // Over-release — clamp back to 0 and ignore
+            // Over-release: clamp back to 0 and ignore
             Interlocked.Increment(ref _refCount);
         }
     }

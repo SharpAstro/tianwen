@@ -400,7 +400,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Render the caller-supplied <see cref="WcsAnnotation"/> through the active
-        /// WCS using the renderer's existing primitives. Generic — knows nothing
+        /// WCS using the renderer's existing primitives. Generic; knows nothing
         /// about polar alignment, plate-solve verification, etc.; just iterates the
         /// annotation list, projects each item via <see cref="WcsAnnotationLayer"/>,
         /// dispatches to <see cref="DrawCrossOverlay"/> or

@@ -17,7 +17,7 @@ namespace TianWen.UI.Abstractions.Overlays
         /// <summary>
         /// Project a sky-position marker to screen pixels, including a clip
         /// flag for callers that want to draw an off-frame edge arrow.
-        /// Returns null if the marker is behind the tangent plane (rare —
+        /// Returns null if the marker is behind the tangent plane (rare, 
         /// happens for objects more than 90° from the WCS centre).
         /// </summary>
         public static MarkerPlacement? ProjectMarker(in SkyMarker marker, in WCS wcs, in ViewportLayout layout)
@@ -36,7 +36,7 @@ namespace TianWen.UI.Abstractions.Overlays
         /// <summary>
         /// Project a sky-radius ring to a screen-space ellipse. The ring is
         /// rendered as a circle in the tangent plane using the *local* pixel
-        /// scale at its centre — exact for small rings (sub-pixel error below
+        /// scale at its centre: exact for small rings (sub-pixel error below
         /// ~5° radius), imperceptible for the polar-alignment use case where
         /// rings are 5'-30' across the centre of the FOV.
         /// </summary>
@@ -103,7 +103,7 @@ namespace TianWen.UI.Abstractions.Overlays
     /// <param name="ScreenX">Centre X in screen pixels.</param>
     /// <param name="ScreenY">Centre Y in screen pixels.</param>
     /// <param name="IsOnScreen">False if the marker projects outside the image
-    /// pixel bounds — the renderer can draw an edge arrow + offset label
+    /// pixel bounds: the renderer can draw an edge arrow + offset label
     /// instead of the glyph itself.</param>
     public readonly record struct MarkerPlacement(float ScreenX, float ScreenY, bool IsOnScreen);
 

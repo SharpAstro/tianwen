@@ -14,7 +14,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenCoolableCameraWhenCoolDownThenReachesSetpoint()
     {
-        // given — camera starts at 20°C, target is -10°C
+        // given: camera starts at 20°C, target is -10°C
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
@@ -22,7 +22,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         output.WriteLine($"Initial CCD temp: {initialTemp:F1} °C");
         initialTemp.ShouldBe(20.0, 0.1, "camera should start at ambient temperature");
 
-        // when — cool down to -10°C
+        // when: cool down to -10°C
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
             TimeSpan.FromSeconds(60),
@@ -49,7 +49,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenCooledCameraWhenWarmUpThenReachesHigherTemp()
     {
-        // given — cool camera down first
+        // given: cool camera down first
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
@@ -65,7 +65,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         output.WriteLine($"Cooled CCD temp: {cooledTemp:F1} °C");
         cooledTemp.ShouldBeLessThan(0, "camera should be below zero after cooldown");
 
-        // when — warm up toward 0°C (a concrete target above cooled temp)
+        // when: warm up toward 0°C (a concrete target above cooled temp)
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(0, SetpointTempKind.Normal),
             TimeSpan.FromSeconds(60),
@@ -93,7 +93,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var coolerBefore = await ctx.Camera.GetCoolerOnAsync(ct);
         coolerBefore.ShouldBeFalse("cooler should be off initially");
 
-        // when — start cooling
+        // when: start cooling
         await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
             TimeSpan.FromSeconds(60),
@@ -114,7 +114,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
-        // when — cancel after 10 fake-time seconds via timer on the FakeTimeProvider.
+        // when: cancel after 10 fake-time seconds via timer on the FakeTimeProvider.
         // With totalRampTime=60s for 30°C delta, each step sleeps ~2s of fake time.
         // 10s allows ~5 steps (5°C cooled) before the cancel timer fires
         // deterministically inside the loop's own Advance call. No Task.Run race.
@@ -130,7 +130,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
             cts.Token
         );
 
-        // then — should not have fully reached setpoint (20°C → -10°C is 30 steps, only 3 completed)
+        // then: should not have fully reached setpoint (20°C → -10°C is 30 steps, only 3 completed)
         var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
         output.WriteLine($"Temp after cancellation: {temp:F1} °C");
         temp.ShouldBeGreaterThan(-10, "should not have reached setpoint when cancelled early");
@@ -139,14 +139,14 @@ public class SessionCoolingTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenCoolableCameraWhenCoolToSensorTempThenUsesCurrentCCDTemp()
     {
-        // given — camera at 20°C
+        // given: camera at 20°C
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
-        // when — cool to CCD sensor temp (should stabilize at current temp)
+        // when: cool to CCD sensor temp (should stabilize at current temp)
         var reached = await ctx.Session.CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(1), ct);
 
-        // then — should reach target quickly since setpoint ≈ current temp
+        // then: should reach target quickly since setpoint ≈ current temp
         reached.ShouldBeTrue("should reach sensor temp setpoint");
 
         var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
@@ -161,7 +161,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
-        // when — cool to -10°C
+        // when: cool to -10°C
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
             TimeSpan.FromSeconds(60),
@@ -170,7 +170,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
             ct
         );
 
-        // then — power should reflect the temperature delta from heatsink
+        // then: power should reflect the temperature delta from heatsink
         reached.ShouldBeTrue();
 
         var finalPower = await ctx.Camera.GetCoolerPowerAsync(ct);

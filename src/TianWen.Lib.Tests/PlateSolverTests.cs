@@ -263,7 +263,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(SharedTestData.PlateSolveTestFile, cancellationToken: cancellationToken);
         var solver = new CatalogPlateSolver(db, NullLogger.Instance);
 
-        // when — no searchOrigin provided
+        // when: no searchOrigin provided
         var result = await solver.SolveImageAsync(image, cancellationToken: cancellationToken);
 
         // then
@@ -271,21 +271,21 @@ public class PlateSolverTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData(5.59, -5.39, "M42", 200, 0.05, 1)]   // Orion Nebula — IMX294C
-    [InlineData(5.59, -5.39, "M42", 200, 0.05, 2)]   // Orion Nebula — IMX533M
-    [InlineData(6.75, 16.7, "M35", 200, 0.05, 1)]     // M35 — IMX294C
-    [InlineData(6.75, 16.7, "M35", 200, 0.05, 2)]     // M35 — IMX533M
-    [InlineData(18.87, 33.03, "M57", 400, 0.05, 1)]   // Ring Nebula — IMX294C
-    [InlineData(18.87, 33.03, "M57", 400, 0.05, 2)]   // Ring Nebula — IMX533M
-    [InlineData(5.60, -1.12, "OrionBelt", 50, 0.05, 1)]  // Orion's Belt wide field — IMX294C
-    [InlineData(5.60, -1.12, "OrionBelt", 50, 0.05, 2)]  // Orion's Belt wide field — IMX533M
-    [InlineData(3.79, 24.12, "M45", 100, 0.05, 1)]    // Pleiades — IMX294C
-    [InlineData(3.79, 24.12, "M45", 100, 0.05, 2)]    // Pleiades — IMX533M
-    [InlineData(20.04, 48.2, "Zenith", 130, 0.1, -1)]  // Zenith from lat=48.2 — Guide camera IMX178M at 130mm
+    [InlineData(5.59, -5.39, "M42", 200, 0.05, 1)]   // Orion Nebula, IMX294C
+    [InlineData(5.59, -5.39, "M42", 200, 0.05, 2)]   // Orion Nebula, IMX533M
+    [InlineData(6.75, 16.7, "M35", 200, 0.05, 1)]     // M35, IMX294C
+    [InlineData(6.75, 16.7, "M35", 200, 0.05, 2)]     // M35, IMX533M
+    [InlineData(18.87, 33.03, "M57", 400, 0.05, 1)]   // Ring Nebula, IMX294C
+    [InlineData(18.87, 33.03, "M57", 400, 0.05, 2)]   // Ring Nebula, IMX533M
+    [InlineData(5.60, -1.12, "OrionBelt", 50, 0.05, 1)]  // Orion's Belt wide field, IMX294C
+    [InlineData(5.60, -1.12, "OrionBelt", 50, 0.05, 2)]  // Orion's Belt wide field, IMX533M
+    [InlineData(3.79, 24.12, "M45", 100, 0.05, 1)]    // Pleiades, IMX294C
+    [InlineData(3.79, 24.12, "M45", 100, 0.05, 2)]    // Pleiades, IMX533M
+    [InlineData(20.04, 48.2, "Zenith", 130, 0.1, -1)]  // Zenith from lat=48.2, Guide camera IMX178M at 130mm
     public async Task GivenSyntheticCatalogImageWhenCatalogPlateSolvingThenSolutionMatchesTarget(
         double targetRA, double targetDec, string targetName, int focalLengthMm, double accuracy, int cameraDeviceId)
     {
-        // given — set up fake camera with catalog DB
+        // given: set up fake camera with catalog DB
         var cancellationToken = TestContext.Current.CancellationToken;
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
 
@@ -313,7 +313,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         output.WriteLine($"Focal length: {focalLengthMm}mm, pixel scale: {pixelScaleArcsec:F2}\"/px");
         output.WriteLine($"FOV: {imageDim.FieldOfView.width:F3}° × {imageDim.FieldOfView.height:F3}°");
 
-        // when — take an exposure and get image
+        // when: take an exposure and get image
         var exposureDuration = TimeSpan.FromSeconds(60);
 
         // Check how many catalog stars project onto the sensor (same cutoff as FakeCameraDriver)
@@ -347,7 +347,7 @@ public class PlateSolverTests(ITestOutputHelper output)
             $"{result.CatalogStars} catalog, {result.DetectedStars} detected, " +
             $"{result.ProjectedStars} projected, {result.MatchedStars} matched");
 
-        // then — solution should match target coordinates
+        // then: solution should match target coordinates
         result.Solution.ShouldNotBeNull($"CatalogPlateSolver should solve synthetic image of {targetName}");
 
         // Save rendered image to FITS with solved WCS (includes CD matrix)
@@ -470,7 +470,7 @@ public class PlateSolverTests(ITestOutputHelper output)
     [Fact(Timeout = 30_000)]
     public async Task GivenRGGBCameraWhenRenderingThenBayerImageDebayersToColor()
     {
-        // given — IMX294C (RGGB) pointing at M42
+        // given: IMX294C (RGGB) pointing at M42
         var cancellationToken = TestContext.Current.CancellationToken;
         var db = await SharedCatalogDB.InitAsync(cancellationToken);
 
@@ -491,7 +491,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         output.WriteLine($"B-V range: [{bvValues.First():F2}, {bvValues.Last():F2}]");
         bvValues.Count.ShouldBeGreaterThan(0);
 
-        // when — render as Bayer
+        // when: render as Bayer
         var bayerData = SyntheticStarFieldRenderer.RenderBayer(width, height, defocusSteps: 0,
             System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars),
             exposureSeconds: 30, noiseSeed: 42);
@@ -515,7 +515,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         bayerImage.WriteToFitsFile(bayerPath, null);
         output.WriteLine($"Bayer FITS: {bayerPath} ({new System.IO.FileInfo(bayerPath).Length} bytes)");
 
-        // then — debayer should produce 3-channel color image
+        // then: debayer should produce 3-channel color image
         var colorImage = await bayerImage.ScaleFloatValuesToUnit().DebayerAsync(DebayerAlgorithm.AHD, normalizeToUnit: false, cancellationToken);
         colorImage.ChannelCount.ShouldBe(3, "Debayered image should have 3 channels");
         colorImage.Width.ShouldBe(width);
@@ -526,7 +526,7 @@ public class PlateSolverTests(ITestOutputHelper output)
         colorImage.WriteToFitsFile(colorPath, null);
         output.WriteLine($"Color FITS: {colorPath} ({new System.IO.FileInfo(colorPath).Length} bytes)");
 
-        // Verify channels differ — a mono image would have identical channels
+        // Verify channels differ: a mono image would have identical channels
         var rMedian = Median(colorImage.GetChannelSpan(0));
         var gMedian = Median(colorImage.GetChannelSpan(1));
         var bMedian = Median(colorImage.GetChannelSpan(2));
@@ -554,11 +554,11 @@ public class PlateSolverTests(ITestOutputHelper output)
     /// captured pinpoints the difference. Skipped automatically when the
     /// snapshot path doesn't exist (i.e. on CI / other dev machines).
     /// </summary>
-    [Fact(Skip = "Manual diagnostic — run by hand against a locally-saved FITS to time FindStarsAsync stages.")]
+    [Fact(Skip = "Manual diagnostic, run by hand against a locally-saved FITS to time FindStarsAsync stages.")]
     public async Task DiagnoseFindStarsAsyncOnSavedSnapshot()
     {
         // Point this at any saved FITS via the TIANWEN_DIAGNOSE_FITS env var
-        // (no hardcoded path — different machines, different snapshot rotations).
+        // (no hardcoded path, different machines, different snapshot rotations).
         var snapshotPath = Environment.GetEnvironmentVariable("TIANWEN_DIAGNOSE_FITS");
         if (string.IsNullOrEmpty(snapshotPath) || !System.IO.File.Exists(snapshotPath))
         {

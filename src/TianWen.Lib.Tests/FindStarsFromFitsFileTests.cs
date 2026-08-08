@@ -52,7 +52,7 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
         var cancellationToken = TestContext.Current.CancellationToken;
         var algorithm = System.Enum.Parse<DebayerAlgorithm>(algorithmStr);
 
-        // given — load via AstroImageDocument (same path as the viewer)
+        // given: load via AstroImageDocument (same path as the viewer)
         var filePath = await SharedTestData.ExtractGZippedFitsFileAsync(name, cancellationToken);
         var document = await AstroImageDocument.OpenAsync(filePath, algorithm, cancellationToken);
         document.ShouldNotBeNull();
@@ -79,7 +79,7 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
         var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: cancellationToken);
         var scaledImage = image.ScaleFloatValuesToUnit();
 
-        // Detect stars — mask is built during detection
+        // Detect stars: mask is built during detection
         var stars = await scaledImage.FindStarsAsync(channel: 0, snrMin: 10f, maxStars: 2000, cancellationToken: cancellationToken);
         stars.Count.ShouldBeGreaterThan(0);
         stars.StarMask.ShouldNotBeNull();
@@ -93,10 +93,10 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
             pedestals[c] = ped;
         }
 
-        // Scan background without mask (32×32) — same as initial load
+        // Scan background without mask (32×32): same as initial load
         var (bgNoMask, lumaBgNoMask) = scaledImage.ScanBackgroundRegion(pedestals, squareSize: 32);
 
-        // Scan background with star mask (48×48) — post star detection
+        // Scan background with star mask (48×48): post star detection
         var (bgWithMask, lumaBgWithMask) = scaledImage.ScanBackgroundRegion(pedestals, squareSize: 48, starMask);
 
         // Log both for comparison

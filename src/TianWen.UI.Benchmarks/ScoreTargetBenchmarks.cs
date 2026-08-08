@@ -37,14 +37,14 @@ public class ScoreTargetBenchmarks
         // A mix of targets at different RA/Dec
         _targets =
         [
-            new Target(5.588, -5.39, "M42", null),    // Orion Nebula — low from Vienna
-            new Target(16.695, 36.46, "M13", null),    // Hercules Cluster — high
-            new Target(0.712, 41.27, "M31", null),     // Andromeda — rising
+            new Target(5.588, -5.39, "M42", null),    // Orion Nebula, low from Vienna
+            new Target(16.695, 36.46, "M13", null),    // Hercules Cluster, high
+            new Target(0.712, 41.27, "M31", null),     // Andromeda, rising
             new Target(13.423, -47.48, "Cen A", null), // never visible from Vienna
             new Target(18.595, 33.03, "M57", null),    // Ring Nebula
             new Target(12.45, 25.99, "Coma Cluster", null),
             new Target(20.69, 42.03, "NGC6992", null), // Veil Nebula
-            new Target(3.791, 24.11, "M45", null),     // Pleiades — below horizon in summer
+            new Target(3.791, 24.11, "M45", null),     // Pleiades; below horizon in summer
             new Target(23.10, 58.77, "Cas A", null),   // circumpolar from Vienna
             new Target(5.392, -69.75, "LMC", null),    // never visible from Vienna
         ];

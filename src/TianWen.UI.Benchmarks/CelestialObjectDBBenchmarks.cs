@@ -7,7 +7,7 @@ using TianWen.Lib.Astrometry.Catalogs;
 namespace TianWen.UI.Benchmarks;
 
 /// <summary>
-/// Benchmarks for <see cref="CelestialObjectDB"/> — init cost, direct index lookup,
+/// Benchmarks for <see cref="CelestialObjectDB"/>; init cost, direct index lookup,
 /// name resolution, and cross-index traversal. The flaky
 /// <c>CelestialObjectDBBenchmarkTests.GivenInitializedDBWhenLookingUpCrossIndicesThenItIsMuchFasterThanInit</c>
 /// uses Stopwatch + ratio assertions; this project is the real home for the
@@ -27,8 +27,8 @@ public class CelestialObjectDBBenchmarks
     public async Task Setup()
     {
         _db = new CelestialObjectDB();
-        // The lookup benchmarks below probe NGC/M/HIP/HR/vdB only — none hit the Tycho-2
-        // binary directly — so the default fast-path init (Tycho-2 bulk in background) is
+        // The lookup benchmarks below probe NGC/M/HIP/HR/vdB only; none hit the Tycho-2
+        // binary directly, so the default fast-path init (Tycho-2 bulk in background) is
         // sufficient for setup. Tests that exercise CoordinateGrid / CopyTycho2Stars need
         // waitForTycho2BulkLoad: true.
         await _db.InitDBAsync();
@@ -109,7 +109,7 @@ public class CelestialObjectDBBenchmarks
 
     /// <summary>
     /// The original flaky test watches this one. It does a breadth-first walk over
-    /// the cross-index graph — allocates a HashSet + List per call today, so the
+    /// the cross-index graph: allocates a HashSet + List per call today, so the
     /// MemoryDiagnoser output tells us exactly what a typical traversal costs.
     /// </summary>
     [Benchmark]

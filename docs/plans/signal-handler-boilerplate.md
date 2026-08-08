@@ -13,7 +13,7 @@ silent-vs-notifying guard, pre-work confirm-state clear + OCE branch + finally r
 table would grow escape hatches until it is just code again. **Phase 5 (by-area partial split)
 SHIPPED in the same PR**: the ctor's subscription groups moved verbatim into per-concern
 `Subscribe*` methods across `AppSignalHandler.Planner/.SkyMap/.Equipment/.LiveSession/.Polar/
-.Flats.cs` (the ImageRendererBase treatment) — each opens with `var x = _x;` field aliases so the
+.Flats.cs` (the ImageRendererBase treatment), each opens with `var x = _x;` field aliases so the
 closures' captured-parameter names keep resolving, the ctor calls them in the original order
 (SignalBus invokes subscribers in registration order, so the call order is load-bearing), and the
 two cross-section couplings were promoted (`autoCompleteCache` -> the `_autoCompleteCache` field;

@@ -95,7 +95,7 @@ var sw = Stopwatch.StartNew();
 
 using var sp = new ServiceCollection().AddAstrometry().BuildServiceProvider();
 var db = sp.GetRequiredService<ICelestialObjectDB>();
-// MilkyWayTextureBaker bins Tycho-2 photometry — wait for the bulk decode.
+// MilkyWayTextureBaker bins Tycho-2 photometry: wait for the bulk decode.
 await db.InitDBAsync(waitForTycho2BulkLoad: true);
 var processed = db.LastInitProcessed;
 var failed = db.LastInitFailed;

@@ -19,7 +19,7 @@ internal class PlanSubCommand(
 {
     public Command Build()
     {
-        var planCommand = new Command("plan", "Observation planner — show tonight's best targets and build a schedule");
+        var planCommand = new Command("plan", "Observation planner, show tonight's best targets and build a schedule");
         planCommand.SetAction(PlanActionAsync);
 
         return planCommand;
@@ -27,7 +27,7 @@ internal class PlanSubCommand(
 
     internal async Task PlanActionAsync(ParseResult parseResult, CancellationToken ct)
     {
-        // Profile is required — it provides the site location via mount URI
+        // Profile is required: it provides the site location via mount URI
         var profile = await profileSelector.ResolveProfileAsync(parseResult, false, ct);
         if (profile is null)
         {
@@ -46,7 +46,7 @@ internal class PlanSubCommand(
         plannerState.SiteTimeZone = transform.SiteTimeZone;
         plannerState.ActiveProfile = profile;
 
-        // Compute tonight's best — show inline progress
+        // Compute tonight's best: show inline progress
         await PlannerActions.ComputeTonightsBestAsync(
             plannerState, objectDb, transform,
             plannerState.MinHeightAboveHorizon, ct,
@@ -126,7 +126,7 @@ internal class PlanSubCommand(
         }
         else
         {
-            // NO_COLOR or piped — show text summary of proposed observations
+            // NO_COLOR or piped: show text summary of proposed observations
             PrintProposalSummary();
         }
     }
@@ -188,7 +188,7 @@ internal class PlanSubCommand(
     }
 
     /// <summary>
-    /// Inline REPL mode — prints table + chart to scrollback, then accepts input
+    /// Inline REPL mode: prints table + chart to scrollback, then accepts input
     /// at a prompt line. Works over SSH without alternate screen.
     /// When piped (stdin redirected), just prints and exits.
     /// </summary>

@@ -23,17 +23,17 @@ public class FakeDeviceTests(ITestOutputHelper output)
         await guider.ConnectAsync(ct);
         await guider.ConnectEquipmentAsync(ct);
 
-        // when — start guiding
+        // when: start guiding
         await guider.GuideAsync(0.5, 5, 30, ct);
 
-        // then — should be settling
+        // then: should be settling
         (await guider.IsSettlingAsync(ct)).ShouldBeTrue("should be settling after GuideAsync");
         (await guider.IsGuidingAsync(ct)).ShouldBeFalse("should not be guiding yet");
 
-        // when — advance time past settle time (5s)
+        // when: advance time past settle time (5s)
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(6), ct);
 
-        // then — should be guiding
+        // then: should be guiding
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("should be guiding after settle completes");
         (await guider.IsSettlingAsync(ct)).ShouldBeFalse("should not be settling after guiding started");
     }
@@ -41,7 +41,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenGuidingFakeGuiderWhenDitherAsyncThenItSettlesBackToGuiding()
     {
-        // given — guider in Guiding state
+        // given: guider in Guiding state
         var ct = TestContext.Current.CancellationToken;
         var timeProvider = new FakeTimeProviderWrapper();
         var external = new FakeExternal(output, timeProvider);
@@ -53,19 +53,19 @@ public class FakeDeviceTests(ITestOutputHelper output)
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("precondition: should be guiding");
 
-        // when — dither
+        // when: dither
         await guider.DitherAsync(1.5, 0.3, 3, 15, cancellationToken: ct);
 
-        // then — should be settling
+        // then: should be settling
         (await guider.IsSettlingAsync(ct)).ShouldBeTrue("should be settling after dither");
         var progress = await guider.GetSettleProgressAsync(ct);
         progress.ShouldNotBeNull();
         progress.Done.ShouldBeFalse();
 
-        // when — advance past settle time
+        // when: advance past settle time
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct);
 
-        // then — back to guiding
+        // then: back to guiding
         (await guider.IsGuidingAsync(ct)).ShouldBeTrue("should be guiding after dither settles");
         var doneProgress = await guider.GetSettleProgressAsync(ct);
         doneProgress.ShouldNotBeNull();
@@ -109,11 +109,11 @@ public class FakeDeviceTests(ITestOutputHelper output)
         await using var camera = new FakeCameraDriver(device, external.BuildServiceProvider());
         await camera.ConnectAsync(ct);
 
-        // when — enable cooler and set target to -10°C
+        // when: enable cooler and set target to -10°C
         await camera.SetCoolerOnAsync(true, ct);
         await camera.SetSetCCDTemperatureAsync(-10, ct);
 
-        // Poll temperature — each call moves 1°C toward setpoint
+        // Poll temperature, each call moves 1°C toward setpoint
         var initialTemp = await camera.GetCCDTemperatureAsync(ct);
         output.WriteLine($"Initial temp: {initialTemp:F1}°C");
 
@@ -126,7 +126,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
             }
         }
 
-        // then — should be at or near setpoint
+        // then: should be at or near setpoint
         var finalTemp = await camera.GetCCDTemperatureAsync(ct);
         output.WriteLine($"Final temp: {finalTemp:F1}°C");
         finalTemp.ShouldBe(-10.0, 0.5);
@@ -147,11 +147,11 @@ public class FakeDeviceTests(ITestOutputHelper output)
         await using var camera = new FakeCameraDriver(device, external.BuildServiceProvider());
         await camera.ConnectAsync(ct);
 
-        // when — cooler off, poll temperature
+        // when: cooler off, poll temperature
         var temp1 = await camera.GetCCDTemperatureAsync(ct);
         var temp2 = await camera.GetCCDTemperatureAsync(ct);
 
-        // then — stays at ambient (20°C default)
+        // then: stays at ambient (20°C default)
         temp1.ShouldBe(20.0);
         temp2.ShouldBe(20.0);
     }
@@ -169,7 +169,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         await using var focuser = new FakeFocuserDriver(device, external.BuildServiceProvider());
         await focuser.ConnectAsync(ct);
 
-        // when — read initial temperature
+        // when: read initial temperature
         var t0 = await focuser.GetTemperatureAsync(ct);
         output.WriteLine($"T0: {t0:F2}°C");
 
@@ -178,7 +178,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var t1 = await focuser.GetTemperatureAsync(ct);
         output.WriteLine($"T after 2h: {t1:F2}°C");
 
-        // then — temperature should have dropped by ~1°C
+        // then: temperature should have dropped by ~1°C
         t1.ShouldBe(t0 - 1.0, 0.01);
     }
 
@@ -196,12 +196,12 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var initialBestFocus = focuser.TrueBestFocus;
         output.WriteLine($"Initial best focus: {initialBestFocus}");
 
-        // when — advance 4 hours → -2°C drift
+        // when: advance 4 hours → -2°C drift
         await timeProvider.SleepAsync(TimeSpan.FromHours(4), ct);
         var shiftedBestFocus = focuser.TrueBestFocus;
         output.WriteLine($"Shifted best focus: {shiftedBestFocus}");
 
-        // then — best focus shifts by tempCoefficient * deltaTemp = 5.0 * (-2.0) = -10
+        // then: best focus shifts by tempCoefficient * deltaTemp = 5.0 * (-2.0) = -10
         ((double)(shiftedBestFocus - initialBestFocus)).ShouldBe(-10.0, 1.0);
     }
 
@@ -218,7 +218,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         focuser.TrueBacklashOut = 15;
         await focuser.ConnectAsync(ct);
 
-        // when — move outward first
+        // when: move outward first
         await focuser.BeginMoveAsync(500, ct);
         // Wait for movement (FakePositionBasedDriver moves 1 step per 100ms timer tick)
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(60), ct);
@@ -226,7 +226,7 @@ public class FakeDeviceTests(ITestOutputHelper output)
         var posAfterOutward = await focuser.GetPositionAsync(ct);
         output.WriteLine($"Position after outward move: {posAfterOutward}");
 
-        // then move inward — should engage backlash
+        // then move inward: should engage backlash
         await focuser.BeginMoveAsync(480, ct);
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(5), ct);
 
@@ -254,13 +254,13 @@ public class FakeDeviceTests(ITestOutputHelper output)
         focuser.TrueBacklashOut = 15;
         await focuser.ConnectAsync(ct);
 
-        // when — move outward twice (same direction)
+        // when: move outward twice (same direction)
         await focuser.BeginMoveAsync(100, ct);
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(15), ct);
         await focuser.BeginMoveAsync(200, ct);
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(15), ct);
 
-        // then — no backlash because same direction
+        // then: no backlash because same direction
         var pos = await focuser.GetPositionAsync(ct);
         var effective = focuser.EffectivePosition;
         output.WriteLine($"Position: {pos}, Effective: {effective}");
@@ -280,14 +280,14 @@ public class FakeDeviceTests(ITestOutputHelper output)
         await using var camera = new FakeCameraDriver(device, external.BuildServiceProvider());
         await camera.ConnectAsync(ct);
 
-        // when — start exposure
+        // when: start exposure
         var startTime = await camera.StartExposureAsync(TimeSpan.FromSeconds(1), cancellationToken: ct);
         startTime.ShouldNotBe(default);
 
         // advance time past exposure duration
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
-        // then — image should be ready
+        // then: image should be ready
         (await camera.GetImageReadyAsync(ct)).ShouldBeTrue();
         camera.ImageData.ShouldNotBeNull();
         var state = await camera.GetCameraStateAsync(ct);

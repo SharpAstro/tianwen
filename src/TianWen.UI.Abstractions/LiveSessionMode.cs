@@ -6,24 +6,24 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Preview</b> (default) — pre-session: mount manually connected, OTA
+    /// <b>Preview</b> (default): pre-session: mount manually connected, OTA
     /// frames captured on demand via the equipment hub, target picker open,
     /// no scheduled observations running.
     /// </para>
     /// <para>
-    /// <b>Session</b> — a scheduled session is running; the tab shows
+    /// <b>Session</b>: a scheduled session is running; the tab shows
     /// guide-graph, V-curve, exposure log, mount + camera telemetry from the
     /// running <c>ISession</c>. Toggled via <see cref="LiveSessionState.IsRunning"/>.
     /// </para>
     /// <para>
-    /// <b>PolarAlign</b> — the polar-alignment routine is running on the
+    /// <b>PolarAlign</b>: the polar-alignment routine is running on the
     /// manually connected mount. Reuses the image surface, OTA selector, and
     /// WCS pipeline from preview mode but swaps in a polar-specific side
     /// panel + drives the renderer's <see cref="Overlays.WcsAnnotation"/>
     /// with pole/ring overlays. Mutually exclusive with <c>Session</c> mode.
     /// </para>
     /// <para>
-    /// <b>Planetary</b> — live planetary lucky-imaging capture: the manually
+    /// <b>Planetary</b>: live planetary lucky-imaging capture: the manually
     /// connected camera streams in video mode into the rolling-window stacker.
     /// The centre swaps the mini viewer for the full image viewer (stretch +
     /// RAW/STACK + wavelet sharpen) and shows a capture-control strip; the
@@ -31,7 +31,7 @@ namespace TianWen.UI.Abstractions
     /// with <c>Session</c> mode (same manual-control precondition as PolarAlign).
     /// </para>
     /// <para>
-    /// <b>Flats</b> — on-demand flat-frame capture driving
+    /// <b>Flats</b>: on-demand flat-frame capture driving
     /// <see cref="TianWen.Lib.Sequencing.ISession.RunFlatsOnlyAsync"/>. Reuses the
     /// preview viewer (shows the metering / capture frames) and swaps in a
     /// flats-specific side panel: an illumination-source selector

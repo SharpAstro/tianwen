@@ -66,12 +66,12 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
         // Debayer first (no-op for mono / 3-channel images) so the document is built on the
         // same 1- or 3-channel image we render against. AstroImageDocument.AdoptImageAsync
         // would otherwise keep raw Bayer (1-channel mosaic) and compute stats from the mosaic
-        // histogram — those uniforms don't match a CPU-debayered 3-channel render.
+        // histogram: those uniforms don't match a CPU-debayered 3-channel render.
         var renderImage = await image.DebayerAsync(algorithm, cancellationToken: ct);
         ((uint)renderImage.ChannelCount).ShouldBe(expectedChannelCount, "renderImage channel count after debayer");
 
         var doc = await AstroImageDocument.AdoptImageAsync(renderImage, DebayerAlgorithm.None, cancellationToken: ct);
-        // Star detection populates the star mask and a star-masked PerChannelBackground —
+        // Star detection populates the star mask and a star-masked PerChannelBackground; 
         // required so background neutralisation / converged stretches behave realistically.
         await doc.DetectStarsAsync(ct);
 
@@ -108,7 +108,7 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
     }
 
     /// <summary>
-    /// Verifies the RGBA8 buffer has per-channel signal — catches the same kinds of regressions
+    /// Verifies the RGBA8 buffer has per-channel signal; catches the same kinds of regressions
     /// the old VerifyStretchedFloatImageHasSignal did (per-channel collapse, all-zero output,
     /// all-saturated output), but on the production byte buffer that's actually displayed.
     ///
@@ -140,13 +140,13 @@ public abstract class StretchTestBase(ITestOutputHelper testOutputHelper)
             var mean = chSum[c] / (double)pixelCount;
             testOutputHelper.WriteLine($"  Channel {c} byte range: [{chMin[c]}, {chMax[c]}]  mean: {mean:F2}");
 
-            // Range > 12/255 ≈ 5% — same threshold the old float test used.
+            // Range > 12/255 ≈ 5%: same threshold the old float test used.
             (chMax[c] - chMin[c]).ShouldBeGreaterThan(12,
                 $"channel {c} should have a stretch range >12/255 (got {chMax[c] - chMin[c]})");
-            // Brightest pixel ≥ 64/255 ≈ 25% — same threshold as old test (max > 0.25f).
+            // Brightest pixel ≥ 64/255 ≈ 25%: same threshold as old test (max > 0.25f).
             chMax[c].ShouldBeGreaterThanOrEqualTo(64,
                 $"channel {c} brightest pixel should reach ≥25% of byte range");
-            // Mean strictly inside (0, 255) — catches all-zero / fully-saturated outputs.
+            // Mean strictly inside (0, 255): catches all-zero / fully-saturated outputs.
             mean.ShouldBeInRange(0.25, 254.75,
                 $"channel {c} mean should be in (0, 255) -- got {mean:F2}");
         }

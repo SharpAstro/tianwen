@@ -32,7 +32,7 @@ internal static class ObservationScheduler
     private const double CometBonusScale = 30.0;
 
     // Fallback chain: at high latitudes in summer, deeper twilight boundaries may not be reached.
-    // CivilTwilight is excluded — too bright for astronomical observation.
+    // CivilTwilight is excluded: too bright for astronomical observation.
     private static readonly EventType[] EveningFallbackChain =
     [
         EventType.AmateurAstronomicalTwilight,
@@ -63,7 +63,7 @@ internal static class ObservationScheduler
 
         // If the evening hasn't started yet but we're in the early morning (before the
         // upcoming evening), we might be in last night's dark window. Check if the
-        // previous day's twilight is still in the future — if so, use that night instead.
+        // previous day's twilight is still in the future, if so, use that night instead.
         if (dark > dto && CoordinateUtils.AstronomicalEveningDate(dto).Date < dto.Date)
         {
             var prevDayStart = localDayStart.AddDays(-1);
@@ -568,7 +568,7 @@ internal static class ObservationScheduler
 
         if (usesGainValue && gainMin >= 0 && gainMax > gainMin)
         {
-            // 40% from min toward max — reasonable default for most CMOS cameras
+            // 40% from min toward max: reasonable default for most CMOS cameras
             return (int)MathF.FusedMultiplyAdd(gainMax - gainMin, 0.4f, gainMin);
         }
 
@@ -793,7 +793,7 @@ internal static class ObservationScheduler
             profile[RaDecEventTime.Meridian] = new RaDecEventInfo(crossMeridianTime, profile[RaDecEventTime.Balance + meridianIdx].Alt);
 
             // Penalise targets whose meridian transit falls outside the dark window.
-            // A target that transits during daylight is always past-peak during imaging —
+            // A target that transits during daylight is always past-peak during imaging; 
             // apply a 0.5× multiplier so it ranks below targets that peak during darkness.
             if (totalScore > 0 && (crossMeridianTime < astroDark || crossMeridianTime > astroTwilight))
             {
@@ -842,7 +842,7 @@ internal static class ObservationScheduler
         var (astroDark, astroTwilight) = CalculateNightWindow(transform);
 
         // Precompute Astrom structs for evenly-spaced time samples across the night.
-        // This is the expensive part (Epv00 + Pnm06a per sample) — done once for all targets.
+        // This is the expensive part (Epv00 + Pnm06a per sample); done once for all targets.
         var (astroms, times) = PrecomputeAstromGrid(
             astroDark, astroTwilight,
             transform.SiteLatitude, transform.SiteLongitude, transform.SiteElevation);
@@ -1016,7 +1016,7 @@ internal static class ObservationScheduler
             MarkCrossIndicesSeen(objectDb, idx, seen);
 
             // Quick altitude check at astronomical midnight using the precomputed Astrom.
-            // No Apco13 overhead — just Atciq + Atioq.
+            // No Apco13 overhead, just Atciq + Atioq.
             var quickAlt = SOFAHelpers.AltitudeFromAstrom(obj.RA, obj.Dec, in midAstrom);
             if (quickAlt < minHeightAboveHorizon - 10) continue; // 10° margin for objects rising/setting
 
@@ -1070,7 +1070,7 @@ internal static class ObservationScheduler
         var typeBonusFactor = obj.ObjectType is ObjectType.PlanetaryNeb ? 2.0 : 1.0;
 
         // Named object bonus: objects with common names (M13, M42, LMC, etc.) are
-        // the ones users most want to image — boost them significantly in ranking.
+        // the ones users most want to image: boost them significantly in ranking.
         var nameFactor = obj.CommonNames.Count > 0 ? 3.0 : 1.0;
 
         return sizeScore * brightnessScore * typeBonusFactor * nameFactor;

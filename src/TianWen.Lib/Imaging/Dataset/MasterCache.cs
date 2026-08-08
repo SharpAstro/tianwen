@@ -78,7 +78,7 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
     {
         if (inputs.Count < 2)
         {
-            logger?.LogWarning("Calibration group {Slug} has only {Count} frame(s) — skipped (need >= 2).", key.Slug(), inputs.Count);
+            logger?.LogWarning("Calibration group {Slug} has only {Count} frame(s), skipped (need >= 2).", key.Slug(), inputs.Count);
             return null;
         }
 
@@ -104,7 +104,7 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
                 logger?.LogInformation("  master {File} cache hit ({Count} inputs)", Path.GetFileName(masterPath), inputs.Count);
                 return cached;
             }
-            logger?.LogInformation("  master {File} stale (input set changed) — rebuilding", Path.GetFileName(masterPath));
+            logger?.LogInformation("  master {File} stale (input set changed), rebuilding", Path.GetFileName(masterPath));
         }
 
         // Resolved only on a cache MISS: the fingerprint above already accounts for the pedestal, so
@@ -143,15 +143,15 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
     private const float NormalizedMaxThreshold = 1.5f;
 
     /// <summary>
-    /// Loads a FOREIGN, already-integrated master (IMAGETYP=MASTERDARK / MASTERFLAT / MASTERBIAS —
+    /// Loads a FOREIGN, already-integrated master (IMAGETYP=MASTERDARK / MASTERFLAT / MASTERBIAS, 
     /// e.g. Astro Pixel Processor's MD-IG / MF-IG files) directly from disk, with no &gt;=2-raw median
     /// rebuild because the frame already IS the master. This is the ONLY path that ingests a master
     /// the pipeline did not itself produce, and it exists because a camera's proper calibration
-    /// library sometimes survives only as a master (the raw subs long since deleted) — the difference
+    /// library sometimes survives only as a master (the raw subs long since deleted); the difference
     /// between calibrating those sessions and skipping them. Several identical copies of one master
     /// can coexist (a master reused across sessions), so the ordinally-first path is chosen and the
     /// pick never depends on enumeration order.
-    /// <para>Scale reconciliation, by frame type — APP stores masters normalised to [0,1]:</para>
+    /// <para>Scale reconciliation, by frame type: APP stores masters normalised to [0,1]:</para>
     /// <list type="bullet">
     /// <item><b>Dark / bias</b> (subtractive, <c>light - dark</c>): must share the light's ADU domain,
     /// so a normalised master (max &lt;= <see cref="NormalizedMaxThreshold"/>) is rescaled by
@@ -175,7 +175,7 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
         var master = await Task.Run(() => Image.TryReadFitsFile(chosen.Path, out var img) ? img : null, ct);
         if (master is null)
         {
-            logger?.LogWarning("  master {File} could not be read — skipped.", Path.GetFileName(chosen.Path));
+            logger?.LogWarning("  master {File} could not be read, skipped.", Path.GetFileName(chosen.Path));
             return null;
         }
 
@@ -199,7 +199,7 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
             if (normalizedAduScale is not { } scale)
             {
                 logger?.LogWarning(
-                    "  master {File} is normalised to [0,1] (max={Max:F3}) but the lights' ADU full-scale is unknown (float light?) — skipped (can't reconcile scale for subtraction).",
+                    "  master {File} is normalised to [0,1] (max={Max:F3}) but the lights' ADU full-scale is unknown (float light?); skipped (can't reconcile scale for subtraction).",
                     Path.GetFileName(chosen.Path), master.MaxValue);
                 master.Release();
                 return null;

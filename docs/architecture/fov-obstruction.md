@@ -54,7 +54,7 @@ flowchart TD
 ```
 
 The classifier deliberately collapses borderline + severe into the same nudge
-test branch — without the nudge, neither can be told apart from cloud cover.
+test branch, without the nudge, neither can be told apart from cloud cover.
 
 The "any OTA recovers" rule (post >= 2 x max(pre, 5)) is biased toward
 Transparency:
@@ -64,7 +64,7 @@ Transparency:
   that affects one optical path at a given altitude likely affects the rest after
   the rig moves.
 - Bias matters because the existing condition-recovery flow handles transparency
-  correctly — a false Transparency just delays imaging by `ConditionRecoveryTimeout`,
+  correctly; a false Transparency just delays imaging by `ConditionRecoveryTimeout`,
   while a false Obstruction skips a clear target entirely.
 
 ## Loop-side routing (`RunObstructionScoutAsync`)
@@ -99,7 +99,7 @@ obstruction will clear in at most 20% of the remaining allocation. The `+ 30s`
 margin on the sleep duration absorbs ephemeris drift between estimate and reality.
 
 Transparency intentionally falls through to `ScoutOutcome.Proceed` rather than
-running its own recovery sequence — `WaitForConditionRecoveryAsync` already has
+running its own recovery sequence; `WaitForConditionRecoveryAsync` already has
 the right behaviour (poll, baseline-driven recovery threshold, clean exit on
 timeout) and the imaging loop will route into it as soon as the per-target
 baseline is established.
@@ -123,7 +123,7 @@ which is well within a 60-min observation window.
 The "setting target" early exit is critical: a target near or past meridian
 won't gain altitude, so there's no point walking the lookahead loop forward.
 
-## Resilience layering — how the scout composes with `ResilientCall`
+## Resilience layering: how the scout composes with `ResilientCall`
 
 This is the canonical worked example of the three-layer composite-retry pattern
 described in [`driver-resilience.md`](driver-resilience.md) "Composite
@@ -132,7 +132,7 @@ for the abstract pattern; this section is the scout-specific instantiation.
 
 Three distinct layers, each handling a different failure class:
 
-**Layer 1: `ResilientCall` (per primitive driver call)** — wraps every driver call
+**Layer 1: `ResilientCall` (per primitive driver call)**; wraps every driver call
 inside `TakeScoutFrameOnceAsync`:
 
 | Call | Preset | Behaviour on transient |
@@ -141,22 +141,22 @@ inside `TakeScoutFrameOnceAsync`:
 | `GetImageAsync` | `IdempotentRead` | 3 attempts, exponential backoff + reconnect |
 | `GetGainAsync` | `IdempotentRead` | retried |
 
-Catches USB hiccup, COM fault, ASCOM throw — anything classified as a transient
+Catches USB hiccup, COM fault, ASCOM throw; anything classified as a transient
 exception. Rethrows hard errors and exhausted retries.
 
-**Layer 2: scout-level retry (per frame outcome)** — `TakeScoutFrameAsync` wraps
+**Layer 2: scout-level retry (per frame outcome)**; `TakeScoutFrameAsync` wraps
 `TakeScoutFrameOnceAsync` in a 2-attempt loop. Retries when:
 
-- The whole exposure pipeline threw (Layer 1 exhausted) — second attempt may
+- The whole exposure pipeline threw (Layer 1 exhausted); second attempt may
   succeed once the driver has reconnected.
 - The exposure ran but yielded an invalid metric (StarCount ≤ 3 from cosmic ray
-  noise, brief cloud puff, sensor glitch) — second attempt disambiguates real
+  noise, brief cloud puff, sensor glitch); second attempt disambiguates real
   obstruction (still bad on retake) from transient (good on retake).
 
 Cost: one extra ~10s exposure per affected OTA. Benefit: a single bad frame
 doesn't flip a healthy target to "Obstruction → Advance".
 
-**Layer 3: caller-level fallback** — `RunObstructionScoutAsync` wraps
+**Layer 3: caller-level fallback**; `RunObstructionScoutAsync` wraps
 `ScoutAndProbeAsync` in a try/catch. On any exception that escapes Layers 1+2,
 the loop returns `Proceed` and lets the imaging loop's existing
 condition-deterioration check handle real environmental problems. Defence in
@@ -170,9 +170,9 @@ to completion and yielded zero stars (real obstruction signal), it builds the
 metric directly with `StarCount = 0, Exposure = scoutExposure`. The classifier
 then distinguishes:
 
-- `Exposure == 0` → exposure never ran (transient fault — skip OTA, don't judge).
+- `Exposure == 0` → exposure never ran (transient fault, skip OTA, don't judge).
 - `Exposure > 0, StarCount == 0` → exposure ran, found nothing (real obstruction
-  signal — flag).
+  signal; flag).
 
 Without this, a fully-blocked target was silently classified as `Healthy` because
 the classifier's `expectedStars <= 0` check skipped both cases identically.
@@ -191,15 +191,15 @@ the classifier's `expectedStars <= 0` check skipped both cases identically.
 ## Files
 
 ### New
-- `src/TianWen.Lib/Sequencing/ScoutResult.cs` — `ScoutResult`, `ScoutClassification`, `ScoutOutcome`
-- `src/TianWen.Lib/Sequencing/Session.Imaging.Obstruction.cs` — partial: `ScoutAndProbeAsync`, `RunObstructionScoutAsync`, `ClassifyAgainstBaseline`, `NudgeTestAsync`, `EstimateObstructionClearTimeAsync`, `ComputeWidestHalfFovDeg`, `TakeScoutFrameAsync`, `TryGetPreviousObservationBaseline`
-- `src/TianWen.Lib.Tests/SessionScoutClassifierTests.cs` — 6 unit tests
-- `src/TianWen.Lib.Tests.Functional/SessionScoutAndProbeTests.cs` — 5 functional tests
+- `src/TianWen.Lib/Sequencing/ScoutResult.cs`: `ScoutResult`, `ScoutClassification`, `ScoutOutcome`
+- `src/TianWen.Lib/Sequencing/Session.Imaging.Obstruction.cs`: partial: `ScoutAndProbeAsync`, `RunObstructionScoutAsync`, `ClassifyAgainstBaseline`, `NudgeTestAsync`, `EstimateObstructionClearTimeAsync`, `ComputeWidestHalfFovDeg`, `TakeScoutFrameAsync`, `TryGetPreviousObservationBaseline`
+- `src/TianWen.Lib.Tests/SessionScoutClassifierTests.cs`: 6 unit tests
+- `src/TianWen.Lib.Tests.Functional/SessionScoutAndProbeTests.cs`: 5 functional tests
 
 ### Edited
-- `src/TianWen.Lib/Sequencing/Session.Imaging.cs` — `RunObstructionScoutAsync` call wired into `ObservationLoopAsync` between centering and guider start
-- `src/TianWen.Lib/Sequencing/Session.cs` — `SetBaselineForObservationForTest` test seam
-- `src/TianWen.Lib/Sequencing/SessionConfiguration.cs` — six new fields with XML docs
+- `src/TianWen.Lib/Sequencing/Session.Imaging.cs`: `RunObstructionScoutAsync` call wired into `ObservationLoopAsync` between centering and guider start
+- `src/TianWen.Lib/Sequencing/Session.cs`: `SetBaselineForObservationForTest` test seam
+- `src/TianWen.Lib/Sequencing/SessionConfiguration.cs`: six new fields with XML docs
 
 ## Guard rails for future work
 
@@ -222,15 +222,15 @@ the classifier's `expectedStars <= 0` check skipped both cases identically.
 
 The scout has three observable channels in addition to the file log:
 
-1. **`Session.CurrentActivity`** — set to `"Scouting <target>…"` at the start of
+1. **`Session.CurrentActivity`**: set to `"Scouting <target>…"` at the start of
    `RunObstructionScoutAsync`. The live session UI's chrome activity line picks
    this up automatically (no per-call wiring), so the previously-opaque 30-90s
    pause between centering and guider start now shows progress.
-2. **`Session.ScoutCompleted` event** — fires once per scout invocation with
+2. **`Session.ScoutCompleted` event**: fires once per scout invocation with
    `(Target, Classification, EstimatedClearIn, Outcome, StarCountsPerOTA)`.
    Fires AFTER any wait-then-retry resolves, so consumers see the final
    routing decision, not intermediate states. Mirrors `PlateSolveCompleted`.
-3. **WebSocket broadcast** — `EventBroadcaster` (TianWen.Hosting) subscribes to
+3. **WebSocket broadcast**: `EventBroadcaster` (TianWen.Hosting) subscribes to
    `ScoutCompleted` and emits `SCOUT-COMPLETED` to all connected clients with
    the same payload. Available on `/api/v1/events` (native) and `/v2/socket`
    (ninaAPI shim).
@@ -240,12 +240,12 @@ routes to `appState.AppendNotification` per outcome:
 
 | Classification | Outcome | Severity | Message |
 |---|---|---|---|
-| Healthy | Proceed | (none — silent) | — |
-| Transparency | Proceed | Info | "Scout on X: low transparency — proceeding (recovery loop will engage if it persists)." |
-| Obstruction | Proceed (cleared during wait) | Info | "Scout on X: obstruction cleared during wait — imaging now." |
-| Obstruction | Advance | Warning | "Scout on X: FOV obstructed (~N/M stars vs baseline), clears in T min — advancing to next target." |
+| Healthy | Proceed | (none, silent) | - |
+| Transparency | Proceed | Info | "Scout on X: low transparency; proceeding (recovery loop will engage if it persists)." |
+| Obstruction | Proceed (cleared during wait) | Info | "Scout on X: obstruction cleared during wait; imaging now." |
+| Obstruction | Advance | Warning | "Scout on X: FOV obstructed (~N/M stars vs baseline), clears in T min; advancing to next target." |
 
-Healthy is silent because it's the common case — toasting on every scout
+Healthy is silent because it's the common case; toasting on every scout
 success would be noise. The other paths all happen rarely and warrant a user-
 visible record so unattended-session reviewers can see what happened overnight.
 
@@ -263,15 +263,15 @@ scout's preconditions aren't met. Detail in
 [`fov-obstruction-detection.md`](../plans/fov-obstruction-detection.md)
 "Known limitations" section.
 
-1. **First observation of the night** — no prior baseline → scout returns
+1. **First observation of the night**: no prior baseline → scout returns
    `Healthy` unconditionally. Detection falls back to the in-flight
    condition-deterioration check inside the imaging loop, which only fires
    after guider start + several full-length exposures.
-2. **Guider calibration slew** (`Session.Lifecycle.cs:19`) — scout is not
+2. **Guider calibration slew** (`Session.Lifecycle.cs:19`); scout is not
    invoked before `CalibrateGuiderAsync` slews to `(HA=30min east, Dec=0°)`.
    TODO item L147 ("slew slightly above/below 0° dec to avoid trees") tracks
    this gap separately.
-3. **Guider field vs. imaging field** — scout exposures run on imaging OTAs
+3. **Guider field vs. imaging field**: scout exposures run on imaging OTAs
    only. Side-by-side guide scopes with their own obstructions are not
    covered. OAGs are fine because the fields coincide.
 
@@ -284,6 +284,6 @@ these biting.
 
 ## Commit
 
-- `fb4d0c3` — FOV obstruction detection: scout + altitude-nudge + trajectory wait
+- `fb4d0c3`: FOV obstruction detection: scout + altitude-nudge + trajectory wait
 
 On branch `fov-obstruction-detection`. 1678 unit + 83 functional Session tests pass.

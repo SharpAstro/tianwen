@@ -12,7 +12,7 @@ namespace TianWen.Lib.Tests;
 public class MasterFrameBuilderTests
 {
     // Deterministic synthetic frame factory. Each frame is a 4x4 mono image
-    // filled with `baseline + i * step` per pixel — gives us per-frame
+    // filled with `baseline + i * step` per pixel: gives us per-frame
     // distinguishable values we can assert the median against without
     // depending on a seeded RNG. The Bayer-flat tests build similar
     // synthetic patterns where each Bayer quadrant has a known mean.

@@ -37,12 +37,12 @@ public static class BacklashCompensation
 
         if (approachingFromPreferred)
         {
-            // Moving in the preferred direction — no compensation needed, just move directly
+            // Moving in the preferred direction: no compensation needed, just move directly
             await MoveAndWaitAsync(focuser, targetPosition, timeProvider, cancellationToken);
         }
         else
         {
-            // Moving against the preferred direction — overshoot past target, then approach from preferred side
+            // Moving against the preferred direction: overshoot past target, then approach from preferred side
             var backlashSteps = movingPositive ? backlashStepsOut : backlashStepsIn;
             if (backlashSteps > 0)
             {

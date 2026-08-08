@@ -27,11 +27,11 @@ the Debug build is ~3x slower per frame.
 
 Under `<data-root>/output/` (or `--output` if set):
 
-- `masters/master_<group>.fits`     — cached bias/dark/flat masters (reused across runs)
-- `master_<group>.fits`             — integrated light master with WCS embedded
-- `master_<group>_autocrop.fits`    — same, cropped to the no-NaN intersection
-- `master_<group>.png`              — display-encoded preview with SPCC + bg-neut (unless `--no-png`)
-- `master_<group>.rejection.fits`   — per-pixel rejection count map (when rejections > 0)
+- `masters/master_<group>.fits`: cached bias/dark/flat masters (reused across runs)
+- `master_<group>.fits`: integrated light master with WCS embedded
+- `master_<group>_autocrop.fits`: same, cropped to the no-NaN intersection
+- `master_<group>.png`: display-encoded preview with SPCC + bg-neut (unless `--no-png`)
+- `master_<group>.rejection.fits`: per-pixel rejection count map (when rejections > 0)
 
 **Drizzle exception**: when `--strategy BayerDrizzle` is in use, the master + sidecars carry a `_drizzle` infix so a side-by-side run against the default strategy can coexist in the same output dir:
 

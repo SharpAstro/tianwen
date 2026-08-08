@@ -63,7 +63,7 @@ internal static class FakeTruePointingSourceExtensions
                 return null;
             }
 
-            // Mount already reports J2000 — no conversion needed, skip the Transform entirely.
+            // Mount already reports J2000: no conversion needed, skip the Transform entirely.
             if (mount.EquatorialSystem == EquatorialCoordinateType.J2000)
             {
                 return (raNative, decNative);

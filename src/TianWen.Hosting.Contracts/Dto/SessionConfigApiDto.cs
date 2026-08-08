@@ -6,7 +6,7 @@ namespace TianWen.Hosting.Dto;
 
 /// <summary>
 /// Session configuration DTO for the REST API.
-/// All fields are optional — unset fields use <see cref="SessionConfiguration"/> defaults.
+/// All fields are optional: unset fields use <see cref="SessionConfiguration"/> defaults.
 /// </summary>
 public sealed class SessionConfigApiDto
 {

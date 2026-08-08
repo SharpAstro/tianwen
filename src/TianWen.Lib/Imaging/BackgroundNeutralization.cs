@@ -21,7 +21,7 @@ public enum BackgroundNeutralizationMethod
 
     /// <summary>Target = min(R,G,B). The darkest channel passes through
     /// (<c>g = 1</c>) and the others scale up to match. No background signal
-    /// is "thrown away" — useful when one channel is significantly cleaner.</summary>
+    /// is "thrown away": useful when one channel is significantly cleaner.</summary>
     MinPivot,
 }
 
@@ -36,7 +36,7 @@ public static class BackgroundNeutralization
     /// </summary>
     /// <param name="perChannelBg">Per-channel background values in pedestal-subtracted space
     /// (from <see cref="Image.ScanBackgroundRegion"/>).</param>
-    /// <param name="method">Pivot target choice — affects which channel(s) stay fixed.
+    /// <param name="method">Pivot target choice: affects which channel(s) stay fixed.
     /// Defaults to <see cref="BackgroundNeutralizationMethod.Mean"/> to preserve
     /// the behaviour expected by existing tests + call sites.</param>
     /// <param name="whiteBalance">Optional per-channel WB multiply applied AFTER bg-neut in the
@@ -44,7 +44,7 @@ public static class BackgroundNeutralization
     /// <see cref="BackgroundNeutralizationMethod.MinPivot"/>, where the gains are solved so the
     /// POST-WB background is neutral: pivot <c>K = min(bg_X*wb_X)</c>, per-channel target
     /// <c>t_X = K/wb_X</c>. Null (or a neutral triple) reduces to the WB-uncoupled MinPivot
-    /// (<c>K = min(bg)</c>, one shared target) — bit-identical to the prior behaviour. Ignored by
+    /// (<c>K = min(bg)</c>, one shared target): bit-identical to the prior behaviour. Ignored by
     /// Mean / GreenPivot (no in-pipeline caller couples those to WB).</param>
     /// <returns>Per-channel gains where out = val * g + (1-g). Default (1,1,1) = no change.</returns>
     public static (float R, float G, float B) ComputeGains(

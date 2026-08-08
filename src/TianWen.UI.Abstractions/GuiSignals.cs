@@ -65,7 +65,7 @@ public readonly record struct ConnectDeviceSignal(System.Uri DeviceUri);
 /// <summary>
 /// Connect every assigned device in the active profile that is currently
 /// resolvable by the device hub or appears in the discovery cache. The handler
-/// fans out to per-URI <see cref="ConnectDeviceSignal"/> dispatch — bulk action
+/// fans out to per-URI <see cref="ConnectDeviceSignal"/> dispatch; bulk action
 /// composed from the existing single-device flow rather than a parallel one,
 /// so PendingTransitions / notifications stay consistent.
 /// </summary>
@@ -145,7 +145,7 @@ public readonly record struct StartSessionSignal;
 /// <param name="DeltaRaDeg">RA-axis rotation angle in degrees (typically 45-90).</param>
 /// <param name="UseGuider">If true, use the connected guider (built-in or PHD2)
 /// as the capture source instead of the main camera. PHD2 requires <c>Save Images</c>
-/// to be enabled in its profile — failure to find a saved frame surfaces as a
+/// to be enabled in its profile: failure to find a saved frame surfaces as a
 /// failure reason on Phase A. Selected by the user via a separate UI toggle so
 /// the choice is explicit; the auto-ranker remains a future enhancement.</param>
 /// <param name="Configuration">Optional full configuration captured from the
@@ -247,15 +247,15 @@ public readonly record struct RespondSessionPromptSignal(bool Proceed);
 /// </summary>
 public readonly record struct AssignManualCoverSignal;
 
-/// <summary>Request abort — shows confirmation strip in the live session tab.</summary>
+/// <summary>Request abort: shows confirmation strip in the live session tab.</summary>
 public readonly record struct RequestAbortSessionSignal;
 
-/// <summary>Confirmed abort — cancels the running session.</summary>
+/// <summary>Confirmed abort: cancels the running session.</summary>
 public readonly record struct ConfirmAbortSessionSignal;
 
 /// <summary>
 /// Take a single preview exposure on one OTA's camera and display it in the mini viewer.
-/// NOT written to disk — transient. Only valid when no session is running.
+/// NOT written to disk: transient. Only valid when no session is running.
 /// </summary>
 public readonly record struct TakePreviewSignal(
     int OtaIndex,
@@ -324,7 +324,7 @@ public readonly record struct OpenSkyMapSearchSignal;
 public readonly record struct CloseSkyMapSearchSignal;
 
 /// <summary>
-/// The search modal text changed — recompute the result list.
+/// The search modal text changed: recompute the result list.
 /// Posted from the search input's <c>OnTextChanged</c> callback so filtering
 /// runs on the render thread alongside other signal processing.
 /// </summary>
@@ -389,7 +389,7 @@ public readonly record struct SkyMapSlewToObjectSignal(
 /// Handler builds <see cref="SkyMapInfoPanelData"/> via
 /// <see cref="SkyMapInfoPanelData.FromPosition"/> and assigns it to
 /// <c>SkyMapSearchState.InfoPanel</c> so the standard panel renders with a Goto
-/// button. Slewing always goes through that button — clicking the marker on the
+/// button. Slewing always goes through that button; clicking the marker on the
 /// map only opens the panel, never slews directly.
 /// </summary>
 public readonly record struct SkyMapShowFixedPointInfoSignal(

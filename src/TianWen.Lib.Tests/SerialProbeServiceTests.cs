@@ -17,7 +17,7 @@ namespace TianWen.Lib.Tests;
 /// <summary>
 /// Unit tests for <see cref="SerialProbeService"/>. Scenarios focus on scheduling
 /// (per-port × per-baud), result publishing, timeout handling, exclusivity, and the
-/// two-tier pinned-port verify-then-fall-through algorithm — not on real wire
+/// two-tier pinned-port verify-then-fall-through algorithm, not on real wire
 /// protocols (those are covered by source-specific probe tests).
 /// </summary>
 public class SerialProbeServiceTests(ITestOutputHelper output)
@@ -66,7 +66,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     [Fact]
     public async Task WithTwoProbesDifferentBaudPortIsOpenedPerBaud()
     {
-        // Single-pass ladder — pass 2 retry for unmatched ports is tested separately.
+        // Single-pass ladder: pass 2 retry for unmatched ports is tested separately.
         var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
         var a = StubProbe.Sync("Skywatcher115k", baud: 115200, match: (_, _) => null);
         var b = StubProbe.Sync("OnStep", baud: 9600, match: (_, _) => null);
@@ -120,7 +120,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     public async Task WithProbeThatTimesOutLogsTimeoutAndReturnsNoMatch()
     {
         var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
-        // Stub awaits on ct indefinitely — the probe "times out" only when the
+        // Stub awaits on ct indefinitely: the probe "times out" only when the
         // budget CTS (fake-time driven) cancels the linked token. Task.Delay
         // with Timeout.InfiniteTimeSpan schedules no timer, so the wait is
         // purely cancellation-driven and the pump controls when it unblocks.
@@ -230,7 +230,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
             match: (_, _) => throw new InvalidOperationException("test bug"));
         var service = BuildService(external, output, probe);
 
-        // Must not propagate the throw — probe exceptions are caught per plan.
+        // Must not propagate the throw: probe exceptions are caught per plan.
         await service.ProbeAllAsync(TestContext.Current.CancellationToken);
 
         service.ResultsFor("Buggy").ShouldBeEmpty();
@@ -277,7 +277,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     [Fact]
     public async Task WithPinnedPortAndMatchingIdentityStage1VerifiesAndSkipsStage2()
     {
-        // Pinned OnStep is still on COM5 — Stage 1 confirms, Stage 2 skips the port.
+        // Pinned OnStep is still on COM5: Stage 1 confirms, Stage 2 skips the port.
         var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
         var probe = StubProbe.Sync("OnStep", baud: 9600,
             match: (port, _) => new SerialProbeMatch(port, new Uri($"Mount://OnStepDevice/stable-id#OnStep on {port}")),
@@ -298,9 +298,9 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     [Fact]
     public async Task WithCableSwapBothDevicesStillDiscoveredViaStage2Fallback()
     {
-        // Two pinned devices — OnStep@COM5, Meade@COM6. User swapped cables so OnStep
+        // Two pinned devices: OnStep@COM5, Meade@COM6. User swapped cables so OnStep
         // is now on COM6, Meade on COM5. Stage 1 verification fails on both pins
-        // (identity mismatch) — ports fall through to Stage 2, which probes with every
+        // (identity mismatch): ports fall through to Stage 2, which probes with every
         // registered probe and discovers the true current assignment.
         var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
 
@@ -350,10 +350,10 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     [Fact]
     public async Task WithPinnedPortAndIdentityMismatchProbeDoesNotPublishFromStage1()
     {
-        // Pinned URI says OnStep/id-A at COM5 — but COM5 now reports OnStep/id-B.
+        // Pinned URI says OnStep/id-A at COM5, but COM5 now reports OnStep/id-B.
         // Stage 1: probe matches the family (OnStep) but identity differs → no publish,
         // port falls through. Stage 2 probes COM5 again with the full probe set; the
-        // OnStep probe now matches and publishes once — total of ONE published match.
+        // OnStep probe now matches and publishes once: total of ONE published match.
         var external = new ProbeTestExternal { Ports = ["serial:COM5"] };
         var probe = StubProbe.Sync("OnStep", baud: 9600,
             match: (port, _) => new SerialProbeMatch(port, new Uri("Mount://OnStepDevice/id-B")),
@@ -372,7 +372,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
     [Fact]
     public async Task WithPinnedPortNotEnumeratedSkipsVerificationAndProbesTheRest()
     {
-        // Stale pin — COM99 doesn't exist in this enumeration. Verification ignores
+        // Stale pin: COM99 doesn't exist in this enumeration. Verification ignores
         // missing ports and the real ports probe normally.
         var external = new ProbeTestExternal { Ports = ["serial:COM5", "serial:COM6"] };
         var probe = StubProbe.Sync("AllMatch", baud: 9600,
@@ -384,7 +384,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         var service = BuildService(external, output, pinned, probe);
         await service.ProbeAllAsync(TestContext.Current.CancellationToken);
 
-        external.OpenCalls.Count.ShouldBe(2, "stale pin ignored — COM5 + COM6 probed normally");
+        external.OpenCalls.Count.ShouldBe(2, "stale pin ignored, COM5 + COM6 probed normally");
         service.ResultsFor("AllMatch").Count.ShouldBe(2);
     }
 
@@ -465,7 +465,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public ValueTask<SerialProbeMatch?> ProbeAsync(string port, ISerialConnection conn, CancellationToken cancellationToken)
             => match(port, cancellationToken);
 
-        /// <summary>Convenience for sync match callbacks — wraps the result in <see cref="ValueTask"/>.</summary>
+        /// <summary>Convenience for sync match callbacks: wraps the result in <see cref="ValueTask"/>.</summary>
         public static StubProbe Sync(string name, int baud, Func<string, CancellationToken, SerialProbeMatch?> match,
             TimeSpan? budget = null, int maxAttempts = 1, ProbeExclusivity exclusivity = ProbeExclusivity.Shared,
             IReadOnlyCollection<string>? matchesDeviceHosts = null)

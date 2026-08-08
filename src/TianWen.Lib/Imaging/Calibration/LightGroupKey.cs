@@ -4,12 +4,12 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// Equality-able key partitioning a folder of light frames into independently
 /// stackable sets. A folder may mix multiple targets (NINA writes all lights
 /// to a single LIGHT directory regardless of target), and frames of different
-/// targets never register against each other — they look at different sky.
+/// targets never register against each other: they look at different sky.
 ///
 /// <para>The key wraps a <see cref="MasterGroupKey"/> (which encodes the
 /// sensor configuration, exposure, temperature, filter, dimensions, gain, and
 /// offset) plus the FITS <c>OBJECT</c> header value. When <see cref="ObjectName"/>
-/// is empty, two frames group together iff their calibration keys match —
+/// is empty, two frames group together iff their calibration keys match; 
 /// identical to the legacy behavior. When set, frames of different targets
 /// are forced into separate groups even when otherwise identical.</para>
 ///

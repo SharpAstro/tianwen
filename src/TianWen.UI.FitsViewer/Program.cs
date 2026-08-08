@@ -13,7 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using static SDL3.SDL;
 
-// DI setup — before args processing so logger is available for early errors
+// DI setup, before args processing so logger is available for early errors
 var services = new ServiceCollection();
 services
     .AddFileLogging("FitsViewer")
@@ -84,7 +84,7 @@ if (parsedResult.Errors.Count > 0)
 
 await parsedResult.InvokeAsync();
 
-// --help/--version bypass SetAction — exit cleanly
+// --help/--version bypass SetAction: exit cleanly
 if (!actionCalled)
 {
     return 0;
@@ -117,7 +117,7 @@ if (inputArg is not null)
     }
 }
 
-// Lazy-initialized catalog DB — starts init on first access, safe to pass around immediately
+// Lazy-initialized catalog DB: starts init on first access, safe to pass around immediately
 var celestialObjectDB = new DotNext.Threading.AsyncLazy<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(async (ct) =>
 {
     var db = sp.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>();
@@ -187,7 +187,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     },
 
     // One pointer callback: the loop synthesizes the InputEvents (real release coordinates on
-    // MouseUp — the previous hand-wired OnMouseUp had to reconstruct them from a cached position,
+    // MouseUp: the previous hand-wired OnMouseUp had to reconstruct them from a cached position,
     // and before that shipped MouseUp(0, 0)). Presses go through the bespoke dispatch below
     // (toolbar dropdowns + DI-dependent actions); move/release/wheel flow straight into the
     // shared viewer input path.
@@ -263,7 +263,7 @@ bus.Subscribe<PlateSolveSignal>(_ =>
 bus.Subscribe<EnhanceImageSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.Enhance, reverse: false, cts.Token));
 
-// OnKeyDown wired separately — imageRenderer.HandleInput handles F11 via signal bus
+// OnKeyDown wired separately: imageRenderer.HandleInput handles F11 via signal bus
 loop.OnKeyDown = (inputKey, inputModifier) =>
 {
     imageRenderer.HandleInput(new InputEvent.KeyDown(inputKey, inputModifier));
@@ -304,7 +304,7 @@ bool HandleMouseDown(InputEvent.MouseDown down)
 
     if (down.Button is MouseButton.Left or MouseButton.Right)
     {
-        // Hit test — base class handles pure state actions (file list, toggles)
+        // Hit test: base class handles pure state actions (file list, toggles)
         var hit = imageRenderer.HitTestAndDispatch(px, py);
 
         if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
@@ -312,7 +312,7 @@ bool HandleMouseDown(InputEvent.MouseDown down)
             // Left-click on any dropdown-capable toolbar button opens the
             // overlay; right-click falls through so power users
             // can still reverse-cycle without summoning the popup. The set of
-            // dropdown actions is encoded in OpenToolbarDropdown's switch —
+            // dropdown actions is encoded in OpenToolbarDropdown's switch; 
             // it returns false for non-dropdown actions so we never need a
             // parallel "is dropdown action" list here.
             if (down.Button == MouseButton.Left && imageRenderer.OpenToolbarDropdown(state, toolbarAction))

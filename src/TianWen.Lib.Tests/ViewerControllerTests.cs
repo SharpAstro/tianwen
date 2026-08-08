@@ -120,7 +120,7 @@ public class ViewerControllerTests
         // Only one call to cache (the first one)
         await cache.Received(1).GetOrLoadAsync(Arg.Any<string>(), Arg.Any<DebayerAlgorithm>(), Arg.Any<CancellationToken>());
 
-        // Clean up — complete the pending task to avoid unobserved exceptions
+        // Clean up: complete the pending task to avoid unobserved exceptions
         tcs.SetResult(null);
     }
 

@@ -19,7 +19,7 @@ internal class AlpacaCoverCalibratorDriver(AlpacaDevice device, IServiceProvider
         return true;
     }
 
-    // Static property — cached at init
+    // Static property: cached at init
     public int MaxBrightness => _maxBrightness;
 
     public async ValueTask<int> GetBrightnessAsync(CancellationToken cancellationToken = default)

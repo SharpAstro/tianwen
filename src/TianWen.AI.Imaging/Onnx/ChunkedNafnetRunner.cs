@@ -280,14 +280,14 @@ public static class ChunkedNafnetRunner
     /// <paramref name="Balances"/> are non-null only when <paramref name="Applied"/> is true, and
     /// are what <see cref="Image.MtfUnstretch"/> needs to map the network output back to source
     /// units). Exposed so the dataset tile exporter bakes its training tiles with byte-identical
-    /// preprocessing to inference (zero train/inference skew, plan §2.4) — the single source of
+    /// preprocessing to inference (zero train/inference skew, plan §2.4); the single source of
     /// truth for "how a linear frame becomes a NAFNet input".
     /// </summary>
     internal static (Image Stretched, bool Applied, float[]? OrigMin, double[]? Balances) ApplyInputStretch(Image input)
     {
         if (!NeedsStretch(input))
         {
-            // Already in (or near) the NAFNet training distribution — feed it verbatim and skip
+            // Already in (or near) the NAFNet training distribution; feed it verbatim and skip
             // the inverse round-trip. Critical for pre-stretched inputs (GHS/ABE), where the MTF
             // nonlinearity near saturation amplifies per-channel noise around bright stars.
             return (input, false, null, null);

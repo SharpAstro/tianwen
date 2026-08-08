@@ -14,7 +14,7 @@ internal partial record Session
     /// connect -> cool -> capture -> finalise cycle against the flat-relevant device subset, without the
     /// wait-for-dark / focus / guider-calibration / observation-loop stages of <see cref="RunAsync"/>.
     /// Dispatches capture on <see cref="SessionConfiguration.FlatSource"/> exactly like the end-of-session
-    /// hook (a cover/calibrator device — flip-flat, lightbox, Gemini panel, or manual panel — or the twilight
+    /// hook (a cover/calibrator device, flip-flat, lightbox, Gemini panel, or manual panel, or the twilight
     /// sky), so the output contract is identical.
     /// </summary>
     public async Task RunFlatsOnlyAsync(TwilightPeriod skyFlatPeriod, CancellationToken cancellationToken)

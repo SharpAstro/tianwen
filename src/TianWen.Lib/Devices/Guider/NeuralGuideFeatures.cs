@@ -50,7 +50,7 @@ internal sealed class NeuralGuideFeatures
     private double _longDecSum;
 
     // Accumulated gear error: sum of (residual_error + correction_applied_in_pixels).
-    // This traces the PE curve — even when guiding corrects the error perfectly,
+    // This traces the PE curve, even when guiding corrects the error perfectly,
     // the accumulated gear error shows the total periodic displacement the mount produced.
     private double _accumulatedGearErrorRa;
     private double _accumulatedGearErrorDec;
@@ -193,7 +193,7 @@ internal sealed class NeuralGuideFeatures
             : timestampSec - _lastCorrectionTimestamp, 30.0);
 
         // [22-23] RA encoder phase as sin/cos pair (wraps smoothly, learnable by the network).
-        // When the mount doesn't expose encoder data (NaN), both components are 0 — the network
+        // When the mount doesn't expose encoder data (NaN), both components are 0; the network
         // learns to ignore them. sin/cos encoding avoids the discontinuity at 0/2π.
         if (!double.IsNaN(raEncoderPhaseRadians))
         {

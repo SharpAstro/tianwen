@@ -27,7 +27,7 @@ var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings {
 builder.Services
     .AddLogging(builder =>
     {
-        // Console logger conflicts with TUI alternate screen — only add for non-TUI modes
+        // Console logger conflicts with TUI alternate screen, only add for non-TUI modes
         if (!isTui)
         {
             builder.AddSimpleConsole(static options =>
@@ -95,7 +95,7 @@ await host.StartAsync();
 
 var services = host.Services;
 var consoleHost = services.GetRequiredService<IConsoleHost>();
-// Terminal init is deferred — only initialized when view command actually needs it
+// Terminal init is deferred, only initialized when view command actually needs it
 var terminal = services.GetRequiredService<IVirtualTerminal>();
 var viewerState = services.GetRequiredService<ViewerState>();
 var plannerState = services.GetRequiredService<PlannerState>();
@@ -109,7 +109,7 @@ var selectedProfileOption = new Option<string?>("--active", "-a")
     Recursive = true
 };
 
-// Implicit path argument on root command — bare file/dir arg opens the viewer interactively
+// Implicit path argument on root command: bare file/dir arg opens the viewer interactively
 var implicitPathArg = new Argument<string?>("path")
 {
     Description = "FITS file or directory to view (shorthand for 'view <path>')",

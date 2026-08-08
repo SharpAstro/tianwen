@@ -23,7 +23,7 @@ public class WaitForDarkTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenObservationAlreadyStartedWhenWaitForDarkThenSkipsImmediately()
     {
-        // given — observation start was 30 min ago
+        // given: observation start was 30 min ago
         var now = new DateTimeOffset(2025, 12, 15, 20, 0, 0, TimeSpan.Zero);
         var obsStart = now - TimeSpan.FromMinutes(30);
         var ct = TestContext.Current.CancellationToken;
@@ -43,7 +43,7 @@ public class WaitForDarkTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenObservationIn2HoursWhenWaitForDarkThenWaitsCorrectDuration()
     {
-        // given — observation starts in 2 hours
+        // given: observation starts in 2 hours
         var now = new DateTimeOffset(2025, 12, 15, 18, 0, 0, TimeSpan.Zero);
         var obsStart = now + TimeSpan.FromHours(2);
         var ct = TestContext.Current.CancellationToken;
@@ -54,7 +54,7 @@ public class WaitForDarkTests(ITestOutputHelper output)
         // when
         await ctx.Session.WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(ct);
 
-        // then — should wait ~1h50m (2h - 10min)
+        // then: should wait ~1h50m (2h - 10min)
         var waited = ctx.TimeProvider.GetUtcNow() - before;
         output.WriteLine($"Waited: {waited}");
         waited.TotalMinutes.ShouldBeGreaterThan(100, "should wait until 10min before start");
@@ -64,7 +64,7 @@ public class WaitForDarkTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenObservationIn5MinutesWhenWaitForDarkThenSkips()
     {
-        // given — observation starts in 5 minutes (within the 10-min window)
+        // given: observation starts in 5 minutes (within the 10-min window)
         var now = new DateTimeOffset(2025, 12, 15, 20, 0, 0, TimeSpan.Zero);
         var obsStart = now + TimeSpan.FromMinutes(5);
         var ct = TestContext.Current.CancellationToken;
@@ -75,7 +75,7 @@ public class WaitForDarkTests(ITestOutputHelper output)
         // when
         await ctx.Session.WaitUntilTenMinutesBeforeAmateurAstroTwilightEndsAsync(ct);
 
-        // then — 5 min < 10 min buffer, diff is negative, should skip
+        // then: 5 min < 10 min buffer, diff is negative, should skip
         var waited = ctx.TimeProvider.GetUtcNow() - before;
         output.WriteLine($"Waited: {waited}");
         waited.TotalMinutes.ShouldBeLessThan(1, "should skip when within 10-min buffer");

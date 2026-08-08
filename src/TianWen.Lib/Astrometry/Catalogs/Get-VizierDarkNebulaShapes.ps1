@@ -140,7 +140,7 @@ function Get-DobashiShapes {
 
 # ----- Barnard (VII/220A/barnard): 349 entries, Diam in arcmin -----
 # Entries carry an optional lowercase-letter suffix for sub-condensations
-# (44a, 67a, ...). Skip those — our CatalogIndex packing does not encode
+# (44a, 67a, ...). Skip those: our CatalogIndex packing does not encode
 # the suffix, so sub-entries fall back to the existing fixed-circle marker.
 function Get-BarnardShapes {
     $q = Invoke-Vizier 'SELECT Barn, Diam FROM "VII/220A/barnard"'

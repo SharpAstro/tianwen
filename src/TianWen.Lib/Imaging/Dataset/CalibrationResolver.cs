@@ -14,7 +14,7 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// shared across sessions). Calibration frames are grouped by the stacker's <see cref="MasterGroupKey"/>
 /// identity; a session's representative light is matched to the best-fitting dark + flat group, and the
 /// masters are built once + cached via <see cref="MasterCache"/> (build-once holds across all sessions
-/// and re-runs). The assembled <see cref="Calibrator"/> carries <b>no bias</b> — a matched-exposure
+/// and re-runs). The assembled <see cref="Calibrator"/> carries <b>no bias</b>; a matched-exposure
 /// master dark built from raw darks already contains the bias signal, so subtracting both would
 /// double-subtract the pedestal (same reasoning as <c>StackingPipeline</c>).
 ///
@@ -29,7 +29,7 @@ public static class CalibrationResolver
     /// sensor-config <see cref="MasterGroupKey"/> and to the optical train (<see cref="CalTrain"/>)
     /// they were captured through. <paramref name="IsMaster"/> marks a group of already-integrated
     /// FOREIGN masters (IMAGETYP=MASTER*): such a group is served by loading the master file directly
-    /// (a single frame is enough — no &gt;=2-raw median), whereas a raw group builds its master by
+    /// (a single frame is enough, no &gt;=2-raw median), whereas a raw group builds its master by
     /// combination. Raw and master frames of the same sensor-config + train are kept in SEPARATE
     /// groups (the flag is part of the grouping key), so a camera whose dark library survives only as
     /// a master still resolves while raw libraries build normally.</summary>
@@ -120,7 +120,7 @@ public static class CalibrationResolver
 
     /// <summary>Groups the calibration frames (Bias / Dark / DarkFlat / Flat) among
     /// <paramref name="frames"/> by <see cref="MasterGroupKey"/>. Lights and anything else are
-    /// ignored. Pure — the caller passes the already-scanned archive frames (one scan feeds this and
+    /// ignored. Pure: the caller passes the already-scanned archive frames (one scan feeds this and
     /// <see cref="SessionDiscovery.GroupSessions"/>).</summary>
     public static IReadOnlyDictionary<FrameType, List<CalGroup>> GroupCalibration(IEnumerable<FrameInfo> frames)
     {
@@ -159,7 +159,7 @@ public static class CalibrationResolver
     /// Resolves the best-matching <see cref="Calibrator"/> for a session (dark + flat, no bias),
     /// building/loading the matched masters through <paramref name="masterCache"/>. Returns
     /// <c>null</c> only when neither a compatible dark nor a compatible flat exists (the session must
-    /// then register uncalibrated — logged as a warning, since that weakens N2N validity).
+    /// then register uncalibrated: logged as a warning, since that weakens N2N validity).
     /// </summary>
     public static async Task<Calibrator?> ResolveAsync(
         ImagingSession session,
@@ -225,9 +225,9 @@ public static class CalibrationResolver
     }
 
     /// <summary>Penalty for a gain mismatch. Sized deliberately: BELOW a grossly-wrong
-    /// temperature+exposure alternative — on the reference archive the only choices for 60s/−5°C
+    /// temperature+exposure alternative: on the reference archive the only choices for 60s/−5°C
     /// g121 lights are a 60s/−5°C g212 dark (this penalty, 200) and a 4.5s/+22°C g121 flat-wizard
-    /// dark (~325), and the matched-exposure/temperature dark is the better of the two bad options —
+    /// dark (~325), and the matched-exposure/temperature dark is the better of the two bad options; 
     /// but ABOVE any same-library temperature jitter, so a same-gain dark wins whenever one exists.</summary>
     private const double GainMismatchPenalty = 200.0;
 
@@ -236,7 +236,7 @@ public static class CalibrationResolver
     private const double GainUnknownPenalty = 100.0;
 
     /// <summary>Offset (black level) mismatch shifts the dark's pedestal, but is a smaller error
-    /// than a gain mismatch (pattern amplitude) — quarter weight.</summary>
+    /// than a gain mismatch (pattern amplitude): quarter weight.</summary>
     private const double OffsetMismatchPenalty = 50.0;
     private const double OffsetUnknownPenalty = 25.0;
 
@@ -244,7 +244,7 @@ public static class CalibrationResolver
     /// Dark current + amp glow scale with exposure and this pipeline does NOT dark-scale, so a dark
     /// far from the light's exposure is not a valid subtraction. Load-bearing: N.I.N.A. writes
     /// <b>dark-flats</b> (short darks matched to the FLAT exposure, e.g. 4.6s/6.7s) with
-    /// <c>IMAGETYP=DARK</c> — only their <c>DARKFLAT\</c> folder distinguishes them — so without this
+    /// <c>IMAGETYP=DARK</c>, only their <c>DARKFLAT\</c> folder distinguishes them, so without this
     /// gate a 6.7s dark-flat out-scores the matched-exposure 60s light-dark once gain is weighted, and
     /// silently calibrates 60s lights with a 9x-too-short frame. The stack pipeline sidesteps this by
     /// weighting exposure over gain in its matcher; the gate makes it explicit (and, with
@@ -253,7 +253,7 @@ public static class CalibrationResolver
     private const double ExposureCompatibleHigh = 2.0;
 
     /// <summary>Best dark for a light: EXPOSURE-compatible first (see <see cref="ExposureCompatibleLow"/>
-    /// — excludes dark-flats), same CAMERA (a dark is the body's own fixed pattern -- amp glow,
+    ///; excludes dark-flats), same CAMERA (a dark is the body's own fixed pattern -- amp glow,
     /// unit-to-unit variation -- never borrowed across bodies even when they share a sensor model),
     /// dimension/sensor-compatible, then ranked by closest temperature, closest exposure (dark current
     /// scales with both), then matching gain/offset (a wrong-gain dark mis-scales the fixed pattern;
@@ -324,7 +324,7 @@ public static class CalibrationResolver
     }
 
     /// <summary>True when a dark's exposure is within <see cref="ExposureCompatibleLow"/>..
-    /// <see cref="ExposureCompatibleHigh"/> of the light's — i.e. a plausible light-dark, not a
+    /// <see cref="ExposureCompatibleHigh"/> of the light's, i.e. a plausible light-dark, not a
     /// dark-flat. A non-positive light exposure (unknown) disables the gate (accept any).</summary>
     private static bool ExposureCompatible(TimeSpan dark, TimeSpan light)
     {

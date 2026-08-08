@@ -14,7 +14,7 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public static class SkyMapRenderer
     {
-        // Colors — Stellarium-inspired color scheme
+        // Colors: Stellarium-inspired color scheme
         private static readonly RGBAColor32 BackgroundColor      = new(0x05, 0x05, 0x0C, 0xFF);
         private static readonly RGBAColor32 GridColor            = new(0x30, 0x60, 0xA0, 0xB0);
         private static readonly RGBAColor32 BoundaryColor        = new(0xAA, 0x44, 0x44, 0x80); // red, like Stellarium
@@ -103,7 +103,7 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 MeridianColor   = new(0x30, 0xDD, 0x30, 0xA0);
 
         /// <summary>
-        /// Draw the horizon as a line and cardinal point markers. No fill — keeps rendering simple.
+        /// Draw the horizon as a line and cardinal point markers. No fill; keeps rendering simple.
         /// </summary>
         private static void DrawHorizonLine(
             RgbaImage image,
@@ -166,7 +166,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Multi-scale grid: draw multiple scales simultaneously with finer lines fading in as
-        /// you zoom. Lines are always at fixed RA/Dec values — they never shift when zooming.
+        /// you zoom. Lines are always at fixed RA/Dec values; they never shift when zooming.
         /// Step count adapts to FOV to keep lines continuous.
         /// </summary>
         private static void DrawGrid(
@@ -174,7 +174,7 @@ namespace TianWen.UI.Abstractions
             double cRA, double cDec, double ppr,
             float cx, float cy, int w, int h, double fov)
         {
-            // Multiple grid scales — coarse always visible, fine fades in
+            // Multiple grid scales: coarse always visible, fine fades in
             // (raStepHours, decStepDeg, minFov to show, maxFov for full opacity)
             ReadOnlySpan<(double RaStep, double DecStep, double MinFov, double MaxFov)> scales =
             [
@@ -208,14 +208,14 @@ namespace TianWen.UI.Abstractions
                 var alpha = (byte)(0xB0 * fade);
                 var color = new RGBAColor32(0x30, 0x60, 0xA0, alpha);
 
-                // RA lines (constant RA, varying Dec — great circles)
+                // RA lines (constant RA, varying Dec, great circles)
                 for (var ra = 0.0; ra < 24.0; ra += raStep)
                 {
                     DrawProjectedLine(image, cRA, cDec, ppr, cx, cy, w, h, color, lineSteps,
                         i => (ra, -90.0 + i * 180.0 / lineSteps));
                 }
 
-                // Dec lines (constant Dec, varying RA — small circles)
+                // Dec lines (constant Dec, varying RA, small circles)
                 for (var dec = -90.0 + decStep; dec < 90.0; dec += decStep)
                 {
                     DrawProjectedLine(image, cRA, cDec, ppr, cx, cy, w, h, color, lineSteps,
@@ -315,7 +315,7 @@ namespace TianWen.UI.Abstractions
                 var (r, g, b) = SkyMapProjection.StarColor(bv);
                 var iRadius = Math.Max(1, (int)(radius + 0.5f));
 
-                // Dim halo for brighter stars (radius > 2) — gives soft glow effect
+                // Dim halo for brighter stars (radius > 2): gives soft glow effect
                 if (iRadius > 2)
                 {
                     var haloAlpha = (byte)Math.Min(120, 40 + iRadius * 10);
@@ -409,7 +409,7 @@ namespace TianWen.UI.Abstractions
             {
                 if (edge.Type == ConstellationEdges.EdgeType.Parallel)
                 {
-                    // Constant Dec arc from RA1 to RA2 — interpolate along RA
+                    // Constant Dec arc from RA1 to RA2: interpolate along RA
                     var raRange = edge.RA2 - edge.RA1;
                     // Handle RA wrapping (e.g., 23h to 1h)
                     if (raRange < -12) raRange += 24;
@@ -420,7 +420,7 @@ namespace TianWen.UI.Abstractions
                 }
                 else if (edge.Type == ConstellationEdges.EdgeType.Meridian)
                 {
-                    // Constant RA arc from Dec1 to Dec2 — interpolate along Dec
+                    // Constant RA arc from Dec1 to Dec2: interpolate along Dec
                     var decRange = edge.Dec2 - edge.Dec1;
                     var steps = Math.Max(5, (int)(Math.Abs(decRange) / 2));
                     DrawProjectedLine(image, cRA, cDec, ppr, cx, cy, w, h, BoundaryColor, steps,
@@ -428,7 +428,7 @@ namespace TianWen.UI.Abstractions
                 }
                 else
                 {
-                    // Straight line — just draw between the two endpoints
+                    // Straight line, just draw between the two endpoints
                     if (SkyMapProjection.Project(edge.RA1, edge.Dec1, cRA, cDec, ppr, cx, cy, out var x1, out var y1)
                         && SkyMapProjection.Project(edge.RA2, edge.Dec2, cRA, cDec, ppr, cx, cy, out var x2, out var y2))
                     {

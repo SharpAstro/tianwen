@@ -38,7 +38,7 @@ public sealed record NormalizationStats(float[] PerChannelMin, float[] PerChanne
 public static class Normalizer
 {
     /// <summary>
-    /// Computes <see cref="NormalizationStats"/> for an image — per-channel
+    /// Computes <see cref="NormalizationStats"/> for an image; per-channel
     /// min + median. Median via quickselect (<see cref="StatisticsHelper.MedianFast(System.Span{float})"/>)
     /// on an ArrayPool-rented copy: O(n) instead of O(n log n) and zero
     /// long-lived allocations. Channels run in parallel. For a 3008^2 channel

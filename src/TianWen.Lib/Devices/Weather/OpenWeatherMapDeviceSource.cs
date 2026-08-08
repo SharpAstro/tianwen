@@ -33,7 +33,7 @@ internal sealed class OpenWeatherMapDeviceSource(ILogger<OpenWeatherMapDeviceSou
         catch (System.Exception ex)
         {
             _reachable = false;
-            logger.LogDebug(ex, "OpenWeatherMap HEAD request failed — device will not appear in the picker");
+            logger.LogDebug(ex, "OpenWeatherMap HEAD request failed, device will not appear in the picker");
         }
         return _reachable;
     }

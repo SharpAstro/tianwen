@@ -10,7 +10,7 @@ namespace TianWen.Lib.Connections;
 /// <summary>
 /// An <see cref="IUtf8TextBasedConnection"/> over an already-connected duplex <see cref="PipeStream"/>
 /// (a named pipe). Same line framing (one CRLF-terminated JSON message per line) as
-/// <see cref="JsonRpcOverTcpConnection"/>, but over Windows local IPC — no network stack, no loopback
+/// <see cref="JsonRpcOverTcpConnection"/>, but over Windows local IPC; no network stack, no loopback
 /// port, no firewall/AV involvement, and an ACL scoped to the current user. The out-of-process ASCOM
 /// host (<c>tianwen-ascomhost</c>) serves over this. The pipe is connected by the caller (server-side
 /// <see cref="PipeStream.WaitForConnection"/> or client-side <see cref="NamedPipeClientStream.Connect(int)"/>),

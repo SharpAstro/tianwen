@@ -6,7 +6,7 @@ namespace TianWen.Hosting.Dto;
 
 /// <summary>
 /// JSON-serializable projection of the live session state.
-/// Excludes binary data (images) and device handles — those are served via separate endpoints.
+/// Excludes binary data (images) and device handles; those are served via separate endpoints.
 /// <para>
 /// <b>Never mark a nullable wire property <c>required</c>.</b> <see cref="HostingJsonContext"/>
 /// serializes with <c>DefaultIgnoreCondition = WhenWritingNull</c>, so a null field is <i>omitted</i>

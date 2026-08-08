@@ -11,7 +11,7 @@ using Xunit;
 namespace TianWen.Lib.Tests
 {
     /// <summary>
-    /// End-to-end coverage for <see cref="DatasetBuildRunner"/> (dataset builder P0/#43 — the
+    /// End-to-end coverage for <see cref="DatasetBuildRunner"/> (dataset builder P0/#43, the
     /// one-command exit gate). Lays out a synthetic archive (lights under a session directory, a
     /// SHARED dark library beside it), runs the full build, and asserts the complete output contract:
     /// archive-wide calibration resolved + cached, fp16 tiles + JSONL manifest written, pinned split
@@ -29,7 +29,7 @@ namespace TianWen.Lib.Tests
 
         /// <summary>Copies the fixture lights as header-valid but data-truncated FITS with shifted
         /// DATE-OBS (so they don't dedup against the source lights). Discovery only reads headers,
-        /// so the copies form a session that passes the scan and then explodes at register time —
+        /// so the copies form a session that passes the scan and then explodes at register time; 
         /// the fault-isolation case (a bad frame surfacing hours into a bake must skip its session,
         /// never abort the run).</summary>
         private static void WriteTruncatedCopies(string srcDir, string dstDir)
@@ -183,7 +183,7 @@ namespace TianWen.Lib.Tests
             File.Exists(result.ManifestPath).ShouldBeFalse();
         }
 
-        /// <summary>Full-file copies with shifted DATE-OBS — a second VALID session (unlike
+        /// <summary>Full-file copies with shifted DATE-OBS; a second VALID session (unlike
         /// <see cref="WriteTruncatedCopies"/>, whose copies explode at register time), so the
         /// resume test has two completed sessions to checkpoint.</summary>
         private static void WriteShiftedCopies(string srcDir, string dstDir)
@@ -226,7 +226,7 @@ namespace TianWen.Lib.Tests
             first.Registered.ShouldBe(2);
 
             // Simulate a stop that landed AFTER M42's export and DURING N43's: rows append as the
-            // LAST step of an export, so the interrupted N43 has none — plus the torn half-row the
+            // LAST step of an export, so the interrupted N43 has none, plus the torn half-row the
             // kill left behind.
             var rows = File.ReadAllLines(first.ManifestPath).Where(l => l.Trim().Length > 0).ToArray();
             var m42Rows = rows.Where(l =>
@@ -244,7 +244,7 @@ namespace TianWen.Lib.Tests
             resumedRun.ParityChecked.ShouldBeTrue(); // the re-exported session fed the parity gate
 
             // Manifest healed + complete: every row parseable, per-session counts match the
-            // uninterrupted run — M42's rows were neither dropped nor duplicated.
+            // uninterrupted run: M42's rows were neither dropped nor duplicated.
             var counts = await DatasetTileExporter.ReadManifestSessionTileCountsAsync(first.ManifestPath, ct);
             counts.Values.Sum().ShouldBe(first.TotalTiles);
             counts.Single(kv => kv.Key.StartsWith("M42|", StringComparison.Ordinal)).Value.ShouldBe(m42Rows.Length);

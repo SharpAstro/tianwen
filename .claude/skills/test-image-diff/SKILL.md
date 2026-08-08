@@ -18,7 +18,7 @@ content changed. Default scope: both `%TEMP%/TianWen.Lib.Tests/` and
 root only. Pass `--dates <newer> <older>` to override auto-selection (defaults
 to the two most-recent `yyyyMMdd` directories under each root). The
 `--threshold N` arg sets the per-channel pixel-diff floor below which a pixel
-is considered unchanged (default 1 — exact match modulo 1 LSB of float-to-byte
+is considered unchanged (default 1, exact match modulo 1 LSB of float-to-byte
 rounding noise).
 
 Output is a per-folder grouped table:
@@ -44,12 +44,12 @@ The auto-pick header spells out the absolute date and a freshness hint
 "today vs yesterday" when it's actually older runs that lingered.
 
 Status tags:
-- `unchanged` — every pixel within ±threshold. Bytes may still differ
+- `unchanged`: every pixel within ±threshold. Bytes may still differ
   if metadata changed; the chunk-diff column explains why.
-- `CHANGED` — non-trivial pixel diff. MAE + max + changed-% give the magnitude.
-- `RESHAPED` — image dimensions changed; can't pixel-diff. Treated as a change.
-- `NEW` — file present in newer run only.
-- `REMOVED` — file present in older run only.
+- `CHANGED`: non-trivial pixel diff. MAE + max + changed-% give the magnitude.
+- `RESHAPED`: image dimensions changed; can't pixel-diff. Treated as a change.
+- `NEW`: file present in newer run only.
+- `REMOVED`: file present in older run only.
 
 When pixels are `unchanged` but the file size changed, the trailing column
 decodes the PNG chunk-level delta so you can tell metadata-only changes

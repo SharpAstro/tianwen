@@ -90,7 +90,7 @@ internal sealed class ExperienceReplayBuffer
         var nextMag = Math.Sqrt(nextRaError * nextRaError + nextDecError * nextDecError);
 
         // Ratio > 1 means error grew (bad correction), ratio < 1 means error shrank (good)
-        // Weight range: [0.5, 2.0] — upweight failures, downweight successes
+        // Weight range: [0.5, 2.0]; upweight failures, downweight successes
         var ratio = prevMag > 0.01 ? nextMag / prevMag : 1.0;
         exp.PriorityWeight = (float)Math.Clamp(ratio, 0.5, 2.0);
         exp.OutcomeKnown = true;

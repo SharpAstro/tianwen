@@ -35,7 +35,7 @@ public interface ISerialConnection : IDisposable
     /// non-printables rendered as hex. Default false (traffic logged at Trace
     /// only). <see cref="Discovery.ISerialProbeService"/> sets this while probing
     /// so the operator can see the handshake without enabling Debug.
-    /// Do NOT leave on during an active session — drivers poll dozens of times
+    /// Do NOT leave on during an active session: drivers poll dozens of times
     /// per second. Default-interface setter is a no-op so in-memory fakes don't
     /// need to carry a backing field.
     /// </summary>
@@ -54,7 +54,7 @@ public interface ISerialConnection : IDisposable
     /// When true, reads use a blocking, timeout-sliced <em>synchronous</em> path instead of async overlapped
     /// I/O. Some USB-serial bridges (notably CH34x) spuriously abort async <c>BaseStream</c> reads with
     /// <c>ERROR_OPERATION_ABORTED</c> ("the I/O operation has been aborted…") after the first read; blocking
-    /// reads are immune. Still cancellable — the token is observed between short <c>ReadTimeout</c> slices, so
+    /// reads are immune. Still cancellable: the token is observed between short <c>ReadTimeout</c> slices, so
     /// no thread is abandoned. Default false; default-interface no-op setter so in-memory fakes ignore it.
     /// Opt in per connection (e.g. the Gemini FlatPanel driver, whose CH341 bridge triggers the abort).
     /// </summary>

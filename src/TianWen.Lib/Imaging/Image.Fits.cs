@@ -61,7 +61,7 @@ public partial class Image
     /// </summary>
     /// <remarks>
     /// Header-parsing logic mirrors <see cref="TryReadFitsFile(Fits, out Image?, out WCS?)"/>
-    /// — keep in sync until the two paths are refactored onto a shared
+    ///; keep in sync until the two paths are refactored onto a shared
     /// <c>ParseHduMetadata</c> helper.
     /// </remarks>
     public static bool TryReadFitsHeader(string fileName, [NotNullWhen(true)] out Calibration.FrameInfo? frameInfo)
@@ -149,7 +149,7 @@ public partial class Image
 
     /// <summary>Interprets the string form of the CFAIMAGE card, which capture/processing tools write
     /// inconsistently: N.I.N.A. omits it, some tools write a quoted <c>'T'</c>/<c>'F'</c>, and Astro
-    /// Pixel Processor writes the Bayer PATTERN string (e.g. <c>'RGGB'</c>) — reading that as a boolean
+    /// Pixel Processor writes the Bayer PATTERN string (e.g. <c>'RGGB'</c>); reading that as a boolean
     /// yields <c>false</c> and wrongly forces <see cref="SensorType.Monochrome"/>, which drops an
     /// otherwise-matching Bayer master from calibration selection. A KNOWN pattern string therefore
     /// means the frame IS a CFA image; any other non-boolean token ("NONE", a corrupted card, a future
@@ -167,7 +167,7 @@ public partial class Image
 
     /// <summary>Reads the CFAIMAGE card in either of its wire encodings: a quoted STRING card (see
     /// <see cref="ParseCfaImageFlag"/>) via <c>GetStringValue</c>, or a genuine FITS LOGICAL card
-    /// (unquoted <c>T</c>/<c>F</c>, the ASCOM form) — which <c>GetStringValue</c> cannot see (it
+    /// (unquoted <c>T</c>/<c>F</c>, the ASCOM form), which <c>GetStringValue</c> cannot see (it
     /// returns null for any non-string card), so that form falls back to <c>GetBooleanValue</c>.
     /// Returns the CFA flag plus the Bayer-pattern candidate when (and only when) the card itself
     /// carried a known pattern, so a boolean-form value can never masquerade as a pattern downstream.</summary>
@@ -182,7 +182,7 @@ public partial class Image
     }
 
     /// <summary>Reads an integer-valued camera register card (GAIN / OFFSET / …) that some tools write
-    /// as a FLOAT — Astro Pixel Processor masters carry <c>GAIN = 121.0</c> — which <c>GetIntValue</c>
+    /// as a FLOAT, Astro Pixel Processor masters carry <c>GAIN = 121.0</c>, which <c>GetIntValue</c>
     /// cannot coerce (Int64.Parse fails → silently returns its default, so the value reads "unknown"
     /// and e.g. a matching foreign master drops out of gain-scored calibration). Reads as double and
     /// rounds, exactly as FOCALLEN does for the same float-card reason. Absent or non-finite
@@ -194,7 +194,7 @@ public partial class Image
         return double.IsNaN(value) || double.IsInfinity(value) ? null : (int)Math.Round(value);
     }
 
-    // Shared metadata parse — pulled out of TryReadFitsFile so the header-only
+    // Shared metadata parse: pulled out of TryReadFitsFile so the header-only
     // path uses the same logic. Min/max value computation stays in the pixel
     // read path because the header DATAMIN/DATAMAX fields are often missing or
     // wrong; the pixel-walk recomputes them.
@@ -730,7 +730,7 @@ public partial class Image
                 }
                 else
                 {
-                    // Jagged reference projection of the channel planes (no pixel copy) —
+                    // Jagged reference projection of the channel planes (no pixel copy); 
                     // the FITS factory wants the raw float[][,] shape for multi-channel data.
                     var planes = new float[channelCount][,];
                     for (var c = 0; c < channelCount; c++)

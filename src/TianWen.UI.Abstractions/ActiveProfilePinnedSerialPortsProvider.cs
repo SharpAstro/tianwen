@@ -7,9 +7,9 @@ namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// Reads pinned <c>(port, expected device URI)</c> pairs from the host's active profile
-/// (<see cref="GuiAppState.ActiveProfile"/>). Every URI slot in <see cref="ProfileData"/> —
+/// (<see cref="GuiAppState.ActiveProfile"/>). Every URI slot in <see cref="ProfileData"/>; 
 /// mount, guider, optional guider camera/focuser, weather, and every OTA's
-/// camera/cover/focuser/filter wheel — is walked on each call; any <c>?port=…</c> query
+/// camera/cover/focuser/filter wheel: is walked on each call; any <c>?port=…</c> query
 /// value that normalises to a real OS port (see <see cref="SerialPortNames.TryNormalize"/>)
 /// becomes a <see cref="PinnedSerialPort"/>. Sentinel values (<c>wifi</c>, <c>wpd</c>,
 /// fake-mount placeholders) are silently ignored so they can't block discovery.

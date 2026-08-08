@@ -31,7 +31,7 @@ namespace TianWen.Cli.Tui
         /// <summary>Device setting descriptor (null for non-setting rows).</summary>
         public DeviceSettingDescriptor? Setting { get; init; }
 
-        /// <summary>URI being edited — used to format current value.</summary>
+        /// <summary>URI being edited: used to format current value.</summary>
         public Uri? DeviceUri { get; init; }
 
         // --- Device slot rows ---
@@ -49,7 +49,7 @@ namespace TianWen.Cli.Tui
         public bool IsSlotActive { get; init; }
 
         /// <summary>URI of the currently-assigned device (null for unassigned slots).
-        /// Used by the connect/disconnect toggle — distinct from <see cref="DeviceUri"/>
+        /// Used by the connect/disconnect toggle: distinct from <see cref="DeviceUri"/>
         /// which drives device-setting rows.</summary>
         public Uri? SlotDeviceUri { get; init; }
 
@@ -57,7 +57,7 @@ namespace TianWen.Cli.Tui
         /// Meaningless when <see cref="SlotDeviceUri"/> is null.</summary>
         public bool IsConnected { get; init; }
 
-        /// <summary>Whether a connect/disconnect transition is in flight — shown as
+        /// <summary>Whether a connect/disconnect transition is in flight; shown as
         /// "..." on the target segment so the user gets visible feedback.</summary>
         public bool IsPending { get; init; }
 

@@ -172,7 +172,7 @@ public static class HostedSessionServiceCollectionExtensions
                     {
                         break;
                     }
-                    // TNS may send { action: "subscribe", eventType: "..." } — we broadcast all events regardless
+                    // TNS may send { action: "subscribe", eventType: "..." }; we broadcast all events regardless
                 }
             }
             catch (WebSocketException)

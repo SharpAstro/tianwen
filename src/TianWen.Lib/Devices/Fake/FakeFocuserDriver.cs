@@ -11,7 +11,7 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IServiceProvider service
     private double _tempDriftRate = -0.5; // °C per hour (cooling overnight)
     private DateTimeOffset? _startTime;
 
-    // Focus model — read from device URI settings, with sensible defaults
+    // Focus model: read from device URI settings, with sensible defaults
     private readonly int _baseBestFocus = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserBestFocus), out var bf) ? bf : 1000;
     private readonly int _initialPosition = int.TryParse(fakeDevice.Query.QueryValue(DeviceQueryKey.FocuserInitialPosition), out var ip) ? ip : 980;
     private double _tempCoefficient = 5.0; // steps per °C of focus shift
@@ -114,7 +114,7 @@ internal class FakeFocuserDriver(FakeDevice fakeDevice, IServiceProvider service
         {
             if (_lastDirection != 0 && direction != _lastDirection)
             {
-                // Direction reversed — backlash engages, amount depends on new direction
+                // Direction reversed: backlash engages, amount depends on new direction
                 _backlashSteps = direction > 0 ? _trueBacklashOut : _trueBacklashIn;
             }
             _lastDirection = direction;

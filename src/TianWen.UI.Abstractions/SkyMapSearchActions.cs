@@ -13,7 +13,7 @@ using TianWen.Lib.Sequencing;
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
-/// Pure helpers for the F3 sky-map search modal. Renderer-agnostic —
+/// Pure helpers for the F3 sky-map search modal. Renderer-agnostic; 
 /// shared by <c>SkyMapTab</c> (CPU fallback + TUI) and <c>VkSkyMapTab</c> (GPU).
 /// </summary>
 public static class SkyMapSearchActions
@@ -22,13 +22,13 @@ public static class SkyMapSearchActions
     public const int MaxResults = 30;
 
     // Pixel distance (screen-space) within which a click on the sky map snaps
-    // to a nearby catalog object. 20 px matches Stellarium's default feel —
+    // to a nearby catalog object. 20 px matches Stellarium's default feel; 
     // precise enough for stars, forgiving enough for DSO clicks.
     private const float ClickToleranceScreenPx = 20f;
 
     /// <summary>
     /// Open the modal and lazily build the search index from the loaded catalog, merged with the comet set
-    /// (designations + common names). Idempotent — repeat opens just re-focus the search box, but the index
+    /// (designations + common names). Idempotent: repeat opens just re-focus the search box, but the index
     /// is rebuilt if the comet repository has since loaded (it loads in the background after startup, so the
     /// first open may predate it).
     /// </summary>
@@ -488,7 +488,7 @@ public static class SkyMapSearchActions
     /// (pixels-per-radian, centre) from the tab's <see cref="SkyMapState.LastContentRect"/> and the
     /// pinned-target set from the planner proposals. This is the boilerplate the desktop
     /// <c>AppSignalHandler</c> and the browser <c>Planner</c> both need around
-    /// <see cref="SelectObjectByClick"/> — hoisted here so the two go through ONE path (the caller
+    /// <see cref="SelectObjectByClick"/>: hoisted here so the two go through ONE path (the caller
     /// supplies only <paramref name="viewingUtc"/>, computed identically on both as
     /// <c>(PlanningDate ?? now) + sky-map scrub offset</c>). Ctrl in <paramref name="modifiers"/>
     /// forces a point-source pick (a star under an enclosing DSO ellipse). Returns true when
@@ -526,7 +526,7 @@ public static class SkyMapSearchActions
     }
 
     /// <summary>
-    /// Click on the sky map — project the click back to RA/Dec, find the nearest
+    /// Click on the sky map: project the click back to RA/Dec, find the nearest
     /// catalog object within <see cref="ClickToleranceScreenPx"/>, populate the
     /// info panel. Returns true when an object was matched. DSOs are preferred
     /// over stars at equal distance (so clicking M31's halo picks the galaxy,
@@ -576,7 +576,7 @@ public static class SkyMapSearchActions
         // DSOs first. Hit test uses max(ClickTolerancePx, shape major-axis radius)
         // so clicks inside a large nebula like Eta Carinae / NGC 7000 land on the
         // nebula instead of a random Tycho star at its edge. Among overlapping DSO
-        // hits we pick the one whose centroid is closest to the click — that way
+        // hits we pick the one whose centroid is closest to the click, that way
         // a small nested object (e.g. M42 inside the Orion Molecular Cloud) wins
         // over the surrounding extended shape.
         CatalogIndex? bestDsoIdx = null;
@@ -614,7 +614,7 @@ public static class SkyMapSearchActions
                 // projected major-axis radius for extended objects. Arcmin -> rad
                 // -> screen px uses the current pixelsPerRadian.
                 // Ctrl+click (preferPointSource) skips the shape expansion so the
-                // ellipse no longer swallows clicks meant for stars inside it — the
+                // ellipse no longer swallows clicks meant for stars inside it; the
                 // DSO then only matches near its centroid.
                 var hitRadiusPx = (double)ClickToleranceScreenPx;
                 if (!preferPointSource && db.TryGetShape(idx, out var shape))
@@ -639,7 +639,7 @@ public static class SkyMapSearchActions
         CatalogIndex? bestIdx = bestDsoIdx;
         var bestDistSq = bestDsoDistSq;
 
-        // Stars — when no DSO matched, OR when the caller forced a point-source pick
+        // Stars, when no DSO matched, OR when the caller forced a point-source pick
         // (Ctrl+click). Filter by the current visible-magnitude cutoff so we never
         // "select" a Tycho star that isn't drawn on screen. Hit radius scales with the
         // rendered star size: brighter stars draw bigger sprites (Stellarium-style
@@ -729,7 +729,7 @@ public static class SkyMapSearchActions
             }
         }
 
-        // Comets (also ephemeris-computed, not in the spatial grids) — same hit-test as planets, over the
+        // Comets (also ephemeris-computed, not in the spatial grids); same hit-test as planets, over the
         // live comet marker cache filtered to the same zoom-aware magnitude limit the renderer draws with.
         var bestCometDistSq = double.MaxValue;
         SkyMapState.CometMarker? bestComet = null;

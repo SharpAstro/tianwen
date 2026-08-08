@@ -17,7 +17,7 @@ cd src && cmd //c start "TianWen TUI" cmd //k "dotnet run --project TianWen.Cli 
 
 Notes:
 
-- Do **not** use `run_in_background: true` — `cmd //c start` detaches the new
+- Do **not** use `run_in_background: true`; `cmd //c start` detaches the new
   window itself and the parent Bash call returns immediately. The agent should
   not try to stream the TUI's output back.
 - The double-slashes (`//c`, `//k`) are Git-Bash / MSYS mangling-protection so
@@ -28,4 +28,4 @@ Notes:
 - After the user quits the TUI, check `src/tui-stderr.log` for .NET exceptions
   or terminal-capability diagnostics.
 - Exit codes 127 / 13x from the TUI process mean the .NET process crashed (see
-  `CLAUDE.md`), not "command not found" — read `tui-stderr.log` first.
+  `CLAUDE.md`), not "command not found"; read `tui-stderr.log` first.

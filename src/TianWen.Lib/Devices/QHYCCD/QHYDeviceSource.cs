@@ -44,8 +44,8 @@ internal class QHYDeviceSource(ISerialProbeService probeService) : IDeviceSource
     /// <summary>
     /// Three-phase discovery:
     /// <list type="number">
-    ///   <item>Enumerate cameras via the QHY SDK (lightweight — no open/close).</item>
-    ///   <item>Consume standalone CFW / QFOC matches from <see cref="ISerialProbeService"/> —
+    ///   <item>Enumerate cameras via the QHY SDK (lightweight, no open/close).</item>
+    ///   <item>Consume standalone CFW / QFOC matches from <see cref="ISerialProbeService"/>; 
     ///         the actual serial probing runs in <see cref="QhyCfw3SerialProbe"/> and
     ///         <see cref="QfocSerialProbe"/> before <c>DiscoverAsync</c> is called.</item>
     ///   <item>Open each camera to check for a plugged camera-cable CFW.</item>

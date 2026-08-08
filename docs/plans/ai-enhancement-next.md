@@ -1,4 +1,4 @@
-# PLAN: AI enhancement — next steps after first real-world validation
+# PLAN: AI enhancement, next steps after first real-world validation
 
 > Status: **NOT STARTED**. Captures the work surfaced by the first
 > end-to-end runs against real masters on branch `ai-enhancement`. Companion

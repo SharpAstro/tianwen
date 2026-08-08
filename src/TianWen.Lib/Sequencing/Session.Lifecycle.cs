@@ -41,7 +41,7 @@ internal partial record Session
 
         var guider = Setup.Guider;
 
-        // Ensure guider is in Idle state before calibration — it may still be in Looping
+        // Ensure guider is in Idle state before calibration; it may still be in Looping
         // state from GuiderFocusLoopAsync during InitialRoughFocusAsync
         await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
 
@@ -269,7 +269,7 @@ internal partial record Session
         }
         else
         {
-            _logger.LogWarning("Init: site coordinates not set (NaN) — mount will use defaults");
+            _logger.LogWarning("Init: site coordinates not set (NaN), mount will use defaults");
         }
 
         // Site coordinates for the per-camera denorm stamp (read once; fixed for the session).
@@ -282,7 +282,7 @@ internal partial record Session
 
         _currentActivity = "Checking cooler sensor temp\u2026";
         _logger.LogDebug("Init: checking cooler sensor temp");
-        // Short interval — confirming camera is at sensor temp, not a full ramp.
+        // Short interval: confirming camera is at sensor temp, not a full ramp.
         // 5 seconds allows cameras to settle after initial power-on.
         if (!await CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false))
         {
@@ -295,7 +295,7 @@ internal partial record Session
             Setup.Telescopes.Length,
             string.Join(", ", Setup.Telescopes.Select((t, i) => $"OTA#{i}={t.Cover is not null}")));
         // Cancellable: if aborted, Finalise will close covers. The hardware continues its
-        // physical motion regardless — we just stop polling.
+        // physical motion regardless: we just stop polling.
         if (await MoveTelescopeCoversToStateAsync(CoverStatus.Open, cancellationToken))
         {
             _logger.LogDebug("Init: all covers opened");

@@ -84,7 +84,7 @@ namespace TianWen.Lib.Tests
         /// <summary>
         /// The reason the TUI has a cell buffer at all: the clock ticks once a second, and the ONLY cells
         /// that may reach the terminal for it are the digits that flipped. This paints the REAL bar for two
-        /// consecutive seconds and asserts the second flush — anything more re-emitted here is what the user
+        /// consecutive seconds and asserts the second flush; anything more re-emitted here is what the user
         /// sees as a once-per-second flicker of the top bar, which is exactly how the regression this pins
         /// was reported.
         /// </summary>
@@ -105,7 +105,7 @@ namespace TianWen.Lib.Tests
             var emitted = buffer.Flush(sink);
 
             var runs = string.Join("; ", sink.Runs.Select(r => $"({r.Column},{r.Row})='{r.Text}'"));
-            emitted.ShouldBe(1, $"one digit flipped, so one cell may go out — emitted runs: {runs}");
+            emitted.ShouldBe(1, $"one digit flipped, so one cell may go out, emitted runs: {runs}");
         }
 
         [Fact]

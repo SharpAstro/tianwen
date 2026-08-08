@@ -26,7 +26,7 @@ host app that hosts the existing GUI on top of it.
 - [ ] **New `TianWen.UI.Android` project** (`net10.0-android`, OutputType Exe / Android app) that
   references `TianWen.UI.Gui` (or a shared GUI-composition library) and hosts it via SdlVkR 6.23's
   `SDLActivity` entry point. Mirror SdlVkR's own `Android/*.cs` host wiring. Keep it out of the desktop
-  `dotnet build` (own build lane; CI needs the android workload — see SdlVkR's `dotnet.yml`).
+  `dotnet build` (own build lane; CI needs the android workload, see SdlVkR's `dotnet.yml`).
 - [ ] **Asset/font loading on Android.** The GUI stages a UI font into a file path
   (`ManagedFontRasterizer`); Android assets are packaged, not a plain FS. Route font + any embedded
   data through the Android asset manager / `MauiAsset`-style packaging.
@@ -38,11 +38,11 @@ host app that hosts the existing GUI on top of it.
 - [ ] Packaging + signing (APK/AAB), min SDK (SdlVkR sets `SupportedOSPlatformVersion 24.0`), per-ABI
   natives (arm64-v8a primary).
 
-## Device layer on Android (open questions — likely a reduced feature set at first)
+## Device layer on Android (open questions, likely a reduced feature set at first)
 
 - **ASCOM COM bridge is Windows-only** → unavailable on Android. **Alpaca (HTTP)** is the cross-platform
   path and already wired (`AddAlpaca()`), so an Android build talks to devices over Alpaca / network.
-- **Native camera SDKs** (ZWO `ZWOptical.SDK`, QHY `QHYCCD.SDK`, Canon `FC.SDK`, LibUsb) — do they ship
+- **Native camera SDKs** (ZWO `ZWOptical.SDK`, QHY `QHYCCD.SDK`, Canon `FC.SDK`, LibUsb); do they ship
   android `.so`s? Most likely **not** initially; gate them out of the android build and rely on Alpaca +
   the built-in guider + fakes. Confirm which `TianWen.Lib` drivers are android-safe vs. must be excluded.
 - **AOT on android**: net10.0-android uses its own AOT/interpreter story; validate startup + the existing
@@ -50,11 +50,11 @@ host app that hosts the existing GUI on top of it.
 
 ## Phasing (suggested)
 
-1. **P0 — shell**: `TianWen.UI.Android` boots the GUI on-device via SdlVkR's SDLActivity, renders the
+1. **P0: shell**: `TianWen.UI.Android` boots the GUI on-device via SdlVkR's SDLActivity, renders the
    sky atlas + planner, touch pan/pinch works, fonts load. Devices = fakes + Alpaca only.
-2. **P1 — device layer audit**: compile-gate the Windows-only / no-android-RID drivers; a clean
+2. **P1: device layer audit**: compile-gate the Windows-only / no-android-RID drivers; a clean
    android device set (Alpaca, built-in guider, PHD2-over-network, fakes).
-3. **P2 — packaging + polish**: APK/AAB, lifecycle, orientation, storage permissions for image output.
+3. **P2: packaging + polish**: APK/AAB, lifecycle, orientation, storage permissions for image output.
 
 ## Notes
 

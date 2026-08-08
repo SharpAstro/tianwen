@@ -17,7 +17,7 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class AltitudeChartRenderer
 {
-    // Target colors — same palette as ObservationScheduleVisualizationTests
+    // Target colors: same palette as ObservationScheduleVisualizationTests
     private static readonly RGBAColor32[] TargetColors =
     [
         new RGBAColor32( 69, 123, 157, 255),  // Steel blue
@@ -66,7 +66,7 @@ public static class AltitudeChartRenderer
     private static readonly RGBAColor32 WeatherThunderBg    = new RGBAColor32( 55,  30,  50, 180);
     private static readonly RGBAColor32 WeatherFogBg        = new RGBAColor32( 55,  55,  60, 180);
 
-    // Default font family — callers may prefer to pass one via fontPath parameter
+    // Default font family: callers may prefer to pass one via fontPath parameter
     private const string DefaultFontFamily = "monospace";
 
     // --- Vertical band geometry above the plot ------------------------------------------------
@@ -220,7 +220,7 @@ public static class AltitudeChartRenderer
             var latSign = state.SiteLatitude >= 0 ? "N" : "S";
             var lonSign = state.SiteLongitude >= 0 ? "E" : "W";
             renderer.DrawText(
-                $"Observation Schedule — {Math.Abs(state.SiteLatitude):F1}°{latSign}, {Math.Abs(state.SiteLongitude):F1}°{lonSign}",
+                $"Observation Schedule; {Math.Abs(state.SiteLatitude):F1}°{latSign}, {Math.Abs(state.SiteLongitude):F1}°{lonSign}",
                 fontFamily, FontSize(h, 16), WhiteColor,
                 titleRect, TextAlign.Center, TextAlign.Near);
         }
@@ -306,7 +306,7 @@ public static class AltitudeChartRenderer
             }
         }
 
-        // Night zone — transparent (background is already the night colour)
+        // Night zone: transparent (background is already the night colour)
         zones.Add((xAstroDark, xAstroTwilight, null, "Night"));
 
         // Morning zones
@@ -694,10 +694,10 @@ public static class AltitudeChartRenderer
     /// </summary>
     private static RGBAColor32 HumidityColor(double humidity) => humidity switch
     {
-        < 60 => new RGBAColor32(130, 200, 130, 255),  // dry — low dew risk
+        < 60 => new RGBAColor32(130, 200, 130, 255),  // dry, low dew risk
         < 75 => new RGBAColor32(220, 200, 110, 255),  // moderate
-        < 88 => new RGBAColor32(235, 160,  90, 255),  // high — watch for dew
-        _    => new RGBAColor32(235, 110, 110, 255),  // near saturation — dew likely
+        < 88 => new RGBAColor32(235, 160,  90, 255),  // high, watch for dew
+        _    => new RGBAColor32(235, 110, 110, 255),  // near saturation, dew likely
     };
 
     /// <summary>
@@ -822,7 +822,7 @@ public static class AltitudeChartRenderer
             return ([("\U0001F32B", 0f, 1f)], WeatherFogBg);
         }
 
-        // Heavy overcast: cloud cover 80-100% — 3 clouds (night: moon barely visible)
+        // Heavy overcast: cloud cover 80-100%, 3 clouds (night: moon barely visible)
         if (entry.CloudCover > 80)
         {
             return (night
@@ -830,7 +830,7 @@ public static class AltitudeChartRenderer
                 : [(cloud, -0.3f, 1f), (cloud, 0.1f, 1f), (cloud, 0.5f, 1f)], WeatherOvercastBg);
         }
 
-        // Mostly cloudy: cloud cover 50-80% — 2 clouds
+        // Mostly cloudy: cloud cover 50-80%, 2 clouds
         if (entry.CloudCover > 50)
         {
             return (night
@@ -838,7 +838,7 @@ public static class AltitudeChartRenderer
                 : [("\U0001F325", 0f, 1f)], WeatherOvercastBg);                // 🌥
         }
 
-        // Partly cloudy: cloud cover 10-50% — 1 cloud
+        // Partly cloudy: cloud cover 10-50%, 1 cloud
         if (entry.CloudCover > 10)
         {
             return (night
@@ -872,7 +872,7 @@ public static class AltitudeChartRenderer
     }
 
     // -----------------------------------------------------------------------
-    // Weather tooltip (hover detail) — pure formatting, drawn natively by the GUI
+    // Weather tooltip (hover detail): pure formatting, drawn natively by the GUI
     // -----------------------------------------------------------------------
 
     private static readonly string[] CompassPoints =

@@ -75,22 +75,22 @@ status bar, SER transport bar, and all keyboard/mouse handling. It's already org
 region banners, so the lowest-risk decomposition is **`partial class` files by concern** (no behaviour
 change, pure file organisation):
 
-- `ImageRendererBase.Layout.cs` — `ComputeLayout` / `ComputeImagePlacement` / `ViewerLayout` / content region
-- `ImageRendererBase.Toolbar.cs` — toolbar + dropdown overlays + hit-test
-- `ImageRendererBase.FileList.cs` — file-list sidebar + hit-test
-- `ImageRendererBase.Overlays.cs` — grid labels + star/object/WCS-annotation overlays
-- `ImageRendererBase.Histogram.cs` — histogram rect + render + LOG button
-- `ImageRendererBase.InfoPanel.cs` — info panel + WB sliders + wavelet sliders
-- `ImageRendererBase.StatusBar.cs` — status bar
-- `ImageRendererBase.Transport.cs` — SER transport bar + scrub
-- `ImageRendererBase.Input.cs` — keyboard + mouse handlers
-- `ImageRendererBase.cs` — the abstract GPU seam + `Render` orchestration + shared fields
+- `ImageRendererBase.Layout.cs`: `ComputeLayout` / `ComputeImagePlacement` / `ViewerLayout` / content region
+- `ImageRendererBase.Toolbar.cs`: toolbar + dropdown overlays + hit-test
+- `ImageRendererBase.FileList.cs`: file-list sidebar + hit-test
+- `ImageRendererBase.Overlays.cs`: grid labels + star/object/WCS-annotation overlays
+- `ImageRendererBase.Histogram.cs`: histogram rect + render + LOG button
+- `ImageRendererBase.InfoPanel.cs`: info panel + WB sliders + wavelet sliders
+- `ImageRendererBase.StatusBar.cs`: status bar
+- `ImageRendererBase.Transport.cs`: SER transport bar + scrub
+- `ImageRendererBase.Input.cs`: keyboard + mouse handlers
+- `ImageRendererBase.cs`: the abstract GPU seam + `Render` orchestration + shared fields
 
 **Real dedup (not just splitting):** the WB sliders, the 6 wavelet-layer sliders, and the transport scrub
-are all the same widget — a horizontal **press / drag / release track** with a fill + handle + a
+are all the same widget; a horizontal **press / drag / release track** with a fill + handle + a
 cursor-X -> value mapping against a captured track rect. Extract a single `TrackSlider` helper (render +
 `BeginDragAt`/`UpdateDrag` against a `RectF32`) and have all three call it. That removes the triplicated
-slider math, not just the file length. **`magic` (source generators) is NOT warranted** — there's no
+slider math, not just the file length. **`magic` (source generators) is NOT warranted**; there's no
 repetitive generated surface here; partials + one extracted widget is the right tool.
 
 ### Phase F DONE (2026-06-28)
@@ -139,14 +139,14 @@ releases). D and E are hardware/quality upgrades behind the same contract.
   (capture -> live stack -> master end to end; Start idempotency / Stop safety), plus the Phase A
   `LiveCameraFrameStreamTests`.
 
-## GUI tab (Phase B) — what's wired vs the decided design
+## GUI tab (Phase B): what's wired vs the decided design
 
 **Wired + working (2026-06-24):** `GuiTab.Planetary` (emoji `\U0001FA90`) + `TabOrder` + `TabChrome` +
 `Ctrl+Y`; `RenderContent`/`ActiveTab` dispatch; `StartVideoCaptureSignal`/`StopVideoCaptureSignal` ->
 `AppSignalHandler` -> the controller (`PlanetaryCaptureActions.ConfigureRoi`); DI registration; DEBUG
 inspector signal factories (`StartVideoCapture`/`StopVideoCapture`). **Capture + stack confirmed live in
 the GUI** (frames flowing, fps/frame/dropped readout). A first-cut display used `VkMiniViewerWidget`
-(rect-bounded) — REPLACED by the decision below.
+(rect-bounded); REPLACED by the decision below.
 
 **Critical fix during bring-up:** the stream layout must come from the ACTUAL first frame, not the
 camera's `SensorType`. A colour sensor whose video frames are mono (the fake; a native colour stream is a
@@ -156,7 +156,7 @@ Pinned by `Color_sensor_with_mono_video_frames_still_stacks`. Exposure is floore
 ### Decided design (user, 2026-06-24): the planetary tab and the FITS viewer SHARE the viewer widget
 
 The 🪐 tab must reuse the **real** `ImageRendererBase` viewer (same widget the FITS viewer uses), not a
-stripped mini viewer — so it gets the full stretch pipeline + RAW/STACK toggle + 6 wavelet-sharpen
+stripped mini viewer, so it gets the full stretch pipeline + RAW/STACK toggle + 6 wavelet-sharpen
 sliders + WB + histogram + zoom/pan "for free", and the two surfaces can't drift. The blocker: the shared
 viewer hard-anchors its layout to the full window (`tianwen-fits` is full-screen), so it must learn to
 render at a **content-rect origin** to embed in the GUI content area (below the sidebar + top status bar).
@@ -165,7 +165,7 @@ Remaining steps (in order):
 
 1. **DONE + verified (2026-06-24): common-model layout in `ImageRendererBase`.** Rather than threading an
    origin offset through every hand-placed chrome site (the `cursor += h` anti-pattern the Layout DSL exists
-   to kill), the widget now arranges its **whole** region — toolbar + content + status bar — as ONE
+   to kill), the widget now arranges its **whole** region, toolbar + content + status bar, as ONE
    `Layout.Builder.Dock(middle, Top(Fill "toolbar", BaseToolbarHeight), Bottom(Fill "statusBar",
    BaseStatusBarHeight))` rooted at a **content rect** (`SetContentRegion(RectF32)`; default empty = full
    surface). Every chrome rect (toolbar/fileList/image/infoPanel/statusBar) is read from the arranged tree;
@@ -444,7 +444,7 @@ Track placeholders), and *Testing (Fake)* (defocus/seeing/noise/drift). The shar
 `SetContentRegion(content minus left panel [minus top strip])`. Sub-steps: (3b) left-panel scaffold + move
 capture controls in; (3c) ROI PiP + pan + on-image overlay; (3d) fake test controls via the capability
 interface. The interim top-strip steppers (step 3, done) fold into the panel.
-5. **Phase C — mount jog recenter + calibration** (see Phase C row): COM -> ROI auto + mount-jog opt-in +
+5. **Phase C: mount jog recenter + calibration** (see Phase C row): COM -> ROI auto + mount-jog opt-in +
    directional nudge buttons + a short calibration.
 
 Verify unattended via the fake-device + `sdl-ui-inspector` harness (per CLAUDE.md): open 🪐, post

@@ -65,7 +65,7 @@ internal partial record Session(
     private readonly ConcurrentDictionary<IFocuserDriver, BacklashEstimateRecord> _focuserBacklashEstimates = new();
     private readonly ConcurrentDictionary<IFocuserDriver, bool> _focuserBacklashLoaded = new();
 
-    // Safety multiplier on the EWMA to size the overshoot — stay comfortably above
+    // Safety multiplier on the EWMA to size the overshoot; stay comfortably above
     // the estimate so a slightly-noisy sample doesn't produce a wing on the next run.
     private const double BACKLASH_OVERSHOOT_SAFETY = 1.5;
 
@@ -129,11 +129,11 @@ internal partial record Session(
     public Image?[] LastCapturedImages => _lastCapturedImages;
     private volatile Image?[] _lastCapturedImages = [];
 
-    // Persistent viewer channels — allocated once per telescope, reused across frames.
+    // Persistent viewer channels: allocated once per telescope, reused across frames.
     // Debayer writes directly into these. The viewer reads them for GPU upload.
     private Channel[]?[] _viewerChannels = [];
 
-    // SPCC caching — per-channel system throughput only recomputed on filter/camera change
+    // SPCC caching: per-channel system throughput only recomputed on filter/camera change
     private (FilterCurve R, FilterCurve G, FilterCurve B)? _cachedTsys;
     private string? _cachedTsysKey; // composite key: sensorModel|filterName|sensorType
 
@@ -227,12 +227,12 @@ internal partial record Session(
     /// Asks the user to perform a physical step and confirm, via <see cref="PromptRequested"/>. Returns
     /// <c>true</c> to proceed, <c>false</c> to decline (the caller then skips the gated step). When a
     /// handler is present it raises the prompt and awaits the response, bounded by
-    /// <paramref name="cancellationToken"/> — a session cancel while the prompt is open resolves to
+    /// <paramref name="cancellationToken"/>: a session cancel while the prompt is open resolves to
     /// <c>false</c>.
     /// <para>
     /// With <b>no</b> interactive handler subscribed (CLI / server / tests) it logs the instruction and
     /// answers <see cref="SessionConfiguration.UnattendedPromptResponse"/>, which defaults to
-    /// <see cref="UnattendedPromptResponse.Decline"/> — i.e. skip the gated step. It deliberately does
+    /// <see cref="UnattendedPromptResponse.Decline"/>, i.e. skip the gated step. It deliberately does
     /// <b>not</b> hardcode "proceed": these prompts gate physical prerequisites, so proceeding asserts an
     /// act that nobody performed. See <see cref="UnattendedPromptResponse"/> for the full reasoning and
     /// for why blocking forever is equally unsafe.
@@ -252,7 +252,7 @@ internal partial record Session(
             var unattended = Configuration.UnattendedPromptResponse;
             var proceed = unattended is UnattendedPromptResponse.Proceed;
             _logger.LogInformation(
-                "User step, nobody to ask ({Response}): {Title} — {Message}",
+                "User step, nobody to ask ({Response}): {Title}; {Message}",
                 proceed ? "proceeding" : "skipping", title, message);
             return proceed;
         }
@@ -260,7 +260,7 @@ internal partial record Session(
         // RunContinuationsAsynchronously: the UI thread calls Respond(); without this the session's
         // await-continuation would resume inline on that UI thread.
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _logger.LogInformation("Waiting for user: {Title} — {Message}", title, message);
+        _logger.LogInformation("Waiting for user: {Title}, {Message}", title, message);
         handler.Invoke(this, new SessionPromptEventArgs(
             title, message, continueLabel, cancelLabel, completion, requiresPhysicalPresence,
             // Carry the unattended policy to the handler: a hosted broadcaster may have subscribed for
@@ -277,7 +277,7 @@ internal partial record Session(
         }
         catch (OperationCanceledException)
         {
-            // Cancelled while the prompt was open — treat as "do not proceed".
+            // Cancelled while the prompt was open: treat as "do not proceed".
             return false;
         }
     }
@@ -312,7 +312,7 @@ internal partial record Session(
     private int AdvanceObservation()
     {
         _spareIndex = 0;
-        // Reset frame history on target change — drift baseline is per-target
+        // Reset frame history on target change: drift baseline is per-target
         for (var i = 0; i < _frameMetricsHistory.Length; i++)
         {
             _frameMetricsHistory[i].Clear();
@@ -616,7 +616,7 @@ internal partial record Session(
             // Remember terminal state so we can restore it after Finalise
             var terminalPhase = _phase;
 
-            // Finalise must complete — park mount, warm cameras, close covers.
+            // Finalise must complete: park mount, warm cameras, close covers.
             // Uses CancellationToken.None because interrupting warmup could damage hardware.
             SetPhase(SessionPhase.Finalising);
             await Finalise(CancellationToken.None).ConfigureAwait(false);

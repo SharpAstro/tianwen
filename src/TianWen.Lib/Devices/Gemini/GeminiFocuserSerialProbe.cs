@@ -13,7 +13,7 @@ namespace TianWen.Lib.Devices.Gemini;
 /// controller-present reply (<c>OK</c>). The Gemini Focuser Pro carries no distinctive identity on the wire
 /// (it is a rebadged myFocuserPro2, and the vendor ASCOM driver validates nothing beyond this handshake), so
 /// the match is deliberately the generic myFocuserPro2 handshake and any responder is surfaced as a Gemini
-/// Focuser Pro — the reported <c>:04#</c> firmware name is captured into metadata so the actual flashed name
+/// Focuser Pro: the reported <c>:04#</c> firmware name is captured into metadata so the actual flashed name
 /// is visible once real hardware connects. Shares the 9600-baud probe group (the LX200 family); framing is
 /// <c>#</c>-terminated.
 /// </summary>
@@ -27,7 +27,7 @@ internal sealed class GeminiFocuserSerialProbe : ISerialProbe
     public int MaxAttempts => 1;
 
     // The myFocuserPro2 Arduino resets when the port opens (DTR auto-reset) and ignores input until it has
-    // booted (~2s). Discovery reopens the port per probe, so the boot restarts every probe — warm up here.
+    // booted (~2s). Discovery reopens the port per probe, so the boot restarts every probe; warm up here.
     public TimeSpan Warmup => TimeSpan.FromMilliseconds(2200);
 
     // The Arduino holds in reset until DTR is asserted; honoured only on the isolated per-probe pass

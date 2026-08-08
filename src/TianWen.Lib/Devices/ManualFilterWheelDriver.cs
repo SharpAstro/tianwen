@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace TianWen.Lib.Devices;
 
 /// <summary>
-/// Filter wheel driver for a manual (fixed) filter holder — always at position 0
+/// Filter wheel driver for a manual (fixed) filter holder, always at position 0
 /// with a single installed filter. <see cref="BeginMoveAsync"/> is a no-op since
 /// there is only one position. Used for cameras with a fixed filter (e.g., a
 /// dual-band narrowband filter in a nose adapter or drop-in holder).
@@ -21,7 +21,7 @@ internal sealed class ManualFilterWheelDriver(ManualFilterWheelDevice device, IS
     {
         get
         {
-            // Single slot — name and offset from URI query params (profile is source of truth)
+            // Single slot: name and offset from URI query params (profile is source of truth)
             var query = device.Query;
             var name = query[DeviceQueryKeyExtensions.FilterKey(1)] ?? device.InstalledFilter.Name;
             var offset = int.TryParse(query[DeviceQueryKeyExtensions.FilterOffsetKey(1)], out var o) ? o : 0;

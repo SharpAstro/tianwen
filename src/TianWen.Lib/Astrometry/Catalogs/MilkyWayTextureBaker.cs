@@ -139,7 +139,7 @@ public static class MilkyWayTextureBaker
 
         // -------------------------------------------------------------------
         // Bin stars into flux + B-V accumulators. Only stars fainter than
-        // MinMagnitude contribute — bright stars are drawn as point sprites
+        // MinMagnitude contribute: bright stars are drawn as point sprites
         // by the instanced renderer, and smearing their halos through the
         // colour blur here produces visible warm/cool blobs around e.g. Antares.
         // -------------------------------------------------------------------

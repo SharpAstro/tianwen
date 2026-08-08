@@ -6,7 +6,7 @@ using TianWen.Lib.Astrometry.SOFA;
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
-    /// The GPU sky map's per-frame view uniform block (std140, 112 bytes) — one writer shared by
+    /// The GPU sky map's per-frame view uniform block (std140, 112 bytes); one writer shared by
     /// the Vulkan pipeline (copies into its mapped per-frame slot) and the WebGL pipeline
     /// (uploads via SetUniformBlock). Layout (see the shader-side SkyMapUBO declarations):
     /// <code>
@@ -29,7 +29,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Composes the block into <paramref name="dst"/> (must be at least <see cref="Size"/>
-        /// bytes) and stamps <see cref="SkyMapState.CurrentViewMatrix"/> as a side effect — the
+        /// bytes) and stamps <see cref="SkyMapState.CurrentViewMatrix"/> as a side effect; the
         /// CPU label/overlay projection must agree with what the GPU renders this frame.
         /// <paramref name="offsetX"/>/<paramref name="offsetY"/> locate the map viewport inside
         /// the window; <paramref name="viewportWidth"/>/<paramref name="viewportHeight"/> are the

@@ -121,7 +121,7 @@ public class WcsSipRoundTripTests
     /// <summary>
     /// With both forward and inverse SIP available, PixelToSky → SkyToPixel must
     /// reproduce the input pixel to high precision at all four corners of a
-    /// 3000×2000 frame — the canonical test of distortion-aware coordinate ops.
+    /// 3000×2000 frame: the canonical test of distortion-aware coordinate ops.
     /// </summary>
     [Theory]
     [InlineData(1, 1)]
@@ -147,7 +147,7 @@ public class WcsSipRoundTripTests
 
     /// <summary>
     /// Linear-only WCS continues to round-trip with no -SIP suffix and no
-    /// stray SIP fields — ensures we did not regress the existing path.
+    /// stray SIP fields: ensures we did not regress the existing path.
     /// </summary>
     [Fact]
     public void GivenLinearOnlyWcsThenHeaderCarriesNoSipKeywords()

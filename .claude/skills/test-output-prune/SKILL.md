@@ -37,10 +37,10 @@ FC.SDK.Raw.Tests:  keeping 3 of 4
 Total freed: 47.8 MB across 5 directories
 ```
 
-The skill is naturally idempotent — running it twice in a row is a no-op
+The skill is naturally idempotent; running it twice in a row is a no-op
 after the first run. Companion to `/test-image-diff` (which expects at
 least two date folders to compare; default `--keep 3` preserves enough
 history for the diff to work and a bit of cushion).
 
 Implementation: `python .claude/skills/test-output-prune/prune.py [args...]`.
-Stdlib only — no Pillow/numpy needed.
+Stdlib only; no Pillow/numpy needed.

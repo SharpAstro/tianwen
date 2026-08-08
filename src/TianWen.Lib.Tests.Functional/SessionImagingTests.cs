@@ -59,7 +59,7 @@ public class SessionImagingTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenHighAltitudeTargetWhenImagingLoopThenHighUtilization()
     {
-        // given — M13 (RA=16.695h, Dec=+36.46) near zenith from Vienna in June
+        // given: M13 (RA=16.695h, Dec=+36.46) near zenith from Vienna in June
         var ct = TestContext.Current.CancellationToken;
         var subExposure = TimeSpan.FromSeconds(30);
         var scheduledDuration = TimeSpan.FromMinutes(30);
@@ -94,7 +94,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         // Get hour angle for pier side tracking
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when — run imaging loop on thread pool, pump fake time cooperatively
+        // when: run imaging loop on thread pool, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
@@ -121,7 +121,7 @@ public class SessionImagingTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenHighMinAltitudeWhenTargetDropsBelowThenImagingStopsEarly()
     {
-        // given — M13 max altitude from Vienna ~78°, set min to 70° so it drops below quickly
+        // given: M13 max altitude from Vienna ~78°, set min to 70° so it drops below quickly
         var ct = TestContext.Current.CancellationToken;
         var subExposure = TimeSpan.FromSeconds(30);
         var scheduledDuration = TimeSpan.FromHours(4);
@@ -158,7 +158,7 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when — run imaging loop on thread pool, pump fake time cooperatively
+        // when: run imaging loop on thread pool, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
@@ -167,7 +167,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
         var result = await imagingTask;
 
-        // then — should have stopped early due to altitude check
+        // then: should have stopped early due to altitude check
         result.ShouldBe(ImageLoopNextAction.AdvanceToNextObservation);
 
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
@@ -205,7 +205,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
 
-        // when — run observation loop on thread pool, pump fake time cooperatively
+        // when: run observation loop on thread pool, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct), ct);
 
@@ -230,7 +230,7 @@ public class SessionImagingTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenFocusDriftWhenHFDExceedsThresholdThenAutoRefocusTriggered()
     {
-        // given — start at best focus, then defocus mid-session to trigger drift detection
+        // given: start at best focus, then defocus mid-session to trigger drift detection
         var ct = TestContext.Current.CancellationToken;
         var subExposure = TimeSpan.FromSeconds(30);
         var scheduledDuration = TimeSpan.FromMinutes(10);
@@ -269,7 +269,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         observation.ShouldNotBeNull();
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when — run imaging loop, defocus after baseline is established
+        // when: run imaging loop, defocus after baseline is established
         var defocused = false;
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
@@ -313,7 +313,7 @@ public class SessionImagingTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenDitherEveryNthFrameWhenEnoughFramesCapturedThenDitheringTriggered()
     {
-        // given — DitherEveryNthFrame=5 (default config), 30s subs, 10 min observation
+        // given: DitherEveryNthFrame=5 (default config), 30s subs, 10 min observation
         // With GCD=30s, tickSec=5, ditherEveryNTicks = 5 * (30/5) = 30 ticks (= 150s)
         // 10 min = 600s = 120 ticks → dithering fires at tick 30, 60, 90
         var ct = TestContext.Current.CancellationToken;
@@ -349,7 +349,7 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when — run imaging loop, pump fake time cooperatively
+        // when: run imaging loop, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
         var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
 
@@ -358,7 +358,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
         var result = await imagingTask;
 
-        // then — should have captured frames and dithered
+        // then: should have captured frames and dithered
         result.ShouldBe(ImageLoopNextAction.AdvanceToNextObservation);
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0);
 
@@ -373,7 +373,7 @@ public class SessionImagingTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenCloudsRollingInWhenStarCountDropsThenConditionDetected()
     {
-        // given — clear sky initially, clouds roll in after baseline is established,
+        // given: clear sky initially, clouds roll in after baseline is established,
         // then clear again to test recovery
         var ct = TestContext.Current.CancellationToken;
         var subExposure = TimeSpan.FromSeconds(30);
@@ -413,7 +413,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         observation.ShouldNotBeNull();
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when — run imaging loop, inject clouds after baseline established, clear after a bit
+        // when: run imaging loop, inject clouds after baseline established, clear after a bit
         var cloudsInjected = false;
         var cloudsCleared = false;
         ctx.TimeProvider.ExternalTimePump = true;
@@ -466,7 +466,7 @@ public class SessionImagingTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenGuiderRecoversInPlaceWhenImagingThenSessionDefersAndDoesNotRestartGuiding()
     {
-        // given — M13 near zenith from Vienna in June, a generous window so imaging runs well past
+        // given: M13 near zenith from Vienna in June, a generous window so imaging runs well past
         // the simulated recovery.
         var ct = TestContext.Current.CancellationToken;
         var subExposure = TimeSpan.FromSeconds(30);
@@ -498,7 +498,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         observation.ShouldNotBeNull();
         var hourAngle = await ctx.Mount.GetHourAngleAsync(ct);
 
-        // when — run imaging loop; once a frame is written (imaging confirmed), simulate a short
+        // when: run imaging loop; once a frame is written (imaging confirmed), simulate a short
         // in-place recovery (90s of fake time, well under the session's recovery grace).
         var recoveryStarted = false;
         var attemptsAtRecoveryStart = -1;

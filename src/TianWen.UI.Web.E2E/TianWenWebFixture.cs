@@ -11,12 +11,12 @@ namespace TianWen.UI.Web.E2E;
 /// chess's ChessWebFixture.
 ///
 /// Server: set <c>TIANWEN_WEB_BASEURL</c> to reuse a dev server you already have running (fast local
-/// iteration — the interpreted WASM cold-boot is slow, so reusing a warm server matters here);
+/// iteration: the interpreted WASM cold-boot is slow, so reusing a warm server matters here);
 /// otherwise the fixture starts <c>dotnet run --project TianWen.UI.Web</c> itself and tears it down
 /// at the end (the self-contained path CI would use).
 ///
 /// Browser: bundled Chromium by default; set <c>TIANWEN_E2E_CHANNEL</c> (e.g. <c>msedge</c>) to
-/// drive a system-installed browser instead — the reliable path on win-arm64, where the native Edge
+/// drive a system-installed browser instead: the reliable path on win-arm64, where the native Edge
 /// avoids the bundled-Chromium download question (this is a win-arm64 dev box).
 /// </summary>
 public sealed class TianWenWebFixture : IAsyncLifetime
@@ -62,7 +62,7 @@ public sealed class TianWenWebFixture : IAsyncLifetime
         if (_server is { HasExited: false })
         {
             try { _server.Kill(entireProcessTree: true); }
-            catch { /* already gone — nothing to clean up */ }
+            catch { /* already gone; nothing to clean up */ }
             _server.Dispose();
         }
     }
@@ -192,7 +192,7 @@ public sealed class TianWenWebFixture : IAsyncLifetime
 
     // ── browser install ─────────────────────────────────────────────────────
 
-    // A system-channel run (msedge/chrome) uses an already-installed browser — nothing to fetch.
+    // A system-channel run (msedge/chrome) uses an already-installed browser; nothing to fetch.
     // For the bundled default, drive Playwright's own installer so a clean checkout needs no manual
     // `playwright install` step before the first run.
     private static void EnsureBrowserInstalled(string? channel)

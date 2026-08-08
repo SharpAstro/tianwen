@@ -459,7 +459,7 @@ public interface IMountDriver : IDeviceDriver
     /// For mounts reporting in J2000 natively (<see cref="EquatorialSystem"/> == <see cref="EquatorialCoordinateType.J2000"/>)
     /// the native values are returned directly with no <paramref name="transform"/> usage.
     /// For topocentric mounts (LX200, OnStep, SkyWatcher, most ASCOM) the caller-supplied
-    /// <see cref="Transform"/> is used to convert via SOFA — see <see cref="Transform.SetTopocentric"/>
+    /// <see cref="Transform"/> is used to convert via SOFA; see <see cref="Transform.SetTopocentric"/>
     /// and <see cref="Transform.RAJ2000"/> / <see cref="Transform.DecJ2000"/>.
     /// </summary>
     /// <param name="transform">Caller-owned transform; reusing the same instance across calls
@@ -484,7 +484,7 @@ public interface IMountDriver : IDeviceDriver
             return null;
         }
 
-        // Mount already reports J2000 — no conversion needed, skip the Transform entirely.
+        // Mount already reports J2000: no conversion needed, skip the Transform entirely.
         if (EquatorialSystem == EquatorialCoordinateType.J2000)
         {
             return (raNative, decNative);
@@ -510,9 +510,9 @@ public interface IMountDriver : IDeviceDriver
     /// <summary>
     /// One-shot convenience over <see cref="GetRaDecJ2000Async(Transform, bool, CancellationToken)"/>:
     /// builds a fresh <see cref="Transform"/> (site + mount UTC) per call. Use this anywhere the
-    /// mount's pointing feeds a J2000 quantity — a <see cref="Target"/> stamp, a plate-solve
+    /// mount's pointing feeds a J2000 quantity: a <see cref="Target"/> stamp, a plate-solve
     /// search origin, a catalog projection centre. Treating the NATIVE read as J2000 is off by
-    /// precession (~22' in 2026 for topocentric mounts) — enough to wedge plate-solve centering
+    /// precession (~22' in 2026 for topocentric mounts); enough to wedge plate-solve centering
     /// in a sync/re-slew loop that never converges. Prefer the Transform-reusing overload on
     /// per-frame hot paths.
     /// </summary>

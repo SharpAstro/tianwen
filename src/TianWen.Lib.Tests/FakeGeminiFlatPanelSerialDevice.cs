@@ -12,7 +12,7 @@ namespace TianWen.Lib.Tests;
 /// <summary>
 /// In-memory <see cref="ISerialConnection"/> that simulates a Gemini FlatPanel Lite controller: it parses
 /// the <c>'&gt;' … '#'</c> framed commands, holds light on/off + brightness state, and answers the
-/// <c>H</c>/<c>V</c>/<c>S</c>/<c>J</c> queries. Used by the protocol, probe, and driver tests — no hardware.
+/// <c>H</c>/<c>V</c>/<c>S</c>/<c>J</c> queries. Used by the protocol, probe, and driver tests; no hardware.
 /// </summary>
 internal sealed class FakeGeminiFlatPanelSerialDevice(string identity = "GeminiFlatPanelLite", int firmware = 205) : ISerialConnection
 {
@@ -91,7 +91,7 @@ internal sealed class FakeGeminiFlatPanelSerialDevice(string identity = "GeminiF
                 Enqueue($"*D{Brightness.ToString(CultureInfo.InvariantCulture)}#");
                 break;
             default:
-                // >B<n># set brightness; >T0#/>T1# beeper; >Y#/>X# accepted — all acked with *<letter>...#.
+                // >B<n># set brightness; >T0#/>T1# beeper; >Y#/>X# accepted, all acked with *<letter>...#.
                 if (body.StartsWith('B') && int.TryParse(body.AsSpan(1), NumberStyles.Integer, CultureInfo.InvariantCulture, out var b))
                 {
                     Brightness = Math.Clamp(b, 0, 255);

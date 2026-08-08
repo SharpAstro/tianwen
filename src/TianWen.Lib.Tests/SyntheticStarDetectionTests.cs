@@ -49,10 +49,10 @@ public class SyntheticStarDetectionTests(ITestOutputHelper output)
     [InlineData(10, 5f)]   // slight defocus (FWHM ~2.04)
     [InlineData(10, 10f)]
     [InlineData(10, 15f)]
-    [InlineData(20, 5f)]   // moderate defocus (FWHM ~2.15) — default initial pos 980 with best 1000
+    [InlineData(20, 5f)]   // moderate defocus (FWHM ~2.15), default initial pos 980 with best 1000
     [InlineData(20, 10f)]
     [InlineData(20, 15f)]
-    [InlineData(50, 5f)]   // heavy defocus (FWHM ~2.83) — initial pos 950 with best 1000
+    [InlineData(50, 5f)]   // heavy defocus (FWHM ~2.83), initial pos 950 with best 1000
     [InlineData(50, 10f)]
     [InlineData(50, 15f)]
     [InlineData(100, 5f)]  // very heavy defocus (FWHM ~4.47)

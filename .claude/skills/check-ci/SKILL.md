@@ -25,7 +25,7 @@ For each repo, show:
 Use: `gh run list --repo SharpAstro/<name> --limit 1`
 
 If a repo has no CI workflow configured (e.g. some of the SDK wrappers ship only
-on manual releases), `gh run list` returns empty — note it as "no recent CI runs"
+on manual releases), `gh run list` returns empty; note it as "no recent CI runs"
 rather than treating it as a failure.
 
 Format as a compact summary. Flag any failing or in-progress runs. When a repo

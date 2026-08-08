@@ -1,13 +1,13 @@
 TiānWén (天文)
 =============
 
-TianWen is a free, open-source astronomical imaging suite for .NET. It manages cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca, ZWO, QHYCCD, Meade, Skywatcher, OnStep, and iOptron protocols — with first-class support for multi-OTA (dual rig) setups that are difficult or expensive to achieve with existing software.
+TianWen is a free, open-source astronomical imaging suite for .NET. It manages cameras, mounts, focusers, filter wheels, and guiders via ASCOM, Alpaca, ZWO, QHYCCD, Meade, Skywatcher, OnStep, and iOptron protocols, with first-class support for multi-OTA (dual rig) setups that are difficult or expensive to achieve with existing software.
 
 It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interactive TUI (`TianWen.Cli`), a headless REST API server (`TianWen.Server`) for remote operation via [Touch N Stars](https://github.com/Touch-N-Stars/Touch-N-Stars), a standalone FITS viewer (`TianWen.UI.FitsViewer`), and an integrated N.I.N.A.-style GUI (`TianWen.UI.Gui`).
 
 ## Features
 
-- **Device Management**: 
+- **Device Management**:
   - Supports various device types such as Camera, Mount, Focuser, FilterWheel, Switch, and more.
   - Provides interfaces for device drivers and serial connections.
   - Includes a profile virtual device for managing device descriptors.
@@ -26,7 +26,7 @@ It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interacti
 
 - **FITS Viewer** (`TianWen.UI.FitsViewer`):
   - GPU-accelerated stretch (MTF) with per-channel, linked, and luma modes.
-  - GPU bilinear Bayer demosaic — raw mosaic uploaded as single texture, debayered per-pixel in the fragment shader. No CPU debayer needed.
+  - GPU bilinear Bayer demosaic: raw mosaic uploaded as single texture, debayered per-pixel in the fragment shader. No CPU debayer needed.
   - HDR compression via Hermite soft-knee in the fragment shader.
   - Automatic star detection with HFD-sized overlay circles and status bar metrics.
   - Contrast boost with star-masked background estimation for clean nebula enhancement.
@@ -34,7 +34,7 @@ It ships as a NuGet library (`TianWen.Lib`), a cross-platform CLI with interacti
   - Celestial object annotation overlay (NGC, IC, Messier, etc.) when plate-solved.
   - Per-channel histogram overlay (R/G/B colored) with log/linear scale toggle and stretch-aware bin remapping.
   - Plate solving via ASTAP or astrometry.net.
-  - Multi-source: opens FITS, TIFF, and **SER** planetary video — a SER auto-switches to frame playback (off-thread decode-ahead, transport scrub/play/pause, timestamp readout).
+  - Multi-source: opens FITS, TIFF, and **SER** planetary video; a SER auto-switches to frame playback (off-thread decode-ahead, transport scrub/play/pause, timestamp readout).
   - **Live planetary lucky-imaging stack**: a RAW/STACK toggle runs a rolling-window stack of a SER that follows the playhead (sharpness-graded, globally aligned), with Registax-style 6-layer wavelet-sharpen sliders. All off the render thread, so slider adjustments stay instant regardless of stack time.
   - Manual per-channel white-balance sliders + gray-world Auto, shared across FITS / TIFF / SER.
 
@@ -54,20 +54,20 @@ dotnet add package TianWen.Lib
 
 ### Runtime prerequisites
 
-The release archives are self-contained native AOT builds — no .NET install needed, and the SDL3
+The release archives are self-contained native AOT builds; no .NET install needed, and the SDL3
 native is bundled. What they cannot bundle is the Vulkan loader, which has to come from the OS. This
 applies to the two GPU-rendered apps (`tianwen-gui`, `tianwen-fits`); `tianwen-cli` and
 `tianwen-server` render in the terminal or not at all, and need none of it.
 
 | Platform | Also needs |
 |----------|------------|
-| Windows (`win-x64`, `win-arm64`) | nothing — `vulkan-1.dll` ships with any modern GPU driver |
+| Windows (`win-x64`, `win-arm64`) | nothing: `vulkan-1.dll` ships with any modern GPU driver |
 | Linux (`linux-x64`, `linux-arm64`) | `libvulkan.so.1` + an ICD (`mesa-vulkan-drivers`; that package also carries the lavapipe software rasteriser for headless boxes) |
 | macOS (`osx-arm64`, `osx-x64`) | [MoltenVK](https://github.com/KhronosGroup/MoltenVK) (Vulkan-on-Metal) |
 
 `tianwen-gui` bundles its own fonts (`DejaVuSans.ttf`, `Noto-COLRv1.ttf`). `tianwen-fits` resolves a
 system font instead, via `FontResolver.ResolveSystemFont`, so on a minimal Linux image it also needs a
-font package — `fonts-dejavu-core` on Debian/Ubuntu, `font-dejavu` on Alpine. Without one it starts and
+font package; `fonts-dejavu-core` on Debian/Ubuntu, `font-dejavu` on Alpine. Without one it starts and
 renders the image but draws no text.
 
 ### Server (Headless / Remote)
@@ -125,7 +125,7 @@ tianwen profile create <name>                  # Create empty profile
 tianwen profile delete <nameOrId>              # Delete a profile
 ```
 
-#### Profile — Mount & Site
+#### Profile: Mount & Site
 
 ```
 tianwen profile set-mount <deviceId>           # Set the mount device
@@ -135,7 +135,7 @@ tianwen profile set-mount-port --port COM3 [--baud 9600]
                                                # Set serial port/baud on mount
 ```
 
-#### Profile — Guider
+#### Profile: Guider
 
 ```
 tianwen profile set-guider <deviceId>          # Set the guider (PHD2 or built-in)
@@ -146,7 +146,7 @@ tianwen profile set-guider-options [--pulse-guide-source Auto|Camera|Mount]
                                   [--reverse-dec-after-flip true|false]
 ```
 
-#### Profile — OTA (Optical Tube Assembly)
+#### Profile: OTA (Optical Tube Assembly)
 
 ```
 tianwen profile add-ota <name> --focal-length <mm> --camera <deviceId>
@@ -158,7 +158,7 @@ tianwen profile update-ota <index> [--name <name>] [--focal-length <mm>]
     [--prefer-outward true|false] [--outward-is-positive true|false]
 ```
 
-#### Profile — Camera & Filters
+#### Profile: Camera & Filters
 
 ```
 tianwen profile set-camera-defaults --ota <N> [--gain <N>] [--offset <N>]
@@ -168,7 +168,7 @@ tianwen profile set-filters --ota <N> --filters Luminance:0 Ha:+21 OIII:-3 SII:+
 Filter specs are `Name:FocusOffset` pairs. Offset is in focuser steps relative to the
 reference filter (typically Luminance=0).
 
-#### Profile — Quick Device Add
+#### Profile: Quick Device Add
 
 ```
 tianwen profile add <deviceId> [--ota <N>]     # Add device by type auto-detection
@@ -260,7 +260,7 @@ Pre-built native AOT binaries of `TianWen.UI.FitsViewer` are available from [Git
 | macOS    | x64         | `tianwen-fits-osx-x64.tar.gz` |
 | macOS    | ARM64       | `tianwen-fits-osx-arm64.tar.gz` |
 
-Needs a Vulkan loader — see [Runtime prerequisites](#runtime-prerequisites).
+Needs a Vulkan loader; see [Runtime prerequisites](#runtime-prerequisites).
 
 #### Keyboard Shortcuts
 
@@ -317,16 +317,16 @@ Pre-built native AOT binaries are available from [GitHub Releases](https://githu
 | macOS    | x64         | `tianwen-gui-osx-x64.tar.gz` |
 | macOS    | ARM64       | `tianwen-gui-osx-arm64.tar.gz` |
 
-Needs a Vulkan loader — see [Runtime prerequisites](#runtime-prerequisites).
+Needs a Vulkan loader; see [Runtime prerequisites](#runtime-prerequisites).
 
 ## Architecture
 
 Design deep-dives live under [`docs/architecture/`](docs/architecture/):
 
-- [Device architecture](docs/architecture/device-architecture.md) — URI-addressed devices, the driver-factory hierarchy, and the combined device manager.
-- [Image pipeline & buffer lifecycle](docs/architecture/image-pipeline.md) — camera → `ChannelBuffer` → `Image` ownership, the live-session data flow, and the GPU debayer/stretch path.
-- [Driver resilience on the hot path](docs/architecture/driver-resilience.md) — `ResilientCall`, fault counters, proactive reconnect.
-- [FOV obstruction detection](docs/architecture/fov-obstruction.md) — scout frames, altitude-nudge disambiguation, trajectory-aware waits.
-- [Fake disturbance model](docs/architecture/fake-disturbance-model.md) — the believed/true pointing split used by the fake drivers for unattended end-to-end testing.
+- [Device architecture](docs/architecture/device-architecture.md): URI-addressed devices, the driver-factory hierarchy, and the combined device manager.
+- [Image pipeline & buffer lifecycle](docs/architecture/image-pipeline.md): camera → `ChannelBuffer` → `Image` ownership, the live-session data flow, and the GPU debayer/stretch path.
+- [Driver resilience on the hot path](docs/architecture/driver-resilience.md): `ResilientCall`, fault counters, proactive reconnect.
+- [FOV obstruction detection](docs/architecture/fov-obstruction.md): scout frames, altitude-nudge disambiguation, trajectory-aware waits.
+- [Fake disturbance model](docs/architecture/fake-disturbance-model.md): the believed/true pointing split used by the fake drivers for unattended end-to-end testing.
 
 Per-feature implementation plans + status are in [`docs/plans/`](docs/plans/) (e.g. the planetary lucky-imaging stack in [`planetary-stacking.md`](docs/plans/planetary-stacking.md)); `CLAUDE.md` is the contributor architecture guide.

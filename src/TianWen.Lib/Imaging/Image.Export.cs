@@ -17,7 +17,7 @@ public partial class Image
     // multiplied by SMaxSampleValue back to the in-memory range. 65535f is the
     // canonical Q16-HDRI quantum, so this constant keeps Magick.NET reads coming
     // back at [0, 65535] (matching what ToMagickImageAsync used to produce) while
-    // scientific readers — tifffile, PixInsight, ImageJ — see the literal
+    // scientific readers, tifffile, PixInsight, ImageJ, see the literal
     // scene-linear [0, 1] floats as written.
     private const float Q16HdriQuantumMax = 65535f;
 
@@ -31,7 +31,7 @@ public partial class Image
     /// tags are emitted so libtiff-HDRI / Magick.NET re-maps to [0, Quantum.Max]
     /// on read, matching what the old <c>ToMagickImageAsync</c> + Magick.NET write
     /// produced byte-for-byte (modulo round-trip-tested quantum tolerance). 32-bit
-    /// floats compress poorly without it, so Deflate is used — typically halves
+    /// floats compress poorly without it, so Deflate is used, typically halves
     /// the on-disk size relative to uncompressed.
     /// </summary>
     public async Task WriteTiffAsync(string path, DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG, CancellationToken cancellationToken = default)
@@ -49,7 +49,7 @@ public partial class Image
         }
 
         var (channelCount, width, height) = source.Shape;
-        // Drop alpha / extra channels — TIFF output is mono (1) or RGB (3).
+        // Drop alpha / extra channels: TIFF output is mono (1) or RGB (3).
         var outChannels = channelCount >= 3 ? 3 : 1;
         var pixelCount = width * height;
         var byteBuffer = new byte[pixelCount * outChannels * 4];
@@ -163,15 +163,15 @@ public partial class Image
     ///
     /// <para>The "HDR" promise is real precision <b>and</b> real dynamic range:</para>
     /// <list type="bullet">
-    ///   <item><term>Mono</term><description><c>BD32F</c> — full IEEE single-precision
+    ///   <item><term>Mono</term><description><c>BD32F</c>; full IEEE single-precision
     ///   float per pixel, encoded with <c>lenMantissa = 8</c>.</description></item>
-    ///   <item><term>RGB</term><description><c>BD16F</c> — 16-bit half-float
+    ///   <item><term>RGB</term><description><c>BD16F</c>: 16-bit half-float
     ///   per channel (~11-bit effective mantissa, full half-float exponent range
     ///   ~6e-5 to 65,504). The T.832 container has no Table A.6 pixel-format GUID
     ///   for BD32F RGB so half-float is the canonical RGB HDR shape.</description></item>
     /// </list>
     ///
-    /// <para><b>No normalisation</b> — values are written verbatim. Bright
+    /// <para><b>No normalisation</b>: values are written verbatim. Bright
     /// star cores that overshoot <c>1.0</c> after MTF / asinh stretches (or
     /// raw unscaled FITS data with values in the tens of thousands) are
     /// preserved as written. Half-float clips at ~65,504; callers writing
@@ -199,7 +199,7 @@ public partial class Image
         }
 
         var (channelCount, width, height) = source.Shape;
-        // Drop alpha / extra channels — JXR output is mono (1) or RGB (3).
+        // Drop alpha / extra channels: JXR output is mono (1) or RGB (3).
         var outChannels = channelCount >= 3 ? 3 : 1;
         var pixelCount = width * height;
 
@@ -257,11 +257,11 @@ public partial class Image
     ///   <item><term>RGB</term><description>32-bit-float <c>R</c>/<c>G</c>/<c>B</c> channels.</description></item>
     /// </list>
     ///
-    /// <para>Both planes are full IEEE single precision — a <b>truly lossless</b>
+    /// <para>Both planes are full IEEE single precision; a <b>truly lossless</b>
     /// scene-linear master (more precise than JXR's mantissa-quantised BD32F and than
     /// half-float RGB). This is the unstretched HDR master for the stacking pipeline.</para>
     ///
-    /// <para><b>No normalisation</b> — values are written verbatim (scene-linear), so
+    /// <para><b>No normalisation</b>: values are written verbatim (scene-linear), so
     /// post-stretch star cores that overshoot <c>1.0</c> and raw FITS magnitudes are
     /// preserved exactly.</para>
     ///
@@ -284,7 +284,7 @@ public partial class Image
         }
 
         var (channelCount, width, height) = source.Shape;
-        // Drop alpha / extra channels — EXR output is mono (1) or RGB (3).
+        // Drop alpha / extra channels: EXR output is mono (1) or RGB (3).
         var outChannels = channelCount >= 3 ? 3 : 1;
         var pixelCount = width * height;
 
@@ -298,7 +298,7 @@ public partial class Image
         }
         else
         {
-            // RGB FLOAT: full float32 interleaved (RGBRGB...) — lossless linear master,
+            // RGB FLOAT: full float32 interleaved (RGBRGB...); lossless linear master,
             // no half-float precision loss.
             var rgb = new float[pixelCount * 3];
             var r = source.GetChannelSpan(0);

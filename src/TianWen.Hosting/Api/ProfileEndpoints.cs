@@ -17,7 +17,7 @@ internal static class ProfileEndpoints
     {
         var group = routes.MapGroup("/api/v1/profiles");
 
-        // GET /api/v1/profiles — list all profiles
+        // GET /api/v1/profiles: list all profiles
         group.MapGet("/", (IDeviceDiscovery deviceDiscovery) =>
         {
             var profiles = deviceDiscovery.RegisteredDevices(DeviceType.Profile)
@@ -30,7 +30,7 @@ internal static class ProfileEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDtoArray);
         });
 
-        // GET /api/v1/profiles/{id} — get profile detail
+        // GET /api/v1/profiles/{id}: get profile detail
         group.MapGet("/{id:guid}", (Guid id, IDeviceDiscovery deviceDiscovery) =>
         {
             var profile = deviceDiscovery.RegisteredDevices(DeviceType.Profile)
@@ -49,7 +49,7 @@ internal static class ProfileEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeProfileDetailDto);
         });
 
-        // POST /api/v1/profiles — create a new profile
+        // POST /api/v1/profiles: create a new profile
         group.MapPost("/", async (CreateProfileRequest request, IExternal external, IDeviceDiscovery deviceDiscovery, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
@@ -70,7 +70,7 @@ internal static class ProfileEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeProfileDetailDto);
         });
 
-        // DELETE /api/v1/profiles/{id} — delete a profile
+        // DELETE /api/v1/profiles/{id}: delete a profile
         group.MapDelete("/{id:guid}", async (Guid id, IExternal external, IDeviceDiscovery deviceDiscovery, CancellationToken ct) =>
         {
             var profile = deviceDiscovery.RegisteredDevices(DeviceType.Profile)

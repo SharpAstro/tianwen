@@ -17,7 +17,7 @@ internal abstract class AscomDeviceDriverBase(AscomDevice device, IServiceProvid
     // property; Platform 6 drivers (GS Server, many OnStep ASCOM forks) only expose
     // the legacy `Connected = bool` property setter, which blocks until the handshake
     // completes. COMException(DISP_E_UNKNOWNNAME, 0x80020006) from GetDispId signals
-    // "this driver doesn't expose that name" — we treat that as "Platform 6 driver"
+    // "this driver doesn't expose that name": we treat that as "Platform 6 driver"
     // and fall back.
     private const int DISP_E_UNKNOWNNAME = unchecked((int)0x80020006);
 
@@ -65,7 +65,7 @@ internal abstract class AscomDeviceDriverBase(AscomDevice device, IServiceProvid
     }
 
     // Async-facing COM invoke: never throws sync; faults the returned task on COM failure so
-    // `await` sees the error (but the call-site expression — e.g. `return SafeTask(...)` —
+    // `await` sees the error (but the call-site expression, e.g. `return SafeTask(...)`, 
     // can't escape with an unhandled sync throw out of a Task-returning method).
     protected Task SafeTask(Action op, [CallerMemberName] string? member = null)
     {
@@ -159,7 +159,7 @@ internal abstract class AscomDeviceDriverBase(AscomDevice device, IServiceProvid
         }
         catch (COMException ex) when (ex.HResult == DISP_E_UNKNOWNNAME)
         {
-            Logger.LogDebug("ASCOM driver {DeviceId} has no Connect() method — falling back to Platform 6 `Connected = true`.", _device.DeviceId);
+            Logger.LogDebug("ASCOM driver {DeviceId} has no Connect() method, falling back to Platform 6 `Connected = true`.", _device.DeviceId);
             return false;
         }
     }
@@ -173,7 +173,7 @@ internal abstract class AscomDeviceDriverBase(AscomDevice device, IServiceProvid
         }
         catch (COMException ex) when (ex.HResult == DISP_E_UNKNOWNNAME)
         {
-            Logger.LogDebug("ASCOM driver {DeviceId} has no Disconnect() method — falling back to Platform 6 `Connected = false`.", _device.DeviceId);
+            Logger.LogDebug("ASCOM driver {DeviceId} has no Disconnect() method, falling back to Platform 6 `Connected = false`.", _device.DeviceId);
             return false;
         }
     }

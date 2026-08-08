@@ -26,7 +26,7 @@ public class CelestialObjectDBTests
         {
             var db = _cachedDB = new CelestialObjectDB();
             // Tests built on this shared cache poke Tycho-2 features (CoordinateGrid,
-            // plate solver, sky map) — wait for the bulk decode so every consumer sees a
+            // plate solver, sky map): wait for the bulk decode so every consumer sees a
             // fully-loaded DB regardless of which test runs first.
             await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: TestContext.Current.CancellationToken);
             db.LastInitProcessed.ShouldBeGreaterThan(13000);
@@ -431,7 +431,7 @@ public class CelestialObjectDBTests
         // given
         var db = await InitDBAsync();
 
-        // when — source star resolves (position from first TYC match)
+        // when: source star resolves (position from first TYC match)
         var sourceFound = db.TryLookupByIndex(sourceIndex, out var sourceObj);
 
         // then
@@ -514,10 +514,10 @@ public class CelestialObjectDBTests
         // given
         var db = await InitDBAsync();
 
-        // when — look up the star to get its coordinates
+        // when: look up the star to get its coordinates
         var found = db.TryLookupByIndex(tycIndex, out var tycObj);
 
-        // then — the star should exist and be findable in the coordinate grid
+        // then: the star should exist and be findable in the coordinate grid
         found.ShouldBeTrue($"{tycIndex.ToCanonical()} should be found");
         tycObj.ObjectType.ShouldBe(ObjectType.Star);
 
@@ -579,11 +579,11 @@ public class CelestialObjectDBTests
     {
         // Regression test: Tycho-2 type 'X' entries (no astrometric solution) had ICRS
         // coordinates incorrectly precessed, producing ~426" error for Electra (TYC 1799-1441-1).
-        // See Get-Tycho2Catalogs.ps1 fix — ICRS positions must NOT be precessed.
+        // See Get-Tycho2Catalogs.ps1 fix: ICRS positions must NOT be precessed.
 
         var db = await InitDBAsync();
 
-        // Electra via HIP — this is our reference position
+        // Electra via HIP: this is our reference position
         db.TryLookupByIndex(CatalogIndex.HIP017499, out var electraHip).ShouldBeTrue("HIP 17499 should be found");
 
         // HIP position should be within 10" of Stellarium J2000 (RA=3.747764h, Dec=24.112833°)
@@ -592,7 +592,7 @@ public class CelestialObjectDBTests
         var hipDistArcsec = Math.Sqrt(hipDeltaRaArcsec * hipDeltaRaArcsec + hipDeltaDecArcsec * hipDeltaDecArcsec);
         hipDistArcsec.ShouldBeLessThan(10.0, "HIP 17499 should be within 10\" of Stellarium J2000 position");
 
-        // TYC 1799-1441-1 direct lookup — should exist and match HIP position within 5"
+        // TYC 1799-1441-1 direct lookup: should exist and match HIP position within 5"
         db.TryLookupByIndex("TYC 1799-1441-1", out var tycObj).ShouldBeTrue("TYC 1799-1441-1 should be found");
 
         var cosDec = Math.Cos(Math.PI / 180.0 * electraHip.Dec);
@@ -659,21 +659,21 @@ public class CelestialObjectDBTests
 
     [Theory]
     // Double star fallback (tier 4: HIP → HR)
-    [InlineData(60718, "Acrux")]        // α1 Cru — Crux (HR 4730)
-    [InlineData(65378, "Mizar")]        // ζ UMa A — Big Dipper (HR 5054)
-    [InlineData(26727, "η Ori")]        // η Ori — Orion (HR 1931)
-    [InlineData(36850, "Mekbuda")]      // ζ Gem — Gemini (HR 2650)
-    [InlineData(50583, "Chertan")]      // θ Leo — Leo (HR 4359)
+    [InlineData(60718, "Acrux")]        // α1 Cru, Crux (HR 4730)
+    [InlineData(65378, "Mizar")]        // ζ UMa A, Big Dipper (HR 5054)
+    [InlineData(26727, "η Ori")]        // η Ori, Orion (HR 1931)
+    [InlineData(36850, "Mekbuda")]      // ζ Gem, Gemini (HR 2650)
+    [InlineData(50583, "Chertan")]      // θ Leo, Leo (HR 4359)
     // Scorpius head and body
-    [InlineData(78820, "Acrab")]        // β1 Sco — Scorpius head
-    [InlineData(78265, "β2 Sco")]       // β2 Sco — Scorpius head branch
-    [InlineData(80763, "Dschubba")]     // δ Sco — Scorpius head junction
-    [InlineData(86228, "ε Sco")]        // ε Sco — Scorpius body
-    [InlineData(85927, "Shaula")]       // λ Sco — Scorpius tail tip
+    [InlineData(78820, "Acrab")]        // β1 Sco, Scorpius head
+    [InlineData(78265, "β2 Sco")]       // β2 Sco, Scorpius head branch
+    [InlineData(80763, "Dschubba")]     // δ Sco, Scorpius head junction
+    [InlineData(86228, "ε Sco")]        // ε Sco, Scorpius body
+    [InlineData(85927, "Shaula")]       // λ Sco, Scorpius tail tip
     // Orion
-    [InlineData(27989, "Betelgeuse")]   // α Ori — Orion shoulder
-    [InlineData(24436, "Rigel")]        // β Ori — Orion foot
-    [InlineData(26311, "Alnilam")]      // ε Ori — Orion belt center
+    [InlineData(27989, "Betelgeuse")]   // α Ori, Orion shoulder
+    [InlineData(24436, "Rigel")]        // β Ori, Orion foot
+    [InlineData(26311, "Alnilam")]      // ε Ori, Orion belt center
     // Bright navigation stars
     [InlineData(91262, "Vega")]         // α Lyr
     [InlineData(97649, "Altair")]       // α Aql
@@ -682,12 +682,12 @@ public class CelestialObjectDBTests
     [InlineData(71683, "α Cen")]        // α Cen A
     [InlineData(32349, "Sirius")]       // α CMa
     [InlineData(37279, "Procyon")]      // α CMi
-    [InlineData(677,   "Alpheratz")]    // α And — shared with Pegasus square
+    [InlineData(677,   "Alpheratz")]    // α And; shared with Pegasus square
     // Southern sky
     [InlineData(61084, "α Cru")]        // α Cru (different component from 60718)
     [InlineData(62434, "β Cru")]        // β Cru (Mimosa)
-    [InlineData(4427,  "γ Cas")]        // γ Cas — Cassiopeia
-    [InlineData(11767, "Polaris")]      // α UMi — pole star
+    [InlineData(4427,  "γ Cas")]        // γ Cas, Cassiopeia
+    [InlineData(11767, "Polaris")]      // α UMi, pole star
     public async Task GivenBrightFigureStarWhenLookingUpHIPThenPositionIsValid(int hip, string name)
     {
         var db = await InitDBAsync();
@@ -737,10 +737,10 @@ public class CelestialObjectDBTests
     }
 
     [Theory]
-    [InlineData(80763, "Antares",  0.91f, 1.84f)]   // α Sco — deep red supergiant
-    [InlineData(85927, "Shaula",   1.62f, -0.22f)]  // λ Sco — blue giant
-    [InlineData(86670, "Lesath",   2.39f, -0.18f)]  // υ Sco — blue subgiant (SIMBAD composite)
-    [InlineData(86228, "Sargas",   1.85f,  0.44f)]  // θ Sco — F-type (SIMBAD)
+    [InlineData(80763, "Antares",  0.91f, 1.84f)]   // α Sco, deep red supergiant
+    [InlineData(85927, "Shaula",   1.62f, -0.22f)]  // λ Sco, blue giant
+    [InlineData(86670, "Lesath",   2.39f, -0.18f)]  // υ Sco, blue subgiant (SIMBAD composite)
+    [InlineData(86228, "Sargas",   1.85f,  0.44f)]  // θ Sco, F-type (SIMBAD)
     public async Task GivenBrightDoubleStarWhenLookingUpHIPThenVMagAndBVAreValid(int hip, string name, float expectedVMag, float expectedBv)
     {
         var db = await InitDBAsync();
@@ -774,7 +774,7 @@ public class CelestialObjectDBTests
     [Fact]
     public async Task GivenCarbonStarWhenLookingUpByHRThenColorIsDeepRed()
     {
-        // R Leporis (Hind's Crimson Star) — reddest star in the HR catalog
+        // R Leporis (Hind's Crimson Star): reddest star in the HR catalog
         // Variable star (Mira type, 5.5–11.7 mag), Tycho-2 snapshot values
         var db = await InitDBAsync();
 

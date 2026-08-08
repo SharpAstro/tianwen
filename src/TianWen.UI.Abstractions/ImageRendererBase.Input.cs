@@ -180,7 +180,7 @@ namespace TianWen.UI.Abstractions
                     PostSignal(new PlateSolveSignal());
                     return true;
                 case InputKey.E:
-                    // AI enhance — only where a SharpenPipeline is wired (the button is hidden otherwise).
+                    // AI enhance, only where a SharpenPipeline is wired (the button is hidden otherwise).
                     if (EnhanceAvailable)
                     {
                         PostSignal(new EnhanceImageSignal());
@@ -343,7 +343,7 @@ namespace TianWen.UI.Abstractions
 
             state.MouseScreenPosition = (px, py);
 
-            // Unified hit test — OnClick handlers fire for self-contained actions (e.g. HistogramLog)
+            // Unified hit test: OnClick handlers fire for self-contained actions (e.g. HistogramLog)
             var hit = HitTestAndDispatch(px, py);
 
             if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
@@ -399,7 +399,7 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // No hit — start panning, but ONLY when the press is inside the image viewport. Otherwise a press
+            // No hit: start panning, but ONLY when the press is inside the image viewport. Otherwise a press
             // in the side panels / toolbar gaps / letterbox would grab the image and pan it (e.g. clicking the
             // planetary control panel must not drag the stream). Confines the drag to its viewport.
             var imgArea = _layout.ImageArea;
@@ -480,7 +480,7 @@ namespace TianWen.UI.Abstractions
             {
                 // File-list gesture release: a tap selects the row (the Planner/Equipment tap-on-release
                 // model); a drag release just ends the scroll. Consumed releases skip the branches below
-                // (no pan/scrub was active — the press went to the controller).
+                // (no pan/scrub was active, the press went to the controller).
                 if (_fileListScroll.HandleInput(evt))
                 {
                     if (_fileListScroll.TakeAtomTap() is { } tappedRow && tappedRow < state.ImageFileNames.Count)
@@ -544,7 +544,7 @@ namespace TianWen.UI.Abstractions
             {
                 // Cursor-anchored zoom via the shared controller: seed the display transform from state,
                 // run the zoom, write the result back. A clamped no-op (already at the floor) changes
-                // nothing — including ZoomToFit, which only clears when the zoom actually moves.
+                // nothing, including ZoomToFit, which only clears when the zoom actually moves.
                 _panZoom.Zoom = state.Zoom;
                 _panZoom.PanOffset = new Vector2(state.PanOffset.X, state.PanOffset.Y);
                 if (_panZoom.ZoomAtCursor(scrollY, mouseX, mouseY, area))

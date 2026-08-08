@@ -27,8 +27,8 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     // --- Mount state (guarded by _sem) ---
     private readonly SemaphoreSlim _sem = new SemaphoreSlim(1, 1);
-    private double _ra; // hours (0..24) — initialized to LST on first site config
-    private double _dec = 90.0; // degrees (-90..90) — GEM park position: celestial pole
+    private double _ra; // hours (0..24), initialized to LST on first site config
+    private double _dec = 90.0; // degrees (-90..90), GEM park position: celestial pole
     private double _targetRa;
     private double _targetDec;
     private bool _isTracking;
@@ -221,7 +221,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     // an apparent-to-J2000 conversion at every read site, which for a park-at-pole
     // simulator introduces a visible ~0.35 deg precession offset on the sky map
     // (see SamplePreviewMountAsync in AppSignalHandler). Real GEM/ASCOM mounts that
-    // genuinely track JNow keep reporting Topocentric — that's correct for them.
+    // genuinely track JNow keep reporting Topocentric; that's correct for them.
     public EquatorialCoordinateType EquatorialSystem { get; } = EquatorialCoordinateType.J2000;
 
     public bool TimeIsSetByUs { get; private set; }
@@ -239,7 +239,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     /// routine slewed relative to the meridian without racing the fake clock: the mount's LIVE hour
     /// angle keeps growing as fake time advances (HA = LST − RA), and on the auto-advancing
     /// <c>FakeTimeProvider</c> any concurrent poll loop advances fake time by its sleep interval per
-    /// iteration — unbounded in real time — so an assertion on the live HA after a multi-step routine
+    /// iteration, unbounded in real time, so an assertion on the live HA after a multi-step routine
     /// is CI-load-dependent (the guider-calibration east-of-meridian test measured +0.94h on a slew
     /// that correctly targeted −0.5h). NaN until the first slew command.
     /// </summary>
@@ -462,7 +462,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
                     if (_lastDecDirection != 0 && newDirection != _lastDecDirection)
                     {
-                        // Direction reversal — engage backlash
+                        // Direction reversal: engage backlash
                         _backlashRemaining = DecBacklashArcsec;
                     }
 

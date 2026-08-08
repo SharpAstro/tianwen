@@ -16,7 +16,7 @@ namespace TianWen.Lib.Tests;
 /// which runs through CrxQpDecoder + CrxQStep + CrxWaveletPlaneDecoder
 /// before producing the Bayer mosaic. The matrix assertion is omitted
 /// here because the R5 isn't in <c>CanonCameraProfiles</c> or the SASP
-/// spectral database — so CameraToSrgbMatrix is legitimately null for
+/// spectral database, so CameraToSrgbMatrix is legitimately null for
 /// this body. Coverage of the matrix-resolution dispatch lives in
 /// <see cref="Cr2ImportTests"/>.
 ///
@@ -50,7 +50,7 @@ public class Cr3ImportTests(ITestOutputHelper output)
         }
         var ct = TestContext.Current.CancellationToken;
 
-        // Production import path — this is the same call Image.Importer
+        // Production import path: this is the same call Image.Importer
         // makes when a user drops a .cr3 onto the GUI. Phase B + B.5 + B.6
         // in FC.SDK.Raw now make this work without the Magick.NET fallback.
         var ok = Image.TryReadImageFile(path, out var mosaicImage);
@@ -66,7 +66,7 @@ public class Cr3ImportTests(ITestOutputHelper output)
         output.WriteLine($"Loaded {w}x{h} {mosaicImage.ImageMeta.Instrument} CR3 " +
             $"(matrix={(mosaicImage.ImageMeta.CameraToSrgbMatrix is null ? "null" : "populated")})");
 
-        // Bayer-aware AHD debayer — exactly the same downstream call the
+        // Bayer-aware AHD debayer: exactly the same downstream call the
         // GUI's image viewer pipes the mosaic through.
         var rgbImage = await mosaicImage.DebayerAsync(DebayerAlgorithm.AHD, cancellationToken: ct);
         var (rgbChannels, rgbW, rgbH) = rgbImage.Shape;
@@ -75,7 +75,7 @@ public class Cr3ImportTests(ITestOutputHelper output)
         rgbH.ShouldBe(h);
 
         // Single PNG (no matrix, since the R5 isn't in CanonCameraProfiles
-        // or SASP — the matrix render is identical to the no-matrix one
+        // or SASP: the matrix render is identical to the no-matrix one
         // when matrix is null, so emitting both would be wasted disk).
         var outDir = CreateTestOutputDir(nameof(Cr3_OpensViaImageTryReadImageFile_AndRgbRenders));
         var pngPath = Path.Combine(outDir, "cr3_r5_debayered.png");
@@ -86,7 +86,7 @@ public class Cr3ImportTests(ITestOutputHelper output)
 
     /// <summary>3-channel float -> PNG with optional matrix, joint
     /// auto-stretch by global max, and sRGB gamma encode. Identical to
-    /// the helper in <see cref="Cr2ImportTests"/> — kept duplicated for
+    /// the helper in <see cref="Cr2ImportTests"/>: kept duplicated for
     /// now since both helpers are stop-gaps that disappear when the
     /// Phase 3 render path (StretchUniforms) ships.</summary>
     private static void RenderRgbToPng(Image rgbImage, string outPath, float[]? applyMatrix)

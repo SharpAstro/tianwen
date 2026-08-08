@@ -233,7 +233,7 @@ namespace TianWen.UI.Abstractions
             var viewerX = contentRect.X + otaTotalW;
             var viewerW = contentRect.Width - otaTotalW - logW;
 
-            // Center: mini viewer — rendered FIRST so panels paint over any overflow
+            // Center: mini viewer; rendered FIRST so panels paint over any overflow
             if (viewerW > 100 && PreviewView is { } viewer)
             {
                 var pst = _previewState;

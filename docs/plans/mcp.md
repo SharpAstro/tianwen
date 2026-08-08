@@ -2,7 +2,7 @@
 
 ## Goal
 
-Expose TianWen's catalog/imaging/stacking operations as MCP (Model Context Protocol) tools so an AI assistant (Claude Code, or any MCP-aware client) can directly inspect FITS frames, run star detection, plate-solve, query the catalog, dump SPCC funnel diagnostics, etc. — without having to ask the human to copy-paste log output or run CLI commands.
+Expose TianWen's catalog/imaging/stacking operations as MCP (Model Context Protocol) tools so an AI assistant (Claude Code, or any MCP-aware client) can directly inspect FITS frames, run star detection, plate-solve, query the catalog, dump SPCC funnel diagnostics, etc. without having to ask the human to copy-paste log output or run CLI commands.
 
 Concretely: when Claude is debugging a SPCC blue-deficit problem, it should be able to call `spcc.match(path)` and get back a structured per-gate funnel breakdown (detect → no-catalog → tol-miss → photometry-miss → kappa-rejected → accepted). Today the only way to extract that data is for a human to run `tianwen stack`, grep the log, and paste the numbers.
 
@@ -16,9 +16,9 @@ Concretely: when Claude is debugging a SPCC blue-deficit problem, it should be a
 | Tail/grep log files | Mutate session profiles or planner state |
 | **Enumerate** devices via all `IDeviceSource<T>` implementations | **Connect to** devices (Initialize / SetConnected) |
 | **List + read** profiles | **Write / edit** profiles |
-| Surface AppData paths + init timings | — |
+| Surface AppData paths + init timings | - |
 
-Device control + session orchestration deliberately stay off-limits to the AI client — they're action surfaces that need a human in the loop. Discovery (USB SDK enumerate, Alpaca UDP discovery, mDNS scan for OnStep, COM-port list) is read-only -- it tells the AI "here are the devices that would be available if a session were started" without opening serial ports or initialising drivers. Profile read-only access lets the AI see how the user's equipment is configured (which is essential context when debugging a session log) without giving it edit power.
+Device control + session orchestration deliberately stay off-limits to the AI client; they're action surfaces that need a human in the loop. Discovery (USB SDK enumerate, Alpaca UDP discovery, mDNS scan for OnStep, COM-port list) is read-only -- it tells the AI "here are the devices that would be available if a session were started" without opening serial ports or initialising drivers. Profile read-only access lets the AI see how the user's equipment is configured (which is essential context when debugging a session log) without giving it edit power.
 
 ## Project layout
 
@@ -61,16 +61,16 @@ src/TianWen.AI.MCP/
 │   └── Log/
 │       ├── LogTailTool.cs             # log.tail(path, lines?)
 │       └── LogGrepTool.cs             # log.grep(path, pattern)
-└── (no separate Json/ directory needed — ModelContextProtocol package handles
+└── (no separate Json/ directory needed, ModelContextProtocol package handles
    schema generation from [Description] attributes; tool output is plain `string`
    in the simple case or a domain type the package serializes for us)
 ```
 
-`TianWen.AI.MCP` references `TianWen.Lib` directly. No reference to `TianWen.UI.*` (the MCP tool surface stays headless — `MasterPreviewRenderer`'s SPCC path moves through the lib by hand if needed, or the tool launches a sub-process call into `tianwen stack` for rendering).
+`TianWen.AI.MCP` references `TianWen.Lib` directly. No reference to `TianWen.UI.*` (the MCP tool surface stays headless, `MasterPreviewRenderer`'s SPCC path moves through the lib by hand if needed, or the tool launches a sub-process call into `tianwen stack` for rendering).
 
 ## Wire protocol
 
-Use the first-party **`ModelContextProtocol` NuGet package** (Microsoft + Anthropic, v1.1.0 at time of writing). Mature pattern — there are multiple sibling MCP servers in adjacent repos using it, including at least one that ships AOT-published with the same `DIR.Lib` + `SharpAstro.Png` dependency set TianWen would use.
+Use the first-party **`ModelContextProtocol` NuGet package** (Microsoft + Anthropic, v1.1.0 at time of writing). Mature pattern; there are multiple sibling MCP servers in adjacent repos using it, including at least one that ships AOT-published with the same `DIR.Lib` + `SharpAstro.Png` dependency set TianWen would use.
 
 **Bootstrap** (canonical, copied from `seq-mcp/Program.cs`):
 
@@ -166,12 +166,12 @@ No hand-rolled pump. No JIT fallback. Phase A's first commit IS the AOT publish 
 | `catalog.tyc_prefix` | query string | array of matching TYC | none |
 | `spcc.match` | path | funnel: detect/no-cat/tol-miss/photo-miss/k-rej/accepted + per-gate examples | none |
 | `stack.summary` | output_dir | per-master {WB, match-counts, paths} | none |
-| `profile.list` | — | array of {id, name, slug, equipment slot summary, modified-utc} | none |
+| `profile.list` | - | array of {id, name, slug, equipment slot summary, modified-utc} | none |
 | `profile.get` | id | full profile JSON (already user-readable) | none |
-| `devices.discover` | source? (filter to one IDeviceSource) | array of {uri, source, name, type, isConnected, capabilities-preview} | enumerate via SDK / Alpaca UDP / mDNS / COM-port scan — no `Initialize` call |
+| `devices.discover` | source? (filter to one IDeviceSource) | array of {uri, source, name, type, isConnected, capabilities-preview} | enumerate via SDK / Alpaca UDP / mDNS / COM-port scan; no `Initialize` call |
 | `devices.capabilities` | uri | type-specific {cooling? filter wheel slots? focuser step range? mount tracking rates?} | read-only state probe; never sets `Connected=true` if not already |
-| `app.paths` | — | {profiles, logs, planner, planet-cache, …} under `%LOCALAPPDATA%/TianWen/` | none |
-| `app.catalog_init_timing` | — | per-phase `LastInitPhaseTimings` from the singleton DB | triggers init if not yet loaded |
+| `app.paths` | - | {profiles, logs, planner, planet-cache, …} under `%LOCALAPPDATA%/TianWen/` | none |
+| `app.catalog_init_timing` | - | per-phase `LastInitPhaseTimings` from the singleton DB | triggers init if not yet loaded |
 | `log.tail` | path, lines? | last N lines | none |
 | `log.grep` | path, pattern, context? | matching lines + line numbers | none |
 
@@ -212,7 +212,7 @@ The `stars.profile` tool returns a JSON record that mixes structured metadata wi
 | Visual inspection (Q: "do these stars look round?") | `stars.gallery_png` returning MCP image content | Vision is the natural channel for "look at" -- a 5×5 grid of stretched cutout thumbnails (~525×525 px PNG) compresses to <50 KB, and I can pattern-match diffraction spikes / halos / asymmetry directly. Reading numerical pixel arrays is feasible but vision is the right tool for this question. |
 | Radial profile (1D, ~10-20 bins) | JSON `float[]` arrays | Too small for base64 to win; readable arrays are easier to reason about (`[1.0, 0.93, 0.72, 0.41, ...]` is immediately a star shape) |
 
-The base64 path scales: a `stars.gallery` tool that returns 25 cutouts would cost ~60 KB of base64 vs ~50 KB of PNG — for *raw values*, base64 is competitive with PNG even before considering precision loss in PNG.
+The base64 path scales: a `stars.gallery` tool that returns 25 cutouts would cost ~60 KB of base64 vs ~50 KB of PNG, for *raw values*, base64 is competitive with PNG even before considering precision loss in PNG.
 
 ## Resources surface (v1)
 
@@ -227,46 +227,46 @@ Resources are URI-addressable and discoverable via `resources/list`. Tools that 
 
 ## Phasing
 
-### Phase A — stdio pump + handshake + 3 trivial tools
+### Phase A: stdio pump + handshake + 3 trivial tools
 Stand up the wire. Tools: `fits.header`, `catalog.lookup`, `log.tail`. Validates AOT publish, validates JSON contracts, validates Claude Code can spawn + talk to `tianwen-mcp`. ~1-2 days.
 
-### Phase B — FITS analysis tools
+### Phase B: FITS analysis tools
 `fits.stats`, `fits.find_stars`, `fits.plate_solve`, `fits.pixels`. These wrap existing `TianWen.Lib` APIs 1:1, no new logic. ~1 day.
 
-### Phase B' — Star profile + gallery
+### Phase B': Star profile + gallery
 `stars.profile`, `stars.radial_profile`, `stars.gallery_png`. The profile tool needs a sub-pixel centroid refinement (small Gaussian fit on the cutout) plus the base64-encoded float32 cutout output. The gallery tool composes the top-N star cutouts into a PNG mosaic using `DIR.Lib.RgbaImageRenderer` + the existing per-channel stretch math (or borrow `MasterPreviewRenderer.RenderAsync` if the Lib extract from Phase D has landed). Returning as MCP image content (not a file path) means the AI sees the pixels directly without a follow-up `resources/read`. ~1-1.5 days.
 
-### Phase C — SPCC funnel diagnostic
+### Phase C: SPCC funnel diagnostic
 The marquee tool. Requires extending `Tycho2ColorCalibration.MatchStars` to count rejections per gate (the work we already discussed in the prior thread). Adds the `[stack] ... funnel=...` line to the CLI as a side benefit, plus exposes the same data through `spcc.match`. ~1-2 days.
 
-### Phase D — PNG render + catalog tools + resources
-`fits.render_png` (composes `MasterPreviewRenderer` from `UI.Abstractions` — needs the project ref or a thin Lib-level extract), `catalog.spatial`, `catalog.tyc_prefix`, resources surface. ~1-2 days.
+### Phase D, PNG render + catalog tools + resources
+`fits.render_png` (composes `MasterPreviewRenderer` from `UI.Abstractions`, needs the project ref or a thin Lib-level extract), `catalog.spatial`, `catalog.tyc_prefix`, resources surface. ~1-2 days.
 
-### Phase E — Profiles + AppData paths + catalog init timing
+### Phase E: Profiles + AppData paths + catalog init timing
 `profile.list`, `profile.get`, `app.paths`, `app.catalog_init_timing`. All thin wrappers around existing TianWen.Lib API surfaces (`Profile.LoadAsync`, `AppDataPaths`, `CelestialObjectDB.LastInitPhaseTimings`). Quick win. ~0.5 day.
 
-### Phase F — Device discovery
-`devices.discover` walks the registered `IDeviceSource<T>` implementations. The trick is that discovery for some sources (Alpaca UDP, OnStep mDNS) is asynchronous + time-bounded — the tool needs a sensible default timeout (~3 s) and emit progressive results. `devices.capabilities` queries each driver's capability surface WITHOUT calling `Initialize` (use the existing `IDeviceDriver.SupportsCapability` pattern). The non-trivial bit is making sure no source accidentally connects — needs a code audit of each `IDeviceSource<T>.EnumerateAsync` path. ~1-2 days.
+### Phase F: Device discovery
+`devices.discover` walks the registered `IDeviceSource<T>` implementations. The trick is that discovery for some sources (Alpaca UDP, OnStep mDNS) is asynchronous + time-bounded; the tool needs a sensible default timeout (~3 s) and emit progressive results. `devices.capabilities` queries each driver's capability surface WITHOUT calling `Initialize` (use the existing `IDeviceDriver.SupportsCapability` pattern). The non-trivial bit is making sure no source accidentally connects; needs a code audit of each `IDeviceSource<T>.EnumerateAsync` path. ~1-2 days.
 
-### Phase G — stack summary + log grep
+### Phase G: stack summary + log grep
 Convenience tools that aggregate the data the AI would otherwise piece together from multiple file reads. ~0.5 day.
 
 Total estimate: ~8-10 days of focused work. Phase A alone delivers a usable scaffold; each subsequent phase strictly adds tools without breaking earlier ones.
 
 ## Open design questions
 
-1. ~~**AOT vs JIT publish**~~: settled — AOT, with `PublishAot=true`, `InvariantGlobalization=true`, `WithTools<T>()` chained per class. Expected binary size ~30-40 MB after trim.
+1. ~~**AOT vs JIT publish**~~: settled; AOT, with `PublishAot=true`, `InvariantGlobalization=true`, `WithTools<T>()` chained per class. Expected binary size ~30-40 MB after trim.
 2. **Reference to `UI.Abstractions`**: `MasterPreviewRenderer` lives there for layering reasons (it pulls in `AstroImageDocument`, the stretch pipeline, etc.). The MCP server probably needs *just* the render-from-FITS-to-PNG path. Options: (a) project-reference UI.Abstractions in MCP (cheap, but couples MCP to the UI assembly tree), (b) extract `RenderPngFromMaster` into a thin Lib-level helper. Lean (b) for layering.
 3. **Process model**: MCP servers are long-lived per-client (stdio session lasts as long as the client is connected). The TianWen catalog DB takes ~270 ms warm to init (`catalog-binary-format.md`); init once on first tool call that needs it, the `_isInitialized` fast path makes subsequent calls free. Same singleton-via-DI pattern as `seq-mcp`'s `SeqConnection`.
-4. **Device-source enumeration safety** (Phase F): each `IDeviceSource<T>.EnumerateAsync` must be audited to confirm it doesn't open serial ports or set `IDeviceDriver.Connected = true`. ASCOM Alpaca UDP discovery is benign. OnStep mDNS scan is benign. Native SDK enumerate (ZWO/QHY) is benign — but check. Meade serial / Skywatcher serial enumerate via `SerialPort.GetPortNames()` (just lists COM names, doesn't open). Document the audit result in the tool's XML doc + add an integration test that asserts no driver moves into `Connected` state during enumeration.
+4. **Device-source enumeration safety** (Phase F): each `IDeviceSource<T>.EnumerateAsync` must be audited to confirm it doesn't open serial ports or set `IDeviceDriver.Connected = true`. ASCOM Alpaca UDP discovery is benign. OnStep mDNS scan is benign. Native SDK enumerate (ZWO/QHY) is benign, but check. Meade serial / Skywatcher serial enumerate via `SerialPort.GetPortNames()` (just lists COM names, doesn't open). Document the audit result in the tool's XML doc + add an integration test that asserts no driver moves into `Connected` state during enumeration.
 5. **Security**: MCP servers can receive any path. The tool surface accepts absolute paths for `fits.*` / `log.*`; we don't sandbox. Acceptable for a developer-tool context. Document it explicitly.
 
 ## Out of scope (deliberate)
 
-- **WebSocket MCP transport** — stdio covers the local-dev case. Hosting can already expose HTTP/WebSocket via `TianWen.Hosting` if a remote API is needed.
-- **Device control tools** — would require an active TianWen session + careful safety story. Run the actual GUI / `tianwen-server` for that.
-- **Multi-frame stacking from MCP** — long-running. Better to surface the existing `tianwen stack` CLI invocation via a `bash` tool than reimplement progress streaming over JSON-RPC.
-- **Authentication / multi-tenant** — single local dev tool, not a service.
+- **WebSocket MCP transport**: stdio covers the local-dev case. Hosting can already expose HTTP/WebSocket via `TianWen.Hosting` if a remote API is needed.
+- **Device control tools**: would require an active TianWen session + careful safety story. Run the actual GUI / `tianwen-server` for that.
+- **Multi-frame stacking from MCP**: long-running. Better to surface the existing `tianwen stack` CLI invocation via a `bash` tool than reimplement progress streaming over JSON-RPC.
+- **Authentication / multi-tenant**: single local dev tool, not a service.
 
 ## Done means
 

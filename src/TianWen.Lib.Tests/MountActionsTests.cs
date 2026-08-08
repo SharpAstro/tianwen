@@ -112,7 +112,7 @@ public class MountActionsTests
     [Fact]
     public async Task SlewToJ2000Async_WhenBelowHorizon_ReturnsTargetBelowHorizonLimit()
     {
-        // Transform stub returns Alt=5° — below our 20° horizon limit.
+        // Transform stub returns Alt=5°: below our 20° horizon limit.
         var mount = SetupMount(new[] { TrackingSpeed.Sidereal }, altDeg: 5.0);
 
         var (post, msg) = await InvokeAsync(mount, "M31", NonSolarSystem, minAltitude: 20);
@@ -477,7 +477,7 @@ public class MountActionsTests
         mount.EquatorialSystem.Returns(EquatorialCoordinateType.Topocentric);
         mount.EnsureTrackingAsync(Arg.Any<TrackingSpeed>(), Arg.Any<CancellationToken>())
             .Returns(ValueTask.FromResult(true));
-        // Skip the real SOFA transform — return plausible native coords + the requested alt.
+        // Skip the real SOFA transform: return plausible native coords + the requested alt.
         mount.TryTransformJ2000ToMountNativeAsync(
                 Arg.Any<TianWen.Lib.Astrometry.SOFA.Transform>(),
                 Arg.Any<double>(), Arg.Any<double>(), false, Arg.Any<CancellationToken>())

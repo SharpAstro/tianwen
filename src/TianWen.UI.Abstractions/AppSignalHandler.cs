@@ -33,7 +33,7 @@ namespace TianWen.UI.Abstractions
     /// and profile management. Shared between GPU and terminal hosts.
     /// <para>
     /// <b>SignalBus delivery contract:</b>
-    /// <see cref="SignalBus.PostSignal{T}"/> enqueues the signal — it never delivers inline,
+    /// <see cref="SignalBus.PostSignal{T}"/> enqueues the signal; it never delivers inline,
     /// so it is safe to call during rendering or hit testing (no reentrancy risk).
     /// <see cref="SignalBus.ProcessPending"/> is called once per frame from the render thread:
     /// it dequeues all pending signals and invokes subscribers in registration order.
@@ -219,18 +219,18 @@ namespace TianWen.UI.Abstractions
         private readonly Dictionary<string, long> _telemetryLastSampleTicks = new();
         // In-flight poll task per camera path, prevents overlapping samples.
         // Touched from both the UI thread (Add) and tracker continuations (Remove),
-        // so it MUST be a concurrent collection — a plain HashSet/Dictionary will
+        // so it MUST be a concurrent collection: a plain HashSet/Dictionary will
         // crash with IndexOutOfRangeException on a bucket-array race.
         private readonly ConcurrentDictionary<string, byte> _telemetryInFlight = new();
 
         // Preview-mode poll state (mirrors _telemetryLastSampleTicks pattern;
-        // also UI-thread-only — never touched from tracker continuations).
+        // also UI-thread-only, never touched from tracker continuations).
         private readonly Dictionary<string, long> _previewTelemetryLastTicks = new();
         private readonly ConcurrentDictionary<string, byte> _previewTelemetryInFlight = new();
         private long _previewMountLastTicks;
         // 0 = idle, 1 = poll in flight. Uses Interlocked because the UI thread checks
         // and sets it before kicking off the tracker task, and the tracker continuation
-        // clears it on completion — same UI/background split as the telemetry sets.
+        // clears it on completion: same UI/background split as the telemetry sets.
         private int _previewMountInFlight;
         private bool _loggedFirstPreviewMountSample;
 
@@ -272,7 +272,7 @@ namespace TianWen.UI.Abstractions
         public void PollCameraTelemetry()
         {
             if (_appState.DeviceHub is not { } hub) return;
-            // Only on the equipment tab — avoids hammering cameras with reads when the
+            // Only on the equipment tab: avoids hammering cameras with reads when the
             // user isn't looking at the data. (Live-session view will be wired later.)
             if (_appState.ActiveTab is not GuiTab.Equipment) return;
 
@@ -495,7 +495,7 @@ namespace TianWen.UI.Abstractions
             // Preview polling drives the Live Session tab, the Sky Map tab (for the
             // mount-position reticle overlay), and the Equipment tab (for the mount
             // status expander). Any tab that displays live mount / focuser state should
-            // be added here rather than spinning up a parallel poll path — two concurrent
+            // be added here rather than spinning up a parallel poll path; two concurrent
             // polls on the same serial mount would race the port.
             if (_appState.ActiveTab is not (GuiTab.LiveSession or GuiTab.SkyMap or GuiTab.Equipment)) return;
             if (_appState.ActiveProfile?.Data is not { OTAs: { Length: > 0 } otas } profileData) return;
@@ -505,7 +505,7 @@ namespace TianWen.UI.Abstractions
 
             LocalLiveSession.ResizePreviewArrays(otas.Length);
 
-            // Per-OTA camera + focuser + filter polling — rate-adaptive on focuser state.
+            // Per-OTA camera + focuser + filter polling: rate-adaptive on focuser state.
             // When the focuser is actively moving the user wants sub-second feedback on
             // the position readout; in steady state a 2s cadence is plenty (temperature
             // and filter changes are slow or user-triggered). The last-known moving flag
@@ -666,7 +666,7 @@ namespace TianWen.UI.Abstractions
             }
             _lastMountTransformError = reason;
             _logger.LogWarning(
-                "Mount J2000 conversion unavailable — reticle will fall back to native coords (silent {Offset:F2} deg shift). {Reason}",
+                "Mount J2000 conversion unavailable; reticle will fall back to native coords (silent {Offset:F2} deg shift). {Reason}",
                 0.35, // approx topocentric<->J2000 shift for an epoch-2025 observer
                 reason);
         }
@@ -691,7 +691,7 @@ namespace TianWen.UI.Abstractions
 
             // Derive J2000 coordinates for the sky-map overlay. J2000 mounts skip the
             // Transform entirely; topocentric mounts use a Transform built from the
-            // profile's site coordinates (TransformFactory.FromProfile — zero hardware
+            // profile's site coordinates (TransformFactory.FromProfile, zero hardware
             // I/O, unlike mount.TryGetTransformAsync which round-trips for lat/lon/elev).
             // We rebuild it on every poll because it's cheap (one object alloc + three
             // scalar assignments); the only genuinely expensive step is transform.Refresh()
@@ -760,7 +760,7 @@ namespace TianWen.UI.Abstractions
                             transform.DateTimeOffset = noon;
                         }
 
-                        // Detect significant site change (>1°) — requires full rescan
+                        // Detect significant site change (>1°): requires full rescan
                         var siteChanged = double.IsNaN(_plannerState.SiteLatitude)
                             || Math.Abs(transform.SiteLatitude - _plannerState.SiteLatitude) > 1.0
                             || Math.Abs(transform.SiteLongitude - _plannerState.SiteLongitude) > 1.0;

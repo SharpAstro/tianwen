@@ -106,7 +106,7 @@ internal static class FrameQualityFilter
     /// <paramref name="sigma"/> threshold. See class doc for the
     /// algorithm. <paramref name="maxRejectFraction"/> caps how many frames
     /// one pass may reject before the severity-ranked keep-floor engages
-    /// (default <see cref="DefaultMaxRejectFraction"/> — stacking's
+    /// (default <see cref="DefaultMaxRejectFraction"/>, stacking's
     /// yield-preserving value; the dataset builder passes a higher fraction
     /// because it favours purity over yield).
     /// </summary>

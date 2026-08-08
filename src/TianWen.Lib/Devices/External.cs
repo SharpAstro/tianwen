@@ -40,7 +40,7 @@ internal class External(
 
     public async ValueTask<Astrometry.Catalogs.ICelestialObjectDB> GetCelestialObjectDBAsync(CancellationToken cancellationToken = default)
     {
-        // Double-checked lazy init — InitDBAsync is idempotent but expensive
+        // Double-checked lazy init: InitDBAsync is idempotent but expensive
         if (_dbInitTask is null or { IsCompleted: false })
         {
             _dbInitTask ??= celestialObjectDB.InitDBAsync(cancellationToken: cancellationToken);
@@ -71,7 +71,7 @@ internal class External(
     public async ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, bool assertControlLines = false, CancellationToken cancellationToken = default)
     {
         // BCL SerialPort.Open is a synchronous blocking call (opens the OS handle,
-        // queries the line state, etc.) — no real async equivalent exists. Offload
+        // queries the line state, etc.): no real async equivalent exists. Offload
         // to the thread pool so callers never block a driver thread on a COM port
         // that takes 10–100 ms (or worse, a stuck USB bridge) to open.
         return await Task.Run(

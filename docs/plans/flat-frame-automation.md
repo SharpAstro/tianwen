@@ -153,7 +153,7 @@ the phase, current-activity, and captured frames into the preview.
 - **User-prompt channel** (general, reused for darks later): `ISession.PromptRequested` +
   `SessionPromptEventArgs.Respond(bool)` + `Session.RequestUserConfirmationAsync` (headless callers
   auto-proceed when unsubscribed). The flat routine prompts **only** when a calibrator is present but the
-  driver reports **`!CanControlBrightness`** (case D — a hand-switched manual panel: "switch it on, then
+  driver reports **`!CanControlBrightness`** (case D, a hand-switched manual panel: "switch it on, then
   Continue"); declining skips that OTA. Driver-controlled panels never prompt. GUI side: the prompt lands in
   `LiveSessionState.PendingPrompt`, renders as a centred overlay (`RenderSessionPrompt`, Continue/Cancel +
   Enter/Escape), and `RespondSessionPromptSignal` forwards the answer.

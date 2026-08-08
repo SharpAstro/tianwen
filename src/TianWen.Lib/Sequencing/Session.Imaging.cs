@@ -89,7 +89,7 @@ internal partial record Session
                             ResilientCallOptions.NonIdempotentAction, cancellationToken).ConfigureAwait(false);
                     }
 
-                    // Still not available — try spare targets, then advance
+                    // Still not available: try spare targets, then advance
                     if (postCondition is SlewPostCondition.SlewNotPossible or SlewPostCondition.TargetBelowHorizonLimit)
                     {
                         if (Observations.TryGetNextSpare(_activeObservation, ref _spareIndex) is { } spare)
@@ -235,7 +235,7 @@ internal partial record Session
     /// <param name="observation">Observation to image.</param>
     /// <param name="hourAngleAtSlewTime">provide hour angle current as of start of session, used to calculate meridian flip.</param>
     /// <param name="pierSideAtSlewTime">Pier side reported by the mount at slew completion. Defaults to <see cref="PointingState.Unknown"/>
-    /// which disables out-of-band-flip detection — direct test callers without a real mount can omit this.</param>
+    /// which disables out-of-band-flip detection: direct test callers without a real mount can omit this.</param>
     /// <param name="cancellationToken"></param>
     /// <returns>loop result</returns>
     /// <exception cref="InvalidOperationException"></exception>
@@ -319,7 +319,7 @@ internal partial record Session
         var filterFrameCounters = new int[scopes];
         var filterAscending = hourAngleAtSlewTime < 0; // HA < 0 means east of meridian (rising)
         // A GEM flips at most once per target. Set after a successful (or detected) flip so the HA-window
-        // decision can never re-fire for this observation — the backstop behind the destination-side gate.
+        // decision can never re-fire for this observation; the backstop behind the destination-side gate.
         var hasFlipped = false;
 
         // A pending flip belongs to the target that is crossing, so the countdown starts unknown for each
@@ -328,7 +328,7 @@ internal partial record Session
 
         // The meridian flip + pre-meridian obstruction pause are a GERMAN-equatorial concern ONLY: the GEM's
         // counterweight bar would collide with the pier if it tracked past the meridian on the same side.
-        // Fork/equatorial (AlignmentMode.Polar — OTA rides between the fork arms) and Alt-Az mounts track
+        // Fork/equatorial (AlignmentMode.Polar, OTA rides between the fork arms) and Alt-Az mounts track
         // straight across the meridian and never flip, so the entire detection block below is skipped for
         // them. Read once (cheap, effectively constant per session); default to GermanPolar on a read failure
         // so a transient glitch can never stop a real GEM from flipping.
@@ -343,7 +343,7 @@ internal partial record Session
 
             // Each telescope gets its own copy of the filter plan.
             // Single-position filter wheels (manual holders) get a single-entry plan
-            // using the observation's first sub-exposure — they can't switch filters.
+            // using the observation's first sub-exposure: they can't switch filters.
             var hasMultiFilterWheel = Setup.Telescopes[i].FilterWheel?.Driver is { Connected: true, Filters.Count: > 1 };
             filterPlans[i] = observation.FilterPlan.IsDefaultOrEmpty || !hasMultiFilterWheel
                 ? [new FilterExposure(-1, observation.SubExposure)]
@@ -382,7 +382,7 @@ internal partial record Session
         ImageLoopNextAction? next = null;
         var maxTicks = (int)(observation.Duration.TotalSeconds / tickSec);
 
-        _currentActivity = null; // clear — PhaseStatusText takes over for imaging
+        _currentActivity = null; // clear; PhaseStatusText takes over for imaging
         _logger.LogInformation(
             "ImagingLoop starting for {Target}: {FilterCount} filters, direction={Direction}, tick={TickSec}s, duration={Duration}, GCD={GCD}s.",
             observation.Target, observation.FilterPlan.Length,
@@ -423,7 +423,7 @@ internal partial record Session
             try { _guiderSettleProgress = await guider.Driver.GetSettleProgressAsync(cancellationToken); } catch { /* ignore */ }
             try { _guideExposure = await guider.Driver.ExposureTimeAsync(cancellationToken); } catch { /* ignore */ }
 
-            // Poll guide stats each tick for the guide graph (also during settling — guide loop still corrects)
+            // Poll guide stats each tick for the guide graph (also during settling, guide loop still corrects)
             var isSettlingOrGuiding = isGuiding || _guiderState is "Settling";
             if (isSettlingOrGuiding)
             {
@@ -622,12 +622,12 @@ internal partial record Session
                             _logger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
                                 i + 1, camDriver.Name, frameExpTime, frameNo);
 
-                            // 1. Enqueue raw image for FITS write — image holds its own ChannelBuffer ref via AddRef in GetImageAsync
+                            // 1. Enqueue raw image for FITS write: image holds its own ChannelBuffer ref via AddRef in GetImageAsync
                             imageWriteQueue.Enqueue(new QueuedImageWrite(image, observation, expStartTimes[i], frameNo, frameExpTime, i));
 
-                            // Drop camera's ref — the Image's ChannelBuffer ref keeps the float[,] alive until Release()
+                            // Drop camera's ref: the Image's ChannelBuffer ref keeps the float[,] alive until Release()
 
-                            // 2. Pass raw image to GPU — shader does debayer + normalize + stretch.
+                            // 2. Pass raw image to GPU: shader does debayer + normalize + stretch.
                             //    Star detection runs on raw channel 0 (works for both mono and Bayer).
                             FrameMetrics metrics = default;
                             if (i < _lastCapturedImages.Length)
@@ -709,9 +709,9 @@ internal partial record Session
             }
 
             // Observe + decide flip action.
-            // For AcrossMeridian targets: composite check (obstruction zone + HA window + pier change) —
+            // For AcrossMeridian targets: composite check (obstruction zone + HA window + pier change); 
             //   trust observed state so a firmware auto-flip / handbox / track-past-meridian all work.
-            // For non-AcrossMeridian targets: keep the legacy HA-jump detection — if the pier side
+            // For non-AcrossMeridian targets: keep the legacy HA-jump detection, if the pier side
             //   changes unexpectedly, abort the target.
             var flipAction = FlipAction.Continue;
             if (isGermanEquatorial && !await CatchAsync(mount.Driver.IsSlewingAsync, cancellationToken))
@@ -725,7 +725,7 @@ internal partial record Session
                         && currentPier != pierSideAtSlewTime;
 
                     // Is the mount already on the destination side for where it points? If so, no flip is
-                    // needed even though HA is past the meridian — we slewed straight to a target that had
+                    // needed even though HA is past the meridian: we slewed straight to a target that had
                     // already crossed (joined an in-progress AcrossMeridian observation), or we are already
                     // re-acquired on the new side. Without this, a mount whose reported pier side never
                     // changes (SkyWatcher: Dec-encoder Normal throughout a west track) flips forever.
@@ -753,7 +753,7 @@ internal partial record Session
                 }
                 else if (!await mount.Driver.IsOnSamePierSideAsync(hourAngleAtSlewTime, cancellationToken))
                 {
-                    // Out-of-band pier-side change for a target that wasn't supposed to cross — abort.
+                    // Out-of-band pier-side change for a target that wasn't supposed to cross; abort.
                     flipAction = FlipAction.CommandFlip;
                 }
             }
@@ -784,7 +784,7 @@ internal partial record Session
 
                         if (remaining > TimeSpan.FromSeconds(30))
                         {
-                            // >30s remaining — abort to flip promptly; ≤30s — wait and save the frame to avoid wasting integration time
+                            // >30s remaining, abort to flip promptly; ≤30s, wait and save the frame to avoid wasting integration time
                             _logger.LogInformation("Aborting exposure on camera #{CameraNumber} ({Remaining:F0}s remaining of {Total}s).",
                                 i + 1, remaining.TotalSeconds, total.TotalSeconds);
                             if (camDriver.CanAbortExposure)
@@ -798,7 +798,7 @@ internal partial record Session
                         }
                         else
                         {
-                            // Nearly done — wait for it to finish and save the frame
+                            // Nearly done: wait for it to finish and save the frame
                             _logger.LogInformation("Waiting for exposure on camera #{CameraNumber} to finish ({Remaining:F0}s remaining).", i + 1, remaining.TotalSeconds);
                             await _timeProvider.SleepAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, cancellationToken);
                             if (await ResilientInvokeAsync(
@@ -821,7 +821,7 @@ internal partial record Session
                     if (flipResult.Success)
                     {
                         hourAngleAtSlewTime = flipResult.HourAngle;
-                        // A flip happened (commanded or detected) — never flip again for this target.
+                        // A flip happened (commanded or detected), never flip again for this target.
                         hasFlipped = true;
                         MeridianFlipCount++;
                         // Update the pier-side baseline so the next out-of-band-flip detection
@@ -1026,7 +1026,7 @@ internal partial record Session
 
     /// <summary>
     /// Advances the filter cursor forward (ascending) or backward (descending) through
-    /// the altitude ladder. Clamps at the ends — once the ladder is fully traversed,
+    /// the altitude ladder. Clamps at the ends, once the ladder is fully traversed,
     /// stays on the last filter (narrowband at low alt, or luminance at peak).
     /// </summary>
     private static int AdvanceFilterCursor(ref int cursor, int planLength, bool ascending)
@@ -1135,7 +1135,7 @@ internal partial record Session
     /// has flipped (retries if needed), then restarts guiding.
     /// After a GEM flip the DEC guide axis is reversed; the guider is responsible for detecting
     /// the flip and adjusting its calibration accordingly (e.g., PHD2's "reverse Dec after flip").
-    /// When <paramref name="alreadyFlipped"/> is <c>true</c> the re-slew is skipped — the mount
+    /// When <paramref name="alreadyFlipped"/> is <c>true</c> the re-slew is skipped; the mount
     /// has already physically flipped (firmware auto-flip past limit, handbox press, or a prior
     /// <c>:MNe</c>/<c>:MNw</c>) and we just need to plate-solve recenter and restart the guider.
     /// </summary>
@@ -1156,7 +1156,7 @@ internal partial record Session
 
         if (alreadyFlipped)
         {
-            // Mount already on the new pier side — skip the re-slew; just centre + restart guider.
+            // Mount already on the new pier side: skip the re-slew; just centre + restart guider.
             return await CompleteMeridianFlipAsync(observation, cancellationToken);
         }
 
@@ -1211,7 +1211,7 @@ internal partial record Session
                 ResilientCallOptions.IdempotentRead, cancellationToken);
             _logger.LogInformation("Meridian flip: slew complete, HA={NewHA:F4}h (attempt {Attempt}).", newHourAngle, attempt);
 
-            // Verify the HA is now positive (west of meridian) — the flip actually happened
+            // Verify the HA is now positive (west of meridian); the flip actually happened
             if (newHourAngle > 0)
             {
                 return await CompleteMeridianFlipAsync(observation, cancellationToken);
@@ -1303,7 +1303,7 @@ internal partial record Session
             return null;
         }
 
-        // Target is rising — scan forward to find when it clears the threshold
+        // Target is rising: scan forward to find when it clears the threshold
         var elapsed = step;
         var prevAlt = altNext;
         while (elapsed < maxLookahead)
@@ -1402,7 +1402,7 @@ internal partial record Session
     /// for star-to-catalog matching.
     /// </summary>
     /// <remarks>
-    /// Results are cached per (sensor, filter, sensorType) across frames — the
+    /// Results are cached per (sensor, filter, sensorType) across frames; the
     /// system throughput and WCS don't change when imaging the same target with
     /// the same camera and filter.
     /// </remarks>

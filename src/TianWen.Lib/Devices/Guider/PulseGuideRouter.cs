@@ -31,7 +31,7 @@ internal sealed class PulseGuideRouter : IPulseGuideTarget
                 ? false
                 : throw new InvalidOperationException("PulseGuideSource.Mount requires a mount that supports pulse guiding."),
 
-            // Auto prefers the mount: mount CanPulseGuide means the mount itself moves —
+            // Auto prefers the mount: mount CanPulseGuide means the mount itself moves; 
             // verifiable. Camera CanPulseGuide only proves an ST-4 *socket* exists (SDKs
             // report HasST4Port); it cannot know whether a guide cable is plugged in, and
             // pulses into an unconnected socket are silent no-ops that wedge guiding.

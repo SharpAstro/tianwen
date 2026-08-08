@@ -1,4 +1,4 @@
-# Lzip.Lib — managed lzip codec sibling repo (plan)
+# Lzip.Lib: managed lzip codec sibling repo (plan)
 
 **Status: COMPLETE.** P1 **DONE** (repo `SharpAstro/Lzip.Lib`, decoder, published `Lzip.Lib 1.0.21`).
 P1.5 **DONE** (TianWen runtime re-pointed; in-tree `LzipDecoder` deleted; PR #75). P2 **DONE**

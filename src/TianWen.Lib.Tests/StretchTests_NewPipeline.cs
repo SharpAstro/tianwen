@@ -23,7 +23,7 @@ namespace TianWen.Lib.Tests;
 /// + Tycho-2/SPCC WB + background neutralization + Fritsch-Carlson curve LUT + HDR knee).
 ///
 /// Drives the pipeline through <see cref="AstroImageDocument.ComputeStretchUniforms"/> and
-/// <see cref="Image.RenderStretchedRgba"/> — the CPU mirror of the GLSL fragment shader.
+/// <see cref="Image.RenderStretchedRgba"/>: the CPU mirror of the GLSL fragment shader.
 /// Writes a TIFF per case to the temp test output dir so the visual result of each
 /// pipeline feature can be inspected.
 /// </summary>
@@ -50,7 +50,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         var fitsImage = await SharedTestData.ExtractGZippedFitsImageAsync(Fixture, cancellationToken: ct);
         var doc = await AstroImageDocument.AdoptImageAsync(fitsImage, DebayerAlgorithm.None, cancellationToken: ct);
 
-        // Star detection populates StarMaskedStats and a star-masked PerChannelBackground —
+        // Star detection populates StarMaskedStats and a star-masked PerChannelBackground; 
         // both required for convergence + background neutralization to behave realistically.
         await doc.DetectStarsAsync(ct);
 
@@ -85,7 +85,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         if (applyBgNeut)
         {
             // Real gains for this fixture are near-identity (~1, 1, 1) because Vela's
-            // per-channel pedestal-subtracted backgrounds are nearly equal — that's what bg
+            // per-channel pedestal-subtracted backgrounds are nearly equal; that's what bg
             // neutralization should look like on a clean fixture. Inventing larger non-identity
             // gains here is a trap: the pivot1 formula `out = norm * g + (1 - g)` breaks when g
             // doesn't come from the actual bg level (drives bg pixels negative -> clamped to 0
@@ -214,11 +214,11 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         output.WriteLine($"  per-channel means: R={rMean:F2} G={gMean:F2} B={bMean:F2}");
         output.WriteLine($"  per-channel ranges: R=[{chMin[0]},{chMax[0]}] G=[{chMin[1]},{chMax[1]}] B=[{chMin[2]},{chMax[2]}]");
 
-        // Pipeline produced signal — not all-zero, not all-255, varies across the frame.
-        maxByte.ShouldBeGreaterThan((byte)0, "pipeline produced pure black — no signal");
-        minByte.ShouldBeLessThan((byte)255, "pipeline produced pure white — clamp broken or all pixels saturated");
+        // Pipeline produced signal, not all-zero, not all-255, varies across the frame.
+        maxByte.ShouldBeGreaterThan((byte)0, "pipeline produced pure black, no signal");
+        minByte.ShouldBeLessThan((byte)255, "pipeline produced pure white, clamp broken or all pixels saturated");
         (maxByte - minByte).ShouldBeGreaterThan(10, "RGB output should have some dynamic range");
-        // Each channel has signal (not collapsed to 0 or saturated to 255) — catches per-channel
+        // Each channel has signal (not collapsed to 0 or saturated to 255); catches per-channel
         // bugs like the WB-shadow-mismatch which zeroed a single channel.
         rMean.ShouldBeGreaterThan(0.5, "R channel signal should not collapse");
         gMean.ShouldBeGreaterThan(0.5, "G channel signal should not collapse");
@@ -252,8 +252,8 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
     /// <summary>
     /// Writes an RGBA byte buffer as both lossless 8-bit RGB TIFF (Deflate-compressed,
     /// preserves every byte for diff-against-GLSL) and PNG (easier to view in any image
-    /// browser; replaces the prior JPEG quality-90 emit — PNG is lossless, viewable in
-    /// every browser, and DIR.Lib already ships a writer). Both write via DIR.Lib —
+    /// browser; replaces the prior JPEG quality-90 emit; PNG is lossless, viewable in
+    /// every browser, and DIR.Lib already ships a writer). Both write via DIR.Lib; 
     /// Magick.NET isn't on the path here.
     /// </summary>
     private async Task WriteRgbaAsync(byte[] rgba, int width, int height, string testDir, string namePrefix, CancellationToken ct)
@@ -270,7 +270,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         output.WriteLine($"Wrote {pngBytes.Length} bytes -> {pngPath}");
     }
 
-    // Cache the catalog DB across all SPCC runs in this assembly — InitDBAsync waits for the
+    // Cache the catalog DB across all SPCC runs in this assembly; InitDBAsync waits for the
     // Tycho-2 bulk load (~seconds) which dominates wall-clock when run cold.
     private static ICelestialObjectDB? _cachedDb;
     private static readonly SemaphoreSlim _dbSem = new(1, 1);
@@ -318,7 +318,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         await loadFilterDb;
         var db = await dbTask;
 
-        // M45 (Pleiades) — open cluster with a few hundred Tycho-2 stars in a 2-deg field.
+        // M45 (Pleiades): open cluster with a few hundred Tycho-2 stars in a 2-deg field.
         // Plenty of bright matches for SPCC photometry.
         const double targetRA = 3.79f;          // hours
         const double targetDec = 24.10f;        // degrees
@@ -339,9 +339,9 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         // RenderBayer applies BMinusVToRGB (blackbody approximation) per star and modulates the
         // CFA pattern accordingly, so debayering produces stars whose per-channel flux ratios
         // genuinely vary by spectral type. SPCC measures those ratios and compares against
-        // Pickles SEDs integrated through (IMX533 QE x Sony CFA) — different model, different
+        // Pickles SEDs integrated through (IMX533 QE x Sony CFA); different model, different
         // throughput shape, so the fitted WB compensates for the mismatch (i.e., is non-trivial).
-        // hyperbolaA=4 gives an ~4-pixel FWHM PSF — bigger stars are more visible at thumbnail
+        // hyperbolaA=4 gives an ~4-pixel FWHM PSF: bigger stars are more visible at thumbnail
         // resolution and easier to inspect than 1.5-pixel pinpoints.
         var bayerData = SyntheticStarFieldRenderer.RenderBayer(
             width, height,
@@ -401,7 +401,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         output.WriteLine($"Star detection: {doc.Stars?.Count ?? 0} stars in {sw.Elapsed.TotalMilliseconds:F0}ms");
         (doc.Stars?.Count ?? 0).ShouldBeGreaterThan(20, "synthetic field should yield enough detections for SPCC");
 
-        // Drive the SPCC pipeline through the document — uses BuildChannelThroughputs (IMX533 QE x
+        // Drive the SPCC pipeline through the document: uses BuildChannelThroughputs (IMX533 QE x
         // Sony CFA per channel) + Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance.
         var (matchCount, diag) = await doc.ComputeSpccColorCalibrationAsync(db, ct);
         output.WriteLine($"SPCC: matchCount={matchCount}  diag={diag}  ColorCalibration={(doc.ColorCalibration is { } cc ? $"({cc.R:F4},{cc.G:F4},{cc.B:F4})" : "null")}");
@@ -410,7 +410,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         // Verify the SPCC fit is sane: clamps to [0.5, 2.0] (Tycho2ColorCalibration.ComputeMultipliers),
         // green is normalised to 1, and the result is non-trivial (not identity (1,1,1)) since the
         // synth applied per-star B-V via blackbody while SPCC measures via Pickles SED through
-        // (IMX533 QE x Sony CFA) — different models produce a meaningful WB.
+        // (IMX533 QE x Sony CFA): different models produce a meaningful WB.
         var wb = doc.ColorCalibration!.Value;
         wb.G.ShouldBe(1f, 1e-4f, "green channel is the WB anchor");
         wb.R.ShouldBeInRange(0.5f, 2f, "red WB clamped to algorithm bounds");
@@ -418,7 +418,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         (Math.Abs(wb.R - 1f) + Math.Abs(wb.B - 1f)).ShouldBeGreaterThan(0.02f,
             "SPCC should produce non-identity WB on a synthesis where the model differs from BMinusVToRGB");
         // Synth bg is very slightly blue (R=0.073, G=0.092, B=0.101) and stars span B-V values
-        // skewing toward the red end via Pickles SEDs vs blackbody — net SPCC effect should be
+        // skewing toward the red end via Pickles SEDs vs blackbody; net SPCC effect should be
         // boosting R and reducing B (or close to it). A WB that does the opposite means the
         // photometry path is mis-aligned.
         wb.R.ShouldBeGreaterThan(1f, "SPCC on this synthesis should boost the underexposed-red channel");
@@ -449,7 +449,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         debayered.RenderStretchedRgba(uniforms, rgba);
 
         // Per-channel byte stats. After WB+convergence the rendered bg should be roughly
-        // colour-neutral (R/G/B means within a few % of each other) — that's the whole point
+        // colour-neutral (R/G/B means within a few % of each other); that's the whole point
         // of WB. A persistent colour cast in the rendered output means WB and the stretch
         // params are derived in mismatched coordinate spaces.
         byte minByte = 255, maxByte = 0;
@@ -481,11 +481,11 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         // SPCC fits WB to make STAR colours match expected SED-through-throughput ratios; it
         // does NOT promise a colour-neutral background. For the synthetic field, stars use a
         // blackbody approximation (BMinusVToRGB) while SPCC measures via Pickles SED through
-        // (IMX533 QE x Sony CFA) — different models, so the fitted WB compensates for stars
+        // (IMX533 QE x Sony CFA): different models, so the fitted WB compensates for stars
         // and may slightly amplify the bg cast. (To neutralise the bg you'd run
         // ComputeColorCalibrationAsync sky-bg WB instead.) We therefore assert:
         //   * Each channel has signal in both shadows and highlights (no clamp-to-black/white).
-        //   * The post-stretch ratios stay within 2x — gross failures (e.g. pure red, pure
+        //   * The post-stretch ratios stay within 2x: gross failures (e.g. pure red, pure
         //     yellow, channel completely zeroed) breach this.
         var maxMean = Math.Max(rMean, Math.Max(gMean, bMean));
         var minMean = Math.Min(rMean, Math.Min(gMean, bMean));
@@ -587,7 +587,7 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         output.WriteLine($"blend=0.5 mid:    R={meansMid.R:F2} G={meansMid.G:F2} B={meansMid.B:F2}");
         output.WriteLine($"blend=1   luma:   R={meansLuma.R:F2} G={meansLuma.G:F2} B={meansLuma.B:F2}");
 
-        // Distinct buffers — the three blend levels must produce different outputs (otherwise
+        // Distinct buffers: the three blend levels must produce different outputs (otherwise
         // the blend path isn't wired in).
         BufferDifference(rgbaLinked, rgbaMid).ShouldBeGreaterThan(0L, "blend=0 vs blend=0.5 must differ");
         BufferDifference(rgbaLuma, rgbaMid).ShouldBeGreaterThan(0L, "blend=1 vs blend=0.5 must differ");

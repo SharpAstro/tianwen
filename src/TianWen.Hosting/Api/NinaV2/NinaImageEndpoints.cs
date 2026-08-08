@@ -17,7 +17,7 @@ internal static class NinaImageEndpoints
     {
         var group = routes.MapGroup("/v2/api");
 
-        // GET /v2/api/image-history — exposure log in ninaAPI format
+        // GET /v2/api/image-history: exposure log in ninaAPI format
         group.MapGet("/image-history", (IHostedSession hosted) =>
         {
             if (hosted.CurrentSession is not { } session)
@@ -39,7 +39,7 @@ internal static class NinaImageEndpoints
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaImageHistoryDtoArray);
         });
 
-        // GET /v2/api/prepared-image — last captured image as JPEG
+        // GET /v2/api/prepared-image: last captured image as JPEG
         // Params: quality (int, 1-100), resize (bool), scale (double)
         group.MapGet("/prepared-image", async (IHostedSession hosted, int? quality, double? scale, CancellationToken ct) =>
         {

@@ -1,4 +1,4 @@
-# PLAN: Image stacking — calibration, registration, normalization, rejection, integration
+# PLAN: Image stacking, calibration, registration, normalization, rejection, integration
 
 ## Goal
 
@@ -7,7 +7,7 @@ bias/dark/flat generation, per-light calibration, star-based registration with
 sub-pixel warp, intensity normalization, per-pixel outlier rejection, and final
 integration. Cover both batch (post-session) and live (during-session) workflows.
 
-Reference implementation: SetiAstroSuitePro (Python — see `../../other/setiastrosuitepro/`).
+Reference implementation: SetiAstroSuitePro (Python, see `../../other/setiastrosuitepro/`).
 Match feature parity for the core algorithms, but redesign for SIMD / tile-pipelined
 async / strong-typed Span\<float\> in C#.
 
@@ -23,7 +23,7 @@ async / strong-typed Span\<float\> in C#.
   wavelet sharpening, and a rolling-window live path).
 - **Dark scaling by exposure**. SetiAstro doesn't do it either; nearest-match selection
   is enough for amateur data. Revisit only if users report mismatched-darks artifacts.
-- **Cosmetic correction / satellite masking**. Useful but orthogonal — add later as
+- **Cosmetic correction / satellite masking**. Useful but orthogonal; add later as
   pre-rejection filters.
 
 ## Architecture
@@ -38,7 +38,7 @@ GUI tab and by the live-session capture loop without duplication.
 (rejection per-pixel column stats, multi-frame median pass, calibration
 arithmetic). `TensorPrimitives` is fine for one-shot whole-array ops we already
 use (scalar multiply, sum), but the rejection kernels have masked stats +
-iterative reject passes that need direct vectorised control — `Vector<float>`
+iterative reject passes that need direct vectorised control; `Vector<float>`
 + `Vector<int>` masks beat the framework wrapper for those. Reference: the
 existing `TensorPrimitives.Multiply` site in `Image.cs:87-88` for the shape of
 SIMD code we already ship.
@@ -78,11 +78,11 @@ flowchart LR
 ```
 
 **Disk discipline (diverges from SetiAstro).** SetiAstro writes a full
-calibrated FITS per light then a full aligned FITS per light before integrating
-— ~22 GB of intermediates for a 100-frame 3008² RGB session. We don't.
+calibrated FITS per light then a full aligned FITS per light before integrating:
+~22 GB of intermediates for a 100-frame 3008² RGB session. We don't.
 
 Disk-resident artifacts (small):
-- Master bias / dark / flat — one per group, written once, reused across sessions
+- Master bias / dark / flat: one per group, written once, reused across sessions
 - `<light>.match.json` sidecar next to each raw light: `Matrix3x2` transform to
   the reference frame, per-frame median / sigma / star count for rejection
   weighting, registration quality score
@@ -93,19 +93,19 @@ Pixels are tile-pipelined in memory only: for each output tile region, read the
 corresponding padded source tile from each raw light (memory-mapped via
 `Image.Fits.cs`), apply calibration + warp + normalize + reject + combine,
 write the tile to the output buffer. Memory budget per tile = `frames × tileH ×
-tileW × channels × 4 bytes` — ~78 MB for 100 frames × 256² × 3ch, comfortably
+tileW × channels × 4 bytes`: ~78 MB for 100 frames × 256² × 3ch, comfortably
 fits in RAM. Tile sizing via `compute_safe_chunk` derives from
 `GC.GetGCMemoryInfo()`.
 
 Re-running integration with a different rejector is a single re-read of the raw
-lights + the cached `.match.json` transforms — no recompute of calibration or
+lights + the cached `.match.json` transforms; no recompute of calibration or
 registration. That's the value of keeping the small mapping files on disk.
 
 ## Memory provisioning
 
 Three tiers of pressure → three responses:
 
-### Tier 1 — Many frames (50–500), normal output (≤ 4K square)
+### Tier 1: Many frames (50–500), normal output (≤ 4K square)
 
 Tile size adapts via `ComputeSafeChunkSide`:
 
@@ -126,13 +126,13 @@ same budget grows the tile to 2.3 K. Floor at 64 px to keep per-tile overhead
 amortised; ceiling at 2048 to keep the column-rejection inner loop in cache.
 Already in the plan as Phase 8's tile sizer.
 
-### Tier 2 — Big output, normal frame count (mosaic master, 8K+ square)
+### Tier 2: Big output, normal frame count (mosaic master, 8K+ square)
 
-The output buffer itself blows the budget — 16K × 16K × 3ch float32 = 3 GB.
+The output buffer itself blows the budget: 16K × 16K × 3ch float32 = 3 GB.
 Today `WriteToFitsFile` (`Image.Fits.cs:224`) builds the whole output array in
 RAM; for big mosaics that fails.
 
-**Fix: memory-mapped output FITS.** FITS structure is mmap-friendly — header is a
+**Fix: memory-mapped output FITS.** FITS structure is mmap-friendly; header is a
 fixed-size 2880-byte-block prefix, data region is raw row-major pixels with
 `BITPIX = -32` and channel planes back-to-back, no compression in the standard
 write path. Strategy:
@@ -140,7 +140,7 @@ write path. Strategy:
 1. `MasterFitsWriter` writes the FITS header (via existing FITS.Lib) with a
    zero-filled data region of the correct final size.
 2. Reopen the file via `MemoryMappedFile.CreateFromFile(path, FileMode.Open,
-   mapName: null, capacity: 0)` — capacity 0 = use file size.
+   mapName: null, capacity: 0)`; capacity 0 = use file size.
 3. Acquire a `MemoryMappedViewAccessor` over the data region (offset = header
    length, length = `imageW × imageH × channels × 4`).
 4. Integrator writes each tile via
@@ -167,12 +167,12 @@ Two concrete: `ArraySink` (the typical case, holds `float[c][h, w]`) and
 CLI `--out-of-core-output` flag, or the orchestrator auto-picks when output
 size > 1 GB.
 
-### Tier 3 — Column stack alone exceeds RAM (500-frame mosaic at 16K²)
+### Tier 3: Column stack alone exceeds RAM (500-frame mosaic at 16K²)
 
 The per-tile column for 500 frames at the 64 px floor = 500 × 64² × 3 × 4 =
 24.5 MB per tile. Fine. But at a 8 px tile it'd be 384 KB per tile and
 processing becomes dominated by per-tile overhead. If even 8 px doesn't fit
-(frames × ch × 4 > budget — never in practice with 8 GB free), we need:
+(frames × ch × 4 > budget, never in practice with 8 GB free), we need:
 
 **Multi-pass chunked integration** behind a `--chunked N` flag:
 
@@ -182,7 +182,7 @@ processing becomes dominated by per-tile overhead. If even 8 px doesn't fit
 3. Combine the K partials with weighted-mean: `final = Σ(value_k × weight_k) / Σ weight_k`.
 
 **Correctness caveat**: per-chunk rejection is not equivalent to across-all-frames
-rejection — a pixel that's an outlier vs the full distribution may not be one
+rejection; a pixel that's an outlier vs the full distribution may not be one
 within its chunk. SetiAstro doesn't address this either; PixInsight has a
 "large set integration" mode that does a two-pass approach (first pass = robust
 stats per pixel, second pass = reject vs the pooled stats). Worth porting for
@@ -207,7 +207,7 @@ Verified 2026-05-14 against `src/`:
 | 7 | Streaming frame loader | ⚠️ | `TryReadFitsFile` is one-at-a-time, synchronous |
 | 8 | Rejection algorithms | ❌ | Nothing |
 | 9 | Drizzle / sub-pixel placement | ❌ | Out of scope v1 |
-| 10 | Live stacking accumulator | ❌ | Nothing — `TODO.md:267` flags it |
+| 10 | Live stacking accumulator | ❌ | Nothing: `TODO.md:267` flags it |
 | 11 | FITS write (BAYERPAT, FRAMETYP, WCS, etc.) | ✅ | `Image.Fits.cs:224-419` |
 | 12 | Bayer split (4 sub-channels for pre-debayer stack) | ⚠️ | Debayer-to-RGB only; no per-Bayer-channel split |
 
@@ -217,18 +217,18 @@ master generation, live accumulator) is entirely new code.
 
 ## New primitives needed
 
-Listed in dependency order — each builds on the ones above.
+Listed in dependency order, each builds on the ones above.
 
 ### A. `Image` ↔ `Image` arithmetic (`TianWen.Lib.Imaging`)
 
 New file `Image.Arithmetic.cs`. Methods:
 
-- `Image.Subtract(Image other, float pedestal = 0f)` — light − bias / dark
-- `Image.Divide(Image other)` — light / flat (normalized to ~1.0 mean)
-- `Image.Multiply(float scalar)` — already exists, expose properly
-- `Image.AddInPlace(Image other)` — for live-stack accumulation
+- `Image.Subtract(Image other, float pedestal = 0f)`: light − bias / dark
+- `Image.Divide(Image other)`: light / flat (normalized to ~1.0 mean)
+- `Image.Multiply(float scalar)`: already exists, expose properly
+- `Image.AddInPlace(Image other)`, for live-stack accumulation
 
-Use `TensorPrimitives` (System.Numerics) for SIMD — same library already used in
+Use `TensorPrimitives` (System.Numerics) for SIMD; same library already used in
 the scalar-multiply path. Output is a new `Image` so callers can keep the inputs
 immutable. Shape mismatch throws. NaN propagation matches the source convention
 (stacked-image NaN borders are already anticipated per `TODO.md:267`).
@@ -237,14 +237,14 @@ immutable. Shape mismatch throws. NaN propagation matches the source convention
 
 Extend `StatisticsHelper` with:
 
-- `MedianOfStack(ReadOnlySpan<float> column)` — median of one per-pixel column from N frames
-- `WinsorizedMean(ReadOnlySpan<float> column, float kappa)` — for Winsorized-sigma rejection
+- `MedianOfStack(ReadOnlySpan<float> column)`: median of one per-pixel column from N frames
+- `WinsorizedMean(ReadOnlySpan<float> column, float kappa)`, for Winsorized-sigma rejection
 
 These run inside the tile reduce loop, not per-image.
 
 ### C. Frame loader (`TianWen.Lib.Imaging.Calibration`)
 
-New `IFrameSource` interface + concrete implementations. `IAsyncEnumerable<Image>` —
+New `IFrameSource` interface + concrete implementations. `IAsyncEnumerable<Image>`;
 streaming, one frame in memory at a time (or N in a small windowed buffer for
 median computation that needs all). Concrete: `FitsFolderFrameSource(string folder)`
 filters by `FrameType` header (via existing `Image.Fits.cs` reader). Avoids loading
@@ -252,7 +252,7 @@ all N frames before processing.
 
 ### D. Calibration application (`TianWen.Lib.Imaging.Calibration`)
 
-`Calibrator(Image? bias, Image? dark, Image? flat)` — pure function with two
+`Calibrator(Image? bias, Image? dark, Image? flat)`: pure function with two
 modes: `Apply(Image light)` for whole-frame use (master flat normalization,
 verification tests) and `ApplyTile(ReadOnlySpan<float> src, RectI region, Span<float> dst)`
 for the integration hot path. Validates flat normalization (median ≈ 1.0);
@@ -262,17 +262,17 @@ prevent negative pixels when the dark mean exceeds the light's background.
 The whole-frame mode is used by `MasterFrameBuilder` (which has to read each
 calibration frame in full anyway). The tile mode is used by the `Integrator`
 inner loop so calibration runs over the same tile slice as warp + normalize +
-reject — no full calibrated image ever materialises.
+reject; no full calibrated image ever materialises.
 
 ### E. Master generation (`TianWen.Lib.Imaging.Calibration`)
 
-`MasterFrameBuilder.BuildBiasMasterAsync(IFrameSource, …)` — windowed median
+`MasterFrameBuilder.BuildBiasMasterAsync(IFrameSource, …)`: windowed median
 combine. Bias has no rejection (super-fast frames, low signal variance). Returns
 `Image` ready to write as master FITS.
 
-`BuildDarkMasterAsync` — same as bias.
+`BuildDarkMasterAsync`: same as bias.
 
-`BuildFlatMasterAsync` — per-frame normalization to mean=1.0 first (Bayer-aware:
+`BuildFlatMasterAsync`: per-frame normalization to mean=1.0 first (Bayer-aware:
 per-quadrant for RGGB to keep CFA balance), then median combine. Stamps
 `FRAMETYP=MasterFlat` + grouping keys (exposure, temp, filter) in the header.
 
@@ -283,7 +283,7 @@ embed the group: `master_dark_300s_-10C_2026-05-14.fits`.
 ### F. Normalization (`TianWen.Lib.Imaging.Stacking`)
 
 Port SetiAstro's `normalize_images`: per-frame `(frame − min_luma) × (target_median / median_luma)`.
-Luma weights via existing `LumaWeighting` enum (Rec.709 default — same as SetiAstro).
+Luma weights via existing `LumaWeighting` enum (Rec.709 default, same as SetiAstro).
 Applied to each frame just before tile integration.
 
 ### G. Registration metadata persistence (`TianWen.Lib.Imaging.Stacking`)
@@ -319,11 +319,11 @@ public interface IPixelRejector
 
 Implementations: `SigmaClipRejector(low, high, iterations)`, `WinsorizedSigmaRejector`,
 `PercentileClipRejector`, `EsdRejector` (port SetiAstro's quartic `_soft_outlier_weight`).
-Default: SigmaClip(3.0, 3.0, 5) — matches SetiAstro's default. Inner loop uses
+Default: SigmaClip(3.0, 3.0, 5); matches SetiAstro's default. Inner loop uses
 `Vector<float>` explicitly: load mask-and-data in lockstep, compute Σ + Σx² over
 the unrejected lane subset, broadcast the κ band, generate the new rejection
 mask via `Vector.GreaterThan` / `Vector.LessThan`. The masked-stats kernel is
-the hottest loop in the whole pipeline — benchmark first, optimize second.
+the hottest loop in the whole pipeline; benchmark first, optimize second.
 
 ### I. Tile-pipelined integrator (`TianWen.Lib.Imaging.Stacking`)
 
@@ -348,7 +348,7 @@ the hottest loop in the whole pipeline — benchmark first, optimize second.
    are the slowest step; overlap them with compute via `Channel`.
 
 Output: `IntegrationResult { Image Master, Image RejectionMap, IntegrationStats Stats }`.
-FITS writer emits MEF (primary HDU = master, extension HDU = rejection map) —
+FITS writer emits MEF (primary HDU = master, extension HDU = rejection map);
 SetiAstro pattern, but ours never wrote intermediate FITS so the diff is just
 this final output file plus the per-light `.match.json` sidecars from Phase 5.
 
@@ -356,12 +356,12 @@ this final output file plus the per-light `.match.json` sidecars from Phase 5.
 
 `LiveStacker` holds Welford state (`mu`, `m2`) per pixel as
 `Float32HxWImageData mu` + `Float32HxWImageData m2` + `int n`. Bootstrap phase
-(first 24 frames per SetiAstro): plain running mean — no rejection until we have
+(first 24 frames per SetiAstro): plain running mean; no rejection until we have
 enough samples for σ. Then: mu-sigma clip with κ=3 (replace outlier with current
-`mu`, not skip — matches SetiAstro). Two `ImmutableArray<float>` snapshots
+`mu`, not skip; matches SetiAstro). Two `ImmutableArray<float>` snapshots
 exposed for UI: `MeanImage` (display) and `StdDevImage` (quality diagnostic).
 
-Per-filter sub-stacks for narrowband (SHO/HOO/OSH compositing) — defer to a v2 of
+Per-filter sub-stacks for narrowband (SHO/HOO/OSH compositing); defer to a v2 of
 the live path; v1 single-filter only.
 
 ### K. Bayer pre-debayer stacking (deferred, but reserve the seam)
@@ -386,24 +386,24 @@ the CLI engine is stable.
 
 | Phase | Scope | Depends on | LOC | Risk |
 |---|---|---|---|---|
-| 1 | `Image.Arithmetic.cs` — Subtract / Divide / Multiply / AddInPlace (`Vector<float>`) | — | ~150 | Low |
-| 2 | `IFrameSource` + `FitsFolderFrameSource` (streaming) + memmap tile reader | — | ~250 | Low |
-| 3 | `MasterFrameBuilder` (bias / dark / flat) + `MasterGroupKey` | 1, 2 | ~300 | Medium — Bayer flat norm |
+| 1 | `Image.Arithmetic.cs`, Subtract / Divide / Multiply / AddInPlace (`Vector<float>`) | - | ~150 | Low |
+| 2 | `IFrameSource` + `FitsFolderFrameSource` (streaming) + memmap tile reader | - | ~250 | Low |
+| 3 | `MasterFrameBuilder` (bias / dark / flat) + `MasterGroupKey` | 1, 2 | ~300 | Medium: Bayer flat norm |
 | 4 | `Calibrator` whole-frame + `ApplyTile` (Span-based) | 1 | ~120 | Low |
-| 5 | `Registrator` + `RegistrationResult` + `.match.json` sidecar | — | ~200 | Low — uses `Image.Transform` |
-| 6 | `Normalizer` (luma-median match, BT.709) | — | ~100 | Low |
-| 7 | `IPixelRejector` + `SigmaClipRejector` (`Vector<float>` masked stats) | — | ~200 | Medium |
-| 8 | `Integrator` — tile-pipelined read→calibrate→warp→normalize→reject→combine | 1–7 | ~500 | High |
+| 5 | `Registrator` + `RegistrationResult` + `.match.json` sidecar | - | ~200 | Low, uses `Image.Transform` |
+| 6 | `Normalizer` (luma-median match, BT.709) | - | ~100 | Low |
+| 7 | `IPixelRejector` + `SigmaClipRejector` (`Vector<float>` masked stats) | - | ~200 | Medium |
+| 8 | `Integrator`: tile-pipelined read→calibrate→warp→normalize→reject→combine | 1–7 | ~500 | High |
 | 9 | MEF FITS write + `IIntegrationSink` interface + `ArraySink` | 8 | ~150 | Low |
 | 10 | `MemoryMappedFitsSink` for tier-2 big-output stacks | 9 | ~150 | Medium |
 | 11 | Additional rejectors: Winsorized, Percentile, ESD | 7 | ~250 | Medium |
 | 12 | Additional combiners: median, exposure-weighted mean | 8 | ~80 | Low |
 | **13** | **CLI: `tianwen stack` orchestrator** | 3, 4, 5, 8, 9 | ~250 | Low |
-| 14 | `LiveStacker` engine — Welford online accumulator (pure math) | 1, 4, 5, 6 | ~250 | Medium |
-| 15 | Session integration — `SessionConfiguration.LiveStacking*` config, per-target lifecycle, `LiveSessionTab` preview "show stack" toggle | 14 | ~300 | Medium |
-| 16 | Tier-3 `--chunked` multi-pass integration | 8, 9 | ~300 | Medium — correctness caveat |
+| 14 | `LiveStacker` engine: Welford online accumulator (pure math) | 1, 4, 5, 6 | ~250 | Medium |
+| 15 | Session integration: `SessionConfiguration.LiveStacking*` config, per-target lifecycle, `LiveSessionTab` preview "show stack" toggle | 14 | ~300 | Medium |
+| 16 | Tier-3 `--chunked` multi-pass integration | 8, 9 | ~300 | Medium: correctness caveat |
 
-End-to-end smoke ships at **phase 13** — calibration → registration → integration
+End-to-end smoke ships at **phase 13**: calibration → registration → integration
 with the default SigmaClip rejector + mean combiner, accessible via `tianwen stack`.
 Total to that milestone: ~2,520 LOC. Phase 10 (memmap output sink) unblocks
 mosaic-scale masters; phase 11 expands the rejector menu; phases 14 + 15
@@ -411,7 +411,7 @@ mosaic-scale masters; phase 11 expands the rejector menu; phases 14 + 15
 shows the accumulating stack during capture (per-target, automatic reset on
 target switch). Phase 16 (chunked tier-3) is gated on real user need.
 
-A standalone stacking GUI app is not in scope — the existing FITS viewer +
+A standalone stacking GUI app is not in scope; the existing FITS viewer +
 session live preview cover the user-facing UX for both batch (post-session
 inspect masters in the viewer) and live (preview pane during capture)
 workflows. If a dedicated stacking workbench becomes desirable later it
@@ -419,7 +419,7 @@ would be a separate project rather than an extension of tianwen.
 
 ### Phase 13: CLI orchestrator detail
 
-`TianWen.Cli/Commands/StackCommand.cs` — System.CommandLine subcommand. Pure
+`TianWen.Cli/Commands/StackCommand.cs`: System.CommandLine subcommand. Pure
 orchestration:
 
 ```bash
@@ -435,8 +435,8 @@ Steps the CLI runs:
 
 1. Glob lights / calibration folders.
 2. `MasterFrameBuilder.Build*Async` for bias/dark/flat groups missing masters.
-3. `Registrator.AlignAsync(lights, reference)` — writes `.match.json` sidecars.
-4. `Integrator.IntegrateAsync(...)` — emits the master + optional rejection map.
+3. `Registrator.AlignAsync(lights, reference)`: writes `.match.json` sidecars.
+4. `Integrator.IntegrateAsync(...)`: emits the master + optional rejection map.
 5. `Image.WriteToFitsFile(output)`.
 
 No pixel math, no FITS reading, no SIMD in `StackCommand.cs`. Progress reporting
@@ -449,7 +449,7 @@ through Pastel for the TTY.
 
 Match the existing scalar-multiply API for consistency. Span-based, SIMD via
 `TensorPrimitives`. New output `Image` (not in-place) for the immutable
-arithmetic — preserves Image's intended semantics. `AddInPlace` is the lone
+arithmetic; preserves Image's intended semantics. `AddInPlace` is the lone
 in-place exception for live-stack accumulation.
 
 ```csharp
@@ -458,13 +458,13 @@ public Image Divide(Image other);
 public void AddInPlace(Image other);
 ```
 
-Bayer awareness is not needed at this layer — bias/dark/flat are all "same-shape
+Bayer awareness is not needed at this layer; bias/dark/flat are all "same-shape
 operand" math. The Bayer concerns are pushed up to the flat-master normalization
 in phase 3.
 
 ### Phase 3: Master generation
 
-Flat masters need per-Bayer-quadrant normalization for CFA flats — the four
+Flat masters need per-Bayer-quadrant normalization for CFA flats; the four
 Bayer positions have different responses to the flat field (filter colour
 × sensor QE per position). Bayer pattern from `ImageMeta.SensorType` +
 `BayerOffsetX/Y`. Reuse the new `BayerMediansInRegion` helper from `Image.Histogram.cs`.
@@ -482,7 +482,7 @@ field (already exists) so downstream stretch / stats math can subtract it.
 
 ### Phase 7: SigmaClipRejector
 
-Per-pixel column iteration with explicit `Vector<float>` for the masked stats —
+Per-pixel column iteration with explicit `Vector<float>` for the masked stats;
 this is the rejection inner loop and runs `tileH × tileW` times per integration:
 
 ```csharp
@@ -516,7 +516,7 @@ public void Reject(Span<float> column, Span<int> mask /* 0 = kept, -1 = rejected
 
 Use `Span<int>` masks (`0` / `-1`) so the same vector becomes both a count and a
 multiplicative weight. Benchmark this against a scalar baseline before adding
-the other rejectors — if SIMD doesn't give a clear win for our typical
+the other rejectors, if SIMD doesn't give a clear win for our typical
 `frames ≤ 200`, the simpler scalar loop is fine and the other rejectors stay
 scalar too.
 
@@ -537,12 +537,12 @@ static int ComputeTileSide(int frameCount, int channelCount, long availableBytes
 via `Channel<TileSlice>`. Consumer pulls N slices for the same tile region and
 runs reject → combine. Output written into a pre-allocated master `float[,]`.
 
-This is the new-code high-water mark — write a focused PR with tests first
+This is the new-code high-water mark; write a focused PR with tests first
 (synthetic stack with known outliers, assert rejection map matches expectation).
 
 ### Phase 14: LiveStacker engine
 
-Welford online variance — port the exact `delta/mu/m2` lines from
+Welford online variance; port the exact `delta/mu/m2` lines from
 `live_stacking.py:1366`. Pure-math engine, no session or UI awareness;
 session-side wiring happens in phase 15.
 
@@ -566,7 +566,7 @@ public sealed class LiveStacker
 
 One `WelfordPixel[C * H * W]` array per channel. Bootstrap: first 24
 frames are plain `(prev_sum + x) / (n+1)`. After that: mu-sigma clip
-with κ=3 — outliers replaced by `Mu`, not skipped, so `N` increments
+with κ=3; outliers replaced by `Mu`, not skipped, so `N` increments
 uniformly and the variance estimate stays valid.
 
 Threading: producer (capture loop) calls `Accept` from the imaging
@@ -574,10 +574,10 @@ thread; consumer (UI render) reads `MeanSnapshot`. Snapshot rebuilds on
 `Accept` and stays immutable for readers; matches the project's "shared
 UI state = `ImmutableArray<T>` atomic replace" pattern (per CLAUDE.md).
 
-### Phase 15: Session integration — per-target live preview
+### Phase 15: Session integration, per-target live preview
 
 This is the **user-facing live stacking story**. Replaces the original
-plan's "GUI stacking tab" entirely — the existing `LiveSessionTab` in
+plan's "GUI stacking tab" entirely; the existing `LiveSessionTab` in
 `TianWen.UI.Abstractions` becomes the stacking UI.
 
 **Configuration:**
@@ -672,7 +672,7 @@ stack can toggle the config off.
 3. **Master location**: under `%LOCALAPPDATA%/TianWen/Masters/<group-key>/`? Or
    stay alongside the lights?
 
-4. ~~**UI surface**~~: **RESOLVED** — CLI-first (phase 13 `tianwen stack`) for
+4. ~~**UI surface**~~: **RESOLVED**. CLI-first (phase 13 `tianwen stack`) for
    batch; the live-session preview pane in `LiveSessionTab` gets a "show stack"
    toggle (phase 15) for during-capture viewing. No new "Stacking tab" needed.
 
@@ -753,21 +753,21 @@ producing a 3179×3159 canvas, 242 matched + 2 skipped, SigmaClipRejector, Float
 | → Warp | 12.4 s | 4% / 6% |
 | → Calibrate | 5.6 s | 2% / 3% |
 | → Stage + read-back + reject + combine + IO (remainder) | 123.7 s | 37% |
-| Post-process (plate solve + SPCC + write FITS+PNG + autocrop) | 5.5 s | — |
+| Post-process (plate solve + SPCC + write FITS+PNG + autocrop) | 5.5 s | - |
 | 137.4M rejections, 1.88% mean rate |  |  |
 
 **Rejection-only ceiling** for SoL: 2.68 µs × 27M pixel-columns ÷ 12 cores ≈ **6 s wall ≈ 1.8% of 334 s**.
 Even a perfect 2× SIMD speedup is ≤ 3 s on a 5.5-min run. **Do not write the SIMD rejector kernel.**
 
 **Real targets, in order:**
-1. **Debayer** — 133 s on 243 frames = 547 ms/frame. AHD is already vectorised
+1. **Debayer**: 133 s on 243 frames = 547 ms/frame. AHD is already vectorised
    (`Unsafe.Add` Phases 1+2+3, ~28% speedup commits 958e42e + ee0afd2). Either
    port to sub-region debayer so TilePipelined can decode only the strip footprint
    it's about to integrate (Phase 8.x "Sub-region debayer + per-tile warp helpers"
-   listed below — was lower priority before; **now is the biggest single win**),
+   listed below; was lower priority before; **now is the biggest single win**),
    or move debayer to GPU compute (Vulkan pipeline already exists in
    `TianWen.UI.Shared/VkFitsImagePipeline`).
-2. **Float16Staged staging IO** — ~118 s of the "remainder 123.7 s" bucket is writing
+2. **Float16Staged staging IO**: ~118 s of the "remainder 123.7 s" bucket is writing
    14.6 GB warped-half-precision to `_staging/` then reading it back. TilePipelined
    skips this entirely (re-decodes raw per strip via `PartialFitsReader`). On a
    roomy host TilePipelined could win; on the SoL workload it actually lost
@@ -781,9 +781,9 @@ Even a perfect 2× SIMD speedup is ≤ 3 s on a 5.5-min run. **Do not write the 
   `FloorRamBytes = minRam` (the 2.82 GB strip + in-flight + output floor). The
   selector's `MemoryPressurePenalty` now reads `FloorRamBytes`. Confirmed correct
   by the first SoL rerun: TilePipelined went from `score=0.719` (penalised down
-  by 18%) to `score=0.980` (no penalty fired — floor comfortably under free RAM).
+  by 18%) to `score=0.980` (no penalty fired; floor comfortably under free RAM).
 - **Default `RankingPolicy.Balanced` (was `FidelityFirst`).** `FidelityFirst` has
-  `SpeedWeight=0` which made the selector completely indifferent to wall time —
+  `SpeedWeight=0` which made the selector completely indifferent to wall time;
   a 0.06-fidelity bump justified arbitrary slowdown. `Balanced` (50/50) still
   favours fidelity within the same speed bucket but lets normalised speed break
   ties.
@@ -798,7 +798,7 @@ Even a perfect 2× SIMD speedup is ≤ 3 s on a 5.5-min run. **Do not write the 
   `_costs.DebayerAllFrames(probe)` to their eta. **TilePipelined gets an extra
   cache-miss term**: `EstimateCacheMissRate(probe, freeRam/4) * DebayerAllFrames`
   for pass-2 re-decode work. On SoL 244-frame this predicts ~1310 s vs
-  Float16Staged's ~725 s — Float16Staged then wins comfortably under Balanced
+  Float16Staged's ~725 s. Float16Staged then wins comfortably under Balanced
   + excess-eta penalty.
 - **`IntegrationProgress` + `IntegrationPhase`** records for structured status
   reporting from strategies. `IntegrationJob` carries `IProgress<IntegrationProgress>?`.
@@ -806,10 +806,10 @@ Even a perfect 2× SIMD speedup is ≤ 3 s on a 5.5-min run. **Do not write the 
   `Integrating strip/totalStrips` per-strip in pass-2. Test orchestrator
   collects events into a `ConcurrentDictionary<IntegrationPhase, IntegrationProgress>`
   and the 30 s monitor emits ONE `[stage] phase X/Y (Z%) elapsed=Xs eta=Ys`
-  line per active phase per tick — fire-and-forget producer, consumer is the
+  line per active phase per tick; fire-and-forget producer, consumer is the
   sole rate limiter.
 - **Monitor enrichment** (also in `SnapshotResourcesAsync`): now emits
-  `cpu=XX% ws=X.XGB load=X.X/X.XGB alloc=XMB/s free=X.XGB(C:\)` per tick —
+  `cpu=XX% ws=X.XGB load=X.X/X.XGB alloc=XMB/s free=X.XGB(C:\)` per tick;
   CPU% via `Process.TotalProcessorTime` delta, alloc/s via
   `GC.GetTotalAllocatedBytes` delta. Disambiguates CPU-bound vs IO-stalled
   vs idle/deadlocked without per-strategy progress callbacks.
@@ -818,7 +818,7 @@ Even a perfect 2× SIMD speedup is ≤ 3 s on a 5.5-min run. **Do not write the 
 
 - First SoL rerun (selector fix + Balanced policy, but no cost model fix yet)
   picked TilePipelined and ran for **20+ minutes before user cancelled**
-  vs Float16Staged baseline of 334 s — confirmed the cost model itself was
+  vs Float16Staged baseline of 334 s; confirmed the cost model itself was
   the real bug, not just the ranking weights. Triggered the cost-model
   calibration above.
 - Cancelled-run cleanup: `output/_staging/` removed, disk recovered.
@@ -834,7 +834,7 @@ Even a perfect 2× SIMD speedup is ≤ 3 s on a 5.5-min run. **Do not write the 
    next run, this is the only copy):
 
    - Reference: `2026-02-14_23-30-25__-5.00_60.00s_0045.fits` (6420 stars, 240 quads)
-   - Both skips: same failure mode `SKIP (no quad fit at any tolerance)` — the
+   - Both skips: same failure mode `SKIP (no quad fit at any tolerance)`; the
      `StarReferenceTable.FindFit` widening tolerance ladder (0.000 → 0.020 →
      0.050 → 0.100 → 0.200) returned zero matches at every level.
 
@@ -859,7 +859,7 @@ Even a perfect 2× SIMD speedup is ≤ 3 s on a 5.5-min run. **Do not write the 
    **Why this is interesting**: star counts (6567, 6884) and quad counts (310, 304)
    on the failing frames are in the middle of the neighbouring distribution. Their
    neighbours all match cleanly at the same translated/rotated state (`tx≈4060 px,
-   rot≈-179.97°` — these are flipped-side frames). Nothing about the failing frames'
+   rot≈-179.97°`: these are flipped-side frames). Nothing about the failing frames'
    front-of-pipeline stats screams "bad data". Likely causes:
    - The top-500-by-flux quad selector happens to pick a different subset of stars
      on these two frames, missing the quads that hash to reference matches.
@@ -878,9 +878,9 @@ Even a perfect 2× SIMD speedup is ≤ 3 s on a 5.5-min run. **Do not write the 
 3. **Phase 13 CLI `tianwen stack` orchestrator.** `StackingEndToEndManualTest`
    already wires every piece end-to-end; promote to `TianWen.Cli/Commands/StackCommand.cs`
    System.CommandLine subcommand. ~250 LOC arg parsing + progress.
-4. **Sub-region debayer + halo-aware AHD/VNG** — the biggest end-to-end win once
+4. **Sub-region debayer + halo-aware AHD/VNG**: the biggest end-to-end win once
    the selector picks TilePipelined more often. ~300-500 LOC.
-5. **Phase 15 session integration of `LiveAccumulatorStrategy`** — selector
+5. **Phase 15 session integration of `LiveAccumulatorStrategy`**: selector
    placeholder exists; missing the `SessionConfiguration.LiveStacking*` config,
    `ImagingLoopAsync` per-target lifecycle, and `LiveSessionState.LiveStackSnapshot`
    + `K` toggle in `LiveSessionTab`. Pure-math engine already shipped.
@@ -888,7 +888,7 @@ Even a perfect 2× SIMD speedup is ≤ 3 s on a 5.5-min run. **Do not write the 
 **Resource-snapshot logging** (committed in this session): `StackingEndToEndManualTest`
 now spins up `SnapshotResourcesAsync` after `[start]`, logging working set / GC load /
 free disk every 30 s. Eliminates the "did it crash or is staging just slow?" ambiguity
-that bit this session — Float16Staged's 5-minute staging pass on a 9.8 GB-free disk
+that bit this session. Float16Staged's 5-minute staging pass on a 9.8 GB-free disk
 went from "must have crashed" (it didn't) to a visible `[mon]` line every 30 s.
 
 **Lower-priority Phase 8.x leftovers** (see "Open follow-ups" below): SIMD byte-swap in
@@ -921,10 +921,10 @@ went from "must have crashed" (it didn't) to a visible `[mon]` line every 30 s.
   the physical-RAM gate. `preferred` parameter lets test code force a specific
   strategy.
 
-### `FrameCache` — the shared accelerator
+### `FrameCache`: the shared accelerator
 
 Two-tier strong+weak cache keyed by frame index (`FrameCache.cs`):
-- `_strong[f]` holds first `StrongCap` frames — guaranteed-alive for the
+- `_strong[f]` holds first `StrongCap` frames: guaranteed-alive for the
   integration's lifetime. `StrongCap` is `FrameCache.DecideCacheCap(n, frameBytes)`
   ≈ 50% of currently-free heap at construction time, capped at N.
 - `_weak[f]` holds **every** registered frame as a `WeakReference<Image>`. A weak
@@ -939,7 +939,7 @@ Wired into:
   alive, falling through to the disk + byte-decode path when the GC reclaimed it.
   **`FootprintStagedStrategy`** + **`Float16StagedStrategy`** wire a `FrameCache`
   + call `reader.SetCachedImage(warped)` per frame at staging time.
-- `ChunkedTwoPassStrategy` not wired — it doesn't use `StreamingFrameReader`,
+- `ChunkedTwoPassStrategy` not wired: it doesn't use `StreamingFrameReader`,
   it's RAM-only with a per-chunk buffer drop, so there's no read-path surface
   to interpose on.
 - `InRamAllFrames` doesn't need it (everything in RAM by design).
@@ -950,7 +950,7 @@ Wired into:
 | Sub-phase | Commit | Scope |
 |---|---|---|
 | 8.0 | `bbab3c8` | `IntegrationJob` v2 surface (`RawLightSources`, `Calibrator`, `DebayerAlgorithm`, `CanvasWidth/Height`) + `TilePipelined` scaffolding |
-| 8.1 | `f4a7013` | `PartialFitsReader` — memory-mapped FITS sub-region reader, 9 unit tests, supports `BITPIX in {8, 16, 32, -32, -64}` + BZERO/BSCALE + BE→host swap |
+| 8.1 | `f4a7013` | `PartialFitsReader`: memory-mapped FITS sub-region reader, 9 unit tests, supports `BITPIX in {8, 16, 32, -32, -64}` + BZERO/BSCALE + BE→host swap |
 | 8.2 | `330b4b3` | `Image.WarpRegionAsync` (sub-rectangle inverse-bilinear warp) + strip-pipelined `TilePipelinedStrategy.RunAsync` |
 | selector | `da67544` | Physical-RAM hard gate + free-RAM soft penalty + `FreeRamBytes` probe field + 75% safety default |
 | 8.2 perf | `7415671` | Strong+weak cached debayered frames inside TilePipelined → **~10× speedup** on Liberty 120s (10.9 min → 1.6 min) |
@@ -1049,7 +1049,7 @@ plane. PartialFitsReader's tile read is what TilePipelined actually drives.
   frame." Estimated ~300-500 LOC for halo-aware sub-region BilinearMono/VNG/AHD.
   Low priority: the cached debayered path already covers the common roomy-host
   case end-to-end.
-- **SIMD byte-swap in `PartialFitsReader`** — full-read scalar loop costs ~3×
+- **SIMD byte-swap in `PartialFitsReader`**: full-read scalar loop costs ~3×
   FITS.Lib's bulk-swap path. `Vector<uint>` + `BinaryPrimitives.ReverseEndianness`
   closes the gap. Low priority: production hot path never does full reads
   through `PartialFitsReader` (it does sub-tile reads where the gap is moot).
@@ -1062,14 +1062,14 @@ plane. PartialFitsReader's tile read is what TilePipelined actually drives.
 
 ### What did NOT happen (deferred from the original plan)
 
-- **Phase 13 CLI `tianwen stack` orchestrator** — not started. The
+- **Phase 13 CLI `tianwen stack` orchestrator**, not started. The
   `StackingEndToEndManualTest` (1457 LOC) is the orchestrator in flight today;
   it doubles as the CLI sketch. Promotion to a `tianwen.Cli` command is a
   separate task.
-- **Phase 14 `LiveStacker` engine** — `LiveAccumulatorStrategy` is the
+- **Phase 14 `LiveStacker` engine**: `LiveAccumulatorStrategy` is the
   selector-level placeholder (Welford lifecycle), but the session-side wiring
   (Phase 15) hasn't started.
-- **Phase 10 `MemoryMappedFitsSink`** for tier-3 mosaic outputs — not started.
+- **Phase 10 `MemoryMappedFitsSink`** for tier-3 mosaic outputs, not started.
   Tier-3 isn't a live user need yet; `ChunkedTwoPass` covers the in-between case
   where N×canvas exceeds RAM but a chunk fits.
 
@@ -1103,7 +1103,7 @@ src/TianWen.Lib/Imaging/
 └── Image.Transform.cs           # WarpToReferenceGridAsync + WarpRegionAsync (Phase 8.2a)
 ```
 
-Tests: `src/TianWen.Lib.Tests/` — `IntegrationStrategySelectorTests`,
+Tests: `src/TianWen.Lib.Tests/`; `IntegrationStrategySelectorTests`,
 `TilePipelinedStrategyTests`, `WarpRegionAsyncTests`, `PartialFitsReaderTests`,
 plus the master `StackingEndToEndManualTest` for real-dataset validation
 (skipped when `C:\temp\stack\` is absent so CI stays green).

@@ -47,29 +47,29 @@ rgb           = bv_to_rgb(weighted_mean_bv) * normalise(sqrt(visible))
 
 - 8-byte header (int32 LE width + height) + raw BGRA, lzip-compressed
 - Shipped as `TianWen.UI.Gui/Resources/milkyway.bgra.lz` (~131 KB at 2048x1024)
-- Current content: analytical model from `tools/generate_milkyway.py` — bright
-  band at b=0, bulge at l=0, smooth warm/cool tint. **Placeholder only** — no
+- Current content: analytical model from `tools/generate_milkyway.py`; bright
+  band at b=0, bulge at l=0, smooth warm/cool tint. **Placeholder only**; no
   real galactic structure.
 
 ### 🟡 Phase 3: Bake from Real Data (CURRENT)
 
 Replace the analytical placeholder with a two-step physically-motivated bake:
 
-- [x] **Tool rewrite** — `tools/generate_milkyway.cs` (.NET 10 file-based app,
+- [x] **Tool rewrite**: `tools/generate_milkyway.cs` (.NET 10 file-based app,
       `#:project ../src/TianWen.Lib/TianWen.Lib.csproj`) replaces the Python
       version. Reuses runtime catalog loader (`CelestialObjectDB.InitDBAsync`
       + `CopyTycho2Stars`), same B-V → RGB Planckian math as the shader.
       Runs with `dotnet run tools/generate_milkyway.cs`.
-- [x] **Tycho-2 luminance binning** — stream all stars, accumulate flux
+- [x] **Tycho-2 luminance binning**: stream all stars, accumulate flux
       `10^(-0.4 * VMag)` (magnitude floor at V=4 so Sirius doesn't blow out one
       pixel) and flux-weighted B-V sum into equirectangular grid. RA wrap-
       aware Gaussian blur in the horizontal pass, pole-clamped vertically.
-- [x] **Brightness curve** — percentile clip (p50 = zero, p99.5 = max) + sqrt
+- [x] **Brightness curve**: percentile clip (p50 = zero, p99.5 = max) + sqrt
       gamma so the bulge doesn't saturate while the outer disk remains visible.
-- [ ] **Planck dust extinction** — add `--dust-opacity <path>` optional arg
+- [ ] **Planck dust extinction**: add `--dust-opacity <path>` optional arg
       (scaffolded in tool, multiplies `exp(-k * tau)` when provided). Needs a
       separate HEALPix → equirectangular reprojection step to produce the
-      float map — see Phase 4 below.
+      float map; see Phase 4 below.
 - [ ] Bake + commit the real-data `milkyway.bgra.lz` once Phase 4 ships.
 
 ### 🔴 Phase 4: Planck Dust Extinction HEALPix Reader
@@ -80,7 +80,7 @@ options:
 **Option A: Separate tool (`tools/reproject_planck_dust.cs`)**
 
 - Download `HFI_CompMap_ThermalDustModel_2048_R1.20.fits` from ESA Planck
-  Legacy Archive (Nside=2048, ~200 MB) — or the lower-res Nside=512 variant
+  Legacy Archive (Nside=2048, ~200 MB), or the lower-res Nside=512 variant
   (~12 MB) if bandwidth is a concern. Cache under `tools/data/` (gitignored).
 - Read `TAU353` column via `FITS.Lib` BinaryTableHDU (column is `float32`,
   one value per HEALPix pixel, NESTED ordering).
@@ -94,7 +94,7 @@ options:
 
 **Option B: Bake into `generate_milkyway.cs` directly**
 
-Skip the intermediate file — pass `--planck-fits <path>` and do the reprojection
+Skip the intermediate file; pass `--planck-fits <path>` and do the reprojection
 inline. Simpler for end-users (one command) but couples catalog binning and
 dust reading in the same tool.
 
@@ -115,7 +115,7 @@ Already largely present in Phase 1 (sun altitude fade), but can be extended:
 ## Tool Usage
 
 ```bash
-# Tycho-2 density only (no dust) — replaces current analytical model
+# Tycho-2 density only (no dust): replaces current analytical model
 dotnet run tools/generate_milkyway.cs
 
 # High resolution
@@ -137,7 +137,7 @@ dotnet run tools/generate_milkyway.cs -- --dust-opacity tools/data/dust_2048.f32
 
 ## Rationale
 
-- **Tycho-2 binning first** was the obvious win we were missing — we already
+- **Tycho-2 binning first** was the obvious win we were missing; we already
   own the data. The analytical model that shipped in commit 412500b looks fake
   (smooth gradient); real Tycho-2 binning produces the mottled, structured
   appearance users expect, plus LMC/SMC visible for free.

@@ -4,7 +4,7 @@ Goal: assist the user in mechanically polar-aligning the mount before a session
 by computing the actual mount RA-axis from two plate-solved frames separated by
 a known RA rotation, decomposing the offset against the true celestial pole into
 **altitude** and **azimuth** errors, and showing live error updates while the
-user adjusts the polar-aligner knobs — exactly as SharpCap does, but inside
+user adjusts the polar-aligner knobs; exactly as SharpCap does, but inside
 TianWen's GUI/TUI and reusing TianWen's plate solvers, cameras, and guider
 shims.
 
@@ -16,17 +16,17 @@ The polar-alignment toolbar toggle in the live preview is **only enabled** when:
 
 1. **Mount is manually connected** (i.e. the user is *not* in a running
    `Session`; we don't co-opt session resources mid-run).
-2. **Site location is known** — `Profile.SiteLocation` has lat/lon/elevation.
+2. **Site location is known**: `Profile.SiteLocation` has lat/lon/elevation.
 3. **A plate solver is configured** in the active profile (ASTAP or
    astrometry.net).
-4. **A capture source is selected** — either:
+4. **A capture source is selected**, either:
    - One of the `Setup.Telescopes[i].Camera`s (main imaging cam), or
    - The connected `IGuider` (built-in or PHD2). PHD2 must be configured to
      save frames to disk; the existing `IGuider.SaveImageAsync` contract
      already requires this.
 
    **Auto-selection policy** (when more than one source is available):
-   we want the **fastest combo** — shortest practical exposure to a
+   we want the **fastest combo**: shortest practical exposure to a
    plate-solve-able frame. Rank candidates by score and pick the highest:
    1. Compute **f-ratio** = `focalLengthMm / apertureMm` for each candidate
       OTA (telescope or guide scope).
@@ -45,10 +45,10 @@ The polar-alignment toolbar toggle in the live preview is **only enabled** when:
       `#1`/`#2`/... buttons at `LiveSessionTab.cs:270-284`). The ranker
       provides the *initial default* selection when the polar-alignment
       panel opens; clicking a different OTA button rebinds the routine to
-      that camera. No separate dropdown — one OTA-selection control across
+      that camera. No separate dropdown; one OTA-selection control across
       the entire live view. The runner-up is still displayed in the
       polar-alignment panel header as a hint ("auto-pick: #1, runner-up: #2").
-5. **Mount can slew freely** in RA — no tracking-only mounts; we need at
+5. **Mount can slew freely** in RA: no tracking-only mounts; we need at
    minimum a `BeginSlewToCoordinatesAsync` to apply the calibration delta.
 
 The button surface explains *which* precondition failed when disabled, no
@@ -56,7 +56,7 @@ silent greying-out.
 
 ## Algorithm
 
-### Phase A — Two-frame axis solve
+### Phase A: Two-frame axis solve
 
 Given two plate-solved frames separated by a **pure RA-axis** mount rotation
 of known angle Δ (default 60°, configurable 30°-90°), compute the mount's
@@ -66,14 +66,14 @@ polar axis in J2000:
    RA/Dec of the frame center, `v1 = unit(RA1, Dec1)`.
 2. **Pure-axis rotate** the mount around its primary (RA) axis by Δ via
    `MoveAxisAsync(TelescopeAxes.Primary, rate)` for a precise duration
-   `Δ / rate`. **Do not** use `BeginSlewToCoordinatesAsync` here — see the
+   `Δ / rate`. **Do not** use `BeginSlewToCoordinatesAsync` here; see the
    "Cone error & rotation mechanism" subsection below for why goto is wrong.
 3. Wait `Configuration.PolarAlignmentSettleSeconds` (default 5 s) for mount
    settle, then **capture-and-solve P2**. Output: `v2 = unit(RA2, Dec2)`.
 4. **Compute the rotation axis** `A` such that `Rot(A, Δ) · v1 = v2`. Δ is
-   the *commanded* rotation — accurate by construction because `MoveAxis` is
+   the *commanded* rotation; accurate by construction because `MoveAxis` is
    a raw axis-rate command (no pointing model, no encoder coordinate
-   transform). `A` is a unit vector in J2000 — the mount's polar axis as
+   transform). `A` is a unit vector in J2000; the mount's polar axis as
    the mount sees it right now.
 
    Math: with v1, v2, Δ given, the axis lies in the plane perpendicular to
@@ -95,14 +95,14 @@ polar axis in J2000:
    the predicted chord angle `θ_predicted = 2·asin(sin(Δ/2)·sin(d_axis))`
    where `d_axis = acos(v1·A)` is the cone half-angle to the recovered axis.
    `|θ_observed − θ_predicted|` should be < ~5 arcsec; larger means
-   mid-rotation slew error or a miscommanded Δ — flag it to the user.
+   mid-rotation slew error or a miscommanded Δ; flag it to the user.
 
 5. **Decompose against the apparent pole** for the site (refraction-aware):
    - Compute the true celestial pole's J2000 unit vector `P_true`.
    - Use `Transform` (SOFA) with `Refraction = true`, site lat/lon/elev, plus
      **live pressure + temperature** (see "Refraction at low pole altitudes"
      subsection below) to convert `P_true` to topocentric **(Az_apparent,
-     Alt_apparent)** — this is where the mount axis *should* point so that
+     Alt_apparent)**: this is where the mount axis *should* point so that
      refraction-corrected tracking holds a star steady.
    - Convert `A` to topocentric `(A_az, A_alt)` via the same `Transform`.
    - `azError = A_az - Az_apparent` (wrap to [-180°, 180°])
@@ -130,30 +130,30 @@ mid-routine), the geometry holds.
 
 **Mechanism answer: critical.** The math only holds if the rotation between
 P1 and P2 is a *pure RA-axis rotation*. `BeginSlewToCoordinatesAsync(RA1+Δ,
-Dec1)` is **not** that — it's a goto to a sky coordinate, which on a mount
+Dec1)` is **not** that; it's a goto to a sky coordinate, which on a mount
 with an active pointing model (T-Point, PointXP, ASCOM-derived sync model)
 will adjust *both* axes to land on the commanded sky position, breaking
 the pure-RA-rotation assumption. We therefore use `MoveAxisAsync(Primary,
 rate)` for a timed duration:
 
-- ASCOM: `MoveAxis(TelescopeAxes.axisPrimary, rate)` — explicitly raw axis,
+- ASCOM: `MoveAxis(TelescopeAxes.axisPrimary, rate)`; explicitly raw axis,
   bypasses the model.
 - Skywatcher: documented motor-rate command, raw axis.
 - OnStep: `:Mn`/`:Ms`/`:Me`/`:Mw` at custom slew rate, raw.
 - iOptron (SgP): `:MnXXXX#` direction at rate, raw.
-- All present in `IMountDriver` — no new mount API needed.
+- All present in `IMountDriver`: no new mount API needed.
 
 A 60° rotation at 16× sidereal (240"/s) takes 60° × 3600 / 240 = 900 s = 15 min.
 Too slow. We use the **rate one step below max** from the mount's
 `AxisRates` list (already wired in PR `dab10b6` "ASCOM: implement AxisRates
 and MoveAxis via IDispatch sub-objects"). Max slew rate introduces
-mechanical wobble on most amateur mounts — saddle flex, gear-mesh chatter,
-counterweight oscillation — which biases the chord midpoint and shows up
+mechanical wobble on most amateur mounts, saddle flex, gear-mesh chatter,
+counterweight oscillation, which biases the chord midpoint and shows up
 as a recovered-axis error of several arcmin even on a perfectly aligned
 mount. The rate just below max is typically 50-70% of max in absolute
 terms (e.g. on a Skywatcher EQ6-R: max=800× sidereal, one-below=600×; on
 an iOptron CEM40: max=64×, one-below=32×) and still finishes a 60°
-rotation in 10-30 s — fast enough.
+rotation in 10-30 s; fast enough.
 
 `AxisRates` enumeration policy:
 1. If the driver returns a discrete rate list of length ≥ 2, pick `rates[Length - 2]`.
@@ -169,17 +169,17 @@ catches both rate-table errors and mechanical wobble (wobble shows up as
 chord-angle inflation beyond what `(Δ, d_axis)` predicts).
 
 If a mount lacks `MoveAxis` entirely (hypothetical), fall back to
-pulse-guide RA-only commands at sidereal multiples — slower but model-free.
+pulse-guide RA-only commands at sidereal multiples; slower but model-free.
 
 ### Refraction at low pole altitudes
 
-Refraction lifts the apparent position of every object near the horizon —
+Refraction lifts the apparent position of every object near the horizon,
 including the celestial pole as seen from low-latitude sites. A user at
 **lat = 15° (e.g. Hawaii, southern Mexico)** sees the celestial pole at a
 true altitude of 15° but an apparent altitude of ~15° + 3.4' (Bennett's
 refraction at h=15° at standard atmosphere). At **lat = 0° (equator-ish,
-not a polar-mount-friendly latitude but still)** refraction at h=0° is ~34'
-— half a degree off. Even a temperate site at lat = 35° has ~1.4' of pole
+not a polar-mount-friendly latitude but still)** refraction at h=0° is ~34';
+half a degree off. Even a temperate site at lat = 35° has ~1.4' of pole
 lift. For a polar alignment routine targeting **1' arcmin accuracy**, this
 is a first-order correction, not a polish.
 
@@ -197,7 +197,7 @@ refraction-corrected tracking. This requires:
      defaulting to standard atmosphere 10°C / 1010 hPa).
   3. Standard atmosphere fallback (10°C, 1010 hPa). Show the source on the
      UI panel so the user knows whether refraction is *measured* or
-     *assumed* — a lat=15° user with assumed sea-level pressure but actual
+     *assumed*: a lat=15° user with assumed sea-level pressure but actual
      1500m elevation gets ~1' of residual error, worth surfacing.
 - Pass into `Transform.SiteTemperature` / `Transform.SitePressure` with
   `Transform.Refraction = true` (flag already exists). The SOFA pipeline
@@ -205,13 +205,13 @@ refraction-corrected tracking. This requires:
 
 This **also retires the stale TODO at `IMountDriver.cs:395-396`**
 (`SitePressure = 1010 // standard atmosphere`, `SiteTemperature = 10 //
-TODO check either online or if compatible devices connected`) — which is
+TODO check either online or if compatible devices connected`), which is
 exactly the gap the user is flagging. Same code path, same fix.
 
 ### Adaptive exposure ramp
 
 Plate-solve speed is dominated by stars-found-per-second, which is dominated
-by exposure time. We do **not** hardcode a 2 s exposure — we ramp from short
+by exposure time. We do **not** hardcode a 2 s exposure; we ramp from short
 to long until a solve succeeds, then **lock that exposure for the rest of
 the routine** (refraction and pole-altitude don't change between phases A
 and B, so the FOV brightness is stable enough that the first successful
@@ -220,14 +220,14 @@ exposure is the right one for every subsequent capture).
 **Ramp**: 100 ms → 150 ms → 200 ms → 250 ms → 500 ms → 1 s → 2 s → 5 s.
 Stop at the first exposure that yields a successful plate solve (≥ N stars
 matched, default N=15, same gate as `InitialRoughFocusAsync`). On failure
-at 5 s, surface a clear "no solve at 5 s — check focus, dew, light pollution"
+at 5 s, surface a clear "no solve at 5 s; check focus, dew, light pollution"
 message instead of climbing to 30 s; if the user can't solve a 5 s wide-FOV
 frame, longer exposures are not the cure.
 
 **Persistence within a session**: the discovered exposure is stored on
 `PolarAlignmentSession._lockedExposure` after the first success and reused
 for the second-frame capture and the entire Phase B refinement loop. No
-per-frame ramping during refinement — the user expects a steady cadence
+per-frame ramping during refinement; the user expects a steady cadence
 once the routine starts producing numbers.
 
 **Persistence across runs** (optional, low priority): cache last successful
@@ -243,7 +243,7 @@ ValueTask<CaptureResult> CaptureAndSolveAsync(
 ```
 The orchestrator owns the ramp loop; the capture source just exposes-and-solves.
 
-### Phase B — Live refinement
+### Phase B: Live refinement
 
 After the two-frame solve completes, enter a **live refinement loop**:
 
@@ -253,7 +253,7 @@ After the two-frame solve completes, enter a **live refinement loop**:
 2. For each new solve, recompute `A` using:
    - The original anchor frame (`v1`) plus the new live frame (`v_live`),
      **OR**
-   - A rolling pair (the most recent two solves) — anchor frame becomes the
+   - A rolling pair (the most recent two solves): anchor frame becomes the
      stale one as the user rotates the knobs.
    We use the **anchor strategy**: keep `v1` fixed (it was a known, deliberate
    geometry); the live frame moves as the user adjusts. This is what
@@ -266,7 +266,7 @@ After the two-frame solve completes, enter a **live refinement loop**:
    `Configuration.PolarAlignmentTargetAccuracy` (default 1 arcmin), play a
    confirmation sound / colour-flash the panel. User clicks "Done" to exit.
 
-### "Bring it back" — pole-centric error overlay
+### "Bring it back": pole-centric error overlay
 
 Numerical arcmin readouts are necessary but not sufficient. SharpCap's
 polar-alignment tool overlays the live frame with a **pole-centric
@@ -277,9 +277,9 @@ adjusts the polar-alignment knobs and watches the rotation-axis marker
 drift toward the bullseye. When it sits inside the 5' ring on the
 refracted pole cross, alignment is achieved.
 
-This converts a 2-DOF arcmin readout ("Az 4'12" left, Alt 1'48" up") —
+This converts a 2-DOF arcmin readout ("Az 4'12" left, Alt 1'48" up"),
 which is hard to map to physical knob turns, especially because alt and
-az knobs cross-couple on most wedges — into a single direct manipulation:
+az knobs cross-couple on most wedges, into a single direct manipulation:
 move the marker into the bullseye.
 
 **Overlay elements** (drawn on the live FITS surface in render order):
@@ -299,18 +299,18 @@ move the marker into the bullseye.
    5'/15'/30' thresholds). Computed from `A_live` projected through
    `WCS_live`. As the user adjusts knobs, this marker drifts toward
    the centre.
-5. **Detected stars** (already drawn by TianWen's star overlay — small
+5. **Detected stars** (already drawn by TianWen's star overlay, small
    coloured squares, yellow for solve-matched, red for over-saturated).
    Same look as the reference image.
 6. **Status / instruction text** in orange below centre, e.g. "Press
    'Next' before rotating the RA axis", "Refining: 4'12" Az / 1'48" Alt",
-   "Aligned within 1' — done".
+   "Aligned within 1'; done".
 7. **Direction hints** as small arrows on the rotation-axis marker
    pointing toward the refracted pole, plus per-axis text "Alt: ↑ 1'48"",
    "Az: ← 4'12"" so the user knows which knob to turn even when the
    marker is off-frame. See "Correction buttons / direction hints" below.
 
-**Generic WCS annotation primitive — not a polar-specific shader mode**.
+**Generic WCS annotation primitive, not a polar-specific shader mode**.
 The shader extension we add for polar alignment is a *general-purpose
 sky-annotation layer* that lives alongside the existing WCS grid in
 `VkImageRenderer`, useful far beyond this routine:
@@ -325,7 +325,7 @@ sky-annotation layer* that lives alongside the existing WCS grid in
   versus the mount-reported pointing to surface sync errors at a glance.
 - **Mosaic composer**: draw the next panel boundary plus its centre
   cross while the user adjusts the panel grid.
-- **Polar alignment**: composes from the same primitives — two pole
+- **Polar alignment**: composes from the same primitives; two pole
   crosses (true + refracted) plus rings around the refracted pole plus
   one rotation-axis marker.
 
@@ -370,7 +370,7 @@ new WcsAnnotation(
 
 Other consumers feed in their own marker/ring sets and get the same
 fragment-shader rendering for free. The renderer doesn't know what
-"polar alignment" is — it just projects each (RA, Dec) through the
+"polar alignment" is; it just projects each (RA, Dec) through the
 current frame's WCS, draws crosses/dots in screen-space, and for rings
 walks N=64 great-circle points around the centre at the requested arcmin
 radius and emits a closed line strip. Labels go through the existing
@@ -378,7 +378,7 @@ glyph batcher.
 
 **Implementation lives in `TianWen.UI.Shared`** alongside `VkImageRenderer`,
 not in any polar-alignment-specific file. Its name is `WcsAnnotationLayer`
-(or similar — a primitive, not a feature). Polar alignment is one
+(or similar, a primitive, not a feature). Polar alignment is one
 caller; FITS viewer and live preview are obvious next callers; nothing
 in the shader code is polar-specific.
 
@@ -397,7 +397,7 @@ marker enters the sensor, switch to the in-sensor circle.
   changes slowly; recompute on each frame is cheap, no caching needed).
 - `A_live` updates per solve.
 - All published via `LiveSolveResult.PolarOverlay` as **sky positions
-  only** — pixel projection happens in the renderer:
+  only**: pixel projection happens in the renderer:
   ```csharp
   public readonly record struct PolarOverlay(
       double TruePoleRaHours,    double TruePoleDecDeg,
@@ -417,7 +417,7 @@ marker enters the sensor, switch to the in-sensor circle.
 
 Beyond the visual overlay, surface explicit nudge guidance:
 - **Az: ← 4'12"** with a left-arrow icon, beside an info tooltip telling
-  the user which knob direction maps to "left" (mount-dependent — for an
+  the user which knob direction maps to "left" (mount-dependent, for an
   EQ6-R wedge, west is one specific knob; we can't know the exact knob
   rotation, but we can tell them which sky direction to push toward).
 - **Alt: ↑ 1'48"** likewise. Direction maps to elevation knob.
@@ -427,7 +427,7 @@ Beyond the visual overlay, surface explicit nudge guidance:
   process. We don't issue any motion commands during refinement other
   than the optional reverse-restore on Done (see below).
 
-### Mount-position recovery — the literal "bring it back"
+### Mount-position recovery: the literal "bring it back"
 
 The user's phrase has a second, separate meaning that's also worth handling:
 after Phase A's MoveAxis rotation, the mount is physically **60-90° off
@@ -439,7 +439,7 @@ two ways:
    issues `MoveAxisAsync(Primary, -rate)` for the *recorded duration of
    the original rotation* (Stopwatch from Phase A step 2, inverted),
    bringing the mount back to within ~arcmin of its pre-routine HA. We
-   intentionally do **not** use a goto — same reasoning as Phase A: the
+   intentionally do **not** use a goto; same reasoning as Phase A: the
    pointing model has already been invalidated by the mid-routine rotation
    on a model-using mount, and a goto would slew through the model and
    miss. Raw-axis reverse is correct.
@@ -451,7 +451,7 @@ two ways:
    Default = (a). User preference persisted to `Profile.PolarAlignment.OnDone`.
 
 Both behaviours need only the original Stopwatch reading + the original
-rate — no new mount API, no encoder-position polling, no driver-specific
+rate; no new mount API, no encoder-position polling, no driver-specific
 logic. Records of (rate, duration) live on the session struct.
 
 ## Components
@@ -473,10 +473,10 @@ logic. Records of (rate, duration) live on the session struct.
     IAsyncEnumerable<LiveSolveResult> RefineAsync(CancellationToken ct);
     ValueTask CancelAsync();
     ```
-  - **Not** part of `Session` — runs against the manually-connected mount
+  - **Not** part of `Session`: runs against the manually-connected mount
     only. Uses `ResilientCall.AbsoluteMove` for the slew; idempotent reads
     for status polls.
-- `src/TianWen.Lib/Sequencing/PolarAlignment/ICaptureSource.cs` — abstraction
+- `src/TianWen.Lib/Sequencing/PolarAlignment/ICaptureSource.cs`: abstraction
   unifying main-camera and guider-camera capture for solver use:
   ```csharp
   internal interface ICaptureSource
@@ -502,15 +502,15 @@ logic. Records of (rate, duration) live on the session struct.
   The optics properties drive the auto-selection ranking (see
   Preconditions §4) and the BringItBackOverlay computation (pixel scale
   feeds the WCS-pixel-to-world conversion). Two implementations:
-  - `MainCameraCaptureSource` — wraps `ICameraDriver`, calls
+  - `MainCameraCaptureSource`: wraps `ICameraDriver`, calls
     `StartExposureAsync` + `GetImageAsync` + writes FITS via the existing
     `FitsWriter`, then invokes the plate solver.
-  - `GuiderCaptureSource` — delegates to `IGuider.LoopAsync` + `SaveImageAsync`
+  - `GuiderCaptureSource`: delegates to `IGuider.LoopAsync` + `SaveImageAsync`
     (already implemented for PHD2 and built-in guider; PHD2 needs
     `Save Images` enabled in its profile, which is the existing contract),
     then invokes the plate solver on the saved frame.
 - `SessionConfiguration` additions (re-used as `PolarAlignmentConfiguration`
-  if we want a separate type — cheaper to extend the existing one):
+  if we want a separate type; cheaper to extend the existing one):
   - `ImmutableArray<TimeSpan> PolarAlignmentExposureRamp = [100ms, 150ms, 200ms, 250ms, 500ms, 1s, 2s, 5s]`
   - `int PolarAlignmentMinStarsForSolve = 15`
   - `double PolarAlignmentRotationDeg = 60.0`
@@ -520,7 +520,7 @@ logic. Records of (rate, duration) live on the session struct.
     (`enum { ReverseAxisBack, Park, LeaveInPlace }`)
   - `bool PolarAlignmentSavePAFrames = false`
 
-  The fixed `PolarAlignmentExposure = 2 s` setting is removed — exposure
+  The fixed `PolarAlignmentExposure = 2 s` setting is removed; exposure
   is now discovered by the ramp at routine start. See "Adaptive exposure
   ramp" subsection.
 - `ProfileData` additions for refraction fallback when no weather device:
@@ -531,17 +531,17 @@ logic. Records of (rate, duration) live on the session struct.
 
 ### Edits
 
-- `src/TianWen.UI.Abstractions/AppSignalHandler.cs` — new signals:
+- `src/TianWen.UI.Abstractions/AppSignalHandler.cs`: new signals:
   - `StartPolarAlignmentSignal(captureSourceKey, deltaRaDeg)`
   - `CancelPolarAlignmentSignal`
-  - `PolarAlignmentResultSignal(result)` — broadcast each refine tick.
+  - `PolarAlignmentResultSignal(result)`: broadcast each refine tick.
   Subscribe lambdas only **route**: dispatch to a new
   `PolarAlignmentActions` static helper (mirror `EquipmentActions`,
   `PlannerActions`). Math + I/O lives in `PolarAlignmentSession`.
 - **No new tab.** Polar alignment is a third **mode** of the existing
   `LiveSessionTab` alongside *preview* and *session*. The image surface,
   WCS pipeline, OTA selector (`#1`/`#2` buttons at `LiveSessionTab.cs:270-284`),
-  star overlay, and FITS preview are all already wired — polar mode just
+  star overlay, and FITS preview are all already wired; polar mode just
   contributes additional annotations to the renderer plus a small
   side-panel of polar-specific UI. Keeping the routine in-tab means the
   user stays in the same context they were already in (looking at a live
@@ -555,12 +555,12 @@ logic. Records of (rate, duration) live on the session struct.
   state):
   - `PolarAlignmentPhase Phase` (`Idle`, `ProbingExposure`, `Frame1`,
     `Rotating`, `Frame2`, `Refining`, `Aligned`, `RestoringMount`)
-  - `LiveSolveResult? LastSolve` — atomic replacement per CLAUDE.md
-  - `string? PolarStatusMessage` — orange instruction line
-  - `TwoFrameSolveResult? PhaseAResult` — kept for the chord-angle sanity
+  - `LiveSolveResult? LastSolve`: atomic replacement per CLAUDE.md
+  - `string? PolarStatusMessage`: orange instruction line
+  - `TwoFrameSolveResult? PhaseAResult`, kept for the chord-angle sanity
     readout and the locked exposure indicator
   All `ImmutableArray`-backed if collection-typed, atomic property
-  replacement on writes — the PolarAlignmentSession runs on a thread-pool
+  replacement on writes, the PolarAlignmentSession runs on a thread-pool
   task and writes complete each refine tick; the render thread snapshots.
 - `LiveSessionTab` polar-mode rendering (additive, gated on `Mode`):
   - **Toolbar**: shows "Polar Align" toggle button; when active, also
@@ -574,14 +574,14 @@ logic. Records of (rate, duration) live on the session struct.
       green→yellow→red across the ring thresholds.
     - Off-sensor edge arrow + arcmin label when the axis marker falls
       outside the frame.
-    - All via the generic `WcsAnnotationLayer` from Phase 3a — no
+    - All via the generic `WcsAnnotationLayer` from Phase 3a; no
       polar-specific shader code.
   - **Side panel** (replaces the session-specific panels when polar mode
     is active): two error needles (Az / Alt arcmin, green<1', yellow 1-5',
     red>5'), trend arrows, exposure indicator
     ("200 ms · 23 stars matched"), status line ("Probing exposure
     (250 ms)…", "Frame 1/2 ✓", "Rotating", "Refining (1.2 Hz)",
-    "Aligned ✓ — click Done"), direction-hint badges
+    "Aligned ✓; click Done"), direction-hint badges
     ("Alt: ↑ 1'48"", "Az: ← 4'12""), `IsSettled` / `IsAligned` LEDs.
 - The TUI version (`TuiLiveSessionTab`) follows the same pattern: a
   third mode that swaps in a text panel rendering the same state.
@@ -609,7 +609,7 @@ big-bang UX. Phases 4-5 can land separately afterward.
   The adaptive exposure ramp helps here: a 50mm f/4 mini-guider may solve
   reliably from 100-200 ms exposures, giving a refine cadence of
   ~300-700 ms (exposure + solve). An f/10 SCT with a small-pixel main cam
-  may need 2 s, dragging cadence to ~3-4 s — still usable for refinement
+  may need 2 s, dragging cadence to ~3-4 s; still usable for refinement
   but the user should prefer the guide scope per the auto-selection policy.
   If solves are persistently slow, we may need to plate-solve only every
   Nth live frame and rely on **anchor-fixed math** (cheap: the J2000
@@ -617,12 +617,12 @@ big-bang UX. Phases 4-5 can land separately afterward.
 - **Rotation accuracy.** Δ is the time-multiplied axis rate, validated
   against the chord-angle sanity check (see Phase A step 4). If the rate
   reported by `AxisRates` is wrong by 1% (rare but possible on knock-off
-  mounts), the recovered axis is biased by ~1% of |Δ| — i.e. ~36 arcmin
+  mounts), the recovered axis is biased by ~1% of |Δ|, i.e. ~36 arcmin
   for a 60° Δ. Flag the chord-angle mismatch as an error and fall back to
   the optional 3-frame mode below.
 - **Optional 3-frame mode** (deferred to v2): three captures at known
   rotations (0, Δ, 2Δ) determine the small circle uniquely without trusting
-  the rotation amount — purely geometric. More robust on suspect mounts at
+  the rotation amount; purely geometric. More robust on suspect mounts at
   the cost of one more capture+solve cycle. Keep the 2-frame mode as the
   default.
 - **Pier-side semantics.** With raw `MoveAxis`, the mount stays on the same
@@ -642,14 +642,14 @@ big-bang UX. Phases 4-5 can land separately afterward.
   (e.g. axis 30° off the pole), the two-frame chord may not bracket the
   pole well and the trig becomes ill-conditioned. Mitigate by: warning if
   `θ < 5°`, and recommending a larger Δ (90°). For severe misalignment, the
-  refine loop is what saves us — it converges from any starting point.
+  refine loop is what saves us; it converges from any starting point.
 - **PHD2 frame-save latency.** Each `save_image` RPC + disk read is
   ~500-1000 ms on PHD2. Acceptable for the two-frame solve, slow for 1 Hz
   refine. Document this; users with built-in guiders or main-cam mode get
   faster refine.
 - **Site-pole projection.** The pole's apparent (Az, Alt) at the site is
   trivially `(0°, lat)` for the celestial pole in the local horizon frame
-  (azimuth depending on hemisphere — north pole: az=0, south pole: az=180).
+  (azimuth depending on hemisphere, north pole: az=0, south pole: az=180).
   No precession needed if we *also* express the mount axis in topocentric
   coordinates from the same instant. Self-consistency is what matters.
 - **No autoguider hijacking.** If the guider is the chosen capture source
@@ -662,7 +662,7 @@ big-bang UX. Phases 4-5 can land separately afterward.
   plate-solve method is strictly better for amateurs and lacks the 30+ min
   wait drift requires.
 - **Camera-rotation in two-step.** SharpCap also supports rotating the
-  *camera* (rather than the mount) for some setups; we don't need this —
+  *camera* (rather than the mount) for some setups; we don't need this;
   TianWen always has a mount.
 - **Saving frames to disk for later analysis.** Config key
   `PolarAlignmentSavePAFrames` is reserved but the FITS-write path is
@@ -671,7 +671,7 @@ big-bang UX. Phases 4-5 can land separately afterward.
   The plate solver already gives ~0.5-1 arcsec center accuracy on a
   reasonable star field; that bounds our floor at ~30 arcsec misalignment
   resolution from a single two-frame solve. Refinement improves this.
-- **Multi-target (3+) frame solve** for ill-conditioned geometries — could
+- **Multi-target (3+) frame solve** for ill-conditioned geometries; could
   add later if v1 two-frame proves too sensitive in practice.
 
 ## Memory updates after landing

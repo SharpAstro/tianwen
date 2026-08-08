@@ -52,7 +52,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         // when
         var (converged, baseline) = await ctx.Session.AutoFocusAsync(0, ct);
 
-        // then — should converge
+        // then: should converge
         converged.ShouldBeTrue("auto-focus should converge");
         baseline.IsValid.ShouldBeTrue("baseline should be valid");
         baseline.MedianHfd.ShouldBeGreaterThan(0, "baseline HFD should be positive");
@@ -67,14 +67,14 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenAutoFocusWhenBacklashConfiguredThenApproachesFromBelow()
     {
-        // given — focuser starts above best focus, backlash = 20
+        // given: focuser starts above best focus, backlash = 20
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
         var (converged, _) = await ctx.Session.AutoFocusAsync(0, ct);
 
-        // then — should still converge despite backlash
+        // then: should still converge despite backlash
         converged.ShouldBeTrue("auto-focus should converge with backlash compensation");
 
         var finalPos = await ctx.Focuser.GetPositionAsync(ct);
@@ -109,7 +109,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenSyntheticStarFieldWhenImageTakenAtBestFocusThenStarsDetectedWithGoodHFD()
     {
-        // given — camera at best focus
+        // given: camera at best focus
         var ct = TestContext.Current.CancellationToken;
         var timeProvider = new FakeTimeProviderWrapper();
         var external = new FakeExternal(output, timeProvider);
@@ -122,12 +122,12 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         cameraDriver.NumY = 512;
         cameraDriver.FocusPosition = TrueBestFocusPosition; // at perfect focus
 
-        // when — take an exposure
+        // when: take an exposure
         await cameraDriver.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: ct);
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
         var image = await ((ICameraDriver)cameraDriver).GetImageAsync(ct);
 
-        // then — should produce detectable stars with tight HFD
+        // then: should produce detectable stars with tight HFD
         image.ShouldNotBeNull();
         var stars = await image.FindStarsAsync(0, snrMin: 10, cancellationToken: ct);
         output.WriteLine($"Stars detected: {stars.Count}");
@@ -156,19 +156,19 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
         cameraDriver.NumX = 512;
         cameraDriver.NumY = 512;
 
-        // when — take image at focus
+        // when: take image at focus
         cameraDriver.FocusPosition = TrueBestFocusPosition;
         await cameraDriver.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: ct);
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
         var focusedImage = await ((ICameraDriver)cameraDriver).GetImageAsync(ct);
 
-        // and — take image defocused by 100 steps
+        // and: take image defocused by 100 steps
         cameraDriver.FocusPosition = TrueBestFocusPosition + 100;
         await cameraDriver.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: ct);
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(3), ct);
         var defocusedImage = await ((ICameraDriver)cameraDriver).GetImageAsync(ct);
 
-        // then — defocused HFD should be larger
+        // then: defocused HFD should be larger
         focusedImage.ShouldNotBeNull();
         defocusedImage.ShouldNotBeNull();
 
@@ -188,7 +188,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     [Fact(Timeout = 60_000)]
     public async Task GivenVCurveSamplesWhenHyperbolaFitThenBestFocusMatchesTruePosition()
     {
-        // given — collect V-curve data from synthetic images at known positions
+        // given: collect V-curve data from synthetic images at known positions
         var ct = TestContext.Current.CancellationToken;
         var timeProvider = new FakeTimeProviderWrapper();
         var external = new FakeExternal(output, timeProvider);
@@ -226,7 +226,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
             }
         }
 
-        // when — fit hyperbola
+        // when: fit hyperbola
         var success = sampleMap.TryGetBestFocusSolution(out var solution, out var min, out var max);
 
         // then

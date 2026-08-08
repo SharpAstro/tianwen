@@ -22,7 +22,7 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 /// <para>
 /// Calls are <b>synchronous</b> and single-flight (serialized by <see cref="_gate"/>): the helper serves
 /// requests sequentially and never sends unsolicited messages, so the reply to request N is the next
-/// line — no async receive loop / id-correlation dictionary is needed (unlike the event-pushing PHD2
+/// line: no async receive loop / id-correlation dictionary is needed (unlike the event-pushing PHD2
 /// client). This matches the inherently synchronous, single-apartment ASCOM COM surface the transport
 /// replaces (a blocking COM call becomes a blocking pipe round-trip).
 /// </para>

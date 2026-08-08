@@ -18,7 +18,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// adjusts polar-aligner knobs. Reverses the original Phase-A rotation
     /// on disposal so the mount is left near its pre-routine pose.
     ///
-    /// Not part of <see cref="Sequencing.Session"/> — runs against a
+    /// Not part of <see cref="Sequencing.Session"/>: runs against a
     /// manually-connected mount only. The caller (UI tab) creates one
     /// instance per run, calls <see cref="SolveAsync"/> then
     /// <see cref="RefineAsync"/>, and disposes when done.
@@ -26,7 +26,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// <remarks>
     /// Driver resilience: hot-path mount and camera operations should still
     /// be wrapped at the call site, but this class does not re-implement the
-    /// session's <c>ResilientInvokeAsync</c> wrapper — failures here surface
+    /// session's <c>ResilientInvokeAsync</c> wrapper: failures here surface
     /// as <see cref="TwoFrameSolveResult.Success"/> = false with a free-form
     /// reason string. The user can simply restart the routine.
     /// </remarks>
@@ -123,7 +123,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// apparent pole.
         /// </summary>
         /// <param name="ct">Cancellation token.</param>
-        /// <param name="rampProgress">Optional reporter for ramp progress —
+        /// <param name="rampProgress">Optional reporter for ramp progress; 
         /// the GUI / TUI subscribes so the side panel can show "Probing 200ms
         /// (rung 3/8)" instead of a static message during the multi-second
         /// ASTAP retries.</param>
@@ -152,9 +152,9 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             if (!probe.Success)
             {
                 // Source-supplied reason (e.g. "PHD2 Save Images disabled") wins over the
-                // generic "no solve at any rung" message — the user gets actionable text.
+                // generic "no solve at any rung" message: the user gets actionable text.
                 return Failed(probe.FailureReason
-                    ?? $"Plate solve failed at every exposure rung up to {_config.ExposureRamp[^1].TotalSeconds:F1}s — check focus, dew, light pollution.");
+                    ?? $"Plate solve failed at every exposure rung up to {_config.ExposureRamp[^1].TotalSeconds:F1}s; check focus, dew, light pollution.");
             }
             var (v1Center, v1AvgMatched) = await AverageWcsAsync(probe.WcsCenter, probe.StarsMatched, probe.ExposureUsed, ct);
             _v1 = v1Center;
@@ -172,7 +172,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // --- RA-axis rotation via raw MoveAxis (bypasses pointing model) ---
             if (!_mount.CanMoveAxis(TelescopeAxis.Primary))
             {
-                return Failed("Mount does not support raw RA-axis MoveAxis — required for cone-error-immune pole recovery.");
+                return Failed("Mount does not support raw RA-axis MoveAxis, required for cone-error-immune pole recovery.");
             }
             double rateDegPerSec = SelectRotationRate(_mount.AxisRates(TelescopeAxis.Primary));
             if (rateDegPerSec <= 0)
@@ -242,7 +242,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             {
                 _phaseACompleted = true; // record so reverse-restore still runs
                 return Failed(frame2.FailureReason
-                    ?? $"Frame 2 plate solve failed after {maxFrame2Attempts} attempts at locked exposure {probe.ExposureUsed.TotalMilliseconds:F0}ms — check that the mount has settled and stars are still in frame.");
+                    ?? $"Frame 2 plate solve failed after {maxFrame2Attempts} attempts at locked exposure {probe.ExposureUsed.TotalMilliseconds:F0}ms; check that the mount has settled and stars are still in frame.");
             }
 
             // Average frame 2 over ReferenceFrameAverages additional captures so
@@ -269,12 +269,12 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // user has dialed the actual misalignment all the way to zero.
             var v2InV1Frame = SiderealNormalise(v2Averaged, v2CaptureUtc, v1CaptureUtc);
             // Use absolute delta for the geometric solve; sign goes into the right-hand-rule
-            // axis direction the math returns (which we ignore for pole projection — we only
+            // axis direction the math returns (which we ignore for pole projection, we only
             // need the line, not the sign).
             if (!PolarAxisSolver.TryRecoverAxis(_v1, v2InV1Frame, Math.Abs(deltaRad), out var axis, out var coneRad))
             {
                 _phaseACompleted = true;
-                return Failed("Axis recovery ill-conditioned — try a larger rotation or different starting position.");
+                return Failed("Axis recovery ill-conditioned, try a larger rotation or different starting position.");
             }
 
             // The recovered axis lives in v1's J2000 frame (since both inputs
@@ -350,7 +350,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// Anchors the original Phase A frame (<c>v1</c>); each new live frame
         /// becomes <c>v_live</c> and the recovered axis is recomputed. The
         /// rotation angle stays the same as Phase A (delta), since the user
-        /// is told not to rotate the mount in RA during refinement — only the
+        /// is told not to rotate the mount in RA during refinement, only the
         /// live frame's apparent direction shifts as polar knobs adjust.
         /// </summary>
         public async IAsyncEnumerable<LiveSolveResult> RefineAsync([EnumeratorCancellation] CancellationToken ct)
@@ -802,7 +802,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// (start, end) sky-coord pair. Returns false when the axis already
         /// sits on the pole (rotation angle &lt; 1 arcsec, sub-pixel arrow)
         /// or when the rotation axis is degenerate (axis collinear with pole
-        /// — same condition).
+        ///; same condition).
         /// </summary>
         internal static bool TryBuildCorrectionArrow(in Vec3 axis, in Vec3 pole, in Vec3 anchor, out PolarCorrectionArrow arrow)
         {
@@ -810,7 +810,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             // angle omega = acos(axis . pole). Apply to the anchor via Rodrigues.
             var dot = Math.Clamp(Vec3.Dot(axis, pole), -1.0, 1.0);
             var omega = Math.Acos(dot);
-            const double minOmegaRad = 4.85e-6; // 1 arcsec — sub-pixel for any sane polar-align FOV
+            const double minOmegaRad = 4.85e-6; // 1 arcsec; sub-pixel for any sane polar-align FOV
             if (omega < minOmegaRad)
             {
                 arrow = default;
@@ -826,7 +826,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 // Degenerate: axis parallel/antiparallel to pole. Parallel
                 // is the early-exit above; antiparallel means a 180deg
                 // rotation with ill-defined direction (won't happen in
-                // practice — the axis is always in the same hemisphere as
+                // practice: the axis is always in the same hemisphere as
                 // the pole during polar alignment).
                 arrow = default;
                 return false;

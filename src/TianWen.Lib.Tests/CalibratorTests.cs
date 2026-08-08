@@ -10,7 +10,7 @@ namespace TianWen.Lib.Tests;
 [Collection("Imaging")]
 public class CalibratorTests
 {
-    // 5x3 mono test images (15 floats) — deliberately not a multiple of
+    // 5x3 mono test images (15 floats): deliberately not a multiple of
     // Vector<float>.Count so the SIMD tail in Image.Subtract / Image.Divide
     // also gets exercised transitively.
     private static Image Mono(float[] values, int width = 5, int height = 3)
@@ -112,7 +112,7 @@ public class CalibratorTests
 
         var result = new Calibrator(Flat: flat, FlatEpsilon: 1e-3f).Apply(light);
 
-        // Dead pixel at (0,0) — 1.0 / 1e-3 = 1000, NOT inf.
+        // Dead pixel at (0,0): 1.0 / 1e-3 = 1000, NOT inf.
         result[0, 0, 0].ShouldBe(1000f, tolerance: 1e-2f);
         result[0, 0, 1].ShouldBe(1.0f, tolerance: 1e-5f); // normal pixel
     }

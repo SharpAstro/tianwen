@@ -27,7 +27,7 @@ public record IOptronDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     public override async ValueTask<ISerialConnection?> ConnectSerialDeviceAsync(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = SGP_BAUD_RATE, Encoding? encoding = null, CancellationToken cancellationToken = default)
     {
-        // SGP requires exactly 28800 baud — refuse to connect at any other speed
+        // SGP requires exactly 28800 baud: refuse to connect at any other speed
         if (baud != SGP_BAUD_RATE)
         {
             return null;

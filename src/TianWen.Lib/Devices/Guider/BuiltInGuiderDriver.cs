@@ -62,7 +62,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     private const int NeuralSettleFailSafeMinExcursions = 2;
 
-    // Configuration — read from device URI query parameters. The advanced knobs (calibration
+    // Configuration: read from device URI query parameters. The advanced knobs (calibration
     // attempts/delay, settle fail-safe fraction) carry their defaults + rationale on the
     // corresponding BuiltInGuiderDevice properties.
     private readonly bool _reuseCalibration;
@@ -120,7 +120,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
 
     /// <summary>
-    /// Last guide frame — from the guide loop when guiding, or from calibration/looping captures.
+    /// Last guide frame, from the guide loop when guiding, or from calibration/looping captures.
     /// </summary>
     public Image? LastGuideFrame => _guideLoop?.LastFrame ?? _lastFrame;
 
@@ -523,7 +523,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private async ValueTask<GuiderCalibrationResult?> TryLoadAndValidateCalibrationAsync(
         IPulseGuideTarget pulseTarget, ICameraDriver camera, CancellationToken ct)
     {
-        // Load the most recent neural model file — it contains the calibration result
+        // Load the most recent neural model file: it contains the calibration result
         var model = new NeuralGuideModel();
         var savedCalibration = await NeuralGuideModelPersistence.TryLoadAsync(model, External.ProfileFolder, ct);
         if (savedCalibration is null)
@@ -544,7 +544,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         if (!tracker.IsAcquired)
         {
-            Logger.LogWarning("Cannot validate saved calibration — no guide star acquired.");
+            Logger.LogWarning("Cannot validate saved calibration, no guide star acquired.");
             return null;
         }
 
@@ -563,17 +563,17 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         switch (result)
         {
             case CalibrationValidationResult.Valid:
-                Logger.LogInformation("Saved calibration validated — reusing.");
+                Logger.LogInformation("Saved calibration validated, reusing.");
                 _lastCalibration = savedCalibration;
                 _calibrationPierSide = await _mount!.GetSideOfPierAsync(ct);
                 return savedCalibration;
 
             case CalibrationValidationResult.RateDrifted:
-                Logger.LogInformation("Saved calibration rate drifted — recalibrating (keeping neural weights).");
+                Logger.LogInformation("Saved calibration rate drifted, recalibrating (keeping neural weights).");
                 return null;
 
             case CalibrationValidationResult.AngleChanged:
-                Logger.LogInformation("Saved calibration angle changed — recalibrating (discarding neural weights).");
+                Logger.LogInformation("Saved calibration angle changed, recalibrating (discarding neural weights).");
                 return null;
 
             default:
@@ -595,7 +595,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 calResult = await TryLoadAndValidateCalibrationAsync(pulseTarget, camera, ct);
                 if (calResult is not null)
                 {
-                    // Record pier side at the time we load the calibration — this is our reference
+                    // Record pier side at the time we load the calibration; this is our reference
                     // for detecting meridian flips later when guiding restarts after a slew.
                     _calibrationPierSide = await mount.GetSideOfPierAsync(ct);
                 }
@@ -606,7 +606,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 calResult = await CalibrateWithRetryAsync(pulseTarget, camera, ct);
                 if (calResult is null)
                 {
-                    GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device, "Calibration failed — no usable guide star after retries (cloud / poor seeing?) or insufficient star displacement"));
+                    GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device, "Calibration failed, no usable guide star after retries (cloud / poor seeing?) or insufficient star displacement"));
                     ForceState(GuiderState.Idle);
                     return;
                 }
@@ -617,7 +617,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             else if (ReverseDecOnFlip)
             {
                 // Detect meridian flip by checking if the mount's pier side changed since calibration.
-                // HA sign alone is unreliable — slewing to a target on the other side of the meridian
+                // HA sign alone is unreliable: slewing to a target on the other side of the meridian
                 // changes HA sign without an actual GEM flip.
                 var currentPierSide = await mount.GetSideOfPierAsync(ct);
                 if (_calibrationPierSide is { } calPier && calPier != currentPierSide)
@@ -673,7 +673,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 if (!acquired)
                 {
                     GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device,
-                        $"Cannot start guiding — no usable guide star after {_maxCalibrationAttempts} attempts (cloud / poor seeing?)"));
+                        $"Cannot start guiding; no usable guide star after {_maxCalibrationAttempts} attempts (cloud / poor seeing?)"));
                     return; // finally resets to Idle
                 }
 
@@ -764,7 +764,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 if (fresh is null)
                 {
                     GuidingErrorEvent?.Invoke(this, new GuidingErrorEventArgs(_device,
-                        "Recalibration failed — no usable guide star after retries"));
+                        "Recalibration failed; no usable guide star after retries"));
                     return;
                 }
                 calResult = fresh;
@@ -793,7 +793,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     /// <summary>
     /// Captures a single guide frame via <see cref="ICameraDriver.GetImageAsync"/>.
-    /// The returned <see cref="Image"/> holds a <see cref="ChannelBuffer"/> ref —
+    /// The returned <see cref="Image"/> holds a <see cref="ChannelBuffer"/> ref; 
     /// caller must call <see cref="Image.Release"/> when done to allow buffer reuse.
     /// </summary>
     internal static async ValueTask<Image> CaptureGuideFrameAsync(ICameraDriver camera, TimeSpan exposure, ITimeProvider timeProvider, TimeSpan imageReadyPollInterval, CancellationToken ct)
@@ -803,10 +803,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         // Adaptive wait: sleep through the exposure's dead time in one chunk, then
         // tighten the poll cadence as the predicted end approaches (coarse, then 1 ms
         // in the final window) so pickup latency stays minimal without burning poll
-        // round-trips. No overall timeout — the guide loop's own token bounds this.
+        // round-trips. No overall timeout: the guide loop's own token bounds this.
         await camera.WaitForImageReadyAsync(exposure, timeProvider, imageReadyPollInterval, timeout: null, ct);
 
-        return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame — no image data");
+        return await camera.GetImageAsync(ct) ?? throw new GuiderException("Failed to capture guide frame, no image data");
     }
 
     public ValueTask DitherAsync(double ditherPixels, double settlePixels, double settleTime, double settleTimeout, bool raOnly = false, CancellationToken cancellationToken = default)
@@ -957,7 +957,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             var distance = Math.Sqrt(ra * ra + dec * dec);
             if (distance > _settlePixels * 3)
             {
-                // Large excursion — reset the settle timer completely
+                // Large excursion: reset the settle timer completely
                 Interlocked.Increment(ref _settleExcursionResets);
                 RecordSettleStart();
                 return false;

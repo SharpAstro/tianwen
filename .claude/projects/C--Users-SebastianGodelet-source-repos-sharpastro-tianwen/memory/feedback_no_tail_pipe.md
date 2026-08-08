@@ -1,6 +1,6 @@
 ---
 name: No tail pipe on build/test output
-description: Do not pipe build/test output through tail — show full output
+description: Do not pipe build/test output through tail; show full output
 type: feedback
 ---
 

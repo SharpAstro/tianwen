@@ -245,7 +245,7 @@ namespace TianWen.UI.Abstractions
                     }
                     catch (OperationCanceledException oce)
                     {
-                        // Shutdown / explicit cancel — no notification needed, but log so a
+                        // Shutdown / explicit cancel: no notification needed, but log so a
                         // mid-slew abort is still traceable in the file logger.
                         logger.LogDebug(oce, "Slew to {Name} cancelled", capturedSig.Name);
                     }

@@ -130,7 +130,7 @@ namespace TianWen.Lib.Tests
             state.FieldCount.ShouldBeGreaterThan(0);
             state.SelectedFieldIndex.ShouldBe(-1); // nothing selected initially
 
-            // Act — click on the first field's label area (somewhere in the left part of the config panel)
+            // Act: click on the first field's label area (somewhere in the left part of the config panel)
             // Config panel fills the left side; first field is below the first group header
             var hit = tab.HitTestAndDispatch(10f, 60f); // approximate position of first field label
 
@@ -145,7 +145,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void ClickOnConfigFieldLabel_WithGuiContentOffset_SelectsField()
         {
-            // Arrange — simulate real GUI layout where content is offset by sidebar (52px) and status bar (28px)
+            // Arrange: simulate real GUI layout where content is offset by sidebar (52px) and status bar (28px)
             var tab = CreateTab(out var state, width: 1280, height: 900);
             var appState = new GuiAppState();
             var plannerState = new PlannerState();
@@ -157,7 +157,7 @@ namespace TianWen.Lib.Tests
             state.FieldCount.ShouldBeGreaterThan(0);
             state.SelectedFieldIndex.ShouldBe(-1);
 
-            // Act — click in the config label area (x=60 is 8px into the content, y=60 is 32px into content)
+            // Act: click in the config label area (x=60 is 8px into the content, y=60 is 32px into content)
             // First group header is at y=28 (contentRect.Y), 28px tall, so first field starts at y≈56
             var hit = tab.HitTestAndDispatch(60f, 60f);
 
@@ -178,7 +178,7 @@ namespace TianWen.Lib.Tests
 
             var initialConfig = state.Configuration;
 
-            // Act — find and click a stepper button (Inc or Dec)
+            // Act: find and click a stepper button (Inc or Dec)
             // Stepper buttons are registered with action like "Inc:..." or "Dec:..."
             HitResult? buttonHit = null;
             // Scan across the first field's control area (right of label)
@@ -201,7 +201,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void WheelScroll_AccumulatesTrackpadDeltas_AndMirrorsAtomOffset()
         {
-            // Arrange — short viewport so the config form overflows and the panel scrolls.
+            // Arrange: short viewport so the config form overflows and the panel scrolls.
             var tab = CreateTab(out var state, width: 800, height: 200);
             var appState = new GuiAppState();
             var plannerState = new PlannerState();
@@ -210,14 +210,14 @@ namespace TianWen.Lib.Tests
 
             state.ConfigScrollOffset.ShouldBe(0);
 
-            // Act — one full wheel notch toward the end (negative delta): 3 atoms per notch.
+            // Act: one full wheel notch toward the end (negative delta): 3 atoms per notch.
             tab.HandleInput(new InputEvent.Scroll(-1f, 50f, 100f)).ShouldBeTrue();
             tab.Render(appState, plannerState, contentRect);
 
-            // Assert — the state mirror carries the snapped canonical atom offset.
+            // Assert: the state mirror carries the snapped canonical atom offset.
             state.ConfigScrollOffset.ShouldBe(3);
 
-            // Act — ten sub-1.0 trackpad deltas: the fractional carry accumulates into a full notch
+            // Act: ten sub-1.0 trackpad deltas: the fractional carry accumulates into a full notch
             // instead of truncating to zero (the bug the atom model exists to fix).
             for (var i = 0; i < 10; i++)
             {
@@ -231,7 +231,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void KeyboardDown_ScrollsSelectedFieldIntoView()
         {
-            // Arrange — short viewport; walking the selection to the last field must scroll the panel.
+            // Arrange: short viewport; walking the selection to the last field must scroll the panel.
             var tab = CreateTab(out var state, width: 800, height: 200);
             var appState = new GuiAppState();
             var plannerState = new PlannerState();
@@ -241,14 +241,14 @@ namespace TianWen.Lib.Tests
             state.FieldCount.ShouldBeGreaterThan(1);
             state.SelectedFieldIndex = 0;
 
-            // Act — walk the selection to the bottom of the form.
+            // Act: walk the selection to the bottom of the form.
             for (var i = 0; i < state.FieldCount - 1; i++)
             {
                 tab.HandleInput(new InputEvent.KeyDown(InputKey.Down)).ShouldBeTrue();
             }
             tab.Render(appState, plannerState, contentRect);
 
-            // Assert — EnsureFieldVisible drove the controller past the top.
+            // Assert: EnsureFieldVisible drove the controller past the top.
             state.SelectedFieldIndex.ShouldBe(state.FieldCount - 1);
             state.ConfigScrollOffset.ShouldBeGreaterThan(0);
         }
@@ -264,15 +264,15 @@ namespace TianWen.Lib.Tests
 
             state.SelectedFieldIndex = 0;
 
-            // Act — press Down
+            // Act: press Down
             tab.HandleInput(new InputEvent.KeyDown(InputKey.Down)).ShouldBeTrue();
             state.SelectedFieldIndex.ShouldBe(1);
 
-            // Act — press Up
+            // Act: press Up
             tab.HandleInput(new InputEvent.KeyDown(InputKey.Up)).ShouldBeTrue();
             state.SelectedFieldIndex.ShouldBe(0);
 
-            // Act — press Up at top (should stay at 0)
+            // Act: press Up at top (should stay at 0)
             tab.HandleInput(new InputEvent.KeyDown(InputKey.Up)).ShouldBeTrue();
             state.SelectedFieldIndex.ShouldBe(0);
         }
@@ -289,10 +289,10 @@ namespace TianWen.Lib.Tests
             state.SelectedFieldIndex = 0;
             var initialConfig = state.Configuration;
 
-            // Act — press Right to increment
+            // Act: press Right to increment
             tab.HandleInput(new InputEvent.KeyDown(InputKey.Right)).ShouldBeTrue();
 
-            // Assert — config should have changed
+            // Assert: config should have changed
             state.Configuration.ShouldNotBe(initialConfig);
         }
 
@@ -307,7 +307,7 @@ namespace TianWen.Lib.Tests
             // Act
             RenderTab(tab, appState, plannerState);
 
-            // Assert — should match total fields across all groups
+            // Assert: should match total fields across all groups
             var expectedCount = 0;
             foreach (var group in SessionConfigGroups.Groups)
             {

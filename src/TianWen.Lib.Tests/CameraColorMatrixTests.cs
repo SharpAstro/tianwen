@@ -111,7 +111,7 @@ public class CameraColorMatrixTests
     {
         // The dispatcher must accept the free-form EXIF model string
         // "Canon EOS 5D Mark II" and normalise to the SASP filter-name key
-        // "CANON_EOS_5D_MARK_II" — case + spacing + word ordering already
+        // "CANON_EOS_5D_MARK_II": case + spacing + word ordering already
         // match the SASP convention.
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
         FilterCurveDatabase.TryComputeCameraToSrgbMatrix("Canon EOS 5D Mark II", out _).ShouldBeTrue();

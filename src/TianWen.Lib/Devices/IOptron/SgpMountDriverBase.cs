@@ -225,7 +225,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
     public ValueTask SyncRaDecAsync(double ra, double dec, CancellationToken cancellationToken)
     {
-        // SGP has no sync command — we update our internal model
+        // SGP has no sync command: we update our internal model
         _ra = ra;
         _dec = dec;
         _raAtTrackingStart = ra;
@@ -235,7 +235,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
     #endregion
 
-    #region Pulse Guide (not supported — use ST-4 guide port)
+    #region Pulse Guide (not supported, use ST-4 guide port)
 
     public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
         => throw new InvalidOperationException("SGP does not support serial pulse guiding. Use the ST-4 guide port instead.");
@@ -376,7 +376,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
     /// </summary>
     public async ValueTask CameraSnapAsync(CameraSnapSettings settings, CancellationToken cancellationToken)
     {
-        // TODO: confirm units — using seconds for now based on example (0030 = 30s shutter, 005 = 5s interval)
+        // TODO: confirm units; using seconds for now based on example (0030 = 30s shutter, 005 = 5s interval)
         var shutter = (int)settings.ShutterTime.TotalSeconds;
         var interval = (int)settings.Interval.TotalSeconds;
         var cmd = $":MSCA1{shutter:D4}{interval:D3}{settings.ShotCount:D3}#";
@@ -396,7 +396,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
         if (response is not null && CameraSettingsRegex().IsMatch(response))
         {
             var match = CameraSettingsRegex().Match(response);
-            // TODO: confirm units — using seconds for now
+            // TODO: confirm units; using seconds for now
             var shutterTime = TimeSpan.FromSeconds(int.Parse(match.Groups["Shutter"].Value, CultureInfo.InvariantCulture));
             var interval = TimeSpan.FromSeconds(int.Parse(match.Groups["Interval"].Value, CultureInfo.InvariantCulture));
             var shotCount = int.Parse(match.Groups["ShotCount"].Value, CultureInfo.InvariantCulture);

@@ -20,7 +20,7 @@ public enum GuiderPlaceholder
 
 /// <summary>
 /// Shared state for the guider tab. Reads from <see cref="LiveSessionState"/>
-/// (no second ISession poller) — call <see cref="PollFromLiveState"/> each frame.
+/// (no second ISession poller): call <see cref="PollFromLiveState"/> each frame.
 /// </summary>
 public class GuiderTabState
 {

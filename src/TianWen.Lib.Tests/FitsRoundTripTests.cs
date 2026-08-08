@@ -15,12 +15,12 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
     [InlineData("image_file-snr-20_stars-28_1280x960x16")]
     public async Task GivenFitsFileWhenSavedAndReloadedThenImageMetaSurvives(string name)
     {
-        // given — load original FITS
+        // given: load original FITS
         var original = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: TestContext.Current.CancellationToken);
         var testDir = SharedTestData.CreateTempTestOutputDir();
         var fitsPath = Path.Combine(testDir, $"{name}_roundtrip.fits");
 
-        // when — write and re-read
+        // when: write and re-read
         original.WriteToFitsFile(fitsPath);
         var loaded = Image.TryReadFitsFile(fitsPath, out var reloaded);
 
@@ -98,7 +98,7 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
     [Fact]
     public void GivenSyntheticImageWithFullMetaWhenRoundTrippedThenAllFieldsSurvive()
     {
-        // given — build an image with every ImageMeta field populated
+        // given: build an image with every ImageMeta field populated
         var width = 64;
         var height = 48;
         var data = new float[height, width];

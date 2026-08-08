@@ -30,7 +30,7 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
     protected override Stream OpenStream()
     {
         // Assert DTR + RTS before opening for bridges that hold the MCU in reset otherwise
-        // (e.g. the Gemini FlatPanel's CH341). Opt-in — off for every device that doesn't need it.
+        // (e.g. the Gemini FlatPanel's CH341). Opt-in: off for every device that doesn't need it.
         if (assertControlLines)
         {
             _port.DtrEnable = true;
@@ -49,12 +49,12 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
     public override void DiscardInBuffer()
     {
         // SerialPort.DiscardInBuffer can throw InvalidOperationException if the port
-        // was closed concurrently (race with TryClose). Swallow that — best-effort.
+        // was closed concurrently (race with TryClose). Swallow that; best-effort.
         if (!_port.IsOpen) return;
         try
         {
             // Read any pending bytes FIRST so the operator can see what the device
-            // actually sent — OnStep's unterminated "0" on its first :GVP# is the
+            // actually sent: OnStep's unterminated "0" on its first :GVP# is the
             // canonical case: a prior LX200 probe's read times out before the '#'
             // it never sent, leaving a stray '0' in the buffer that would pollute
             // the next framed read. BytesToRead is non-blocking; BaseStream.Read
@@ -64,7 +64,7 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
             {
                 Span<byte> scratch = stackalloc byte[256];
                 // Cap at 4 KiB so a misbehaving device can't starve discovery with
-                // an endless chatter stream — the native discard below sweeps any
+                // an endless chatter stream: the native discard below sweeps any
                 // remainder into the bit bucket.
                 var drained = 0;
                 while (pending > 0 && drained < 4096)
@@ -81,11 +81,11 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
         }
         catch (InvalidOperationException)
         {
-            // port closed between the IsOpen check and the native call — ignore.
+            // port closed between the IsOpen check and the native call; ignore.
         }
         catch (IOException ex)
         {
-            // Reading the pending bytes failed (rare — driver-level). Try the
+            // Reading the pending bytes failed (rare, driver-level). Try the
             // native discard anyway so the next probe starts clean-ish, and log
             // the failure at Debug so it isn't a silent no-op.
             _logger.LogDebug(ex, "DiscardInBuffer drain-read failed on {Port}", DisplayName);
@@ -118,9 +118,9 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
     /// .NET's <c>SerialStream</c> "async" is itself just a blocking read on a background thread
     /// (dotnet/runtime#28968), and its <c>BaseStream.ReadAsync</c> spuriously aborts with
     /// <c>ERROR_OPERATION_ABORTED</c> on some USB bridges (CH34x) after the first read. So here we do exactly
-    /// what the runtime maintainers recommend — a blocking <c>Read</c> (honors <c>ReadTimeout</c>, immune to
+    /// what the runtime maintainers recommend: a blocking <c>Read</c> (honors <c>ReadTimeout</c>, immune to
     /// the abort). Cancellation is observed between <c>ReadTimeout</c> slices, so no blocked thread is
-    /// abandoned. Returns bytes stored, or -1 on failure/cancellation — matching the base "Try*" contract
+    /// abandoned. Returns bytes stored, or -1 on failure/cancellation; matching the base "Try*" contract
     /// (report failure via the return value, never throw).
     /// </summary>
     private int SyncRead(Memory<byte> message, ReadOnlyMemory<byte> terminators, bool exact, CancellationToken cancellationToken)
@@ -139,7 +139,7 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
                 }
                 catch (TimeoutException)
                 {
-                    continue; // slice elapsed with no byte — re-check cancellation and keep waiting
+                    continue; // slice elapsed with no byte; re-check cancellation and keep waiting
                 }
 
                 if (b < 0)
@@ -148,7 +148,7 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
                 }
                 if (!exact && terminators.Span.IndexOf((byte)b) >= 0)
                 {
-                    return count; // terminator reached — not stored, matching the async path's contract
+                    return count; // terminator reached, not stored, matching the async path's contract
                 }
 
                 message.Span[count++] = (byte)b;

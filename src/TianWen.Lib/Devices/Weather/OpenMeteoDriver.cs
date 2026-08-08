@@ -73,7 +73,7 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
         // Validate API is reachable with a minimal current-weather request
         try
         {
-            // Use 0,0 as a quick connectivity check — actual lat/lon comes from profile
+            // Use 0,0 as a quick connectivity check: actual lat/lon comes from profile
             var testUrl = $"{BaseUrl}?latitude=0&longitude=0&current={CurrentParams}";
             using var response = await s_httpClient.GetAsync(testUrl, cancellationToken);
             response.EnsureSuccessStatusCode();
@@ -130,7 +130,7 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
             return cached.Value.data;
         }
 
-        // TTL expired or no cache — try the API
+        // TTL expired or no cache: try the API
         var url = $"{BaseUrl}?latitude={latitude.ToString(CultureInfo.InvariantCulture)}"
             + $"&longitude={longitude.ToString(CultureInfo.InvariantCulture)}"
             + $"&hourly={HourlyParams}"
@@ -176,7 +176,7 @@ internal sealed class OpenMeteoDriver : IWeatherDriver
         // a future-only forecast no longer returns -- are retained rather than clobbered by the refetch.
         var merged = WeatherForecastMerge.Merge(cached?.data, forecasts);
 
-        // Cache result (non-fatal — don't lose forecast data if caching fails)
+        // Cache result (non-fatal, don't lose forecast data if caching fails)
         await Logger.CatchAsync(
             ct => _external.AtomicWriteJsonAsync(cacheFile, merged, OpenMeteoJsonContext.Default.ListHourlyWeatherForecast, ct),
             cancellationToken);

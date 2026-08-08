@@ -4,7 +4,7 @@ Sub-plan of [`first-light-resilience.md`](first-light-resilience.md).
 
 Goal: detect fixed FOV obstructions (tree, building, neighbour's roof) as
 early as possible in a target window, decide whether they'll clear within
-a useful fraction of the allocated time, and otherwise advance cleanly — so
+a useful fraction of the allocated time, and otherwise advance cleanly, so
 we don't waste 40 min of a 60 min allocation trying to image through bark.
 
 ## Current state
@@ -25,7 +25,7 @@ What's missing:
    started, which means we've already paid auto-focus-on-new-target (if
    enabled), guider start, full-length exposures.
 2. **Disambiguation** between obstruction (target will not clear without a
-   slew) and transient conditions (thin cloud, dew — handled correctly by
+   slew) and transient conditions (thin cloud, dew; handled correctly by
    `WaitForConditionRecoveryAsync`).
 3. **Trajectory-aware wait decision**: if the target's altitude/azimuth
    track will move it out of the obstruction in a fraction of remaining
@@ -33,7 +33,7 @@ What's missing:
 
 ## Design
 
-### Phase 1 — Scout frame + compare to expected
+### Phase 1: Scout frame + compare to expected
 
 After `CenterOnTargetAsync` succeeds and *before* the refocus /
 `StartGuidingLoopAsync` block, run `ScoutAndProbeAsync(observation, ...)`:
@@ -49,14 +49,14 @@ After `CenterOnTargetAsync` succeeds and *before* the refocus /
 
    | Metric                             | Decision                     |
    |------------------------------------|------------------------------|
-   | StarCount ≥ 0.7× expected          | Healthy — proceed            |
-   | StarCount in 0.3×–0.7× band        | Borderline — run nudge test  |
-   | StarCount < 0.3× expected          | Severe — run nudge test      |
+   | StarCount ≥ 0.7× expected          | Healthy: proceed            |
+   | StarCount in 0.3×–0.7× band        | Borderline: run nudge test  |
+   | StarCount < 0.3× expected          | Severe: run nudge test      |
 
    If any OTA is borderline/severe the **whole rig** runs the nudge test
-   (single-mount invariant — we can't test per-OTA in isolation).
+   (single-mount invariant, we can't test per-OTA in isolation).
 
-### Phase 2 — Altitude-nudge disambiguation
+### Phase 2: Altitude-nudge disambiguation
 
 If Phase 1 flagged borderline/severe:
 
@@ -71,10 +71,10 @@ If Phase 1 flagged borderline/severe:
    - StarCount **still bad** → classify as **transparency** (clouds, dew,
      Milky Way absorption). Hand off to existing recovery flow.
 4. Always re-slew to the target's actual coordinates at the end of the
-   nudge test — even if we're about to advance, leaving the mount mispointed
+   nudge test, even if we're about to advance, leaving the mount mispointed
    is bad hygiene.
 
-### Phase 3 — Trajectory-aware wait decision (obstruction case)
+### Phase 3: Trajectory-aware wait decision (obstruction case)
 
 Given obstruction and the target's ephemeris:
 
@@ -91,12 +91,12 @@ Given obstruction and the target's ephemeris:
    - If healthy, proceed to normal imaging; else escalate to advance.
 4. Otherwise: `return ImageLoopNextAction.AdvanceToNextObservation`.
    Primary target stays in the schedule (it may be winnable on a future
-   night when tree geometry is different — or via a spare swap now).
+   night when tree geometry is different, or via a spare swap now).
 
-### Phase 4 — Integration with existing recovery loop (transparency case)
+### Phase 4: Integration with existing recovery loop (transparency case)
 
 If nudge classified as transparency, fall through to the existing
-`WaitForConditionRecoveryAsync` path. No new code — the predictive probe
+`WaitForConditionRecoveryAsync` path. No new code; the predictive probe
 has simply moved the entry to that path earlier (before we've committed
 to full-length exposures) instead of discovering it after three ruined
 frames.
@@ -105,7 +105,7 @@ frames.
 
 New code:
 
-- `Session.Imaging.Obstruction.cs` — new partial: `ScoutAndProbeAsync`,
+- `Session.Imaging.Obstruction.cs`: new partial: `ScoutAndProbeAsync`,
   `NudgeTestAsync`, `EstimateClearTimeAsync`, helpers. Keeping it out of the
   already-large `Session.Imaging.cs` for readability.
 - `SessionConfiguration` additions (with sensible defaults):
@@ -124,7 +124,7 @@ Edits:
 - `ISession` / session event surface: consider emitting a new
   `ScoutCompletedEventArgs` so the live-session UI can show the scout
   frame + decision. Optional for v1; can ship without.
-- Tests in `TianWen.Lib.Tests.Functional` — extend `SessionTestHelper` with
+- Tests in `TianWen.Lib.Tests.Functional`: extend `SessionTestHelper` with
   a scriptable star-count oracle per observation index so unit tests can
   drive the decision table without a real image pipeline.
 
@@ -139,8 +139,8 @@ internal readonly record struct ScoutResult(
 internal enum ScoutClassification
 {
     Healthy,
-    Transparency,   // clouds / dew — goes to WaitForConditionRecoveryAsync
-    Obstruction,    // fixed FOV block — goes to trajectory check
+    Transparency,   // clouds / dew, goes to WaitForConditionRecoveryAsync
+    Obstruction,    // fixed FOV block, goes to trajectory check
 }
 ```
 
@@ -156,13 +156,13 @@ internal enum ScoutClassification
     Over-engineered for v1.
   - **Start with last-target baseline, flag in the plan to revisit.**
 - **Nudge slew cost.** 1× FOV-radius slew + settle + scout exposure is
-  ~20-40 s — acceptable once per target, not acceptable in a loop. The
+  ~20-40 s; acceptable once per target, not acceptable in a loop. The
   decision must be definitive (no "nudge again").
 - **Guider state during scout.** Guider should stay stopped through the
-  scout/nudge sequence — we already `StopCaptureAsync` before the slew, so
+  scout/nudge sequence; we already `StopCaptureAsync` before the slew, so
   the current flow already has the guider off when we'd insert the scout.
 - **Meridian flip interaction.** Scout frames use the mount's current
-  pier side; don't trigger a flip during the nudge. Easy — just don't
+  pier side; don't trigger a flip during the nudge. Easy, just don't
   cross HA=0 during the up-offset.
 
 ## Open questions
@@ -180,7 +180,7 @@ internal enum ScoutClassification
 
 ## Out of scope
 
-- **Static azimuth horizon mask** — that's a separate optional sub-plan
+- **Static azimuth horizon mask**: that's a separate optional sub-plan
   (`PLAN-site-horizon-mask.md` if we spin it up). This plan handles *unknown*
   obstructions at runtime; the mask handles *known* ones at schedule time.
 - **Per-pixel obstruction mapping** (learning the exact shape of the tree
@@ -197,7 +197,7 @@ preconditions aren't met:
    first observation there is no prior baseline, so `ScoutAndProbeAsync`
    returns `Healthy` unconditionally. A target behind a tree at the very start
    of the night will not be detected until the existing in-flight
-   condition-deterioration check trips inside `ImagingLoopAsync` — which
+   condition-deterioration check trips inside `ImagingLoopAsync`, which
    means we've already burned guider-start + several full-length exposures.
 2. **Guider calibration slew.** `CalibrateGuiderAsync`
    (`Session.Lifecycle.cs:19`) slews to `(HA = 30 min east, Dec = 0°)` for
@@ -205,7 +205,7 @@ preconditions aren't met:
    eastern horizon at Dec 0, calibration will fail (or produce poor
    calibration) without an obstruction-classified retry. This is what TODO
    item L147 ("slew slightly above/below 0 declination to avoid trees") is
-   about — separate from the imaging-loop scout.
+   about; separate from the imaging-loop scout.
 3. **Guider field vs. imaging field.** The scout exposures run on
    `Setup.Telescopes[i].Camera`, never on the guide camera. For
    side-by-side guide scopes, an obstruction that only blocks the guide
@@ -215,7 +215,7 @@ preconditions aren't met:
 What would need to change to fix each:
 
 - (1) needs an absolute "expected star count" oracle that doesn't rely on a
-  prior baseline — either a per-target catalog-derived expectation, or a
+  prior baseline, either a per-target catalog-derived expectation, or a
   cross-session per-(galactic latitude × peak magnitude) cache. The plan
   already flags this as the "Risk: expected-star-count model is hard"
   bullet; the v1 decision was to start with last-target baseline only.
@@ -229,7 +229,7 @@ What would need to change to fix each:
   (similar field, larger aperture), so this is the lowest-priority of the
   three.
 
-The above are deliberate v1 trade-offs, not bugs — but anyone touching the
+The above are deliberate v1 trade-offs, not bugs, but anyone touching the
 scout in v2 should weigh them before adding more orthogonal features.
 
 ## Memory updates after landing

@@ -10,11 +10,11 @@ namespace TianWen.Lib.Imaging.Dataset;
 
 /// <summary>
 /// Writes the pinned train/test split for the dataset (docs/plans/ai-denoise-deconv.md §3, task
-/// P0/#42). The split is <b>by session, never by tile or frame</b> — adjacent tiles of one session
+/// P0/#42). The split is <b>by session, never by tile or frame</b>; adjacent tiles of one session
 /// share noise + PSF statistics, so a tile-level split leaks the test distribution into training and
 /// inflates the held-out metrics. A session is assigned to the held-out TEST set iff a stable hash
 /// bucket of its portable id falls under <c>testFraction</c>: the assignment depends only on the
-/// session's own id, so it is identical across machines and — critically — <b>never reshuffles as the
+/// session's own id, so it is identical across machines and, critically, <b>never reshuffles as the
 /// archive grows</b> (adding sessions can't move an existing one between train and test, which would
 /// silently invalidate every past eval number).
 /// </summary>
@@ -23,7 +23,7 @@ public static class DatasetSplitWriter
     /// <summary>Canonical file name under the dataset output root.</summary>
     public const string TestSessionsFileName = "test-sessions.txt";
 
-    /// <summary>Hash bucket resolution — a session's id maps to <c>[0, Resolution)</c> and is TEST
+    /// <summary>Hash bucket resolution: a session's id maps to <c>[0, Resolution)</c> and is TEST
     /// when that bucket is below <c>testFraction * Resolution</c>.</summary>
     private const uint Resolution = 10000;
 

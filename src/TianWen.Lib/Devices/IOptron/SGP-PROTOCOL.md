@@ -137,8 +137,8 @@ Example: `:MSCA10030005002#` = start, shutter=30, interval=5, 2 shots.
 - Flash unlock keys at offset `0x1400`: `0x45670123` / `0xCDEF89AB`
 
 ### UARTs
-- 9600 baud (offset `0x5570`) — HC-to-mount-head channel
-- 28800 baud (offset `0x556C`) — main control protocol
+- 9600 baud (offset `0x5570`): HC-to-mount-head channel
+- 28800 baud (offset `0x556C`): main control protocol
 
 ### Device Identity
 - No serial number: firmware does **not** read STM32 hardware UID (`0x1FFFF7E8`)

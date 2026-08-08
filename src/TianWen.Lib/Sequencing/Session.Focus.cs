@@ -45,7 +45,7 @@ internal partial record Session
 
     /// <summary>
     /// Loads the persisted backlash EWMA for <paramref name="focuser"/> from the sidecar
-    /// JSON if we haven't already this session. Idempotent and cheap on the hot path —
+    /// JSON if we haven't already this session. Idempotent and cheap on the hot path; 
     /// guarded by <see cref="_focuserBacklashLoaded"/>.
     /// </summary>
     private async ValueTask LoadBacklashHistoryIfNeededAsync(IFocuserDriver focuser, DeviceBase focuserDevice, CancellationToken cancellationToken)
@@ -113,13 +113,13 @@ internal partial record Session
         if (bInferred is null)
         {
             // Either no overshoot was performed (final move was direct) or verification was at the
-            // hyperbola minimum (overshoot was sufficient — no usable signal but a healthy outcome).
+            // hyperbola minimum (overshoot was sufficient, no usable signal but a healthy outcome).
             return;
         }
 
         if (confidence < MinConfidence)
         {
-            _logger.LogDebug("Auto-focus telescope #{TelescopeNumber}: backlash inference {B} steps with low confidence {Confidence:F2} — skipping EWMA update.",
+            _logger.LogDebug("Auto-focus telescope #{TelescopeNumber}: backlash inference {B} steps with low confidence {Confidence:F2}, skipping EWMA update.",
                 telescopeIndex + 1, bInferred.Value, confidence);
             return;
         }
@@ -156,7 +156,7 @@ internal partial record Session
             (int)Math.Round(updatedIn * BACKLASH_OVERSHOOT_SAFETY),
             (int)Math.Round(updatedOut * BACKLASH_OVERSHOOT_SAFETY));
 
-        // Persist async — don't fail the focus run if the disk write blows up.
+        // Persist async: don't fail the focus run if the disk write blows up.
         try
         {
             await BacklashHistoryPersistence.SaveAsync(External, focuserDevice.DeviceId, record, cancellationToken);
@@ -545,7 +545,7 @@ internal partial record Session
         await BacklashCompensation.MoveWithCompensationAsync(
             focuser, startPos, currentPos, backlashIn, backlashOut, focusDir, _timeProvider, cancellationToken);
 
-        // Scan from start to end (always moving outward — no backlash needed)
+        // Scan from start to end (always moving outward, no backlash needed)
         for (var i = 0; i < stepCount && !cancellationToken.IsCancellationRequested; i++)
         {
             var targetPos = startPos + i * stepSize;
@@ -745,7 +745,7 @@ internal partial record Session
                 verifyImage?.Release();
             }
 
-            // Fit converged but we couldn't measure baseline — use the hyperbola minimum as HFD estimate
+            // Fit converged but we couldn't measure baseline; use the hyperbola minimum as HFD estimate
             AppendFocusRunRecord(telescopeIndex, telescope, filterWheelDriver, preFocusFilterPosition, bestPos, (float)solution.Value.A, sampleMap, solution.Value.A, solution.Value.B);
             return (true, new FrameMetrics(0, (float)solution.Value.A, float.NaN, autoFocusExposure, currentGain));
         }
@@ -901,7 +901,7 @@ internal partial record Session
                 continue;
             }
 
-            // Compare plate solve result (J2000) directly against target (J2000) — no coordinate system mismatch
+            // Compare plate solve result (J2000) directly against target (J2000); no coordinate system mismatch
             var cosDec = Math.Cos(double.DegreesToRadians(target.Dec));
             var deltaRaArcmin = Math.Abs(solvedRa - target.RA) * 15.0 * cosDec * 60.0;
             var deltaDecArcmin = Math.Abs(solvedDec - target.Dec) * 60.0;

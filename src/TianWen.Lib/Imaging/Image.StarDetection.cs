@@ -152,7 +152,7 @@ public partial class Image
     {
         // ChunkSize = row band height each parallel task processes, matching the max star radius
         // (HfdFactor * BoxRadius) so no star can span two non-adjacent chunks. Decoupled from
-        // StarMasks.MaxScaledRadius (full HFD diameter) — ChunkSize is a half-diameter guard band,
+        // StarMasks.MaxScaledRadius (full HFD diameter): ChunkSize is a half-diameter guard band,
         // not the pixel mask stamp size, keeping parallelization stable if HfdFactor changes.
         const int ChunkSize = 2 * ((int)(HfdFactor * BoxRadius) + 1);
         const float HalfChunkSizeInv = 1.0f / (2.0f * ChunkSize);
@@ -196,7 +196,7 @@ public partial class Image
 
         // Interleaved chunk processing: two passes (i=0 even chunks, i=1 odd chunks) ensures no two
         // adjacent chunks run simultaneously, so a star near a chunk boundary won't be written into
-        // the BitMatrix star mask by one task while a neighbour reads it concurrently — no locking needed.
+        // the BitMatrix star mask by one task while a neighbour reads it concurrently; no locking needed.
         //
         // Parallel.For (not ForAsync): the chunk body is purely CPU-bound, no awaits.
         // ForAsync wraps each iteration in async machinery (ValueTask, state machine,

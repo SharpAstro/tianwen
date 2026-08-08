@@ -57,7 +57,7 @@ internal sealed class TuiLiveSessionTab(
     private TextBar? _statusBar;
     private TextBar? _previewToolbar;
 
-    // Preview area — Canvas for Sixel, MarkdownWidget placeholder for non-Sixel. The Canvas and its
+    // Preview area: Canvas for Sixel, MarkdownWidget placeholder for non-Sixel. The Canvas and its
     // renderer are pixel-backed, so they are built on first placement and rebuilt on resize (PaintHost);
     // the viewport is interface-typed because PixelSize is a default interface member.
     private ITerminalViewport? _previewViewport;
@@ -282,7 +282,7 @@ internal sealed class TuiLiveSessionTab(
                 ? LiveState.PreviewOTATelemetry[i]
                 : PreviewOTATelemetry.Unknown;
 
-            // Header — click anywhere on it to select this OTA.
+            // Header: click anywhere on it to select this OTA.
             var camName = tel.CameraConnected && !string.IsNullOrEmpty(tel.CameraDisplayName)
                 ? tel.CameraDisplayName : otas[i].Name;
             _rows.Add(new HeadingRow($"{i + 1}: {camName}", isSelected,
@@ -324,7 +324,7 @@ internal sealed class TuiLiveSessionTab(
                 _rows.Add(new TextRow($"  Filter: {tel.FilterName}"));
             }
 
-            // Exposure / capture row — either a progress line or the stepper strip.
+            // Exposure / capture row, either a progress line or the stepper strip.
             var isCapturing = i < LiveState.PreviewCapturing.Length && LiveState.PreviewCapturing[i];
             if (isCapturing)
             {
@@ -523,7 +523,7 @@ internal sealed class TuiLiveSessionTab(
             _rows.Add(new TextRow($"  Alt {BuildErrorBar(altArcmin)} {altArcmin:+0.0;-0.0}\u2032",
                 ErrorBarStyle(altArcmin)));
 
-            // Direction hints — ASCII arrows so they render on every terminal,
+            // Direction hints: ASCII arrows so they render on every terminal,
             // including the ones that swallow the rich Unicode codepoints.
             var azHint = azArcmin >= 0 ? "-> East" : "<- West";
             var altHint = altArcmin >= 0 ? "^ Up" : "v Down";
@@ -604,7 +604,7 @@ internal sealed class TuiLiveSessionTab(
             var display = session.TelescopeDisplays[i];
             _rows.Add(new HeadingRow(display.CameraName));
 
-            // Cooling info — find latest sample + sparklines for this camera
+            // Cooling info: find latest sample + sparklines for this camera
             var coolingSamples = LiveState.CoolingSamples;
             CoolingSample? latestSample = null;
             for (var j = coolingSamples.Length - 1; j >= 0; j--)
@@ -737,7 +737,7 @@ internal sealed class TuiLiveSessionTab(
             }
         }
 
-        // New frame arrived — kick off async document creation + stretch
+        // New frame arrived: kick off async document creation + stretch
         if (latestImage is not null && !ReferenceEquals(latestImage, _displayedImage) && _pendingDoc is null)
         {
             _displayedImage = latestImage;
@@ -914,7 +914,7 @@ internal sealed class TuiLiveSessionTab(
         // the abort-confirmation strip (which is a session-only concept). Done is
         // surfaced as a button on the side panel rather than a keybind because
         // accidentally pressing Enter while gauges show "aligned" should not
-        // commit-and-restore — the click is a deliberate confirmation.
+        // commit-and-restore: the click is a deliberate confirmation.
         if (!LiveState.IsRunning && LiveState.Mode == LiveSessionMode.PolarAlign)
         {
             switch (evt)
@@ -956,9 +956,9 @@ internal sealed class TuiLiveSessionTab(
             case InputEvent.KeyDown(InputKey.Escape or InputKey.Q, _) when LiveState.IsRunning:
                 LiveState.ShowAbortConfirm = true;
                 NeedsRedraw = true;
-                return; // consumed via NeedsRedraw — don't quit
+                return; // consumed via NeedsRedraw; don't quit
 
-            // Preview viewer controls — same shortcuts as FITS viewer
+            // Preview viewer controls: same shortcuts as FITS viewer
             case InputEvent.KeyDown(InputKey.T, _):
                 _viewerState.StretchMode = _viewerState.StretchMode switch
                 {

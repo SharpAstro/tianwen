@@ -60,7 +60,7 @@ services
     .AddSingleton(sp => new GuiAppState { DeviceHub = sp.GetService<IDeviceHub>(), PeerTable = sp.GetService<IPeerTable>() })
     // Profile-aware pinned-port provider: any COM port currently referenced by the
     // active profile is excluded from discovery probing. Absent this registration,
-    // SerialProbeService falls through to general probing — safe default.
+    // SerialProbeService falls through to general probing; safe default.
     .AddSingleton<IPinnedSerialPortsProvider, ActiveProfilePinnedSerialPortsProvider>();
 
 var sp = services.BuildServiceProvider();
@@ -90,7 +90,7 @@ if (StartupTimeOverride.TryGet(out var simulatedNow, out var clockOffset))
         StartupTimeOverride.EnvVarName, StartupTimeOverride.RawValue, simulatedNow, clockOffset);
 }
 
-// Resolve profile — auto-select if exactly one, otherwise none for now
+// Resolve profile: auto-select if exactly one, otherwise none for now
 var profiles = await sp.GetRequiredService<IDeviceDiscovery>()
     .Let(async dm =>
     {
@@ -149,7 +149,7 @@ var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts
     SetClipboardText = text => SetClipboardText(text)
 };
 
-// Signal subscriptions — text input activation/deactivation via SDL
+// Signal subscriptions: text input activation/deactivation via SDL
 bus.Subscribe<ActivateTextInputSignal>(sig =>
 {
     if (appState.ActiveTextInput is { } prev && prev != sig.Input)
@@ -187,7 +187,7 @@ bus.Subscribe<OpenUrlSignal>(sig =>
     }
 });
 
-// BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
+// BuildScheduleSignal is now handled inside AppSignalHandler; no host-level subscription needed
 
 // Load saved session configuration + initialize planner (shared logic in AppSignalHandler)
 // ESC quit confirmation: first ESC shows message, second ESC within 3s actually quits
@@ -248,7 +248,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         guiRenderer.Resize(rw, rh);
     },
 
-    // The renderer's swapchain recovery isn't sticking — it kept wedging + recovering, meaning the
+    // The renderer's swapchain recovery isn't sticking; it kept wedging + recovering, meaning the
     // current workload keeps re-saturating the GPU (the classic case: a runaway sky-map zoom producing
     // a multi-second frame). Shed load so the GPU can drain: leave the heavy view for the cheap
     // Notifications tab and reset the sky-map zoom so the runaway frame stops being submitted. Runs on
@@ -267,7 +267,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     },
 
     // One pointer callback: the loop synthesizes the InputEvents with the real release coordinates
-    // on MouseUp (the previous hand-wired OnMouseUp reconstructed them from a cached position —
+    // on MouseUp (the previous hand-wired OnMouseUp reconstructed them from a cached position, 
     // without them the click-vs-drag detection in SkyMapTab compared (0, 0) to the real mouse-down
     // position). Presses route left-button only, as before; everything else flows through.
     OnPointerInput = evt =>
@@ -308,7 +308,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         // Skip telemetry / preview polls during shutdown: they're pointless while we're
         // disconnecting, and they spawn short-lived tracker tasks that race with the
         // long-running warm/disconnect task. The shutdown banner shows the first pending
-        // task when only one is active, falling back to "(N tasks)" otherwise — without
+        // task when only one is active, falling back to "(N tasks)" otherwise, without
         // this gate the count flips 1 <-> 2 every 2s and the banner flickers between
         // "Shutting down... Disconnecting <camera>" and "Shutting down... (2 tasks)".
         if (!appState.ShuttingDown)
@@ -402,12 +402,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
 };
 
-// Request quit — shows abort confirmation if session is running, otherwise shuts down
+// Request quit: shows abort confirmation if session is running, otherwise shuts down
 void RequestQuit()
 {
     if (appState.ShuttingDown)
     {
-        // Already shutting down — refuse to quit while warm-up is in progress.
+        // Already shutting down: refuse to quit while warm-up is in progress.
         // Same pattern as SessionPhase.Finalising: cameras must complete their
         // thermal ramp for sensor safety.
         appState.AppendNotification(timeProvider.GetUtcNow(),
@@ -421,7 +421,7 @@ void RequestQuit()
     // the client that was watching it is not a reason to stop the rig.
     var liveState = guiRenderer.ViewContexts.Local.LiveSession;
 
-    // During Finalising, can't do anything — just wait (warmup must complete)
+    // During Finalising, can't do anything, just wait (warmup must complete)
     if (liveState.Phase is SessionPhase.Finalising)
     {
         appState.AppendNotification(timeProvider.GetUtcNow(),
@@ -432,7 +432,7 @@ void RequestQuit()
 
     if (liveState.IsRunning && !liveState.ShowAbortConfirm)
     {
-        // Session running — show abort confirmation (same as pressing Escape in Live Session tab)
+        // Session running: show abort confirmation (same as pressing Escape in Live Session tab)
         liveState.ShowAbortConfirm = true;
         appState.QuitRequested = true;
         appState.ActiveTab = GuiTab.LiveSession;
@@ -440,7 +440,7 @@ void RequestQuit()
         return;
     }
 
-    // No session running, or abort already confirmed — proceed with shutdown
+    // No session running, or abort already confirmed; proceed with shutdown
     if (liveState is { SessionCts: { } sessionCts2 })
     {
         sessionCts2.Cancel();
@@ -519,7 +519,7 @@ void RequestQuit()
 loop.OnPostFrame = () =>
 {
     // Any signal processed this post-frame may have mutated state that the just-rendered
-    // frame doesn't reflect — preserve NeedsRedraw so the loop renders again on the next
+    // frame doesn't reflect: preserve NeedsRedraw so the loop renders again on the next
     // iteration. The previous "redrawBefore == false" gate was buggy: when the click that
     // triggered this frame's render also set NeedsRedraw=true, we wrongly cleared it.
     var processedAny = bus.ProcessPending(tracker);
@@ -601,7 +601,7 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
         return true;
     }
 
-    // Route to active tab first — tab may consume Escape (e.g. dismiss abort confirm)
+    // Route to active tab first: tab may consume Escape (e.g. dismiss abort confirm)
     if (guiRenderer.ActiveTab?.HandleInput(evt) == true)
     {
         return true;
@@ -615,13 +615,13 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
             if (escConfirmTimestamp != 0
                 && timeProvider.GetElapsedTime(escConfirmTimestamp, now2) < TimeSpan.FromSeconds(3))
             {
-                // Second ESC within 3s — actually quit
+                // Second ESC within 3s: actually quit
                 escConfirmTimestamp = 0;
                 RequestQuit();
             }
             else
             {
-                // First ESC — show confirmation message
+                // First ESC: show confirmation message
                 escConfirmTimestamp = now2;
                 appState.StatusMessage = "Press ESC again to quit";
                 appState.NeedsRedraw = true;
@@ -641,7 +641,7 @@ loop.OnKeyDown = (inputKey, inputModifier) =>
     return true;
 };
 
-// Intercept window close button — behave like abort when session is active
+// Intercept window close button: behave like abort when session is active
 loop.OnQuit = () =>
 {
     RequestQuit();
@@ -708,7 +708,7 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         s.Set("flatRunActive", ls.FlatsCts is not null);
         s.Set("flatStatus", ls.FlatStatusMessage);
 
-        // Sky-map viewport — lets the inspector frame the view deterministically (via the
+        // Sky-map viewport: lets the inspector frame the view deterministically (via the
         // SkyMapSetView signal) and read back where it landed instead of eyeballing a screenshot.
         var sky = guiRenderer.SkyMapState;
         s.Set("mapCenterRaHours", sky.CenterRA);
@@ -721,7 +721,7 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         s.Set("mapTimeOffsetMinutes", sky.TimeOffset.TotalMinutes);
         s.Set("mapTimeOffset", SkyMapState.FormatOffset(sky.TimeOffset));
 
-        // Mount marker (the believed-pointing reticle) — the Solve & Sync witness. After a
+        // Mount marker (the believed-pointing reticle): the Solve & Sync witness. After a
         // sync the believed pointing jumps to truth, so polling this RA/Dec before/after
         // shows the marker move; the arcmin offset itself surfaces in lastNotification.
         if (sky.MountOverlay is { } mo)
@@ -738,7 +738,7 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
             s.Set("mountConnected", false);
         }
 
-        // Newest notification text — where the Solve & Sync arcmin offset, slew results,
+        // Newest notification text, where the Solve & Sync arcmin offset, slew results,
         // and error messages all land. Newest entry is at index 0.
         var notes = appState.Notifications;
         s.Set("lastNotification", notes.IsDefaultOrEmpty ? null : notes[0].Message);
@@ -756,11 +756,11 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
 
 loop.Run(cts.Token);
 
-// Final cleanup — drain should complete quickly since we already waited in the loop.
+// Final cleanup: drain should complete quickly since we already waited in the loop.
 // Use a timeout so force-quit (second X press) doesn't hang on warm-up tasks.
 cts.Cancel();
 
-// Drain completes quickly — warm-up already finished while the loop was alive. Bound it anyway so a
+// Drain completes quickly: warm-up already finished while the loop was alive. Bound it anyway so a
 // straggler that won't cancel (e.g. a slow network discovery) can't leave the window Not Responding while
 // the process exits -- the timeout the comment above always promised but never actually had.
 try

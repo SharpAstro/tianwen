@@ -17,7 +17,7 @@ namespace TianWen.Lib.Tests
     /// <summary>
     /// Coverage for <see cref="DatasetTileExporter"/> (dataset builder P0/#40): drives a real
     /// <see cref="SessionRegistrar"/> pass over the synthetic RGGB fixture, then exports tiles and
-    /// asserts the output contract — fp16 CHW blobs in [0, 1], a JSONL manifest with one row per
+    /// asserts the output contract: fp16 CHW blobs in [0, 1], a JSONL manifest with one row per
     /// tile, the master + N2N-sub structure per cell, and byte-for-byte determinism across runs.
     /// </summary>
     [Collection("Imaging")]
@@ -98,7 +98,7 @@ namespace TianWen.Lib.Tests
             }
 
             // Every blob exists, is the right fp16 size, and decodes to finite [0,1] values (the
-            // MTF pre-stretch output range — this is what the model trains and infers on).
+            // MTF pre-stretch output range: this is what the model trains and infers on).
             foreach (var row in result.Rows)
             {
                 row.TileSize.ShouldBe(TileSize);

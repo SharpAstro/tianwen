@@ -93,7 +93,7 @@ public interface ICelestialObjectDB
 
     /// <summary>
     /// Awaits the background Tycho-2 bulk-load task started by <see cref="InitDBAsync"/>.
-    /// Cheap to call repeatedly — the underlying decode runs at most once per instance.
+    /// Cheap to call repeatedly: the underlying decode runs at most once per instance.
     /// </summary>
     Task EnsureTycho2DataLoadedAsync(CancellationToken cancellationToken = default);
 
@@ -131,7 +131,7 @@ public interface ICelestialObjectDB
     /// <summary>
     /// Lightweight HIP → RA/Dec/mag/color for bulk star-dot seeding. Unlike
     /// <see cref="TryLookupHIP"/>, it skips constellation-boundary assignment, cross-reference
-    /// magnitude refinement, and object-type inheritance — none of which a plotted star dot
+    /// magnitude refinement, and object-type inheritance; none of which a plotted star dot
     /// needs, and which dominate the per-star cost at catalogue scale (the sky-map HIP seed).
     /// Default delegates to <see cref="TryLookupHIP"/>; <c>CelestialObjectDB</c> overrides with
     /// a Tycho-2-array fast path.

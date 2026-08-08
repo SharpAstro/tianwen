@@ -7,11 +7,11 @@ namespace TianWen.UI.Abstractions
     /// <summary>
     /// Renderer-agnostic Notifications tab. Shows <see cref="GuiAppState.Notifications"/>
     /// as a newest-first scrollable list, with colour-coded severity and a timestamp.
-    /// No per-tab state — scroll position lives on the tab instance (session-scoped).
+    /// No per-tab state: scroll position lives on the tab instance (session-scoped).
     /// </summary>
     public class NotificationsTab<TSurface>(Renderer<TSurface> renderer) : PixelWidgetBase<TSurface>(renderer)
     {
-        // Colours — muted, readable on the standard dark chrome background.
+        // Colours: muted, readable on the standard dark chrome background.
         // Properties, NOT static readonly fields. A field initialiser snapshots the palette at
         // type-init, so this feed would have gone on painting the old scheme through every theme
         // switch. RGBAColor32 is a struct, so reading through per access allocates nothing.

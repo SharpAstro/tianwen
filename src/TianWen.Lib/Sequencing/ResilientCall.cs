@@ -21,7 +21,7 @@ namespace TianWen.Lib.Sequencing;
 /// with exponential backoff, reconnecting the driver between attempts when
 /// <see cref="IDeviceDriver.Connected"/> is false.</item>
 /// <item>Non-idempotent actions never retry but still pre-reconnect once before the
-/// first attempt if the driver reports disconnected — a cheap guard that is
+/// first attempt if the driver reports disconnected; a cheap guard that is
 /// strictly safer than racing a dead handle.</item>
 /// <item><see cref="OperationCanceledException"/> that matches the caller's
 /// cancellation token is rethrown immediately, with no retry and no reconnect.</item>
@@ -97,7 +97,7 @@ internal static class ResilientCall
 
         // Pre-reconnect: cheap guard even for non-idempotent ops. A no-op if the
         // driver already reports connected; a single ConnectAsync before the
-        // primary call otherwise — strictly safer than letting the op fail first.
+        // primary call otherwise: strictly safer than letting the op fail first.
         if (!driver.Connected)
         {
             await TryReconnectAsync(driver, cancellationToken, onReconnect).ConfigureAwait(false);
@@ -198,7 +198,7 @@ internal static class ResilientCall
     /// </summary>
     private static bool IsTransient(Exception ex) => ex switch
     {
-        // Serial / TCP / pipe I/O faults — the primary target.
+        // Serial / TCP / pipe I/O faults: the primary target.
         IOException => true,
         SocketException => true,
         // The driver's transport recreated its handle under us (common after a USB re-plug).
@@ -206,10 +206,10 @@ internal static class ResilientCall
         // Explicit per-call timeout from the driver's own CTS (not ours).
         TimeoutException => true,
         TaskCanceledException { InnerException: TimeoutException } => true,
-        // Any COM throw — RPC_E_DISCONNECTED, CO_E_OBJNOTCONNECTED, driver HRESULTs.
+        // Any COM throw: RPC_E_DISCONNECTED, CO_E_OBJNOTCONNECTED, driver HRESULTs.
         // ASCOM hub disconnects surface as COMException via SafeTask's faulted task.
         COMException => true,
-        // AggregateException from a Task.WhenAll-style driver call — only transient
+        // AggregateException from a Task.WhenAll-style driver call, only transient
         // if every inner is transient.
         AggregateException agg when AllTransient(agg) => true,
         _ => false,

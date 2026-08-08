@@ -76,7 +76,7 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
             return;
         }
 
-        // Probe One Call 3.0 first — if the key supports it, we get native hourly data
+        // Probe One Call 3.0 first, if the key supports it, we get native hourly data
         try
         {
             var testUrl30 = $"{BaseUrl30}/onecall?lat=0&lon=0&appid={_apiKey}&units=metric&exclude=minutely,daily,alerts";
@@ -88,7 +88,7 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
             }
             else if (response30.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
-                // Key doesn't have 3.0 access — fall back to 2.5
+                // Key doesn't have 3.0 access: fall back to 2.5
                 _useOneCall30 = false;
                 Logger.LogInformation("OpenWeatherMap: One Call 3.0 not available, using 2.5 API");
 
@@ -99,7 +99,7 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
             }
             else
             {
-                // Unexpected status — let it throw
+                // Unexpected status: let it throw
                 response30.EnsureSuccessStatusCode();
             }
         }
@@ -217,7 +217,7 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
         // Update current conditions from the "current" block
         UpdateCurrentFromOneCall(response.Current);
 
-        // Parse hourly entries (already hourly — no interpolation needed)
+        // Parse hourly entries (already hourly, no interpolation needed)
         if (response.Hourly is not { Count: > 0 })
         {
             return [];
@@ -404,7 +404,7 @@ internal sealed class OpenWeatherMapDriver : IWeatherDriver
                         WindGust: Lerp(forecast.WindGust, nextForecast.WindGust, t),
                         WindDirection: LerpAngle(forecast.WindDirection, nextForecast.WindDirection, t),
                         Visibility: Lerp(forecast.Visibility, nextForecast.Visibility, t),
-                        WeatherCode: forecast.WeatherCode, // discrete — hold until next data point
+                        WeatherCode: forecast.WeatherCode, // discrete; hold until next data point
                         PrecipitationProbability: Lerp(forecast.PrecipitationProbability, nextForecast.PrecipitationProbability, t)
                     ));
                 }

@@ -106,7 +106,7 @@ public class PolynomialLeastSquaresTests
     }
 
     /// <summary>
-    /// Two-variable polynomial fit — this is the shape SipPolynomial.Fit will
+    /// Two-variable polynomial fit: this is the shape SipPolynomial.Fit will
     /// build. Round-trip 6 known coefficients (i+j ≤ 2 over 100 random samples).
     /// </summary>
     [Fact]

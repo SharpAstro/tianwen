@@ -17,7 +17,7 @@ namespace TianWen.Lib.Tests
     {
         // Known-good WCS for a 1000x800 sensor centred on (RA=12h, Dec=45deg) at 1"/px.
         // Reference pixel = image centre. North up, east left (standard astronomy
-        // convention) — in image-pixel space, pixel Y increases downward, so for
+        // convention): in image-pixel space, pixel Y increases downward, so for
         // "north up on screen" we want +Dec to map to *decreasing* pixel Y, i.e.
         // CD2_2 < 0. East = +RA on the sky direction; with pixel X increasing
         // rightward, "east left" means +RA -> *decreasing* pixel X, i.e. CD1_1 < 0.
@@ -135,7 +135,7 @@ namespace TianWen.Lib.Tests
             var wcs = BuildTestWcs();
             var layout = BuildTestLayout();
 
-            // 30 arcmin off centre in Dec — well outside the 800-pixel sensor (which spans
+            // 30 arcmin off centre in Dec: well outside the 800-pixel sensor (which spans
             // ~13.3' top-to-bottom at 1"/px).
             var marker = new SkyMarker(12.0, 45.0 + 30.0 / 60.0, SkyMarkerGlyph.Cross, default, null, 12f);
             var placement = WcsAnnotationLayer.ProjectMarker(marker, wcs, layout);
@@ -147,7 +147,7 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void GivenMarkerNearlyOppositePoleWhenProjectThenReturnsNull()
         {
-            // Position more than 90 deg from the WCS centre — behind the tangent plane.
+            // Position more than 90 deg from the WCS centre: behind the tangent plane.
             var wcs = BuildTestWcs();
             var layout = BuildTestLayout();
 

@@ -1,27 +1,27 @@
-# Serial.Lib — a serial-I/O sibling repo that does one job well (plan)
+# Serial.Lib: a serial-I/O sibling repo that does one job well (plan)
 
 **Status: NOT STARTED (design captured).** Motivated by the Gemini FlatPanel Lite hardware bring-up
 (branch `fix/gemini-flat-panel`), which proved that .NET's `System.IO.Ports.SerialPort` is not
 trustworthy for our use. Serial is load-bearing for an astro app (mounts, focusers, filter wheels,
-cover/calibrators, flat panels — OnStep, LX200/Meade, Skywatcher, iOptron, QHYCFW/QFOC, Gemini), so
+cover/calibrators, flat panels; OnStep, LX200/Meade, Skywatcher, iOptron, QHYCFW/QFOC, Gemini), so
 "it mostly works" is not good enough. Extract serial I/O into its own SharpAstro sibling repo (like
 `Lzip.Lib` / `SER.Lib` / `DIR.Lib`), do it properly once, and have TianWen depend on it.
 
-## Motivation — what the hardware bring-up exposed
+## Motivation: what the hardware bring-up exposed
 
 `SerialPort.BaseStream` **async** reads are unreliable:
 
 - On a CH34x USB bridge (the Gemini FlatPanel's CH341, extremely common on cheap astro gear) the
   **first async read succeeds, then every subsequent read aborts** with `IOException: "The I/O
   operation has been aborted because of either a thread exit or an application request."`
-  (`ERROR_OPERATION_ABORTED`). The reply still arrives — the read just gets torn down — so responses
+  (`ERROR_OPERATION_ABORTED`). The reply still arrives, the read just gets torn down, so responses
   land one frame late and every query desyncs. Confirmed on real hardware with a verbose wire trace.
 - Per **dotnet/runtime#28968** (and the Sparx Engineering "if you *must* use SerialPort" writeup), the
-  BCL `SerialStream` "async" is itself just a **blocking read on a background thread** — there is no
+  BCL `SerialStream` "async" is itself just a **blocking read on a background thread**; there is no
   real overlapped async win to lose. Its `BaseStream.ReadAsync` also **ignores `ReadTimeout`**, so a
   `Task.WhenAny(readTask, Task.Delay)` timeout leaves the read hanging forever.
 - Mixing a synchronous `DiscardInBuffer` (which does `BaseStream.Read`) with an async read corrupts the
-  overlapped state and makes the next async read abort — another dotnet/runtime-reported footgun.
+  overlapped state and makes the next async read abort; another dotnet/runtime-reported footgun.
 
 Sources: [dotnet/runtime#28968](https://github.com/dotnet/runtime/issues/28968),
 [dotnet/runtime#35545](https://github.com/dotnet/runtime/issues/35545),
@@ -32,12 +32,12 @@ Sources: [dotnet/runtime#28968](https://github.com/dotnet/runtime/issues/28968),
 `fix/gemini-flat-panel` added `ISerialConnection.SynchronousReads` (opt-in) + a cancellable synchronous
 read path in `TianWen.Lib/Connections/SerialConnection.cs`: `Task.Run` over a blocking `ReadByte` with
 a short `ReadTimeout` slice, checking the cancellation token between slices (so it is cancellable
-without abandoning a blocked thread — the exact pattern the runtime maintainers recommend). The Gemini
+without abandoning a blocked thread; the exact pattern the runtime maintainers recommend). The Gemini
 driver and the discovery probe service opt in. This is a **wrapper over `SerialPort`**, so it inherits
 the rest of `SerialPort`'s baggage (exclusive-open semantics, control-line quirks, no true async). The
 sibling repo is the chance to own the layer end to end.
 
-## Goal / conventions (proposed — mirror the lzip repo)
+## Goal / conventions (proposed, mirror the lzip repo)
 
 - **Repo/package:** `Serial.Lib`, **`RootNamespace = SharpAstro.Serial`** (same split as `SER.Lib` ->
   `SharpAstro.Ser`, `Lzip.Lib` -> `SharpAstro.Lzip`). Sibling at `../Serial.Lib`. `net10.0`.
@@ -72,7 +72,7 @@ public sealed record SerialSettings(int Baud, int DataBits = 8, Parity Parity = 
 ```
 
 Behaviour contract (the whole point):
-- Reads are cancellable and observe `ReadTimeout` — cancelling a read never leaves a hung task and
+- Reads are cancellable and observe `ReadTimeout`: cancelling a read never leaves a hung task and
   never corrupts the next read.
 - No spurious `ERROR_OPERATION_ABORTED`; reads stay frame-aligned across many exchanges.
 - `AssertControlLinesOnOpen` sets DTR+RTS before open (CH34x reset release).
@@ -81,12 +81,12 @@ Behaviour contract (the whole point):
 
 | Phase | Scope | Ships |
 |---|---|---|
-| **P1 — managed wrapper** | Lift TianWen's cancellable `SynchronousReads` path into `Serial.Lib` over `SerialPort` (blocking `Read` on `Task.Run` + `ReadTimeout` slices + token). Immediately reliable, low risk, cross-platform (works wherever `SerialPort` opens). Port enumeration + control lines. | `Serial.Lib` 1.0 |
-| **P2 — native backend (the real "do it well"), Windows-first** | Bypass `SerialStream` entirely on **Windows**: P/Invoke `CreateFile`/`ReadFile`/`WriteFile` with **correctly-driven overlapped I/O** (an IOCP-bound handle, not thread-affine) + `SetCommTimeouts`/`SetCommState`/`EscapeCommFunction` (DTR/RTS). **Linux/macOS may not need a native backend at all** — the `ERROR_OPERATION_ABORTED` abort is Windows-specific (it *is* a Win32 overlapped-I/O error code, and .NET's `SerialStream` is a wholly separate termios/`poll` implementation on Unix; a dotnet/runtime ticket reports the Linux impl behaves acceptably). So the plan is: keep the P1 managed wrapper over stock `SerialPort` on Unix and only write the native Win32 backend, `#if`-selected at open. A native `termios`/`poll` Unix backend stays a *possible* later refinement (true non-blocking async, hot-plug), not a correctness requirement. **macOS unverified** — treat like Linux until a real macOS serial device is tested. | `Serial.Lib` 2.0 |
-| **P3 — re-point TianWen** | Add `Serial.Lib` to `Directory.Packages.props` + the `UseLocalSiblings` set; reimplement `TianWen.Lib/Connections/SerialConnection(.Base)` on top of `SharpAstro.Serial` (or delete them and adapt `ISerialConnection` callers). Delete the interim `SynchronousReads` wrapper. | TianWen consuming it |
+| **P1: managed wrapper** | Lift TianWen's cancellable `SynchronousReads` path into `Serial.Lib` over `SerialPort` (blocking `Read` on `Task.Run` + `ReadTimeout` slices + token). Immediately reliable, low risk, cross-platform (works wherever `SerialPort` opens). Port enumeration + control lines. | `Serial.Lib` 1.0 |
+| **P2: native backend (the real "do it well"), Windows-first** | Bypass `SerialStream` entirely on **Windows**: P/Invoke `CreateFile`/`ReadFile`/`WriteFile` with **correctly-driven overlapped I/O** (an IOCP-bound handle, not thread-affine) + `SetCommTimeouts`/`SetCommState`/`EscapeCommFunction` (DTR/RTS). **Linux/macOS may not need a native backend at all**; the `ERROR_OPERATION_ABORTED` abort is Windows-specific (it *is* a Win32 overlapped-I/O error code, and .NET's `SerialStream` is a wholly separate termios/`poll` implementation on Unix; a dotnet/runtime ticket reports the Linux impl behaves acceptably). So the plan is: keep the P1 managed wrapper over stock `SerialPort` on Unix and only write the native Win32 backend, `#if`-selected at open. A native `termios`/`poll` Unix backend stays a *possible* later refinement (true non-blocking async, hot-plug), not a correctness requirement. **macOS unverified**; treat like Linux until a real macOS serial device is tested. | `Serial.Lib` 2.0 |
+| **P3: re-point TianWen** | Add `Serial.Lib` to `Directory.Packages.props` + the `UseLocalSiblings` set; reimplement `TianWen.Lib/Connections/SerialConnection(.Base)` on top of `SharpAstro.Serial` (or delete them and adapt `ISerialConnection` callers). Delete the interim `SynchronousReads` wrapper. | TianWen consuming it |
 
 Respect the release dance (per CLAUDE.md): publish `Serial.Lib` to NuGet first, then bump the tianwen
-pin — never push TianWen referencing an unpublished version, never use local nupkg feeds.
+pin, never push TianWen referencing an unpublished version, never use local nupkg feeds.
 
 ## Why a separate repo (not just harden it in TianWen)
 
@@ -99,7 +99,7 @@ code; other SharpAstro consumers can use it; and it forces the clean API boundar
 
 1. **P1-only vs go straight to native (P2).** P1 (managed wrapper) is what we already have working; it
    fixes the abort but keeps `SerialPort`'s exclusive-open + no-true-async. P2 (native P/Invoke) is the
-   real prize but real work — though, per the P2 note, **only on Windows**: the abort is Windows-specific,
+   real prize but real work, though, per the P2 note, **only on Windows**: the abort is Windows-specific,
    so Unix can stay on the P1 wrapper and P2 is a one-platform job, not three. Recommend ship P1 to get
    the codec out of TianWen, then the Windows-only P2.
 2. **Keep `ISerialConnection` in TianWen or move it to the lib.** Moving it makes the lib the single

@@ -16,7 +16,7 @@ internal sealed class GuiderCentroidTracker
     private const int MinSearchRadius = 8;
     private const float DefaultMinSNR = 3.0f;
     private const int DefaultMaxStars = 8;
-    private const int MinStarSeparation = 32; // pixels — avoid selecting stars too close together
+    private const int MinStarSeparation = 32; // pixels; avoid selecting stars too close together
 
     private readonly List<TrackedStar> _stars = new List<TrackedStar>();
     private bool _acquired;
@@ -345,7 +345,7 @@ internal sealed class GuiderCentroidTracker
             if (!TryCentroid(frame, width, height, centerX, centerY, _searchRadius,
                 out var cx, out var cy, out var flux, out var snr) || snr < MinSNR)
             {
-                // Star lost — remove from tracking list
+                // Star lost: remove from tracking list
                 _stars.RemoveAt(i);
                 continue;
             }

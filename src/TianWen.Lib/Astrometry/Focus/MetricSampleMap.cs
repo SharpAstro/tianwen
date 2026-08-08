@@ -164,7 +164,7 @@ public class MetricSampleMap(SampleKind kind, AggregationMethod aggregationMetho
         renderer.DrawLineDashed(xMargin / 2, imageHeight - yMargin, imageWidth, imageHeight - yMargin,
             color, dashLength: 3f, gapLength: 3f);
 
-        // Sample dots — small filled circles at each (focus pos, aggregated metric).
+        // Sample dots: small filled circles at each (focus pos, aggregated metric).
         if (!_samples.IsEmpty && scaleY is not null)
         {
             foreach (var sample in _samples)
@@ -179,7 +179,7 @@ public class MetricSampleMap(SampleKind kind, AggregationMethod aggregationMetho
                 var renderedY = metric * scaleY.Value;
                 var flippedY = imageHeight - yMargin - renderedY;
 
-                // 4x4 filled disc — visible at chart scale, doesn't obscure the hyperbola.
+                // 4x4 filled disc: visible at chart scale, doesn't obscure the hyperbola.
                 // RectInt is (LowerRight exclusive, UpperLeft inclusive).
                 var cx = (int)scaledX;
                 var cy = (int)flippedY;

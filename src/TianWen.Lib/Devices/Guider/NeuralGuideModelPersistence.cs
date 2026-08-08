@@ -95,7 +95,7 @@ internal static class NeuralGuideModelPersistence
 
         await File.WriteAllBytesAsync(filePath, buffer, cancellationToken);
 
-        // Clean up old weight files — keep only the one just written
+        // Clean up old weight files: keep only the one just written
         foreach (var oldFile in dir.GetFiles("*.ngm"))
         {
             if (!string.Equals(oldFile.FullName, filePath, StringComparison.OrdinalIgnoreCase))

@@ -5,7 +5,7 @@ namespace TianWen.Lib.Imaging.Calibration;
 
 /// <summary>
 /// Applies bias / dark / flat master frames to a light frame. Each master is
-/// optional — pass <c>null</c> for any step the caller doesn't want applied.
+/// optional: pass <c>null</c> for any step the caller doesn't want applied.
 /// <para>
 /// Formula: <c>calibrated = max(light - bias - dark + pedestal, 0) / max(flat, epsilon)</c>.
 /// The pedestal is added on the dark subtraction (the deeper of the two; bias
@@ -17,15 +17,15 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// </para>
 /// <list type="bullet">
 /// <item>
-/// <see cref="Apply"/> — whole-frame, returns a new <see cref="Image"/>. Used
+/// <see cref="Apply"/>: whole-frame, returns a new <see cref="Image"/>. Used
 /// by master-flat verification tests and one-off light calibration. Chains
 /// <see cref="Image.Subtract"/> + <see cref="Image.Divide"/> from Phase 1.
 /// </item>
 /// <item>
-/// <see cref="ApplyTile"/> — single-channel, region-based, span output. Used by
+/// <see cref="ApplyTile"/>: single-channel, region-based, span output. Used by
 /// the Phase 8 tile-pipelined integrator so a full calibrated <see cref="Image"/>
 /// never materialises. Reads the corresponding region of each master directly
-/// from the held <c>float[,]</c> backing arrays — zero copy.
+/// from the held <c>float[,]</c> backing arrays: zero copy.
 /// </item>
 /// </list>
 /// </summary>
@@ -34,7 +34,7 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// <param name="Flat">Master flat frame (median ~ 1.0), or <c>null</c> to skip
 /// flat division.</param>
 /// <param name="Pedestal">ADU offset added per pixel before the non-negative
-/// clamp. SetiAstro's <c>subtract_dark_with_pedestal</c> trick — prevents the
+/// clamp. SetiAstro's <c>subtract_dark_with_pedestal</c> trick; prevents the
 /// clamp from zeroing out background pixels when the dark mean exceeds the
 /// light's measured background. Suggested 100-1000 for raw ADU data, or
 /// 0.001-0.01 for normalised [0, 1] float data. Default 0 (no offset).</param>
@@ -61,7 +61,7 @@ public sealed record Calibrator(
 
         if (Bias is { } bias)
         {
-            // Bias subtraction with no pedestal — bias is small (~camera
+            // Bias subtraction with no pedestal: bias is small (~camera
             // electronic offset), shouldn't drive pixels negative.
             result = result.Subtract(bias);
         }
@@ -85,7 +85,7 @@ public sealed record Calibrator(
     /// <summary>
     /// Tile-mode calibration: applies the same arithmetic as <see cref="Apply"/>
     /// but to a single-channel slice of a light frame. Reads the corresponding
-    /// region of each master directly from its <c>float[,]</c> backing array —
+    /// region of each master directly from its <c>float[,]</c> backing array; 
     /// no full calibrated image is materialised.
     /// </summary>
     /// <param name="lightTile">Light-frame tile pixels, row-major,

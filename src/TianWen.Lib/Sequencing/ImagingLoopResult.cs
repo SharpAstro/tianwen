@@ -10,7 +10,7 @@ enum ImageLoopNextAction
     /// <summary>
     /// One or more drivers crossed <see cref="SessionConfiguration.DeviceFaultEscalationThreshold"/>
     /// reconnect attempts during this observation. The session finalises cleanly
-    /// (cameras warm up, guider disconnects) — this is the "dead mount doesn't
+    /// (cameras warm up, guider disconnects): this is the "dead mount doesn't
     /// pretend to be alive" exit path, distinct from per-target Advance.
     /// </summary>
     DeviceUnrecoverable

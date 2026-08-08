@@ -35,7 +35,7 @@ public class IntegratorTests
     [Fact]
     public void Integrate_TwoIdenticalFrames_NoNormalization_MeanCombine()
     {
-        // Two identical frames, no normalization, no rejection — output is the input.
+        // Two identical frames, no normalization, no rejection; output is the input.
         var f = MonoFrame(0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f, 0.15f, 0.25f, 0.35f, 0.45f, 0.55f);
         var frames = new List<Image> { f, f };
 
@@ -67,7 +67,7 @@ public class IntegratorTests
     public void Integrate_WithSigmaClipRejector_OutlierExcluded()
     {
         // Five frames: four at 0.5 with tiny noise + one at 99 (cosmic ray).
-        // Mean combiner without rejector: ~(4*0.5 + 99)/5 = 20.2 — useless.
+        // Mean combiner without rejector: ~(4*0.5 + 99)/5 = 20.2; useless.
         // With SigmaClip rejector: 99 dropped, mean = 0.5.
         var f1 = MonoFrame(Constant(0.50f));
         var f2 = MonoFrame(Constant(0.51f));
@@ -138,7 +138,7 @@ public class IntegratorTests
     [Fact]
     public void Integrate_NoRejector_AllFramesContribute()
     {
-        // Without a rejector, the cosmic-ray outlier contaminates the mean —
+        // Without a rejector, the cosmic-ray outlier contaminates the mean; 
         // this is the "why rejection matters" baseline test.
         var f1 = MonoFrame(Constant(0.5f));
         var outlier = MonoFrame(Constant(99.0f));

@@ -16,11 +16,11 @@ namespace TianWen.Lib.Connections;
 /// Controller on TCP/9999, network-attached focusers, etc.).
 ///
 /// Unlike <see cref="Skywatcher.SkywatcherUdpConnection"/> which gets one message
-/// per datagram for free, TCP is a byte stream — we buffer until we hit a
+/// per datagram for free, TCP is a byte stream: we buffer until we hit a
 /// terminator or read the requested exact byte count.
 ///
 /// Construct via <see cref="CreateAsync"/> so the TCP connect is truly async
-/// and cancellable — no thread pool thread is blocked during the ~100 ms–3 s
+/// and cancellable: no thread pool thread is blocked during the ~100 ms–3 s
 /// handshake.
 /// </summary>
 internal sealed class TcpSerialConnection : ISerialConnection
@@ -88,7 +88,7 @@ internal sealed class TcpSerialConnection : ISerialConnection
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // Timeout (not caller cancellation) — surface as a clearer error.
+            // Timeout (not caller cancellation): surface as a clearer error.
             client.Dispose();
             throw new TimeoutException($"TCP connect to {remoteEndPoint} timed out after {DefaultConnectTimeout.TotalSeconds:F0}s");
         }
@@ -124,7 +124,7 @@ internal sealed class TcpSerialConnection : ISerialConnection
         }
         catch
         {
-            // best-effort close — caller doesn't care about cleanup faults
+            // best-effort close: caller doesn't care about cleanup faults
         }
         return true;
     }
@@ -134,7 +134,7 @@ internal sealed class TcpSerialConnection : ISerialConnection
     {
         // Drop any unread bytes we've already fetched, plus anything sitting in
         // the socket's OS-level receive queue. TcpClient.Available is the number
-        // of bytes immediately readable without blocking — draining while it is
+        // of bytes immediately readable without blocking; draining while it is
         // non-zero clears stale frames left by the prior probe. Log each chunk
         // so the operator can see what the device actually sent (e.g. an OnStep
         // TCP target's unterminated "0" after a :GVP# timeout). Best-effort;
@@ -380,7 +380,7 @@ internal sealed class TcpSerialConnection : ISerialConnection
             _readBufferEnd = unread;
         }
 
-        // Grow if we're already at capacity (rare — only for huge unparsed responses).
+        // Grow if we're already at capacity (rare, only for huge unparsed responses).
         if (_readBufferEnd == _readBuffer.Length)
         {
             Array.Resize(ref _readBuffer, _readBuffer.Length * 2);

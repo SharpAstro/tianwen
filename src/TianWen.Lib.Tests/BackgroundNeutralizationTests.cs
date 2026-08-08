@@ -79,9 +79,9 @@ public class BackgroundNeutralizationTests(ITestOutputHelper output)
     {
         float[][,] data =
         [
-            new float[2, 2], // R channel — all 0.2
-            new float[2, 2], // G channel — all 0.1
-            new float[2, 2], // B channel — all 0.1
+            new float[2, 2], // R channel, all 0.2
+            new float[2, 2], // G channel, all 0.1
+            new float[2, 2], // B channel, all 0.1
         ];
         for (var y = 0; y < 2; y++)
             for (var x = 0; x < 2; x++)

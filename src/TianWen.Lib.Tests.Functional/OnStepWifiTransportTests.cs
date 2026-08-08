@@ -175,7 +175,7 @@ public class OnStepWifiTransportTests(ITestOutputHelper outputHelper)
                 case ":GVP#": return "On-Step#";
                 case ":GVN#": return "10.30#";
                 case ":U#": return null; // toggles precision, no response
-                case ":GR#": return "12:00:00#"; // RA — high precision response
+                case ":GR#": return "12:00:00#"; // RA; high precision response
                 case ":Gr#": return "12:00:00#";
                 case ":GD#": return "+45*00:00#";
                 case ":Gd#": return "+45*00:00#";

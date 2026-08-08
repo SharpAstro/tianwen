@@ -119,7 +119,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         }
         catch (OperationCanceledException)
         {
-            // Expected — we cancel after covering the PE cycle
+            // Expected: we cancel after covering the PE cycle
         }
 
         output.WriteLine($"Guide iterations: {iterationCount}");
@@ -200,7 +200,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         }
         catch (OperationCanceledException)
         {
-            // Expected — cancelled after the re-acquisition frames.
+            // Expected: cancelled after the re-acquisition frames.
         }
 
         output.WriteLine($"StarLostEvents={guideLoop.StarLostEvents} Reacquisitions={guideLoop.ReacquisitionEvents} DifferentStar={guideLoop.DifferentStarReacquisitions}");
@@ -280,7 +280,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         }
         catch (OperationCanceledException)
         {
-            // Expected — cancelled after the post-reset frames.
+            // Expected: cancelled after the post-reset frames.
         }
 
         output.WriteLine($"peakDuringTransient={peakDuringTransient:F2}px finalPeakRa={guideLoop.ErrorTracker.PeakRa:F2}px finalRaRmsAll={guideLoop.ErrorTracker.RaRmsAll:F2}px");
@@ -439,7 +439,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         var tracker = new GuiderCentroidTracker(maxStars: 1);
 
-        // Persistent RNG for seeing jitter — different jitter each frame
+        // Persistent RNG for seeing jitter: different jitter each frame
         var seeingRng = new Random(123);
 
         async ValueTask<Image> RenderFrame(CancellationToken token)
@@ -526,7 +526,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         // Seeing adds noise floor but guiding should still keep RMS bounded
         // With 2" seeing at 1.5"/px, jitter sigma ≈ 0.57px (per 1s exposure)
-        // With 4" seeing at 1.5"/px, jitter sigma ≈ 1.13px — larger but still manageable
+        // With 4" seeing at 1.5"/px, jitter sigma ≈ 1.13px; larger but still manageable
         guideLoop.ErrorTracker.TotalRmsAll.ShouldBeLessThan(15.0,
             $"guiding should keep total RMS bounded even with {label}");
     }
@@ -555,7 +555,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         // With 3" seeing at 1.5"/px and 1s exposure, jitter sigma ≈ 0.85px
         // Frames should usually differ (not always, but almost always with two independent draws)
-        // We just verify the mechanism works — not a hard assertion on distance
+        // We just verify the mechanism works, not a hard assertion on distance
         (peak1X != peak2X || peak1Y != peak2Y).ShouldBeTrue(
             "seeing jitter should produce different centroid positions between frames");
     }
@@ -919,7 +919,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         output.WriteLine($"[{label}] Ratio (neural/P-only): {ratio:F3}");
 
         // Neural+P should not catastrophically destabilize guiding.
-        // Allow 50% tolerance — in production the performance monitor would disable
+        // Allow 50% tolerance: in production the performance monitor would disable
         // the neural model if it's hurting, but here we verify it doesn't cause runaway errors.
         if (pOnlyRms > 0.001)
         {
@@ -987,7 +987,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         }
         catch (OperationCanceledException)
         {
-            // Expected — cancelled once the kill-switch has had time to fire.
+            // Expected: cancelled once the kill-switch has had time to fire.
         }
 
         output.WriteLine($"IsNeuralActive={guideLoop.IsNeuralActive} DecRmsShort={guideLoop.ErrorTracker.DecRmsShort:F2}px StarLost={guideLoop.StarLostEvents}");
@@ -1297,14 +1297,14 @@ public class GuideLoopTests(ITestOutputHelper output)
         }
         catch (OperationCanceledException)
         {
-            // Expected — we cancel after maxIterations
+            // Expected: we cancel after maxIterations
         }
 
         output.WriteLine($"Guide iterations: {iterationCount}");
         output.WriteLine($"Total samples: {guideLoop.ErrorTracker.TotalSamples}");
     }
 
-    /// <summary>Pulse target that ignores corrections — the test scripts the star error directly.</summary>
+    /// <summary>Pulse target that ignores corrections; the test scripts the star error directly.</summary>
     private sealed class NoOpPulseGuideTarget : IPulseGuideTarget
     {
         public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)

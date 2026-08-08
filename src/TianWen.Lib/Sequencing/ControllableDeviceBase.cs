@@ -40,7 +40,7 @@ public abstract record ControllableDeviceBase<TDriver> : IAsyncDisposable
 
     /// <summary>
     /// Whether this device's driver was borrowed from <see cref="IDeviceHub"/> rather than
-    /// created fresh. Borrowed drivers are not disconnected on dispose — they stay in the hub.
+    /// created fresh. Borrowed drivers are not disconnected on dispose; they stay in the hub.
     /// </summary>
     public bool Borrowed => _borrowed;
 

@@ -6,7 +6,7 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// <summary>
 /// Options for the training-dataset builder (<c>tianwen dataset build</c>). See
 /// docs/plans/ai-denoise-deconv.md §2.4. Contract: NOTHING here defaults to a
-/// machine-specific value — archive locations are required parameters supplied by the
+/// machine-specific value: archive locations are required parameters supplied by the
 /// caller, behavioural knobs carry portable defaults only.
 /// </summary>
 public sealed record DatasetBuildOptions
@@ -25,14 +25,14 @@ public sealed record DatasetBuildOptions
     public TimeSpan MaxExposure { get; init; } = TimeSpan.FromMinutes(5);
 
     /// <summary>Case-insensitive wildcard on INSTRUME; matching frames are excluded.
-    /// Default excludes simulator cameras (synthetic frames would poison the noise model —
+    /// Default excludes simulator cameras (synthetic frames would poison the noise model, 
     /// a real N.I.N.A. "Camera V3 simulator" session was found in the reference archive).</summary>
     public string ExcludeInstrumePattern { get; init; } = "*simulator*";
 
     /// <summary>Case-insensitive wildcard on OBJECT; matching lights are excluded. Empty (the
     /// default) disables the gate. Sessions are grouped by target (see
     /// <see cref="ImagingSession.Target"/>), so this drops one target cleanly even when it shares
-    /// a dated LIGHT folder with other pointings — e.g. <c>*vela*</c> removes the Vela SNR frames
+    /// a dated LIGHT folder with other pointings, e.g. <c>*vela*</c> removes the Vela SNR frames
     /// that live alongside HD 71272 + RCW 27 in one N.I.N.A. night.</summary>
     public string ExcludeObjectPattern { get; init; } = "";
 
@@ -76,17 +76,17 @@ public sealed record DatasetBuildOptions
 
     /// <summary>When true, a session that resolves NO master dark is skipped rather than registered
     /// uncalibrated. An uncalibrated N2N pair shares the sensor's fixed-pattern dark signal, which
-    /// correlates between the two subs and violates the noise-independence assumption — so it is not
+    /// correlates between the two subs and violates the noise-independence assumption, so it is not
     /// a valid training sample. Drops e.g. a camera with no matching dark library in the archive (a
     /// Newtonian rig whose darks were never shot). A resolved dark that is only an imperfect match
-    /// (wrong gain, or a shorter exposure than the light) still counts as calibrated — this gate is
+    /// (wrong gain, or a shorter exposure than the light) still counts as calibrated; this gate is
     /// about the presence of a dark, not its quality. Default false (preserve the prior
     /// register-everything behaviour + existing tests).</summary>
     public bool RequireDarkCalibration { get; init; } = false;
 
     /// <summary>When true, a dark whose gain is KNOWN and differs from the session's lights is
     /// rejected outright (not merely score-penalised), so a wrong-gain dark is never silently
-    /// substituted — the fixed-pattern amplitude a dark subtracts is gain-dependent, so a
+    /// substituted: the fixed-pattern amplitude a dark subtracts is gain-dependent, so a
     /// mismatched-gain dark mis-scales it and weakens N2N validity. An unknown gain on either side
     /// stays a wildcard (a header-less library is not dropped). Pairs naturally with
     /// <see cref="RequireDarkCalibration"/>: strict-gain narrows the candidates, require-dark then
@@ -97,17 +97,17 @@ public sealed record DatasetBuildOptions
     /// <summary>Case-insensitive wildcard on the SWCREATE header; when non-empty, only LIGHTS whose
     /// creating software matches are kept (e.g. <c>*N.I.N.A.*</c> to exclude SharpCap planetary/EAA
     /// captures that carry Light-like headers but were never meant for deep-sky training).
-    /// <b>Applies to lights only</b> — calibration frames are matched by sensor/optics headers
+    /// <b>Applies to lights only</b>: calibration frames are matched by sensor/optics headers
     /// regardless of authoring software, so a master dark authored by any tool still resolves. Empty
     /// (the default) disables the gate.</summary>
     public string SoftwareIncludePattern { get; init; } = "";
 
     /// <summary>When true, a stopped run continues where it left off: the existing manifest is the
     /// checkpoint (kept, not regenerated), and any session whose tiles are already listed in it is
-    /// skipped wholesale — a session's rows are appended in one block as the LAST step of its
+    /// skipped wholesale: a session's rows are appended in one block as the LAST step of its
     /// export, so "rows present" means "fully exported". The session a stop interrupted mid-export
     /// has no rows and re-runs cleanly (deterministic tile names overwrite its partial files).
-    /// Assumes the SAME archive roots and gates as the interrupted run — changed options make the
+    /// Assumes the SAME archive roots and gates as the interrupted run; changed options make the
     /// checkpoint's session set stale. The PSF/noise report of a resumed run covers only the
     /// sessions registered in that run. Default false (fresh manifest, prior behaviour).</summary>
     public bool Resume { get; init; } = false;

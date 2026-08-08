@@ -9,7 +9,7 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// </summary>
 /// <remarks>
 /// Separated from the rejector so users can mix and match. The default
-/// pairing — <see cref="SigmaClipRejector"/> + <see cref="MeanCombiner"/> —
+/// pairing, <see cref="SigmaClipRejector"/> + <see cref="MeanCombiner"/>, 
 /// matches the SetiAstro "kappa-sigma" stack: reject outliers, average the
 /// rest. Phase 12 adds median and exposure-weighted-mean combiners.
 /// </remarks>

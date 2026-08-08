@@ -8,13 +8,13 @@ namespace TianWen.UI.Web.E2E;
 
 /// <summary>
 /// Browser E2E for canvas touch gestures on the sky atlas. Unlike <see cref="NavigationTests"/> (which
-/// asserts on chrome DOM), these drive the WebGL canvas itself and assert the *view state* changed —
+/// asserts on chrome DOM), these drive the WebGL canvas itself and assert the *view state* changed;
 /// impossible to read from the DOM of a single &lt;canvas&gt;, so they use the <c>?e2e=1</c> view-state
 /// hook (<c>window.__tianwenTest.getSkyView()</c>, wired in index.html + Planner.razor) to read the
 /// live field-of-view before/after a synthesized two-finger pinch (<see cref="CanvasGestures"/>, CDP).
 ///
 /// This closes the gap the Drawboard canvas-E2E investigation surfaced: neither codebase tested
-/// touch/pinch, because a real canvas offers no DOM to assert on — the fix is a read-only view-state
+/// touch/pinch, because a real canvas offers no DOM to assert on; the fix is a read-only view-state
 /// hook plus a CDP multi-touch helper.
 /// </summary>
 [Collection(TianWenWebCollection.Name)]

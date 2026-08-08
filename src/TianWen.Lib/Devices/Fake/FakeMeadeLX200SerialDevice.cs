@@ -414,13 +414,13 @@ internal class FakeMeadeLX200SerialDevice: ISerialConnection
                     break;
 
                 case ":GL#":
-                    // Local time: HH:MM:SS# — uses time provider so it advances with FakeTimeProvider
+                    // Local time: HH:MM:SS#; uses time provider so it advances with FakeTimeProvider
                     var currentLocalTime = _timeProvider.GetUtcNow().UtcDateTime - _utcOffset;
                     _responseBuffer.AppendFormat("{0:HH\\:mm\\:ss}#", currentLocalTime);
                     break;
 
                 case ":GC#":
-                    // Local date: MM/DD/YY# — uses time provider so it advances with FakeTimeProvider
+                    // Local date: MM/DD/YY#; uses time provider so it advances with FakeTimeProvider
                     var currentLocalDate = _timeProvider.GetUtcNow().UtcDateTime - _utcOffset;
                     _responseBuffer.AppendFormat("{0:MM/dd/yy}#", currentLocalDate);
                     break;

@@ -1,4 +1,4 @@
-# SharpAstro.Codecs — an image sniff+dispatch facade over the codec family (plan)
+# SharpAstro.Codecs: an image sniff+dispatch facade over the codec family (plan)
 
 **Status: NOT STARTED (design captured).** Motivated by the `PngImage.ToRgba8()` release
 (SharpAstro.Png `3.4.431`) and the Console.Lib markdown-image work, which together produced two
@@ -6,13 +6,13 @@ ad-hoc prototypes of a facade that does not exist yet, plus a recurring version-
 those prototypes into a proper two-package layer in the Codecs repo, so consumers reference
 one thing, sniff+dispatch lives in one place, and each codec implements a shared interface.
 
-## Motivation — what already exists proves the shape
+## Motivation: what already exists proves the shape
 
 Two pieces of "the facade" are already written, just in the wrong places:
 
-1. **`SharpAstro.Png.PngImage.ToRgba8()`** — the first *shared codec capability*, hoisted out of a
+1. **`SharpAstro.Png.PngImage.ToRgba8()`**: the first *shared codec capability*, hoisted out of a
    consumer's private helper into the codec package (PR #10, shipped in `3.4.431`).
-2. **`Console.Lib/ImageDecoder.cs`** — a magic-byte sniffer + dispatcher (`internal`, PNG+JPEG only,
+2. **`Console.Lib/ImageDecoder.cs`**: a magic-byte sniffer + dispatcher (`internal`, PNG+JPEG only,
    hardcoded `if`-chain) that decodes `![alt](url)` bytes and returns tightly-packed 8-bit RGBA. It
    even documents that it "replaces a dependency on the general-purpose stb_image port."
 
@@ -24,7 +24,7 @@ route it to a decoder" logic is written three times, none reusable.
 
 Every consumer cherry-picks individual codec packages and floats each at `3.4.*` independently. That
 lets them drift: tianwen resolves `SharpAstro.Png 3.4.431` (direct) but transitively drags in
-`SharpAstro.Jpeg 3.4.411` via `FC.SDK.Raw 1.4.501`'s baked nuspec pin (nuspecs can't float — pack
+`SharpAstro.Jpeg 3.4.411` via `FC.SDK.Raw 1.4.501`'s baked nuspec pin (nuspecs can't float, pack
 snapshots the concrete build-time version). Harmless this time (identical source), but the class of
 bug is real. If consumers reference **only** the facade, the whole family arrives at the single
 version the facade was built against (internal ProjectReference = exact pin = lockstep). One dep, one
@@ -34,11 +34,11 @@ bump, no skew.
 
 - **Two new packages, both in the existing Codecs repo** (they ship in the `3.x` family lockstep,
   same `VERSION_PREFIX`, same CI):
-  - **`SharpAstro.Codecs.Abstractions`** — the shared interface + common image type. Zero third-party
+  - **`SharpAstro.Codecs.Abstractions`**: the shared interface + common image type. Zero third-party
     deps, `IsAotCompatible`. Matches the existing `SharpAstro.Codecs.Tests` naming.
-  - **`SharpAstro.Codecs`** — the facade: depends on every codec package + Abstractions; owns the
+  - **`SharpAstro.Codecs`**: the facade: depends on every codec package + Abstractions; owns the
     signature registry + sniff/dispatch (the promoted `ImageDecoder`).
-- **Name rationale:** `SharpAstro.Codecs`, NOT `SharpAstro.Imaging` — `Imaging` is already
+- **Name rationale:** `SharpAstro.Codecs`, NOT `SharpAstro.Imaging`; `Imaging` is already
   `TianWen.Lib.Imaging`, so the `Imaging` name would blur the consumer/library line.
 - **Scope discipline ("does one job well"):** detect a raster format from its bytes and hand back a
   fidelity-preserving decoded image. NOT an astro-domain image type (WCS / capture time / camera
@@ -87,8 +87,8 @@ down-convert on the interface.
 ## The two-tier image question (the part that needs care)
 
 `IDecodedImage` must serve both:
-- **Display tier** — Console.Lib -> DIR.Lib `RgbaImage`, 8-bit. Only needs `ToRgba8()`.
-- **Fidelity tier** — tianwen -> float `Image`. Needs bit depth, channel layout, raw samples, ICC.
+- **Display tier**: Console.Lib -> DIR.Lib `RgbaImage`, 8-bit. Only needs `ToRgba8()`.
+- **Fidelity tier**: tianwen -> float `Image`. Needs bit depth, channel layout, raw samples, ICC.
 
 So the interface exposes the fidelity surface and offers `ToRgba8()` as convenience. It must NOT grow
 astro metadata or it becomes a second `Image`.
@@ -113,13 +113,13 @@ implement `IDecodedImage` or make DIR.Lib pull the codec stack.
 
 ## Consumer migration
 
-- **Console.Lib** — delete `internal ImageDecoder`, reference `SharpAstro.Codecs`, call
+- **Console.Lib**: delete `internal ImageDecoder`, reference `SharpAstro.Codecs`, call
   `ImageCodecs.TryDecode` + adapt to `RgbaImage`. (Its in-flight WIP already drops the private
   `ToRgba8` helper for the library one; this is the next step past that.)
-- **tianwen** — `TryReadImageFile` delegates the raster formats to `ImageCodecs.TryDecode` (+ an
+- **tianwen**: `TryReadImageFile` delegates the raster formats to `ImageCodecs.TryDecode` (+ an
   `IDecodedImage -> Image` adapter), keeps CR2/CR3 (FC.SDK) and FITS (FITS.Lib) special-cased on top.
   Replaces residual Magick.NET on the read path.
-- **FC.SDK** — can reference the facade instead of individual codec packages (removes the skew source).
+- **FC.SDK**: can reference the facade instead of individual codec packages (removes the skew source).
 
 ## Phasing
 
@@ -128,11 +128,11 @@ implement `IDecodedImage` or make DIR.Lib pull the codec stack.
 | 1 | `SharpAstro.Codecs.Abstractions`: `IDecodedImage`, `SampleFormat`, `RasterImage`, `IImageDecoder` | package builds, AOT-clean, unit-pinned |
 | 2 | Implement `IImageDecoder` on PNG + JPEG; `SharpAstro.Codecs` facade with explicit 2-codec registry | `ImageCodecs.TryDecode` round-trips PNG+JPEG in `SharpAstro.Codecs.Tests` |
 | 3 | Migrate Console.Lib onto the facade (delete `ImageDecoder`) | Console.Lib markdown images render via facade; CI green |
-| 4 ✅ | Add TIFF / EXR / JXR / JXL decoders to the registry | **DONE** (Codecs 3.5 — full-family registry, plus new JPEG XL + `SharpAstro.Jpeg.GainMap` Ultra HDR members) |
-| 5 ✅ | tianwen `TryReadImageFile` falls back to `ImageCodecs.TryDecode` (+ `Image` adapter via `ToFloats()`) for PNG / JPEG / JXR / EXR / JXL | **DONE** — `Image.Import.TryReadViaCodecs`; `CodecsFacadeImportTests` green. TIFF / CR2 / CR3 / FITS stay on their bespoke metadata-carrying paths (facade `IDecodedImage` has no structured EXIF / Bayer / FITS); read-path Magick.NET was already retired pre-facade |
-| 6 | FC.SDK references facade instead of individual codecs | NOT STARTED — skew source removed |
+| 4 ✅ | Add TIFF / EXR / JXR / JXL decoders to the registry | **DONE** (Codecs 3.5, full-family registry, plus new JPEG XL + `SharpAstro.Jpeg.GainMap` Ultra HDR members) |
+| 5 ✅ | tianwen `TryReadImageFile` falls back to `ImageCodecs.TryDecode` (+ `Image` adapter via `ToFloats()`) for PNG / JPEG / JXR / EXR / JXL | **DONE**: `Image.Import.TryReadViaCodecs`; `CodecsFacadeImportTests` green. TIFF / CR2 / CR3 / FITS stay on their bespoke metadata-carrying paths (facade `IDecodedImage` has no structured EXIF / Bayer / FITS); read-path Magick.NET was already retired pre-facade |
+| 6 | FC.SDK references facade instead of individual codecs | NOT STARTED: skew source removed |
 
-**Status (2026-07-06):** Phases 1–5 shipped. The read fallback is intentionally *additive* — it fills the
+**Status (2026-07-06):** Phases 1–5 shipped. The read fallback is intentionally *additive*; it fills the
 PNG/JPEG/JXR/EXR/JXL gap (so tianwen can reopen the previews + HDR masters it writes) without touching the
 astro-critical TIFF/CR2/CR3/FITS readers. tianwen keeps its **direct** codec refs (writers + `Color.Icc` /
 `Exif` / `Jpeg.IccInjector`, none of which the facade depends on), so this is *not* the "ref only the facade"

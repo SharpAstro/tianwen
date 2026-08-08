@@ -12,7 +12,7 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <remarks>
 /// SIMD inner loop: keepMask doubles as a multiplicative weight, so the
 /// accumulator picks up <c>v * keep</c> per lane (kept entries contribute
-/// <c>v</c>, rejected contribute 0). NaN is treated as rejected — we
+/// <c>v</c>, rejected contribute 0). NaN is treated as rejected; we
 /// recompute the effective count from <c>!isNaN(v) * keep</c> rather than
 /// from the mask alone so a frame with NaN borders (post-warp) doesn't
 /// inflate the divisor.

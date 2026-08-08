@@ -95,7 +95,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         var mountDevice = new FakeDevice(DeviceType.Mount, 1);
         var mount = new FakeMountDriver(mountDevice, external.BuildServiceProvider());
 
-        // Should not throw — camera supports pulse guiding
+        // Should not throw: camera supports pulse guiding
         var router = new PulseGuideRouter(PulseGuideSource.Camera, camera, mount);
         router.ShouldNotBeNull();
     }
@@ -112,7 +112,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
 
         var router = new PulseGuideRouter(PulseGuideSource.Mount, null, mount);
 
-        // Should not throw — routes to mount
+        // Should not throw: routes to mount
         await router.PulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(100), ct);
 
         var isPulseGuiding = await router.IsPulseGuidingAsync(ct);

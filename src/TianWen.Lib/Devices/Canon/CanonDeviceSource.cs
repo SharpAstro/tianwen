@@ -54,9 +54,9 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger) : IDe
         }
         catch
         {
-            // LibUsbDotNet not installed or WinUSB driver not available — USB discovery disabled
+            // LibUsbDotNet not installed or WinUSB driver not available; USB discovery disabled
             // WiFi discovery still works (mDNS + TCP)
-            _supported = true; // Always supported — WiFi doesn't need LibUsbDotNet
+            _supported = true; // Always supported; WiFi doesn't need LibUsbDotNet
         }
         return ValueTask.FromResult(_supported);
     }
@@ -65,13 +65,13 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger) : IDe
     {
         _cameras.Clear();
 
-        // Phase 1: WPD cameras (Windows only — uses stock MTP driver, no Zadig needed)
+        // Phase 1: WPD cameras (Windows only, uses stock MTP driver, no Zadig needed)
         if (OperatingSystem.IsWindows())
         {
             DiscoverWpdCameras();
         }
 
-        // Phase 2: USB cameras (LibUsbDotNet — needs WinUSB driver on Windows)
+        // Phase 2: USB cameras (LibUsbDotNet, needs WinUSB driver on Windows)
         try
         {
             var usbCount = 0;
@@ -189,7 +189,7 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger) : IDe
         }
         catch (OperationCanceledException)
         {
-            // Expected — timeout elapsed
+            // Expected: timeout elapsed
         }
 
         return results;
@@ -244,7 +244,7 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger) : IDe
 
             switch (rType)
             {
-                case 12: // PTR — instance name
+                case 12: // PTR; instance name
                 {
                     var nameOffset = offset;
                     var name = ReadDnsName(data, ref nameOffset);
@@ -254,7 +254,7 @@ internal sealed class CanonDeviceSource(ILogger<CanonDeviceSource> logger) : IDe
                     break;
                 }
 
-                case 1 when rdLength == 4: // A record — IPv4 address
+                case 1 when rdLength == 4: // A record. IPv4 address
                 {
                     ipAddr = new IPAddress(data.AsSpan(offset, 4)).ToString();
                     break;

@@ -10,7 +10,7 @@ namespace TianWen.Lib.Devices.OnStep;
 
 /// <summary>
 /// Serial probe for OnStep / OnStepX mounts. Reuses <see cref="OnStepDeviceSource.TryGetMountInfo"/>
-/// so the UUID-in-unused-site-slot trick works identically for serial and TCP/WiFi paths —
+/// so the UUID-in-unused-site-slot trick works identically for serial and TCP/WiFi paths; 
 /// the mount-resident UUID produces the same deviceId across transports, so the same profile
 /// entry survives a USB ↔ WiFi switch.
 /// <para>
@@ -21,7 +21,7 @@ namespace TianWen.Lib.Devices.OnStep;
 /// is caught by the post-probe drain in <c>SerialProbeService.RunSingleProbeAsync</c>.
 /// With that cleaned up, 800ms is enough to catch a warm controller and a reasonably
 /// fast cold boot; the pass-2 budget-multiplier ladder (2× = 1.6s) still covers the
-/// rare stubborn cold start. <see cref="MaxAttempts"/> is 1 — per-port retries are
+/// rare stubborn cold start. <see cref="MaxAttempts"/> is 1; per-port retries are
 /// handled by the two-pass ladder, not in-probe.
 /// </para>
 /// </summary>
@@ -59,9 +59,9 @@ internal sealed class OnStepSerialProbe : ISerialProbe
         }
         else
         {
-            // No UUID (mount doesn't expose 4 site slots, or slot write failed) — fall back
+            // No UUID (mount doesn't expose 4 site slots, or slot write failed); fall back
             // to a port-qualified id so multiple same-model mounts stay distinguishable.
-            // Note: this id is NOT transport-stable — a USB port reshuffle will change it.
+            // Note: this id is NOT transport-stable; a USB port reshuffle will change it.
             deviceId = string.Join('_',
                 OnStepDeviceSource.SafeName(productName),
                 OnStepDeviceSource.SafeName(productNumber),

@@ -93,7 +93,7 @@ internal static class SessionEndpoints
                 }
                 catch
                 {
-                    // Body parsing failed — use defaults
+                    // Body parsing failed: use defaults
                 }
             }
 
@@ -145,7 +145,7 @@ internal static class SessionEndpoints
                 hs.SetActiveProfile(profileId.Value);
             }
 
-            // Run in background — caller polls /state for progress
+            // Run in background: caller polls /state for progress
             _ = Task.Run(async () =>
             {
                 try
@@ -270,7 +270,7 @@ internal static class SessionEndpoints
                 hostedSession.SetActiveProfile(profileId.Value);
             }
 
-            // Run in background — caller polls /state for progress (phase Flats -> Complete/Failed). The
+            // Run in background: caller polls /state for progress (phase Flats -> Complete/Failed). The
             // session stays set on completion (mirrors /start) so the terminal phase is observable; POST
             // /abort disposes + clears it before the next run.
             _ = Task.Run(async () =>
@@ -312,7 +312,7 @@ internal static class SessionEndpoints
 
         // --- Target management (pre-session) ---
 
-        // GET /api/v1/session/targets — list pending targets.
+        // GET /api/v1/session/targets: list pending targets.
         // Concrete PendingTarget[] (not ResponseEnvelope<object>) so the source-gen JSON context
         // can resolve the payload statically -- a polymorphic object payload throws under AOT.
         group.MapGet("/targets", (IHostedSession hosted) =>
@@ -322,7 +322,7 @@ internal static class SessionEndpoints
                 HostingJsonContext.Default.ResponseEnvelopePendingTargetArray);
         });
 
-        // POST /api/v1/session/targets — add a target
+        // POST /api/v1/session/targets: add a target
         group.MapPost("/targets", (PendingTarget target, IHostedSession hosted) =>
         {
             if (string.IsNullOrWhiteSpace(target.Name))
@@ -338,7 +338,7 @@ internal static class SessionEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
 
-        // DELETE /api/v1/session/targets — clear all pending targets
+        // DELETE /api/v1/session/targets: clear all pending targets
         group.MapDelete("/targets", (IHostedSession hosted) =>
         {
             hosted.ClearTargets();
@@ -349,7 +349,7 @@ internal static class SessionEndpoints
 
         // --- Schedule push (full-fidelity, pre-session) ---
 
-        // POST /api/v1/session/schedule — replace the pending schedule with a planner-computed one.
+        // POST /api/v1/session/schedule: replace the pending schedule with a planner-computed one.
         // Distinct from /targets: this preserves slot times and per-filter plans (see
         // ScheduledObservationDto for why PendingTarget cannot).
         group.MapPost("/schedule", async (HttpContext httpContext, IHostedSession hosted, CancellationToken ct) =>
@@ -393,7 +393,7 @@ internal static class SessionEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeString);
         });
 
-        // DELETE /api/v1/session/schedule — clear the pending schedule
+        // DELETE /api/v1/session/schedule: clear the pending schedule
         group.MapDelete("/schedule", (IHostedSession hosted) =>
         {
             hosted.SetSchedule([]);
@@ -404,7 +404,7 @@ internal static class SessionEndpoints
 
         // --- User prompts ---
 
-        // POST /api/v1/session/prompt/respond — answer the session's outstanding prompt.
+        // POST /api/v1/session/prompt/respond: answer the session's outstanding prompt.
         // Without this a remote client can never clear a manual-flat-panel prompt, and the node's
         // auto-proceed timer would be the only thing that ever unblocks the run.
         group.MapPost("/prompt/respond", (bool proceed, IHostedSession hosted) =>
@@ -423,7 +423,7 @@ internal static class SessionEndpoints
 
         // --- Notifications ---
 
-        // GET /api/v1/session/notifications — the node's notification ring, oldest first.
+        // GET /api/v1/session/notifications: the node's notification ring, oldest first.
         group.MapGet("/notifications", (IHostedSession hosted) =>
         {
             return Results.Json(
@@ -431,7 +431,7 @@ internal static class SessionEndpoints
                 HostingJsonContext.Default.ResponseEnvelopeNotificationDtoArray);
         });
 
-        // GET /api/v1/session/profile — which profile this node is set up to run.
+        // GET /api/v1/session/profile, which profile this node is set up to run.
         //
         // The symmetric read of the PUT below, and the ONLY way a client can learn this: the node held
         // ActiveProfileId privately (every reader was server-side) and /profiles lists what exists without
@@ -463,7 +463,7 @@ internal static class SessionEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeProfileSummaryDto);
         });
 
-        // PUT /api/v1/session/profile — set active profile (pre-session)
+        // PUT /api/v1/session/profile: set active profile (pre-session)
         group.MapPut("/profile", (SetProfileRequest request, IHostedSession hosted, IDeviceHub hub) =>
         {
             // Same single-profile-context invariant the GUI/TUI enforce (see ProfileSwitchGate): a

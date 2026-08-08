@@ -6,11 +6,11 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// Equality-able key identifying a set of calibration frames that can be
 /// combined into a single master. Frames matching on this key share the same
 /// sensor configuration, exposure, temperature setpoint, filter, dimensions,
-/// and frame type — i.e. they're calibration-interchangeable.
+/// and frame type, i.e. they're calibration-interchangeable.
 /// </summary>
 /// <param name="Type">Bias / Dark / Flat / DarkFlat. Lights are never grouped
 /// for master generation (the integrator handles those).</param>
-/// <param name="Exposure">Exposure duration. Compared exactly — callers that
+/// <param name="Exposure">Exposure duration. Compared exactly; callers that
 /// want tolerance (e.g. group 60.001 s with 60.000 s darks) should quantize
 /// before constructing the key.</param>
 /// <param name="TemperatureC">Sensor temperature in Celsius, rounded to the
@@ -19,7 +19,7 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// the FITS header had no <c>CCD-TEMP</c>.</param>
 /// <param name="Filter">Filter in the optical path. Empty/None for bias and
 /// darks; meaningful for flats. Compared by <c>Name</c> + <c>Bandpass</c>
-/// only — <c>RawName</c> drifts across FITS round-trips.</param>
+/// only: <c>RawName</c> drifts across FITS round-trips.</param>
 /// <param name="Width">Image width in pixels.</param>
 /// <param name="Height">Image height in pixels.</param>
 /// <param name="ChannelCount">1 for mono / raw-Bayer, 3 for pre-debayered RGB.</param>
@@ -50,7 +50,7 @@ public sealed record MasterGroupKey(
             Type: meta.FrameType,
             Exposure: meta.ExposureDuration,
             TemperatureC: temp,
-            // Compare Filter by canonical Name + Bandpass only — RawName drifts
+            // Compare Filter by canonical Name + Bandpass only; RawName drifts
             // across FITS round-trips and would partition otherwise-identical
             // flats into spurious groups.
             FilterName: meta.Filter.Name,

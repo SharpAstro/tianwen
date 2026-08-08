@@ -77,7 +77,7 @@ public partial class Image
     /// <para>
     /// Unlike <see cref="TransformAsync"/> (which sizes the output to contain
     /// the rotated source extents), this method's output is exactly
-    /// <paramref name="refWidth"/> by <paramref name="refHeight"/> — required
+    /// <paramref name="refWidth"/> by <paramref name="refHeight"/>; required
     /// by the stacking integrator so every aligned frame samples the same
     /// reference grid and pixel index N maps to the same sky position across
     /// frames.
@@ -150,7 +150,7 @@ public partial class Image
     /// <para>
     /// Same inverse-mapped bilinear sampling as
     /// <see cref="WarpToReferenceGridAsync"/>, but the output never holds the
-    /// full canvas in memory — used by
+    /// full canvas in memory: used by
     /// <c>TilePipelinedStrategy</c> so peak RAM per frame is bounded by the
     /// strip size instead of the full canvas. <paramref name="canvasWidth"/>
     /// and <paramref name="canvasHeight"/> aren't strictly needed for the
@@ -268,7 +268,7 @@ public partial class Image
             });
         }
 
-        // Yield to keep the public API async-shaped — the body is fully
+        // Yield to keep the public API async-shaped: the body is fully
         // synchronous after parallel.for completion, but returning a Task
         // keeps callers consistent with WarpToReferenceGridAsync.
         await Task.CompletedTask;

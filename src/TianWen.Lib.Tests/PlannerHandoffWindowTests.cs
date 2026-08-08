@@ -10,7 +10,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Tests for <see cref="PlannerActions.ApplyHandoffWindows"/> — projecting per-target
+/// Tests for <see cref="PlannerActions.ApplyHandoffWindows"/>; projecting per-target
 /// handoff slider windows + horizon clip into <see cref="ProposedObservation.ObservationTime"/>.
 /// </summary>
 public class PlannerHandoffWindowTests
@@ -22,7 +22,7 @@ public class PlannerHandoffWindowTests
 
     /// <summary>
     /// Builds a profile that is constant <paramref name="alt"/> degrees throughout the night.
-    /// Two-point profile is enough — the visible-time helper interpolates linearly between samples.
+    /// Two-point profile is enough: the visible-time helper interpolates linearly between samples.
     /// </summary>
     private static List<(DateTimeOffset Time, double Alt)> FlatProfile(double alt)
         => [(NightStart, alt), (NightEnd, alt)];

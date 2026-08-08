@@ -8,7 +8,7 @@ using TianWen.Lib.Imaging;
 namespace TianWen.UI.Benchmarks;
 
 /// <summary>
-/// Profiling driver — tight-loops a single image-decode path so an external
+/// Profiling driver: tight-loops a single image-decode path so an external
 /// sampling profiler can attach via <c>dotnet-trace</c>. Distinct from
 /// <see cref="ImageReadBenchmarks"/> because BenchmarkDotNet's iteration
 /// harness adds overhead and event spans of its own to the trace, drowning
@@ -262,7 +262,7 @@ internal static class Profiling
 
     private static void PrintAttachInstructions(int seconds)
     {
-        Console.WriteLine($"Process PID: {Environment.ProcessId} — attach trace now:");
+        Console.WriteLine($"Process PID: {Environment.ProcessId}, attach trace now:");
         Console.WriteLine($"  dotnet-trace collect --process-id {Environment.ProcessId} --profile dotnet-sampled-thread-time --duration 00:00:{seconds - 2:D2} --format Speedscope");
         Console.WriteLine();
         Console.WriteLine("Looping decode...");
@@ -399,7 +399,7 @@ internal static class Profiling
         var path = Path.Combine(tempDir, "synthetic_4096x4096_uint16.tif");
         if (File.Exists(path)) return path;
         // Force the benchmark setup to materialise it. Hacky but keeps the
-        // synthetic-TIFF writer in one place — Profiling.cs doesn't need to
+        // synthetic-TIFF writer in one place: Profiling.cs doesn't need to
         // own a copy of it.
         var bench = new ImageReadBenchmarks();
         bench.Setup();

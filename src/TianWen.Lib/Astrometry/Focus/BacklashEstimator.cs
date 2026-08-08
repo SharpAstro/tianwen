@@ -31,7 +31,7 @@ public static class BacklashEstimator
     /// <param name="bestPos">Commanded encoder position after the final move.</param>
     /// <param name="verifyHfd">Median HFD measured at <paramref name="bestPos"/>.</param>
     /// <param name="currentOvershoot">Steps of overshoot used in the final BacklashCompensation move.
-    /// Pass 0 if no overshoot was performed (final move was in the preferred direction) — in that
+    /// Pass 0 if no overshoot was performed (final move was in the preferred direction); in that
     /// case there's no backlash signal in the verification exposure.</param>
     /// <param name="focusDir">Focuser direction; used to pick the correct hyperbola root for the
     /// inferred mechanical position (mechanical lags in the preferred direction when overshoot is too small).</param>
@@ -66,7 +66,7 @@ public static class BacklashEstimator
         // slightly more otherwise due to rounding to int encoder steps).
         var hPred = Hyperbola.CalculateValueAtPosition(bestPos, solution.BestFocus, solution.A, solution.B);
 
-        // Normalised excess — how much worse verifyHfd is than predicted, scaled by the minimum HFD.
+        // Normalised excess: how much worse verifyHfd is than predicted, scaled by the minimum HFD.
         // Below the noise floor we declare "no signal" (overshoot was at least equal to backlash, or
         // verifyHfd was a noise-favourable sample we shouldn't read into).
         var normalisedExcess = (verifyHfd - hPred) / solution.A;

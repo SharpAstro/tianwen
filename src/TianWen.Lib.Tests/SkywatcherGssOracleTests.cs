@@ -18,7 +18,7 @@ namespace TianWen.Lib.Tests;
 /// driving a scripted serial port. Fixture: Data/gss-oracle-transcripts.json,
 /// regenerated via tools/GssOracle (requires the GSServer checkout at
 /// ../../other/GSServer). Each entry is one command GSS put on the wire, grouped
-/// by scenario (init, tracking, pulses, gotos — north and south).
+/// by scenario (init, tracking, pulses, gotos, north and south).
 /// </summary>
 [Collection("Skywatcher")]
 public class SkywatcherGssOracleTests(ITestOutputHelper output)
@@ -99,7 +99,7 @@ public class SkywatcherGssOracleTests(ITestOutputHelper output)
     public void GssRaPulse_SameDirection_IsLiveRateChangeOnly(string scenario)
     {
         // GSS pulses RA by changing the step period (:I) while the axis keeps
-        // running — no stop/start, no motion-mode change. This is the contract
+        // running: no stop/start, no motion-mode change. This is the contract
         // PulseGuideAsync must follow (fix-sw item 3).
         var cmds = Scenario(scenario).Select(e => e.Cmd[..2]).Distinct().ToList();
         cmds.ShouldNotBeEmpty();
@@ -128,7 +128,7 @@ public class SkywatcherGssOracleTests(ITestOutputHelper output)
     /// <see cref="FakeSkywatcherSerialDevice"/> with a reply of the same grammar
     /// (ok/error prefix and data length), and the static mount-parameter queries must
     /// be byte-identical (both sides model the same canned EQ6). This is the
-    /// "GSS could drive our fake" guarantee — the fake speaks real-firmware protocol,
+    /// "GSS could drive our fake" guarantee: the fake speaks real-firmware protocol,
     /// not a TianWen-only dialect.
     /// </summary>
     [Fact]
@@ -186,7 +186,7 @@ public class SkywatcherGssOracleTests(ITestOutputHelper output)
     public void GssSiderealTrackingPreset_MatchesOurT1Computation()
     {
         // north-track-sidereal commanded :I1F23700 = T1 0x0037F2 = 14322 (EQ6: CPR
-        // 9024000, timer 1500000). GSS truncates where we round — allow ±1 tick.
+        // 9024000, timer 1500000). GSS truncates where we round; allow ±1 tick.
         var iCmd = Scenario("north-track-sidereal").Select(e => e.Cmd)
             .Single(c => c.StartsWith(":I1", StringComparison.Ordinal));
         var gssT1 = SkywatcherProtocol.DecodeUInt24(iCmd.AsSpan(3, 6));

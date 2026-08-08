@@ -139,7 +139,7 @@ public class PlannerState
     public TextInputState SearchInput { get; } = new() { Placeholder = "Search target..." };
 
     /// <summary>Manually searched/added targets (exempt from rating filter).
-    /// Immutable — search adds build up a new <see cref="ImmutableArray{T}"/> via
+    /// Immutable: search adds build up a new <see cref="ImmutableArray{T}"/> via
     /// <see cref="ImmutableArray{T}.Add"/> and replace the property atomically.</summary>
     public ImmutableArray<ScoredTarget> SearchResults { get; set; } = [];
 
@@ -208,8 +208,8 @@ public class PlannerState
 
     /// <summary>
     /// Clears the dirty flag once the host has persisted the session. The flag's setter is
-    /// internal (mutations go through <see cref="PlannerActions"/>), so out-of-assembly hosts —
-    /// e.g. the browser host's localStorage store — call this from their
+    /// internal (mutations go through <see cref="PlannerActions"/>), so out-of-assembly hosts; 
+    /// e.g. the browser host's localStorage store: call this from their
     /// <see cref="SavePlannerSessionSignal"/> subscriber, mirroring the desktop handler.
     /// </summary>
     public void MarkSessionSaved() => _isDirty = false;

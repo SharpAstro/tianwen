@@ -19,7 +19,7 @@ public static class ProfileDataExtensions
         /// <remarks>
         /// Fake device URIs use the device type as the scheme and <c>FakeDevice</c> as
         /// the host (e.g. <c>Mount://FakeDevice/fake-sky</c>), not a dedicated
-        /// <c>fakedevice://</c> scheme — see <c>EquipmentActions.TryDeviceFromUri</c>.
+        /// <c>fakedevice://</c> scheme; see <c>EquipmentActions.TryDeviceFromUri</c>.
         /// </remarks>
         public bool ReferencesAnyFakeDevice
         {

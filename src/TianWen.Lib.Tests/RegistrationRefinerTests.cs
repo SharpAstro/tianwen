@@ -43,7 +43,7 @@ public class RegistrationRefinerTests
     /// Seeded star field laid out on a coarse grid with small per-point
     /// jitter. The grid stride is 80 px so the typical inter-point
     /// distance is much larger than the 5 px nearest-neighbour matching
-    /// tolerance — that prevents the synthetic test cases from
+    /// tolerance, that prevents the synthetic test cases from
     /// accidentally pairing a light star to a non-partner ref star
     /// (which would inject phantom rotation/scale into the fit). Wide
     /// enough overall extent ([50..530]² nominal) that the cross-

@@ -83,7 +83,7 @@ internal class QHYCameraControlledFilterWheelDriver(QHYDevice device, IServicePr
         var position = _deviceInfo.GetCfwPosition();
 
         // GetCfwPosition returns -1 for "N" (CFW2/3 moving) and "/" (A-series initialising).
-        // A-series cameras report the current slot while moving — detect this via move tracking.
+        // A-series cameras report the current slot while moving; detect this via move tracking.
         if (_moveRequested && position != _destinationPosition)
         {
             return ValueTask.FromResult(-1);

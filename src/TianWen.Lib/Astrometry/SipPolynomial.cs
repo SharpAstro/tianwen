@@ -8,8 +8,8 @@ namespace TianWen.Lib.Astrometry;
 /// <para>
 /// A SIP polynomial is a bivariate sum
 /// <c>f(u, v) = Σ a[i, j] · uⁱ · vʲ</c> over <c>i + j ∈ [1, order]</c>.
-/// The (0, 0) term is conventionally absent — it is absorbed by the
-/// reference pixel (CRPIX) — and orders 0 are excluded from FITS header
+/// The (0, 0) term is conventionally absent: it is absorbed by the
+/// reference pixel (CRPIX), and orders 0 are excluded from FITS header
 /// emission for the same reason.
 /// </para>
 /// <para>
@@ -61,7 +61,7 @@ internal static class SipPolynomial
         {
             for (var j = 0; j <= order - i; j++)
             {
-                // Skip the constant — it is absorbed into CRPIX per SIP convention.
+                // Skip the constant: it is absorbed into CRPIX per SIP convention.
                 if ((i | j) == 0) continue;
                 sum += coeffs[i, j] * uPow[i] * vPow[j];
             }
@@ -137,7 +137,7 @@ internal static class SipPolynomial
     }
 
     /// <summary>
-    /// Populate one row of the design matrix at (u, v). Internal helper —
+    /// Populate one row of the design matrix at (u, v). Internal helper;
     /// kept out of the hot Apply path because it allocates uPow/vPow per
     /// call; for production evaluation use <see cref="Apply"/> which
     /// stack-allocates.

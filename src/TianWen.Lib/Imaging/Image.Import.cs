@@ -23,10 +23,10 @@ public partial class Image
     /// the spectral (SASP) or dcraw factory lookup; null when neither matches.</item>
     /// <item><b>FITS</b> (.fits / .fit / .fts) via <see cref="TryReadFitsFile(string, out Image?)"/>.</item>
     /// <item><b>PNG / JPEG / JPEG XR / OpenEXR / JPEG XL</b> via the <c>SharpAstro.Codecs</c>
-    /// facade (<see cref="TryReadViaCodecs"/>) — the raster formats tianwen writes (PNG previews,
+    /// facade (<see cref="TryReadViaCodecs"/>): the raster formats tianwen writes (PNG previews,
     /// EXR/JXR HDR masters) but has no bespoke reader for, so an exported frame can be reopened.</item>
     /// </list>
-    /// Anything the facade cannot sniff returns <c>false</c> — there is no Magick.NET fallback. Pixel values
+    /// Anything the facade cannot sniff returns <c>false</c>; there is no Magick.NET fallback. Pixel values
     /// are normalised to [0, 1] regardless of source bit depth. EXIF metadata is extracted
     /// into <see cref="ImageMeta"/> where present.
     /// </summary>
@@ -62,7 +62,7 @@ public partial class Image
     /// <summary>Decode a Canon CR2 or CR3 via FC.SDK.Raw into a 1-channel
     /// float Bayer mosaic with as-shot WB applied and CameraToSrgbMatrix
     /// populated. Caller should debayer + apply the matrix downstream
-    /// (drizzle-friendly — the mosaic is preserved for stacking workflows
+    /// (drizzle-friendly, the mosaic is preserved for stacking workflows
     /// that need it).</summary>
     private static bool TryReadCanonRaw(string fileName, [NotNullWhen(true)] out Image? image)
     {
@@ -99,7 +99,7 @@ public partial class Image
             if (max < 1f) max = 1f; // defensive: never below the natural 1.0 ceiling
 
             // Camera -> sRGB matrix: spectral (SASP) first when the database is
-            // already loaded (lazy: don't force-load it here — astro startup
+            // already loaded (lazy: don't force-load it here, astro startup
             // pre-loads via SPCC), dcraw factory table as fallback, null if
             // neither has the model.
             float[]? matrix = null;
@@ -128,7 +128,7 @@ public partial class Image
     /// <summary>Construct an <see cref="ImageMeta"/> from a decoded CR2's
     /// EXIF + the resolved camera matrix. Fields not in the CR2's EXIF
     /// (telescope, observatory site, target coords) stay as their sentinel
-    /// "unknown" values — the caller can populate via <c>meta with { ... }</c>
+    /// "unknown" values: the caller can populate via <c>meta with { ... }</c>
     /// when those facts are known from session context.</summary>
     private static ImageMeta BuildCanonRawImageMeta(CanonRawFile raw, float[]? cameraToSrgb)
     {
@@ -172,7 +172,7 @@ public partial class Image
             var page = doc.Pages[0];
             var width = page.Width;
             var height = page.Height;
-            // Drop alpha / extras — Image carries mono (1) or RGB (3); the prior Magick path
+            // Drop alpha / extras: Image carries mono (1) or RGB (3); the prior Magick path
             // also extracted only R/G/B from interleaved RGBA strides.
             var outChannels = page.SamplesPerPixel >= 3 ? 3 : 1;
             var bitDepth = (page.SampleFormat, page.BitsPerSample) switch
@@ -202,7 +202,7 @@ public partial class Image
 
     /// <summary>
     /// Decode a raster the <c>SharpAstro.Codecs</c> facade recognises (PNG / JPEG /
-    /// JPEG XR / OpenEXR / JPEG XL) into a mono or RGB float <see cref="Image"/> — the read
+    /// JPEG XR / OpenEXR / JPEG XL) into a mono or RGB float <see cref="Image"/>; the read
     /// counterpart to tianwen's own writers (PNG previews, EXR/JXR HDR masters). TIFF is
     /// deliberately routed through <see cref="TryReadTiff"/> instead, which recovers EXIF into
     /// <see cref="ImageMeta"/> that the facade's decoded raster does not carry.
@@ -226,7 +226,7 @@ public partial class Image
     /// <c>SharpAstro.Codecs</c> facade recognises into a mono or RGB float <see cref="Image"/>,
     /// normalised to [0, 1]. The byte-buffer core of <see cref="TryReadViaCodecs"/> (which reads a
     /// file then delegates here). The Canon Live View path decodes each EVF JPEG frame straight from
-    /// the SDK <c>byte[]</c> through this — a per-frame temp-file round-trip would dominate a
+    /// the SDK <c>byte[]</c> through this: a per-frame temp-file round-trip would dominate a
     /// 15-30 fps stream. A camera-processed EVF JPEG is demosaiced RGB, so it decodes to a
     /// 3-channel <see cref="Image"/> the live-stack pipeline consumes as a colour master.
     /// <para>
@@ -254,7 +254,7 @@ public partial class Image
 
             // ToFloats widens to interleaved RGBA float32: integer samples normalise to [0, 1]
             // (endpoints exact), Float32 samples pass through verbatim, gray broadcasts across
-            // R/G/B. Container-only — values keep decoded.ColorEncoding's meaning (a PQ/HLG
+            // R/G/B. Container-only: values keep decoded.ColorEncoding's meaning (a PQ/HLG
             // raster stays non-linear), which matches the [0, 1] float convention TryReadTiff
             // already trusts. A tone / linearisation pass for non-sRGB HDR inputs is deferred.
             var rgba = decoded.ToFloats();
@@ -378,7 +378,7 @@ public partial class Image
             : -1;
 
         // Optional: pixel size from XResolution/YResolution tags when ResolutionUnit==3 (cm).
-        // Rarely populated — most cameras write ResolutionUnit=2 (inch) which we don't try to
+        // Rarely populated: most cameras write ResolutionUnit=2 (inch) which we don't try to
         // interpret as pixel size (would conflate "DPI metadata" with sensor pitch). Reads
         // straight from raw IFD bytes since the strongly-typed projection doesn't carry these.
         var (pixelSizeX, pixelSizeY) = ReadPixelSizeMicrons(exif, fileIsLittleEndian);
@@ -413,7 +413,7 @@ public partial class Image
         if (exif?.RawTags is not { } raw) return (pixelSizeX, pixelSizeY);
 
         // ResolutionUnit: 1=none, 2=inch, 3=cm. We only convert when cm (preserves the prior
-        // Magick-path behaviour — see Image.Import.cs commit history pre-Phase-4).
+        // Magick-path behaviour: see Image.Import.cs commit history pre-Phase-4).
         if (!raw.TryGetValue(0x0128, out var unitVal)
             || unitVal.Type != TiffFieldType.Short
             || unitVal.Bytes.Length < 2)

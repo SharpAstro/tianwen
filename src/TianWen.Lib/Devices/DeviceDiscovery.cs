@@ -132,7 +132,7 @@ internal class DeviceDiscovery(
     {
         if (!await CheckSupportAsync(cancellationToken))
         {
-            // Even if the initial support check found nothing, allow a refresh — a
+            // Even if the initial support check found nothing, allow a refresh; a
             // host that started offline will often be back online by the time the
             // user clicks Discover.
             await RefreshUnsupportedAsync(cancellationToken);
@@ -172,7 +172,7 @@ internal class DeviceDiscovery(
                 }
             });
 
-        // Observe the probe pass even if no consuming source awaited it (e.g. none supported) — surfaces a
+        // Observe the probe pass even if no consuming source awaited it (e.g. none supported); surfaces a
         // cancellation and ensures it has completed before DiscoverAsync returns.
         await serialProbeTask;
     }
@@ -189,7 +189,7 @@ internal class DeviceDiscovery(
         }
         catch (Exception e)
         {
-            logger.LogError(e, "Serial probe pass failed — continuing with per-source discovery.");
+            logger.LogError(e, "Serial probe pass failed, continuing with per-source discovery.");
         }
     }
 }

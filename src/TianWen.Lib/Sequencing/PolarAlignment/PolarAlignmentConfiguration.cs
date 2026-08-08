@@ -6,7 +6,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// <summary>
     /// Tunables for the polar-alignment routine. Kept separate from
     /// <see cref="SessionConfiguration"/> because the routine runs *outside*
-    /// of any imaging session — it manipulates a manually-connected mount
+    /// of any imaging session: it manipulates a manually-connected mount
     /// directly and never enters the imaging loop.
     /// </summary>
     /// <param name="ExposureRamp">Exposure ladder tried in order until a plate
@@ -47,7 +47,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// sub-arcmin accuracy in practice.</param>
     /// <param name="SettleSeconds">Mount-settle wait between the rotation
     /// command finishing and the second-frame capture starting.</param>
-    /// <param name="TargetAccuracyArcmin">Convergence threshold for Phase B —
+    /// <param name="TargetAccuracyArcmin">Convergence threshold for Phase B; 
     /// when both az and alt errors fall below this, the panel signals "done".</param>
     /// <param name="OnDone">What to do with the mount when the user clicks
     /// Done or Cancel: reverse-axis the original rotation (default), park, or
@@ -56,7 +56,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// folder for offline analysis. Default false (frames live in temp).</param>
     /// <param name="MaxFrame2Retries">Maximum retries for the Phase A second
     /// frame after a failed plate solve. The user has likely just bumped the
-    /// rig or the mount hasn't settled — give them a few attempts before
+    /// rig or the mount hasn't settled: give them a few attempts before
     /// failing the routine. Each retry waits <see cref="SettleSeconds"/>.</param>
     /// <param name="SmoothingWindow">Number of recent solves used by the
     /// refinement smoother to compute the EWMA-smoothed error and the

@@ -18,10 +18,10 @@ For each repo, show:
 4. Last commit message (one line)
 5. The VersionPrefix (or AssemblyVersion as a fallback) from the repo's main `.csproj`.
    csproj path varies by repo:
-   - `src/<repo>/<repo>.csproj` — DIR.Lib, Console.Lib, SdlVulkan.Renderer, FC.SDK, Fonts.Lib (as SharpAstro.Fonts)
-   - `CSharpFITS/CSharpFITS.csproj` — FITS.Lib (package name differs from csproj name)
-   - `<repo-root>/<Name>.csproj` — ZWOptical.SDK (in `zwo-sdk-nuget/`), QHYCCD.SDK
-   If none of the above patterns match, skip silently — don't guess.
+   - `src/<repo>/<repo>.csproj`: DIR.Lib, Console.Lib, SdlVulkan.Renderer, FC.SDK, Fonts.Lib (as SharpAstro.Fonts)
+   - `CSharpFITS/CSharpFITS.csproj`: FITS.Lib (package name differs from csproj name)
+   - `<repo-root>/<Name>.csproj`, ZWOptical.SDK (in `zwo-sdk-nuget/`), QHYCCD.SDK
+   If none of the above patterns match, skip silently, don't guess.
 
 Format as a compact table with repo names in a stable order (alphabetical is fine, with tianwen
 last so the user sees it as the "current" row). Flag any repo that has uncommitted changes or
@@ -38,5 +38,5 @@ is ahead of remote.
   pin a specific DIR.Lib version.
 
 When any of the directly-or-transitively-consumed repos is AHEAD of remote, call it out
-explicitly as a push-safety risk rather than a generic "ahead" flag — the user cares about
+explicitly as a push-safety risk rather than a generic "ahead" flag; the user cares about
 whether TianWen's CI will resolve packages, not about arbitrary repos being ahead.

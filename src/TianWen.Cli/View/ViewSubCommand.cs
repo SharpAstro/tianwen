@@ -33,7 +33,7 @@ internal class ViewSubCommand(
 
     private async Task EnsureTerminalInitAsync()
     {
-        // InitAsync probes capabilities — safe to call multiple times (no-op after first)
+        // InitAsync probes capabilities: safe to call multiple times (no-op after first)
         await consoleHost.Terminal.InitAsync();
     }
 

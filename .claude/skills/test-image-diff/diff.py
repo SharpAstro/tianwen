@@ -63,7 +63,7 @@ def collect_pngs(date_dir: Path) -> dict[tuple[str, str], Path]:
 
 def png_chunks(path: Path) -> list[tuple[str, int]]:
     """Walk the PNG chunk list. Returns [(type, data_length), ...] in file
-    order. Returns [] for non-PNG inputs (TIFFs etc. — caller handles)."""
+    order. Returns [] for non-PNG inputs (TIFFs etc. caller handles)."""
     try:
         with open(path, "rb") as f:
             b = f.read()
@@ -153,7 +153,7 @@ def diff_pair(a_path: Path, b_path: Path, threshold: int) -> dict:
     status = "unchanged" if n_changed == 0 else "CHANGED"
     # When pixels match but bytes differ, decode chunk-level diff so the
     # reader can tell metadata-only changes (iCCP add, eXIf rewrite) from
-    # encoder-output drift. Skip on pixel-diff cases — the pixel stats
+    # encoder-output drift. Skip on pixel-diff cases: the pixel stats
     # are the story there.
     chunk_diff = diff_png_chunks(a_path, b_path) if status == "unchanged" and bytes_delta != 0 else ""
     return {
@@ -187,7 +187,7 @@ def compare_root(root: Path, newer: Path | None, older: Path | None,
                  threshold: int) -> int:
     """Compare all PNGs between two date dirs under `root`. Returns the count
     of CHANGED+RESHAPED entries (so the caller can `exit n` for CI)."""
-    # Header surfaces the auto-pick prominently — easy to misread "13 vs 12"
+    # Header surfaces the auto-pick prominently: easy to misread "13 vs 12"
     # as "today vs yesterday" when today is the 14th, so spell out both the
     # full date and a freshness hint (today / yesterday / Nd ago).
     today = _today_yyyymmdd()
@@ -202,7 +202,7 @@ def compare_root(root: Path, newer: Path | None, older: Path | None,
     print(f"\n{root.name}:  newer={label(newer)}  vs  older={label(older)}")
     if newer is None or older is None:
         print(f"  (only {sum(1 for _ in [newer, older] if _)} date folder(s) "
-              f"available — need two to compare)")
+              f"available; need two to compare)")
         return 0
 
     a_files = collect_pngs(newer)

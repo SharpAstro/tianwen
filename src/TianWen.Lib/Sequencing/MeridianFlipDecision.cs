@@ -22,9 +22,9 @@ public enum HourAngleZone
 /// <summary>Outcome of <see cref="MeridianFlipDecision.DecideFlipAction"/>.</summary>
 public enum FlipAction
 {
-    /// <summary>Continue imaging as normal — HA is east of the zone.</summary>
+    /// <summary>Continue imaging as normal: HA is east of the zone.</summary>
     Continue,
-    /// <summary>HA has entered the obstruction zone — pause exposures and tracking until clear.</summary>
+    /// <summary>HA has entered the obstruction zone: pause exposures and tracking until clear.</summary>
     WaitForObstructionClear,
     /// <summary>Pier side is unchanged but HA reached the flip window. Command a flip ourselves.</summary>
     CommandFlip,
@@ -50,7 +50,7 @@ public static class MeridianFlipDecision
     /// HA &lt;= -ObsZone | -ObsZone &lt; HA &lt; 0 |          | EarliestAfter &lt;= HA &lt;= LatestAfter | HA &gt; LatestAfter
     /// </code>
     /// The narrow gap <c>0 &lt; HA &lt; EarliestAfter</c> is treated as <see cref="HourAngleZone.InObstructionZone"/>:
-    /// the rig is past the mechanical risk but not yet at the earliest sanctioned flip — keep waiting,
+    /// the rig is past the mechanical risk but not yet at the earliest sanctioned flip; keep waiting,
     /// don't start new exposures.
     /// </remarks>
     public static HourAngleZone ClassifyHourAngle(double hourAngleHours, SessionConfiguration config)
@@ -112,7 +112,7 @@ public static class MeridianFlipDecision
     /// <param name="pierSideChanged">Has the pier side changed since slew time? (i.e. <c>!IsOnSamePierSide</c>)</param>
     /// <param name="alreadyOnCorrectSide">Is the mount's current pier side the destination side for the
     /// current pointing? When <c>true</c> the rig is already configured for where it points, so no flip is
-    /// needed even though HA is past the meridian — the case where we slewed straight to a target that had
+    /// needed even though HA is past the meridian: the case where we slewed straight to a target that had
     /// already crossed (joined an in-progress <c>AcrossMeridian</c> observation, or re-acquired post-flip).
     /// This is what stops the flip from re-firing forever on a mount whose pier side never changes
     /// (e.g. SkyWatcher reporting Normal throughout a west-of-meridian track).</param>
@@ -129,7 +129,7 @@ public static class MeridianFlipDecision
     {
         if (hasFlipped)
         {
-            // Already flipped (or detected a flip) for this target — never flip twice. We are past the
+            // Already flipped (or detected a flip) for this target, never flip twice. We are past the
             // meridian on the new side; keep imaging. The pre-meridian obstruction zone cannot recur for
             // this target, so there is nothing to wait for.
             return FlipAction.Continue;
@@ -137,7 +137,7 @@ public static class MeridianFlipDecision
 
         if (pierSideChanged)
         {
-            // Mount flipped without us — firmware auto-flip past limit, handbox press, or
+            // Mount flipped without us: firmware auto-flip past limit, handbox press, or
             // someone called SideOfPier setter behind our back. Skip the re-slew.
             return FlipAction.AlreadyFlipped;
         }
@@ -149,7 +149,7 @@ public static class MeridianFlipDecision
             HourAngleZone.InObstructionZone => FlipAction.WaitForObstructionClear,
             // Past the meridian: only command a flip if the mount is actually on the wrong pier side for
             // where it points. If it already sits on the destination side (slewed straight to a target that
-            // had already crossed), there is nothing to flip — continue imaging.
+            // had already crossed), there is nothing to flip; continue imaging.
             HourAngleZone.InFlipWindow => alreadyOnCorrectSide ? FlipAction.Continue : FlipAction.CommandFlip,
             HourAngleZone.PastFlipWindow => alreadyOnCorrectSide ? FlipAction.Continue : FlipAction.CommandFlip,
             _ => throw new ArgumentOutOfRangeException(nameof(hourAngleHours)),

@@ -34,7 +34,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
 
         /// <summary>
         /// Compute the score for a single capture source. Higher is better.
-        /// Pure function — same inputs always produce the same score.
+        /// Pure function: same inputs always produce the same score.
         /// </summary>
         public static double Score(ICaptureSource source)
         {

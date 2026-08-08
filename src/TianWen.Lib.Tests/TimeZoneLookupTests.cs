@@ -46,7 +46,7 @@ public class TimeZoneLookupTests(ITestOutputHelper output)
         var result = TimeZoneLookup.GetTimeZone(lat, lon);
         output.WriteLine($"{name} ({lat}, {lon}): tzId='{result.Result}'");
 
-        // Ocean locations may or may not return a timezone — document the behavior
+        // Ocean locations may or may not return a timezone; document the behavior
         if (result.Result is { Length: > 0 } tzId && tzId.Contains('/'))
         {
             output.WriteLine($"  → Resolved to: {tzId}");
@@ -102,7 +102,7 @@ public class TimeZoneLookupTests(ITestOutputHelper output)
         // Document: if this fails, the planner falls back to stale timezone
         if (!hasTimezone)
         {
-            output.WriteLine("  → FAILS for ocean locations — planner will use stale/default timezone");
+            output.WriteLine("  → FAILS for ocean locations, planner will use stale/default timezone");
             output.WriteLine("  → User should pick a land-based site for correct timezone computation");
         }
     }

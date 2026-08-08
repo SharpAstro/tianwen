@@ -13,7 +13,7 @@ three output formats we actually produce: **PNG, JPEG, TIFF**.
 2. **Scientific 32-bit-float TIFF** (`Image.WriteTiffAsync`): **leave
    untagged**. Scientific consumers (PixInsight, tifffile, ImageJ) treat
    untagged float as scene-linear, which is what we want. The old Magick.NET
-   path tagged sRGB on this data, but the data wasn't sRGB-TRC encoded — it
+   path tagged sRGB on this data, but the data wasn't sRGB-TRC encoded; it
    was a lie that no consumer noticed. Honest-untagged is the better contract.
 3. **JPEG embedding via post-encode injection**, not encoder fork. APP2
    markers can be inserted between SOI and SOF without touching the
@@ -24,20 +24,20 @@ three output formats we actually produce: **PNG, JPEG, TIFF**.
 
 ## Phasing
 
-### Phase 1 — `SharpAstro.Tiff` 3.0 (breaking)
+### Phase 1: `SharpAstro.Tiff` 3.0 (breaking)
 
 Change `TiffPageOptions.IccProfile` from `byte[]?` to `ReadOnlyMemory<byte>`
 so callers can pass `IccProfiles.SRgbV4` directly. Major version bump per
-semver — zero in-tree consumers, low blast radius.
+semver; zero in-tree consumers, low blast radius.
 
-- `src/SharpAstro.Tiff/TiffPageOptions.cs:52` — type change.
-- `src/SharpAstro.Tiff/TiffWriter.cs:147-148` — adapt the consumer:
+- `src/SharpAstro.Tiff/TiffPageOptions.cs:52`; type change.
+- `src/SharpAstro.Tiff/TiffWriter.cs:147-148`; adapt the consumer:
   `if (!options.IccProfile.IsEmpty) ifd.SetUndefined(tag, options.IccProfile.ToArray());`
-- `tests/SharpAstro.Codecs.Tests/TiffReaderRoundTripTests.cs:120` — drop the
+- `tests/SharpAstro.Codecs.Tests/TiffReaderRoundTripTests.cs:120`; drop the
   `.ToArray()` at the call site.
 - Bump `VersionPrefix` / `AssemblyVersion` to **3.0.0**.
 
-### Phase 2 — `SharpAstro.Jpeg` 1.0 (new)
+### Phase 2: `SharpAstro.Jpeg` 1.0 (new)
 
 Pure-managed library, single API:
 
@@ -56,14 +56,14 @@ reading their big-endian length prefix, stop at the first non-APP marker
 Reject inputs > 65517 bytes for v1 (single-segment limit). Multi-segment can
 be added when someone hands us a non-trivial device profile.
 
-- `src/SharpAstro.Jpeg/SharpAstro.Jpeg.csproj` — new project, AOT-compat,
+- `src/SharpAstro.Jpeg/SharpAstro.Jpeg.csproj`: new project, AOT-compat,
   no native deps.
-- `src/SharpAstro.Jpeg/JpegIccInjector.cs` — the implementation.
-- `tests/SharpAstro.Codecs.Tests/JpegIccInjectorTests.cs` — round-trip:
+- `src/SharpAstro.Jpeg/JpegIccInjector.cs`: the implementation.
+- `tests/SharpAstro.Codecs.Tests/JpegIccInjectorTests.cs`: round-trip:
   encode a tiny JPEG via `StbImageWriteSharp` → inject sRGB v4 → parse APP2
   back out → byte-compare with the input profile.
 
-### Phase 3 — Publish
+### Phase 3: Publish
 
 Single PR on `../sharpastro/StbImageSharp` with both libraries. Push, let
 upstream CI publish, poll NuGet until both `SharpAstro.Tiff 3.0.*` and
@@ -72,9 +72,9 @@ upstream CI publish, poll NuGet until both `SharpAstro.Tiff 3.0.*` and
 (Per `feedback_no_push_before_nuget.md`: don't push the TianWen side until
 both packages are confirmed published.)
 
-### Phase 4 — TianWen call sites
+### Phase 4: TianWen call sites
 
-**4a — Test display-TIFF helper.** Three inlined 8-bit RGB TIFF writers
+**4a. Test display-TIFF helper.** Three inlined 8-bit RGB TIFF writers
 share the same shape and all want the same sRGB tag:
 
 - `src/TianWen.Lib.Tests/GpuStretchPipelineTests.cs:562`
@@ -84,12 +84,12 @@ share the same shape and all want the same sRGB tag:
 Extract to `src/TianWen.Lib.Tests/Helpers/TestDisplayTiffWriter.cs` and
 embed `IccProfiles.SRgbV4` via the new `ReadOnlyMemory<byte>` API.
 
-**4b — `NinaImageEndpoints` JPEG.** `src/TianWen.Hosting/Api/NinaV2/NinaImageEndpoints.cs:126`
+**4b; `NinaImageEndpoints` JPEG.** `src/TianWen.Hosting/Api/NinaV2/NinaImageEndpoints.cs:126`
 wraps `WriteJpg` output through `JpegIccInjector.EmbedIccProfile(..., IccProfiles.SRgbV4)`.
 
-**4c — `Image.WriteTiffAsync` stays untagged** (scope decision 2).
+**4c; `Image.WriteTiffAsync` stays untagged** (scope decision 2).
 
-**4d — Production PNG writers.** If any production code path writes display
+**4d. Production PNG writers.** If any production code path writes display
 PNGs (vs the test-only call sites currently in `Cr2ImportTests`, etc.),
 audit + tag. As of writing there are none in `TianWen.Lib` proper, only in
 tests + `tools/`. Test PNG outputs can be tagged via a helper analogous to
@@ -112,6 +112,6 @@ tests + `tools/`. Test PNG outputs can be tagged via a helper analogous to
 
 Low. New code paths gated behind explicit opt-in (a non-default
 `IccProfile` field on TIFF, an explicit call to `JpegIccInjector` on JPEG).
-The breaking change on `SharpAstro.Tiff` has zero in-tree consumers — the
+The breaking change on `SharpAstro.Tiff` has zero in-tree consumers; the
 NuGet ecosystem at large doesn't consume this package yet, so the major
 bump is essentially a free reset.

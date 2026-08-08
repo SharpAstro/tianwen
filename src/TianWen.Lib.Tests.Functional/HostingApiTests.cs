@@ -18,8 +18,8 @@ using Xunit;
 namespace TianWen.Lib.Tests.Functional;
 
 [Collection("Hosting")]
-#pragma warning disable CS8774 // MemberNotNull on InitializeAsync — xUnit guarantees init before tests
-#pragma warning disable CS8602 // Dereference of possibly null — same reason
+#pragma warning disable CS8774 // MemberNotNull on InitializeAsync; xUnit guarantees init before tests
+#pragma warning disable CS8602 // Dereference of possibly null; same reason
 public class HostingApiTests(ITestOutputHelper outputHelper) : IAsyncLifetime
 {
     private WebApplication? _app;

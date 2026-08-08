@@ -64,7 +64,7 @@ namespace TianWen.UI.Abstractions
             in SiteContext site,
             double pixelsPerRadian, float cx, float cy)
         {
-            // Draw info panel regardless of modal state — a selected object should
+            // Draw info panel regardless of modal state: a selected object should
             // remain visible after the user closes the search window.
             if (State.Search.InfoPanel is { } info)
             {
@@ -593,7 +593,7 @@ namespace TianWen.UI.Abstractions
             // Sample screen-space north unit vector by projecting a point 1' north
             // of the object and subtracting the projected centre. We only care about
             // direction, so magnitude is renormalised. Bail if any projection fails
-            // (object at antipode, etc.) — crosshair fallback still works.
+            // (object at antipode, etc.): crosshair fallback still works.
             if (!SkyMapProjection.ProjectWithMatrix(info.RA, info.Dec, State.CurrentViewMatrix,
                     pixelsPerRadian, centerX, centerY, out var ox, out var oy)
                 || !SkyMapProjection.ProjectWithMatrix(info.RA, info.Dec + 1.0 / 60.0,
@@ -740,7 +740,7 @@ namespace TianWen.UI.Abstractions
             => t is { } dt ? $"{dt.ToOffset(siteTimeZone):HH:mm}" : "--:--";
 
         // Walk PlannerState.Proposals to see if this catalog index is pinned.
-        // Called once per frame while the info panel is visible — proposals are few
+        // Called once per frame while the info panel is visible; proposals are few
         // so O(n) is fine. ImmutableArray enumerator is zero-alloc.
         private static bool IsPinned(PlannerState plannerState, CatalogIndex catIdx)
         {
@@ -801,8 +801,8 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Arm the click-vs-drag gesture at the mouse-down location (and modifiers).
         /// Call from the tab's <c>MouseDown</c> handler. The modifiers are captured here
-        /// because <see cref="InputEvent.MouseUp"/> does not carry them — only
-        /// <see cref="InputEvent.MouseDown"/> does — and the click-select fires on mouse-up.
+        /// because <see cref="InputEvent.MouseUp"/> does not carry them, only
+        /// <see cref="InputEvent.MouseDown"/> does, and the click-select fires on mouse-up.
         /// </summary>
         protected void RememberMouseDown(float x, float y, InputModifier modifiers = InputModifier.None)
             => _mapGesture.Arm(x, y, modifiers, DpiScale);

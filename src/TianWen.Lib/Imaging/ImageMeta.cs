@@ -11,7 +11,7 @@ namespace TianWen.Lib.Imaging;
 /// <list type="bullet">
 /// <item>
 /// <term>Offset (FITS: OFFSET, BLKLEVEL)</term>
-/// <description>Camera register setting — an integer value configured on the camera electronics
+/// <description>Camera register setting: an integer value configured on the camera electronics
 /// to bias the ADC output above zero. This is a capture-time setting, not a post-processing value.
 /// Community consensus (NINA, SGP, SharpCap): OFFSET and BLKLEVEL both refer to this camera register.
 /// Stored in <see cref="Offset"/>; -1 means unknown.</description>
@@ -39,7 +39,7 @@ namespace TianWen.Lib.Imaging;
 /// <param name="PixelSizeY">Physical pixel height in micrometers (FITS: YPIXSZ).</param>
 /// <param name="FocalLength">Effective focal length in mm (FITS: FOCALLEN). -1 if unknown.</param>
 /// <param name="FocusPos">Focuser position in steps (FITS: FOCUSPOS, FOCPOS). -1 if unknown.</param>
-/// <param name="Filter">Active filter during capture (FITS: FILTCLAS — coarse; FILTER — full name via <see cref="Imaging.Filter.FilterNameForFits"/>).</param>
+/// <param name="Filter">Active filter during capture (FITS: FILTCLAS, coarse; FILTER, full name via <see cref="Imaging.Filter.FilterNameForFits"/>).</param>
 /// <param name="BinX">Horizontal binning factor (FITS: XBINNING).</param>
 /// <param name="BinY">Vertical binning factor (FITS: YBINNING).</param>
 /// <param name="CCDTemperature">Measured sensor temperature in Celsius (FITS: CCD-TEMP). NaN if unavailable.</param>

@@ -13,7 +13,7 @@ namespace TianWen.UI.Benchmarks;
 /// suspected that <see cref="double.Parse(System.ReadOnlySpan{char}, System.IFormatProvider?)"/>
 /// + <see cref="System.Text.Encoding.UTF8"/> string allocation are the
 /// dominant per-record costs, but the format-migration plan estimated savings
-/// that did not materialise — so the first thing to do before tweaking the
+/// that did not materialise, so the first thing to do before tweaking the
 /// format again is to actually measure.
 ///
 /// Variants per catalog (HR, Dobashi, NGC):

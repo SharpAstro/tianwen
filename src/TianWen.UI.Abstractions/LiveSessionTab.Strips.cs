@@ -335,8 +335,8 @@ namespace TianWen.UI.Abstractions
             !prompt.RequiresPhysicalPresence
                 ? null
                 : RemoteRigName is { Length: > 0 } rig
-                    ? $"⚠ Someone has to be at {rig} for this. Continuing asserts it was done — the session cannot check."
-                    : "⚠ Someone has to be at the telescope for this. Continuing asserts it was done — the session cannot check.";
+                    ? $"⚠ Someone has to be at {rig} for this. Continuing asserts it was done; the session cannot check."
+                    : "⚠ Someone has to be at the telescope for this. Continuing asserts it was done; the session cannot check.";
 
         // -----------------------------------------------------------------------
         // Polar alignment: precondition gating + side panel

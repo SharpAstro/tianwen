@@ -4,7 +4,7 @@ namespace TianWen.Lib.Astrometry.SOFA;
 
 /// <summary>
 /// Rise / transit / set times for a fixed-position celestial object (stars, galaxies,
-/// nebulae) at a given site. Uses Meeus algorithm 15 — sufficient accuracy (±1 min)
+/// nebulae) at a given site. Uses Meeus algorithm 15; sufficient accuracy (±1 min)
 /// for observation planning and the sky map info panel.
 /// <para>
 /// For solar-system bodies (Sun, Moon, planets) the full <see cref="Transform.EventTimes"/>
@@ -24,14 +24,14 @@ public static class RiseTransitSetHelper
 
     /// <summary>
     /// Compute rise, transit, and set for a fixed RA/Dec at the given site.
-    /// Times are the events nearest to <paramref name="nearUtc"/> — picked within
+    /// Times are the events nearest to <paramref name="nearUtc"/>; picked within
     /// ±12 h of that reference so the info panel shows "tonight's" events.
     /// </summary>
     /// <param name="raHours">Right ascension in hours, 0..24.</param>
     /// <param name="decDeg">Declination in degrees, -90..+90.</param>
     /// <param name="siteLatDeg">Observer latitude, degrees. NaN returns false.</param>
     /// <param name="siteLonDeg">Observer longitude, degrees east positive. NaN returns false.</param>
-    /// <param name="nearUtc">Reference time — events are chosen within ±12 h of this.</param>
+    /// <param name="nearUtc">Reference time: events are chosen within ±12 h of this.</param>
     /// <param name="rise">Nearest rise event, UTC.</param>
     /// <param name="transit">Nearest upper-meridian transit, UTC.</param>
     /// <param name="set">Nearest set event, UTC.</param>

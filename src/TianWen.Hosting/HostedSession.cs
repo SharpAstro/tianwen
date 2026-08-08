@@ -198,7 +198,7 @@ internal class HostedSession(ISessionFactory sessionFactory) : IHostedSession
         {
             // Graceful shutdown is handled by Session.RunAsync's try/finally
             // (Session.cs:288-300) which always invokes Finalise(CancellationToken.None)
-            // — park mount, warm cameras, close covers — when the session token is
+            //, park mount, warm cameras, close covers, when the session token is
             // cancelled. Disposing here just releases the device handles.
             await session.DisposeAsync();
         }

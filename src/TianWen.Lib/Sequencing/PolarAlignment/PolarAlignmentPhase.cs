@@ -23,7 +23,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         Aligned = 5,
         /// <summary>Reverse-axis restore in progress after Done / Cancel.</summary>
         RestoringMount = 6,
-        /// <summary>Routine failed (Phase A) — last status message contains the reason.</summary>
+        /// <summary>Routine failed (Phase A): last status message contains the reason.</summary>
         Failed = 7,
     }
 

@@ -24,7 +24,7 @@ public readonly record struct CameraTelemetrySample(
 /// CAS-loop updates via <see cref="ImmutableInterlocked.Update{T}(ref ImmutableArray{T}, Func{ImmutableArray{T}, ImmutableArray{T}})"/>.
 /// Readers (render thread, every frame) snapshot <c>_samples</c> in a single
 /// reference read; concurrent writes never tear the snapshot. Multiple concurrent
-/// writers are also safe — the CAS retries on conflict.
+/// writers are also safe: the CAS retries on conflict.
 /// </para>
 /// </summary>
 public sealed class CameraTelemetryBuffer

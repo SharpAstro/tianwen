@@ -8,12 +8,12 @@ namespace TianWen.Lib.Devices;
 
 /// <summary>
 /// <see cref="ICredentialStore"/> backed by the Windows Credential Manager (Generic credentials in
-/// the per-user vault — visible and clearable under Control Panel -> Credential Manager). Targets
+/// the per-user vault: visible and clearable under Control Panel -> Credential Manager). Targets
 /// are namespaced as <c>TianWen/{key}</c>.
 /// <para>
 /// P/Invoke uses source-generated <see cref="LibraryImportAttribute"/> marshalling so it stays
 /// NativeAOT-clean. The <c>CREDENTIAL</c> string fields are carried as <see cref="IntPtr"/> and
-/// marshalled by hand — <c>LibraryImport</c> does not auto-marshal string fields inside structs,
+/// marshalled by hand: <c>LibraryImport</c> does not auto-marshal string fields inside structs,
 /// so keeping the struct blittable is what lets it pass through the source generator.
 /// </para>
 /// </summary>

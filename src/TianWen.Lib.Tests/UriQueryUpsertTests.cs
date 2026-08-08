@@ -6,7 +6,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Tests for <see cref="DeviceQueryKeyExtensions.WithQueryValues"/> — the upsert helper used
+/// Tests for <see cref="DeviceQueryKeyExtensions.WithQueryValues"/>; the upsert helper used
 /// to mirror session-inferred state (backlash, etc.) back into device URIs without disturbing
 /// existing user-edited query keys.
 /// </summary>

@@ -6,7 +6,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Pure-function tests for <see cref="MeridianFlipDecision"/>. No devices, no time, no async —
+/// Pure-function tests for <see cref="MeridianFlipDecision"/>. No devices, no time, no async; 
 /// the helper is supposed to make every flip / obstruction-zone decision a transparent input -> output.
 /// </summary>
 public class MeridianFlipDecisionTests
@@ -96,7 +96,7 @@ public class MeridianFlipDecisionTests
     {
         var config = MakeConfig();
 
-        // 7 min past meridian — inside [5, 10] window
+        // 7 min past meridian: inside [5, 10] window
         var action = MeridianFlipDecision.DecideFlipAction(hourAngleHours: 7.0 / 60.0, pierSideChanged: false, alreadyOnCorrectSide: false, hasFlipped: false, config);
 
         action.ShouldBe(FlipAction.CommandFlip);
@@ -105,7 +105,7 @@ public class MeridianFlipDecisionTests
     [Fact]
     public void GivenPastFlipWindowWhenDecideThenStillCommandFlip()
     {
-        // Even when the latest acceptable flip time has passed, we still try to flip — better
+        // Even when the latest acceptable flip time has passed, we still try to flip; better
         // late than stuck on the wrong side. The mount will fail the slew if it's actually
         // past its tracking limit.
         var config = MakeConfig();
@@ -120,7 +120,7 @@ public class MeridianFlipDecisionTests
     {
         // The regression that caused the infinite flip loop: we joined an AcrossMeridian observation
         // that had already crossed (target +30 min west), and the mount was slewed straight onto its
-        // destination pier side. HA is in the flip window, but no flip is needed — keep imaging instead
+        // destination pier side. HA is in the flip window, but no flip is needed; keep imaging instead
         // of commanding a no-op flip every tick.
         var config = MakeConfig();
 
@@ -172,9 +172,9 @@ public class MeridianFlipDecisionTests
         // NINA "fixed flip point" mode: earliest == latest creates a single-tick window.
         var config = MakeConfig(earliestMinutesAfter: 7, latestMinutesAfter: 7);
 
-        // Exactly 7 min past — inclusive on both ends
+        // Exactly 7 min past: inclusive on both ends
         MeridianFlipDecision.ClassifyHourAngle(7.0 / 60.0, config).ShouldBe(HourAngleZone.InFlipWindow);
-        // 7.5 min — past
+        // 7.5 min: past
         MeridianFlipDecision.ClassifyHourAngle(7.5 / 60.0, config).ShouldBe(HourAngleZone.PastFlipWindow);
     }
 

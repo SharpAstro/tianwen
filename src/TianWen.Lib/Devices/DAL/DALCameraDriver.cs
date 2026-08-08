@@ -751,7 +751,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
                 throw new InvalidOperationException($"Cannot handle bit depth {exposureSettings.BitDepth}");
         }
 
-        // Wrap in ChannelBuffer for ref-counted lifecycle — onRelease recycles the float[,];
+        // Wrap in ChannelBuffer for ref-counted lifecycle; onRelease recycles the float[,];
         // the buffer travels ON the Channel into GetImageAsync's Image (which harvests the ref).
         var buffer = new Imaging.ChannelBuffer(channel, onRelease: recycledBuf => _freeBuffers.Add(recycledBuf));
         var result = new Imaging.Channel(channel, default, minValue, maxValue, 0) { Buffer = buffer };

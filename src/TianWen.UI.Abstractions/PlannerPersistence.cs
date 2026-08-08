@@ -62,7 +62,7 @@ public static class PlannerPersistence
             // crossing an evening boundary (e.g. noon) opens a different file. Without
             // this fallback, users would "lose" their pinned targets every time the
             // evening key rolled forward to a date that hasn't been saved yet. The
-            // prior-day pins are still perfectly valid — they get matched against
+            // prior-day pins are still perfectly valid: they get matched against
             // the current object database and re-saved to today's key on the next save.
             var fallbackPath = FindMostRecentPriorSession(filePath);
             if (fallbackPath is not null)
@@ -130,7 +130,7 @@ public static class PlannerPersistence
         if (Math.Abs(dto.SiteLatitude - state.SiteLatitude) > SiteInvalidationThreshold
             || Math.Abs(dto.SiteLongitude - state.SiteLongitude) > SiteInvalidationThreshold)
         {
-            logger.LogWarning("PlannerPersistence: discarding saved session — site moved ({SavedLat:F1},{SavedLon:F1}) → ({CurrentLat:F1},{CurrentLon:F1})",
+            logger.LogWarning("PlannerPersistence: discarding saved session, site moved ({SavedLat:F1},{SavedLon:F1}) → ({CurrentLat:F1},{CurrentLon:F1})",
                 dto.SiteLatitude, dto.SiteLongitude, state.SiteLatitude, state.SiteLongitude);
             return false;
         }
@@ -180,11 +180,11 @@ public static class PlannerPersistence
 
         if (restoredProposals.Count == 0)
         {
-            logger.LogWarning("PlannerPersistence: no proposals could be matched — discarding saved session");
+            logger.LogWarning("PlannerPersistence: no proposals could be matched, discarding saved session");
             return false;
         }
 
-        // Restore state — atomic replacement of Proposals. Building the whole list
+        // Restore state: atomic replacement of Proposals. Building the whole list
         // locally first and assigning once keeps concurrent readers on a consistent
         // snapshot.
         state.Proposals = [.. restoredProposals];
@@ -245,7 +245,7 @@ public static class PlannerPersistence
         // Fallback 2: rebuild the Target from the object database by catalog index.
         // TonightsBest is scored + capped, so a pinned target that is still valid
         // can easily fall off its list (e.g. lower altitude on a different evening).
-        // The saved proposal carries its CatalogIndex, Name, RA and Dec — everything
+        // The saved proposal carries its CatalogIndex, Name, RA and Dec; everything
         // we need to reconstruct a Target. Without this fallback the pin gets dropped
         // every time it is not in tonight's top-N, and the user sees it "vanish"
         // across a day rollover even though the save on disk is fine.

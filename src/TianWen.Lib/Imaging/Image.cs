@@ -52,7 +52,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// Legacy raw-array overload: wraps each plane in a <see cref="Channel"/> carrying the
     /// image-wide <paramref name="maxValue"/>/<paramref name="minValue"/> (no per-channel stats,
     /// no buffers). Prefer the <see cref="ImmutableArray{T}"/>-of-<see cref="Channel"/> constructor
-    /// for new code — it keeps per-channel min/max and lets a camera buffer travel with its channel.
+    /// for new code: it keeps per-channel min/max and lets a camera buffer travel with its channel.
     /// </summary>
     public Image(float[][,] data, BitDepth bitDepth, float maxValue, float minValue, float pedestal, ImageMeta imageMeta)
         : this(WrapRawPlanes(data, minValue, maxValue), bitDepth, pedestal, imageMeta)
@@ -145,7 +145,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     public float this[int c, int h, int w] => channels[c].Data[h, w];
 
     /// <summary>
-    /// Returns the typed <see cref="Channel"/> for a plane — per-channel filter/min/max travel here
+    /// Returns the typed <see cref="Channel"/> for a plane; per-channel filter/min/max travel here
     /// (the image-wide <see cref="MaxValue"/>/<see cref="MinValue"/> are the derived extrema).
     /// </summary>
     public Channel GetChannel(int channel) => channels[channel];
@@ -160,7 +160,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     }
 
     /// <summary>
-    /// Returns the raw backing <c>float[,]</c> for a channel. Internal — use for low-level
+    /// Returns the raw backing <c>float[,]</c> for a channel. Internal; use for low-level
     /// interop (guider tracker, FITS write) where span access is insufficient.
     /// </summary>
     internal float[,] GetChannelArray(int channel) => channels[channel].Data;
@@ -196,7 +196,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
 
     /// <summary>
     /// Ref-counted channel buffers, harvested from the channels' <see cref="Channel.Buffer"/> at
-    /// construction — set when the image wraps camera-owned data (the buffer travels WITH its
+    /// construction: set when the image wraps camera-owned data (the buffer travels WITH its
     /// channel; there is no attach-after-construct step). Null for images whose channels own their
     /// arrays outright (debayer/normalize output, tests, file loads).
     /// </summary>
@@ -226,7 +226,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// <summary>
     /// Releases all ref-counted channel buffers. When all holders release,
     /// the backing <c>float[,]</c> returns to the camera for reuse.
-    /// Safe to call multiple times — idempotent.
+    /// Safe to call multiple times: idempotent.
     /// </summary>
     public void Release()
     {
@@ -451,7 +451,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// fixed ADU full-scale when known, otherwise by <see cref="MaxValue"/> (see <see cref="ScaleFloatValuesToUnit"/>),
     /// mutating the underlying channel arrays. Returns a new <see cref="Image"/> wrapping the same arrays.
     /// </summary>
-    /// <remarks>Internal only — callers must ensure the source image is not retained elsewhere.</remarks>
+    /// <remarks>Internal only: callers must ensure the source image is not retained elsewhere.</remarks>
     internal Image ScaleFloatValuesToUnitInPlace(float missingValue = float.NaN)
     {
         if (MaxValue <= 1.0f)
@@ -471,7 +471,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
 
         // Rewrap the SAME arrays with rescaled per-channel min/max. Buffer deliberately NOT
         // carried over: the ref-counted release responsibility stays with the original Image
-        // (callers treat the source as consumed but its Release() still owns the recycle) —
+        // (callers treat the source as consumed but its Release() still owns the recycle); 
         // carrying the ref here would double-release a refcount-1 buffer.
         var rescaled = ImmutableArray.CreateBuilder<Channel>(channels.Length);
         foreach (var channel in channels)

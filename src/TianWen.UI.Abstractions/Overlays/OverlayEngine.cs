@@ -91,7 +91,7 @@ public static class OverlayEngine
         // carrying several IAU-style names. DisplayName breaks priority ties by
         // longest-then-alphabetical, so the two agree. DisplayName itself falls back to the
         // canonical designation when there are no common names; we keep null in that case so
-        // the `?? canonical` below — and the "add canonical" logic further down — are unchanged.
+        // the `?? canonical` below, and the "add canonical" logic further down, are unchanged.
         string? bestName = obj.CommonNames.Count > 0 ? obj.DisplayName : null;
 
         if (zoom <= 0.5f)
@@ -305,7 +305,7 @@ public static class OverlayEngine
     /// brightness (V_Mag), and on-sky size (shape major axis).
     /// </summary>
     /// <remarks>
-    /// The score is a stable function of the object alone — it does not depend
+    /// The score is a stable function of the object alone; it does not depend
     /// on the current viewport or on neighbouring objects. That is what makes
     /// priority-based label placement stable under panning: the relative order
     /// of items never changes frame-to-frame for a given catalog state.
@@ -536,7 +536,7 @@ public static class OverlayEngine
                     var screenX = imgOffsetX + (float)(px.X - 1) * scale;
                     var screenY = imgOffsetY + (float)(px.Y - 1) * scale;
 
-                    // Skip if off-screen — margin based on actual object extent
+                    // Skip if off-screen: margin based on actual object extent
                     var margin = 100f;
                     if (db.TryGetShape(idx, out var earlyShape) && !Half.IsNaN(earlyShape.MajorAxis))
                     {
@@ -561,7 +561,7 @@ public static class OverlayEngine
 
         // Sort by magnitude (brightest first) with CatalogIndex as stable tiebreaker.
         // The tiebreaker is what keeps label placement from twitching when panning the
-        // sky map — List<T>.Sort is unstable (QuickSort), and equal-magnitude objects
+        // sky map: List<T>.Sort is unstable (QuickSort), and equal-magnitude objects
         // would otherwise swap order between frames, causing the collision loop to
         // hand out different label slots frame-to-frame.
         candidates.Sort((a, b) =>
@@ -733,7 +733,7 @@ public static class OverlayEngine
         }
 
         // If a celestial pole is inside (or near) the view frustum, the 9-corner
-        // sample's RA bounds are meaningless — every RA projects through the pole.
+        // sample's RA bounds are meaningless: every RA projects through the pole.
         // Detect pole-in-view directly by projecting both poles and widen to a full
         // RA/Dec sweep if either sits inside the viewport plus a cull-margin band.
         // This replaces a hard FieldOfViewDeg >= 90 switch that caused objects to
@@ -761,11 +761,11 @@ public static class OverlayEngine
         if (poleInView)
         {
             // Every RA projects through the pole, so the corner sample's RA bounds
-            // are meaningless — sweep the full 24 h. But the Dec bounds from the
+            // are meaningless: sweep the full 24 h. But the Dec bounds from the
             // 5x5 sample are still valid (the farthest-from-pole corners give the
             // visible declination edge), so we only scan the visible strip instead
             // of the whole sky. This cuts pole-in-view scan cost by ~5-10x at
-            // moderate FOVs — a fix for pre-existing jerky pan performance.
+            // moderate FOVs: a fix for pre-existing jerky pan performance.
             minRA = 0.0;
             maxRA = 24.0;
             raWrapped = false;
@@ -1104,7 +1104,7 @@ public static class OverlayEngine
     /// base RGB color. The block's top-left is at (x, y); line-height is <paramref name="labelSize"/> * 1.2.</param>
     /// <param name="maxLabels">Label cap to prevent clutter. Defaults to <see cref="MaxOverlayLabels"/>.</param>
     /// <param name="reservedRegions">Screen-space boxes (x, y, w, h) that are already
-    /// occupied by something the engine doesn't own — e.g. the live mount-reticle label,
+    /// occupied by something the engine doesn't own, e.g. the live mount-reticle label,
     /// drawn later in a separate pass. Catalog labels treat them as pre-placed and stack
     /// around them, so the mount label is never overlapped by an object name.</param>
     public static void PlaceLabels(
@@ -1170,7 +1170,7 @@ public static class OverlayEngine
             ];
 
             // Start from the item's stable preferred slot so the same object keeps
-            // the same label side across frames — otherwise panning causes labels to
+            // the same label side across frames: otherwise panning causes labels to
             // fight for position 0 and reshuffle every frame.
             var startSlot = item.LabelSlotHint & 3;
 
@@ -1199,7 +1199,7 @@ public static class OverlayEngine
 
             // If all 4 rotations collided, the label is dropped (no force fallback).
             // Because sorted is priority-ordered, the dropped labels are always the
-            // least important ones in a dense region — stable and principled.
+            // least important ones in a dense region: stable and principled.
         }
     }
 
@@ -1207,7 +1207,7 @@ public static class OverlayEngine
     /// Stellarium-style best-effort label placement: each item is drawn at the
     /// slot dictated by its <see cref="OverlayItem.LabelSlotHint"/> (a deterministic
     /// function of the catalog index), with no inter-label collision check. Labels
-    /// that happen to overlap simply overlap — which is what Stellarium does. The
+    /// that happen to overlap simply overlap, which is what Stellarium does. The
     /// advantage is O(N) time and rock-stable placement under panning (the slot is
     /// a function of the item alone, so it never reshuffles frame-to-frame).
     /// </summary>
@@ -1277,7 +1277,7 @@ public static class OverlayEngine
 
             // Best-effort placement has no inter-label collision check (overlapping labels
             // are accepted, Stellarium-style), but a reserved box belongs to something more
-            // important than a catalog name (the mount reticle label) — drop the few labels
+            // important than a catalog name (the mount reticle label); drop the few labels
             // that would land on it rather than letting them bury it.
             if (reservedRegions is { Count: > 0 })
             {

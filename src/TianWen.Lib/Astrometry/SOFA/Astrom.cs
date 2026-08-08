@@ -11,7 +11,7 @@ namespace TianWen.Lib.Astrometry.SOFA
 {
     /// <summary>
     /// Star-independent astrometry parameters.
-    /// Zero heap allocation — all vectors/matrices use fixed-size buffers.
+    /// Zero heap allocation, all vectors/matrices use fixed-size buffers.
     /// </summary>
     [StructLayout(LayoutKind.Sequential)]
     public unsafe struct Astrom

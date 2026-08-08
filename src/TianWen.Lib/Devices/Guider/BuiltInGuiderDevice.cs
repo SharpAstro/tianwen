@@ -9,13 +9,13 @@ namespace TianWen.Lib.Devices.Guider;
 /// Device record for the built-in guider that uses <see cref="GuideLoop"/> internally.
 /// Always available (no external software needed). Configuration is carried in URI query parameters:
 /// <list type="bullet">
-///   <item><c>pulseGuideSource</c> — <see cref="PulseGuideSource"/> (Auto, Camera, Mount)</item>
-///   <item><c>reuseCalibration</c> — reuse a saved calibration after a quick pulse validation (default true)</item>
-///   <item><c>reverseDecAfterFlip</c> — reverse DEC corrections after a meridian flip (default true)</item>
-///   <item><c>assumeDecOrthogonal</c> — force the Dec axis exactly perpendicular to RA during
+///   <item><c>pulseGuideSource</c>: <see cref="PulseGuideSource"/> (Auto, Camera, Mount)</item>
+///   <item><c>reuseCalibration</c>: reuse a saved calibration after a quick pulse validation (default true)</item>
+///   <item><c>reverseDecAfterFlip</c>: reverse DEC corrections after a meridian flip (default true)</item>
+///   <item><c>assumeDecOrthogonal</c>: force the Dec axis exactly perpendicular to RA during
 ///     calibration (default false = use the measured Dec angle, like PHD2). See PHD2's
 ///     "Assume Dec orthogonal to RA"; the Dec sense always comes from the measurement either way.</item>
-///   <item><c>useNeuralGuider</c> / <c>neuralBlendFactor</c> — opt-in neural guiding + blend (0-1)</item>
+///   <item><c>useNeuralGuider</c> / <c>neuralBlendFactor</c>; opt-in neural guiding + blend (0-1)</item>
 ///   <item>Advanced: <c>maxCalibrationAttempts</c>, <c>maxRecalibrationAttempts</c>,
 ///     <c>calibrationRetryDelaySeconds</c>, <c>neuralSettleFailSafeFraction</c> (0-1)</item>
 /// </list>
@@ -117,7 +117,7 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
 
     /// <summary>
     /// Whether to reverse DEC guide corrections after detecting a meridian flip.
-    /// Defaults to <c>true</c> — most modern GEM mounts require this.
+    /// Defaults to <c>true</c>: most modern GEM mounts require this.
     /// Some older mounts that internally reverse their DEC motor after a flip may need <c>false</c>.
     /// </summary>
     /// <summary>
@@ -161,7 +161,7 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
 
     /// <summary>
     /// Whether to enable the neural guide model for online learning during guiding.
-    /// Defaults to <c>false</c> — neural guiding is opt-in. It is experimental: a model trained
+    /// Defaults to <c>false</c>: neural guiding is opt-in. It is experimental: a model trained
     /// online can become net-harmful and drift an axis (notably Dec) badly before the
     /// performance monitor can disable it, so it must be explicitly turned on. The pure
     /// P-controller is the default and guides sub-arcsec on its own.
@@ -177,7 +177,7 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
 
     /// <summary>
     /// Target blend factor for neural model corrections (0 = P-only, 1 = neural-only).
-    /// Defaults to 0.5 — 50% neural (matches PHD2's prediction_gain).
+    /// Defaults to 0.5: 50% neural (matches PHD2's prediction_gain).
     /// The effective blend ramps linearly from 0 to this value over ~2 PE cycles.
     /// </summary>
     internal double NeuralBlendFactor

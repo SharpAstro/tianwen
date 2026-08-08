@@ -13,7 +13,7 @@ namespace TianWen.UI.Shared;
 /// <list type="number">
 ///   <item><see cref="Install"/> registers a <see cref="NativeLibrary.SetDllImportResolver"/>
 ///         for the SDL3-CS assembly. The resolver fires only on the first
-///         P/Invoke into <c>SDL3.dll</c> — steady-state cost is zero because
+///         P/Invoke into <c>SDL3.dll</c>: steady-state cost is zero because
 ///         the runtime caches the returned handle.</item>
 ///   <item><see cref="InitNative{T}"/> wraps an init call (e.g.
 ///         <c>SdlVulkanWindow.Create</c>) in a try/catch that logs a hint-loaded
@@ -28,7 +28,7 @@ public static class NativeLoaderDiagnostics
     /// <summary>
     /// Registers a resolver on the SDL3-CS assembly so that the first failing
     /// <c>SDL3.dll</c> load is logged with the underlying OS error before the
-    /// runtime raises <see cref="DllNotFoundException"/>. Idempotent — safe to
+    /// runtime raises <see cref="DllNotFoundException"/>. Idempotent; safe to
     /// call more than once, subsequent calls are no-ops.
     /// </summary>
     public static void Install(ILogger logger)
@@ -39,7 +39,7 @@ public static class NativeLoaderDiagnostics
         }
         _installed = true;
 
-        // Anchor the resolver on a type from the SDL3-CS assembly — SDL3.SDL is
+        // Anchor the resolver on a type from the SDL3-CS assembly; SDL3.SDL is
         // the static class that declares the P/Invokes we want to intercept.
         var sdlAssembly = typeof(SDL3.SDL).Assembly;
         NativeLibrary.SetDllImportResolver(sdlAssembly, (name, assembly, searchPath) =>
@@ -59,7 +59,7 @@ public static class NativeLoaderDiagnostics
             {
                 logger.LogError(ex,
                     "Failed to load native library '{Library}'. Most common causes on a minimal " +
-                    "Windows install: (1) missing VC++ 2015-2022 x64 Redistributable — install from " +
+                    "Windows install: (1) missing VC++ 2015-2022 x64 Redistributable; install from " +
                     "https://aka.ms/vs/17/release/vc_redist.x64.exe; (2) {Library}.dll is missing " +
                     "from the application directory. Run under Sysinternals Process Monitor " +
                     "(filtered on this process) to see the exact failing DLL path.",
@@ -91,7 +91,7 @@ public static class NativeLoaderDiagnostics
             logger.LogCritical(ex,
                 "Native initialisation failed at stage '{Stage}'. On a machine without a dedicated " +
                 "GPU the most common causes are: (a) VC++ 2015-2022 x64 Redistributable not installed " +
-                "(https://aka.ms/vs/17/release/vc_redist.x64.exe); (b) no Vulkan ICD available — " +
+                "(https://aka.ms/vs/17/release/vc_redist.x64.exe); (b) no Vulkan ICD available; " +
                 "install up-to-date GPU drivers, or the LunarG Vulkan Runtime " +
                 "(https://vulkan.lunarg.com/sdk/home#windows); (c) very old CPU/iGPU with no Vulkan " +
                 "1.0 support (rare on Windows 10+).",

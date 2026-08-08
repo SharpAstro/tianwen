@@ -96,13 +96,13 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
             }
             catch (GuiderException ex)
             {
-                _logger.LogWarning(ex, "GuiderCaptureSource: SaveImageAsync threw — PHD2 'Save Images' may be disabled");
+                _logger.LogWarning(ex, "GuiderCaptureSource: SaveImageAsync threw, PHD2 'Save Images' may be disabled");
                 return new CaptureResult(false, null, false, null, exposure, null,
                     FailureReason: "Guider rejected save-image request \u2014 enable 'Save Images' in the PHD2 profile.");
             }
             if (string.IsNullOrEmpty(fitsPath))
             {
-                _logger.LogWarning("GuiderCaptureSource: SaveImageAsync returned no path — enable 'Save Images' in PHD2 profile");
+                _logger.LogWarning("GuiderCaptureSource: SaveImageAsync returned no path, enable 'Save Images' in PHD2 profile");
                 return new CaptureResult(false, null, false, null, exposure, null,
                     FailureReason: "Guider produced no frame on disk \u2014 enable 'Save Images' in the PHD2 profile.");
             }
@@ -162,10 +162,10 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 catch (PlateSolverException ex)
                 {
                     // Mirrors the Main-camera path: a per-frame solve failure on a short
-                    // ramp rung is normal — let the ramp advance instead of bombing the
+                    // ramp rung is normal: let the ramp advance instead of bombing the
                     // routine. The orchestrator's "no rung solved" message will fire if
                     // every rung fails.
-                    _logger.LogDebug(ex, "GuiderCaptureSource: plate solver threw at exposure {Exposure}ms — ramp will try next rung", exposure.TotalMilliseconds);
+                    _logger.LogDebug(ex, "GuiderCaptureSource: plate solver threw at exposure {Exposure}ms, ramp will try next rung", exposure.TotalMilliseconds);
                     return new CaptureAndSolveResult(false, null, default, 0, exposure, fitsPath);
                 }
                 if (solveResult.Solution is { } wcs)

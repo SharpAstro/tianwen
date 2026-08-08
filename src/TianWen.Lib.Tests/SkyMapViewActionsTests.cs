@@ -5,7 +5,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Unit tests for <see cref="SkyMapViewActions"/> — the single source of truth for sky-map
+/// Unit tests for <see cref="SkyMapViewActions"/>; the single source of truth for sky-map
 /// viewport mutation (centre + FOV clamp + overlay toggles), shared by the search-commit path
 /// and the DEBUG inspector's <c>SkyMapSetViewSignal</c> handler.
 /// </summary>

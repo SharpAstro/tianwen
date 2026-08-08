@@ -568,7 +568,7 @@ internal sealed class TuiEquipmentTab(
 
         var items = new List<EquipmentFieldItem>();
 
-        // Only show devices of the expected type — the picker is scoped to a single
+        // Only show devices of the expected type: the picker is scoped to a single
         // slot and off-type rows are dead weight (AssignDeviceSignal would reject them
         // anyway with "Expected X, got Y"). FieldIndex stays the real DiscoveredDevices
         // index so click/keyboard dispatch still points at the right device.
@@ -672,7 +672,7 @@ internal sealed class TuiEquipmentTab(
 
     private void RefreshProfiles()
     {
-        // Fire-and-forget profile load — results arrive via callback
+        // Fire-and-forget profile load: results arrive via callback
         _ = LoadProfilesAsync();
     }
 
@@ -686,7 +686,7 @@ internal sealed class TuiEquipmentTab(
         }
         catch
         {
-            // Ignore — profiles stay empty
+            // Ignore: profiles stay empty
         }
     }
 
@@ -721,7 +721,7 @@ internal sealed class TuiEquipmentTab(
     }
 
     // ----------------------------------------------------------------
-    // Input handling — state machine
+    // Input handling: state machine
     // ----------------------------------------------------------------
 
     public override bool HandleRawMouse(MouseEvent mouse)
@@ -1131,7 +1131,7 @@ internal sealed class TuiEquipmentTab(
                 return false;
 
             case InputKey.D:
-                // Mirrors the Browse-mode D binding — the assignment picker advertises
+                // Mirrors the Browse-mode D binding: the assignment picker advertises
                 // "Press D to discover" when it's empty, so the key must be live here too.
                 bus?.Post(new DiscoverDevicesSignal(IncludeFake: (modifiers & InputModifier.Shift) != 0));
                 NeedsRedraw = true;

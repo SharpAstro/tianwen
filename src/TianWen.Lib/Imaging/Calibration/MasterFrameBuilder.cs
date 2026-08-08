@@ -15,10 +15,10 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// Three entry points mirror the three calibration frame types:
 /// </para>
 /// <list type="bullet">
-/// <item><see cref="BuildBiasMasterAsync"/> — plain median combine.</item>
-/// <item><see cref="BuildDarkMasterAsync"/> — same as bias; no exposure-ratio
+/// <item><see cref="BuildBiasMasterAsync"/>: plain median combine.</item>
+/// <item><see cref="BuildDarkMasterAsync"/>: same as bias; no exposure-ratio
 /// scaling (we group by exact exposure rather than scaling at master time).</item>
-/// <item><see cref="BuildFlatMasterAsync"/> — per-frame normalization to mean=1
+/// <item><see cref="BuildFlatMasterAsync"/>: per-frame normalization to mean=1
 /// first (Bayer-aware for RGGB sensors), then median combine. Median rejects
 /// transient star ghosts and sensor particles that would otherwise survive
 /// a mean combine.</item>
@@ -60,7 +60,7 @@ public static class MasterFrameBuilder
     /// <summary>Combines flat frames: subtract the <paramref name="pedestal"/> (master bias or
     /// master dark-flat) if one is supplied, per-frame normalize each to mean=1
     /// (Bayer-aware), then per-pixel median across the stack. The
-    /// normalization step is essential — flats with different transparency
+    /// normalization step is essential: flats with different transparency
     /// or illumination level would otherwise contribute unequally to the
     /// median. Bayer flats normalize each of the four R/G/G/B Bayer
     /// positions independently so the CFA channel balance is preserved
@@ -111,7 +111,7 @@ public static class MasterFrameBuilder
     internal static Image BuildFlatMaster(IReadOnlyList<Image> images, Image? pedestal = null)
     {
         ValidateShapes(images);
-        // Normalize each input to mean=1 in place. Inputs are throwaway —
+        // Normalize each input to mean=1 in place. Inputs are throwaway; 
         // they only exist to feed this combine, and we'd otherwise pay a 2x
         // memory tax to keep originals + scaled copies in flight.
         foreach (var image in images)
@@ -205,7 +205,7 @@ public static class MasterFrameBuilder
         var output = Image.CreateChannelData(channelCount, height, width);
 
         // Snapshot the input channel arrays once so the inner loop is just
-        // arithmetic — avoids the GetChannelArray virtual call per pixel.
+        // arithmetic: avoids the GetChannelArray virtual call per pixel.
         var inputChannels = new float[channelCount][][,];
         for (var c = 0; c < channelCount; c++)
         {
@@ -258,11 +258,11 @@ public static class MasterFrameBuilder
     /// <summary>
     /// Normalizes a single flat frame to mean=1 per "logical channel". For a
     /// true 3-channel image this is per-channel. For a 1-channel RGGB Bayer
-    /// frame this is per-Bayer-quadrant — the four CFA positions are scaled
+    /// frame this is per-Bayer-quadrant: the four CFA positions are scaled
     /// independently so the mosaic's R/G/G/B balance is preserved. Operates
     /// in place; the input image's pixel data is mutated.
     /// <para>Internal so the dataset builder's <c>MasterCache</c> can put a FOREIGN
-    /// master flat (whose scale is arbitrary — a [0,1] Astro Pixel Processor export
+    /// master flat (whose scale is arbitrary, a [0,1] Astro Pixel Processor export
     /// or raw ADU) through the SAME normalization as a built one, so both satisfy the
     /// <see cref="Calibrator"/>'s "flat divided, mean ~ 1.0" contract identically.</para>
     /// </summary>
@@ -314,7 +314,7 @@ public static class MasterFrameBuilder
         var channel = image.GetChannelArray(0);
 
         // Two-pass: accumulate Σ + N per Bayer position, then scale each.
-        // Eight floats / four ints of state — fits in registers; no
+        // Eight floats / four ints of state: fits in registers; no
         // allocation needed.
         double sumR = 0, sumG = 0, sumB = 0;
         long countR = 0, countG = 0, countB = 0;

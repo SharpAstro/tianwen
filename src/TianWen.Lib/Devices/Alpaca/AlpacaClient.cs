@@ -154,7 +154,7 @@ internal sealed class AlpacaClient(HttpClient httpClient)
     /// GET an image array endpoint using the binary ImageBytes transfer. Offers
     /// <c>application/imagebytes</c> first (then <c>application/json</c>) via the
     /// <c>Accept</c> header and returns the raw ImageBytes payload when the server honours it.
-    /// Throws <see cref="NotSupportedException"/> if the server responds with JSON instead —
+    /// Throws <see cref="NotSupportedException"/> if the server responds with JSON instead; 
     /// the legacy (slow) JSON ImageArray decode is intentionally not implemented, since
     /// effectively all current Alpaca camera servers support ImageBytes. Decode the returned
     /// payload via <see cref="AlpacaImageBytes.DecodeChannel"/>.

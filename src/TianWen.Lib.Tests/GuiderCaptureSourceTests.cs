@@ -15,7 +15,7 @@ namespace TianWen.Lib.Tests
     /// <summary>
     /// Coverage for the PHD2-path failure modes that <see cref="GuiderCaptureSource"/>
     /// surfaces back to <see cref="PolarAlignmentSession"/> via the typed
-    /// <see cref="CaptureAndSolveResult.FailureReason"/> field — so users see
+    /// <see cref="CaptureAndSolveResult.FailureReason"/> field, so users see
     /// "enable Save Images in PHD2" instead of the generic "no plate solve at any rung"
     /// message when the real cause is a misconfigured PHD2 profile.
     /// </summary>
@@ -110,7 +110,7 @@ namespace TianWen.Lib.Tests
             source.ApertureMm.ShouldBe(ApertureMm);
             source.PixelSizeMicrons.ShouldBe(PixelSizeMicrons);
             source.FRatio.ShouldBe(FocalLengthMm / ApertureMm);
-            // 206.265 * 3.75 / 200 ≈ 3.87 arcsec/px — well inside the 1-5"/px
+            // 206.265 * 3.75 / 200 ≈ 3.87 arcsec/px: well inside the 1-5"/px
             // "fast solve" band the ranker prefers.
             source.PixelScaleArcsecPerPx.ShouldBeInRange(3.8, 3.9);
         }

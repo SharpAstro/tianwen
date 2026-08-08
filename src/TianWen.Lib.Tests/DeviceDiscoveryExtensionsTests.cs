@@ -37,7 +37,7 @@ public class DeviceDiscoveryExtensionsTests
 
         var resolved = discovery.ReconcileUri(OnStepSerialCom5);
 
-        resolved.ShouldBe(OnStepSerialCom6, "discovered URI is fresher — COM port was reassigned by the OS");
+        resolved.ShouldBe(OnStepSerialCom6, "discovered URI is fresher, COM port was reassigned by the OS");
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public class DeviceDiscoveryExtensionsTests
 
         var resolved = discovery.ReconcileUri(OnStepSerialCom5);
 
-        resolved.ShouldBeSameAs(OnStepSerialCom5, "no drift — must return the input unchanged to avoid pointless log spam");
+        resolved.ShouldBeSameAs(OnStepSerialCom5, "no drift, must return the input unchanged to avoid pointless log spam");
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public class DeviceDiscoveryExtensionsTests
 
         var resolved = discovery.ReconcileUri(OnStepSerialCom5);
 
-        resolved.ShouldBeSameAs(OnStepSerialCom5, "different deviceId — no reconciliation applies");
+        resolved.ShouldBeSameAs(OnStepSerialCom5, "different deviceId, no reconciliation applies");
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class DeviceDiscoveryExtensionsTests
 
         var resolved = discovery.ReconcileUri(OnStepSerialCom5);
 
-        resolved.ShouldBe(OnStepWifi, "transport may flip entirely — query drift is unconstrained");
+        resolved.ShouldBe(OnStepWifi, "transport may flip entirely, query drift is unconstrained");
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public class DeviceDiscoveryExtensionsTests
         var junk = new Uri("not-a-device://foo/bar");
         var resolved = discovery.ReconcileUri(junk);
 
-        resolved.ShouldBeSameAs(junk, "unknown scheme — skip reconciliation rather than throw");
+        resolved.ShouldBeSameAs(junk, "unknown scheme, skip reconciliation rather than throw");
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public class DeviceDiscoveryExtensionsTests
 
         var (reconciled, changed) = discovery.ReconcileProfileData(data);
 
-        changed.ShouldBe(false, "profile URIs already match discovery — no rewrite");
+        changed.ShouldBe(false, "profile URIs already match discovery, no rewrite");
         reconciled.ShouldBe(data); // value equality on record struct
     }
 
@@ -172,7 +172,7 @@ public class DeviceDiscoveryExtensionsTests
     {
         var camA = new Uri("Camera://ZwoDevice/cam123?gain=100#Main");
         var camAReconciled = new Uri("Camera://ZwoDevice/cam123?gain=100&offset=15#Main"); // query differs
-        var camB = new Uri("Camera://ZwoDevice/guide456?gain=50#Guide"); // unrelated — no drift
+        var camB = new Uri("Camera://ZwoDevice/guide456?gain=50#Guide"); // unrelated; no drift
 
         var discovery = new StubDiscovery
         {
@@ -189,8 +189,8 @@ public class DeviceDiscoveryExtensionsTests
 
         changed.ShouldBe(true);
         reconciled.OTAs.Length.ShouldBe(2);
-        reconciled.OTAs[0].Camera.ShouldBe(camAReconciled, "first OTA's camera query drifted — adopt discovered");
-        reconciled.OTAs[1].Camera.ShouldBe(camB, "second OTA's camera matches exactly — unchanged");
+        reconciled.OTAs[0].Camera.ShouldBe(camAReconciled, "first OTA's camera query drifted, adopt discovered");
+        reconciled.OTAs[1].Camera.ShouldBe(camB, "second OTA's camera matches exactly, unchanged");
     }
 
     private static ProfileData MakeProfileData(Uri mount, ImmutableArray<OTAData>? otas = null)
@@ -230,7 +230,7 @@ public class DeviceDiscoveryExtensionsTests
     }
 
     /// <summary>
-    /// Minimal <see cref="DeviceBase"/> that exposes only its URI — enough for
+    /// Minimal <see cref="DeviceBase"/> that exposes only its URI; enough for
     /// reconciliation which only reads <c>DeviceUri</c>.
     /// </summary>
     private sealed record FakeDeviceRecord(Uri DeviceUri) : DeviceBase(DeviceUri);

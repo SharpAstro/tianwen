@@ -19,11 +19,11 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// (<see cref="SessionFrameAnalyzer"/>) to the stacker's registration + integration
 /// seams and emits, for one <see cref="ImagingSession"/>:
 /// <list type="bullet">
-///   <item>the <b>registered subs</b> — each surviving light calibrated, debayered, and
+///   <item>the <b>registered subs</b>, each surviving light calibrated, debayered, and
 ///     warped onto a common union canvas, persisted as scratch FITS so the tiler (#40)
 ///     can read cell footprints back without re-warping. Cell (i, j) of any two subs is
 ///     an N2N training pair by construction (§2.4).</item>
-///   <item>the <b>session master</b> — the robust integration of those subs, the N2N eval
+///   <item>the <b>session master</b>: the robust integration of those subs, the N2N eval
 ///     truth and the deconv synthetic-degradation source (§2.1/§2.2).</item>
 /// </list>
 ///
@@ -37,7 +37,7 @@ namespace TianWen.Lib.Imaging.Dataset;
 ///
 /// <para><b>Zero re-detection.</b> The gate already ran <see cref="Image.FindStarsAsync"/>
 /// on every sub and <see cref="SessionFrameAnalyzer.AnalyzedFrame"/> retains the star list,
-/// so both the reference pick and the per-sub quad match run off those retained lists —
+/// so both the reference pick and the per-sub quad match run off those retained lists; 
 /// no image is reloaded to detect stars. Pixels are reloaded exactly once more (the warp
 /// pass) because holding every debayered sub in RAM would blow the budget on a large
 /// session; the integrator then re-reads the warped scratch FITS (cheap, no debayer).</para>
@@ -54,13 +54,13 @@ public static class SessionRegistrar
     /// stays stable. Mirrors the stacker's <c>QuadStars</c> default.</summary>
     private const int QuadStars = 500;
 
-    /// <summary>Quad-match tolerance ladder — try tight first, loosen on failure. Verbatim
+    /// <summary>Quad-match tolerance ladder: try tight first, loosen on failure. Verbatim
     /// from <c>StackingPipeline.QuadTolerances</c>.</summary>
     private static readonly float[] QuadTolerances = [0.008f, 0.02f, 0.05f, 0.1f, 0.2f, 0.5f];
 
     /// <summary>One surviving light registered onto the session's union canvas.</summary>
     /// <param name="Source">The original raw light (header-only handle). Carries the FITS
-    /// metadata — gain, exposure, filter, temperature — that the tile manifest (#40) needs;
+    /// metadata, gain, exposure, filter, temperature, that the tile manifest (#40) needs;
     /// the scratch FITS holds pixels only.</param>
     /// <param name="WarpedPath">Scratch FITS of the calibrated + debayered sub warped to the
     /// canvas grid (float32, linear, NaN outside the source footprint). Shares the exact
@@ -68,7 +68,7 @@ public static class SessionRegistrar
     /// across the whole session.</param>
     /// <param name="TransformToCanvas">Composed source→canvas affine (registration transform
     /// left-multiplied by the union-canvas shift).</param>
-    /// <param name="Metrics">The sub's PSF metrics from the gate (retained, not recomputed) —
+    /// <param name="Metrics">The sub's PSF metrics from the gate (retained, not recomputed); 
     /// median HFD/FWHM/ellipticity + star count. Feeds the per-tile manifest + stats report.</param>
     public sealed record RegisteredSub(
         FrameInfo Source,
@@ -84,7 +84,7 @@ public static class SessionRegistrar
     /// shares the canvas grid with <paramref name="Master"/>.</param>
     /// <param name="CanvasWidth">Union-canvas width (pixels). Shared by the master + every sub.</param>
     /// <param name="CanvasHeight">Union-canvas height (pixels).</param>
-    /// <param name="StatsRect">The all-frames-overlap intersection rectangle — the region where
+    /// <param name="StatsRect">The all-frames-overlap intersection rectangle; the region where
     /// every sub contributes, useful for the tiler's structure-biased cell sampling and for
     /// per-frame stretch statistics.</param>
     /// <param name="Reference">The sub chosen as the registration reference (identity transform).</param>
@@ -107,18 +107,18 @@ public static class SessionRegistrar
     /// Measures + gates a session's lights, registers the survivors to a common reference,
     /// warps them onto the union canvas (persisted to <paramref name="scratchDir"/>), and
     /// integrates the session master. Returns <c>null</c> when the session cannot yield a
-    /// usable master — too few survivors after the gate, or fewer than two subs register.
+    /// usable master: too few survivors after the gate, or fewer than two subs register.
     /// </summary>
     /// <param name="session">The session to register.</param>
     /// <param name="calibrator">Bias/dark/flat masters resolved by header match, or <c>null</c>
-    /// to register uncalibrated (test path only — real N2N pairs MUST be calibrated so the two
+    /// to register uncalibrated (test path only, real N2N pairs MUST be calibrated so the two
     /// subs don't share a fixed-pattern dark-current signal, which would violate the
     /// noise-independence assumption).</param>
     /// <param name="scratchDir">Root for per-session warped-sub + integration scratch. The
     /// session's subdirectory is wiped + recreated; the caller deletes it after tiling.</param>
     /// <param name="qualityRejectSigma">Session-relative MAD gate threshold (0 disables the
     /// relative gate; zero-star frames are still dropped). See <see cref="SessionFrameAnalyzer.ApplyGate"/>.</param>
-    /// <param name="qualityMaxRejectFraction">Keep-floor for the gate (purity over yield — 0.5
+    /// <param name="qualityMaxRejectFraction">Keep-floor for the gate (purity over yield, 0.5
     /// for the dataset vs the stacker's 0.2).</param>
     /// <param name="minSubs">Minimum survivors required to build a session master.</param>
     /// <param name="debayerAlgorithm">Debayer used for both measurement and warping.</param>
@@ -308,7 +308,7 @@ public static class SessionRegistrar
         }
     }
 
-    /// <summary>Quad match across the tolerance ladder — tight first, loosen on failure.
+    /// <summary>Quad match across the tolerance ladder; tight first, loosen on failure.
     /// Verbatim from <c>StackingPipeline.TryMatchAsync</c>; <c>FindFitAsync</c> memoises the
     /// quad build per <paramref name="maxStars"/> key, so looser retries only re-run the match
     /// pass, not the (expensive) quad construction.</summary>

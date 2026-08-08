@@ -22,8 +22,8 @@ internal class AscomFilterWheelDriver : AscomDeviceDriverBase, IFilterWheelDrive
 
     protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        // Slot metadata is hardware-fixed; cache it here so the Filters accessor — which the UI
-        // reads frequently — doesn't re-dispatch through COM on every render.
+        // Slot metadata is hardware-fixed; cache it here so the Filters accessor, which the UI
+        // reads frequently: doesn't re-dispatch through COM on every render.
         _names = SafeGet(() => _filterWheel.Names, []);
         _focusOffsets = SafeGet(() => _filterWheel.FocusOffsets, []);
         return ValueTask.FromResult(true);

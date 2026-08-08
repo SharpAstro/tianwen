@@ -83,14 +83,14 @@ namespace TianWen.UI.Abstractions
         };
 
         // ===================================================================
-        // Event routing — generic, no tab-specific logic
+        // Event routing: generic, no tab-specific logic
         // ===================================================================
 
         private bool HandleMouseDown(float px, float py, InputModifier modifiers = InputModifier.None, byte clicks = 1)
         {
             _appState.MouseScreenPosition = (px, py);
 
-            // Hit test the GUI chrome (sidebar, status bar) first — OnClick handles tab switching
+            // Hit test the GUI chrome (sidebar, status bar) first; OnClick handles tab switching
             var hit = _chrome.HitTestAndDispatch(px, py, modifiers);
 
             // Auto-discover on tab switch to Equipment
@@ -240,7 +240,7 @@ namespace TianWen.UI.Abstractions
         private bool HandleKeyDown(InputKey inputKey, InputModifier inputModifier)
         {
             // F3 is a global shortcut (open sky-map search). Let it fall through to
-            // the active tab even when a text input is focused — otherwise users would
+            // the active tab even when a text input is focused; otherwise users would
             // have to click off the planner search before F3 would work.
             if (inputKey == InputKey.F3)
             {
@@ -268,7 +268,7 @@ namespace TianWen.UI.Abstractions
                 return HandleTextInputKey(activeInput, inputKey, inputModifier);
             }
 
-            return false; // Not consumed — let caller route to active tab
+            return false; // Not consumed; let caller route to active tab
         }
 
         /// <summary>
@@ -314,7 +314,7 @@ namespace TianWen.UI.Abstractions
         }
 
         // ===================================================================
-        // Text input handling — generic with callbacks
+        // Text input handling: generic with callbacks
         // ===================================================================
 
         private void ActivateTextInput(TextInputState input)

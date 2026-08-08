@@ -10,7 +10,7 @@ namespace TianWen.Lib.Devices.Ascom.ComInterop;
 /// <see cref="RemoteDispatchTransport"/> for CET-incompatible in-proc .NET Framework drivers
 /// (<see cref="AscomComServerClassifier"/>), or an in-proc <see cref="DispatchObject"/> for everything
 /// else. If a driver needs the helper but it can't be found/started, falls back to in-proc with a warning
-/// (the pre-Phase-4 behaviour — which may fastfail on connect, but is no worse than before).
+/// (the pre-Phase-4 behaviour, which may fastfail on connect, but is no worse than before).
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal static class DispatchTransportFactory

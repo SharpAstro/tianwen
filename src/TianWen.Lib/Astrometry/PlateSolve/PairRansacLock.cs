@@ -12,7 +12,7 @@ namespace TianWen.Lib.Astrometry.PlateSolve;
 ///
 /// <para><b>Why not quads:</b> ASTAP-style quad matching (<see cref="Imaging.StarReferenceTable"/>)
 /// requires both lists to share nearest-neighbour structure, and the catalog / detected
-/// populations differ too much for that even under top-K brightness selection — probed
+/// populations differ too much for that even under top-K brightness selection; probed
 /// empirically on a dense Vela field (5,080 in-frame catalog stars, 1,580 detected): no quad
 /// lock at any K from 50 to 500, either parity. A quad needs the same 4 stars with the same
 /// 3-nearest-neighbour relations on both sides; a pair hypothesis needs only 2 common stars
@@ -21,11 +21,11 @@ namespace TianWen.Lib.Astrometry.PlateSolve;
 /// <para><b>Algorithm:</b> enumerate bright detected star pairs (brightness-ordered, so likely
 /// hypotheses come first) against catalog pairs of compatible separation (binary search over a
 /// pre-sorted pair-separation index). Each candidate pairing determines a similarity transform
-/// via the complex ratio of the pair vectors — chirality-preserving by construction, so mirror
+/// via the complex ratio of the pair vectors: chirality-preserving by construction, so mirror
 /// parity stays cleanly separated in the caller's per-<c>xSign</c> attempts. Hypotheses are
 /// verified in stages against a uniform grid hash of ALL detected stars (cheap 8-star probe,
 /// then 32, then full census), and accepted only when the hit count beats the Poisson
-/// expectation of chance alignment by <see cref="ChanceSafetyFactor"/> — the statistic that
+/// expectation of chance alignment by <see cref="ChanceSafetyFactor"/>; the statistic that
 /// distinguishes a genuine lock from the dense-field nearest-neighbour-noise regime where
 /// proximity matching silently fails.</para>
 /// </summary>

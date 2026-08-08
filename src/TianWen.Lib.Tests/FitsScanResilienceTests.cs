@@ -11,8 +11,8 @@ namespace TianWen.Lib.Tests
 {
     /// <summary>
     /// Pins the archive-scan fault tolerance surfaced by the real 62k-file dataset run: a malformed /
-    /// truncated FITS — or one whose header FITS.Lib itself can't parse (e.g. <c>BasicHDU.ObservationDate</c>
-    /// NREs by unboxing a null when <c>DATE-OBS</c> is missing/unparseable) — must be SKIPPED, not fatal.
+    /// truncated FITS, or one whose header FITS.Lib itself can't parse (e.g. <c>BasicHDU.ObservationDate</c>
+    /// NREs by unboxing a null when <c>DATE-OBS</c> is missing/unparseable); must be SKIPPED, not fatal.
     /// One bad file cannot abort a whole-archive scan.
     /// </summary>
     [Collection("Imaging")]

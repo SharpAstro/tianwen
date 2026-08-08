@@ -76,7 +76,7 @@ public static class BacklashHistoryPersistence
         }
         catch (JsonException)
         {
-            // Corrupt sidecar — treat as no prior history. The next AutoFocus will start fresh.
+            // Corrupt sidecar: treat as no prior history. The next AutoFocus will start fresh.
             return null;
         }
     }

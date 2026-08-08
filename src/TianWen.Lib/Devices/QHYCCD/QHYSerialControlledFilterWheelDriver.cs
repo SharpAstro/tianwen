@@ -109,7 +109,7 @@ internal class QHYSerialControlledFilterWheelDriver(QHYDevice device, IServicePr
 
         if (_moveStarted)
         {
-            // A goto command was sent — the wheel sends back the position when it arrives.
+            // A goto command was sent: the wheel sends back the position when it arrives.
             // The response may be multi-char for positions >= 10, read until no more data.
             // If the wheel is still moving, the read blocks until arrival.
             var gotoResp = await serial.TryReadExactlyAsync(1, cancellationToken);
@@ -151,7 +151,7 @@ internal class QHYSerialControlledFilterWheelDriver(QHYDevice device, IServicePr
             _moveStarted = false;
         }
 
-        // Goto command: 0-based position as string — the ASCOM driver sends decimal
+        // Goto command: 0-based position as string; the ASCOM driver sends decimal
         // Protocol uses '0'-'9' for positions 1-10, 'A'-'F' for 11-16 (hex encoding)
         var cmd = position.ToString();
         if (!await serial.TryWriteAsync(cmd, cancellationToken))
@@ -159,7 +159,7 @@ internal class QHYSerialControlledFilterWheelDriver(QHYDevice device, IServicePr
             throw new QHYDriverException($"Failed to send goto command for position {position}");
         }
 
-        // Don't wait for response — the wheel sends back the position when it arrives.
+        // Don't wait for response: the wheel sends back the position when it arrives.
         // GetPositionAsync will consume it.
         _moveStarted = true;
     }

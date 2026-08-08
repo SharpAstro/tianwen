@@ -52,19 +52,19 @@ public class SimbadMergeSnapshotTests(ITestOutputHelper output)
         live.LastSimbadMergeSnapshot.ShouldNotBeNull("Live capture path produced no snapshot");
 
         var snapshot = live.LastSimbadMergeSnapshot!;
-        snapshot.Objects.Length.ShouldBeGreaterThan(20_000, "Object count unexpectedly low — bad inputs?");
-        snapshot.Edges.Length.ShouldBeGreaterThan(10_000, "Edge count unexpectedly low — bad inputs?");
+        snapshot.Objects.Length.ShouldBeGreaterThan(20_000, "Object count unexpectedly low, bad inputs?");
+        snapshot.Edges.Length.ShouldBeGreaterThan(10_000, "Edge count unexpectedly low, bad inputs?");
 
         // Per-catalog minimum-entry sanity check: catches the failure mode where one of the
         // 14 SIMBAD inputs silently produces 0 records (empty .gs.gz, parser regression, etc.)
-        // — which the input-hash check would otherwise wave through after a re-bake. Thresholds
+        //, which the input-hash check would otherwise wave through after a re-bake. Thresholds
         // are set well below empirical values so a new SIMBAD release with slightly different
         // counts doesn't tank CI; they only fail when an entire catalog goes missing.
         // Empirical values (2026-05-05): HR 9.1K, Cl 14K, Dobashi 7.6K, LDN 1.8K, HH 1K,
         // Ced 420, Barnard 350, Sh 300, vdB 270, DG 250, GUM 60, RCW 30, CG 20.
         // Per-catalog minimum-entry sanity check: catches the failure mode where one of the
         // 14 SIMBAD inputs silently produces 0 records (empty .gs.gz, parser regression, etc.)
-        // — which the input-hash check would otherwise wave through after a re-bake.
+        //, which the input-hash check would otherwise wave through after a re-bake.
         //
         // We count entries via two channels because the SIMBAD merge writes to two dicts:
         //   * Objects: catalog appears as a key in _objectsByIndex (e.g. Cr360, Dobashi 222 are
@@ -72,7 +72,7 @@ public class SimbadMergeSnapshotTests(ITestOutputHelper output)
         //     PopulateSimbadStarEntries / bestMatches and don't add their own _objectsByIndex key,
         //     so per-catalog Object counts here are LOWER than the input file's record count.
         //   * Edges (cross-refs): catalog appears as a key in _crossIndexLookuptable. This is
-        //     where catalogs like HR/Sh that fold into HIP/HD show up — every HR1234 record that
+        //     where catalogs like HR/Sh that fold into HIP/HD show up; every HR1234 record that
         //     resolved a bestMatch creates HR1234 as a cross-ref key.
         var byCatalogObjects = new Dictionary<Catalog, int>();
         foreach (var obj in snapshot.Objects)
@@ -123,7 +123,7 @@ public class SimbadMergeSnapshotTests(ITestOutputHelper output)
         foreach (var (cat, min) in minimums)
         {
             Loaded(cat).ShouldBeGreaterThan(min,
-                $"Catalog {cat} appears to have lost most or all entries in the snapshot (objects + cross-refs combined) — check the corresponding .gs.gz parser.");
+                $"Catalog {cat} appears to have lost most or all entries in the snapshot (objects + cross-refs combined); check the corresponding .gs.gz parser.");
         }
 
         // Default-init a second DB; if there is an embedded snapshot it'll go through the apply
@@ -135,7 +135,7 @@ public class SimbadMergeSnapshotTests(ITestOutputHelper output)
         // Spot-check 64 objects from the captured snapshot. We don't compare every one of
         // ~31K because building two full catalogues here already costs ~3 s in unit tests;
         // a representative spread (every Nth index from the snapshot's stable order) catches
-        // the kinds of divergence we care about — wrong RA/Dec, wrong type, missing names.
+        // the kinds of divergence we care about: wrong RA/Dec, wrong type, missing names.
         var step = Math.Max(1, snapshot.Objects.Length / 64);
         var verified = 0;
         for (var i = 0; i < snapshot.Objects.Length; i += step)
@@ -226,7 +226,7 @@ public class SimbadMergeSnapshotTests(ITestOutputHelper output)
     // ("eta Car Nebula", not "Eta Carinae Nebula"); the more common English spelling isn't
     // attached unless an NGC.addendum.csv row carries it. Caldwell aliases (e.g. C020 for
     // NGC7000) resolve via TryLookupByIndex's cross-ref fallback but are NOT separately
-    // registered in _objectsByCommonName — looking up the name returns the primary catalog
+    // registered in _objectsByCommonName: looking up the name returns the primary catalog
     // entries (NGC + SIMBAD-touched cross-cats), and the Caldwell ID is reachable via
     // TryGetCrossIndices, not TryResolveCommonName. Cases below use the spellings that
     // actually exist in the source data.

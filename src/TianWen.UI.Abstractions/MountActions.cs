@@ -25,7 +25,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Slew a connected mount to a J2000 RA/Dec catalog position. The flow:
         /// <list type="number">
-        ///   <item>Connected / CanSlewAsync gates — bail cleanly if unsatisfiable.</item>
+        ///   <item>Connected / CanSlewAsync gates: bail cleanly if unsatisfiable.</item>
         ///   <item>Auto-unpark if <see cref="IMountDriver.CanUnpark"/> and
         ///   <see cref="IMountDriver.AtParkAsync"/>.</item>
         ///   <item>Build the J2000→native <see cref="TianWen.Lib.Astrometry.SOFA.Transform"/>
@@ -39,11 +39,11 @@ namespace TianWen.UI.Abstractions
         ///   the mount clock).</item>
         ///   <item>Horizon check against <paramref name="minAboveHorizonDegrees"/>.</item>
         ///   <item>Destination-pier-side sanity check.</item>
-        ///   <item>Tracking setup — Solar / Lunar / Sidereal depending on
+        ///   <item>Tracking setup: Solar / Lunar / Sidereal depending on
         ///   <paramref name="index"/>, with graceful fallback to Sidereal on mounts
         ///   that don't advertise the preferred rate, and best-effort (swallow +
         ///   log) behaviour if the driver throws.</item>
-        ///   <item><see cref="IMountDriver.BeginSlewRaDecAsync"/> — the actual commit.</item>
+        ///   <item><see cref="IMountDriver.BeginSlewRaDecAsync"/>; the actual commit.</item>
         /// </list>
         /// </summary>
         /// <param name="mount">A connected mount driver.</param>
@@ -79,7 +79,7 @@ namespace TianWen.UI.Abstractions
                 return (SlewPostCondition.SlewNotPossible, "Mount does not support async slewing");
             }
 
-            // Park handling — only meaningful when the mount supports programmatic Unpark.
+            // Park handling, only meaningful when the mount supports programmatic Unpark.
             // Many ASCOM drivers throw on Tracking/Slew while parked, so we auto-unpark first.
             var wasParked = false;
             if (mount.CanUnpark)
@@ -101,7 +101,7 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            // Mounts with neither Park nor Unpark — surface as an informational suffix.
+            // Mounts with neither Park nor Unpark: surface as an informational suffix.
             var noParkSupportNote = (!mount.CanPark && !mount.CanUnpark)
                 ? " (mount has no park/unpark support)"
                 : "";
@@ -128,7 +128,7 @@ namespace TianWen.UI.Abstractions
                     $"Cannot slew to {name} \u2014 coordinate transform failed (EquatorialSystem={mount.EquatorialSystem}){noParkSupportNote}");
             }
 
-            // Horizon check — use the alt we just computed, not a second mount call.
+            // Horizon check: use the alt we just computed, not a second mount call.
             if (native.Alt < minAboveHorizonDegrees)
             {
                 return (SlewPostCondition.TargetBelowHorizonLimit,
@@ -153,7 +153,7 @@ namespace TianWen.UI.Abstractions
                     $"Cannot slew to {name} \u2014 mount could not determine destination pier side{noParkSupportNote}");
             }
 
-            // Tracking rate selection — Sun / Moon / Sidereal with graceful fallback.
+            // Tracking rate selection: Sun / Moon / Sidereal with graceful fallback.
             var preferred = index switch
             {
                 CatalogIndex.Sol  => TrackingSpeed.Solar,
@@ -162,7 +162,7 @@ namespace TianWen.UI.Abstractions
             };
             var actualSpeed = mount.TrackingSpeeds.Contains(preferred) ? preferred : TrackingSpeed.Sidereal;
 
-            // Best-effort tracking setup. Tracking failures don't block pointing — the
+            // Best-effort tracking setup. Tracking failures don't block pointing; the
             // subsequent BeginSlewRaDec call still works.
             var trackingFailed = false;
             try

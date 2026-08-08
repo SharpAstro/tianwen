@@ -17,13 +17,13 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// Archive PSF/noise distribution report for the dataset builder (docs/plans/ai-denoise-deconv.md
 /// §2.4 P0 deliverable, task #41). Characterises the registered sessions two ways:
 /// <list type="bullet">
-///   <item><b>PSF distribution</b> — per-sub median FWHM / HFD / ellipticity percentiles (the
+///   <item><b>PSF distribution</b>: per-sub median FWHM / HFD / ellipticity percentiles (the
 ///     population the denoiser sees) plus a <b>field-radius profile</b> of median FWHM + ellipticity
 ///     binned centre→corner (detected on each session master). The field-radius profile is the input
 ///     to the deconvolver's position-varying synthetic-PSF sweep (§2.2): a fast lens's corners are
 ///     genuinely broader than its centre, so the degradation must sample by field radius, and this
 ///     report says what range to sweep.</item>
-///   <item><b>Noise floor</b> — per-session master background σ (MAD relative to full-scale), a
+///   <item><b>Noise floor</b>: per-session master background σ (MAD relative to full-scale), a
 ///     coarse cross-session noise characterisation.</item>
 /// </list>
 /// Pure analysis over <see cref="SessionRegistrar.RegisteredSession"/>s; no tile format coupling.
@@ -94,7 +94,7 @@ public static class DatasetPsfNoiseReport
     /// Incremental report builder: fold one <see cref="SessionRegistrar.RegisteredSession"/> in at a
     /// time (<see cref="AddAsync"/>) then <see cref="Build"/>. Per-sub metrics come from the gate's
     /// retained <see cref="FrameMetrics"/> (no detection); the field-radius profile re-detects stars
-    /// on each session master (one detection per session, on the sharpest/deepest frame — the one the
+    /// on each session master (one detection per session, on the sharpest/deepest frame, the one the
     /// deconv sweep degrades). Nothing but small accumulators is retained across sessions, so the
     /// archive-scale build can release each master after folding it in.
     /// </summary>
@@ -301,7 +301,7 @@ public static class DatasetPsfNoiseReport
     private static void AppendPct(StringBuilder sb, CultureInfo ci, string label, Percentiles p) =>
         sb.AppendLine(string.Create(ci, $"| {label} | {p.P5:F3} | {p.P25:F3} | {p.P50:F3} | {p.P75:F3} | {p.P95:F3} |"));
 
-    /// <summary>MAD of the master's channel 0 divided by <see cref="Image.MaxValue"/> — a
+    /// <summary>MAD of the master's channel 0 divided by <see cref="Image.MaxValue"/>; a
     /// full-scale-relative background sigma proxy (background-dominated, robust to the ~few % star
     /// pixels), comparable across cameras/scales.</summary>
     private static double RelativeBackgroundMad(Image master)
