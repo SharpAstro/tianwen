@@ -32,43 +32,43 @@ namespace TianWen.UI.Abstractions
         private const float BaseConnectBtnWidth   = 80f;
 
         // Colors
-        private static readonly RGBAColor32 ProfilePanelBg   = new RGBAColor32(0x1e, 0x1e, 0x28, 0xff);
-        private static readonly RGBAColor32 DeviceListBg     = new RGBAColor32(0x18, 0x18, 0x22, 0xff);
+        private static RGBAColor32 ProfilePanelBg   => GuiTheme.Palette.PanelBg;
+        private static RGBAColor32 DeviceListBg     => GuiTheme.Palette.ContentBg;
         // Slot/OTA/filter chrome colours live on EquipmentPanelStyle.Default (the single source shared
         // with the data-driven EquipmentPanelLayout); reference them here rather than re-declaring literals.
         private static RGBAColor32 SlotNormal                => EquipmentPanelStyle.Default.SlotNormal;
         private static RGBAColor32 SlotActive                => EquipmentPanelStyle.Default.SlotActive;
-        private static readonly RGBAColor32 DeviceRowBg      = new RGBAColor32(0x20, 0x20, 0x2c, 0xff);
-        private static readonly RGBAColor32 DeviceRowBgAlt   = new RGBAColor32(0x25, 0x25, 0x33, 0xff);
-        private static readonly RGBAColor32 AssignedGreen    = new RGBAColor32(0x40, 0xc0, 0x40, 0xff);
-        private static readonly RGBAColor32 DimmedText       = new RGBAColor32(0x60, 0x60, 0x70, 0xff);
-        private static readonly RGBAColor32 CreateButton     = new RGBAColor32(0x30, 0x60, 0x90, 0xff);
+        private static RGBAColor32 DeviceRowBg      => GuiTheme.Palette.PanelBg;
+        private static RGBAColor32 DeviceRowBgAlt   => GuiTheme.AltRowBg;
+        private static RGBAColor32 AssignedGreen    => GuiTheme.Palette.Success;
+        private static RGBAColor32 DimmedText       => GuiTheme.Palette.DimText;
+        private static RGBAColor32 CreateButton     => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Accent, 0.55f);
         private static RGBAColor32 HeaderText                => GuiTheme.Palette.HeaderText;
         private static RGBAColor32 BodyText                  => GuiTheme.Palette.BodyText;
         private static RGBAColor32 DimText                   => GuiTheme.Palette.DimText;
         private static RGBAColor32 SeparatorColor            => GuiTheme.Palette.Separator;
-        private static readonly RGBAColor32 BadgeBg          = new RGBAColor32(0x28, 0x28, 0x38, 0xff);
-        private static readonly RGBAColor32 SiteText         = new RGBAColor32(0x99, 0xbb, 0x99, 0xff);
+        private static RGBAColor32 BadgeBg          => GuiTheme.Palette.Separator;
+        private static RGBAColor32 SiteText         => GuiTheme.Palette.Info;
         private static RGBAColor32 OtaHeaderBg               => EquipmentPanelStyle.Default.OtaHeaderBg;
         private static RGBAColor32 ContentBg                 => GuiTheme.Palette.ContentBg;
-        private static readonly RGBAColor32 BottomBarBg      = new RGBAColor32(0x14, 0x14, 0x1c, 0xff);
-        private static readonly RGBAColor32 AccentInstruct   = new RGBAColor32(0x88, 0xcc, 0xff, 0xff);
+        private static RGBAColor32 BottomBarBg      => GuiTheme.Palette.HeaderBg;
+        private static RGBAColor32 AccentInstruct   => GuiTheme.Palette.Accent;
         private static RGBAColor32 FilterTableBg             => EquipmentPanelStyle.Default.FilterTableBg;
-        private static readonly RGBAColor32 FilterRowAlt     = new RGBAColor32(0x20, 0x20, 0x2e, 0xff);
-        private static readonly RGBAColor32 EditButtonBg     = new RGBAColor32(0x2a, 0x40, 0x5a, 0xff);
-        private static readonly RGBAColor32 RemoveButtonBg   = new RGBAColor32(0x6a, 0x2a, 0x2a, 0xff); // muted red: arm OTA removal
+        private static RGBAColor32 FilterRowAlt     => GuiTheme.AltRowBg;
+        private static RGBAColor32 EditButtonBg     => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Accent, 0.45f);
+        private static RGBAColor32 RemoveButtonBg   => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Error, 0.45f); // muted red: arm OTA removal
         // Reachability indicator colors (power glyph + segmented On|Off button highlight)
-        private static readonly RGBAColor32 ReachConnected   = new RGBAColor32(0x40, 0xc0, 0x40, 0xff);
-        private static readonly RGBAColor32 ReachDisconnected= new RGBAColor32(0xc0, 0x90, 0x30, 0xff);
-        private static readonly RGBAColor32 ReachOffline     = new RGBAColor32(0x70, 0x70, 0x78, 0xff);
-        private static readonly RGBAColor32 SegmentActive    = new RGBAColor32(0x30, 0x60, 0x90, 0xff);
-        private static readonly RGBAColor32 SegmentInactive  = new RGBAColor32(0x28, 0x28, 0x38, 0xff);
-        private static readonly RGBAColor32 SegmentDisabled  = new RGBAColor32(0x22, 0x22, 0x2a, 0xff);
+        private static RGBAColor32 ReachConnected   => GuiTheme.Palette.Success;
+        private static RGBAColor32 ReachDisconnected=> GuiTheme.Palette.Warn;
+        private static RGBAColor32 ReachOffline     => GuiTheme.Palette.DimText;
+        private static RGBAColor32 SegmentActive    => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Accent, 0.55f);
+        private static RGBAColor32 SegmentInactive  => GuiTheme.Palette.Separator;
+        private static RGBAColor32 SegmentDisabled  => GuiTheme.AltRowBg;
         // Confirmation strip colors
-        private static readonly RGBAColor32 ConfirmWarmBg    = new RGBAColor32(0x30, 0x60, 0x40, 0xff); // green-ish: safe choice
-        private static readonly RGBAColor32 ConfirmForceBg   = new RGBAColor32(0x6a, 0x40, 0x20, 0xff); // amber: caution
-        private static readonly RGBAColor32 ConfirmDangerBg  = new RGBAColor32(0xa0, 0x30, 0x30, 0xff); // red: destructive
-        private static readonly RGBAColor32 ConfirmCancelBg  = new RGBAColor32(0x35, 0x35, 0x42, 0xff); // neutral
+        private static RGBAColor32 ConfirmWarmBg    => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Success, 0.45f); // green-ish: safe choice
+        private static RGBAColor32 ConfirmForceBg   => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Warn, 0.5f); // amber: caution
+        private static RGBAColor32 ConfirmDangerBg  => GuiTheme.Palette.Error; // red: destructive
+        private static RGBAColor32 ConfirmCancelBg  => GuiTheme.Palette.Separator; // neutral
 
         /// <summary>Tab state (scroll offsets, discovery results, assignment mode).</summary>
         public EquipmentTabState State { get; } = new EquipmentTabState();

@@ -199,7 +199,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
             // Vertical line at current time
             _renderer.FillRectangle(
                 new RectInt(new PointInt(nowX + 1, plotY + plotH), new PointInt(nowX, plotY)),
-                new RGBAColor32(255, 255, 255, 120));
+                TianWen.UI.Abstractions.GuiTheme.SkyInk(120));
         }
     }
 
@@ -219,14 +219,14 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
         // Vertical line
         _renderer.FillRectangle(
             new RectInt(new PointInt((int)mx + 1, plotY + plotH), new PointInt((int)mx, plotY)),
-            new RGBAColor32(255, 255, 255, 50));
+            TianWen.UI.Abstractions.GuiTheme.SkyInk(50));
 
         // Time label near top of chart
         var mouseTime = AltitudeChartRenderer.XToTime(mx, tStart, tEnd, plotX, plotW);
         var mouseLabel = mouseTime.ToOffset(state.SiteTimeZone).ToString("HH:mm");
         var fontSize = Math.Max(6f, 10f * chartH / 800f);
         _renderer.DrawText(mouseLabel, fontPath, fontSize,
-            new RGBAColor32(255, 255, 255, 160),
+            TianWen.UI.Abstractions.GuiTheme.SkyInk(160),
             new RectInt(new PointInt((int)mx + 20, plotY + 16), new PointInt((int)mx - 20, plotY + 2)),
             TextAlign.Center, TextAlign.Near);
     }
@@ -295,7 +295,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
         // Highlight the hovered hour column for feedback.
         _renderer.FillRectangle(
             new RectInt(new PointInt((int)(bestX + slotW / 2), bandY + bandH), new PointInt((int)(bestX - slotW / 2), bandY)),
-            new RGBAColor32(255, 255, 255, 30));
+            TianWen.UI.Abstractions.GuiTheme.SkyInk(30));
 
         var lines = AltitudeChartRenderer.BuildWeatherTooltipLines(f, state.SiteTimeZone);
         if (lines.Count == 0)
@@ -331,13 +331,13 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
 
         _renderer.FillRectangle(
             new RectInt(new PointInt((int)(boxX + boxW), (int)(boxY + boxH)), new PointInt((int)boxX, (int)boxY)),
-            new RGBAColor32(18, 20, 32, 235));
-        DrawBoxBorder((int)boxX, (int)boxY, (int)boxW, (int)boxH, new RGBAColor32(120, 140, 200, 200));
+            TianWen.UI.Abstractions.GuiTheme.SkyBand(0.06f).WithAlpha(235));
+        DrawBoxBorder((int)boxX, (int)boxY, (int)boxW, (int)boxH, TianWen.UI.Abstractions.GuiTheme.Palette.Info.WithAlpha(200));
 
         var ty = boxY + pad;
         for (var i = 0; i < lines.Count; i++)
         {
-            var color = i == 0 ? new RGBAColor32(255, 255, 255, 255) : new RGBAColor32(205, 210, 225, 255);
+            var color = i == 0 ? TianWen.UI.Abstractions.GuiTheme.SkyInk() : TianWen.UI.Abstractions.GuiTheme.SkyInk(205);
             _renderer.DrawText(lines[i], fontPath, fontSize, color,
                 new RectInt(new PointInt((int)(boxX + boxW - pad), (int)(ty + lineH)), new PointInt((int)(boxX + pad), (int)ty)),
                 TextAlign.Near, TextAlign.Center);

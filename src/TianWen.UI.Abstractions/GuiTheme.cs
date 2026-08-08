@@ -171,8 +171,22 @@ namespace TianWen.UI.Abstractions
             }
 
             _current = new UiTheme { Palette = resolved, Metrics = Metrics };
+            PaletteGeneration++;
             return true;
         }
+
+        /// <summary>
+        /// Bumped every time the resolved palette actually moves. Anything that CACHES a projection of
+        /// the palette must carry this in its cache key.
+        /// </summary>
+        /// <remarks>
+        /// The frozen-snapshot bug in a second costume: the planner's chart is rendered to a GPU
+        /// texture keyed on the data it draws, and a theme switch changes none of that data, so the
+        /// chart went on painting the old palette after F12 while every other surface moved. A boolean
+        /// "did it change" cannot fix a cache (the consumer may not have been asked), whereas a
+        /// generation is comparable at any later point by anyone.
+        /// </remarks>
+        public static int PaletteGeneration { get; private set; }
 
         /// <summary>
         /// Text to lay ON a filled colour chip, chosen from the fill's own lightness.
@@ -196,6 +210,74 @@ namespace TianWen.UI.Abstractions
             var ink = new RGBAColor32(0x14, 0x10, 0x08, 0xff);
             return Contrast(white, fill) >= Contrast(ink, fill) ? white : ink;
         }
+
+        /// <summary>
+        /// Linear blend between two palette colours, <paramref name="t"/> = 0 giving
+        /// <paramref name="a"/> and 1 giving <paramref name="b"/>.
+        /// </summary>
+        /// <remarks>
+        /// The point is that a derived tint stays derived. A hand-picked "slightly lighter than the
+        /// panel" is a literal that a theme switch cannot reach, which is the whole class of bug C2a
+        /// unfroze; a blend of two roles moves when they move. Alpha follows <paramref name="a"/>,
+        /// since the caller is tinting a known surface rather than compositing.
+        /// </remarks>
+        public static RGBAColor32 Mix(RGBAColor32 a, RGBAColor32 b, float t)
+        {
+            var k = Math.Clamp(t, 0f, 1f);
+            static byte Lerp(byte x, byte y, float u) => (byte)Math.Round(x + ((y - x) * u));
+            return new RGBAColor32(Lerp(a.Red, b.Red, k), Lerp(a.Green, b.Green, k), Lerp(a.Blue, b.Blue, k), a.Alpha);
+        }
+
+        /// <summary>
+        /// The banding colour for alternate rows in a list sitting on <see cref="UiPalette.PanelBg"/>.
+        /// </summary>
+        /// <remarks>
+        /// Halfway to <see cref="UiPalette.ContentBg"/>, which is darker than the panel on a dark ground
+        /// and lighter on a light one, so the band reads as a band in every state without anyone picking
+        /// a direction per theme.
+        /// </remarks>
+        public static RGBAColor32 AltRowBg => Mix(Palette.PanelBg, Palette.ContentBg, 0.5f);
+
+        /// <summary>An inert button: cancel, an unselected segment, a disabled action.</summary>
+        public static RGBAColor32 NeutralButtonBg => Palette.Separator;
+
+        /// <summary>The selected segment or the emphasised-but-not-committing action.</summary>
+        public static RGBAColor32 PrimaryButtonBg => Mix(Palette.PanelBg, Palette.Accent, 0.55f);
+
+        /// <summary>The button that starts the thing: Start, Done, Confirm.</summary>
+        public static RGBAColor32 GoButtonBg => Mix(Palette.PanelBg, Palette.Success, 0.55f);
+
+        /// <summary>An action that interrupts something in flight, or a reversible-but-costly choice.</summary>
+        public static RGBAColor32 CautionButtonBg => Mix(Palette.PanelBg, Palette.Warn, 0.55f);
+
+        /// <summary>An action that loses work or takes hardware away.</summary>
+        public static RGBAColor32 DangerButtonBg => Mix(Palette.PanelBg, Palette.Error, 0.5f);
+
+        /// <summary>
+        /// A band of sky at brightness <paramref name="t"/>, 0 being full night and ~0.3 civil twilight.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// A plot that DEPICTS the sky (the altitude chart, the session timeline's twilight ramp) stays
+        /// dark in every state, for the same reason image data is never recoloured: the thing being drawn
+        /// is dark. What the theme changes is its HUE, which comes from <see cref="UiPalette.Info"/>, so
+        /// Night gets a warm sky rather than the one colour it cannot afford.
+        /// </para>
+        /// <para>
+        /// Anchored on black rather than on <see cref="UiPalette.ContentBg"/> deliberately. Anchoring on
+        /// the page would invert the twilight ordering in Light, where "further from the ground" is
+        /// darker while on a dark ground it is brighter, so civil twilight would render darker than
+        /// astronomical in exactly one state.
+        /// </para>
+        /// </remarks>
+        public static RGBAColor32 SkyBand(float t) => Mix(new RGBAColor32(0, 0, 0, 0xff), Palette.Info, t);
+
+        /// <summary>Ink legible on <see cref="SkyBand"/>, which is dark whatever the theme.</summary>
+        /// <remarks>
+        /// A sky panel cannot take <see cref="UiPalette.BodyText"/>: that is near-black in Light, so
+        /// labels over the plot would vanish in exactly the state with the most contrast to spare.
+        /// </remarks>
+        public static RGBAColor32 SkyInk(byte alpha = 0xff) => InkOn(SkyBand(0.09f)).WithAlpha(alpha);
 
         // WCAG relative luminance + contrast ratio. Small enough to keep here rather than take a
         // dependency, and it is the only place production code needs it.

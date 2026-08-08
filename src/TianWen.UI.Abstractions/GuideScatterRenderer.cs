@@ -16,12 +16,12 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class GuideScatterRenderer
 {
-    private static readonly RGBAColor32 RingColor      = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
-    private static readonly RGBAColor32 SweetSpotColor = new RGBAColor32(0x18, 0x30, 0x18, 0xff);
-    private static readonly RGBAColor32 RmsRingColor   = new RGBAColor32(0x44, 0x66, 0x44, 0xff);
-    private static readonly RGBAColor32 RecentDotColor = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-    private static readonly RGBAColor32 OldDotColor    = new RGBAColor32(0x66, 0x66, 0x88, 0x88);
-    private static readonly RGBAColor32 LatestDotColor = new RGBAColor32(0x00, 0xff, 0x00, 0xaa); // the guide crosshair green
+    private static RGBAColor32 RingColor      => GuiTheme.Palette.Separator;
+    private static RGBAColor32 SweetSpotColor => GuiTheme.Mix(GuiTheme.Palette.ContentBg, GuiTheme.Palette.Success, 0.25f);
+    private static RGBAColor32 RmsRingColor   => GuiTheme.Mix(GuiTheme.Palette.ContentBg, GuiTheme.Palette.Success, 0.5f);
+    private static RGBAColor32 RecentDotColor => GuiTheme.InkOn(GuiTheme.Palette.ContentBg);
+    private static RGBAColor32 OldDotColor    => GuiTheme.Palette.DimText.WithAlpha(0x88);
+    private static RGBAColor32 LatestDotColor => GuiTheme.Palette.Accent.WithAlpha(0xaa); // matches the guide crosshair
 
     /// <summary>Renders the target scatter (rings, crosshair, axis labels, error dots) into <paramref name="rect"/>.</summary>
     public static void Render<TSurface>(

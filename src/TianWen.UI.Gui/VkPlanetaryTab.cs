@@ -43,24 +43,24 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
     // Planetary captures a single OTA; its focuser jog targets OTA index 0 (mirrors the single-OTA focus path).
     private const int PlanetaryOtaIndex = 0;
 
-    private static readonly RGBAColor32 ContentBg = new RGBAColor32(0x06, 0x06, 0x08, 0xff);
+    private static RGBAColor32 ContentBg => TianWen.UI.Abstractions.GuiTheme.Palette.ContentBg;
     private static RGBAColor32 PanelBg => GuiTheme.Palette.HeaderBg;
     private static RGBAColor32 HeaderText => GuiTheme.Palette.HeaderText;
     private static RGBAColor32 DimText => GuiTheme.Palette.DimText;
-    private static readonly RGBAColor32 StartBg = new RGBAColor32(0x1e, 0x5e, 0x2e, 0xff);
-    private static readonly RGBAColor32 StopBg = new RGBAColor32(0x6e, 0x24, 0x24, 0xff);
-    private static readonly RGBAColor32 ButtonText = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-    private static readonly RGBAColor32 SectionText = new RGBAColor32(0x88, 0x99, 0xbb, 0xff);
-    private static readonly RGBAColor32 Divider = new RGBAColor32(0x33, 0x33, 0x40, 0xff);
-    private static readonly RGBAColor32 MovingText = new RGBAColor32(0xff, 0xcc, 0x66, 0xff);
-    private static readonly RGBAColor32 StepBtnBg = new RGBAColor32(0x2c, 0x2c, 0x33, 0xff);
-    private static readonly RGBAColor32 StepBtnDisabledBg = new RGBAColor32(0x1c, 0x1c, 0x20, 0xff);
-    private static readonly RGBAColor32 JogBg = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
+    private static RGBAColor32 StartBg => TianWen.UI.Abstractions.GuiTheme.GoButtonBg;
+    private static RGBAColor32 StopBg => TianWen.UI.Abstractions.GuiTheme.DangerButtonBg;
+    private static RGBAColor32 ButtonText => TianWen.UI.Abstractions.GuiTheme.InkOn(StartBg);
+    private static RGBAColor32 SectionText => TianWen.UI.Abstractions.GuiTheme.Palette.DimText;
+    private static RGBAColor32 Divider => TianWen.UI.Abstractions.GuiTheme.Palette.Separator;
+    private static RGBAColor32 MovingText => TianWen.UI.Abstractions.GuiTheme.Palette.Warn;
+    private static RGBAColor32 StepBtnBg => TianWen.UI.Abstractions.GuiTheme.NeutralButtonBg;
+    private static RGBAColor32 StepBtnDisabledBg => TianWen.UI.Abstractions.GuiTheme.AltRowBg;
+    private static RGBAColor32 JogBg => TianWen.UI.Abstractions.GuiTheme.NeutralButtonBg;
     // ROI picture-in-picture + the red ROI rectangle (PiP sensor thumbnail + the on-stream overlay).
-    private static readonly RGBAColor32 PipSensorBg = new RGBAColor32(0x10, 0x12, 0x18, 0xff);
-    private static readonly RGBAColor32 PipSensorBorder = new RGBAColor32(0x44, 0x4a, 0x5a, 0xff);
-    private static readonly RGBAColor32 RoiColor = new RGBAColor32(0xff, 0x40, 0x40, 0xff);
-    private static readonly RGBAColor32 CheckOnBg = new RGBAColor32(0x1e, 0x5e, 0x2e, 0xff);
+    private static RGBAColor32 PipSensorBg => TianWen.UI.Abstractions.GuiTheme.Palette.ContentBg;
+    private static RGBAColor32 PipSensorBorder => TianWen.UI.Abstractions.GuiTheme.Palette.SeparatorStrong;
+    private static RGBAColor32 RoiColor => TianWen.UI.Abstractions.GuiTheme.Palette.Error;
+    private static RGBAColor32 CheckOnBg => TianWen.UI.Abstractions.GuiTheme.GoButtonBg;
 
     // Capture settings, edited by the panel steppers and posted on Start. Mutated only on the render thread
     // (in click handlers dispatched synchronously from input), so plain fields are fine.

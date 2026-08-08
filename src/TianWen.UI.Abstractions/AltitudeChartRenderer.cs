@@ -17,7 +17,10 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class AltitudeChartRenderer
 {
-    // Target colors: same palette as ObservationScheduleVisualizationTests
+    // Categorical, not semantic: index N of the schedule, with no severity or state to express. A
+    // role lookup would collapse them onto one another, so these stay local and fixed -- the same
+    // call as the guide graph's RA/Dec pair, for the same reason (user, 2026-08-08).
+    // Kept in step with ObservationScheduleVisualizationTests.
     private static readonly RGBAColor32[] TargetColors =
     [
         new RGBAColor32( 69, 123, 157, 255),  // Steel blue
@@ -28,36 +31,44 @@ public static class AltitudeChartRenderer
         new RGBAColor32( 38,  70,  83, 255),  // Dark teal
     ];
 
+    // This plot DEPICTS the sky rather than framing it, so it takes GuiTheme's sky ramp (dark in every
+    // state, hue from the theme) rather than the panel roles. Shared with SessionTimelineRenderer's
+    // twilight bar so the two cannot drift apart.
+    private static RGBAColor32 Sky(float t) => GuiTheme.SkyBand(t);
+    private static RGBAColor32 SkyInk => GuiTheme.SkyInk();
+    private static RGBAColor32 SkyInkAlpha(byte a) => GuiTheme.SkyInk(a);
+
     // Background fill for the whole chart surface
-    private static readonly RGBAColor32 BackgroundColor    = new RGBAColor32( 26,  26,  46, 255);  // #1a1a2e
+    private static RGBAColor32 BackgroundColor    => Sky(0.09f);
 
     // Twilight zone colours
-    private static readonly RGBAColor32 CivilZoneColor     = new RGBAColor32( 58,  58,  94, 255);  // #3a3a5e
-    private static readonly RGBAColor32 NauticalZoneColor  = new RGBAColor32( 42,  42,  78, 255);  // #2a2a4e
-    private static readonly RGBAColor32 AstroZoneColor     = new RGBAColor32( 34,  34,  62, 255);  // #22223e
+    private static RGBAColor32 CivilZoneColor     => Sky(0.26f);
+    private static RGBAColor32 NauticalZoneColor  => Sky(0.19f);
+    private static RGBAColor32 AstroZoneColor     => Sky(0.13f);
 
     // Grid / axis / label colours
-    private static readonly RGBAColor32 GridColor          = new RGBAColor32(255, 255, 255,  48);   // #ffffff30
-    private static readonly RGBAColor32 AxisColor          = new RGBAColor32(255, 255, 255,  96);   // #ffffff60
-    private static readonly RGBAColor32 TextColor          = new RGBAColor32(204, 204, 204, 255);   // #cccccc
-    private static readonly RGBAColor32 WhiteColor         = new RGBAColor32(255, 255, 255, 255);
-    private static readonly RGBAColor32 GrayColor          = new RGBAColor32(180, 180, 180, 255);
-    private static readonly RGBAColor32 ZoneLabelColor     = new RGBAColor32(255, 255, 255,  80);   // #ffffff50
+    private static RGBAColor32 GridColor          => SkyInkAlpha(48);
+    private static RGBAColor32 AxisColor          => SkyInkAlpha(96);
+    private static RGBAColor32 TextColor          => SkyInkAlpha(204);
+    private static RGBAColor32 WhiteColor         => SkyInk;
+    private static RGBAColor32 GrayColor          => SkyInkAlpha(180);
+    private static RGBAColor32 ZoneLabelColor     => SkyInkAlpha(80);
 
-    // Subtle solar-midnight marker (a touch cooler/brighter than the plain hourly grid)
-    private static readonly RGBAColor32 SolarMidnightColor = new RGBAColor32(150, 175, 235, 110);
+    // Subtle solar-midnight marker (a touch brighter than the plain hourly grid)
+    private static RGBAColor32 SolarMidnightColor => GuiTheme.Palette.Info.WithAlpha(110);
 
     // Min-altitude threshold line colour
-    private static readonly RGBAColor32 MinAltColor        = new RGBAColor32(255, 107, 107, 200);   // #FF6B6BC8
-    private static readonly RGBAColor32 MinAltLabelColor   = new RGBAColor32(255, 107, 107, 255);
-    private static readonly RGBAColor32 MinAltShade        = new RGBAColor32(255, 60, 60, 30);     // subtle red shade
+    private static RGBAColor32 MinAltColor        => GuiTheme.Palette.Error.WithAlpha(200);
+    private static RGBAColor32 MinAltLabelColor   => GuiTheme.Palette.Error;
+    private static RGBAColor32 MinAltShade        => GuiTheme.Palette.Error.WithAlpha(30);
 
     // Slider / handoff colours
-    private static readonly RGBAColor32 SliderColor        = new RGBAColor32(255, 255, 255, 180);
-    private static readonly RGBAColor32 SliderLabelColor   = new RGBAColor32(255, 255, 255, 220);
-    private static readonly RGBAColor32 ConflictColor      = new RGBAColor32(255, 215,   0, 255);
+    private static RGBAColor32 SliderColor        => SkyInkAlpha(180);
+    private static RGBAColor32 SliderLabelColor   => SkyInkAlpha(220);
+    private static RGBAColor32 ConflictColor      => GuiTheme.Palette.Warn;
 
-    // Weather band colours
+    // Weather band colours. Categorical (clear / cloud / rain / snow / storm / fog), so they stay
+    // local for the same reason the target colours do.
     private static readonly RGBAColor32 WeatherClearBg      = new RGBAColor32( 20,  50,  40, 180);
     private static readonly RGBAColor32 WeatherPartlyBg     = new RGBAColor32( 60,  60,  30, 180);
     private static readonly RGBAColor32 WeatherOvercastBg   = new RGBAColor32( 50,  50,  55, 180);
@@ -240,8 +251,8 @@ public static class AltitudeChartRenderer
             var nowX = TimeToX(now);
             if (nowX > plotX)
             {
-                FillRect(renderer, plotX, plotY, nowX - plotX, plotH, new RGBAColor32(0, 0, 0, 100));
-                DrawVLine(renderer, nowX, plotY, plotY + plotH, new RGBAColor32(255, 255, 255, 120));
+                FillRect(renderer, plotX, plotY, nowX - plotX, plotH, new RGBAColor32(0, 0, 0, 100)); // elapsed-time scrim: darkens whatever sky is beneath
+                DrawVLine(renderer, nowX, plotY, plotY + plotH, SkyInkAlpha(120));
             }
         }
 
@@ -249,11 +260,11 @@ public static class AltitudeChartRenderer
         if (mouseScreenPosition is var (mx, my) && mx >= plotX && mx <= plotX + plotW
             && my >= plotY && my <= plotY + plotH)
         {
-            DrawVLine(renderer, (int)mx, plotY, plotY + plotH, new RGBAColor32(255, 255, 255, 50));
+            DrawVLine(renderer, (int)mx, plotY, plotY + plotH, SkyInkAlpha(50));
             var mouseTime = XToTime(mx, tStart, tEnd, plotX, plotW);
             var mouseLabel = mouseTime.ToOffset(state.SiteTimeZone).ToString("HH:mm");
             var mouseLabelRect = MakeRect((int)mx - 20, plotY + 2, 40, 14);
-            renderer.DrawText(mouseLabel, fontFamily, FontSize(h, 10), new RGBAColor32(255, 255, 255, 160),
+            renderer.DrawText(mouseLabel, fontFamily, FontSize(h, 10), SkyInkAlpha(160),
                 mouseLabelRect, TextAlign.Center, TextAlign.Near);
         }
 
@@ -543,7 +554,7 @@ public static class AltitudeChartRenderer
                 var labelText = sliderTime.ToString("HH:mm");
                 var labelRect = MakeRect(sliderX - 22, minAltLabelY - 18, 44, 14);
                 // Dark background for readability
-                FillRect(renderer, sliderX - 22, minAltLabelY - 18, 44, 14, new RGBAColor32(20, 20, 30, 200));
+                FillRect(renderer, sliderX - 22, minAltLabelY - 18, 44, 14, Sky(0.06f).WithAlpha(200));
                 renderer.DrawText(labelText, fontFamily, FontSize(h, 10), SliderLabelColor,
                     labelRect, TextAlign.Center, TextAlign.Center);
             }
@@ -689,15 +700,19 @@ public static class AltitudeChartRenderer
     }
 
     /// <summary>
-    /// Maps relative humidity (%) to a dew-risk colour: green (dry) -> gold -> orange -> red
-    /// (near-saturation, optics likely to dew up). Thresholds reflect dew risk, not just RH.
+    /// Maps relative humidity (%) to a dew-risk colour, dry through to near-saturation where the
+    /// optics are likely to dew up. Thresholds reflect dew risk, not just RH.
     /// </summary>
+    /// <remarks>
+    /// Dew risk is a severity, not a category, so it reads off the semantic roles. The two middle
+    /// steps separate by weight rather than by a fourth hue, which Night has no way to supply.
+    /// </remarks>
     private static RGBAColor32 HumidityColor(double humidity) => humidity switch
     {
-        < 60 => new RGBAColor32(130, 200, 130, 255),  // dry, low dew risk
-        < 75 => new RGBAColor32(220, 200, 110, 255),  // moderate
-        < 88 => new RGBAColor32(235, 160,  90, 255),  // high, watch for dew
-        _    => new RGBAColor32(235, 110, 110, 255),  // near saturation, dew likely
+        < 60 => GuiTheme.Palette.Success,                                                      // dry, low dew risk
+        < 75 => GuiTheme.Mix(GuiTheme.Palette.ContentBg, GuiTheme.Palette.Warn, 0.7f),         // moderate
+        < 88 => GuiTheme.Palette.Warn,                                                          // high, watch for dew
+        _    => GuiTheme.Palette.Error,                                                         // near saturation, dew likely
     };
 
     /// <summary>
@@ -961,7 +976,7 @@ public static class AltitudeChartRenderer
     // Moon curve
     // -----------------------------------------------------------------------
 
-    private static readonly RGBAColor32 MoonCurveColor = new RGBAColor32(220, 200, 120, 160);
+    private static RGBAColor32 MoonCurveColor => GuiTheme.Palette.Warn.WithAlpha(160);
 
     private static void DrawMoonCurve<TSurface>(
         Renderer<TSurface> renderer,

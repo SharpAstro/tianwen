@@ -43,15 +43,21 @@ namespace TianWen.UI.Abstractions
         };
 
         /// <summary>Color for the phase pill in the top strip.</summary>
+        /// <remarks>
+        /// A phase is a severity, so it reads off the semantic roles rather than a private set of
+        /// hues. Waiting and cooling are both "informational, nothing wrong", separated by weight
+        /// (waiting is muted back toward the panel) rather than by hue, since Night has no second
+        /// cool hue to give them.
+        /// </remarks>
         public static RGBAColor32 PhaseColor(SessionPhase phase) => phase switch
         {
-            SessionPhase.Observing => new RGBAColor32(0x30, 0x88, 0x30, 0xff),         // green
-            SessionPhase.Complete => new RGBAColor32(0x30, 0x88, 0x30, 0xff),           // green
-            SessionPhase.Failed => new RGBAColor32(0xcc, 0x33, 0x33, 0xff),             // red
-            SessionPhase.Aborted => new RGBAColor32(0xcc, 0x88, 0x00, 0xff),            // amber
-            SessionPhase.WaitingForDark => new RGBAColor32(0x44, 0x44, 0x88, 0xff),     // dim blue
-            SessionPhase.Cooling => new RGBAColor32(0x33, 0x66, 0xcc, 0xff),            // blue
-            _ => new RGBAColor32(0x55, 0x55, 0x88, 0xff)                                // default purple-grey
+            SessionPhase.Observing => GuiTheme.Palette.Success,
+            SessionPhase.Complete => GuiTheme.Palette.Success,
+            SessionPhase.Failed => GuiTheme.Palette.Error,
+            SessionPhase.Aborted => GuiTheme.Palette.Warn,
+            SessionPhase.WaitingForDark => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Info, 0.6f),
+            SessionPhase.Cooling => GuiTheme.Palette.Info,
+            _ => GuiTheme.Palette.DimText
         };
 
         /// <summary>

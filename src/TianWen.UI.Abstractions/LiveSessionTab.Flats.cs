@@ -82,7 +82,7 @@ namespace TianWen.UI.Abstractions
 
             Layout.Node CountStep(string glyph, string action, Action onClick) =>
                 Layout.Builder.Text(glyph, BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
-                    .WFixed(24f).HStar().Bg(new RGBAColor32(0x2a, 0x2a, 0x35, 0xff))
+                    .WFixed(24f).HStar().Bg(GuiTheme.NeutralButtonBg)
                     .Clickable(new HitResult.ButtonHit(action), _ => { onClick(); });
 
             Layout.Node Button(string label, string action, float rowScale, RGBAColor32 bg, RGBAColor32 fg, Action<InputModifier> onClick) =>
@@ -95,7 +95,7 @@ namespace TianWen.UI.Abstractions
                 Layout.Builder.Spacer().RowH(BasePadding),
                 LabeledRow("Source",
                     Layout.Builder.Text(FlatSourceLabel(state.FlatSetupSource), BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
-                        .Bg(new RGBAColor32(0x44, 0x66, 0x99, 0xff))
+                        .Bg(GuiTheme.PrimaryButtonBg)
                         .Clickable(new HitResult.ButtonHit("FlatsSetupSource"), _ =>
                         {
                             state.FlatSetupSource = state.FlatSetupSource switch
@@ -115,11 +115,11 @@ namespace TianWen.UI.Abstractions
                 Layout.Builder.Text(hint, BaseFontSize * 0.78f, DimText, TextAlign.Near, TextAlign.Near).RowH(BaseRowHeight * 3f));
 
             var buttons = Layout.Builder.VStack(
-                Button("Cancel", "FlatsSetupBack", 1.2f, new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText,
+                Button("Cancel", "FlatsSetupBack", 1.2f, GuiTheme.NeutralButtonBg, DimText,
                     _ => { state.Mode = LiveSessionMode.Preview; state.FlatStatusMessage = ""; state.NeedsRedraw = true; }),
                 Layout.Builder.Spacer().RowH(BasePadding),
                 Button("Start", "FlatsSetupStart", 1.6f,
-                    canStart ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff),
+                    canStart ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg,
                     canStart ? BrightText : DimText,
                     _ =>
                     {
@@ -148,7 +148,7 @@ namespace TianWen.UI.Abstractions
                 SessionPhase.Cooling => ("COOLING", StatusSolving),
                 SessionPhase.Flats => ("CAPTURING", StatusTracking),
                 SessionPhase.Finalising => ("FINALISING", StatusSlewing),
-                SessionPhase.Complete => ("COMPLETE", new RGBAColor32(0x44, 0xff, 0x44, 0xff)),
+                SessionPhase.Complete => ("COMPLETE", GuiTheme.Palette.Success),
                 SessionPhase.Aborted => ("CANCELLED", AbortBg),
                 SessionPhase.Failed => ("FAILED", AbortBg),
                 _ => (state.Phase.ToString().ToUpperInvariant(), DimText)
@@ -180,12 +180,12 @@ namespace TianWen.UI.Abstractions
             var terminal = state.Phase is SessionPhase.Complete or SessionPhase.Aborted or SessionPhase.Failed;
             var cancelInFlight = state.FlatsCts is { IsCancellationRequested: true };
             var canCancel = !terminal && !cancelInFlight;
-            var cancellingBg = new RGBAColor32(0xc4, 0x8a, 0x2c, 0xff);
+            var cancellingBg = GuiTheme.Palette.Warn;
             var (cancelLabel, cancelBg, cancelFg) = cancelInFlight
                 ? ("Cancelling…", cancellingBg, BrightText)
                 : canCancel
                     ? ("Cancel", AbortBg, AbortText)
-                    : ("Cancel", new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText);
+                    : ("Cancel", GuiTheme.NeutralButtonBg, DimText);
             var cancelNode = Layout.Builder.Text(cancelLabel, fontSize * 0.9f, cancelFg, TextAlign.Center, TextAlign.Center)
                 .Stretch().Bg(cancelBg)
                 .Clickable(new HitResult.ButtonHit("FlatsCancel"), _ => { if (canCancel) PostSignal(new CancelFlatsSignal()); });

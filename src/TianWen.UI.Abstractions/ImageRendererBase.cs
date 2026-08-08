@@ -559,10 +559,10 @@ namespace TianWen.UI.Abstractions
             if (!state.HideChrome && !string.IsNullOrEmpty(FontPath))
             {
                 RenderDropdownMenu(state.ToolbarDropdown, FontPath, ToolbarFontSize,
-                    bgColor: new RGBAColor32(0x33, 0x33, 0x38, 0xff),
-                    highlightColor: new RGBAColor32(0x33, 0x4d, 0x80, 0xff),
-                    textColor: new RGBAColor32(0xe6, 0xe6, 0xe6, 0xff),
-                    borderColor: new RGBAColor32(0x59, 0x59, 0x66, 0xff),
+                    bgColor: GuiTheme.Palette.PanelBg,
+                    highlightColor: GuiTheme.Palette.Selection,
+                    textColor: GuiTheme.Palette.BodyText,
+                    borderColor: GuiTheme.Palette.SeparatorStrong,
                     viewportWidth: Width,
                     viewportHeight: Height);
             }

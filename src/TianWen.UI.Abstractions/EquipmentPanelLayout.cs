@@ -29,10 +29,10 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public static EquipmentPanelStyle Default => new(
             GuiTheme.Theme,
-            SlotNormal:    new RGBAColor32(0x2a, 0x2a, 0x35, 0xff),
-            SlotActive:    new RGBAColor32(0x2a, 0x6b, 0xb8, 0xff),
-            OtaHeaderBg:   new RGBAColor32(0x24, 0x24, 0x32, 0xff),
-            FilterTableBg: new RGBAColor32(0x1a, 0x1a, 0x26, 0xff));
+            SlotNormal:    GuiTheme.NeutralButtonBg,
+            SlotActive:    GuiTheme.PrimaryButtonBg,
+            OtaHeaderBg:   GuiTheme.Palette.HeaderBg,
+            FilterTableBg: GuiTheme.Palette.ContentBg);
     }
 
     /// <summary>

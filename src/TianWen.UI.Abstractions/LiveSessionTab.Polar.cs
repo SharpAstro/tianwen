@@ -70,7 +70,7 @@ namespace TianWen.UI.Abstractions
                 PolarAlignmentPhase.Rotating => ("ROTATING", StatusSlewing),
                 PolarAlignmentPhase.Frame2 => ("FRAME 2", StatusSolving),
                 PolarAlignmentPhase.Refining => ("REFINING", StatusTracking),
-                PolarAlignmentPhase.Aligned => ("ALIGNED", new RGBAColor32(0x44, 0xff, 0x44, 0xff)),
+                PolarAlignmentPhase.Aligned => ("ALIGNED", GuiTheme.Palette.Success),
                 PolarAlignmentPhase.RestoringMount => ("RESTORING", StatusSlewing),
                 PolarAlignmentPhase.Failed => ("FAILED", AbortBg),
                 _ => ("?", DimText)
@@ -128,19 +128,19 @@ namespace TianWen.UI.Abstractions
             var canDone = state.PolarPhase == PolarAlignmentPhase.Aligned
                 || (state.PolarPhase == PolarAlignmentPhase.Refining && state.LastPolarSolve is { IsSettled: true, IsAligned: true });
 
-            var cancellingBg = new RGBAColor32(0xc4, 0x8a, 0x2c, 0xff);
+            var cancellingBg = GuiTheme.Palette.Warn;
             var (cancelLabel, cancelBg, cancelFg) = cancelInFlight
                 ? ("Cancelling\u2026", cancellingBg, BrightText)
                 : canCancel
                     ? ("Cancel", AbortBg, AbortText)
-                    : ("Cancel", new RGBAColor32(0x33, 0x33, 0x3a, 0xff), DimText);
+                    : ("Cancel", GuiTheme.NeutralButtonBg, DimText);
 
             var buttonRow = Layout.Builder.HStack(
                     Layout.Builder.Text(cancelLabel, BaseFontSize * 0.9f, cancelFg, TextAlign.Center, TextAlign.Center)
                         .WStar().HStar().Bg(cancelBg)
                         .Clickable(new HitResult.ButtonHit("PolarCancel"), _ => { if (canCancel) PostSignal(new CancelPolarAlignmentSignal()); }),
                     Layout.Builder.Text("Done", BaseFontSize * 0.9f, canDone ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(canDone ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff))
+                        .WStar().HStar().Bg(canDone ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg)
                         .Clickable(new HitResult.ButtonHit("PolarDone"), _ => { if (canDone) PostSignal(new DonePolarAlignmentSignal()); }))
                 .WithGap(BasePadding);
 
@@ -164,12 +164,12 @@ namespace TianWen.UI.Abstractions
         {
             var (canStart, _) = EvaluatePolarPreconditions(state);
             var cfg = state.PolarSetupConfig;
-            var toggleActiveBg = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
-            var toggleInactiveBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+            var toggleActiveBg = GuiTheme.PrimaryButtonBg;
+            var toggleInactiveBg = GuiTheme.NeutralButtonBg;
 
             Layout.Node ConfigRow(string label, string valueText, string minusAction, Action onMinus, string plusAction, Action onPlus)
             {
-                var btnBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+                var btnBg = GuiTheme.NeutralButtonBg;
                 var style = new FormRowLayout.StepperStyle(btnBg, BodyText, btnBg, DimText, BaseFontSize * 0.78f, 34f);
                 var stepper = FormRowLayout.StepperControl(style,
                     "-", minusAction, _ => onMinus(),
@@ -241,7 +241,7 @@ namespace TianWen.UI.Abstractions
 
             var buttons = Layout.Builder.VStack(
                 Layout.Builder.Text("Cancel", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center)
-                    .RowH(BaseRowHeight * 1.2f).Bg(new RGBAColor32(0x33, 0x33, 0x3a, 0xff))
+                    .RowH(BaseRowHeight * 1.2f).Bg(GuiTheme.NeutralButtonBg)
                     .Clickable(new HitResult.ButtonHit("PolarSetupBack"), _ =>
                     {
                         state.Mode = LiveSessionMode.Preview;
@@ -250,7 +250,7 @@ namespace TianWen.UI.Abstractions
                     }),
                 Layout.Builder.Spacer().RowH(BasePadding),
                 Layout.Builder.Text("Start", BaseFontSize, canStart ? BrightText : DimText, TextAlign.Center, TextAlign.Center)
-                    .RowH(BaseRowHeight * 1.6f).Bg(canStart ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff) : new RGBAColor32(0x33, 0x33, 0x3a, 0xff))
+                    .RowH(BaseRowHeight * 1.6f).Bg(canStart ? GuiTheme.GoButtonBg : GuiTheme.NeutralButtonBg)
                     .Clickable(new HitResult.ButtonHit("PolarSetupStart"), _ =>
                     {
                         if (!canStart) return;
@@ -276,8 +276,8 @@ namespace TianWen.UI.Abstractions
         {
             var canSwitchSource = state.PolarPhase == PolarAlignmentPhase.Idle
                 || state.PolarPhase == PolarAlignmentPhase.Failed;
-            var activeSrcBg = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
-            var inactiveSrcBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+            var activeSrcBg = GuiTheme.PrimaryButtonBg;
+            var inactiveSrcBg = GuiTheme.NeutralButtonBg;
             var srcFg = canSwitchSource ? BodyText : DimText;
             return Layout.Builder.HStack(
                     Layout.Builder.Text("Source", BaseFontSize * 0.8f, DimText).WStar(0.30f).HStar(),
@@ -363,7 +363,7 @@ namespace TianWen.UI.Abstractions
             var ledY = y;
             var ledSize = rowH * 0.6f;
             var settledColor = solve.IsSettled ? StatusTracking : DimText;
-            var alignedColor = solve.IsAligned ? new RGBAColor32(0x44, 0xff, 0x44, 0xff) : DimText;
+            var alignedColor = solve.IsAligned ? GuiTheme.Palette.Success : DimText;
             FillRect(x0, ledY + (rowH - ledSize) / 2, ledSize, ledSize, settledColor);
             DrawText("Settled", fontPath,
                 x0 + ledSize + pad, ledY, w - ledSize - pad, rowH,

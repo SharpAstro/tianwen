@@ -402,7 +402,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // falls towards a 0.55 floor. Only affects non-pinned items; pinned
         // planner targets stay full brightness regardless of zoom.
         var fovAlpha = MathF.Max(MathF.Min(120f / (float)fov, 1f), 0.55f);
-        var pinnedHaloColor = new RGBAColor32(0xFF, 0x60, 0x20, (byte)(0x50 * fovAlpha));
+        var pinnedHaloColor = TianWen.UI.Abstractions.GuiTheme.Palette.Accent.WithAlpha((byte)(0x50 * fovAlpha));
 
         // Build the per-frame ellipse / circle instance buffer directly from the cached
         // candidate list. The vertex shader stereographic-projects each unit vector and
@@ -509,7 +509,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             if (!item.IsPinned) alpha *= fovAlpha;
 
             var crossColor = item.IsPinned
-                ? new RGBAColor32(0xFF, 0x70, 0x30, (byte)(alpha * 255))
+                ? TianWen.UI.Abstractions.GuiTheme.Palette.Accent.WithAlpha((byte)(alpha * 255))
                 : RGBAColor32.FromFloat(r, g, b, alpha);
             VkOverlayShapes.DrawCross(renderer, dpiScale,
                 item.ScreenX, item.ScreenY, item.Marker.ArmPx, crossColor);
@@ -744,10 +744,10 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         // Colour by state: slewing = amber (user attention), tracking = green, idle = grey.
         var color = mountOverlay.IsSlewing
-            ? new RGBAColor32(0xFF, 0xB0, 0x40, 0xFF)   // amber
+            ? TianWen.UI.Abstractions.GuiTheme.Palette.Warn   // amber: the active observation
             : mountOverlay.IsTracking
-                ? new RGBAColor32(0x40, 0xFF, 0x70, 0xFF) // bright green
-                : new RGBAColor32(0xA0, 0xA0, 0xA0, 0xFF); // grey
+                ? TianWen.UI.Abstractions.GuiTheme.Palette.Success // scheduled and reachable
+                : TianWen.UI.Abstractions.GuiTheme.Palette.DimText; // not scheduled
 
         // Sensor FOV rectangle is now drawn by the GPU LinePipeline (see BuildFovLines
         // in RenderSkyMap). No CPU drawing needed here.
@@ -815,7 +815,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         }
 
         // Amber matches the slewing reticle / active scheduled target.
-        var amber = new RGBAColor32(0xFF, 0xB0, 0x40, 0xFF);
+        var amber = TianWen.UI.Abstractions.GuiTheme.Palette.Warn;
         var fontSize = baseFontSize * dpiScale;
         var lineH = fontSize * 1.2f;
 
@@ -911,8 +911,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             // Dim targets currently below the horizon so they read as "not up yet".
             var alpha = (byte)(dimBelowHorizon && !site.IsAboveHorizon(ra, dec) ? 0x60 : 0xE0);
             var color = isActive
-                ? new RGBAColor32(0xFF, 0xB0, 0x40, alpha)  // amber - active observation
-                : new RGBAColor32(0x80, 0xE0, 0xA0, alpha); // pale green - scheduled
+                ? TianWen.UI.Abstractions.GuiTheme.Palette.Warn.WithAlpha(alpha)  // active observation
+                : TianWen.UI.Abstractions.GuiTheme.Palette.Success.WithAlpha(alpha); // scheduled
 
             VkOverlayShapes.DrawReticle(renderer, dpiScale,
                 sx, sy, radius: 9f, armLength: 14f, gap: 4f,
