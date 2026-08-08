@@ -12,7 +12,7 @@ namespace TianWen.Lib.Tests;
 [Collection("Scheduling")]
 public sealed class MosaicSchedulingTests
 {
-    // Vienna, Austria — ~48.2°N, ~16.4°E
+    // Vienna, Austria: ~48.2°N, ~16.4°E
     private const double SiteLatitude = 48.2;
     private const double SiteLongitude = 16.4;
     private const byte MinHeight = 20;
@@ -83,7 +83,7 @@ public sealed class MosaicSchedulingTests
         var transform = CreateTransform();
         var mosaicId = Guid.NewGuid();
 
-        // Panels at different RAs — should be ordered by RA ascending
+        // Panels at different RAs: should be ordered by RA ascending
         var panels = new[]
         {
             new ProposedObservation(new Target(0.90, 41.0, "P_HighRA", null), MosaicGroupId: mosaicId,
@@ -155,7 +155,7 @@ public sealed class MosaicSchedulingTests
         var transform = CreateTransform();
         var mosaicId = Guid.NewGuid();
 
-        // Panels spanning a range of RA — they'll have different meridian crossing times
+        // Panels spanning a range of RA: they'll have different meridian crossing times
         var panels = new[]
         {
             new ProposedObservation(new Target(0.50, 41.0, "East", null), MosaicGroupId: mosaicId,

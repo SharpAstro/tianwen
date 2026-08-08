@@ -66,7 +66,7 @@ namespace TianWen.Lib.Astrometry
             sinTheta = Math.Min(sinTheta, 1.0);
             double cosTheta = Math.Sqrt(Math.Max(0.0, 1.0 - sinTheta * sinTheta));
 
-            // m_hat = (v1 + v2) / |v1 + v2|. |v1 + v2| = 2 cos(alpha/2).
+            // m_hat = (v1 + v2) / |v1 + v2| - |v1 + v2| = 2 cos(alpha/2).
             double cosHalfAlpha = Math.Cos(halfAlpha);
             if (cosHalfAlpha < 1e-9)
             {

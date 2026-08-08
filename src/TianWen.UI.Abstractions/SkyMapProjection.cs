@@ -166,7 +166,7 @@ namespace TianWen.UI.Abstractions
             var rho = Math.Sqrt(px * px + py * py);
             if (rho < 1e-12)
             {
-                // At view center — recover forward direction from view matrix row 2 (negated)
+                // At view center: recover forward direction from view matrix row 2 (negated)
                 var fx = -viewMatrix.M31;
                 var fy = -viewMatrix.M32;
                 var fz = -viewMatrix.M33;

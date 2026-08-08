@@ -117,11 +117,11 @@ public static class MosaicGenerator
         // Sky-degree step in RA direction (what the FOV actually covers on the sky)
         var stepSkyWidth = fovWidthDeg * (1 - overlap);
         var cosDec = Math.Cos(centerDec * Math.PI / 180.0);
-        // RA coordinate step must account for cos(Dec) projection — wider RA-coord steps
+        // RA coordinate step must account for cos(Dec) projection; wider RA-coord steps
         // at higher declinations because RA lines converge toward the poles
         var stepRA = cosDec > 0.01 ? stepSkyWidth / cosDec : stepSkyWidth;
 
-        // Grid dimensions — compare sky-degree extents with sky-degree steps
+        // Grid dimensions: compare sky-degree extents with sky-degree steps
         var nRows = Math.Max(1, (int)Math.Ceiling(bboxHeightDeg / stepDec));
         var nCols = Math.Max(1, (int)Math.Ceiling(bboxWidthDeg / stepSkyWidth));
 

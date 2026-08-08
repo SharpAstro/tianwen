@@ -13,7 +13,7 @@ namespace TianWen.Lib.Tests;
 /// In-memory <see cref="ISerialConnection"/> that simulates a Gemini Focuser Pro (myFocuserPro2) controller:
 /// it parses the <c>':' … '#'</c> framed commands, holds position / target / temperature / temp-comp state,
 /// answers the get commands with a <c>&lt;status-char&gt;&lt;payload&gt;#</c> reply, and treats the set
-/// commands (Move/Halt) as silent. Used by the protocol and probe tests — no hardware.
+/// commands (Move/Halt) as silent. Used by the protocol and probe tests; no hardware.
 /// </summary>
 internal sealed class FakeGeminiFocuserSerialDevice(
     string firmwareName = "myFP2",
@@ -97,14 +97,14 @@ internal sealed class FakeGeminiFocuserSerialDevice(
             case "33": // step size
                 Enqueue($"Q{StepSize.ToString("0.0", CultureInfo.InvariantCulture)}#");
                 break;
-            case "27": // halt — silent
+            case "27": // halt, silent
                 Moving = false;
                 break;
-            case "230": // temp comp off — acks OK
+            case "230": // temp comp off, acks OK
                 TempCompEnabled = false;
                 Enqueue("!OK#");
                 break;
-            case "231": // temp comp on — acks OK
+            case "231": // temp comp on, acks OK
                 TempCompEnabled = true;
                 Enqueue("!OK#");
                 break;
@@ -112,7 +112,7 @@ internal sealed class FakeGeminiFocuserSerialDevice(
                 if (body.StartsWith("05", StringComparison.Ordinal)
                     && int.TryParse(body.AsSpan(2), NumberStyles.Integer, CultureInfo.InvariantCulture, out var t))
                 {
-                    // Move to absolute target — silent.
+                    // Move to absolute target: silent.
                     Target = t;
                     Moving = true;
                 }

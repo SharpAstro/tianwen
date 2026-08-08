@@ -281,7 +281,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
             Logger.LogDebug(ex, "Could not read current ISO from Canon camera");
         }
 
-        // Apply astrophotography-friendly defaults. Each setter is best-effort — older
+        // Apply astrophotography-friendly defaults. Each setter is best-effort; older
         // bodies reject some properties (returns non-OK EdsError), and a single
         // unsupported one must not fail the connect. Logged at Info on success so the
         // user can see in the log which defaults took effect.

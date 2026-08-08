@@ -76,7 +76,7 @@ public class ResilientCallTests
             return ValueTask.CompletedTask;
         }
 
-#pragma warning disable CS0067 // event is unused — only required to satisfy the interface
+#pragma warning disable CS0067 // event is unused, only required to satisfy the interface
         public event EventHandler<DeviceConnectedEventArgs>? DeviceConnectedEvent;
 #pragma warning restore CS0067
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -213,7 +213,7 @@ public class ResilientCallTests
                 driver, AlwaysThrowCancel,
                 ResilientCallOptions.IdempotentRead, cts.Token));
 
-        // No reconnect, no retry — cancellation is immediate.
+        // No reconnect, no retry: cancellation is immediate.
         driver.ConnectCalls.ShouldBe(0);
     }
 

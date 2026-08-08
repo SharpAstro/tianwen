@@ -121,7 +121,7 @@ public sealed record SigmaClipRejector(
     }
 
     /// <summary>
-    /// Vector&lt;float&gt; masked-stats kernel — kept for diagnostics + the
+    /// Vector&lt;float&gt; masked-stats kernel: kept for diagnostics + the
     /// future Phase 8 path where the integrator may want a quick mean/std
     /// check before deciding whether to invoke the more expensive median+MAD
     /// rejector on a column. The mask doubles as a multiplicative weight in

@@ -49,7 +49,7 @@ public class NeuralGuidePerformanceMonitorTests
 
         for (var i = 0; i < 10; i++)
         {
-            // Neural 10% worse than P — within 15% threshold
+            // Neural 10% worse than P, within 15% threshold
             monitor.Record(i, actualError: 1.1, pControllerEstimatedResidual: 1.0);
         }
 

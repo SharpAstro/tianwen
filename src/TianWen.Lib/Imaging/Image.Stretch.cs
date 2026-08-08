@@ -96,7 +96,7 @@ public partial class Image
     /// <summary>
     /// Midtones Transfer Function (PixInsight STF formula).
     /// Maps [0,1] → [0,1] with midtone balance controlling the curve shape.
-    /// This is the single source of truth — the GLSL shader reimplements the same formula.
+    /// This is the single source of truth: the GLSL shader reimplements the same formula.
     /// </summary>
     public static double MidtonesTransferFunction(double midToneBalance, double value)
     {
@@ -1086,7 +1086,7 @@ public partial class Image
     }
 
     /// <summary>
-    /// CPU mirror of the GLSL <c>stretchChannel()</c> function — single source of truth for the
+    /// CPU mirror of the GLSL <c>stretchChannel()</c> function; single source of truth for the
     /// per-channel stretch pipeline (pedestal subtract -> bg neutralization -> WB -> MTF). Both
     /// the Vulkan fragment shader and CPU consumers (<c>ConsoleImageRenderer</c>, headless
     /// renderers, tests) must produce the same result for the same <see cref="StretchUniforms"/>.
@@ -1157,7 +1157,7 @@ public partial class Image
     /// Predicts the post-stretch output scale (1 / max) so a caller can stamp
     /// <see cref="StretchUniforms.NormalizeScale"/> before rendering. Walks each channel's
     /// histogram from the top to find the brightest raw value, then pushes it through the
-    /// full chain (stretch + curves + HDR) — identical to the per-pixel path in
+    /// full chain (stretch + curves + HDR): identical to the per-pixel path in
     /// <see cref="RenderStretchedRgba"/>. The stretch + curves + HDR stages are all monotonic,
     /// so the brightest raw value yields the brightest post-stretch value. Returns 1.0 (no-op)
     /// when the predicted max is &lt;= ~1, since further upscaling can only saturate.
@@ -1190,8 +1190,8 @@ public partial class Image
         if (u.Mode is StretchMode.Luma && histograms.Length >= 3)
         {
             // Luma path: take the brightest sample of *each* channel independently and run
-            // the full luma kernel on the (r,g,b) triple. This is conservative — the same
-            // pixel won't usually peak in all three channels — but matches the monotonicity
+            // the full luma kernel on the (r,g,b) triple. This is conservative; the same
+            // pixel won't usually peak in all three channels, but matches the monotonicity
             // assumption used elsewhere and avoids needing the joint per-pixel histogram.
             var rRaw = TopBinCenter(histograms[0]);
             var gRaw = TopBinCenter(histograms[1]);
@@ -1350,7 +1350,7 @@ public partial class Image
     }
 
     /// <summary>
-    /// CPU mirror of the full GLSL fragment shader (image path) — renders this image into an RGBA
+    /// CPU mirror of the full GLSL fragment shader (image path); renders this image into an RGBA
     /// buffer at native resolution. Used by tests and headless renderers that cannot use the GPU.
     /// The pipeline order matches GLSL exactly: stretch (per-channel or luma) -> curves
     /// (LUT or boost) -> HDR -> clamp to [0, 1] -> byte. For Bayer images, debayer first via
@@ -1755,7 +1755,7 @@ public partial class Image
     /// <summary>
     /// Iteratively adjusts <c>stretchFactor</c> until the post-stretch median of the histogram
     /// converges to <paramref name="targetMedian"/>. Uses bisection over the histogram bins
-    /// — each bin's midpoint value is fed through <see cref="StretchValue"/> with the current
+    ///, each bin's midpoint value is fed through <see cref="StretchValue"/> with the current
     /// trial parameters, and the cumulative count walk finds the post-stretch median.
     /// </summary>
     /// <param name="histogram">Pre-computed histogram for the channel or luma.</param>
@@ -1770,7 +1770,7 @@ public partial class Image
     /// median/mad/binNorm are all multiplied by this factor before deriving shadows and
     /// computing the post-stretch median. Use the per-channel WB or, for luma convergence,
     /// the Rec.709-weighted WB scalar. Without this, convergence finds a factor X assuming
-    /// pre-WB shadow positions, but the per-channel rendering then applies WB-scaled stats —
+    /// pre-WB shadow positions, but the per-channel rendering then applies WB-scaled stats; 
     /// each channel's actual post-stretch median ends up offset from the target.</param>
     /// <returns>The converged stretch factor and corresponding midtones value.</returns>
     public static (double ConvergedFactor, double ConvergedMidtones) ConvergeStretchFactor(

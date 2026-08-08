@@ -153,7 +153,7 @@ public class ProportionalGuideControllerTests
 
     /// <summary>
     /// At any camera angle, a star that drifted in the +X direction on the sensor
-    /// should produce a correction that opposes the drift — i.e., the RA correction
+    /// should produce a correction that opposes the drift, i.e., the RA correction
     /// should be in the opposite sign to the RA error projection.
     ///
     /// This catches the sign bug where angle=π causes corrections to amplify the error.
@@ -188,7 +188,7 @@ public class ProportionalGuideControllerTests
         {
             // Correction sign should be opposite to error sign
             (correction.RaPulseMs * raErr).ShouldBeLessThanOrEqualTo(0,
-                $"At angle={cameraAngleRad:F2}rad, raErr={raErr:F2}, but raPulseMs={correction.RaPulseMs:F2} — correction should oppose error");
+                $"At angle={cameraAngleRad:F2}rad, raErr={raErr:F2}, but raPulseMs={correction.RaPulseMs:F2}; correction should oppose error");
         }
     }
 

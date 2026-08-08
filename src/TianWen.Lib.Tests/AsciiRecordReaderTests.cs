@@ -28,7 +28,7 @@ public class AsciiRecordReaderTests
     [Fact]
     public void GivenMultipleRecordsWhenEnumeratingThenYieldsEachRecordWithoutTheSeparator()
     {
-        // a␝b␝c — three records separated by GS (no trailing GS).
+        // a␝b␝c: three records separated by GS (no trailing GS).
         var raw = Encoding.UTF8.GetBytes("a").Concat(new[] { GS })
             .Concat(Encoding.UTF8.GetBytes("bb")).Concat(new[] { GS })
             .Concat(Encoding.UTF8.GetBytes("ccc")).ToArray();

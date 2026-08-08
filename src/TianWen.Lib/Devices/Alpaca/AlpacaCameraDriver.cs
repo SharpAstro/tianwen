@@ -312,7 +312,7 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
 
     // Frame downloaded + decoded once when the server first reports the image ready
     // (see GetImageReadyAsync), then read by the default ICameraDriver.GetImageAsync via the
-    // sync ImageData property. No buffer recycling — the float[,] is GC-managed per frame.
+    // sync ImageData property. No buffer recycling: the float[,] is GC-managed per frame.
     private Imaging.Channel? _imageData;
     // Recycled frame buffers returned by consumers via ChannelBuffer.onRelease (the DAL pattern);
     // a shape-mismatched buffer (ROI/bin change) is dropped inside DecodeChannel, never re-added.
@@ -345,7 +345,7 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
     public ValueTask SetBitDepthAsync(BitDepth? value, CancellationToken cancellationToken = default)
         => throw new InvalidOperationException("Setting bit depth is not supported!");
 
-    // Async-primary members — native async HTTP calls
+    // Async-primary members: native async HTTP calls
     public async ValueTask<bool> GetImageReadyAsync(CancellationToken cancellationToken = default)
     {
         var ready = await Client.GetBoolAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "imageready", cancellationToken);

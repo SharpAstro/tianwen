@@ -16,7 +16,7 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// All gating is header-based (frame type, exposure range, INSTRUME, provenance) with a
 /// path-segment exclusion as belt-and-braces for processed-data directories whose frames still
 /// carry Light-like headers; duplicates (same camera + DATE-OBS + exposure + dimensions) are
-/// kept once, first archive root winning — so callers pass the canonical root first.
+/// kept once, first archive root winning, so callers pass the canonical root first.
 /// </summary>
 public static class SessionDiscovery
 {
@@ -29,7 +29,7 @@ public static class SessionDiscovery
         "light", "lights", "dark", "darks", "bias", "biases",
         "flat", "flats", "darkflat", "darkflats", "rawframes");
 
-    /// <summary>Per-gate drop counters — reported by the CLI so exclusions are never silent.</summary>
+    /// <summary>Per-gate drop counters: reported by the CLI so exclusions are never silent.</summary>
     public sealed record DiscoveryStats(
         int Scanned,
         int NotLight,
@@ -208,7 +208,7 @@ public static class SessionDiscovery
         var relative = Path.GetRelativePath(root, path);
         if (relative.StartsWith("..", StringComparison.Ordinal))
         {
-            return true; // outside the root it was reported under — never ingest
+            return true; // outside the root it was reported under, never ingest
         }
         var directory = Path.GetDirectoryName(relative) ?? "";
         foreach (var segment in EnumerateDirSegments(directory))

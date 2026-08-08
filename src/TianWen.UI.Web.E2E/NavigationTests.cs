@@ -7,9 +7,9 @@ namespace TianWen.UI.Web.E2E;
 
 /// <summary>
 /// Browser E2E for the Planner/Sky-Atlas view switching. The planner list and sky map are drawn
-/// into a &lt;canvas&gt;, so these tests never read pixels — they assert on the observable chrome
+/// into a &lt;canvas&gt;, so these tests never read pixels; they assert on the observable chrome
 /// DOM the unit tests can't reach: the titlebar view chips (<c>[data-view]</c> + the
-/// <c>active</c> class), the address bar (there is no Blazor Router — chips navigate via
+/// <c>active</c> class), the address bar (there is no Blazor Router; chips navigate via
 /// NavigationManager to a <c>?view=sky</c> query string, and the component parses the URL itself),
 /// the document title
 /// (<c>&lt;PageTitle&gt;</c>), the aria-live status line, and the catalog-loading indicator.
@@ -60,7 +60,7 @@ public sealed class NavigationTests(TianWenWebFixture fixture) : IAsyncDisposabl
 
     // The catalog feeds both views; the app is "ready" once the loading indicator is gone (the
     // @if (!_ready) block is removed from the DOM). Waiting for this makes view switches
-    // deterministic — during the load the single WASM thread is frozen and clicks queue.
+    // deterministic, during the load the single WASM thread is frozen and clicks queue.
     private async Task WaitReadyAsync(IPage page)
     {
         await Expect(PlannerChip(page)).ToBeVisibleAsync(new() { Timeout = BootTimeout });
@@ -75,7 +75,7 @@ public sealed class NavigationTests(TianWenWebFixture fixture) : IAsyncDisposabl
         var page = await OpenAsync("");
 
         // Planner is the default active view; the sky chip is present but not active.
-        // NB: we do NOT assert the .catalog-loading indicator is *visible* here — during the
+        // NB: we do NOT assert the .catalog-loading indicator is *visible* here, during the
         // interpreted-WASM catalog load the browser main thread (where WASM runs) is frozen, so
         // Playwright can't observe the transient indicator; it only ever sees the settled DOM once
         // the thread frees. The indicator's *disappearance* after load is the stable assertion,

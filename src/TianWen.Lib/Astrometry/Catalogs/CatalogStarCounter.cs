@@ -21,7 +21,7 @@ namespace TianWen.Lib.Astrometry.Catalogs
         /// Enumerates the unique <see cref="ObjectType.Star"/> catalog entries (non-NaN V magnitude) whose
         /// containing grid cells fall within <paramref name="searchRadiusDeg"/> of the field centre. This is
         /// the shared cell-walk core: it dedupes <see cref="CatalogIndex"/> across overlapping cells and applies
-        /// only the star/NaN filter — callers apply their own magnitude and spatial (box / projection) tests.
+        /// only the star/NaN filter: callers apply their own magnitude and spatial (box / projection) tests.
         /// </summary>
         public static IEnumerable<CelestialObject> EnumerateFieldStars(
             ICelestialObjectDB db, double raHours, double decDeg, double searchRadiusDeg)
@@ -35,7 +35,7 @@ namespace TianWen.Lib.Astrometry.Catalogs
             var raMaxH = raHours + raRadiusHours;
 
             var grid = db.CoordinateGrid;
-            // Grid cells are ~1/15 h in RA, ~1 deg in Dec — step at that resolution so every overlapping cell is hit.
+            // Grid cells are ~1/15 h in RA, ~1 deg in Dec: step at that resolution so every overlapping cell is hit.
             const double raStepH = 1.0 / 15.0;
             const double decStep = 1.0;
 

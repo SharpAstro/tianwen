@@ -9,7 +9,7 @@ namespace TianWen.Lib.Devices.Discovery;
 /// probe before falling back to general probing.
 /// </summary>
 /// <param name="Port">Serial port in the canonical enumerated form (e.g. <c>serial:COM5</c>).</param>
-/// <param name="ExpectedUri">Full device URI from the active profile — scheme (DeviceType),
+/// <param name="ExpectedUri">Full device URI from the active profile; scheme (DeviceType),
 /// host (device source name), and path (deviceId) are all used to pick a verification probe
 /// and confirm identity after the handshake.</param>
 public sealed record PinnedSerialPort(string Port, Uri ExpectedUri);

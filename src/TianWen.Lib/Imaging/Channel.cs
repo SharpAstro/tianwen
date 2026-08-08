@@ -6,7 +6,7 @@ namespace TianWen.Lib.Imaging;
 
 /// <summary>
 /// A single image channel: a 2D float array with associated metadata.
-/// Channels are the fundamental unit of image data — cameras produce them,
+/// Channels are the fundamental unit of image data; cameras produce them,
 /// debayer writes into them, and viewers upload them to the GPU.
 /// </summary>
 /// <param name="Data">Pixel data in row-major [Height, Width] layout.</param>
@@ -17,11 +17,11 @@ namespace TianWen.Lib.Imaging;
 public readonly record struct Channel(float[,] Data, Filter Filter, float MinValue, float MaxValue, byte Index)
 {
     /// <summary>
-    /// Optional ref-counted owner of <see cref="Data"/> — set by camera drivers whose buffers
+    /// Optional ref-counted owner of <see cref="Data"/>; set by camera drivers whose buffers
     /// recycle (see <c>DALCameraDriver._freeBuffers</c>), so the buffer travels WITH its channel
     /// into the <see cref="Image"/> constructor (which harvests it for <see cref="Image.Release"/>).
     /// Carries a single ownership ref: whoever holds the Channel last is responsible for the
-    /// release — do not copy a buffer-carrying Channel into two owners without <c>AddRef</c>.
+    /// release: do not copy a buffer-carrying Channel into two owners without <c>AddRef</c>.
     /// Null for channels that own their arrays outright (debayer output, tests, file loads).
     /// </summary>
     internal ChannelBuffer? Buffer { get; init; }

@@ -16,14 +16,14 @@ namespace TianWen.Lib.Tests;
 public class SkyMapSearchActionsTests
 {
     // SkyMapSearchActions relies on ICelestialObjectDB for the real index. These
-    // tests only cover the parts that don't need a loaded catalog — filter-with-empty
+    // tests only cover the parts that don't need a loaded catalog; filter-with-empty
     // index and state plumbing. End-to-end filtering is exercised via the GUI.
 
     [Fact]
     public void FilterResultsWithEmptyIndexReturnsEmpty()
     {
         var search = new SkyMapSearchState();
-        // No SearchIndex set — simulating "catalog not loaded yet".
+        // No SearchIndex set: simulating "catalog not loaded yet".
         search.SearchIndex = [];
 
         // Should not throw, just return no results.
@@ -167,14 +167,14 @@ public class SkyMapSearchActionsTests
         var viewingUtc = new DateTimeOffset(2026, 9, 22, 18, 0, 0, TimeSpan.Zero);
         var site = SiteContext.Create(51.5, 0.0, viewingUtc);
 
-        // Autumn equinox sky, RA 0h Dec +30 — easy object for a mid-northern observer.
+        // Autumn equinox sky, RA 0h Dec +30: easy object for a mid-northern observer.
         var info = SkyMapInfoPanelData.FromPosition(
             "Test", raHours: 0.0, decDeg: 30.0,
             siteLat: 51.5, siteLon: 0.0,
             viewingUtc: viewingUtc, site: site);
 
         info.Name.ShouldBe("Test");
-        // Alt/Az computed — site is valid, so neither should be NaN.
+        // Alt/Az computed: site is valid, so neither should be NaN.
         double.IsNaN(info.AltDeg).ShouldBeFalse();
         double.IsNaN(info.AzDeg).ShouldBeFalse();
         // Dec +30 from lat +51.5 can rise and set (not circumpolar, not hidden).
@@ -255,7 +255,7 @@ public class SkyMapSearchActionsTests
     // call: it derives the viewport projection (ppr, centre) from SkyMapState.LastContentRect +
     // CurrentViewMatrix and preferPointSource from the Ctrl modifier, then delegates to
     // SelectObjectByClick. Pins that boilerplate so the web (which has no AppSignalHandler) resolves a
-    // sky-map click identically to desktop — the exact path wired in Planner.razor's WireSkyMapInteractions.
+    // sky-map click identically to desktop: the exact path wired in Planner.razor's WireSkyMapInteractions.
     [Fact]
     public void SelectAtScreenPoint_DerivesViewportAndCtrlFromState()
     {
@@ -276,7 +276,7 @@ public class SkyMapSearchActionsTests
             CenterDec = 0.0,
             FieldOfViewDeg = 2.0,
             ShowObjectOverlay = true,
-            // The helper reads the viewport off state — a 1000x1000 content rect at the origin, so the
+            // The helper reads the viewport off state: a 1000x1000 content rect at the origin, so the
             // derived centre is (500, 500) exactly like the SelectObjectByClick test above.
             LastContentRect = new RectF32(0f, 0f, 1000f, height),
         };
@@ -304,7 +304,7 @@ public class SkyMapSearchActionsTests
     }
 
     // Dark nebulae follow the [D] layer. The click resolver must honour that: a hidden dark
-    // nebula is NOT selectable (regression — it used to hit-test every DSO regardless of the
+    // nebula is NOT selectable (regression, it used to hit-test every DSO regardless of the
     // toggle), but enabling [D] or pinning the target makes it clickable again. Covers both the
     // DSO pass and the star pass (CoordinateGrid is composite, so the dark neb is in both).
     [Fact]
@@ -313,7 +313,7 @@ public class SkyMapSearchActionsTests
         var darkNeb = new CelestialObject(CatalogIndex.LDN00146, ObjectType.DarkNeb,
             12.0, 0.0, Constellation.Cygnus, Half.NaN, Half.NaN, Half.NaN,
             new HashSet<string> { "TestDarkNeb" });
-        // A field star parked far off the click so the star pass never matches it — the result
+        // A field star parked far off the click so the star pass never matches it; the result
         // is then driven purely by whether the dark nebula itself is clickable.
         var farStar = new CelestialObject(CatalogIndex.HIP025281, ObjectType.Star,
             12.0, 80.0, Constellation.Cygnus, Half.NaN, Half.NaN, Half.NaN,
@@ -445,7 +445,7 @@ public class SkyMapSearchActionsTests
         search.IsOpen.ShouldBeFalse("a successful commit closes the modal");
     }
 
-    // Minimal ICelestialObjectDB stub — only CreateAutoCompleteList and TryLookupByIndex
+    // Minimal ICelestialObjectDB stub, only CreateAutoCompleteList and TryLookupByIndex
     // are needed for the tests above. Rest throw to catch accidental usage.
     private class EmptyDb : TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB
     {

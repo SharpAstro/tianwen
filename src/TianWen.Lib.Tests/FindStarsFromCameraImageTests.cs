@@ -65,7 +65,7 @@ public class FindStarsFromCameraImageTests
         var denormalized = new Image([imageData.Data], BitDepth.Int16, imageData.MaxValue, imageData.MinValue, Pedestal, imageMeta);
         var denormalizedStars = await denormalized.FindStarsAsync(channel, snrMin: snr_min, cancellationToken: cancellationToken);
 
-        // SNR is now scale-invariant — same threshold works for normalized images
+        // SNR is now scale-invariant: same threshold works for normalized images
         var normalized = denormalized.ScaleFloatValuesToUnit();
         var normalizedStars = await normalized.FindStarsAsync(channel, snrMin: snr_min, cancellationToken: cancellationToken);
 

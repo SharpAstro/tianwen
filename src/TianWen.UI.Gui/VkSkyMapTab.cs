@@ -733,7 +733,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // reticle itself ends up just outside the viewport during a long slew.
         RenderSlewTarget(contentRect, dpiScale, baseFontSize, ppr, cx, cy, screenX, screenY);
 
-        // Skip if the mount is projected well off-screen — no point drawing a reticle
+        // Skip if the mount is projected well off-screen; no point drawing a reticle
         // we can't see, and it keeps the label clutter off the info strip.
         const float margin = 100f;
         if (screenX < contentRect.X - margin || screenX > contentRect.X + contentRect.Width + margin
@@ -760,7 +760,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
 
         // Label: mount name + current RA/Dec below the reticle, matched to the reticle
         // colour. The coordinate readout makes "why is the reticle here?" trivial to
-        // diagnose — if the mount is pointing at Eta Carinae but the user thinks it
+        // diagnose, if the mount is pointing at Eta Carinae but the user thinks it
         // should be at the pole, the label tells the truth immediately.
         var fontSize = baseFontSize * dpiScale;
         var lineH = fontSize * 1.2f;
@@ -940,7 +940,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// and <see cref="BuildMountLabelReservation"/> (which reserves their footprint so
     /// catalog labels don't overlap), so the rendered text and the reserved box can't drift.
     /// </summary>
-    // No '+' for positive Dec — at small font a thin '+' was misread as '-' (and
+    // No '+' for positive Dec: at small font a thin '+' was misread as '-' (and
     // vice versa) on the bug-hunt screenshots. Bare sign-when-negative is unambiguous.
     // Proper DMS punctuation (' for arcmin, " for arcsec) reads cleanly as a
     // sky coordinate vs the default ':' which looked like a time.
@@ -1057,7 +1057,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     /// Projects a unit vector, draws a small reticle + label, and registers a
     /// clickable hit region that posts a <see cref="SkyMapShowFixedPointInfoSignal"/>.
     /// The signal opens the standard sky-map info panel (with its Goto button) for
-    /// the marker's coordinates — clicking the marker itself never slews. This
+    /// the marker's coordinates: clicking the marker itself never slews. This
     /// mirrors the catalog click-select behaviour: clicks select, the Goto button
     /// is the only path to a slew.
     /// </summary>
@@ -1090,7 +1090,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         DrawReticleLabel(label, fontSize, color, sx, sy + 14f * dpiScale, lineH);
 
         // 36x36 clickable box centered on the reticle. Open the info panel rather than
-        // slewing directly — same UX rule as the rest of the map (click selects, Goto
+        // slewing directly: same UX rule as the rest of the map (click selects, Goto
         // button slews).
         var hitSize = 36f * dpiScale;
         var capturedName = slewName;
@@ -1236,7 +1236,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         var byteOffset = ctx.WriteVertices(span);
         if (byteOffset == uint.MaxValue)
         {
-            return (default, 0, 0); // ring buffer full — skip this frame
+            return (default, 0, 0); // ring buffer full; skip this frame
         }
 
         return (ctx.VertexBuffer, byteOffset, (uint)(floats.Count / 3));

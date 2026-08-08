@@ -15,7 +15,7 @@ namespace TianWen.UI.Abstractions;
 /// <summary>
 /// Orchestrates file loading, star detection, and DI-dependent toolbar actions
 /// for the FITS viewer. Owns document lifecycle and background task management.
-/// Does not depend on SDL/Vulkan — display concerns stay in Program.cs.
+/// Does not depend on SDL/Vulkan: display concerns stay in Program.cs.
 /// </summary>
 public sealed class ViewerController(
     ViewerState state,
@@ -257,7 +257,7 @@ public sealed class ViewerController(
                 else if (state.StretchMode is StretchMode.Linked or StretchMode.Luma
                     && newDoc.UnstretchedImage.ChannelCount < 3)
                 {
-                    // Switch from color to mono — Linked/Luma need 3+ channels
+                    // Switch from color to mono: Linked/Luma need 3+ channels
                     state.StretchMode = StretchMode.Unlinked;
                 }
                 else if (state.StretchMode is StretchMode.None && !newDoc.IsPreStretched)

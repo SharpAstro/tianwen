@@ -12,7 +12,7 @@ namespace TianWen.Lib.Devices.Gemini;
 /// <summary>
 /// Gemini Focuser Pro robotic focuser addressed by URI. The <c>port</c> query parameter carries the serial
 /// port (e.g. <c>serial:COM5</c>); baud is fixed at <see cref="GeminiFocuserProtocol.Baud"/>. A native
-/// (ASCOM-free) driver for the rebadged myFocuserPro2 Arduino controller — see
+/// (ASCOM-free) driver for the rebadged myFocuserPro2 Arduino controller; see
 /// <c>docs/architecture/gemini-focuser-pro-protocol.md</c>. Distinct from the flat-panel
 /// <see cref="GeminiDevice"/> (different product, protocol and <see cref="DeviceBase.DeviceClass"/>).
 /// </summary>

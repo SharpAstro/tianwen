@@ -20,7 +20,7 @@ namespace TianWen.Lib.Tests.Functional;
 [Collection("Session")]
 public class SessionPhaseTests(ITestOutputHelper output)
 {
-    // Winter night in Vienna — astro dark at ~17:30 UTC, twilight at ~04:30 UTC
+    // Winter night in Vienna: astro dark at ~17:30 UTC, twilight at ~04:30 UTC
     private static readonly DateTimeOffset WinterNight = new DateTimeOffset(2025, 12, 15, 17, 30, 0, TimeSpan.Zero);
 
     [Fact(Timeout = 120_000)]
@@ -116,7 +116,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             }
         };
 
-        // Run session — will enter Cooling then get cancelled
+        // Run session: will enter Cooling then get cancelled
         var runTask = Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ct);
 
         // Pump time until complete (including warmup in Finalise)
@@ -221,7 +221,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             transitions.Enqueue((e.OldPhase, e.NewPhase));
         };
 
-        // Cancel quickly — we just need the first few transitions
+        // Cancel quickly: we just need the first few transitions
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         using var cancelTimer = ctx.TimeProvider.CreateTimer(
             _ => cts.Cancel(), null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
@@ -305,7 +305,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         }
         else
         {
-            output.WriteLine("AutoFocus phase was not reached — test inconclusive (session may have failed earlier)");
+            output.WriteLine("AutoFocus phase was not reached, test inconclusive (session may have failed earlier)");
         }
     }
 
@@ -404,7 +404,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         var mount = new Mount(mountDevice, sp);
         var guider = new Guider(guiderDevice, sp);
 
-        // Don't pre-connect mount/guider — InitialisationAsync handles it
+        // Don't pre-connect mount/guider: InitialisationAsync handles it
         var setup = new Setup(mount, guider, new GuiderSetup(), [ota]);
         var plateSolver = new FakePlateSolver();
         var config = SessionTestHelper.DefaultConfiguration;

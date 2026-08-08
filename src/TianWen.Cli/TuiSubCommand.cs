@@ -111,7 +111,7 @@ internal class TuiSubCommand(
         // View contexts: the local node plus (later) any observed rigs. Exactly one today; the tabs
         // render contexts.Active while anything owning local hardware reads contexts.Local.
         var contexts = new ViewContexts();
-        // TUI has no sky map tab — pass a standalone state so the shared handler still wires.
+        // TUI has no sky map tab: pass a standalone state so the shared handler still wires.
         var skyMapState = new SkyMapState();
 
         // Wire shared business logic
@@ -152,7 +152,7 @@ internal class TuiSubCommand(
             [GuiTab.Notifications] = new TuiNotificationsTab(appState),
         };
 
-        // BuildScheduleSignal is now handled inside AppSignalHandler — no host-level subscription needed
+        // BuildScheduleSignal is now handled inside AppSignalHandler; no host-level subscription needed
 
         // Auto-discover devices on startup when --fake is passed
         if (includeFake)
@@ -166,7 +166,7 @@ internal class TuiSubCommand(
             tracker.Run(() => signalHandler.InitializePlannerAsync(transform, cts.Token), "Compute tonight's best targets");
         }
 
-        // Prevent Ctrl+C from killing the process — it arrives as a regular key event instead
+        // Prevent Ctrl+C from killing the process: it arrives as a regular key event instead
         System.Console.TreatControlCAsInput = true;
 
 #if SIBLING_DEBUG_INSPECTORS
@@ -185,7 +185,7 @@ internal class TuiSubCommand(
             : null;
 #endif
 
-        // Build top-level chrome (tab bar only — status shown in each tab's own bar)
+        // Build top-level chrome (tab bar only, status shown in each tab's own bar)
         var chromePanel = new Panel(terminal);
         var tabBarVp = chromePanel.Dock(DockStyle.Top, 1);
 
@@ -224,14 +224,14 @@ internal class TuiSubCommand(
                     : $"{rawEvt.ToInputEvent?.ToString() ?? $"unmapped key={rawEvt.Key}"} on {appState.ActiveTab}");
 #endif
 
-                // Tab switching: 1-4 or F1-F4 (skip when editing site — digits go to text input)
+                // Tab switching: 1-4 or F1-F4 (skip when editing site, digits go to text input)
                 if (!eqState.IsEditingSite && TrySwitchTab(rawEvt, appState, tabs, ref activeTab, terminal, tabBar))
                 {
                     continue;
                 }
 
                 // Raw mouse events (including motion/drag) go to the tab first so a
-                // ScrollableList can consume them — the DIR.Lib InputEvent mapping
+                // ScrollableList can consume them: the DIR.Lib InputEvent mapping
                 // doesn't carry motion state.
                 if (rawEvt.Mouse is { } rawMouse && activeTab.HandleRawMouse(rawMouse))
                 {
@@ -335,7 +335,7 @@ internal class TuiSubCommand(
                 appState.NeedsRedraw = true;
             }
 
-            // Render — catch exceptions so a render bug never kills a live imaging session
+            // Render: catch exceptions so a render bug never kills a live imaging session
             if (appState.NeedsRedraw || activeTab.NeedsRedraw)
             {
                 // Read this BEFORE rendering: the tab clears its own flag as its first act, so asking
@@ -347,7 +347,7 @@ internal class TuiSubCommand(
                 appState.NeedsRedraw = false;
                 try
                 {
-                    // Terminal title: "TianWen — Profile — Tab"
+                    // Terminal title: "TianWen, Profile, Tab"
                     var tabName = appState.ActiveTab switch
                     {
                         GuiTab.Equipment => "Equipment",
@@ -398,7 +398,7 @@ internal class TuiSubCommand(
                     var nowUtc = consoleHost.TimeProvider.GetUtcNow();
                     if (nowUtc - lastPaintReport >= TimeSpan.FromSeconds(1))
                     {
-                        // Cell counts are the terminal's running TOTALS diffed across the interval — never
+                        // Cell counts are the terminal's running TOTALS diffed across the interval, never
                         // per-flush values. A frame can flush more than once (that was the flicker:
                         // TerminalViewport flushed per cursor move, shipping the half-painted diff), and a
                         // last-flush read reports only the final one, which is exactly how the first

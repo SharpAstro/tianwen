@@ -10,7 +10,7 @@ namespace TianWen.Lib.Sequencing;
 /// <param name="MaxAttempts">Total attempts (including the first). <c>1</c> disables retry.</param>
 /// <param name="InitialBackoff">Delay before the second attempt. Scaled by <paramref name="BackoffMultiplier"/> for subsequent attempts.</param>
 /// <param name="BackoffMultiplier">Per-attempt backoff growth factor. <c>1.0</c> = constant, <c>3.0</c> = 250ms / 750ms / 2250ms for the default read preset.</param>
-/// <param name="IsIdempotent">If <see langword="true"/>, the op may be retried. Non-idempotent ops (slew, exposure start, dither) must set this to <see langword="false"/> — retry would double-issue.</param>
+/// <param name="IsIdempotent">If <see langword="true"/>, the op may be retried. Non-idempotent ops (slew, exposure start, dither) must set this to <see langword="false"/>; retry would double-issue.</param>
 /// <param name="OperationName">Short label emitted in log scopes. Typically the verb: "read", "move", "slew", "expose".</param>
 internal readonly record struct ResilientCallOptions(
     int MaxAttempts,

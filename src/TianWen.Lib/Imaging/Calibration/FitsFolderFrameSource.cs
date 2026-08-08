@@ -16,7 +16,7 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// Phase 5).
 /// </summary>
 /// <remarks>
-/// <para>Header-only reads via <see cref="Image.TryReadFitsHeader"/> — the FITS.Lib
+/// <para>Header-only reads via <see cref="Image.TryReadFitsHeader"/>; the FITS.Lib
 /// 4.5.1 <c>Fits.ReadHDUHeaderOnly</c> call skips the data block, so a 100-frame
 /// folder scan stays kilobyte-scale rather than allocating 3.6 GB of throwaway
 /// pixel buffers.</para>

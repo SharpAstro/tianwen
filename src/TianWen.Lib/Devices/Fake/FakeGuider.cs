@@ -294,13 +294,13 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         var current = CurrentState;
         if (current is GuiderState.Guiding)
         {
-            // Already guiding — nothing to do
+            // Already guiding: nothing to do
             return ValueTask.CompletedTask;
         }
 
         if (current is GuiderState.Settling)
         {
-            // Already settling — update settle params and restart settle timer
+            // Already settling: update settle params and restart settle timer
             _settlePixels = settlePixels;
             RecordSettleStart();
             return ValueTask.CompletedTask;
@@ -311,7 +311,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             throw new GuiderException($"Cannot start guiding in state {current}");
         }
 
-        // Transition to Settling — the shared capture loop (started by LoopAsync) will
+        // Transition to Settling: the shared capture loop (started by LoopAsync) will
         // detect the state change and start applying guide corrections once settled.
         ForceState(GuiderState.Settling);
         RecordSettleStart();
@@ -442,7 +442,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             var ext = TimeProvider;
             var pollInterval = External.ImageReadyPollInterval;
 
-            // Phase 1: Loop capture — expose and store frames until guiding starts
+            // Phase 1: Loop capture; expose and store frames until guiding starts
             while (!ct.IsCancellationRequested)
             {
                 var state = CurrentState;
@@ -466,7 +466,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
                 LastLoopFrame = frame;
             }
 
-            // Continue capturing during settle — keeps the guider view updating
+            // Continue capturing during settle: keeps the guider view updating
             while (!TryCompleteSettle() && CurrentState is GuiderState.Settling && !ct.IsCancellationRequested)
             {
                 _lastLoopFrame?.Release();
@@ -476,7 +476,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
 
             if (ct.IsCancellationRequested || CurrentState is GuiderState.Idle) return;
 
-            // Phase 2: Guided capture — acquire guide star, then run GuideLoop
+            // Phase 2: Guided capture; acquire guide star, then run GuideLoop
             var tracker = new GuiderCentroidTracker(maxStars: 1);
             var initFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, ct);
             LastLoopFrame = initFrame;
@@ -501,7 +501,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
                 async token =>
                 {
                     var f = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, token);
-                    LastLoopFrame = f; // same ref as GuideLoop.LastFrame — no extra Release needed
+                    LastLoopFrame = f; // same ref as GuideLoop.LastFrame; no extra Release needed
                     return f;
                 },
                 exposureTime, hourAngle, declination, siteLatitude, cancellationToken: ct);
@@ -545,7 +545,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         var path = Path.Combine(outputFolder, $"guider_{TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
 
         // Write WCS headers from current mount pointing so FakePlateSolver can read them.
-        // FITS WCS is a J2000 quantity — convert from the mount's native (typically JNOW) frame.
+        // FITS WCS is a J2000 quantity: convert from the mount's native (typically JNOW) frame.
         // A plate solve reports the TRUE sky, so prefer the fake mount's hidden-error seam
         // (polar misalignment / drift) over the public believed read; this is what feeds the
         // polar-align routine its misalignment signal. Real mounts only have believed reads.

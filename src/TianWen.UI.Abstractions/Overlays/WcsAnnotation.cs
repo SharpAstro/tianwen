@@ -8,7 +8,7 @@ namespace TianWen.UI.Abstractions.Overlays
     /// kinds of items: <see cref="SkyMarker"/>s (point glyphs at sky positions)
     /// and <see cref="SkyRing"/>s (circles of arcmin radius around a sky position).
     ///
-    /// Generic primitive — not polar-alignment-specific. Intended consumers:
+    /// Generic primitive, not polar-alignment-specific. Intended consumers:
     /// the polar-alignment mode (two pole crosses + 5'/15'/30' rings + axis
     /// marker), the FITS viewer (plate-solve cross-checks, search rings around
     /// clicked targets), the live preview (target markers, dither circle),
@@ -30,7 +30,7 @@ namespace TianWen.UI.Abstractions.Overlays
     /// </summary>
     /// <param name="RaHours">J2000 RA in hours [0, 24).</param>
     /// <param name="DecDeg">J2000 Dec in degrees [-90, 90].</param>
-    /// <param name="Glyph">Visual style — drives which primitive the renderer dispatches.</param>
+    /// <param name="Glyph">Visual style: drives which primitive the renderer dispatches.</param>
     /// <param name="Color">Stroke colour with alpha.</param>
     /// <param name="Label">Optional label drawn next to the marker; null for no label.</param>
     /// <param name="SizePx">Glyph size in screen pixels (cross arm length / dot radius / etc.).</param>
@@ -44,7 +44,7 @@ namespace TianWen.UI.Abstractions.Overlays
 
     /// <summary>
     /// Concentric circle of fixed angular radius drawn around a sky position.
-    /// Circular in the local tangent plane — the renderer treats it as an
+    /// Circular in the local tangent plane: the renderer treats it as an
     /// ellipse using the local pixel scale (good approximation for small
     /// rings; below ~5° radius the foreshortening error is sub-pixel).
     /// </summary>
@@ -65,7 +65,7 @@ namespace TianWen.UI.Abstractions.Overlays
     /// through the WCS at render time. Used by the polar-alignment overlay
     /// to point toward where a bright star (or, for our first pass, the
     /// frame centre) needs to move to bring the rotation axis onto the
-    /// refracted pole — a SharpCap-style "follow this arrow" hint.
+    /// refracted pole: a SharpCap-style "follow this arrow" hint.
     /// </summary>
     /// <param name="StartRaHours">Tail RA in hours.</param>
     /// <param name="StartDecDeg">Tail Dec in degrees.</param>

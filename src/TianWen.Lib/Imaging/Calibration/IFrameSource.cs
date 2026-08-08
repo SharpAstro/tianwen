@@ -20,7 +20,7 @@ public interface IFrameSource
 {
     /// <summary>
     /// Enumerates the frames in this source, parsing FITS headers as it goes.
-    /// Frames that fail to read or parse are silently skipped — corrupt files
+    /// Frames that fail to read or parse are silently skipped; corrupt files
     /// in a capture folder shouldn't stop the rest of the pipeline.
     /// </summary>
     IAsyncEnumerable<FrameInfo> EnumerateAsync(CancellationToken cancellationToken = default);

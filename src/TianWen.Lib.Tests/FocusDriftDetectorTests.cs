@@ -6,7 +6,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Pure-function tests for <see cref="FocusDriftDetector"/> — the least-squares HFD trend
+/// Pure-function tests for <see cref="FocusDriftDetector"/>; the least-squares HFD trend
 /// used by the imaging loop's focus-drift check instead of a single-frame ratio comparison.
 /// </summary>
 public class FocusDriftDetectorTests
@@ -99,7 +99,7 @@ public class FocusDriftDetectorTests
     [Fact]
     public void Fewer_comparable_samples_than_minimum_falls_back_to_raw_hfd()
     {
-        // 8 frames in the window but only 4 comparable — below minSamples the trend is
+        // 8 frames in the window but only 4 comparable: below minSamples the trend is
         // not trusted and the check falls back to the newest frame's raw HFD.
         var history = new FrameMetrics[8];
         for (var k = 0; k < 8; k++)

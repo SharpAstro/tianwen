@@ -151,12 +151,12 @@ public static class PlannerActions
             }
         }
 
-        // Atomic reference swap — readers either see the old dict or the new one.
+        // Atomic reference swap: readers either see the old dict or the new one.
         state.ScoredTargets = scoredBuilder.ToImmutable();
         state.AltitudeProfiles = profilesBuilder.ToImmutable();
 
         // Sort by score descending (same as TonightsBest ordering) and replace the
-        // TonightsBest reference atomically — readers on the render thread either see
+        // TonightsBest reference atomically: readers on the render thread either see
         // the old array or the new one, never a partially-mutated list.
         rescored.Sort((a, b) => b.TotalScore.CompareTo(a.TotalScore));
         state.TonightsBest = rescored.ToImmutableArray();
@@ -213,7 +213,7 @@ public static class PlannerActions
 
         state.TonightsBest = tonightsBest;
 
-        // Score all targets for elevation profiles — build into a local builder then
+        // Score all targets for elevation profiles: build into a local builder then
         // swap the state reference atomically so render-thread readers never see a
         // cleared-then-rebuilding Dictionary.
         var scoredBuilder = ImmutableDictionary.CreateBuilder<Target, ScoredTarget>();
@@ -232,7 +232,7 @@ public static class PlannerActions
 
         var profilesBuilder = ImmutableDictionary.CreateBuilder<Target, List<(DateTimeOffset Time, double Alt)>>();
         // Reset aliases atomically before the loop; PopulateTargetAlias does per-entry
-        // SetItem swaps (fine at this frequency — ~100 targets, O(log n) per set).
+        // SetItem swaps (fine at this frequency, ~100 targets, O(log n) per set).
         state.TargetAliases = ImmutableDictionary<Target, string>.Empty;
         foreach (var scored in tonightsBest)
         {
@@ -281,7 +281,7 @@ public static class PlannerActions
         }
 
         // Sort pinned by actual peak altitude time (not OptimalStart, which is the
-        // start of the viable window — misleading for circumpolar targets)
+        // start of the viable window: misleading for circumpolar targets)
         pinnedScored.Sort((a, b) =>
         {
             var peakA = state.AltitudeProfiles.TryGetValue(a.Target, out var profA) && profA.Count > 0
@@ -805,7 +805,7 @@ public static class PlannerActions
             }
             else if (transform.TryGetOrbitalPositionRaDec(match, state.AstroDark, out ra, out dec))
             {
-                // Planet/solar system object not in main DB — use query as name since
+                // Planet/solar system object not in main DB: use query as name since
                 // it came from the autocomplete list which contains the common name
                 name = query;
             }
@@ -895,7 +895,7 @@ public static class PlannerActions
     /// <summary>
     /// Resolves a single exact autocomplete entry (common name or catalog designation)
     /// and adds it as a search result, or selects it in TonightsBest if already present.
-    /// Unlike <see cref="SearchTargets"/>, this does NOT re-search — it trusts the caller's selection.
+    /// Unlike <see cref="SearchTargets"/>, this does NOT re-search; it trusts the caller's selection.
     /// </summary>
     public static int CommitSuggestion(
         PlannerState state,
@@ -946,7 +946,7 @@ public static class PlannerActions
             return -1;
         }
 
-        // Get RA/Dec — from DB or VSOP87 for planets
+        // Get RA/Dec, from DB or VSOP87 for planets
         double ra, dec;
         string name = suggestion;
 
@@ -980,7 +980,7 @@ public static class PlannerActions
 
         var target = new Target(ra, dec, name, catIdx);
 
-        // Check if already in TonightsBest — select it there
+        // Check if already in TonightsBest: select it there
         for (var i = 0; i < state.TonightsBest.Length; i++)
         {
             if (state.TonightsBest[i].Target.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
@@ -998,7 +998,7 @@ public static class PlannerActions
             }
         }
 
-        // Not in TonightsBest — add as search result
+        // Not in TonightsBest: add as search result
         var scored = ObservationScheduler.ScoreTarget(target, transform,
             state.AstroDark, state.AstroTwilight, state.MinHeightAboveHorizon, objectType);
 
@@ -1071,7 +1071,7 @@ public static class PlannerActions
 
     /// <summary>
     /// Updates the autocomplete suggestions based on the current search query.
-    /// Runs synchronously — ~200K string comparisons takes ~2ms.
+    /// Runs synchronously: ~200K string comparisons takes ~2ms.
     /// </summary>
     /// <summary>
     /// Pure autocomplete resolve: fuzzy-scores <paramref name="autoCompleteList"/> against
@@ -1228,7 +1228,7 @@ public static class PlannerActions
     /// </summary>
     /// <summary>
     /// Sorts proposals by peak altitude time so all consumers (session tab, chart,
-    /// scheduler) see the same order as the planner target list. Atomic replacement —
+    /// scheduler) see the same order as the planner target list. Atomic replacement; 
     /// builds a sorted <see cref="ImmutableArray{T}"/> and assigns it in one reference
     /// update, so readers never observe a partially-sorted list.
     /// </summary>
@@ -1324,7 +1324,7 @@ public static class PlannerActions
         }
 
         state.Proposals = state.Proposals.RemoveAt(proposalIndex);
-        // No sort needed after removal — order is preserved
+        // No sort needed after removal: order is preserved
         RecomputeHandoffSliders(state);
         state.IsDirty = true;
         state.NeedsRedraw = true;
@@ -1377,7 +1377,7 @@ public static class PlannerActions
             }
         }
 
-        // Otherwise clamp selection to valid range — cursor stays put so the next item in the
+        // Otherwise clamp selection to valid range: cursor stays put so the next item in the
         // list naturally appears under it (the unpin path, and the no-follow CLI path).
         if (!followed && state.SelectedTargetIndex >= filtered.Count)
         {
@@ -1392,7 +1392,7 @@ public static class PlannerActions
     /// Toggle-pin a target that originated outside the planner (e.g. sky-map
     /// click-to-pin). Unpins if already in <see cref="PlannerState.Proposals"/>;
     /// otherwise scores + profiles it so the planner chart can render its curve,
-    /// then pins. The transform may be null (site not yet resolved) — the pin
+    /// then pins. The transform may be null (site not yet resolved); the pin
     /// still happens, but without a score the planner falls back to Unknown.
     /// </summary>
     public static void TogglePinFromExternal(
@@ -1455,7 +1455,7 @@ public static class PlannerActions
             _ => ObservationPriority.High
         };
         state.Proposals = state.Proposals.SetItem(proposalIndex, p with { Priority = nextPriority });
-        // Schedule (on SessionTabState) becomes stale — rebuilt on demand via "Build Schedule"
+        // Schedule (on SessionTabState) becomes stale: rebuilt on demand via "Build Schedule"
         state.IsDirty = true;
         state.NeedsRedraw = true;
     }
@@ -1598,13 +1598,13 @@ public static class PlannerActions
     /// (or the dark-window edges for the first/last target), then clipped to when the target
     /// is at or above <see cref="PlannerState.MinHeightAboveHorizon"/> (the horizon-cut slice).
     /// <para>
-    /// User-set <c>ObservationTime</c> (non-null) is preserved — only nulls are filled in. So
+    /// User-set <c>ObservationTime</c> (non-null) is preserved, only nulls are filled in. So
     /// <c>defaultObservationTime</c> in <see cref="BuildSchedule"/> becomes a true fallback,
     /// only firing when neither the user nor the planner has a window for the target.
     /// </para>
     /// <para>
     /// Slider order matches the peak-time ordering produced by <see cref="GetFilteredTargets"/>,
-    /// not the raw <see cref="PlannerState.Proposals"/> order — keep the two in sync.
+    /// not the raw <see cref="PlannerState.Proposals"/> order; keep the two in sync.
     /// </para>
     /// </summary>
     public static ImmutableArray<ProposedObservation> ApplyHandoffWindows(PlannerState state)
@@ -1665,7 +1665,7 @@ public static class PlannerActions
     /// is correct down to the sample resolution (~15 min) regardless of where the rise/set
     /// transition lands inside a sample interval.
     /// <para>
-    /// Returns <c>windowEnd - windowStart</c> when no profile exists for the target — keeps a
+    /// Returns <c>windowEnd - windowStart</c> when no profile exists for the target; keeps a
     /// freshly-pinned target without a recomputed profile from collapsing to zero allocation.
     /// </para>
     /// </summary>
@@ -1713,17 +1713,17 @@ public static class PlannerActions
             }
             else if (altStart >= minAlt && altEnd < minAlt)
             {
-                // Setting through the cut — accumulate up to crossing
+                // Setting through the cut: accumulate up to crossing
                 var f = (minAlt - altStart) / (altEnd - altStart);
                 total += TimeSpan.FromSeconds(clipDuration.TotalSeconds * f);
             }
             else if (altStart < minAlt && altEnd >= minAlt)
             {
-                // Rising through the cut — accumulate from crossing to end
+                // Rising through the cut: accumulate from crossing to end
                 var f = (minAlt - altStart) / (altEnd - altStart);
                 total += TimeSpan.FromSeconds(clipDuration.TotalSeconds * (1 - f));
             }
-            // else: both below the cut — nothing to add
+            // else: both below the cut; nothing to add
         }
 
         return total;
@@ -1947,7 +1947,7 @@ public static class PlannerActions
     }
 
     /// <summary>
-    /// Fast altitude profile using precomputed Astrom grid — no per-sample SOFA overhead.
+    /// Fast altitude profile using precomputed Astrom grid; no per-sample SOFA overhead.
     /// </summary>
     /// <summary>
     /// Computes the Moon's altitude profile and phase for the planning night.

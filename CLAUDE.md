@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Tracking Docs
 
-Canonical project state lives in these markdown files — read the relevant ones before starting non-trivial work:
+Canonical project state lives in these markdown files; read the relevant ones before starting non-trivial work:
 
 | File | Purpose |
 |------|---------|
@@ -25,7 +25,7 @@ Canonical project state lives in these markdown files — read the relevant ones
 
 ## Custom Skills
 
-Available in `.claude/skills/<name>/SKILL.md` — auto-invocable when the request matches the skill's description, or explicitly via `/<name>`.
+Available in `.claude/skills/<name>/SKILL.md`: auto-invocable when the request matches the skill's description, or explicitly via `/<name>`.
 
 | Skill | Purpose |
 |-------|---------|
@@ -95,7 +95,7 @@ dotnet test TianWen.Lib.Tests --filter "FullyQualifiedName~Catalog"
 ## SharpAstro Sibling Libraries
 
 TianWen depends on in-house libraries published to nuget.org under the **SharpAstro** org. Their
-source repos live as siblings under the same parent directory (`../`). csproj layout varies — not
+source repos live as siblings under the same parent directory (`../`). csproj layout varies, not
 every sibling uses `src/<Lib>/<Lib>.csproj`.
 
 | Package | Source Repo | csproj path | Auto-detect |
@@ -112,10 +112,10 @@ every sibling uses `src/<Lib>/<Lib>.csproj`.
 | `Lzip.Lib` | `../Lzip.Lib` | `src/Lzip.Lib/Lzip.Lib.csproj` | ✅ |
 | `LAN.Lib` | `../LAN.Lib` | `src/LAN.Lib/LAN.Lib.csproj` | ✅ |
 | `WebGl.Renderer` | `../WebGl.Renderer` | `src/WebGl.Renderer/WebGl.Renderer.csproj` | ✅ |
-| `TianWen.DAL` | `../TianWen.DAL` | — | ❌ |
+| `TianWen.DAL` | `../TianWen.DAL` | - | ❌ |
 
 **Auto-detection** (`Directory.Build.props`): a **single** property `UseLocalSiblings` gates them all.
-The build switches to ProjectReference when **every** sibling working copy exists — `DIR.Lib`,
+The build switches to ProjectReference when **every** sibling working copy exists; `DIR.Lib`,
 `Console.Lib`, `SdlVulkan.Renderer`, `WebGl.Renderer`, the `Codecs`-repo codec family (`SharpAstro.Tiff`,
 `SharpAstro.Exif`, `SharpAstro.Png`, `SharpAstro.Color.Icc`, `SharpAstro.Jxr`,
 `SharpAstro.Jpeg.IccInjector`, `SharpAstro.Exr`, `SharpAstro.Codecs`), `QHYCCD.SDK`, `FITS.Lib`,
@@ -123,7 +123,7 @@ The build switches to ProjectReference when **every** sibling working copy exist
 through to PackageReference. Override: `dotnet build -p:UseLocalSiblings=false`. CI always uses
 PackageReference. `Fonts.Lib` is transitive via DIR.Lib's own `UseLocalFontsLib` switch. `QHYCCD.SDK`
 (`../QHYCCD.SDK/QHYCCD.SDK.csproj`) and `FITS.Lib` (`../FITS.Lib/CSharpFITS/CSharpFITS.csproj`) used to
-be outliers (the latter via a separate `UseLocalFitsLib` switch) but were folded into the one switch —
+be outliers (the latter via a separate `UseLocalFitsLib` switch) but were folded into the one switch;
 there is **no** per-library switch anymore. Trade-off: a missing checkout of *any* listed sibling flips
 the whole set back to packages (all-or-nothing), which is fine on a dev box that has them all.
 
@@ -164,7 +164,7 @@ For libraries without auto-detection (`FC.SDK`, `ZWOptical.SDK`, `TianWen.DAL`),
 prefer to extend the `UseLocalSiblings` switch in
 `Directory.Build.props` + add a conditional `ProjectReference` in the consuming `.csproj`
 rather than reaching for local nupkg feeds. When that's not viable (e.g. cross-team release
-cadence forces a version bump), commit + push + wait for NuGet publish — **do not** create
+cadence forces a version bump), commit + push + wait for NuGet publish; **do not** create
 local nupkg feeds or run `dotnet pack` to short-circuit the release dance, since CI builds
 will still pull from nuget.org and a local-only nupkg will mask version-skew bugs.
 
@@ -184,7 +184,7 @@ and nothing else.** Every repo now uses the same shape, under the same property 
 
 **Why it is read back rather than duplicated:** CI stamps one `-p:Version` across the whole repo, so a
 per-csproj version only ever surfaces in a *local* build, which is exactly where nobody looks, while a
-workflow copy silently decides what ships. Nothing compared them, and they drifted — DIR.Lib.Shaping
+workflow copy silently decides what ships. Nothing compared them, and they drifted. DIR.Lib.Shaping
 sat at 6.8.0 while DIR.Lib was 7.5.0, so a local `dotnet pack` shipped the satellite a full major
 behind the library it ships with; SdlVulkan's Inspector/WebView trio sat at 6.0.0 against 7.4.0; and
 Codecs' own comment recorded the 3.5 work shipping as 3.4.49 because only one of its two copies moved.
@@ -202,8 +202,8 @@ hyphen, which XML forbids inside a comment. Add the entry there when you bump th
 
 **`LALR.CC` is deliberately exempt** and should stay that way. It is tag-driven, not run-number driven:
 the package version *is* `<Version>` in `LALR.CC.csproj`, and its workflow already has a guard step that
-fails when a pushed `vX.Y.Z` tag disagrees with it. That is the same invariant — one place, CI verifies
-instead of duplicating — expressed for a different release model, and converting it would break the
+fails when a pushed `vX.Y.Z` tag disagrees with it. That is the same invariant, one place, CI verifies
+instead of duplicating, expressed for a different release model, and converting it would break the
 tag-to-version contract the guard enforces.
 
 **A live failure mode worth knowing** (it cost WebGl.Renderer a stray published package on every run
@@ -230,8 +230,8 @@ do) or `-p:GeneratePackageOnBuild=false`. To audit: list a package's versions an
 
 - **xUnit v3** with `[Fact]` / `[Theory]` + `[InlineData]`; **Shouldly** for assertions; **NSubstitute** for mocks
 - Test data: embedded resources in `Data/` subdirectories
-- **Never use reflection in tests** — add an `internal` property/method instead (test project has `InternalsVisibleTo`)
-- **Avoid duplication** — extract shared setup to helpers (e.g., `SessionTestHelper`)
+- **Never use reflection in tests**: add an `internal` property/method instead (test project has `InternalsVisibleTo`)
+- **Avoid duplication**: extract shared setup to helpers (e.g., `SessionTestHelper`)
 
 ### Device-Simulator Integration Tests (on-demand)
 
@@ -267,7 +267,7 @@ See [docs/plans/device-simulator-ci.md](docs/plans/device-simulator-ci.md).
 Tests grouped into `[Collection("X")]` by functional area. All `Session*Tests` share `[Collection("Session")]`
 and run sequentially to avoid thread pool starvation from concurrent `Task.Run` + `FakeTimeProvider` timer
 callbacks. `maxParallelThreads: 4` in `xunit.runner.json`. **No wall-clock `CancellationTokenSource` timeouts**
-in session tests — use `[Fact(Timeout = ...)]`; inner timeouts cause flakes.
+in session tests; use `[Fact(Timeout = ...)]`; inner timeouts cause flakes.
 
 `SessionTestHelper` defaults to `FakeMountDriver`; pass `mountPort: "LX200"` or `"SkyWatcher"` only for
 protocol-specific tests.
@@ -285,7 +285,7 @@ while (pumped < TimeSpan.FromHours(4) && !loopTask.IsCompleted && !ct.IsCancella
     await Task.Delay(1, ct);
 }
 ```
-**Never** use `SleepAsync(subExposure)` in a pump loop — it advances fake time even when the `Task.Run`
+**Never** use `SleepAsync(subExposure)` in a pump loop; it advances fake time even when the `Task.Run`
 hasn't been scheduled yet, causing targets to "set" before imaging starts. `Advance` fires timers
 synchronously; `Task.Delay(1)` yields to the thread pool.
 
@@ -300,10 +300,10 @@ screenshot-poll-and-OCR**. Three pieces compose:
    `FilterWheel://FakeDevice/FakeFilterWheel1`, `Weather://FakeDevice/FakeWeather1`. Discovery surfaces **two**
    cover/calibrators (both ASCOM-`CoverCalibrator` class): `CoverCalibrator://FakeDevice/FakeCoverCalibrator1`
    is a flip-flat (motorised cover flap + panel), and `CoverCalibrator://FakeDevice/FakeCoverCalibrator2?hasCover=false`
-   is a driver-controlled light panel with **no** flap (models the Gemini FlatPanel Lite — reports
+   is a driver-controlled light panel with **no** flap (models the Gemini FlatPanel Lite, reports
    `CoverStatus.NotPresent`, calibrator only). `hasCover=false` on the URI is what selects the flap-less
    behaviour in `FakeCoverDriver`; absent = flip-flat. **`port=SkyWatcher`** on
-   the mount selects `FakeSkywatcherMountDriver` (believed/true pointing seam + polar-misalignment + worm PE —
+   the mount selects `FakeSkywatcherMountDriver` (believed/true pointing seam + polar-misalignment + worm PE,
    the variant that exercises the meridian-flip and Dec-sense paths); omit `port` for the lightweight
    believed-only `FakeMountDriver`. Fakes only surface from discovery when `IncludeFake:true`; the GUI
    auto-includes them at startup when the active profile already references any fake URI
@@ -316,32 +316,32 @@ screenshot-poll-and-OCR**. Three pieces compose:
    so the planner computes visible targets and the session leaves `WaitingForDark` at once instead of stalling
    in daylight.
 
-3. **Drive + observe via the DEBUG inspector — not screenshots.** A **DEBUG** GUI build attaches
+3. **Drive + observe via the DEBUG inspector, not screenshots.** A **DEBUG** GUI build attaches
    `DebugInspector` (`Program.cs`, compiled out of Release entirely), exposing this process to the
    `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector`, UDP-multicast discovery).
    It gives five surfaces:
    - **Describe/state snapshot** (the `AppState` block): `activeTab`, `profile`, `sessionRunning`, `phase`,
      `mountConnected/Name/RaJ2000/DecJ2000/mountSlewing/mountTracking`, `lastNotification`, sky-map viewport,
      `liveSessionMode` (Preview/PolarAlign/Planetary/Flats) + `flatRunActive`/`flatStatus`.
-     **Poll this for coarse session state** (phase transitions, stuck-slewing, notifications) — it replaces a
+     **Poll this for coarse session state** (phase transitions, stuck-slewing, notifications); it replaces a
      screenshot+OCR loop.
-   - **Programmatic signals** (`SignalFactories`): the **whole app bus is postable by name** — the
+   - **Programmatic signals** (`SignalFactories`): the **whole app bus is postable by name**; the
      `SignalFactories` map is **source-generated** over EVERY `*Signal` type in `TianWen.UI.Abstractions`
      (`DIR.Lib.SourceGenerators.SignalDirectoryGenerator` → `SignalDirectory.BuildFactories(bus)`), so
      `list_signals` returns all ~40 (e.g. `StartSession`, `StartFlats{source,flatsPerFilter}`,
      `RespondSessionPrompt{proceed}`, `SkyMapSetView`, `SkyMapSolveSync`, `DiscoverDevices{includeFake}`).
      JSON keys are the camelCase parameter names; a missing field falls back to the signal's declared ctor
      default. **No runtime reflection** (the generator is DEBUG-gated + emits `bus.Post(new T(...))`), and
-     the generator + its `DIR.Lib.SignalJson` binder live in **DIR.Lib** — nothing here is TianWen-specific,
+     the generator + its `DIR.Lib.SignalJson` binder live in **DIR.Lib**; nothing here is TianWen-specific,
      so any `SignalBus` consumer gets the directory for free. A signal with a required *complex* payload
      (e.g. a `TextInputState`/`ProfileData`) is skipped (not JSON-postable). Posting `StartSession` runs the
      whole `RunAsync` with no clicking; posting `StartFlats` drives a flat run regardless of the visible mode.
    - **Clickable regions** (`GetRegions`, `describe_ui`): click-by-label for any action without a dedicated signal.
    - **Arranged layout tree** (`GetLayout`, `describe_layout`, `SdlVulkan.Renderer.Inspector` 6.9+): the FULL
-     `DIR.Lib.Layout` tree the chrome + active tab painted this frame — every node with its `depth` (pre-order,
+     `DIR.Lib.Layout` tree the chrome + active tab painted this frame; every node with its `depth` (pre-order,
      so the flat list reconstructs the nesting), `kind` (Stack/Dock/Grid/Overlay/Split/Leaf), rect, `axis`,
      `columns`, `text`+`fontSize`, `fillKey`, `bg`, and `hitRole`/`hitLabel`. The STRUCTURAL counterpart to the
-     clickable-only `describe_ui` (which only shows interactive leaves) — use it to debug placement (clipping,
+     clickable-only `describe_ui` (which only shows interactive leaves); use it to debug placement (clipping,
      gaps, why a panel is the size it is, nesting). Gated by DIR.Lib's `LayoutInspection.Enabled` (flipped on in
      `DebugInspector.Attach` when `GetLayout` is wired; widgets retain their arranged tree via
      `PixelWidgetBase.GetCapturedLayout()`), so production paints carry no overhead. Empty if the app draws
@@ -350,7 +350,7 @@ screenshot-poll-and-OCR**. Three pieces compose:
      every command (incl. `ping`) ON the render thread, so a `ping` that round-trips proves the render loop is
      pumping; a connected-but-silent probe means it's blocked (a hang) while the process is still up.
      `render_liveness` classifies ALIVE/BLOCKED/DEAD (and on BLOCKED prints the `dotnet-stack report -p <pid>`
-     to capture the frozen frame); `watchSeconds>0` polls until it wedges. Use this — not screenshot/describe —
+     to capture the frozen frame); `watchSeconds>0` polls until it wedges. Use this, not screenshot/describe,
      to decide IF the render thread is stuck (those also block when it is).
 
    `StartSession` needs ≥1 pinned target (`PlannerState.Proposals.Length > 0`, else it no-ops with "pin
@@ -421,7 +421,7 @@ around the picture instead of blanking it). Ctrl+H also works now -- Console.Lib
 Enforced via `.editorconfig`:
 - 4 spaces, CRLF line endings, block-scoped namespaces (`namespace Foo { }`, not file-scoped)
 - Primary constructors preferred for DI
-- No implicit `new(...)` — always `new SomeType()`
+- No implicit `new(...)`, always `new SomeType()`
 - Expression-bodied: properties yes, methods/constructors no
 - Interfaces prefixed with `I`; PascalCase types/properties/methods; `_camelCase` private fields
 
@@ -462,33 +462,33 @@ claimed device. `IDeviceHub.TryAcquireLease` / `DeviceLeaseSet.Acquire` (all-or-
 whole run, released in the `finally` so a claim survives `Finalise` (parking + warming is exactly when a
 stray disconnect hurts most).
 
-- **Reads are never leased.** Telemetry, status and previews stay free for every observer — watching a
+- **Reads are never leased.** Telemetry, status and previews stay free for every observer; watching a
   rig must cost it nothing. A lease only refuses *taking the driver away* and *commanding it*.
 - **Never guard hardware access on a UI flag.** The guards used to be five ad-hoc
   `LiveSessionState.IsRunning` checks (three of them a silent `return` with no message), and every one
-  was wrong the same way: `IsRunning` is **false during a flat run** — which is precisely why
-  `HasActiveRun` exists, and none of them used it — while polar-align and planetary capture set neither.
+  was wrong the same way: `IsRunning` is **false during a flat run**, which is precisely why
+  `HasActiveRun` exists, and none of them used it, while polar-align and planetary capture set neither.
   So mid-flat-run the focuser could be jogged, the mount pulsed and slewed, and a planetary capture
   started on the camera being metered. A UI flag also cannot work for the hosted API or the Alpaca plane,
   which never see one. Ask `DeviceOwnershipGate`; in the GUI that is `EnsureDeviceControllable(uri)`.
 - **Enforcement is asymmetric, deliberately.** Disconnect has one choke point, so `DisconnectAsync`
-  throws `DeviceLeasedException` unless `force: true` — a caller that skips the gate gets an exception,
+  throws `DeviceLeasedException` unless `force: true`; a caller that skips the gate gets an exception,
   not a stolen driver. Actuation has no choke point short of proxying every driver (an interception layer
   on the imaging hot path), so actuation call sites ask the gate. Both evaluate the same rule.
 - **`force: true` is for process shutdown only.** Note that GUI "Force Off" does **not** force past
-  ownership: it means "skip the warm-up", which is what the user confirmed — consenting to a cold
+  ownership: it means "skip the warm-up", which is what the user confirmed; consenting to a cold
   disconnect is not consenting to kill the night.
 - **Escalation is explicit:** stop the run (abort the session / cancel the flat run) and the lease frees.
   There is no override on the actuation path by design.
 - `GetDisconnectSafetyAsync` is a **hardware**-safety check (cooler on / mid-exposure) and returns `Safe`
-  for anything that is not a camera — it is not, and never was, an ownership check. Ask the gate first.
+  for anything that is not a camera; it is not, and never was, an ownership check. Ask the gate first.
 
 Pinned by `DeviceOwnershipTests`, including three that drive a real `Session`/flat run end to end.
 
 ### Alpaca Backend (ASCOM Remote / Alpaca HTTP)
 
 `AddAlpaca()` is a **fully functional** device source (camera, telescope, focuser, filter wheel,
-switch, cover-calibrator) over the ASCOM Alpaca REST API — wired into CLI / Server / GUI alongside
+switch, cover-calibrator) over the ASCOM Alpaca REST API; wired into CLI / Server / GUI alongside
 `AddAscom()`. It is the primary cross-platform path for a headless Linux / Raspberry Pi host, where
 the Windows-only native ASCOM COM bridge is unavailable.
 
@@ -498,44 +498,44 @@ slower for full frames); ImageBytes sends a 44-byte little-endian `ArrayMetadata
 by raw pixels. `AlpacaImageBytes.DecodeChannel` is the pure decoder (`AlpacaImageBytes.cs`);
 `AlpacaClient.GetImageArrayBytesAsync` negotiates it via `Accept: application/imagebytes,
 application/json` and verifies the response `Content-Type`. **Wire-order gotcha:** ImageBytes is
-laid out `[Dimension1 = Width(X), Dimension2 = Height(Y)]` row-major (last index fastest) — i.e.
+laid out `[Dimension1 = Width(X), Dimension2 = Height(Y)]` row-major (last index fastest), i.e.
 column-major in image terms, flat index of `(x, y)` is `y + x*Height`. `DecodeChannel` transposes
 that into `Channel`'s `[y, x]` row-major layout (see `AlpacaImageBytesTests`). `AlpacaCameraDriver`
 downloads + decodes **once** when the server first reports `imageready`, populating `ImageData` /
 `ChannelBuffer` for the default `ICameraDriver.GetImageAsync`; `StartExposureAsync` clears them so the
 next frame re-downloads. Before this, `ImageData => null` meant the camera connected but never
-returned a frame — which is why `AddAlpaca()` was previously left unregistered. **Not yet validated
-against a live Omni/Alpaca Simulator** — the decoder is byte-exact + unit-pinned but the HTTP
+returned a frame, which is why `AddAlpaca()` was previously left unregistered. **Not yet validated
+against a live Omni/Alpaca Simulator**: the decoder is byte-exact + unit-pinned but the HTTP
 round-trip is unverified.
 
 ### Device Secrets (Credential Store)
 
 Secrets (API keys) are **not** stored on the device URI or in the profile JSON. `ICredentialStore`
-(`TianWen.Lib/Devices/`) holds them keyed `{deviceId}/{settingKey}` (e.g. `openweathermap/apiKey`) —
+(`TianWen.Lib/Devices/`) holds them keyed `{deviceId}/{settingKey}` (e.g. `openweathermap/apiKey`);
 keyed by **device, not URI**, so the secret survives the URI being replaced on a provider switch /
 re-discovery (the bug it fixes: OWM's `?apiKey=` used to be wiped on every re-assign) and is shared
 across profiles (enter once).
 
-- **Windows**: `WindowsCredentialStore` — Credential Manager (Generic credentials) via
+- **Windows**: `WindowsCredentialStore`. Credential Manager (Generic credentials) via
   `LibraryImport` (source-gen marshalling, AOT-clean; visible in Control Panel → Credential Manager).
   The `CREDENTIAL` struct keeps string fields as `IntPtr` (hand-marshalled) so it stays blittable.
-- **Non-Windows**: `FileCredentialStore` — owner-only (`0600`) file per secret under `AppData/Secrets`.
+- **Non-Windows**: `FileCredentialStore`; owner-only (`0600`) file per secret under `AppData/Secrets`.
   A libsecret / macOS-Keychain backend can drop in later behind the same interface.
 - OS-selected in `AddExternal`. Tests exercise `FileCredentialStore` over a temp dir (the Windows
-  vault is not unit-tested — it would write to the real per-user store).
+  vault is not unit-tested; it would write to the real per-user store).
 
 A masked `DeviceSettingDescriptor` (`Mask: true`) routes its edit to the store, never the URI
 (`AppSignalHandler`'s `StringSettingInput.OnCommit`; it re-fetches weather afterwards). A leftover
-`?apiKey=` on a URI is ignored — the driver only reads the store. **Deferred:** a per-profile
+`?apiKey=` on a URI is ignored; the driver only reads the store. **Deferred:** a per-profile
 override of the shared per-device key (would need an active-profile-id provider at driver-creation
 time, since `NewInstanceFromDevice(sp)` has no profile context).
 
 ### Plate Solving
 
 `IPlateSolverFactory` selects in priority order:
-- `CatalogPlateSolver` — built-in, ~6 matched stars, no external dep, used by polar alignment refine loop
-- `AstapPlateSolver` — wraps `astap_cli`; needs ~44 stars
-- `AstrometryNetPlateSolver` — wraps `solve-field`; slower fallback
+- `CatalogPlateSolver`: built-in, ~6 matched stars, no external dep, used by polar alignment refine loop
+- `AstapPlateSolver`: wraps `astap_cli`; needs ~44 stars
+- `AstrometryNetPlateSolver`: wraps `solve-field`; slower fallback
 
 **`CatalogPlateSolver` requires Tycho-2 to be loaded.** The solver self-inits the
 `ICelestialObjectDB` at the top of `SolveImageAsync` via the idempotent `InitDBAsync`
@@ -578,10 +578,10 @@ dense-unrelated-field negative case at real density, and none of them lock).
 ```
 
 The short form `AddSingleton<IPlateSolver, CatalogPlateSolver>()` does NOT work for any
-ctor with a non-generic `ILogger` parameter — `Microsoft.Extensions.Logging` only
+ctor with a non-generic `ILogger` parameter; `Microsoft.Extensions.Logging` only
 registers `ILogger<T>` (open generic) and `ILoggerFactory`, never `ILogger` directly.
 A ctor `(Foo, ILogger? logger = null)` therefore silently gets `logger = null` from DI,
-and `_logger?.LogDebug(...)` lines never fire — which is exactly how the
+and `_logger?.LogDebug(...)` lines never fire, which is exactly how the
 "`CatalogPlateSolver` fails on drizzle outputs from `tianwen solve`" bug hid for weeks.
 **Rule:** ctor params should be `ILogger<TSelf> logger` for direct DI resolution, or
 use a factory lambda when a non-generic `ILogger` ctor parameter must be preserved
@@ -791,9 +791,9 @@ a thin wrapper over `ResilientCall.InvokeAsync` with `OnDriverReconnect` as the 
 [`docs/architecture/driver-resilience.md`](docs/architecture/driver-resilience.md).
 
 - **Never introduce a raw `await driver.X(...)` on the session hot path.** Grep PRs for regressions.
-- **Pick the preset:** `IdempotentRead` (status/position polls — 3 attempts, exponential backoff +
-  inter-retry reconnect), `NonIdempotentAction` (slew/exposure/dither — 1 attempt, pre-reconnect only),
-  `AbsoluteMove` (focuser/filter-wheel — 2 attempts, target is absolute so re-issue is safe).
+- **Pick the preset:** `IdempotentRead` (status/position polls, 3 attempts, exponential backoff +
+  inter-retry reconnect), `NonIdempotentAction` (slew/exposure/dither, 1 attempt, pre-reconnect only),
+  `AbsoluteMove` (focuser/filter-wheel, 2 attempts, target is absolute so re-issue is safe).
 - **Telemetry polls go through `PollDriverReadAsync` / `PollDriverReadAsyncIf`** (capability-gated).
   These count consecutive per-driver failures and fire a one-shot proactive reconnect at threshold.
 - **Escalation:** every reconnect bumps `_driverFaultCounts[driver]`; successful frames decay it.
@@ -805,7 +805,7 @@ a thin wrapper over `ResilientCall.InvokeAsync` with `OnDriverReconnect` as the 
 ### Backlash Auto-Tuning
 
 Every successful AutoFocus opportunistically infers per-direction backlash from the verification
-exposure (no separate measurement routine — based on the cloudynights "no need to measure backlash,
+exposure (no separate measurement routine, based on the cloudynights "no need to measure backlash,
 just overshoot enough" approach). The hyperbola fit predicts HFD at `bestPos`; the verification frame
 measures actual HFD at the mechanical position the focuser landed on. Inverting the fit
 (`Hyperbola.StepsToFocus`) gives the lag, and `B = currentOvershoot + lag`. Per-focuser EWMA (α=0.3)
@@ -1142,20 +1142,20 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   `DrizzleKernel` over an `ISourceToCanvas` struct) → demosaic-once → 6-level **wavelet sharpen**
   (`WaveletSharpen`, à-trous; `PlanetaryDefault`/`Bandpass`/`Combo` presets).
 - **Live (`RollingWindowStacker`)**: the streaming counterpart of `StackGlobalAsync`. Maintains a
-  **frame-capped** sliding window (`RollingWindowOptions.MaxWindowFrames`, default 500 — caps the window by
+  **frame-capped** sliding window (`RollingWindowOptions.MaxWindowFrames`, default 500, caps the window by
   count regardless of the time span, since a dense capture would otherwise pull the whole capture into a
   5-min window and make every update a full batch stack). O(pixels) `add`/`evict`: eviction re-folds a
   frame's cached contribution with a **negated weight** (the accumulate kernel is linear, so +w then -w
-  cancels exactly — no per-frame contribution images stored). The hot path is **align-bound** (~85-89%),
-  so `GlobalAligner` caches the reference tile's forward FFT once (`PhaseCorrelation.PrepareReferenceSpectrum`)
-  — lossless, ~1 of 3 FFTs/frame eliminated.
+  cancels exactly; no per-frame contribution images stored). The hot path is **align-bound** (~85-89%),
+  so `GlobalAligner` caches the reference tile's forward FFT once (`PhaseCorrelation.PrepareReferenceSpectrum`);
+  lossless, ~1 of 3 FFTs/frame eliminated.
 - **`PlanetaryMaster`** is the single shared "accumulators → master" finalize (normalize + CFA-merge + MHC
   demosaic), so the batch and live masters can never drift.
 - **Live camera capture** (`PlanetaryCaptureController` in `.UI.Abstractions`, driven by the Live Session
   `Planetary` mode): streams a camera in video mode (`IVideoCameraDriver.CaptureVideoAsync`, or a
   rapid-exposure loop fallback for any `ICameraDriver`) into a `LiveCameraFrameStream` (bounded ring) feeding
   the same rolling-window stacker. **Camera ADU frames normalise to [0,1] at the stream boundary**
-  (`LiveCameraFrameStream.DeepCopy`) — the convention the SER bridge also follows — so the coverage-normalised
+  (`LiveCameraFrameStream.DeepCopy`), the convention the SER bridge also follows, so the coverage-normalised
   master is display-ready (an un-normalised ADU master clamps to white). A colour (RGGB) sensor's video frame
   is a 1-channel **Bayer mosaic**; the stream layout is derived from the ACTUAL frame (1ch+RGGB → SplitCfa →
   per-photosite stack → single demosaic → colour master), NOT the camera's `SensorType`. Planetary preview
@@ -1163,13 +1163,13 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   (10 ms ≈ mid-histogram, not saturated), with shot+read noise modelled in the **electron domain** calibrated
   to a real planetary SER. **Exposure / gain / ROI size / ROI pan are live-tunable during capture**: the
   render thread stages the change, the capture loop drains + applies it (`ApplyVideoControlsAsync` /
-  `NumX`/`NumY` / `JogRoiAsync`) — no driver call crosses onto the render thread, and the fake's ROI-window
+  `NumX`/`NumY` / `JogRoiAsync`); no driver call crosses onto the render thread, and the fake's ROI-window
   state is capture-loop-owned (lock-free, no `_videoRoiLock`). Defensive breadcrumbs land in `GUI_*.log`
   (Debug + WARN): live-control-applied, a capture heartbeat (every 250 frames), and per-stack start/done +
-  duration with a long-running-stack WARN — the trail to diagnose a future stall (pair with the inspector
+  duration with a long-running-stack WARN; the trail to diagnose a future stall (pair with the inspector
   `render_liveness` watchdog above).
 - **Concrete `IVideoCameraDriver` implementers.** `FakeCameraDriver` (synthetic drifting disk, full ROI-jog).
-  `CanonCameraDriver` (**Phase E core, shipped**): FC.SDK Live View (EVF) streaming — each EVF JPEG frame
+  `CanonCameraDriver` (**Phase E core, shipped**): FC.SDK Live View (EVF) streaming, each EVF JPEG frame
   decodes straight from the SDK `byte[]` via `Image.TryDecodeRaster` (the in-memory core of
   `TryReadViaCodecs`, no temp-file round-trip) into a **3-channel [0,1] RGB `Image`** (EVF is camera-processed,
   not raw CFA), single-stream gated + mutually exclusive with the single-shot CR2 path, ISO live-tunable via
@@ -1200,9 +1200,9 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   date a blocker on a release, and state it in terms of the protocol rather than of a wrapper's shape**, or the
   note describes something that cannot happen. `DALCameraDriver` (ZWO/QHY native raw video) is Phase D, not yet
   implemented.
-- **COM recenter loop** (Phase C — hold the planet centred): `PlanetaryRecenterController.Decide` (pure, in
+- **COM recenter loop** (Phase C, hold the planet centred): `PlanetaryRecenterController.Decide` (pure, in
   `TianWen.Lib/Imaging/Planetary/`) takes the disk centre of mass + the readout-window geometry and returns a
-  `RecenterDecision` — a **per-axis-deadband** (not distance — a big offset on one axis must not drag the other
+  `RecenterDecision`, a **per-axis-deadband** (not distance, a big offset on one axis must not drag the other
   centred axis) damped ROI jog toward the disk on each axis with pan range, plus a coarse mount nudge (sized
   `offset × pixelScaleArcsec`, capped) on any axis that is edge-blocked (window at the sensor edge / no pan
   range / camera can't `JogRoi`). `PlanetaryCaptureController.MaybeRecenterAsync` runs it on the capture loop
@@ -1219,10 +1219,10 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   `tianwen-fits` and the GUI viewer tab (shared `ViewerState`). **Follow-the-playhead**: the raw
   `SerPreviewSource` stays the playback driver; the live stack shows the window ending at the current frame.
   All stacking/sharpening is **off the render thread** with **sharpen-priority** (a wavelet-slider change
-  re-sharpens the cached master immediately — ~30 ms — and defers the slower re-stack) and **per-request
+  re-sharpens the cached master immediately, ~30 ms, and defers the slower re-stack) and **per-request
   cancellation** (a per-work CTS lets a slider preempt an in-flight stack; `StackToAsync` invalidates the
   window on cancel so the next call rebuilds cleanly). `_rawMaster`/`_doc` are render-thread-only (the
-  background task hands results back through its `Task<T>` — the project's lock-free hand-off).
+  background task hands results back through its `Task<T>`; the project's lock-free hand-off).
 - **Benchmarks/profiling**: `TianWen.UI.Benchmarks` `PlanetaryStackBenchmarks` / `PlanetaryMasterBenchmarks`,
   and `dotnet run --project TianWen.UI.Benchmarks -- profile planetary [--frames N]` prints a per-stage
   breakdown (load/grade/align/fold + wavelet/adopt) and tight-loops for `dotnet-trace`.
@@ -1323,7 +1323,7 @@ generic-envelope form of the no-`ResponseEnvelope<object>` rule). Pinned by
 `AlpacaServerRoundTripTests`, which drives our own `AlpacaClient` against our own server.
 
 **Native-AOT correctness (the `tianwen-server` binary is `PublishAot=true`).** Three things keep the
-minimal API working under AOT — none are optional, and a normal `dotnet build` will NOT flag a
+minimal API working under AOT; none are optional, and a normal `dotnet build` will NOT flag a
 regression (the IL2026/IL3050 trim/AOT warnings only surface on `dotnet publish -r <rid>`):
 
 1. **RDG runs in `TianWen.Hosting`, not just the server.** The Request Delegate Generator only
@@ -1335,15 +1335,15 @@ regression (the IL2026/IL3050 trim/AOT warnings only surface on `dotnet publish 
    code itself, catching regressions at library-build time.
 2. **Both JSON source-gen contexts are registered via `ConfigureHttpJsonOptions`** (in
    `AddHostedSession`): `HostingJsonContext` (camelCase) then `NinaApiJsonContext` (PascalCase) on the
-   `TypeInfoResolverChain`. This is what makes **request-body binding** AOT-safe — the POST/PUT
+   `TypeInfoResolverChain`. This is what makes **request-body binding** AOT-safe; the POST/PUT
    endpoints that take a complex body (`CreateProfileRequest`, `PendingTarget`, `SetProfileRequest`)
-   would otherwise throw `NotSupportedException` at runtime. Responses don't depend on it — every
+   would otherwise throw `NotSupportedException` at runtime. Responses don't depend on it; every
    `Results.Json(...)` passes an explicit `JsonTypeInfo`.
 3. **No `ResponseEnvelope<object>` payloads.** A polymorphic `object` payload can't be resolved by a
    source-gen context under AOT (it needs the runtime type's metadata). The two offenders were replaced
    with concrete types: `GET /api/v1/session/targets` → `ResponseEnvelope<PendingTarget[]>`, and the
    ninaAPI `list-devices`/`rescan` anonymous types → `NinaDeviceListItemDto[]`. **Never reintroduce a
-   `ResponseEnvelope<object>` or an anonymous-type payload** — register a concrete DTO in the relevant
+   `ResponseEnvelope<object>` or an anonymous-type payload**; register a concrete DTO in the relevant
    `JsonSerializerContext` instead.
 
 Verify after any endpoint change by *publishing* (not just building) and smoke-testing the binary:
@@ -1499,70 +1499,70 @@ design).
 
 Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → camera recycles. See
 `ChannelBuffer` XML doc for ownership semantics.
-- Never hold an `Image` from `GetImageAsync` longer than needed — it pins the camera buffer
+- Never hold an `Image` from `GetImageAsync` longer than needed; it pins the camera buffer
 - **`Image`'s primary ctor takes `ImmutableArray<Channel>`** (2026-07-06): per-channel
   `Filter`/min/max live on each `Channel` (via `Image.GetChannel`), image-wide
   `MaxValue`/`MinValue` are the derived extrema, and a camera's ref-counted buffer travels ON
   its channel (`Channel.Buffer`, harvested by the ctor). The raw `float[][,]` signature survives
   as a delegating legacy overload (stamps image-wide values on every channel). Never
   re-introduce an attach-after-construct buffer step (`WithChannelBuffers` is gone), and a
-  rewrap that shares arrays (e.g. `ScaleFloatValuesToUnitInPlace`) must set `Buffer = null` —
+  rewrap that shares arrays (e.g. `ScaleFloatValuesToUnitInPlace`) must set `Buffer = null`;
   release responsibility stays with the original image (double-release guard, pinned by
   `ImageChannelCtorTests`).
 - Viewers never CPU-debayer: the raw RGGB mosaic is uploaded as-is and the GPU shader debayers
   (`LiveFramePreviewSource.AcceptFrame`, `AstroImageDocument`). CPU `DebayerAsync` is for batch
   paths (stacking, planetary master, tests). `Image.DebayerIntoAsync` (the write-into-caller-buffers
-  variant) currently has **zero callers** — wire it or delete it, don't cite it as the viewer path.
-- `Array2DPool` is for scratch only — camera buffers use `ChannelBuffer`/`_freeBuffers`
+  variant) currently has **zero callers**: wire it or delete it, don't cite it as the viewer path.
+- `Array2DPool` is for scratch only: camera buffers use `ChannelBuffer`/`_freeBuffers`
 - The recycle loop is complete for DAL (ZWO/QHY), Fake, Alpaca, and ASCOM (the latter two closed in
   the 2026-07-06 buffer audit: Alpaca decodes into a recycled buffer, ASCOM caches the COM
-  `ImageArray` marshal once per exposure — cleared on `ReleaseImageData`/`StartExposureAsync`).
+  `ImageArray` marshal once per exposure; cleared on `ReleaseImageData`/`StartExposureAsync`).
   Canon wraps its RAW decode output (no recycle, deliberate). Coverage matrix + the by-design
   consumer copies: [docs/architecture/image-pipeline.md](docs/architecture/image-pipeline.md).
 - **`Channel.MaxValue`/`Image.MaxValue` is the peak pixel actually OBSERVED in that specific frame**
   (rescanned per capture by `DALCameraDriver.DownloadImage`, ASCOM's `Channel.FromWxHImageData`,
-  Alpaca's `AlpacaImageBytes.DecodeChannel`) — it intentionally varies frame to frame with scene
+  Alpaca's `AlpacaImageBytes.DecodeChannel`); it intentionally varies frame to frame with scene
   brightness/seeing/hot pixels. It is **NOT** the sensor's saturation level. That fixed value travels
   separately as the optional `ImageMeta.SensorFullScaleAdu`, populated (a) at the
   `ICameraDriver.GetImageAsync` choke point from `ICameraDriver.MaxADU` for live captures, and (b) from
   a FITS `SATURATE` card on read (the astrometry.net/SExtractor/PixInsight convention; TianWen writes
-  it back out, so it round-trips — but neither N.I.N.A. nor SharpCap emits it, verified empirically).
+  it back out, so it round-trips, but neither N.I.N.A. nor SharpCap emits it, verified empirically).
   Null when neither source applies (most file imports, calibration masters, stacking output).
   **Two "full scale" numbers exist and must not be conflated:** (1) the FITS/BITPIX *container*
-  width (`BitDepth`, `BitDepthEx.UnsignedFullScale` = 65535 for Int16) — the right divisor for
+  width (`BitDepth`, `BitDepthEx.UnsignedFullScale` = 65535 for Int16); the right divisor for
   **N.I.N.A.-recorded files**, because *N.I.N.A. multiplies the native ADC output on recording*
-  (its ASI533 lights span [0, 65532], 100% of values divisible by 4 — that combing is N.I.N.A.'s
+  (its ASI533 lights span [0, 65532], 100% of values divisible by 4, that combing is N.I.N.A.'s
   recording-time scaling, NOT SDK behaviour; never infer the SDK's delivered scale from third-party
   capture files); (2) the *native ADC* resolution (`AdcResolution`, 2^14−1 = 16383 for the ASI533MC
-  Pro) — **the scale the vendor SDK actually hands TianWen, which does NOT left-shift on capture**,
+  Pro); **the scale the vendor SDK actually hands TianWen, which does NOT left-shift on capture**,
   so `DALCameraDriver.MaxADU`/`SensorFullScaleAdu` report the native value for live TW captures.
-  A native ADC depth (10/12/14-bit) is never a valid `BitDepth` member — routing it through
+  A native ADC depth (10/12/14-bit) is never a valid `BitDepth` member; routing it through
   `BitDepthEx.FromValue` silently falls back to the container width (the original bug).
-  **`Image.UnitScaleDivisor` is the single source of truth for [0,1] normalisation** —
+  **`Image.UnitScaleDivisor` is the single source of truth for [0,1] normalisation**:
   `SensorFullScaleAdu` when known (clamped to never go below the observed peak, so a hot pixel above
   nominal full-scale can't map above 1.0), else `MaxValue`. Used by `ScaleFloatValuesToUnit(InPlace)`
   AND the TIFF export; a private `1/MaxValue` in any normalisation path diverges the moment
-  `SensorFullScaleAdu` is present (`TiffRoundTripTests` is the regression guard — the
+  `SensorFullScaleAdu` is present (`TiffRoundTripTests` is the regression guard, the
   `PlateSolveTestFile` fixture genuinely carries `SATURATE = 255`). `SensorFullScaleAdu` rescales
   with the pixels through every rescale (`Image.RescaleMeta`, like `Pedestal`), so after
   normalisation it reads 1.0 and a written SATURATE stays unit-consistent with the stored data; the
-  post-scale `MaxValue` stamp is `MaxValue * invMax` — never a hardcoded `1.0f` (an under-exposed
+  post-scale `MaxValue` stamp is `MaxValue * invMax`, never a hardcoded `1.0f` (an under-exposed
   live frame correctly lands below 1.0). A source without `SensorFullScaleAdu` falls back to the
   prior observed-peak behaviour unchanged.
 
-### Image Mutability — Almost-Immutable with In-Place Escape Hatches
+### Image Mutability: Almost-Immutable with In-Place Escape Hatches
 
 `Image` is logically immutable: there is no public setter, the `data` arrays live as a
 primary-ctor parameter, and the channel accessor is `GetChannelSpan → ReadOnlySpan<float>`.
 **Two named exceptions deliberately mutate `data[c]` in place** and any new caller of these
 must treat the source `Image` as consumed:
 
-- **`Image.ScaleFloatValuesToUnitInPlace()`** — `internal` rescaler to `[0, 1]`. Returns a
+- **`Image.ScaleFloatValuesToUnitInPlace()`**: `internal` rescaler to `[0, 1]`. Returns a
   new `Image` view but reuses the underlying arrays. Original instance's `MaxValue` field
   becomes inconsistent with its samples after the call.
-- **`Image.DebayerAsync(..., normalizeToUnit: true)`** — passthrough for non-Bayer images
+- **`Image.DebayerAsync(..., normalizeToUnit: true)`**; passthrough for non-Bayer images
   calls `ScaleFloatValuesToUnitInPlace` and returns the result; mutates the input.
-- **`AstroImageDocument.AdoptImageAsync(Image, ...)`** — public ownership-transfer factory
+- **`AstroImageDocument.AdoptImageAsync(Image, ...)`**: public ownership-transfer factory
   (was `CreateFromImageAsync` until the rename). Internally normalises the input via
   `ScaleFloatValuesToUnitInPlace`. **Caller must not retain or use `image` after this call.**
   Use the file-loading overload (`AstroImageDocument.OpenAsync(filePath, ...)`) for any case
@@ -1576,7 +1576,7 @@ transfer), not the neutral `CreateFrom*` factory pattern.
 extracted *temp file path* (cheap to re-parse) but constructs a fresh `Image` per call; do
 not reintroduce an `Image`-keyed cache. Two parallel collections passing the same cached
 `Image` through `AdoptImageAsync` is enough to produce a "1 ms / 0 stars" `FindStarsAsync`
-flake — the `Background()` histogram peak drifts off scale once the data has been rescaled
+flake; the `Background()` histogram peak drifts off scale once the data has been rescaled
 to `[0, 1]` while `MaxValue` still reads the original.
 
 ### Float TIFF Convention (DIR.Lib Tiff I/O; Magick.NET fully removed)
@@ -1597,9 +1597,9 @@ disagree about float TIFFs:
 - **Scientific tools** (`tifffile`, PixInsight, ImageJ, FITS-aware viewers): read float TIFFs
   verbatim; SMin/SMax never rescale pixels.
 
-**The `[0, 1]` file convention satisfies both** — HDRI readers rescale to their quantum,
+**The `[0, 1]` file convention satisfies both**: HDRI readers rescale to their quantum,
 scientific readers get linear scene-light values. So `Image.Export.cs` writes `[0, 1]` floats
-with `SampleFormat = IeeeFloat` (tag 339 mandatory — without it readers misinterpret the float
+with `SampleFormat = IeeeFloat` (tag 339 mandatory, without it readers misinterpret the float
 bits as uint) + `SMinSampleValue = 0` / `SMaxSampleValue = 65535` (the `Q16HdriQuantumMax`
 const, kept so ImageMagick-based tools read back at their expected `[0, 65535]`). `[0, 1]` is
 the canonical in-memory range on read as well.
@@ -1609,17 +1609,17 @@ See `DIR.Lib.Tests/TiffWriterRoundTripTests.cs` for the byte-level reader probe 
 
 **DIR.Lib Phase-1.5 additions** (available as of DIR.Lib 2.14.x):
 
-- `DIR.Lib.Color.IccProfiles.SRgbV4` — bundled 588-byte sRGB v4 profile bytes
+- `DIR.Lib.Color.IccProfiles.SRgbV4`: bundled 588-byte sRGB v4 profile bytes
   (LittleCMS-generated). Pass to `TiffPageOptions.IccProfile` or
   `PngWriter.Encode(..., iccProfile)` to embed a colour-management tag without
   having to source profile bytes yourself.
-- `PngWriter.EncodeGray8` / `EncodeGray16` / `EncodeRgba16` — bit-depth and
+- `PngWriter.EncodeGray8` / `EncodeGray16` / `EncodeRgba16`; bit-depth and
   grayscale variants on top of the original RGBA8 entry point. 16-bit overloads
   accept `ReadOnlySpan<ushort>` in system-endian and byte-swap to PNG's required
   BE order internally.
-- `PngWriter.Encode(rgba, w, h, iccProfile)` — emits an `iCCP` chunk between
+- `PngWriter.Encode(rgba, w, h, iccProfile)`: emits an `iCCP` chunk between
   IHDR and IDAT, keyword "ICC profile", zlib-deflated. Empty span = no chunk.
-- `DIR.Lib.Tiff.TiffReader.Read(stream | span)` — pure-managed decoder; v1
+- `DIR.Lib.Tiff.TiffReader.Read(stream | span)`: pure-managed decoder; v1
   scope is strip layout + Uncompressed/Deflate/ZlibPkzip + 8/16/32-bit uint
   or IeeeFloat + contig planar config. Both "II" (LE) and "MM" (BE) byte
   orders are accepted; the reader detects file-order from the header and
@@ -1668,7 +1668,7 @@ unconditionally (an empty array crashed the GUI; pinned by `LiveFramePreviewSour
 TianWen.UI.Shared's Vulkan shaders (`VkFitsImagePipeline`, `VkSkyMapPipeline`) are authored as GLSL
 450 **files** under `src/TianWen.UI.Shared/Shaders/*.vert|*.frag` and **pre-baked to SPIR-V at
 build-host time** (`Shaders/spirv/*.spv`, committed + embedded) by `tools/BakeShaders`. The pipelines
-load the embedded `.spv` at runtime (`LoadShaderModule`) — there is **no runtime shaderc**. This was
+load the embedded `.spv` at runtime (`LoadShaderModule`); there is **no runtime shaderc**. This was
 forced when SdlVulkan.Renderer 6.23 dropped the transitive `Vortice.ShaderCompiler` it used to
 provide, and is required for **Android** (shaderc ships no android RID) + trims AOT / first-frame cost.
 Mirrors SdlVkR's own `tools/BakeShaders`.
@@ -1692,9 +1692,9 @@ pedestal → rescale → MTF). Don't reimplement it.
 The stretch pipeline runs in two parallel implementations that must produce visually equivalent
 output for the same `StretchUniforms`:
 - **GPU**: `VkFitsImagePipeline.glsl` `stretchChannel` (per-channel) + `StretchLumaPixelCpu` analogue
-  in shader (Luma) — used by the live FITS viewer.
+  in shader (Luma); used by the live FITS viewer.
 - **CPU**: `Image.StretchChannelCpu`, `Image.StretchLumaPixelCpu`, `Image.ApplyHdr`,
-  `Image.ApplyCurveLut`, `Image.ApplyBoost`, `Image.RenderStretchedRgba` — used by
+  `Image.ApplyCurveLut`, `Image.ApplyBoost`, `Image.RenderStretchedRgba`; used by
   `ConsoleImageRenderer` (TUI Sixel) and tests (`StretchTests_NewPipeline`). Never use the GPU.
 
 Pipeline order in both: pedestal subtract → bg neutralization → WB → shadow/rescale → MTF →
@@ -1703,14 +1703,14 @@ Linked/Unlinked, luma-Y'/Y for Luma. In Luma mode the producer always populates 
 `StretchUniforms.LumaStretch` (scalar Luma MTF params) AND per-channel `Shadows/Midtones/Rescale`
 (linked branch params) so the shader can blend between them via `LumaBlend`.
 
-`AstroImageDocument.ComputeStretchUniforms` is the single producer of `StretchUniforms` — it scales
+`AstroImageDocument.ComputeStretchUniforms` is the single producer of `StretchUniforms`; it scales
 per-channel stats by WB before deriving shadows/midtones/rescale so the post-WB norm and shadow
 are in the same coordinate space. `ConvergeStretchFactor` takes a `whiteBalance` scalar and
 operates entirely in post-WB space (median, mad, binNorm all multiplied) so the converged
 stretchFactor matches the per-channel rendering.
 
 **Two WB facts the viewer's manual WB sliders depend on (don't regress):** (1) The stat scaling only
-makes sense for the AUTO calibration (`ColorCalibration`) — its whole job is to keep the background
+makes sense for the AUTO calibration (`ColorCalibration`); its whole job is to keep the background
 neutral. A MANUAL WB multiplier that ALSO scaled the stats would be cancelled by a per-channel
 auto-normalised stretch (Unlinked / linear), so the producer takes a separate `shaderWhiteBalance`
 (= auto × manual) that goes to `StretchUniforms.WhiteBalance` while only the auto WB scales the stats.
@@ -1718,13 +1718,13 @@ A neutral manual triple leaves `shaderWhiteBalance == whiteBalance`, so the auto
 bit-identical. (2) **WB is applied in the `StretchMode.None` (linear) path** in the GLSL `else`
 branch + the CPU `RenderStretchedRgba`/`RenderStretchedRgba16` + `ConsoleImageRenderer` None branches.
 This is load-bearing: a SER opens in linear mode (`ViewerController`), and the old None path was a
-pure passthrough that ignored `WhiteBalance` — so WB (manual OR auto Calibrate/SPCC) did nothing
+pure passthrough that ignored `WhiteBalance`, so WB (manual OR auto Calibrate/SPCC) did nothing
 until a non-linear stretch was toggled on. The mono None path stays a straight passthrough (WB is
 meaningless for one channel), mirroring the GLSL mono branch.
 
 Luma weights live in `StretchUniforms.LumaWeights` (Rec.709 / Rec.601 / Rec.2020 / SensorMatched
 via the `LumaWeighting` enum, default Rec.709). The CPU `StretchLumaPixelCpu`, GLSL Luma branch,
-and `StretchUniforms.ComputePostStretchBackground` all read from the uniform — never hardcode
+and `StretchUniforms.ComputePostStretchBackground` all read from the uniform, never hardcode
 Rec.709 constants. `LumaWeighting.SensorMatched` resolves via
 `AstroImageDocument.ResolveLumaWeights` -> `FilterCurveDatabase.TryComputeSensorLumaWeights`
 (integrates sensor QE × Sony CFA R/G/B over the visible, normalises to sum 1); silently falls
@@ -1733,7 +1733,7 @@ back to Rec.709 when the sensor model isn't recognised.
 Post-stretch normalize: when caller passes `normalize: true` to `ComputeStretchUniforms`, the
 producer calls `Image.PredictPostStretchMaxScale` (walks each channel histogram's top non-zero
 bin through the full chain) and sets `StretchUniforms.NormalizeScale = 1/max`. CPU and GPU
-multiply by this scale after curves+HDR but before the final clamp — single-pass, no GPU
+multiply by this scale after curves+HDR but before the final clamp; single-pass, no GPU
 reduction needed. Default 1.0 = no-op.
 
 When adding a new pipeline stage (e.g. saturation boost, denoise, etc.), wire it into BOTH the
@@ -1763,11 +1763,11 @@ construction; no second hit-rect arithmetic that can drift). The full engine + D
   .Clickable/.WithGap`. Each is a pure `this with { ... }` transform emitting the same records.
 - **Alias, don't import.** Keep `using DIR.Lib;` and add a per-project `global using Layout =
   DIR.Lib.Layout;` (or csproj `<Using ... Alias="Layout"/>`); write the qualified `Layout.Node` /
-  `Layout.Builder`. Do NOT `using DIR.Lib.Layout;` — it drops the collision-prone barewords (`Node`,
+  `Layout.Builder`. Do NOT `using DIR.Lib.Layout;`: it drops the collision-prone barewords (`Node`,
   `Content`, `Size<T>`) into scope. A consumer owning its own `Layout` type must rename it (PTV did:
   `Layout` -> `ElementGrid`).
 - **Conditional background:** `.Bg(color)` always sets a value, so for a nullable bg build the base then
-  `if (cond) n = n.Bg(color);` — never `.Bg(default)` (paints transparent, not null).
+  `if (cond) n = n.Bg(color);`, never `.Bg(default)` (paints transparent, not null).
 - **Interactive sub-widgets** (text inputs, charts, sky map) emit a `Layout.Builder.Fill(key: "...")` leaf
   and draw into its rect via `PaintLayout`'s `drawFill` callback.
 - **Responsive primitives (DIR.Lib 6.14):** `Sizing.Star(weight, min, max)` clamps
@@ -1855,7 +1855,7 @@ varying value to constants and reintroduce the threading). The two **static, non
 `fontFamily`/`fontPath`/`emojiFontPath` parameters and are fed the caller's `FontPath`/`EmojiFontPath`.
 Plan + full breakdown: [`docs/plans/dpi-scale.md`](docs/plans/dpi-scale.md).
 
-### Signal Handler Pattern — Route, Don't Implement
+### Signal Handler Pattern: Route, Don't Implement
 
 The lightweight `SignalBus` is our alternative to MediatR/MVVM. `AppSignalHandler.cs` subscribe
 lambdas must **route only**: take signal payload, call one or two helpers, reflect results back into
@@ -1867,14 +1867,14 @@ Where business logic goes:
 - **Device-model operations** (URI reconciliation, discovery) → extension methods in `TianWen.Lib/Devices/*Extensions.cs`
 - **Persistence** → dedicated helpers (`PlannerPersistence`, `SessionPersistence`, `Profile.SaveAsync`)
 
-**Red flag**: a `foreach` or multi-step `if`/`await`/`save` chain inside a subscribe lambda — extract it.
+**Red flag**: a `foreach` or multi-step `if`/`await`/`save` chain inside a subscribe lambda; extract it.
 
 ### Shared UI State: `ImmutableArray<T>`, not `List<T>`
 
 Any collection on shared UI state (`PlannerState`, `LiveSessionState`, `EquipmentTabState`,
 `GuiAppState`) that can be touched by **both** the render thread and a background task must be
 `ImmutableArray<T>` with atomic replacement. Writers build the new array (or use `array.Add(x)`,
-`.RemoveAt(i)`, `.SetItem(i, x)`, `.Sort(cmp)` — all return new instances) and assign in one
+`.RemoveAt(i)`, `.SetItem(i, x)`, `.Sort(cmp)`, all return new instances) and assign in one
 reference update. Readers snapshot the property into a local. Pattern match on `.Length`, not
 `.Count` (`ImmutableArray<T>` only exposes `Count` via explicit `IReadOnlyCollection<T>`).
 
@@ -1905,7 +1905,7 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
 - `SemaphoreSlim` / `DotNext.Threading` for resource locking
 - `CancellationToken` propagated throughout
 - `ValueTask` for allocation-free async paths
-- **Never use `.GetAwaiter().GetResult()`** — make the method `async` and `await`
+- **Never use `.GetAwaiter().GetResult()`**: make the method `async` and `await`
 - **Prefer a lock-free hand-off over `lock {}` blocks.** For producer/consumer hand-off (a
   background task feeding a render or poll loop), return the result *through* the `Task<T>` and let
   the consumer poll it: `if (_task is { IsCompleted: true } t) { _task = null; if (t.IsCompletedSuccessfully && t.Result is { } x) use(x); }`. The Task is the synchronisation primitive, so no shared
@@ -1937,7 +1937,7 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
 
 ## Package Management
 
-Centralized in `Directory.Packages.props` — version numbers go there, not in individual `.csproj` files.
+Centralized in `Directory.Packages.props`: version numbers go there, not in individual `.csproj` files.
 
 ## Runtime Data (AppData)
 

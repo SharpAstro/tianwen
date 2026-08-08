@@ -5,7 +5,7 @@ Architecture reference for the driver-reconnect + retry layer shipped on branch
 [`driver-resilience.md`](../plans/driver-resilience.md).
 
 **Goal:** a single USB bump, COM glitch, or TCP drop must not end the session.
-Previously, every driver call in the imaging hot path was a naked `await` — the
+Previously, every driver call in the imaging hot path was a naked `await`; the
 first exception bubbled to `Session.RunAsync`'s outer catch, `SessionPhase.Failed`
 was set, and finalise ran. Now transient faults retry silently, repeated faults
 trigger proactive reconnects, and only a truly dead device escalates to a clean
@@ -96,7 +96,7 @@ stateDiagram-v2
 |--------|---------:|---------|----------|
 | `IdempotentRead` | 3 | 250 ms × 3.0 | Status polls, position reads, `WaitForSlewCompleteAsync`, `GetImageAsync` |
 | `NonIdempotentAction` | 1 | none | Slew issue, exposure start, dither, guider start (retry would double-issue) |
-| `AbsoluteMove` | 2 | 500 ms × 1.0 | Focuser / filter-wheel moves — target is an absolute coordinate, retry lands on the same position |
+| `AbsoluteMove` | 2 | 500 ms × 1.0 | Focuser / filter-wheel moves: target is an absolute coordinate, retry lands on the same position |
 
 ### Transient exception filter
 
@@ -104,11 +104,11 @@ Conservative by design. False positives (treating a config error as transient)
 just log noise and spin through `MaxAttempts`; false negatives (not retrying a
 cable bump) defeat the whole helper.
 
-- `IOException` — serial / TCP / pipe
-- `SocketException` — TCP disconnect
-- `ObjectDisposedException` — driver transport recreated its handle
-- `TimeoutException` / `TaskCanceledException` wrapping `TimeoutException` — driver's own timeout, not ours
-- `COMException` — ASCOM hub disconnects surface here via `AscomDeviceDriverBase.SafeTask`
+- `IOException`: serial / TCP / pipe
+- `SocketException`: TCP disconnect
+- `ObjectDisposedException`: driver transport recreated its handle
+- `TimeoutException` / `TaskCanceledException` wrapping `TimeoutException`; driver's own timeout, not ours
+- `COMException`: ASCOM hub disconnects surface here via `AscomDeviceDriverBase.SafeTask`
 - `AggregateException` where every inner is transient
 
 Anything else rethrows immediately.
@@ -132,11 +132,11 @@ stateDiagram-v2
 `DeviceFaultEscalationThreshold` and `DeviceFaultDecayFrames` are on
 `SessionConfiguration` (defaults 5 and 10). Counter state lives in
 `Session._driverFaultCounts` (`ConcurrentDictionary<IDeviceDriver, int>`).
-`DeviceUnrecoverable` is a new variant on `ImageLoopNextAction` — the imaging
+`DeviceUnrecoverable` is a new variant on `ImageLoopNextAction`; the imaging
 loop drains pending FITS writes and bails out; `ObservationLoopAsync` logs and
 breaks cleanly into `Finalise`.
 
-## PollDriverReadAsync — telemetry proactive reconnect
+## PollDriverReadAsync: telemetry proactive reconnect
 
 `PollDeviceStatesAsync` polls focuser position / temperature / moving and mount
 RA / Dec / HA / pier / slewing / tracking every imaging tick. Plain `CatchAsync`
@@ -165,10 +165,10 @@ stateDiagram-v2
 `PROACTIVE_RECONNECT_THRESHOLD = 3`. The reconnect happens inline (no
 fire-and-forget `Task.Run`); blocking budget is one `ConnectAsync` call, typically
 sub-second. Subsequent failures in the same burst keep the counter climbing but
-don't re-fire reconnect — the counter only resets on a successful poll.
+don't re-fire reconnect; the counter only resets on a successful poll.
 
 PR-B6 also routed the three `Session.Cooling.cs` ramp polls (CCD temp, setpoint,
-cooler power) through `PollDriverReadAsyncIf` — the capability-gated variant —
+cooler power) through `PollDriverReadAsyncIf`, the capability-gated variant,
 so a USB drop during a 30-minute cooldown no longer silently freezes the live
 cooling graph.
 
@@ -180,7 +180,7 @@ of several primitives (take a scout exposure: `StartExposureAsync` → `SleepAsy
 retry layer at the operation level. Two distinct failure classes call for it:
 
 1. **Exception escapes Layer 1.** `NonIdempotentAction` has a 1-attempt budget by
-   design — a transient on `StartExposureAsync` throws straight through. If the
+   design; a transient on `StartExposureAsync` throws straight through. If the
    composite's caller treats the throw as "abort the whole flow", a single USB
    bump can derail a multi-step operation that had a perfectly cheap retry path.
 2. **Successful primitive returns a degraded result.** Drivers don't throw on a
@@ -218,15 +218,15 @@ session.
 **When to add Layer 2 / Layer 3 to a new composite:**
 
 - Layer 2 is appropriate when the composite is **idempotent at the operation
-  level** (running it twice has the same effect as running it once — the second
+  level** (running it twice has the same effect as running it once, the second
   result supersedes the first). Scout exposures, telemetry probes, plate solves
-  all qualify. Slewing a target does NOT — re-issuing while in motion is at best
+  all qualify. Slewing a target does NOT; re-issuing while in motion is at best
   redundant and at worst misbehaves on some mounts.
 - Layer 3 is appropriate when the composite has a **safe default outcome**
   (the operation can be skipped without ending the broader flow). Optional
   pre-flight checks, telemetry decorations, predictive probes all qualify.
   Critical path operations (slew to target, start exposure for the actual
-  imaging frame) do NOT — silent failure there means lost frames or wrong
+  imaging frame) do NOT; silent failure there means lost frames or wrong
   pointing.
 
 **Test seam pattern.** Composite-level retry needs scriptable transient injection
@@ -239,7 +239,7 @@ afterwards. Set the counter to N to script "next N calls fail." See
 test for the canonical example. New fake-driver test seams should follow the
 same pattern.
 
-The first concrete user of all three layers is the FOV obstruction scout — see
+The first concrete user of all three layers is the FOV obstruction scout; see
 [`fov-obstruction.md`](fov-obstruction.md) "Resilience layering" for
 the worked example with its specific failure-class table.
 
@@ -250,7 +250,7 @@ the worked example with its specific failure-class table.
 | Hot-path driver call (slew, expose, get image, position read, dither, guide start) | `ResilientInvokeAsync` → `ResilientCall` | Classify → retry idempotent ones with backoff + reconnect, count fault, escalate at threshold |
 | Telemetry poll (`PollDeviceStatesAsync`, cooling ramp) | `PollDriverReadAsync` / `PollDriverReadAsyncIf` | Return fallback + count consecutive failures; fire proactive reconnect at threshold |
 | Best-effort / decision input / metadata read | `CatchAsync` (unchanged) | Log + return fallback, move on |
-| Finaliser (warm, disconnect, close covers, park) | `CatchAsync` (unchanged) | Swallow — every step runs regardless of prior failures |
+| Finaliser (warm, disconnect, close covers, park) | `CatchAsync` (unchanged) | Swallow: every step runs regardless of prior failures |
 
 `CatchAsync` is deliberately kept for predicate decisions (`IsSlewingAsync`,
 `IsTrackingAsync`) where `false` is a strictly safer default on fault, for FITS
@@ -260,19 +260,19 @@ worse, and for all finaliser steps.
 ## Files
 
 ### New
-- `src/TianWen.Lib/Sequencing/ResilientCall.cs` — static wrapper + options
-- `src/TianWen.Lib/Sequencing/ResilientCallOptions.cs` — preset configurations
-- `src/TianWen.Lib.Tests/ResilientCallTests.cs` — 11 tests
-- `src/TianWen.Lib.Tests/SessionFaultCounterTests.cs` — 11 tests (PR-B4 + PR-B5 + PR-B6)
+- `src/TianWen.Lib/Sequencing/ResilientCall.cs`: static wrapper + options
+- `src/TianWen.Lib/Sequencing/ResilientCallOptions.cs`: preset configurations
+- `src/TianWen.Lib.Tests/ResilientCallTests.cs`: 11 tests
+- `src/TianWen.Lib.Tests/SessionFaultCounterTests.cs`: 11 tests (PR-B4 + PR-B5 + PR-B6)
 
 ### Edited
-- `src/TianWen.Lib/Sequencing/Session.cs` — fault counter dict, poll failure dict, `PollDeviceStatesAsync`
-- `src/TianWen.Lib/Sequencing/Session.ErrorHandling.cs` — `ResilientInvokeAsync` (4 overloads), `OnDriverReconnect`, `DecayFaultCountersOnFrameSuccess`, `TryFindEscalatedDriver`, `PollDriverReadAsync`, `PollDriverReadAsyncIf`
-- `src/TianWen.Lib/Sequencing/Session.Imaging.cs` — hot-path driver calls wrapped + `DeviceUnrecoverable` short-circuit + decay hook on successful frame
-- `src/TianWen.Lib/Sequencing/Session.Focus.cs` — hot-path driver calls wrapped
-- `src/TianWen.Lib/Sequencing/Session.Cooling.cs` — ramp-loop polls routed through `PollDriverReadAsync(If)`
-- `src/TianWen.Lib/Sequencing/SessionConfiguration.cs` — `DeviceFaultEscalationThreshold`, `DeviceFaultDecayFrames`
-- `src/TianWen.Lib/Sequencing/ImagingLoopResult.cs` — `DeviceUnrecoverable` variant
+- `src/TianWen.Lib/Sequencing/Session.cs`: fault counter dict, poll failure dict, `PollDeviceStatesAsync`
+- `src/TianWen.Lib/Sequencing/Session.ErrorHandling.cs`: `ResilientInvokeAsync` (4 overloads), `OnDriverReconnect`, `DecayFaultCountersOnFrameSuccess`, `TryFindEscalatedDriver`, `PollDriverReadAsync`, `PollDriverReadAsyncIf`
+- `src/TianWen.Lib/Sequencing/Session.Imaging.cs`: hot-path driver calls wrapped + `DeviceUnrecoverable` short-circuit + decay hook on successful frame
+- `src/TianWen.Lib/Sequencing/Session.Focus.cs`: hot-path driver calls wrapped
+- `src/TianWen.Lib/Sequencing/Session.Cooling.cs`: ramp-loop polls routed through `PollDriverReadAsync(If)`
+- `src/TianWen.Lib/Sequencing/SessionConfiguration.cs`: `DeviceFaultEscalationThreshold`, `DeviceFaultDecayFrames`
+- `src/TianWen.Lib/Sequencing/ImagingLoopResult.cs`: `DeviceUnrecoverable` variant
 
 ## Guard rails for future work
 
@@ -289,7 +289,7 @@ worse, and for all finaliser steps.
   effectful (slew issue, exposure start, dither, guide start) is
   `NonIdempotentAction`. Absolute-target moves (focuser, filter wheel) are
   `AbsoluteMove` (2 attempts, safe to re-issue).
-- **Keep `CatchAsync` for the right cases.** See the table above — finaliser,
+- **Keep `CatchAsync` for the right cases.** See the table above; finaliser,
   predicate decisions, and metadata reads legitimately want swallow-and-default
   semantics.
 
@@ -309,11 +309,11 @@ worse, and for all finaliser steps.
 
 ## Commits
 
-- `1ce1d56` PR-B1 — ResilientCall helper + options + 11 tests
-- `be911f4` PR-B2 — wrap idempotent mount/focuser/FW reads
-- `b1f02ba` PR-B3 — wrap non-idempotent slew/exposure/dither + absolute moves
-- `db7ba83` PR-B4 — fault counter + `DeviceUnrecoverable` escalation + 5 tests
-- `1374cbb` PR-B5 — proactive reconnect in `PollDeviceStatesAsync` + 4 tests
-- `20394c3` PR-B6 — cooling ramp polls via `PollDriverReadAsyncIf` + 2 tests
+- `1ce1d56` PR-B1: ResilientCall helper + options + 11 tests
+- `be911f4` PR-B2: wrap idempotent mount/focuser/FW reads
+- `b1f02ba` PR-B3: wrap non-idempotent slew/exposure/dither + absolute moves
+- `db7ba83` PR-B4: fault counter + `DeviceUnrecoverable` escalation + 5 tests
+- `1374cbb` PR-B5: proactive reconnect in `PollDeviceStatesAsync` + 4 tests
+- `20394c3` PR-B6: cooling ramp polls via `PollDriverReadAsyncIf` + 2 tests
 
 All on branch `driver-resilience`. 1672 unit + 78 functional session tests pass.

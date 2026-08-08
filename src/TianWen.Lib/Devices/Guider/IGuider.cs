@@ -294,7 +294,7 @@ public interface IGuider : IDeviceDriver
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                throw; // user-initiated abort — propagate to RunAsync
+                throw; // user-initiated abort; propagate to RunAsync
             }
             catch (Exception e)
             {

@@ -24,7 +24,7 @@ internal static class NinaSequenceEndpoints
     {
         var group = routes.MapGroup("/v2/api/sequence");
 
-        // GET /v2/api/sequence/state — maps to session phase
+        // GET /v2/api/sequence/state: maps to session phase
         group.MapGet("/state", (IHostedSession hosted) =>
         {
             if (hosted.CurrentSession is not { } session)
@@ -54,7 +54,7 @@ internal static class NinaSequenceEndpoints
                 NinaApiJsonContext.Default.ResponseEnvelopeString);
         });
 
-        // GET /v2/api/sequence/start — start session using active profile + pending targets
+        // GET /v2/api/sequence/start: start session using active profile + pending targets
         group.MapGet("/start", (IHostedSession hosted, ISessionFactory factory, ILogger<HostedSession> logger, ITimeProvider timeProvider, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not null)
@@ -114,7 +114,7 @@ internal static class NinaSequenceEndpoints
                 NinaApiJsonContext.Default.ResponseEnvelopeString);
         });
 
-        // GET /v2/api/sequence/stop — stop session
+        // GET /v2/api/sequence/stop: stop session
         group.MapGet("/stop", (IHostedSession hosted) =>
         {
             if (hosted.CurrentSession is null)
@@ -134,7 +134,7 @@ internal static class NinaSequenceEndpoints
                 NinaApiJsonContext.Default.ResponseEnvelopeString);
         });
 
-        // GET /v2/api/sequence/set-target?name=&ra=&dec=&rotation=&index= — queue a target
+        // GET /v2/api/sequence/set-target?name=&ra=&dec=&rotation=&index=; queue a target
         group.MapGet("/set-target", (string name, double ra, double dec, IHostedSession hosted) =>
         {
             hosted.AddTarget(new PendingTarget(name, ra, dec));

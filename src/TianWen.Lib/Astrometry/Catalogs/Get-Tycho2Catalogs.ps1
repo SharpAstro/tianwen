@@ -271,7 +271,7 @@ function ConvertAndWrite-Tycho2Data
         }
 
         # Note: for posType 'X' entries, fields 24/25 are the observed Tycho-2 position
-        # already in ICRS (J2000 reference frame). No precession is needed — ICRS coordinates
+        # already in ICRS (J2000 reference frame). No precession is needed: ICRS coordinates
         # only differ by proper motion between epochs, and type 'X' entries have no proper motion.
         # Applying classical precession here would incorrectly rotate the coordinate frame,
         # producing errors of ~400" for Pleiades-era stars (e.g. Electra/TYC 1799-1441-1).

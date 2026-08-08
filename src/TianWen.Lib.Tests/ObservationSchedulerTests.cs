@@ -12,7 +12,7 @@ namespace TianWen.Lib.Tests;
 [Collection("Scheduling")]
 public sealed class ObservationSchedulerTests
 {
-    // Vienna, Austria — ~48.2°N, ~16.4°E
+    // Vienna, Austria: ~48.2°N, ~16.4°E
     private const double SiteLatitude = 48.2;
     private const double SiteLongitude = 16.4;
     private const byte MinHeight = 20;
@@ -34,13 +34,13 @@ public sealed class ObservationSchedulerTests
         return transform;
     }
 
-    // M42 — Orion Nebula, low in summer from Vienna
+    // M42: Orion Nebula, low in summer from Vienna
     private static readonly Target M42 = new Target(5.588, -5.39, "M42", null);
 
-    // M13 — Hercules Cluster, high in summer from Vienna
+    // M13: Hercules Cluster, high in summer from Vienna
     private static readonly Target M13 = new Target(16.695, 36.46, "M13", null);
 
-    // M31 — Andromeda Galaxy, rises during the night in summer
+    // M31: Andromeda Galaxy, rises during the night in summer
     private static readonly Target M31 = new Target(0.712, 41.27, "M31", null);
 
     [Fact]
@@ -272,10 +272,10 @@ public sealed class ObservationSchedulerTests
     }
 
     [Theory]
-    [InlineData(48.2, 16.4, "2025-06-15T00:00:00+02:00", 200, 2, 14)]     // Vienna, summer — short night
-    [InlineData(-37.88, 145.17, "2025-06-15T00:00:00+10:00", 120, 8, 14)]  // Melbourne, winter (AEST +10) — long night
+    [InlineData(48.2, 16.4, "2025-06-15T00:00:00+02:00", 200, 2, 14)]     // Vienna, summer, short night
+    [InlineData(-37.88, 145.17, "2025-06-15T00:00:00+10:00", 120, 8, 14)]  // Melbourne, winter (AEST +10), long night
     [InlineData(51.4, 8.06, "2025-12-21T00:00:00+01:00", 400, 10, 14)]     // Northern Germany, winter solstice
-    [InlineData(53.35, -6.26, "2025-06-21T00:00:00+01:00", 20, 1, 8)]      // Dublin, summer solstice — no astro dark, falls back to nautical twilight
+    [InlineData(53.35, -6.26, "2025-06-21T00:00:00+01:00", 20, 1, 8)]      // Dublin, summer solstice; no astro dark, falls back to nautical twilight
     public void CalculateNightWindow_ReturnsValidWindow(double lat, double lon, string dateStr, double elevation, double minNightHours, double maxNightHours)
     {
         var dto = DateTimeOffset.Parse(dateStr, System.Globalization.CultureInfo.InvariantCulture);
@@ -301,7 +301,7 @@ public sealed class ObservationSchedulerTests
     [Fact]
     public void CalculateNightWindow_PolarNight_Returns24HourWindow()
     {
-        // Tromsø, Norway — ~69.6°N, polar night in December
+        // Tromsø, Norway: ~69.6°N, polar night in December
         var dto = new DateTimeOffset(2025, 12, 21, 0, 0, 0, TimeSpan.FromHours(1));
         var transform = new Transform(SystemTimeProvider.Instance)
         {
@@ -320,8 +320,8 @@ public sealed class ObservationSchedulerTests
     }
 
     [Theory]
-    [InlineData(48.2, 16.4, "2025-06-15T00:00:00+02:00", 200)]    // Vienna, summer — short night
-    [InlineData(48.2, 16.4, "2025-12-15T00:00:00+01:00", 200)]    // Vienna, winter — long night
+    [InlineData(48.2, 16.4, "2025-06-15T00:00:00+02:00", 200)]    // Vienna, summer, short night
+    [InlineData(48.2, 16.4, "2025-12-15T00:00:00+01:00", 200)]    // Vienna, winter, long night
     [InlineData(-37.88, 145.17, "2025-06-15T00:00:00+10:00", 120)] // Melbourne, winter
     [InlineData(51.4, 8.06, "2025-12-21T00:00:00+01:00", 400)]      // Northern Germany, winter solstice
     public void CalculateNightWindow_ThenTwilightBoundaries_OrderedCorrectly(double lat, double lon, string dateStr, double elevation)
@@ -336,7 +336,7 @@ public sealed class ObservationSchedulerTests
             DateTimeOffset = dto
         };
 
-        // CalculateNightWindow mutates transform.DateTimeOffset — this is by design.
+        // CalculateNightWindow mutates transform.DateTimeOffset; this is by design.
         var (astroDark, astroTwilight) = ObservationScheduler.CalculateNightWindow(transform);
 
         // Compute twilight boundaries AFTER CalculateNightWindow (the bug scenario).
@@ -383,7 +383,7 @@ public sealed class ObservationSchedulerTests
     [Fact]
     public void CalculateNightWindow_ThenTwilightBoundaries_HighLatitudeSummer_PartialOrdering()
     {
-        // Dublin, summer solstice — no astronomical twilight, falls back to nautical.
+        // Dublin, summer solstice: no astronomical twilight, falls back to nautical.
         // Civil twilight set may occur AFTER the nautical-derived "astro dark" because
         // the sun never drops below -18° (or even -12° fully), so only a partial chain applies.
         var dto = new DateTimeOffset(2025, 6, 21, 0, 0, 0, TimeSpan.FromHours(1));
@@ -399,7 +399,7 @@ public sealed class ObservationSchedulerTests
         var (astroDark, astroTwilight) = ObservationScheduler.CalculateNightWindow(transform);
         astroDark.ShouldBeLessThan(astroTwilight, "Dark should precede twilight");
 
-        // Night window falls back to nautical — should be short (1-8 hours per existing test)
+        // Night window falls back to nautical: should be short (1-8 hours per existing test)
         var nightDuration = astroTwilight - astroDark;
         nightDuration.ShouldBeGreaterThan(TimeSpan.FromHours(1));
         nightDuration.ShouldBeLessThan(TimeSpan.FromHours(8));

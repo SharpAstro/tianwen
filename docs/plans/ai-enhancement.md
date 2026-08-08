@@ -1,4 +1,4 @@
-# PLAN: AI image enhancement — star removal, deconvolution, sharpening, denoise
+# PLAN: AI image enhancement, star removal, deconvolution, sharpening, denoise
 
 ## Goal
 
@@ -9,10 +9,10 @@ optionally recombine. Each step must be usable standalone (starless export, deco
 a pre-starless image, etc.), so the orchestrator composes atomic `IImageEnhancer`s
 rather than baking the chain into one method.
 
-Reference implementation: SetiAstroSuite Pro (Python — see `../../other/setiastrosuitepro/`).
+Reference implementation: SetiAstroSuite Pro (Python, see `../../other/setiastrosuitepro/`).
 Models distributed under their GitHub release `setiastro/setiastrosuitepro` tag
 `benchmarkFIT` (2 zip assets, ~2.5 GB extracted). Same architecture (NAFNet),
-same training distribution, same input conventions — we just port the orchestration
+same training distribution, same input conventions; we just port the orchestration
 to .NET 10 with `Microsoft.ML.OnnxRuntime`.
 
 ## Non-goals (v1)
@@ -29,11 +29,11 @@ to .NET 10 with `Microsoft.ML.OnnxRuntime`.
   when the time comes.
 - **Classical (non-ONNX) fallbacks** for every enhancer except `IStarRemover`.
   Lucy-Richardson, unsharp-mask, bilateral, etc. exist and are worth having later
-  but are not the v1 priority. Star removal has no respectable classical analogue —
+  but are not the v1 priority. Star removal has no respectable classical analogue;
   no fallback there.
 - **Hexagon NPU acceleration** on win-arm64. AI4 ships pure FP32; QNN HTP wants
   INT8/INT16 or a pre-compiled `.serialized.bin`. Real NPU accel requires either
-  upstream re-export at INT8 or our own ORT QNN compile pass — separate workstream.
+  upstream re-export at INT8 or our own ORT QNN compile pass; separate workstream.
 - **Runtime self-bootstrap of model files**. v1 uses the dev-only fetch script
   `tools/tianwen-ai-models-fetch.ps1`. Deploy story (in-app first-launch download
   with progress UI + CLI sub-command) is a follow-up plan.
@@ -66,7 +66,7 @@ TianWen.AI.Imaging/                               -- ORT-backed concrete impls
 ```
 
 `TianWen.Lib` has no `ProjectReference` to `TianWen.AI*`. `SharpenPipeline` constructs
-purely from `IStarRemover?` + `IStellarSharpener?` + `INonStellarDeconvolver?` —
+purely from `IStarRemover?` + `IStellarSharpener?` + `INonStellarDeconvolver?`,
 all nullable so the orchestrator is constructible even when no concrete impl is
 registered. Throws `InvalidOperationException` at `ProcessAsync` time if a requested
 step's enhancer is missing.
@@ -177,7 +177,7 @@ public interface IPsfEstimator
 }
 ```
 
-v1 impl: `HfdPsfEstimator` — runs `FindStarsAsync` on the whole image once, picks
+v1 impl: `HfdPsfEstimator`; runs `FindStarsAsync` on the whole image once, picks
 median HFD across all stars, converts HFD -> Gaussian sigma -> FWHM -> radius. The
 chunk variant returns the same whole-image scalar to every chunk (cheap and good
 enough for v1; defer per-chunk re-measurement to a follow-up). A future
@@ -249,7 +249,7 @@ Request validation rules (enforced before invoking any enhancer):
 
 The split (`StarsOnly = Source - Starless`) and the recombine
 (`Final = (DeconvolvedStarless ?? Starless) + (SharpenedStars ?? StarsOnly)`) are
-per-pixel ops in the orchestrator — no enhancer needed. Pass-through is implicit
+per-pixel ops in the orchestrator; no enhancer needed. Pass-through is implicit
 when a step is disabled.
 
 ### DI registration
@@ -272,11 +272,11 @@ public static IServiceCollection AddTianWenAi(this IServiceCollection services)
 ```
 
 Factory lambdas (not the short generic form) because the ONNX impls take a
-non-generic `ILogger` for shared logging — same gotcha as `CatalogPlateSolver`
+non-generic `ILogger` for shared logging; same gotcha as `CatalogPlateSolver`
 (see CLAUDE.md "Plate Solving" / factory lambda note).
 
 Consumers (CLI command, future GUI menu, hosting API) call `AddTianWenAi()`
-themselves. `TianWen.Lib` does not auto-wire any ONNX impl — keeps the core
+themselves. `TianWen.Lib` does not auto-wire any ONNX impl; keeps the core
 library ORT-free.
 
 ### Future: classical fallbacks
@@ -305,7 +305,7 @@ model is on disk, leaving the classical fallback for absent ones.
 |-------|-------|--------|
 | 0 | PLAN doc + dev-only model fetch script | DONE (`tools/tianwen-ai-models-fetch.ps1` with `.pth`/`.pt` filter; 17 `.onnx` files + manifest.json in `%LOCALAPPDATA%\TianWen\models`, 1.4 GB) |
 | 1 | `Image.MtfStretch` / `Image.MtfUnstretch` / `Image.MidtonesBalanceFor` extensions to `Image.Stretch.cs` + `AiNafnetInputs.TargetMedian` constant + `ChunkedInference` + `IPsfEstimator` + `HfdPsfEstimator` | DONE |
-| 2 | `IStarRemover` + `OnnxStarRemover` (darkstar_color/mono_AI4) — also produces a useful standalone "starless export" feature | DONE |
+| 2 | `IStarRemover` + `OnnxStarRemover` (darkstar_color/mono_AI4); also produces a useful standalone "starless export" feature | DONE |
 | 3 | `IStellarSharpener` + `OnnxStellarSharpener` (deep_sharp_stellar_AI4) | DONE |
 | 4 | `INonStellarDeconvolver` + `OnnxNonStellarDeconvolver` (deep_nonstellar_sharp_conditional_psf_AI4) | DONE |
 | 5 | `SharpenPipeline` orchestrator + request validation + tests | DONE (step-based `SharpenStep` discriminated record + ordered list; `SharpenIntermediates` retention selector) |
@@ -345,12 +345,12 @@ model is on disk, leaving the classical fallback for absent ones.
    nested under a new `tianwen enhance` parent (with future `denoise`, `superres`,
    etc. subcommands)? Vote: nested. Less top-level verb pollution.
 4. **Per-OTA enhancement during live session?** Out of scope here, but worth
-   thinking about — the enhancers are pure `Image -> Image` and could plug into
+   thinking about; the enhancers are pure `Image -> Image` and could plug into
    the live preview pipeline. Defer until offline batch path is solid.
 
 ## Cross-references
 
-- [tools/tianwen-ai-models-fetch.ps1](../../tools/tianwen-ai-models-fetch.ps1) — dev model fetch (hardlink from SAS Pro, else download)
-- [stacking.md](stacking.md) — satellite trail removal belongs there as a pre-rejection filter
-- [CLAUDE.md](../../CLAUDE.md) — "Plate Solving" section's factory-lambda note (same DI gotcha for `ILogger` ctor params)
-- [CLAUDE.md](../../CLAUDE.md) — "Stretch Pipeline: CPU/GPU Mirror" — `Image.MtfStretch` is the MTF-only entry into the same math `Image.StretchValue` already uses; the multi-stage viewer chain is for display, not for ONNX input prep
+- [tools/tianwen-ai-models-fetch.ps1](../../tools/tianwen-ai-models-fetch.ps1): dev model fetch (hardlink from SAS Pro, else download)
+- [stacking.md](stacking.md): satellite trail removal belongs there as a pre-rejection filter
+- [CLAUDE.md](../../CLAUDE.md): "Plate Solving" section's factory-lambda note (same DI gotcha for `ILogger` ctor params)
+- [CLAUDE.md](../../CLAUDE.md), "Stretch Pipeline: CPU/GPU Mirror", `Image.MtfStretch` is the MTF-only entry into the same math `Image.StretchValue` already uses; the multi-stage viewer chain is for display, not for ONNX input prep

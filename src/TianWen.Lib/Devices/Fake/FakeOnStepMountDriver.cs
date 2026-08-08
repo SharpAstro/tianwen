@@ -4,7 +4,7 @@ using TianWen.Lib.Devices.OnStep;
 namespace TianWen.Lib.Devices.Fake;
 
 /// <summary>
-/// Fake OnStep mount driver — subclasses the generic OnStep driver with
+/// Fake OnStep mount driver: subclasses the generic OnStep driver with
 /// <see cref="FakeDevice"/> as the device type, mirroring how
 /// <see cref="FakeMeadeLX200ProtocolMountDriver"/> uses the LX200 base directly.
 /// All OnStep-specific overrides (<c>:GU#</c>, <c>:Gm#</c>, park polling, etc.)

@@ -17,12 +17,12 @@ namespace TianWen.Lib.Devices.OnStep;
 /// <list type="bullet">
 ///   <item><description>Serial: handled by <see cref="OnStepSerialProbe"/> inside the central
 ///         <see cref="Discovery.ISerialProbeService"/>. This class reads the published matches.</description></item>
-///   <item><description>WiFi: mDNS scan for <c>_telescope._tcp.local</c> then TCP probe on port 9999 —
+///   <item><description>WiFi: mDNS scan for <c>_telescope._tcp.local</c> then TCP probe on port 9999; 
 ///         still implemented here because it uses a different transport and shouldn't compete
 ///         with serial-port enumeration for the central probe service's budget.</description></item>
 /// </list>
 /// In both cases the probe matches the OnStep product-name signature (regex <c>^On[-]?Step</c>).
-/// Stable device IDs derive from a UUID stashed in an unused site-name slot — the same UUID is
+/// Stable device IDs derive from a UUID stashed in an unused site-name slot; the same UUID is
 /// read over serial and TCP, so a mount's deviceId is transport-independent.
 /// </summary>
 internal partial class OnStepDeviceSource(
@@ -36,14 +36,14 @@ internal partial class OnStepDeviceSource(
     internal static readonly Regex SupportedProductsRegex = GenSupportedProductsRegex();
     internal static readonly ReadOnlyMemory<byte> HashTerminator = "#"u8.ToArray();
 
-    // mDNS wire constants — same multicast group as Canon, different service name.
+    // mDNS wire constants: same multicast group as Canon, different service name.
     private static readonly IPAddress MdnsMulticast = IPAddress.Parse("224.0.0.251");
     private const int MdnsPort = 5353;
     private static readonly TimeSpan MdnsTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan TcpProbeTimeout = TimeSpan.FromSeconds(2);
 
     /// <summary>
-    /// Pre-built DNS PTR query for <c>_telescope._tcp.local</c> — the service the
+    /// Pre-built DNS PTR query for <c>_telescope._tcp.local</c>; the service the
     /// OnStep ESP32 SmartHand Controller and most other LX200-over-WiFi bridges advertise.
     /// 12-byte header + QNAME + QTYPE(PTR) + QCLASS(IN+QU bit).
     /// </summary>
@@ -66,7 +66,7 @@ internal partial class OnStepDeviceSource(
 
         // Serial discovery is owned by OnStepSerialProbe running inside the central
         // ISerialProbeService (already completed before DiscoverAsync runs). Each match
-        // is a fully-formed OnStepDevice URI — just materialise it.
+        // is a fully-formed OnStepDevice URI, just materialise it.
         var serialMatches = probeService.ResultsFor("OnStep");
         if (serialMatches.Count > 0)
         {
@@ -77,7 +77,7 @@ internal partial class OnStepDeviceSource(
             }
         }
 
-        // WiFi discovery via mDNS — different transport, stays here.
+        // WiFi discovery via mDNS: different transport, stays here.
         try
         {
             var mdnsHits = await ScanTelescopeMdnsAsync(MdnsTimeout, cancellationToken);
@@ -267,7 +267,7 @@ internal partial class OnStepDeviceSource(
     /// <summary>
     /// Sends a DNS PTR query for <c>_telescope._tcp.local</c> and collects A-record
     /// responses. Returns (instance-name, ipAddr) pairs. Adapted from the Canon
-    /// mDNS scanner — same wire format, different service name.
+    /// mDNS scanner: same wire format, different service name.
     /// </summary>
     private static async Task<IReadOnlyList<(string InstanceName, string IpAddr)>> ScanTelescopeMdnsAsync(TimeSpan timeout, CancellationToken ct)
     {
@@ -282,7 +282,7 @@ internal partial class OnStepDeviceSource(
         }
         catch (SocketException)
         {
-            // mDNS port already in use (Bonjour/Avahi running) — fall back to ephemeral port.
+            // mDNS port already in use (Bonjour/Avahi running); fall back to ephemeral port.
             // The query still goes out, but multicast responses won't reach us. Return empty.
             return results;
         }
@@ -310,7 +310,7 @@ internal partial class OnStepDeviceSource(
         }
         catch (OperationCanceledException)
         {
-            // Expected — collection window elapsed
+            // Expected: collection window elapsed
         }
 
         return results;
@@ -360,7 +360,7 @@ internal partial class OnStepDeviceSource(
 
             switch (rType)
             {
-                case 12: // PTR — instance name
+                case 12: // PTR; instance name
                 {
                     var nameOffset = offset;
                     var name = ReadDnsName(data, ref nameOffset);
@@ -369,7 +369,7 @@ internal partial class OnStepDeviceSource(
                     break;
                 }
 
-                case 1 when rdLength == 4: // A — IPv4
+                case 1 when rdLength == 4: // A. IPv4
                 {
                     ipAddr = new IPAddress(data.AsSpan(offset, 4)).ToString();
                     break;

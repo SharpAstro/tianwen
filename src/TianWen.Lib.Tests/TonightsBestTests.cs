@@ -58,7 +58,7 @@ public class TonightsBestTests
     [Fact]
     public async Task ViennaSummer_M13RanksHigh()
     {
-        // Vienna, June — M13 (Hercules cluster) should be near zenith
+        // Vienna, June: M13 (Hercules cluster) should be near zenith
         var db = await InitDBAsync();
         var transform = CreateTransform(48.2, 16.4, new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.FromHours(2)));
 
@@ -141,7 +141,7 @@ public class TonightsBestTests
     [Fact]
     public void ScoreTarget_LMC_MelbourneWinter_ProducesPositiveScore()
     {
-        // LMC from Melbourne in June (winter) — circumpolar, should always be above horizon
+        // LMC from Melbourne in June (winter): circumpolar, should always be above horizon
         var transform = CreateTransform(-37.8, 145.0, new DateTimeOffset(2025, 6, 15, 20, 0, 0, TimeSpan.FromHours(10)));
         var (astroDark, astroTwilight) = ObservationScheduler.CalculateNightWindow(transform);
 
@@ -167,11 +167,11 @@ public class TonightsBestTests
         // M42: RA=5.588h, Dec=-5.383°
         var target = new Target(5.588, -5.383, "M42", CatalogIndex.NGC1976);
 
-        // Test with ScoreTarget (Transform-based) — should work
+        // Test with ScoreTarget (Transform-based): should work
         var scoreOld = ObservationScheduler.ScoreTarget(target, transform, astroDark, astroTwilight, 20);
         scoreOld.TotalScore.ShouldBeGreaterThan(Half.Zero, $"ScoreTarget: M42 should have positive score. Night: {astroDark} to {astroTwilight}");
 
-        // Test with ScoreTarget (Astrom-based) — should also work
+        // Test with ScoreTarget (Astrom-based): should also work
         var scoreFast = ObservationScheduler.ScoreTarget(target, transform, astroDark, astroTwilight, 20);
         scoreFast.TotalScore.ShouldBeGreaterThan(Half.Zero, $"ScoreTarget: M42 should have positive score. Night: {astroDark} to {astroTwilight}");
     }
@@ -179,7 +179,7 @@ public class TonightsBestTests
     [Fact]
     public async Task ViennaWinter_M42IsVisible()
     {
-        // Vienna, December — M42 (Orion Nebula) is visible but at lower altitude (~36° max from 48°N)
+        // Vienna, December: M42 (Orion Nebula) is visible but at lower altitude (~36° max from 48°N)
         // It should still appear in the results due to its enormous size and brightness
         var db = await InitDBAsync();
         var transform = CreateTransform(48.2, 16.4, new DateTimeOffset(2025, 12, 15, 20, 0, 0, TimeSpan.FromHours(1)));
@@ -208,7 +208,7 @@ public class TonightsBestTests
 
         results.Count.ShouldBeGreaterThan(0);
 
-        // M42 (NGC1976) — search by catalog index and by common name as fallback
+        // M42 (NGC1976): search by catalog index and by common name as fallback
         var m42 = allResults.FirstOrDefault(r => r.Target.CatalogIndex == CatalogIndex.NGC1976);
         if (m42.TotalScore == Half.Zero)
         {
@@ -217,7 +217,7 @@ public class TonightsBestTests
         m42.TotalScore.ShouldBeGreaterThan(Half.Zero,
             $"M42 should be visible and scored in Vienna winter (total candidates: {allResults.Count}, top200 count: {results.Count})");
 
-        // Large bright nebulae visible in the winter sky should appear — California Nebula is a good check
+        // Large bright nebulae visible in the winter sky should appear. California Nebula is a good check
         results.ShouldContain(r => r.Target.Name.Contains("California", StringComparison.OrdinalIgnoreCase),
             "California Nebula should be among the top winter targets from Vienna");
     }
@@ -225,7 +225,7 @@ public class TonightsBestTests
     [Fact]
     public async Task DublinSummerSolstice_StillProducesResults()
     {
-        // Dublin (~53.3°N), June 21 — very short night, but should still find targets
+        // Dublin (~53.3°N), June 21: very short night, but should still find targets
         var db = await InitDBAsync();
         var transform = CreateTransform(53.3, -6.3, new DateTimeOffset(2025, 6, 21, 23, 0, 0, TimeSpan.FromHours(1)));
 
@@ -260,7 +260,7 @@ public class TonightsBestTests
     {
         // Verify that planetary nebulae get the 2x type bonus factor
         var db = await InitDBAsync();
-        // July evening from Vienna — M57 (RA 18.89h) is near meridian at midnight
+        // July evening from Vienna: M57 (RA 18.89h) is near meridian at midnight
         var transform = CreateTransform(48.2, 16.4, new DateTimeOffset(2025, 7, 15, 22, 0, 0, TimeSpan.FromHours(2)));
 
         var results = ObservationScheduler.TonightsBest(db, transform, 20).Take(200).ToList();
@@ -285,9 +285,9 @@ public class TonightsBestTests
         hasPlanetaryNeb.ShouldBeTrue("At least one planetary nebula should appear in July results from Vienna");
     }
 
-    // Melbourne, Australia — ~37.8°S, ~145.0°E
-    // LMC (ESO056-115): RA 5.39h, Dec -69.75° — circumpolar, lower culm ~17.6°
-    // SMC (NGC0292):     RA 0.88h, Dec -72.83° — circumpolar, lower culm ~20.6°
+    // Melbourne, Australia: ~37.8°S, ~145.0°E
+    // LMC (ESO056-115): RA 5.39h, Dec -69.75°; circumpolar, lower culm ~17.6°
+    // SMC (NGC0292):     RA 0.88h, Dec -72.83°; circumpolar, lower culm ~20.6°
     // Both are always above the horizon from Melbourne and should appear in TonightsBest
     // year-round. They rank higher when closer to upper culmination (near transit).
     private const double MelbourneLat = -37.8;
@@ -295,10 +295,10 @@ public class TonightsBestTests
     private const byte MelbourneMinHeight = 15; // lower than 20 to keep LMC above cutoff at lower culm
 
     [Theory]
-    [InlineData(2025, 12, 15, 11, "Summer")]   // LST@midnight ≈ 6h — LMC near transit, best season
-    [InlineData(2025, 6, 15, 10, "Winter")]    // LST@midnight ≈ 18h — LMC at lower culm, worst season
-    [InlineData(2025, 3, 15, 11, "Autumn")]    // LST@midnight ≈ 12h — intermediate
-    [InlineData(2025, 9, 15, 10, "Spring")]    // LST@midnight ≈ 0h — SMC near transit
+    [InlineData(2025, 12, 15, 11, "Summer")]   // LST@midnight ≈ 6h, LMC near transit, best season
+    [InlineData(2025, 6, 15, 10, "Winter")]    // LST@midnight ≈ 18h, LMC at lower culm, worst season
+    [InlineData(2025, 3, 15, 11, "Autumn")]    // LST@midnight ≈ 12h, intermediate
+    [InlineData(2025, 9, 15, 10, "Spring")]    // LST@midnight ≈ 0h, SMC near transit
     public async Task Melbourne_MagellanicCloudsAlwaysPresent(int year, int month, int day, int tzOffsetHours, string season)
     {
         var db = await InitDBAsync();
@@ -367,7 +367,7 @@ public class TonightsBestTests
         ngc1909Found.ShouldBeTrue("Primary NGC 1909 should be in the grid");
         ic2118Found.ShouldBeFalse("Duplicate IC 2118 should NOT be in the grid");
 
-        // Eta Carinae: NGC 3372, C92, GUM 33, RCW 53 — all appeared as separate entries
+        // Eta Carinae: NGC 3372, C92, GUM 33, RCW 53, all appeared as separate entries
         TryGetCleanedUpCatalogName("NGC3372", out var ngc3372).ShouldBeTrue();
         db.TryLookupByIndex(ngc3372, out var ngc3372Obj).ShouldBeTrue();
         output?.WriteLine($"\nNGC 3372 (eta Car): RA={ngc3372Obj.RA:F3}h Dec={ngc3372Obj.Dec:F2}° Type={ngc3372Obj.ObjectType}");

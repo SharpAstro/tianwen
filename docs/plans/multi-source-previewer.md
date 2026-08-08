@@ -3,7 +3,7 @@
 ## Context
 
 `tianwen-fits` is the standalone image viewer (a small AOT WinExe over `ImageRendererBase`). A separate
-prototype — the standalone `SER.Viewer` in the `SER.Lib` sibling repo — proved that SER planetary-video
+prototype, the standalone `SER.Viewer` in the `SER.Lib` sibling repo, proved that SER planetary-video
 playback with GPU debayer + stretch works well on win-arm64. Rather than ship and maintain two viewers,
 the SER capability folds **into `tianwen-fits`**: it opens FITS + TIFF + **SER** and auto-switches into a
 frame-playback mode for SER. `SER.Lib` stays as the standalone SharpAstro NuGet (format reader/writer +
@@ -15,9 +15,9 @@ through `AstroImageDocument` (which runs `ComputeStretchStatsAsync`, normalize-i
 previewer**: the renderer previews an `IPreviewSource`, not specifically an `AstroImageDocument`. A still
 image (FITS/TIFF) is a one-frame source; a SER is an N-frame source. **Stretch stats + white balance are
 computed once** (from a representative frame); per frame we only do a cheap raw read (MMF seek → reused
-buffer → `[0,1]` convert) and one `UploadChannelTexture`, reusing the fixed uniforms — the GPU does
+buffer → `[0,1]` convert) and one `UploadChannelTexture`, reusing the fixed uniforms; the GPU does
 debayer + stretch. An `Image` is materialized only when something actually needs one (snapshot/export,
-Phase-6 stacking) — never in the playback loop.
+Phase-6 stacking), never in the playback loop.
 
 Logic lives **high**: pure decode/bridge in `TianWen.Lib`, source/state/UI in `TianWen.UI.Abstractions`,
 GPU shader in `TianWen.UI.Shared` (the project rule: no GPU in `.Lib`/`.Abstractions`). Because the FITS
@@ -26,12 +26,12 @@ mode, manual WB) lights up in the GUI viewer tab too.
 
 ## Reused infrastructure (not rebuilt)
 
-- **GPU debayer** — `VkFitsImagePipeline` already does in-shader demosaic (`ImageSourceMode=RawBayer`) on a
+- **GPU debayer**: `VkFitsImagePipeline` already does in-shader demosaic (`ImageSourceMode=RawBayer`) on a
   raw mosaic + `BayerOffsetX/Y`; `ImageRendererBase.UploadDocumentTextures` routes `SensorType.RGGB`
   1-channel images there.
-- **GPU white balance** — `StretchUniforms.WhiteBalance (R,G,B)` is applied in the GLSL `stretchChannel`;
+- **GPU white balance**: `StretchUniforms.WhiteBalance (R,G,B)` is applied in the GLSL `stretchChannel`;
   `ComputeStretchUniforms` already scales stats by it (auto WB via the Calibrate / SPCC toolbar actions).
-- **Zoom / pan / panels / histogram / toolbar / layout** — all in `ImageRendererBase` (`.Abstractions`).
+- **Zoom / pan / panels / histogram / toolbar / layout**, all in `ImageRendererBase` (`.Abstractions`).
 - **TIFF** is already supported (`.tif`/`.tiff` in `AstroImageDocument.SupportedExtensions`). Only SER is new.
 
 ## Architecture
@@ -77,7 +77,7 @@ mode, manual WB) lights up in the GUI viewer tab too.
 
 ## Verification
 
-- **Unit**: `SerImageBridgeTests` (mapping + raw→`[0,1]` + de-interleave/BGR swap) — **passing**; existing
+- **Unit**: `SerImageBridgeTests` (mapping + raw→`[0,1]` + de-interleave/BGR swap); **passing**; existing
   FITS-viewer/stretch tests stay green as the `IPreviewSource` migration regression guard.
 - **End-to-end (still)**: `tianwen-fits <a.fits>` / `<a.tiff>` open unchanged (no transport bar).
 - **End-to-end (SER)**: `tianwen-fits <jupiter>.ser` auto-switches to playback, debayered, smooth
@@ -88,13 +88,13 @@ mode, manual WB) lights up in the GUI viewer tab too.
 ## Follow-ups (out of scope here)
 
 - **Live astro-camera video preview**: a live capture stream is just another `IPreviewSource` (current
-  frame pushed by the camera, not seeked) — focus loops / planetary-capture monitoring. The interface is
+  frame pushed by the camera, not seeked); focus loops / planetary-capture monitoring. The interface is
   kept seek-agnostic to allow this later.
 - `SerFrameSource : IFrameSource` for the stacking pipeline (closes the `stacking.md` SER deferral).
 - SER export/writer UI; CYGM Bayer families (TianWen models only RGGB) fall back to mono.
 - **SER.Lib release dependency**: the Phase-3.5 lazy-trailer change shipped in `SER.Lib` (PR #1, merged +
   published). TianWen pins `SER.Lib` as floating `1.0.*` in `Directory.Packages.props`, so a restore
-  auto-resolves to it — no manual repin needed. The public API is unchanged; Phase 4 is purely
+  auto-resolves to it; no manual repin needed. The public API is unchanged; Phase 4 is purely
   TianWen-side (no further `SER.Lib` change).
 - **No blocking I/O on the render thread** (standing review check, **upheld in Phase 4**): all `.ser` disk
   access (header, frame decode, lazy fps/timestamp trailer) stays off the render thread. The trailer is

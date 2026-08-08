@@ -154,7 +154,7 @@ public static class CieReferenceData
 
     private static FilterCurve MakeCurve(string name, string origin, double[] values)
     {
-        // FilterCurve is the shared spectral carrier — wavelengths in Angstroms,
+        // FilterCurve is the shared spectral carrier: wavelengths in Angstroms,
         // throughputs as doubles. Lifting the constants into a FilterCurve lets
         // ComputeCamXyz reuse FilterCurve.Combine + Interpolate without writing
         // a parallel resampler.

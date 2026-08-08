@@ -32,7 +32,7 @@ public interface IGuiChrome : IPixelWidget
     ViewContexts ViewContexts { get; }
 
     /// <summary>
-    /// Sky-map viewport + search modal state — exposed so <see cref="AppSignalHandler"/>
+    /// Sky-map viewport + search modal state: exposed so <see cref="AppSignalHandler"/>
     /// can wire F3 search callbacks without reaching into the concrete tab class.
     /// </summary>
     SkyMapState SkyMapState { get; }

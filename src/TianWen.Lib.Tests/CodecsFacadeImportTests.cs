@@ -9,7 +9,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Covers the <see cref="Image.TryReadImageFile"/> fallback onto the SharpAstro.Codecs
-/// facade — the raster formats tianwen writes (PNG previews, EXR/JXR masters) but had no
+/// facade: the raster formats tianwen writes (PNG previews, EXR/JXR masters) but had no
 /// bespoke reader for. These previously returned <c>false</c>; the facade now decodes them.
 /// PNG is the exercised codec here because the test project already references SharpAstro.Png
 /// to encode the fixture in-memory (no on-disk binary fixture needed).
@@ -20,7 +20,7 @@ public class CodecsFacadeImportTests(ITestOutputHelper testOutput)
     [Fact]
     public void GivenRgb8PngWhenReadViaFacadeThenPixelsRoundTrip()
     {
-        // given — a known 8-bit RGBA gradient (alpha opaque, must be dropped on read)
+        // given: a known 8-bit RGBA gradient (alpha opaque, must be dropped on read)
         const int w = 8, h = 6;
         var rgba = new byte[w * h * 4];
         for (var y = 0; y < h; y++)
@@ -40,7 +40,7 @@ public class CodecsFacadeImportTests(ITestOutputHelper testOutput)
         // when
         var ok = Image.TryReadImageFile(path, out var image);
 
-        // then — a PNG that TryReadImageFile used to reject now loads as a 3-channel RGB image
+        // then: a PNG that TryReadImageFile used to reject now loads as a 3-channel RGB image
         ok.ShouldBeTrue("PNG should decode through the SharpAstro.Codecs facade");
         image.ShouldNotBeNull();
         image.Width.ShouldBe(w);
@@ -65,7 +65,7 @@ public class CodecsFacadeImportTests(ITestOutputHelper testOutput)
     [Fact]
     public void GivenGray16PngWhenReadViaFacadeThenMonoRoundTrips()
     {
-        // given — a known 16-bit grayscale ramp (exercises the UInt16 -> [0,1] widening)
+        // given: a known 16-bit grayscale ramp (exercises the UInt16 -> [0,1] widening)
         const int w = 8, h = 6;
         var gray = new ushort[w * h];
         for (var y = 0; y < h; y++)
@@ -79,7 +79,7 @@ public class CodecsFacadeImportTests(ITestOutputHelper testOutput)
         // when
         var ok = Image.TryReadImageFile(path, out var image);
 
-        // then — grayscale decodes to a single-channel mono image
+        // then: grayscale decodes to a single-channel mono image
         ok.ShouldBeTrue("16-bit gray PNG should decode through the facade");
         image.ShouldNotBeNull();
         image.Width.ShouldBe(w);
@@ -117,7 +117,7 @@ public class CodecsFacadeImportTests(ITestOutputHelper testOutput)
         }
         var bytes = PngWriter.Encode(rgba, w, h);
 
-        // when — decoded from the in-memory buffer, NOT a file (the EVF-frame path)
+        // when: decoded from the in-memory buffer, NOT a file (the EVF-frame path)
         var ok = Image.TryDecodeRaster(bytes, out var image);
 
         // then
@@ -156,7 +156,7 @@ public class CodecsFacadeImportTests(ITestOutputHelper testOutput)
     public void GivenUndecodableContentWhenReadViaFacadeThenReturnsFalse()
     {
         // A .png the facade routes to but cannot sniff/decode returns false (no throw,
-        // no Magick.NET fallback) — exercises TryReadViaCodecs' failure path.
+        // no Magick.NET fallback): exercises TryReadViaCodecs' failure path.
         var path = Path.Combine(SharedTestData.CreateTempTestOutputDir(), "garbage.png");
         File.WriteAllBytes(path, new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07 });
 

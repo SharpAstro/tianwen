@@ -236,7 +236,7 @@ public interface ICameraDriver : IDeviceDriver
 
     /// <summary>
     /// Sensor die model name, e.g. "IMX533" or "KAF-8300" (FITS: SENSOR).
-    /// Default returns null — drivers with known sensor mappings override this.
+    /// Default returns null: drivers with known sensor mappings override this.
     /// </summary>
     string? SensorModelName => null;
 
@@ -324,7 +324,7 @@ public interface ICameraDriver : IDeviceDriver
         catch { sensorFullScaleAdu = null; }
 
         // Single typed hand-off: the driver's Channel travels whole (per-channel min/max, filter,
-        // and — for buffer-recycling drivers — its ref-counted ChannelBuffer) into the Image,
+        // and, for buffer-recycling drivers, its ref-counted ChannelBuffer) into the Image,
         // whose constructor harvests the buffer ref. No destructure + attach-after-construct.
         var image = new Image(
             [channel],
@@ -364,13 +364,13 @@ public interface ICameraDriver : IDeviceDriver
             )
         );
 
-        // Ownership of the channel buffer transferred to the consumer (no AddRef — the camera's
+        // Ownership of the channel buffer transferred to the consumer (no AddRef, the camera's
         // single ref now lives in the Image). When the consumer calls image.Release(), onRelease
         // fires → camera gets the buffer back. Drivers without a buffer keep their ImageData
         // (legacy semantics: e.g. Canon re-wraps on a second call).
         if (channel.Buffer is not null)
         {
-            ReleaseImageData(); // camera drops its state — the buffer ref lives in the Image only
+            ReleaseImageData(); // camera drops its state; the buffer ref lives in the Image only
         }
 
         return image;

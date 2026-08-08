@@ -14,8 +14,8 @@ namespace TianWen.Lib.Devices.OnStep;
 /// <summary>
 /// OnStep / OnStepX mount device addressed by URI. Two transports:
 /// <list type="bullet">
-///   <item><description><c>?port=COMx</c> — RS-232 / USB-to-serial @ 9600 baud</description></item>
-///   <item><description><c>?host=192.168.1.42&amp;tcp=9999</c> — WiFi / Ethernet (ESP32 SmartHand Controller default port 9999)</description></item>
+///   <item><description><c>?port=COMx</c>: RS-232 / USB-to-serial @ 9600 baud</description></item>
+///   <item><description><c>?host=192.168.1.42&amp;tcp=9999</c>; WiFi / Ethernet (ESP32 SmartHand Controller default port 9999)</description></item>
 /// </list>
 /// </summary>
 public record OnStepDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
@@ -49,12 +49,12 @@ public record OnStepDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             placeholder: "e.g. COM3 or /dev/ttyUSB0",
             isVisible: uri => string.IsNullOrEmpty(uri.QueryValue(DeviceQueryKey.Host))),
 
-        // WiFi Host — always visible; populating it is how the user flips to TCP transport.
+        // WiFi Host, always visible; populating it is how the user flips to TCP transport.
         DeviceSettingHelper.StringSetting(
             DeviceQueryKey.Host.Key, "WiFi Host / IP",
             placeholder: "e.g. 192.168.1.42 (switches to WiFi)"),
 
-        // TCP port — only meaningful when Host is set; defaults to 9999 on connect if blank.
+        // TCP port, only meaningful when Host is set; defaults to 9999 on connect if blank.
         DeviceSettingHelper.StringSetting(
             "tcp", "WiFi TCP Port",
             defaultValue: DefaultTcpPort.ToString(CultureInfo.InvariantCulture),
@@ -70,7 +70,7 @@ public record OnStepDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 
     /// <summary>
     /// Picks the transport based on URI shape: <c>host</c> ⇒ TCP, otherwise serial.
-    /// Fully async — no thread pool thread blocks during the TCP 3-way handshake
+    /// Fully async: no thread pool thread blocks during the TCP 3-way handshake
     /// or the serial port open.
     /// </summary>
     public override async ValueTask<ISerialConnection?> ConnectSerialDeviceAsync(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null, CancellationToken cancellationToken = default)

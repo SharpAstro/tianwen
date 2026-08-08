@@ -17,10 +17,10 @@ internal partial record Session
     /// Automated flat acquisition (end-of-session or on-demand). Dispatches on
     /// <see cref="SessionConfiguration.FlatSource"/>: <see cref="FlatIlluminationSource.TwilightSky"/> runs
     /// <em>dawn</em> sky-flats (<see cref="TakeSkyFlatsAsync"/>); <see cref="FlatIlluminationSource.Calibrator"/>
-    /// (the default) runs cover/calibrator flats against any <see cref="Devices.ICoverDriver"/> — a flip-flat,
+    /// (the default) runs cover/calibrator flats against any <see cref="Devices.ICoverDriver"/>; a flip-flat,
     /// a standalone lightbox / driver panel (e.g. Gemini FlatPanel Lite), or a hand-switched
     /// <see cref="Devices.ManualCoverDevice"/>, all handled by the SAME path with no device-kind branching.
-    /// Per OTA it closes the cover (flip-flat panels illuminate the closed cover — a <c>NotPresent</c> cover
+    /// Per OTA it closes the cover (flip-flat panels illuminate the closed cover, a <c>NotPresent</c> cover
     /// is skipped), turns the calibrator on at a coarse brightness, then for every installed filter auto-exposes
     /// to <see cref="SessionConfiguration.FlatTargetAduFraction"/> (via the pure <see cref="FlatExposureSolver"/>)
     /// and writes <see cref="FrameType.Flat"/> frames. The frames carry the same denormalised FITS metadata

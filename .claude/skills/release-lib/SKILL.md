@@ -7,7 +7,7 @@ Usage: `/release-lib <library-name>` (e.g. `/release-lib DIR.Lib` or `/release-l
 
 ## Library locations
 
-Note csproj paths vary — not every repo uses `src/<Lib>/<Lib>.csproj`:
+Note csproj paths vary, not every repo uses `src/<Lib>/<Lib>.csproj`:
 
 | Library | NuGet Package | Repo | csproj | CI workflow |
 |---------|---------------|------|--------|-------------|

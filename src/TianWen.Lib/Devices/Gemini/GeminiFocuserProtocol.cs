@@ -10,7 +10,7 @@ namespace TianWen.Lib.Devices.Gemini;
 /// Pure wire codec for the Gemini Focuser Pro serial protocol (see
 /// <c>docs/architecture/gemini-focuser-pro-protocol.md</c>). The Gemini Focuser Pro is a rebadged
 /// <c>myFocuserPro2</c> Arduino controller: commands are framed <c>':' + code + [arg] + '#'</c> and
-/// responses are <c>&lt;response-char&gt; + payload + '#'</c> — a single leading status char (which the
+/// responses are <c>&lt;response-char&gt; + payload + '#'</c>; a single leading status char (which the
 /// decoder strips unconditionally, exactly as the vendor ASCOM driver's <c>Substring(1, len-2)</c> does)
 /// followed by the value. <b>Get</b> commands reply; <b>set</b> commands (Move/Halt) are silent
 /// fire-and-forget, so the driver never waits on them. Every method acquires the connection lock for its
@@ -24,21 +24,21 @@ internal static class GeminiFocuserProtocol
     // Payload returned by the ':02#' controller-present handshake on a myFocuserPro2 board.
     public const string PresentReply = "OK";
 
-    // '#'-terminated framing (the LX200 family — see ProbeFraming.HashTerminated).
+    // '#'-terminated framing (the LX200 family, see ProbeFraming.HashTerminated).
     private static readonly ReadOnlyMemory<byte> Terminator = new([(byte)'#']);
 
     // Bounded read for the reply-bearing set command (:23x# temp-comp toggle acks "OK"); a firmware that
     // stays silent just times out cleanly. The get commands are bounded by the caller's own token/budget.
     private static readonly TimeSpan AckTimeout = TimeSpan.FromMilliseconds(750);
 
-    /// <summary>Sends <c>:02#</c> (controller-present handshake) and returns the payload — <see cref="PresentReply"/> on a live myFocuserPro2 board, else null/other.</summary>
+    /// <summary>Sends <c>:02#</c> (controller-present handshake) and returns the payload, <see cref="PresentReply"/> on a live myFocuserPro2 board, else null/other.</summary>
     public static ValueTask<string?> IdentifyAsync(ISerialConnection conn, CancellationToken cancellationToken)
         => QueryAsync(conn, ":02#", cancellationToken);
 
     /// <summary>
     /// Sends <c>:04#</c> and parses the <c>&lt;name&gt;\r\n&lt;version&gt;</c> firmware reply. The Gemini
     /// Focuser Pro ships whatever myFocuserPro2 firmware name was flashed (there is no distinctive "Gemini"
-    /// token on the wire — the vendor driver stores this name but never validates it), so we surface it as
+    /// token on the wire: the vendor driver stores this name but never validates it), so we surface it as
     /// metadata rather than gating discovery on it.
     /// </summary>
     public static async ValueTask<(string Name, int? Version)?> GetFirmwareAsync(ISerialConnection conn, CancellationToken cancellationToken)
@@ -115,11 +115,11 @@ internal static class GeminiFocuserProtocol
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // No ack within AckTimeout — fine.
+            // No ack within AckTimeout: fine.
         }
     }
 
-    /// <summary>Commands an absolute move to <paramref name="position"/> (<c>:05&lt;pos&gt;#</c>). Silent fire-and-forget — poll <see cref="GetIsMovingAsync"/>.</summary>
+    /// <summary>Commands an absolute move to <paramref name="position"/> (<c>:05&lt;pos&gt;#</c>). Silent fire-and-forget; poll <see cref="GetIsMovingAsync"/>.</summary>
     public static ValueTask MoveAsync(ISerialConnection conn, int position, CancellationToken cancellationToken)
         => SendAsync(conn, $":05{Math.Max(0, position).ToString(CultureInfo.InvariantCulture)}#", cancellationToken);
 
@@ -148,7 +148,7 @@ internal static class GeminiFocuserProtocol
 
     /// <summary>
     /// Writes a '#'-terminated set command with no reply read. myFocuserPro2 set commands (Move/Halt) are
-    /// silent, so — unlike the FlatPanel, which acks everything — there is nothing to drain here. Kept fast
+    /// silent, so, unlike the FlatPanel, which acks everything, there is nothing to drain here. Kept fast
     /// because the imaging/autofocus hot path issues moves frequently.
     /// </summary>
     private static async ValueTask SendAsync(ISerialConnection conn, string command, CancellationToken cancellationToken)

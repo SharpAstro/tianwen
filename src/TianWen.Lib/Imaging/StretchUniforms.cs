@@ -61,13 +61,13 @@ public readonly record struct StretchUniforms(
     public float NormalizeScale { get; init; } = 1f;
     /// <summary>
     /// Computes the post-stretch background level by stretching the measured
-    /// background values through <see cref="Image.StretchValue"/> — the same pipeline as the GLSL shader.
+    /// background values through <see cref="Image.StretchValue"/>; the same pipeline as the GLSL shader.
     /// </summary>
     public readonly float ComputePostStretchBackground(float[] perChannelBackground, float lumaBackground)
     {
         if (Mode is StretchMode.None)
         {
-            // No stretch — background is the raw luminance
+            // No stretch: background is the raw luminance
             return Math.Clamp(lumaBackground * NormFactor, 0.01f, 0.99f);
         }
 

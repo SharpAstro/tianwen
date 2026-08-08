@@ -31,7 +31,7 @@ public class SerialPortNamesTests
     [InlineData("wpd")]         // Canon sentinel
     [InlineData("SkyWatcher")]  // fake-device sentinel
     [InlineData("LX200")]       // fake-device sentinel
-    [InlineData("COM")]         // too short — not a real port
+    [InlineData("COM")]         // too short, not a real port
     [InlineData("random-garbage")]
     public void UnrecognisedFormsReturnFalse(string? raw)
     {

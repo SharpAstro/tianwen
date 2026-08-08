@@ -241,7 +241,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         Math.Abs(otherAxisDeltaArcsec).ShouldBeLessThan(expectedArcsec * 0.05,
             "the other axis must stay put during the pulse");
 
-        // Opposite directions must move opposite ways (E vs W, N vs S) — covered by
+        // Opposite directions must move opposite ways (E vs W, N vs S); covered by
         // running all four theory cases; here just pin that the pulse moved at all
         // in a consistent direction (sign is mapping-dependent, magnitude is not).
         Math.Abs(axisDeltaArcsec).ShouldBeGreaterThan(0);
@@ -249,7 +249,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
 
     /// <summary>
     /// Wire contract (pinned against the GSS oracle transcripts): an RA pulse while
-    /// tracking changes ONLY the step period — :I with the combined rate, then :I back
+    /// tracking changes ONLY the step period: :I with the combined rate, then :I back
     /// to sidereal. No :G/:J/:K stop/start: real firmware rejects :G while the motor
     /// runs (error !2), and the decel/accel transient would eat short pulses.
     /// </summary>
@@ -369,7 +369,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         statusIdx.ShouldBeLessThan(gIdx, "status must be checked BEFORE :G2 so a still-decelerating axis is stopped first");
     }
 
-    /// <summary>Default (no ?alignment query) is German equatorial — the existing behaviour is unchanged.</summary>
+    /// <summary>Default (no ?alignment query) is German equatorial; the existing behaviour is unchanged.</summary>
     [Fact(Timeout = 60_000)]
     public async Task GivenNoAlignmentQueryThenDefaultsToGermanPolar()
     {
@@ -382,7 +382,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     /// Alt-az alignment (e.g. an AZ-GTi off its equatorial wedge) is REPORT-ONLY in this driver:
     /// GetAlignment returns AltAz and both pier-side reads are Unknown (so the session's GEM-only flip
     /// gate skips this mount), but coordinate slews / sidereal tracking / RA-Dec sync are REFUSED with
-    /// NotSupported — the encoder transforms here are equatorial, so honouring an alt-az target would
+    /// NotSupported: the encoder transforms here are equatorial, so honouring an alt-az target would
     /// silently point the mount wrong. Stopping tracking stays allowed. See docs/plans/altaz-mount-support.md.
     /// </summary>
     [Fact(Timeout = 60_000)]
@@ -396,7 +396,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Unknown);
         (await mount.DestinationSideOfPierAsync(6.0, 45.0, ct)).ShouldBe(PointingState.Unknown);
 
-        // Coordinate operations are refused — never silently point an equatorial transform at alt-az.
+        // Coordinate operations are refused, never silently point an equatorial transform at alt-az.
         await Should.ThrowAsync<NotSupportedException>(async () => await mount.BeginSlewRaDecAsync(6.0, 45.0, ct));
         await Should.ThrowAsync<NotSupportedException>(async () => await mount.SyncRaDecAsync(6.0, 45.0, ct));
         await Should.ThrowAsync<NotSupportedException>(async () => await mount.SetTrackingAsync(true, ct));
@@ -407,7 +407,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
 
     /// <summary>
     /// Regression: after an away-from-pole sync the misalignment model anchors TRUE
-    /// pointing to the sync reference plus time-based drift — and used to FREEZE OUT the
+    /// pointing to the sync reference plus time-based drift, and used to FREEZE OUT the
     /// live encoder entirely, making guide pulses invisible in pointing reads (the
     /// guider's calibration measured ~0 displacement and rejected itself). Commanded
     /// axis motion since the reference must appear 1:1: trivially in the believed
@@ -525,7 +525,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     /// In the south the RA worm physically tracks in REVERSE (:G dir bit 0 set, per the
     /// GSServer reference: EqS tracking gets the negated rate) while the driver's mirrored
     /// steps-to-HA conversion keeps the believed RA constant. If either side flips without
-    /// the other, a tracked target drifts at 2x sidereal in reads — this pins them together.
+    /// the other, a tracked target drifts at 2x sidereal in reads; this pins them together.
     /// </summary>
     [Fact(Timeout = 60_000)]
     public async Task GivenSouthernMountWhenTrackingThenPointingStaysOnTarget()
@@ -551,7 +551,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     /// Southern GOTO: the mirrored RaToSteps/DecToSteps must produce a delta that the
     /// (hemisphere-agnostic, step-space) goto executes onto the right sky position, and
     /// the fake's post-goto tracking auto-resume must run in the southern (reverse)
-    /// direction — wrong-direction resume shows up as RA drifting off target after arrival.
+    /// direction: wrong-direction resume shows up as RA drifting off target after arrival.
     /// </summary>
     [Fact(Timeout = 60_000)]
     public async Task GivenSouthernMountWhenSlewedThenArrivesAtTargetAndTrackingHolds()
@@ -683,7 +683,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
 
     #endregion
 
-    #region Polar Misalignment — imaging regime
+    #region Polar Misalignment; imaging regime
 
     // ~30'/-10' misalignment used across the imaging-regime tests; magnitude
     // ~0.5deg, so the pointing offset stays well inside a degree.

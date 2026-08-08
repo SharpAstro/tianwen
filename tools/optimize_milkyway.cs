@@ -368,7 +368,7 @@ static double ComputeFitness(
     var nebulosityBonus = darkCount > 0 ? darkBonus / darkCount : 0.0;
     var colorScore = colorCount > 0 ? 1.0 - Math.Min(1.0, colorDiff / (3.0 * colorCount)) : 0.0;
 
-    // Weights — structure dominates, nebulosity is a gentle pull, colour is secondary.
+    // Weights: structure dominates, nebulosity is a gentle pull, colour is secondary.
     return 0.45 * brightScore + 0.30 * darkScore + 0.15 * colorScore + 0.10 * nebulosityBonus;
 }
 

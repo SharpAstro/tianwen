@@ -88,7 +88,7 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         (await mount.IsTrackingAsync(ct)).ShouldBe(true);
         (await mount.AtParkAsync(ct)).ShouldBe(false);
 
-        // when — fake transitions p → I → P over ~300ms fake time;
+        // when: fake transitions p → I → P over ~300ms fake time;
         // ParkAsync's 250ms poll loop must wait through the 'I' tick before seeing 'P'.
         await mount.ParkAsync(ct);
 
@@ -115,7 +115,7 @@ public class OnStepMountTests(ITestOutputHelper outputHelper)
         // when
         await mount.UnparkAsync(ct);
 
-        // then — :hR# is immediate in the fake (no I→p transition needed)
+        // then: :hR# is immediate in the fake (no I→p transition needed)
         (await mount.AtParkAsync(ct)).ShouldBe(false);
     }
 

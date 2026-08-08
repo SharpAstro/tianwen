@@ -13,7 +13,7 @@ namespace TianWen.Hosting.WebSocket;
 /// <summary>
 /// Manages connected WebSocket clients and broadcasts events to all of them.
 /// Supports two client pools: native (camelCase) and ninaAPI v2 (PascalCase).
-/// Thread-safe — clients can connect/disconnect at any time.
+/// Thread-safe: clients can connect/disconnect at any time.
 /// </summary>
 internal sealed class EventHub
 {

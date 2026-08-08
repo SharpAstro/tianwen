@@ -25,7 +25,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// that exposure for the rest of the routine.
     ///
     /// Stops at the longest configured exposure with a clear "no solve" result
-    /// instead of climbing past 5 s — if a 5 s wide-FOV frame can't solve, longer
+    /// instead of climbing past 5 s, if a 5 s wide-FOV frame can't solve, longer
     /// exposures are not the cure (focus / dew / light pollution / clouds).
     /// </summary>
     internal static class AdaptiveExposureRamp

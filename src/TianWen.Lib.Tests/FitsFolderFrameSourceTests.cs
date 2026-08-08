@@ -15,7 +15,7 @@ namespace TianWen.Lib.Tests;
 [Collection("Imaging")]
 public class FitsFolderFrameSourceTests
 {
-    // Smallest possible synthetic FITS file — 4x4 mono float32. Constructor
+    // Smallest possible synthetic FITS file: 4x4 mono float32. Constructor
     // signature mirrors the real ImageMeta layout so the only thing the tests
     // vary per call is what we want to assert against.
     private static Image MakeSynthetic(FrameType type, float exposureSec, Filter? filter = null, float ccdTempC = -10f)
@@ -122,7 +122,7 @@ public class FitsFolderFrameSourceTests
 
         byType[FrameType.Dark].Meta.ExposureDuration.ShouldBe(TimeSpan.FromSeconds(300));
         // Filter.HydrogenAlpha's RawName differs after FITS round-trip but the
-        // canonical Name + Bandpass survive — those are what downstream grouping
+        // canonical Name + Bandpass survive: those are what downstream grouping
         // by filter cares about.
         byType[FrameType.Flat].Meta.Filter.Name.ShouldBe(Filter.HydrogenAlpha.Name);
         byType[FrameType.Flat].Meta.Filter.Bandpass.ShouldBe(Filter.HydrogenAlpha.Bandpass);
@@ -179,7 +179,7 @@ public class FitsFolderFrameSourceTests
         loaded.Width.ShouldBe(original.Width);
         loaded.Height.ShouldBe(original.Height);
         loaded.ChannelCount.ShouldBe(original.ChannelCount);
-        // Spot-check one pixel — FITS round-trip preserves float32 exactly
+        // Spot-check one pixel: FITS round-trip preserves float32 exactly
         loaded[0, 1, 1].ShouldBe(original[0, 1, 1], tolerance: 1e-6f);
     }
 

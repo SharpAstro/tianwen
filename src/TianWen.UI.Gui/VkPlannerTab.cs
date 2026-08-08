@@ -22,14 +22,14 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
 {
     private readonly VkRenderer _renderer;
 
-    // CPU-side chart renderer — renders to RgbaImage pixel buffer
+    // CPU-side chart renderer: renders to RgbaImage pixel buffer
     private RgbaImageRenderer? _chartRenderer;
 
     // Cached GPU texture of the rendered chart, drawn every frame when non-null.
     private VkTexture? _chartTexture;
 
     // Texture swapped out by the previous OnPreRenderPass. Disposed on the NEXT
-    // OnPreRenderPass — by then BeginFrame has waited on the fence from
+    // OnPreRenderPass, by then BeginFrame has waited on the fence from
     // MaxFramesInFlight frames ago, so the GPU is guaranteed done with it.
     private VkTexture? _deferredDispose;
 
@@ -86,7 +86,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
         }
 
         // RgbaImageRenderer produces RGBA bytes; pass the matching format so the
-        // driver reads them directly — no CPU swizzle loop needed on this hot path.
+        // driver reads them directly: no CPU swizzle loop needed on this hot path.
         var newTex = VkTexture.CreateDeferred(_renderer.Context, _pendingPixels, _pendingWidth, _pendingHeight,
             VkFormat.R8G8B8A8Unorm);
         newTex.RecordUpload(cmd);
@@ -115,7 +115,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
             slidersHash.Add(sliderTime.UtcTicks);
         }
 
-        // Build cache key — excludes mouse and current time (drawn as overlays)
+        // Build cache key: excludes mouse and current time (drawn as overlays)
         var key = new ChartCacheKey(
             chartW, chartH,
             selectedIndex,
@@ -130,7 +130,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
         );
 
         // Re-render only on cache miss AND when no upload is already queued for
-        // the next frame — avoids re-doing CPU work when nothing has changed.
+        // the next frame: avoids re-doing CPU work when nothing has changed.
         if (key != _cachedKey && _pendingPixels is null)
         {
             // Resize CPU renderer if needed
@@ -140,7 +140,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
                 _chartRenderer = new RgbaImageRenderer((uint)chartW, (uint)chartH);
             }
 
-            // Render chart to CPU pixel buffer at (0,0) — no overlays. Output is RGBA;
+            // Render chart to CPU pixel buffer at (0,0): no overlays. Output is RGBA;
             // the GPU upload uses VkFormat.R8G8B8A8Unorm so no byte-swap is needed.
             // AltitudeChartRenderer is a static (non-widget) helper -- it keeps its font params, fed here
             // from the inherited FontPath / EmojiFontPath (host-set) properties.
@@ -149,7 +149,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
                 selectedIndex, currentTime: null, mouseScreenPosition: null,
                 EmojiFontPath);
 
-            // Copy to a detached buffer — the upload happens next frame, and by
+            // Copy to a detached buffer: the upload happens next frame, and by
             // then _chartRenderer.Surface.Pixels may have been overwritten.
             _pendingPixels = [.. _chartRenderer.Surface.Pixels];
             _pendingWidth = chartW;
@@ -158,7 +158,7 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
         }
 
         // Draw the cached texture. On the very first frame after a cache miss
-        // there is nothing to draw — the upload fires at the next OnPreRenderPass.
+        // there is nothing to draw: the upload fires at the next OnPreRenderPass.
         if (_chartTexture is not null)
         {
             _renderer.DrawTexture(_chartTexture.DescriptorSet, chartRect.X, chartRect.Y, chartRect.Width, chartRect.Height);

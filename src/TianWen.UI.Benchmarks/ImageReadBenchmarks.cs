@@ -11,8 +11,8 @@ namespace TianWen.UI.Benchmarks;
 /// <summary>
 /// File-decode timings for the four formats <see cref="Image.TryReadImageFile"/>
 /// accepts (TIFF / CR2 / CR3 / FITS). Each benchmark exercises the production
-/// import path end-to-end — open file, decode pixels, build <see cref="Image"/>
-/// + <see cref="ImageMeta"/> — so the result is what a GUI / Session caller
+/// import path end-to-end: open file, decode pixels, build <see cref="Image"/>
+/// + <see cref="ImageMeta"/>, so the result is what a GUI / Session caller
 /// actually pays at import time.
 ///
 /// <para>OS file cache warms up after the first iteration, so disk seek is
@@ -36,7 +36,7 @@ public class ImageReadBenchmarks
     private string _tempDir = null!;
 
     /// <summary>Synthetic TIFF dimensions. 4096x4096 16-bit single-channel
-    /// is ~33 MB on disk — comparable to a full-frame APS-C TIFF export
+    /// is ~33 MB on disk: comparable to a full-frame APS-C TIFF export
     /// from an astro stacking pipeline.</summary>
     private const int TiffWidth = 4096;
     private const int TiffHeight = 4096;
@@ -51,7 +51,7 @@ public class ImageReadBenchmarks
         _cr2Path = Path.Combine(fixturesDir, "CR2", "_MG_7578.CR2");
         // Only the R5 cRAW lives in TianWen.Lib.Tests/Data/CR3/ today.
         // The M50 RAW (encType=0 levels=0) + M50 CRAW (encType=0 levels=3
-        // lossless wavelet) fixtures sit in FC.SDK.Raw.Tests/Fixtures/ —
+        // lossless wavelet) fixtures sit in FC.SDK.Raw.Tests/Fixtures/;
         // link those in too if separate numbers are wanted for each path.
         _cr3CrawLossyPath = Path.Combine(fixturesDir, "CR3", "Canon_EOS_R5_CRAW.CR3");
 
@@ -64,8 +64,8 @@ public class ImageReadBenchmarks
 
     /// <summary>Writes a deterministic 16-bit mono TIFF with a cheap
     /// ramp+xor pattern (distinct per-pixel values, no PRNG state). Uses
-    /// DIR.Lib's <see cref="TiffWriter"/> — same writer the production
-    /// export path uses — so the file is exactly what the read path would
+    /// DIR.Lib's <see cref="TiffWriter"/>: same writer the production
+    /// export path uses, so the file is exactly what the read path would
     /// otherwise produce + consume.</summary>
     private static async Task WriteSyntheticTiffAsync(string path, int width, int height)
     {

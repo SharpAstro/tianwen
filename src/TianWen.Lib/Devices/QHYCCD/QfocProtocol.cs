@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace TianWen.Lib.Devices.QHYCCD;
 
 /// <summary>
-/// QHY QFOC Focuser serial protocol — JSON-over-UART at 9600 baud (8N1).
+/// QHY QFOC Focuser serial protocol: JSON-over-UART at 9600 baud (8N1).
 ///
 /// <para><b>Transport:</b> USB-to-serial (CDC/ACM). The host sends a JSON object;
 /// the focuser replies with a JSON object terminated by <c>}</c>.
@@ -11,15 +11,15 @@ namespace TianWen.Lib.Devices.QHYCCD;
 ///
 /// <para><b>Hardware variants:</b></para>
 /// <list type="bullet">
-///   <item><b>Standard</b> — board version (bv) typically "1.x"</item>
-///   <item><b>High Precision</b> — board version "2.x", finer micro-stepping</item>
+///   <item><b>Standard</b>: board version (bv) typically "1.x"</item>
+///   <item><b>High Precision</b>: board version "2.x", finer micro-stepping</item>
 /// </list>
 /// Both variants use the same protocol; the board version is reported in the
 /// <see cref="QfocInitResponse.BoardVersion"/> field.
 ///
 /// <para><b>Positioning:</b> absolute, signed 32-bit integer steps (range ±1 000 000).
 /// Configurable software limits (min/max) stored in the ASCOM profile.
-/// The firmware does <em>not</em> persist position across power cycles —
+/// The firmware does <em>not</em> persist position across power cycles; 
 /// the host should save/restore it.</para>
 ///
 /// <para><b>Motor driver:</b> TMC stepper (Trinamic). Supports StallGuard
@@ -29,26 +29,26 @@ namespace TianWen.Lib.Devices.QHYCCD;
 /// higher motor currents (irun=30, ihold configurable) are available;
 /// on USB power alone defaults are irun=8, ihold=4.</para>
 ///
-/// <para><b>Temperature:</b> dual sensors — external NTC probe (<c>o_t</c>)
+/// <para><b>Temperature:</b> dual sensors; external NTC probe (<c>o_t</c>)
 /// and on-chip (<c>c_t</c>), both reported in milli-°C. The external NTC is
 /// optional; when not connected <c>o_t</c> reads a rail value.</para>
 ///
 /// <para><b>Command summary:</b></para>
 /// <list type="table">
 ///   <listheader><term>cmd_id</term><description>Name / Purpose</description></listheader>
-///   <item><term>1</term><description><c>init</c> — handshake; returns firmware version + board version</description></item>
-///   <item><term>3</term><description><c>stop</c> — halt movement immediately</description></item>
-///   <item><term>4</term><description><c>temp</c> — query temperature, StallGuard alarm, 12 V status</description></item>
-///   <item><term>5</term><description><c>pos</c> — query current position</description></item>
-///   <item><term>6</term><description><c>runto</c> — absolute move to target position (<c>tar</c>)</description></item>
+///   <item><term>1</term><description><c>init</c>: handshake; returns firmware version + board version</description></item>
+///   <item><term>3</term><description><c>stop</c>: halt movement immediately</description></item>
+///   <item><term>4</term><description><c>temp</c>: query temperature, StallGuard alarm, 12 V status</description></item>
+///   <item><term>5</term><description><c>pos</c>: query current position</description></item>
+///   <item><term>6</term><description><c>runto</c>: absolute move to target position (<c>tar</c>)</description></item>
 ///   <item><term>7</term><description>set reverse direction flag (<c>rev</c>: 0/1)</description></item>
-///   <item><term>11</term><description><c>reset_fmc</c> — reset position counter to zero</description></item>
-///   <item><term>12</term><description><c>keep_force</c> — hold motor current when idle (<c>force</c>: 0/1)</description></item>
-///   <item><term>13</term><description><c>set_speed</c> — motor speed (0 = normal, −2 = high)</description></item>
-///   <item><term>16</term><description><c>ihold</c> — set motor run/hold current (<c>irun</c>, <c>ihold</c>)</description></item>
-///   <item><term>17</term><description><c>tcool</c> — StallGuard coolstep threshold</description></item>
-///   <item><term>18</term><description><c>sgthrs</c> — StallGuard sensitivity</description></item>
-///   <item><term>19</term><description><c>pdn</c> — power-down mode (<c>pdn_d</c>: 0/1)</description></item>
+///   <item><term>11</term><description><c>reset_fmc</c>; reset position counter to zero</description></item>
+///   <item><term>12</term><description><c>keep_force</c>; hold motor current when idle (<c>force</c>: 0/1)</description></item>
+///   <item><term>13</term><description><c>set_speed</c>; motor speed (0 = normal, −2 = high)</description></item>
+///   <item><term>16</term><description><c>ihold</c>; set motor run/hold current (<c>irun</c>, <c>ihold</c>)</description></item>
+///   <item><term>17</term><description><c>tcool</c>; StallGuard coolstep threshold</description></item>
+///   <item><term>18</term><description><c>sgthrs</c>; StallGuard sensitivity</description></item>
+///   <item><term>19</term><description><c>pdn</c>: power-down mode (<c>pdn_d</c>: 0/1)</description></item>
 /// </list>
 ///
 /// <para><b>Response routing:</b> the <c>idx</c> field identifies the response type:
@@ -85,39 +85,39 @@ internal record QfocCommand(
 );
 
 /// <summary>
-/// cmd_id 1 — initialise the focuser and return firmware/board version.
+/// cmd_id 1: initialise the focuser and return firmware/board version.
 /// <para>Wire: <c>{"cmd_id":1,"cmd_name":"init"}</c></para>
-/// <para>Response: <see cref="QfocInitResponse"/> — <c>{"version":"20240828","bv":"2.0"}</c></para>
+/// <para>Response: <see cref="QfocInitResponse"/>, <c>{"version":"20240828","bv":"2.0"}</c></para>
 /// <para>Must be the first command after opening the serial port. Wait ≥ 300 ms for the response.</para>
 /// </summary>
 internal record QfocInitCommand() : QfocCommand(1, "init");
 
 /// <summary>
-/// cmd_id 3 — halt movement immediately.
+/// cmd_id 3: halt movement immediately.
 /// <para>Wire: <c>{"cmd_id":3,"cmd_name":"stop"}</c></para>
 /// <para>No response. The focuser decelerates to a stop as fast as the motor driver allows.</para>
 /// </summary>
 internal record QfocStopCommand() : QfocCommand(3, "stop");
 
 /// <summary>
-/// cmd_id 4 — query temperature, StallGuard alarm, and 12 V status.
+/// cmd_id 4: query temperature, StallGuard alarm, and 12 V status.
 /// <para>Wire: <c>{"cmd_id":4,"cmd_name":"temp"}</c></para>
-/// <para>Response: <see cref="QfocTemperatureResponse"/> —
+/// <para>Response: <see cref="QfocTemperatureResponse"/>; 
 /// <c>{"idx":4,"o_t":15200,"c_t":32100,"sg":0,"c_r":121}</c></para>
 /// </summary>
 internal record QfocTempCommand() : QfocCommand(4, "temp");
 
 /// <summary>
-/// cmd_id 5 — query current step position.
+/// cmd_id 5: query current step position.
 /// <para>Wire: <c>{"cmd_id":5,"cmd_name":"pos"}</c></para>
-/// <para>Response: <see cref="QfocPositionResponse"/> — <c>{"idx":1,"pos":5000}</c></para>
+/// <para>Response: <see cref="QfocPositionResponse"/>, <c>{"idx":1,"pos":5000}</c></para>
 /// </summary>
 internal record QfocPosCommand() : QfocCommand(5, "pos");
 
 /// <summary>
-/// cmd_id 6 — absolute move to <see cref="Tar"/> position.
+/// cmd_id 6: absolute move to <see cref="Tar"/> position.
 /// <para>Wire: <c>{"cmd_id":6,"cmd_name":"runto","tar":5000}</c></para>
-/// <para>Response: <see cref="QfocPositionResponse"/> when the move completes —
+/// <para>Response: <see cref="QfocPositionResponse"/> when the move completes; 
 /// <c>{"idx":1,"pos":5000}</c></para>
 /// <para>The focuser reports <c>IsMoving</c> until the reported position matches the target.
 /// Use cmd_id 3 (<see cref="QfocStopCommand"/>) to abort.</para>
@@ -127,7 +127,7 @@ internal record QfocRuntoCommand(
 ) : QfocCommand(6, "runto");
 
 /// <summary>
-/// cmd_id 7 — set reverse direction flag.
+/// cmd_id 7: set reverse direction flag.
 /// <para>Wire: <c>{"cmd_id":7,"rev":1}</c></para>
 /// <para>No named response. <c>rev</c> = 1 inverts the motor direction, 0 = normal.</para>
 /// </summary>
@@ -136,7 +136,7 @@ internal record QfocReverseCommand(
 ) : QfocCommand(7, "rev");
 
 /// <summary>
-/// cmd_id 13 — set motor speed.
+/// cmd_id 13: set motor speed.
 /// <para>Wire: <c>{"cmd_id":13,"cmd_name":"set_speed","speed":0}</c></para>
 /// <para><c>speed</c> = 0 for normal, −2 for high speed. Wait 200 ms after sending.</para>
 /// </summary>
@@ -149,7 +149,7 @@ internal record QfocSetSpeedCommand(
 #region Responses
 
 /// <summary>
-/// Init response — returned by cmd_id 1 (<see cref="QfocInitCommand"/>).
+/// Init response: returned by cmd_id 1 (<see cref="QfocInitCommand"/>).
 /// <para>Example: <c>{"version":"20240828","bv":"2.0"}</c></para>
 /// </summary>
 internal sealed class QfocInitResponse
@@ -167,7 +167,7 @@ internal sealed class QfocInitResponse
 }
 
 /// <summary>
-/// Position response (idx = 1) — returned after a <see cref="QfocPosCommand"/> query
+/// Position response (idx = 1): returned after a <see cref="QfocPosCommand"/> query
 /// or when a <see cref="QfocRuntoCommand"/> move completes.
 /// <para>Example: <c>{"idx":1,"pos":5000}</c></para>
 /// </summary>
@@ -182,7 +182,7 @@ internal sealed class QfocPositionResponse
 }
 
 /// <summary>
-/// Temperature/status response (idx = 4) — returned by <see cref="QfocTempCommand"/>.
+/// Temperature/status response (idx = 4): returned by <see cref="QfocTempCommand"/>.
 /// <para>Example: <c>{"idx":4,"o_t":15200,"c_t":32100,"sg":0,"c_r":121}</c></para>
 /// <para>Temperatures are in milli-°C (divide by 1000 for °C).
 /// The 12 V rail ADC (<c>c_r</c>) reads ~120 when 12 V is present;

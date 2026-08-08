@@ -15,10 +15,10 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <param name="LightPath">Path to the light frame this transform is for.
 /// Round-tripped through JSON; the integrator uses it to verify the sidecar
 /// applies to the right file.</param>
-/// <param name="M11">First column of the affine 2x2 — <see cref="Matrix3x2"/> M11.</param>
-/// <param name="M12">First column of the affine 2x2 — <see cref="Matrix3x2"/> M12.</param>
-/// <param name="M21">Second column of the affine 2x2 — <see cref="Matrix3x2"/> M21.</param>
-/// <param name="M22">Second column of the affine 2x2 — <see cref="Matrix3x2"/> M22.</param>
+/// <param name="M11">First column of the affine 2x2: <see cref="Matrix3x2"/> M11.</param>
+/// <param name="M12">First column of the affine 2x2: <see cref="Matrix3x2"/> M12.</param>
+/// <param name="M21">Second column of the affine 2x2: <see cref="Matrix3x2"/> M21.</param>
+/// <param name="M22">Second column of the affine 2x2: <see cref="Matrix3x2"/> M22.</param>
 /// <param name="OffsetX">Translation x (<see cref="Matrix3x2"/> M31).</param>
 /// <param name="OffsetY">Translation y (<see cref="Matrix3x2"/> M32).</param>
 /// <param name="StarsMatched">Number of star quads matched against the
@@ -42,7 +42,7 @@ public sealed record RegistrationResult(
     bool Registered,
     DateTimeOffset ComputedUtc)
 {
-    /// <summary>The affine transform as a <see cref="Matrix3x2"/> — source
+    /// <summary>The affine transform as a <see cref="Matrix3x2"/>; source
     /// (light) pixels mapped into the reference frame's coordinate system.</summary>
     [JsonIgnore]
     public Matrix3x2 ToReference => new(M11, M12, M21, M22, OffsetX, OffsetY);

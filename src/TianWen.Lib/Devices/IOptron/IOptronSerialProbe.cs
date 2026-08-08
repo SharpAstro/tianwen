@@ -12,7 +12,7 @@ namespace TianWen.Lib.Devices.IOptron;
 /// <summary>
 /// Serial probe for iOptron SkyGuider Pro. Isolated in its own 28800-baud group (no
 /// other TianWen-supported device uses 28800), so this probe doesn't share an open
-/// handle with any LX200-style sibling — the port is opened just for this probe.
+/// handle with any LX200-style sibling: the port is opened just for this probe.
 /// </summary>
 internal sealed partial class IOptronSerialProbe : ISerialProbe
 {
@@ -50,7 +50,7 @@ internal sealed partial class IOptronSerialProbe : ISerialProbe
         var firmwareVersion = fwMatch.Groups[1].Value;
 
         var portWithoutPrefix = ISerialConnection.RemoveProtoPrrefix(port);
-        // SGP has no mount-resident UUID mechanism — deviceId is port-qualified. A USB
+        // SGP has no mount-resident UUID mechanism: deviceId is port-qualified. A USB
         // port reshuffle will change the id, but ReconcileUri handles the stored-URI
         // rewrite downstream.
         var deviceId = string.Join('_',

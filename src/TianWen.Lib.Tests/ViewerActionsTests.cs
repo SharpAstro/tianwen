@@ -9,7 +9,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Pure state-mutation tests for <see cref="ViewerActions"/>.
-/// No SDL, no DI, no async I/O — just <see cref="ViewerState"/>.
+/// No SDL, no DI, no async I/O, just <see cref="ViewerState"/>.
 /// </summary>
 public class ViewerActionsTests
 {

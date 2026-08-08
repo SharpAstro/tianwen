@@ -22,7 +22,7 @@ internal sealed class GeminiFlatPanelDriver(GeminiDevice device, IServiceProvide
     private static readonly TimeSpan CommandSettle = TimeSpan.FromMilliseconds(250);
 
     // The controller reboots when the port opens (the USB bridge toggles DTR/RTS) and ignores input for ~2s
-    // while it boots — the vendor ASCOM driver hard-sleeps 2000ms here. We SLEEP THROUGH the boot before the
+    // while it boots: the vendor ASCOM driver hard-sleeps 2000ms here. We SLEEP THROUGH the boot before the
     // first handshake: writing >H# during the boot just yields dropped writes and, once it wakes, a storm of
     // duplicate replies that desync every later read. After the sleep it is booted, so a couple of clean
     // handshake attempts suffice. Reconnect goes through the liveness path (already-open conn), not here, so

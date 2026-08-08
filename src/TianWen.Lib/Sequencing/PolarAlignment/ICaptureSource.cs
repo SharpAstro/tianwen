@@ -18,7 +18,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// <see cref="PixelSizeMicrons"/>) feed
     /// <see cref="CaptureSourceRanker"/> when the user has more than one
     /// candidate source connected. They also feed the bring-it-back overlay
-    /// computation in the GUI tab — pixel scale gates the WCS-based projection
+    /// computation in the GUI tab: pixel scale gates the WCS-based projection
     /// of the apparent pole onto the live frame.
     /// </remarks>
     internal interface ICaptureSource

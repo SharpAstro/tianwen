@@ -25,8 +25,8 @@ internal static class CameraDriverExtensions
     /// until the exposure's predicted end. More than <paramref name="leadMargin"/> remaining
     /// returns a single long sleep that lands <paramref name="leadMargin"/> before the end
     /// (so the dead time costs no polls); inside the lead window it returns a coarse 10 ms
-    /// cadence; in the final ~10 ms — and on overrun, where <paramref name="remaining"/> is
-    /// &lt;= zero — it returns a 1 ms cadence. The result is always strictly positive, so a
+    /// cadence; in the final ~10 ms, and on overrun, where <paramref name="remaining"/> is
+    /// &lt;= zero: it returns a 1 ms cadence. The result is always strictly positive, so a
     /// caller loop can never busy-spin.
     /// </summary>
     internal static TimeSpan NextImageReadyPollDelay(TimeSpan remaining, TimeSpan leadMargin)
@@ -51,7 +51,7 @@ internal static class CameraDriverExtensions
         /// (see <see cref="NextImageReadyPollDelay"/>): one long sleep through the exposure's
         /// dead time, then a coarse cadence through the final <paramref name="pollLeadMargin"/>,
         /// then 1 ms polls in the final window (and on overrun) until ready. Assumes an
-        /// exposure of <paramref name="exposure"/> was just started — the caller owns the
+        /// exposure of <paramref name="exposure"/> was just started; the caller owns the
         /// preceding <c>StartExposureAsync</c>.
         /// </summary>
         /// <param name="exposure">The exposure duration just started; used to predict the ready time.</param>

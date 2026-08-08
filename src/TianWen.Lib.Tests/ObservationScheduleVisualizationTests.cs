@@ -18,7 +18,7 @@ namespace TianWen.Lib.Tests;
 [Collection("Scheduling")]
 public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper testOutputHelper)
 {
-    // Vienna, Austria — ~48.2°N, ~16.4°E
+    // Vienna, Austria: ~48.2°N, ~16.4°E
     private const double SiteLatitude = 48.2;
     private const double SiteLongitude = 16.4;
     private const byte MinHeight = 20;
@@ -51,7 +51,7 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
 
     private static TwilightBoundaries ComputeTwilightBoundaries(Transform transform, DateTimeOffset astroDark, DateTimeOffset astroTwilight)
     {
-        // Use astroDark to derive the evening day — NOT transform.DateTimeOffset,
+        // Use astroDark to derive the evening day, NOT transform.DateTimeOffset,
         // which may have been mutated by CalculateNightWindow.
         // Subtract 12h so that post-midnight astroDark (e.g., 00:23) maps to the previous day's evening.
         var eveningDate = astroDark.AddHours(-12);
@@ -378,7 +378,7 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
 
         // --- Title ---
         DrawAnchoredText(renderer, fontPath,
-            $"Observation Schedule — {label} ({SiteLatitude:F1}°N, {SiteLongitude:F1}°E)",
+            $"Observation Schedule; {label} ({SiteLatitude:F1}°N, {SiteLongitude:F1}°E)",
             width / 2f, 20f, fontSize: 16, Rgb("#FFFFFF"), hAnchor: TextAlign.Center);
 
         // --- Legend ---
@@ -394,7 +394,7 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
             legendX += 120;
         }
 
-        // Priority legend — "Primary (solid)" + "Spare (dashed)" entries
+        // Priority legend: "Primary (solid)" + "Spare (dashed)" entries
         // explain the line style convention used above.
         legendX += 40;
         var gray = Rgb("#808080");
@@ -409,7 +409,7 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
             legendX + 25, legendY, fontSize: 11, gray, hAnchor: TextAlign.Near);
 
         // PNG out. RgbaImage.Pixels is already row-major interleaved RGBA bytes
-        // which PngWriter.Encode wants verbatim — no swizzle / re-pack needed.
+        // which PngWriter.Encode wants verbatim: no swizzle / re-pack needed.
         var outputDir = SharedTestData.CreateTempTestOutputDir(nameof(ObservationScheduleVisualizationTests));
         var fullPath = Path.Combine(outputDir, fileName);
         var png = DisplayImageWriter.EncodePng(renderer.Surface.Pixels, width, height);
@@ -459,7 +459,7 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
             }
         }
 
-        // Night zone (between astro dark and astro twilight — already background color)
+        // Night zone (between astro dark and astro twilight, already background color)
         // Fill=false so we still emit the label but don't paint over the background.
         zones.Add((xAstroDark, xAstroTwilight, default, "Night", false));
 
@@ -555,7 +555,7 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
                 (float)x, yMargin + plotH + 15, fontSize: 10, textColor, hAnchor: TextAlign.Center);
         }
 
-        // Axes — solid 1-pixel lines on the left + bottom edges of the plot area.
+        // Axes: solid 1-pixel lines on the left + bottom edges of the plot area.
         var axisColor = Rgb("#FFFFFF").WithAlpha(0x60);
         renderer.DrawLine(xMargin, yMargin, xMargin, yMargin + plotH, axisColor);
         renderer.DrawLine(xMargin, yMargin + plotH, xMargin + plotW, yMargin + plotH, axisColor);
@@ -617,7 +617,7 @@ public sealed class ObservationScheduleVisualizationTests(ITestOutputHelper test
 
     /// <summary>Renders a dashed rectangle outline as four dashed lines.
     /// DIR.Lib has <see cref="RgbaImageRenderer.DrawLineDashed"/> but no
-    /// direct DrawRectangleDashed — emit the four edges manually.</summary>
+    /// direct DrawRectangleDashed: emit the four edges manually.</summary>
     private static void DrawDashedRectangle(
         RgbaImageRenderer renderer,
         double x1, double y1, double x2, double y2,

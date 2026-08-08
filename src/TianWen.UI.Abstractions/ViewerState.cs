@@ -38,7 +38,7 @@ public sealed class ViewerState
     /// <summary>HDR compression amount (0.0 = off). Applied in the display shader.</summary>
     public float HdrAmount { get; set; }
 
-    /// <summary>HDR knee point — values above this are compressed.</summary>
+    /// <summary>HDR knee point: values above this are compressed.</summary>
     public float HdrKnee { get; set; } = 0.8f;
 
     /// <summary>Index into <see cref="HdrPresets"/>.</summary>
@@ -97,7 +97,7 @@ public sealed class ViewerState
 
     /// <summary>Strength of the background-neutralization effect, 0..1. Acts as a
     /// CPU-side lerp toward identity on the cached gain before the GPU uniform is
-    /// written — no pixel work, no extra shader uniform. 1.0 = full effect.</summary>
+    /// written: no pixel work, no extra shader uniform. 1.0 = full effect.</summary>
     public float BackgroundNeutralizationStrength { get; set; } = 1f;
 
     /// <summary>Manual per-channel white-balance multipliers. (1,1,1) = neutral. Applied <i>on top of</i>
@@ -106,7 +106,7 @@ public sealed class ViewerState
     /// WB stays in effect and these sliders nudge it. Lives on the shared <see cref="ViewerState"/>, so the
     /// adjustment applies to any colour source (FITS / TIFF / SER) and the GUI viewer tab inherits it too.
     /// Recompute is cheap (uniforms from cached stats, no pixel pass), so only <see cref="NeedsRedraw"/> is
-    /// set on change — never <see cref="NeedsTextureUpdate"/>.</summary>
+    /// set on change, never <see cref="NeedsTextureUpdate"/>.</summary>
     public (float R, float G, float B) ManualWhiteBalance { get; set; } = (1f, 1f, 1f);
 
     /// <summary>Channel (0=R, 1=G, 2=B) of the WB slider currently being dragged, or -1 when idle. Mirrors

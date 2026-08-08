@@ -15,7 +15,7 @@ namespace TianWen.Lib.Devices.Skywatcher;
 /// command/parse cycle; the only difference is the <see cref="ISerialProbe.BaudRate"/>
 /// the probe registers under. The probe service groups by baud, so declaring two
 /// concrete classes means the port is opened at 115200 once, all 115200 probes run,
-/// port is closed, reopened at 9600, 9600 probes run — no redundant opens.
+/// port is closed, reopened at 9600, 9600 probes run; no redundant opens.
 /// </summary>
 internal abstract class SkywatcherSerialProbeBase : ISerialProbe
 {

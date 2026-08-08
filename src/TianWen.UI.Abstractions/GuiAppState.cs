@@ -102,7 +102,7 @@ public class GuiAppState
     public InputModifier LastClickModifiers { get; set; }
 
     /// <summary>Transient status message shown in the chrome status bar.
-    /// Does NOT auto-record to the notifications history — callers that want a
+    /// Does NOT auto-record to the notifications history; callers that want a
     /// history entry should use <see cref="AppendNotification"/> instead (which
     /// sets this too, timestamped via the caller's time provider).</summary>
     public string? StatusMessage { get; set; }
@@ -200,7 +200,7 @@ public class GuiAppState
     /// <summary>
     /// Record a notification at the given timestamp and severity without changing
     /// <see cref="StatusMessage"/>. Caller supplies the timestamp from their own
-    /// <c>ITimeProvider</c> — this class does not hold a time source.
+    /// <c>ITimeProvider</c>: this class does not hold a time source.
     /// </summary>
     public void RecordNotification(DateTimeOffset when, NotificationSeverity severity, string message)
     {

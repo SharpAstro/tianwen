@@ -458,7 +458,7 @@ internal static class NinaEquipmentEndpoints
             return NinaOk("Guiding stopped");
         });
 
-        // GET /v2/api/equipment/guider/graph — guide error samples for the guiding graph
+        // GET /v2/api/equipment/guider/graph: guide error samples for the guiding graph
         group.MapGet("/guider/graph", (IHostedSession hosted) =>
         {
             if (hosted.CurrentSession is not { } session)
@@ -505,7 +505,7 @@ internal static class NinaEquipmentEndpoints
 
     private static void MapWeatherEndpoints(RouteGroupBuilder group)
     {
-        // GET /v2/api/equipment/weather/info — read from session's weather device
+        // GET /v2/api/equipment/weather/info: read from session's weather device
         group.MapGet("/weather/info", (IHostedSession hosted) =>
         {
             var driver = hosted.CurrentSession?.Setup.Weather?.Driver;

@@ -196,7 +196,7 @@ namespace TianWen.Lib.Tests
                 return $"{label} (n={set.Count}): HFD p10/50/90={hfd[0]:F2}/{hfd[1]:F2}/{hfd[2]:F2}  " +
                     $"ecc={ecc[0]:F3}/{ecc[1]:F3}/{ecc[2]:F3}  stars={stars[0]:F0}/{stars[1]:F0}/{stars[2]:F0}";
             }
-            // Write the summary to a file too — ITestOutputHelper is lost if the run is killed.
+            // Write the summary to a file too: ITestOutputHelper is lost if the run is killed.
             var lines = new[]
             {
                 Summarize("GOOD 2026-02-16", good),
@@ -212,12 +212,12 @@ namespace TianWen.Lib.Tests
 
         /// <summary>
         /// Exit criterion (docs/plans/ai-denoise-deconv.md P0), run against the metrics cached by
-        /// DumpBadVsGoodMetricDistributions (instant — no re-measure). Mixes the 33 hand-flagged
+        /// DumpBadVsGoodMetricDistributions (instant, no re-measure). Mixes the 33 hand-flagged
         /// BAD frames into the full healthy session as a realistic ~8% minority and asserts the
         /// gate: (a) rejects EVERY bad frame whose star count is clearly below the good floor
-        /// (transparency loss — the reason the gate measures), (b) rejects the large majority of
+        /// (transparency loss, the reason the gate measures), (b) rejects the large majority of
         /// bad frames, (c) keeps the overwhelming majority of good frames. It deliberately does
-        /// NOT require 100% bad rejection — a handful of bad frames are metrically identical to
+        /// NOT require 100% bad rejection: a handful of bad frames are metrically identical to
         /// good (bad for reasons no PSF metric sees). Skips if the metrics cache isn't present.
         /// </summary>
         [Fact]
@@ -251,7 +251,7 @@ namespace TianWen.Lib.Tests
             var keptBad = result.Kept.Where(f => badPaths.Contains(f.Frame.Path)).ToList();
             var rejectedGood = result.Rejected.Count(r => !badPaths.Contains(r.Frame.Frame.Path));
 
-            // Good-session star-count floor (p10) — anything well below it is a transparency drop.
+            // Good-session star-count floor (p10): anything well below it is a transparency drop.
             var goodStarP10 = good.Select(kv => kv.Value.StarCount).OrderBy(x => x).ElementAt(good.Count / 10);
             var transparencyBadKept = keptBad.Where(f => f.Metrics.StarCount < goodStarP10 * 0.6f).ToList();
 
@@ -266,7 +266,7 @@ namespace TianWen.Lib.Tests
                 string.Join(", ", transparencyBadKept.Select(f => $"{Path.GetFileName(f.Frame.Path)}({f.Metrics.StarCount})")));
             keptBad.Count.ShouldBeLessThanOrEqualTo(bad.Count / 8, "the large majority of bad frames must be rejected");
 
-            // The gate also trims the session's soft-focus + hazy tail — DESIRABLE for a training
+            // The gate also trims the session's soft-focus + hazy tail; DESIRABLE for a training
             // set (purity > yield). What must hold is that this rejection is PRINCIPLED (targets the
             // measurably-worse tail), not random, and stays a minority. Rejected good frames must be
             // softer (higher HFD) and/or thinner (lower star count) than the kept good median.

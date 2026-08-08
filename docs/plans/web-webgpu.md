@@ -1,14 +1,14 @@
-# Web WebGPU — GPU compute + a WebGPU render backend (research)
+# Web WebGPU: GPU compute + a WebGPU render backend (research)
 
 **Status: NOT STARTED (research captured, 2026-07-18).** Records whether/how to add a WebGPU backend to
-`WebGl.Renderer`, whether our shaders reuse, and — the strongest motivator — using **GPU compute** to
+`WebGl.Renderer`, whether our shaders reuse, and, the strongest motivator, using **GPU compute** to
 parallelize the planner sweep without the SharedArrayBuffer/COOP/COEP wall that blocks CPU threads on
 GitHub Pages. Companion to [web-multithreading.md](web-multithreading.md) (the CPU-thread alternatives)
 and [web-showcase.md](web-showcase.md).
 
 ## Current state
 
-- `WebGl.Renderer` is **WebGL2-only** — no fallback path even to WebGL1. It's one implementation of the
+- `WebGl.Renderer` is **WebGL2-only**: no fallback path even to WebGL1. It's one implementation of the
   shared `DIR.Lib.Renderer<TSurface>` abstraction (the desktop `VkRenderer` is the other), so the seam
   for a second backend already exists.
 - **Shaders are GLSL ES 3.00 source strings authored in C#**, hand-transcribed 1:1 from the desktop
@@ -16,17 +16,17 @@ and [web-showcase.md](web-showcase.md).
   `WebGlPipelines.cs`): shader *bodies byte-identical*, only boilerplate (`#version`, `precision highp`,
   push-constants→uniforms) and a Y-flip differ. The custom-pipeline seam (`RegisterPipeline`) takes raw
   GLSL strings from consumers.
-- **No compute shaders exist anywhere** in the three repos — all GPU work is vertex/fragment. The image
+- **No compute shaders exist anywhere** in the three repos, all GPU work is vertex/fragment. The image
   stretch is a fragment shader + full CPU mirror; stacking/wavelet is pure CPU.
 
 ## Shader intake: why WebGL was the cheap port and WebGPU won't be
 
-Each API eats a different shader form — this is the crux of "can we reuse our shaders":
+Each API eats a different shader form; this is the crux of "can we reuse our shaders":
 
 | API | Accepts | Toolchain needed |
 |-----|---------|------------------|
 | Vulkan (SDL desktop) | SPIR-V | GLSL→SPIR-V ahead-of-time (`Vortice.ShaderCompiler`/glslang) |
-| **WebGL2 (web today)** | **GLSL ES source** | **none — the browser's GL driver compiles it at runtime** |
+| **WebGL2 (web today)** | **GLSL ES source** | **none: the browser's GL driver compiles it at runtime** |
 | WebGPU (this plan) | **WGSL only** | GLSL→WGSL transpile (naga / Tint); browser WebGPU dropped SPIR-V ingestion |
 
 WebGL2 is the odd one out that swallows GLSL source directly, which is exactly why porting the sky atlas
@@ -40,27 +40,27 @@ that WebGL let us skip.
    extension of an existing step. Friction: consumer-supplied custom-pipeline GLSL strings (how
    `WebGlSkyMapPipeline` plugs in) would need a *runtime* GLSL→WGSL transpiler in the browser
    (naga-in-WASM), or a breaking change to make the custom-pipeline contract accept WGSL/SPIR-V.
-2. **Hand-port WGSL twins** — mirrors today's "byte-identical body" discipline but now *three* dialects
+2. **Hand-port WGSL twins**: mirrors today's "byte-identical body" discipline but now *three* dialects
    (GLSL 450 / GLSL ES 3.00 / WGSL) to keep in sync. More maintenance.
 
 ## The real motivator: GPU compute to sidestep the single thread
 
-The strongest reason to touch WebGPU isn't rendering (WebGL2 covers what we draw) — it's **compute
+The strongest reason to touch WebGPU isn't rendering (WebGL2 covers what we draw); it's **compute
 shaders as a way to parallelize the planner sweep without CPU threads**, and therefore without the
 SharedArrayBuffer/COOP/COEP wall that blocks wasm-threads on GitHub Pages. You dispatch the work to the
 GPU, the WASM thread stays free to render/handle input, and you read the result back async. **No
 workers, no shared memory, no headers.**
 
 Which of our workload fits:
-- **Tonight's-best sweep — yes.** `for(ra) for(dec) score-each-object → Take(100)` is embarrassingly
+- **Tonight's-best sweep: yes.** `for(ra) for(dec) score-each-object → Take(100)` is embarrassingly
   parallel; the alt/az trig is what the sky-map vertex shader already does. Flatten candidates
-  (RA/Dec/mag/type — the sky map already builds such buffers) into a GPU buffer, run a WGSL compute pass,
+  (RA/Dec/mag/type, the sky map already builds such buffers) into a GPU buffer, run a WGSL compute pass,
   read back scores, sort/take-100 on CPU.
-- **Catalog init — no.** gzip/lzip decompression + string parsing + dictionary building is serial
+- **Catalog init: no.** gzip/lzip decompression + string parsing + dictionary building is serial
   pointer-chasing the GPU is bad at. (Already 0.55 s on AOT anyway.)
 
 Economics: on AOT the sweep is already ~0.59 s, so GPU compute earns its keep specifically when the
-sweep becomes **interactive** — live re-scoring as you drag a time slider ("what's up at 2 a.m. / next
+sweep becomes **interactive**: live re-scoring as you drag a time slider ("what's up at 2 a.m. / next
 Tuesday"), or a much bigger catalog. For a one-shot compute-on-load it's a lot of WGSL machinery to save
 half a second. (Distinct from the shipped [skymap-time-scrub.md](skymap-time-scrub.md), which re-draws
 the sky *map* on a time offset with no planner recompute; this would re-run the planner *scoring*.)
@@ -68,16 +68,16 @@ the sky *map* on a time offset with no planner recompute; this would re-run the 
 ## Fallback: WebGPU → WebGL2
 
 Mandatory, not optional. As of early 2026 WebGPU is stable in Chrome/Edge and Safari 18, but Firefox
-shipped it only on Windows (other platforms rolling out), plus older/locked-down browsers — so
+shipped it only on Windows (other platforms rolling out), plus older/locked-down browsers, so
 WebGPU-only isn't viable. Feature-detect `navigator.gpu` + `requestAdapter()` at startup and fall back.
 Because the renderer is already abstracted (`Renderer<TSurface>`, `WebGlRenderer` is one impl), a
 `WebGpuRenderer` sibling slots in and startup picks one. For the compute path the fallback is simply
-"run the sweep on the CPU like today" (AOT-fast) — graceful, no correctness risk.
+"run the sweep on the CPU like today" (AOT-fast); graceful, no correctness risk.
 
 ## What a WebGPU backend must reimplement
 
 The C#-side opcode layer (`WebGlContext` command/vertex buffers, `WebGlRenderer` draw methods, the
-opcode emission) is largely GL-agnostic — it just appends fixed-format command+vertex data — and could
+opcode emission) is largely GL-agnostic, it just appends fixed-format command+vertex data, and could
 be reused against a new JS shim. What's WebGL-specific and must be rewritten:
 - The JS `flush()`/`syncAtlas()` opcode interpreters against `GPUCommandEncoder`/`GPURenderPassEncoder`
   instead of `WebGL2RenderingContext`.
@@ -89,7 +89,7 @@ be reused against a new JS shim. What's WebGL-specific and must be rewritten:
 - Add a compute path: `GPUComputePipeline` + `dispatchWorkgroups` + a mapped readback buffer, plus new
   opcodes / a bridge call for dispatch + async result pickup.
 
-There is no .NET/Blazor WebGPU binding — it'd be a hand-rolled JS shim exactly like the current WebGL
+There is no .NET/Blazor WebGPU binding; it'd be a hand-rolled JS shim exactly like the current WebGL
 one (which already uses `[JSImport]`/`[JSExport]`).
 
 ## Recommendation + trigger
@@ -102,7 +102,7 @@ third shader dialect regardless.
 GPU compute for a heavier browser workload (planetary stacking / image stretch on the web). That's the
 one place GPU compute has a real consumer *and* it stays on free Pages with zero header hacks.
 
-### If pursued — the bounded spike
+### If pursued: the bounded spike
 Branch-only, measure before committing:
 1. Feature-detect `navigator.gpu`; stand up a minimal `WebGpuRenderer` behind the `Renderer<TSurface>`
    seam with the existing `WebGlRenderer` as fallback.
@@ -126,24 +126,24 @@ WebGPU **does not unlock Tycho-2**. The web atlas already built the real instanc
 (`DrawInstanced`) precisely so full Tycho-2 is "a data + payload change, not a code change"
 (web-showcase.md); the ~8.6k HR-star limit is `Lightweight=true` stripping `tyc2.bin.lz`, not a
 render-capability limit. Rendering 2.5M instanced point-sprites is one draw call WebGL2 eats easily
-(the desktop Vulkan proves the scale; ~50 MB VRAM instance buffer is fine) — so the render side is
+(the desktop Vulkan proves the scale; ~50 MB VRAM instance buffer is fine), so the render side is
 the part that's *ready*, and WebGPU adds only marginal draw-call overhead there. The Tycho-2 lzip
-*decode* is GPU-hostile — LZMA range-decoding is sequential-*within*-member + branch-heavy, so its
-parallelism is across-member CPU threads (Lzip.Lib's `Parallel.For`, unlocked by wasm-threads — see
+*decode* is GPU-hostile, LZMA range-decoding is sequential-*within*-member + branch-heavy, so its
+parallelism is across-member CPU threads (Lzip.Lib's `Parallel.For`, unlocked by wasm-threads, see
 web-multithreading.md), not GPU lanes; GPU compute is the wrong tool for it either way. **Tycho-2 is
-a data-delivery problem (30 MB payload + decode), not a GPU problem** — see
+a data-delivery problem (30 MB payload + decode), not a GPU problem**; see
 web-multithreading.md and web-showcase.md's deferred item. The only speculative WebGPU-compute angle
 is per-star *CPU-side* results over all 2.5M (proper-motion-to-epoch, pick/search), which is niche
 (the vertex shader already computes per-star position + mag fade every frame for display).
 
 ## Facts / invariants for a future implementer
 
-- Browser WebGPU is **WGSL-only** (no SPIR-V ingestion) — reuse needs transpile or WGSL twins.
+- Browser WebGPU is **WGSL-only** (no SPIR-V ingestion); reuse needs transpile or WGSL twins.
 - The `Renderer<TSurface>` abstraction + the GL-agnostic C# opcode layer already support a second
   backend; the WebGL-specific parts are the JS `flush()`/`syncAtlas()` shim + the shader sources + the
   `RegisterPipeline` raw-GLSL contract.
 - Shader bodies are kept byte-identical across backends by discipline (string sanity tests in
-  WebGl.Renderer; ASCII-only per the GLSL rule — Vortice.ShaderCompiler chokes on non-ASCII).
+  WebGl.Renderer; ASCII-only per the GLSL rule. Vortice.ShaderCompiler chokes on non-ASCII).
 - No compute shaders exist yet; the sweep is the first plausible consumer.
-- WebGL2 (GL ES 3.0) has **no** compute shaders — the abandoned "WebGL2-compute" extension never
+- WebGL2 (GL ES 3.0) has **no** compute shaders: the abandoned "WebGL2-compute" extension never
   shipped; browser GPU compute = WebGPU, full stop.

@@ -19,8 +19,8 @@ public static class DeviceDiscoveryExtensions
         /// <para>
         /// Fixes two classes of bug:
         /// <list type="bullet">
-        ///   <item>"I replugged USB to a different hub and now COM5 is COM6" — transport drift.</item>
-        ///   <item>"Discovery published default latitude=48.2 and reset my site to it" — user-config clobber.</item>
+        ///   <item>"I replugged USB to a different hub and now COM5 is COM6"; transport drift.</item>
+        ///   <item>"Discovery published default latitude=48.2 and reset my site to it"; user-config clobber.</item>
         /// </list>
         /// </para>
         /// </summary>
@@ -52,7 +52,7 @@ public static class DeviceDiscoveryExtensions
 
         /// <summary>
         /// Applies <see cref="ReconcileUri"/> to every device URI carried by a
-        /// <see cref="ProfileData"/> — top-level mount, guider, optional guider-camera /
+        /// <see cref="ProfileData"/>: top-level mount, guider, optional guider-camera /
         /// guider-focuser / weather, plus each OTA's camera / cover / focuser / filter-wheel.
         /// Returns <c>Changed = true</c> iff any URI actually drifted, so callers can
         /// skip the disk write when everything is already in sync. Adding a new URI field
@@ -121,7 +121,7 @@ public static class DeviceDiscoveryExtensions
     ///   <item>Present in discovered as transport (port, host, baud, deviceNumber):
     ///     use the discovered value, so OS-assigned transport state refreshes.</item>
     ///   <item>Present only in discovered (regardless of classification):
-    ///     use the discovered value — nothing to preserve in stored.</item>
+    ///     use the discovered value: nothing to preserve in stored.</item>
     /// </list>
     /// </para>
     /// </summary>

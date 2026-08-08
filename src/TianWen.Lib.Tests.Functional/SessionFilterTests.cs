@@ -143,7 +143,7 @@ public class SessionFilterTests(ITestOutputHelper output)
 
     /// <summary>
     /// Verifies that a single-filter plan (no filter wheel, e.g. fixed L-Ultimate)
-    /// works correctly in the imaging loop — no filter switching attempted.
+    /// works correctly in the imaging loop: no filter switching attempted.
     /// </summary>
     [Fact]
     public async Task GivenSingleFilterPlanWhenImagingThenFramesCapturedWithoutFilterSwitch()

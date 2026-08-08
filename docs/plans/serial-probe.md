@@ -13,9 +13,9 @@ serial source somewhere."
 | Discovery on a box with one COM port and ASCOM-less profile takes ~10–15s | Skywatcher (300ms × 2 bauds) + OnStep (250ms multi-cmd) + Meade (250ms) + iOptron (500ms) + QHYCFW3 (500ms) + QFOC (1500ms) all open/probe/close the *same* port serially. |
 | OnStep cold-start (Teesek mount) sometimes shows up, sometimes doesn't | OnStep controller wake-up can exceed the 250ms probe budget; one retry per source isn't worth the 5×-multiplier cost. Need per-port wake-up amortized once. |
 | Logs say "timeout on COM5" but not who timed out | All sources log via `ILogger<TSourceType>` without per-port/per-probe scope (`SerialConnectionBase` logs at trace level only in DEBUG; production logs are anonymous). |
-| Just bumping timeouts globally would make discovery 5× slower | Yes — and OnStep already takes the lion's share. Need to share the wait, not multiply it. |
+| Just bumping timeouts globally would make discovery 5× slower | Yes, and OnStep already takes the lion's share. Need to share the wait, not multiply it. |
 
-## Current state (inventory in survey notes — keep for reference)
+## Current state (inventory in survey notes, keep for reference)
 
 7 distinct probes across 5 sources, all hitting `IExternal.OpenSerialDeviceAsync`
 on their own:
@@ -31,7 +31,7 @@ on their own:
 
 Existing partial centralization: `IExternal.WaitForSerialPortEnumerationAsync()`
 serializes *enumeration* (single semaphore) and `External._serialConnections`
-caches open `ISerialConnection` by address — but probing remains per-source.
+caches open `ISerialConnection` by address, but probing remains per-source.
 
 `DeviceDiscovery.DiscoverAsync` runs sources sequentially with no per-port
 coordination.
@@ -160,7 +160,7 @@ public async ValueTask DiscoverAsync(CancellationToken ct)
 
 No port enumeration, no `OpenSerialDeviceAsync`, no per-port loop. The
 WiFi/UDP/mDNS paths in `SkywatcherDeviceSource` and `OnStepDeviceSource` are
-**unchanged** — those are not the bottleneck and use different transports.
+**unchanged**: those are not the bottleneck and use different transports.
 
 ### Profile-pinned skip
 
@@ -197,7 +197,7 @@ Optional follow-up (not in scope here): add a 1-byte wake-up nudge with a
 ### Exclusivity
 
 `Skywatcher` binary protocol is the only one that's nominally a hazard if
-interleaved with text probes — but since it sends `:e1\r` and reads back its
+interleaved with text probes, but since it sends `:e1\r` and reads back its
 own `=…\r` reply, and the LX200 probes start with `:G…#` and read until `#`,
 they don't collide on the wire as long as we run them sequentially within a
 baud group (which we do). Default `Shared` is fine for everyone today.
@@ -211,7 +211,7 @@ chatter or have stateful handshakes.
 - `OperationCanceledException` checked against the inner `cts.IsCancellationRequested`
   to distinguish probe-timeout (log + continue) from outer cancel (rethrow)
 - `ResourceLock` from `ISerialConnection.WaitAsync` is acquired per-probe
-  (not per-baud-group) so a hung probe can't lock the port forever — the
+  (not per-baud-group) so a hung probe can't lock the port forever; the
   budget cancel releases the lock
 
 ### Testing
@@ -223,25 +223,25 @@ New file: `src/TianWen.Lib.Tests/SerialProbeServiceTests.cs`
 - Each `ISerialConnection` fake is scripted: "if write contains `:GVP#` reply
   with `OnStep V5#`"; "if baud is 115200 reply nothing within 300ms"
 - Tests:
-  - **One port, two probes, one match** — port opened once per baud, both
+  - **One port, two probes, one match**: port opened once per baud, both
     probes run, only matching one returns a result
-  - **Two ports parallel** — `MaxDegreeOfParallelism` honored, both probed
-  - **Profile-pinned port skipped** — port not opened at all
-  - **Probe timeout doesn't poison the next probe** — `:GVP#` times out, next
+  - **Two ports parallel**: `MaxDegreeOfParallelism` honored, both probed
+  - **Profile-pinned port skipped**: port not opened at all
+  - **Probe timeout doesn't poison the next probe**: `:GVP#` times out, next
     probe still runs against the same port
   - **Exclusive probe skips siblings in its baud group**
-  - **OnStep retry budget** — first attempt times out, second succeeds
-  - **Logger scopes present** — capture log lines and assert each carries
+  - **OnStep retry budget**: first attempt times out, second succeeds
+  - **Logger scopes present**: capture log lines and assert each carries
     `port`, `baud`, `probe` keys (use `Meziantou.Extensions.Logging.Xunit.v3`
     capture)
 
 For the live probe classes, keep the existing source-specific tests (e.g.
-`SkywatcherProtocolTests`) — they test the wire-format helpers, not the
+`SkywatcherProtocolTests`); they test the wire-format helpers, not the
 discovery loop.
 
 ## Phases
 
-### Phase 1 — Plumbing, no behavior change
+### Phase 1: Plumbing, no behavior change
 
 - [ ] Add `ISerialProbe`, `SerialProbeMatch`, `ProbeExclusivity` types
 - [ ] Add `ISerialProbeService` + `SerialProbeService` impl with the per-port
@@ -251,11 +251,11 @@ discovery loop.
 - [ ] Wire `SerialProbeService.ProbeAllAsync(ct)` into
       `DeviceDiscovery.DiscoverAsync` *before* the per-source loop
 - [ ] Logger scopes (`port`, `baud`, `probe`)
-- [ ] **No source migrated yet** — service has zero registered probes, runs
+- [ ] **No source migrated yet**: service has zero registered probes, runs
       ProbeAllAsync as a no-op. This phase ships and is observable in logs as
       `[SerialProbeService] enumerated 1 ports, 0 probes registered`.
 
-### Phase 2 — Logger scopes everywhere (independent quick win)
+### Phase 2: Logger scopes everywhere (independent quick win)
 
 - [ ] In each existing source's per-port probe loop, add
       `using var scope = logger.BeginScope(new { port, baud, source = "OnStep" })`
@@ -264,7 +264,7 @@ discovery loop.
 - [ ] Ship as a separate commit so the logging fix is independently
       reviewable.
 
-### Phase 3 — Two-tier pinned-port discovery (verify-then-fall-through)
+### Phase 3: Two-tier pinned-port discovery (verify-then-fall-through)
 
 Naively filtering pinned ports is unsafe: if two pinned devices swap cables
 (e.g., OnStep@COM5 ↔ EAF@COM6), a blanket filter would leave *both*
@@ -273,7 +273,7 @@ undiscoverable. The correct design runs two stages:
 - **Stage 1 (verify)**: for each pinned `(port, expected URI)` pair, open
   only that port and run only the probes whose `MatchesDeviceHosts` claims
   the expected URI's host. If the match's identity (scheme+host+path) lines
-  up with the pinned URI, the port is verified — match is published and the
+  up with the pinned URI, the port is verified; match is published and the
   port is excluded from Stage 2. If verification fails (no matching probe,
   timeout, or identity mismatch), the port stays in the Stage 2 pool.
 - **Stage 2 (general)**: every registered probe runs against every
@@ -292,13 +292,13 @@ Done:
       provider
 - [x] Cable-swap test: COM5↔COM6 swap both auto-recovered via Stage 2
 
-### Phase 4 — Migrate one source at a time
+### Phase 4: Migrate one source at a time
 
 Order by impact (highest pain → lowest):
 
 - [x] Skywatcher (two bauds × every port = biggest single saving)
 - [x] OnStep (slow first-connect benefits most from per-port amortized wait)
-- [x] Meade (LX200 shares a baud with OnStep — runs in same baud group, free win)
+- [x] Meade (LX200 shares a baud with OnStep, runs in same baud group, free win)
 - [x] iOptron (different baud, isolated)
 - [x] QHY CFW3 + QFOC (moved both probes from `QHYDeviceSource` into separate
       `ISerialProbe` classes; the SDK-camera Phase 1 + camera-cable CFW
@@ -307,15 +307,15 @@ Order by impact (highest pain → lowest):
 Each migration was one commit:
 1. Added new probe class
 2. Registered in DI via the source's `AddX()` extension
-3. Stripped per-port loop from `*DeviceSource.DiscoverAsync` — source now
+3. Stripped per-port loop from `*DeviceSource.DiscoverAsync`; source now
    just reads `probeService.ResultsFor(ProbeName)`
 4. Shared helpers (`TryGetMountInfo`, `SeedFilterParams`, …) promoted to
    `internal static` so the probe can reuse them
 
-### Phase 5 — Cleanup
+### Phase 5: Cleanup
 
 - [x] Delete `IExternal.WaitForSerialPortEnumerationAsync` / `EnumerateAvailableSerialPorts`
-      callers from individual sources — only `SerialProbeService` and its
+      callers from individual sources, only `SerialProbeService` and its
       tests use them now. Verified by grep.
 - [x] Trim unused DI parameters on migrated sources (`IExternal`, `ITimeProvider`
       dropped where no longer needed). `DeviceDiscovery` trimmed too.
@@ -338,14 +338,14 @@ Each migration was one commit:
   semaphore handles this only for *enumeration*, not *open*. If we see
   flakes, add a 100ms settle after open() before the first write.
 - **Parallelism across ports may starve `Parallel.ForEachAsync` thread pool
-  if the user has many ports** (>8). Cap at `Min(4, ports.Count)` —
+  if the user has many ports** (>8). Cap at `Min(4, ports.Count)`;
   configurable via `IConfiguration` if needed.
 - **Profile may have stale port pins** (user moved cable, COM5 → COM6).
   Phase 3's skip would then mis-skip the new port. Acceptable: user runs
   discovery again after the obvious move; the existing
   `DeviceDiscoveryExtensions.ReconcileUri` handles the recovery once any
   source re-finds the device. We could add "if pinned port doesn't exist in
-  enumeration, fall through and probe everything" as a safety net — cheap.
+  enumeration, fall through and probe everything" as a safety net; cheap.
 - **OnStep ESP32 cold-start retry budget (2 × 1.5s)**: still possible to
   miss it on a port that has *another* slow device that wins the lock first.
   Reasonable to accept until evidence says otherwise.

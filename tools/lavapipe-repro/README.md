@@ -4,7 +4,7 @@ Smoke test that exercises the SdlVulkan.Renderer offscreen path against
 whatever Vulkan ICD the loader picks. Originally written to investigate
 a CPU/GPU divergence on x86_64 lavapipe that turned out to be a
 dangling-pointer bug in `VkPipelineSet.CreatePipeline` (fixed in
-SdlVulkan.Renderer 3.4.471 — see TODO.md). Kept as a quick sanity tool
+SdlVulkan.Renderer 3.4.471; see TODO.md). Kept as a quick sanity tool
 for the offscreen rendering path.
 
 ## What it does

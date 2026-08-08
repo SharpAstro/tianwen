@@ -216,7 +216,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
 
     #endregion
 
-    #region Pulse Guide (not supported — requires ST-4)
+    #region Pulse Guide (not supported, requires ST-4)
 
     [Theory(Timeout = 60_000)]
     [InlineData(GuideDirection.East)]

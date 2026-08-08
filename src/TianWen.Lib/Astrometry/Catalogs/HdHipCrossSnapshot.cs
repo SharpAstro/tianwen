@@ -21,7 +21,7 @@ namespace TianWen.Lib.Astrometry.Catalogs;
 ///
 /// <para>Determinism note: stored edge entries are the final post-<see cref="CelestialObjectDB.MergeEdgesBulk"/>
 /// <c>(i1, ext[])</c> tuple for each affected key, NOT the pre-merge edge delta. This sidesteps
-/// HashSet-enumeration-order coupling — the apply path just dict-overwrites with the captured
+/// HashSet-enumeration-order coupling: the apply path just dict-overwrites with the captured
 /// tuple instead of re-running the merge. Pre-existing values for the same key are correctly
 /// overwritten because the snapshot's tuple was computed at build time using the same
 /// pre-existing dict state that the runtime will reach (deterministic SIMBAD merge).</para>
@@ -40,7 +40,7 @@ internal sealed record HdHipCrossSnapshot(
     ///
     /// v2: input hasher decompresses .gs.gz before hashing so the hash is invariant to
     /// gzip-encoder differences across platforms / .NET versions. .bin.lz / .json.lz inputs
-    /// keep being hashed raw — they ship as LFS-tracked immutable bytes.
+    /// keep being hashed raw: they ship as LFS-tracked immutable bytes.
     /// </summary>
     public const uint AlgorithmVersion = 2;
 }
@@ -61,7 +61,7 @@ internal readonly record struct EdgeSnapshot(
 
 internal static class HdHipCrossSnapshotIo
 {
-    // "TWHDHIP1" — fixed 8-byte magic. Bumping the schema increments the trailing digit.
+    // "TWHDHIP1": fixed 8-byte magic. Bumping the schema increments the trailing digit.
     private static ReadOnlySpan<byte> Magic => "TWHDHIP1"u8;
 
     private const int MagicLength = 8;
@@ -106,7 +106,7 @@ internal static class HdHipCrossSnapshotIo
         }
 
         // Edge entries are variable-width: [key u64][v1 u64][extCount u32][ext u64 * extCount].
-        // 20 bytes header + 8 * extCount payload — write header to stack, payload via a pooled or
+        // 20 bytes header + 8 * extCount payload: write header to stack, payload via a pooled or
         // small heap buffer keyed off extCount. Most ext arrays are 1-3 entries so the payload fits
         // in a small stackalloc; cap the stack size to keep frames small.
         Span<byte> edgeHeader = stackalloc byte[20];
@@ -146,7 +146,7 @@ internal static class HdHipCrossSnapshotIo
         gz.CopyTo(ms);
         if (!ms.TryGetBuffer(out var seg))
         {
-            // GetBuffer fallback — MemoryStream-from-default-ctor is always exposable, but be defensive.
+            // GetBuffer fallback: MemoryStream-from-default-ctor is always exposable, but be defensive.
             seg = new ArraySegment<byte>(ms.ToArray());
         }
         return ReadFromSpan(seg.AsSpan(), out storedInputHash);
@@ -242,13 +242,13 @@ internal static class HdHipCrossSnapshotIo
 /// Computes the SHA-256 input hash that gates a <see cref="HdHipCrossSnapshot"/> at runtime.
 /// The hash MUST be the same byte sequence whether computed at build time (precompute tool)
 /// or at runtime (live load), so it only consumes embedded resource bytes + a hardcoded
-/// algorithm version — no timestamps, no paths, no environment.
+/// algorithm version: no timestamps, no paths, no environment.
 /// </summary>
 internal static class HdHipCrossInputHasher
 {
     /// <summary>
     /// Embedded resources whose content fully determines the snapshot output.
-    /// Order is fixed (alphabetical) so the hash is reproducible. Append-only — adding
+    /// Order is fixed (alphabetical) so the hash is reproducible. Append-only; adding
     /// a new resource here without bumping <see cref="HdHipCrossSnapshot.AlgorithmVersion"/>
     /// would silently change the hash for the same content.
     /// </summary>
@@ -305,7 +305,7 @@ internal static class HdHipCrossInputHasher
 
                 // Hash the *decompressed* content for .gs.gz so the input hash is invariant to
                 // gzip-encoder output differences across platforms / .NET versions. .lz inputs
-                // stay raw — they ship as LFS-tracked immutable bytes.
+                // stay raw: they ship as LFS-tracked immutable bytes.
                 using Stream stream = inputSuffix.EndsWith(".gs.gz", StringComparison.Ordinal)
                     ? new GZipStream(rawStream, CompressionMode.Decompress)
                     : rawStream;

@@ -121,7 +121,7 @@ internal ref struct CsvFieldReader
                     {
                         if (_pos + 1 < _data.Length && _data[_pos + 1] == '"')
                         {
-                            // Escaped quote — skip both
+                            // Escaped quote: skip both
                             hasEscapedQuotes = true;
                             _pos += 2;
                         }
@@ -142,7 +142,7 @@ internal ref struct CsvFieldReader
 
                 if (hasEscapedQuotes)
                 {
-                    // Rare path: unescape doubled quotes — requires allocation
+                    // Rare path: unescape doubled quotes; requires allocation
                     AddUnescapedField(fieldStart, fieldEnd);
                 }
                 else
@@ -152,7 +152,7 @@ internal ref struct CsvFieldReader
             }
             else
             {
-                // Unquoted field — scan to delimiter or end of line
+                // Unquoted field: scan to delimiter or end of line
                 var fieldStart = _pos;
                 while (_pos < _data.Length && _data[_pos] != _delimiter && _data[_pos] is not ('\r' or '\n'))
                 {
@@ -191,7 +191,7 @@ internal ref struct CsvFieldReader
     /// We can't point into the original span, so we write unescaped content
     /// back into the span region (which is always >= the unescaped length).
     /// Actually, since _data is ReadOnlySpan, we just record the raw region
-    /// and let TryGetField callers deal with it — in practice NGC data
+    /// and let TryGetField callers deal with it: in practice NGC data
     /// never has escaped quotes, so this is a correctness fallback.
     /// </summary>
     private void AddUnescapedField(int start, int end)

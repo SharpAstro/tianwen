@@ -18,14 +18,14 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     // ------------------------------------------------------------------ UBO sizes
 
     /// <summary>
-    /// std140 StretchUBO — see field layout in struct definition below.
+    /// std140 StretchUBO: see field layout in struct definition below.
     /// Total: 416 bytes (192 base + 16 wb + 16 bgNeut + 144 curveData + 16 lumaWeights
     /// + 16 lumaStretch + 16 stretchBlend).
     /// </summary>
     private const int StretchUboSize = 416;
 
     /// <summary>
-    /// std140 HistogramUBO — 4 x int/float fields = 16 bytes.
+    /// std140 HistogramUBO: 4 x int/float fields = 16 bytes.
     /// </summary>
     private const int HistogramUboSize = 16;
 
@@ -488,7 +488,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         var api = _ctx.DeviceApi;
 
-        // Skip the pre-teardown drain when the GPU is known wedged — an unbounded wait on a stuck
+        // Skip the pre-teardown drain when the GPU is known wedged; an unbounded wait on a stuck
         // device would hang Dispose (matches the renderer's recovery/teardown guards).
         if (!_ctx.IsGpuStuck)
         {

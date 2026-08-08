@@ -60,17 +60,17 @@ namespace TianWen.UI.Abstractions
             {
                 if (!hub.TryGetConnectedDriver<IGuider>(profileData.Guider, out var guider) || guider is null)
                 {
-                    return new CaptureSourceResult(null, null, "Guider not connected — connect a guider or untoggle Use Guider");
+                    return new CaptureSourceResult(null, null, "Guider not connected, connect a guider or untoggle Use Guider");
                 }
                 if (profileData.GuiderCamera is not { } guideCamUri
                     || !hub.TryGetConnectedDriver<ICameraDriver>(guideCamUri, out var guideCam)
                     || guideCam is null)
                 {
-                    return new CaptureSourceResult(null, null, "Guider camera not connected — cannot determine pixel scale");
+                    return new CaptureSourceResult(null, null, "Guider camera not connected, cannot determine pixel scale");
                 }
                 if (profileData.GuiderFocalLength is not { } guiderFlMm || guiderFlMm <= 0)
                 {
-                    return new CaptureSourceResult(null, null, "Guider focal length not set in profile — required for plate scale");
+                    return new CaptureSourceResult(null, null, "Guider focal length not set in profile, required for plate scale");
                 }
 
                 // Aperture isn't strictly recorded for guide scopes; assume f/4 if absent
@@ -86,7 +86,7 @@ namespace TianWen.UI.Abstractions
                 };
                 var guiderSource = new GuiderCaptureSource(
                     guider,
-                    displayName: $"Guider — {guider.Name}",
+                    displayName: $"Guider; {guider.Name}",
                     focalLengthMm: guiderFlMm,
                     apertureMm: guiderApertureMm,
                     pixelSizeMicrons: guideCam.PixelSizeX,
@@ -136,7 +136,7 @@ namespace TianWen.UI.Abstractions
             var publishOtaIndex = otaIndex;
             var mainSource = new MainCameraCaptureSource(
                 camera,
-                displayName: $"OTA #{otaIndex + 1} — {ota.Name}",
+                displayName: $"OTA #{otaIndex + 1}; {ota.Name}",
                 focalLengthMm: ota.FocalLength,
                 apertureMm: ota.Aperture ?? Math.Max(1, ota.FocalLength / 5),
                 otaName: ota.Name,
@@ -211,7 +211,7 @@ namespace TianWen.UI.Abstractions
         /// State is updated synchronously at each phase boundary and on each
         /// successful refinement tick. The reverse-axis restore happens via
         /// <see cref="PolarAlignmentSession.DisposeAsync"/> in the caller's
-        /// finally block — this helper does not own session disposal.
+        /// finally block: this helper does not own session disposal.
         /// </summary>
         /// <remarks>
         /// Cancellation: callers pass a linked CTS so they can cancel via the
@@ -318,7 +318,7 @@ namespace TianWen.UI.Abstractions
                     }
                     else if (!live.IsAligned && state.PolarPhase == PolarAlignmentPhase.Aligned)
                     {
-                        // User bumped a knob and broke alignment — fall back to refining.
+                        // User bumped a knob and broke alignment: fall back to refining.
                         state.PolarPhase = PolarAlignmentPhase.Refining;
                         state.PolarStatusMessage = "Refining...";
                     }

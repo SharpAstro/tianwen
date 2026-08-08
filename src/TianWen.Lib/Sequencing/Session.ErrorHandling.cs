@@ -97,7 +97,7 @@ internal partial record Session
             return;
         }
 
-        // Reset window; best-effort — a race that under-counts one frame just delays
+        // Reset window; best-effort: a race that under-counts one frame just delays
         // the decay by one tick, which is fine.
         Interlocked.Exchange(ref _framesSinceLastFaultDecay, 0);
 
@@ -140,7 +140,7 @@ internal partial record Session
     /// USB cable silently freezes the telemetry strip until the next exposure. By
     /// counting consecutive failures here and firing <c>ConnectAsync</c> at the
     /// threshold, by the time the imaging loop issues the next exposure the reconnect
-    /// is already in flight — and <see cref="ResilientCall"/>'s own pre-reconnect
+    /// is already in flight, and <see cref="ResilientCall"/>'s own pre-reconnect
     /// check sees a connected driver instead of racing a dead handle.
     /// </para>
     /// </summary>

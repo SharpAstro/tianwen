@@ -72,7 +72,7 @@ namespace TianWen.UI.Abstractions
             var tb = _layout.Toolbar;
             FillRect(tb.X, tb.Y, tb.Width, tb.Height, ViewerTheme.ToolbarBg);
 
-            // Recompute button bounds every frame — labels can change width
+            // Recompute button bounds every frame: labels can change width
             // (e.g. "Stars" -> "Stars: 5893") which shifts later buttons.
             _toolbarButtonBounds.Clear();
 
@@ -148,10 +148,10 @@ namespace TianWen.UI.Abstractions
         }
 
         // -----------------------------------------------------------------------
-        // Toolbar dropdowns — single shared overlay (only one open at a time)
+        // Toolbar dropdowns: single shared overlay (only one open at a time)
         // -----------------------------------------------------------------------
 
-        /// <summary>Captured bounds of each enabled toolbar button this frame —
+        /// <summary>Captured bounds of each enabled toolbar button this frame; 
         /// used as the anchor when opening that button's dropdown.</summary>
         private readonly Dictionary<ToolbarAction, RectF32> _toolbarButtonBounds = new();
 
@@ -161,7 +161,7 @@ namespace TianWen.UI.Abstractions
         private static readonly ImmutableArray<string> StretchLinkModeLabels = BuildLabels(
             ViewerActions.StretchLinkModes, m => m.ToString());
 
-        /// <summary>Channel-view selector — Composite/Red/Green/Blue. Only
+        /// <summary>Channel-view selector: Composite/Red/Green/Blue. Only
         /// surfaced for 3+ channel images (gated by <see cref="IsToolbarButtonEnabled"/>).</summary>
         private static readonly ChannelView[] ChannelViewOrder =
             [ChannelView.Composite, ChannelView.Red, ChannelView.Green, ChannelView.Blue];
@@ -169,7 +169,7 @@ namespace TianWen.UI.Abstractions
         private static readonly ImmutableArray<string> ChannelViewLabels = BuildLabels(
             ChannelViewOrder, v => v switch { ChannelView.Composite => "RGB", _ => v.ToString() });
 
-        /// <summary>Debayer-algorithm selector — all algorithms always shown. The click handler
+        /// <summary>Debayer-algorithm selector, all algorithms always shown. The click handler
         /// indexes this array directly, so the order is independent of the enum's numeric values.
         /// MHC sits next to the other Bayer-to-RGB algorithms; for the GPU live (RawBayer) path it
         /// and VNG/AHD all resolve to the shader's MHC demosaic (see <see cref="GpuDebayerMode"/>).</summary>
@@ -179,19 +179,19 @@ namespace TianWen.UI.Abstractions
         private static readonly ImmutableArray<string> DebayerLabels = BuildLabels(
             DebayerAlgorithmOrder, a => a.DisplayName);
 
-        /// <summary>Stretch-parameter preset labels — 8 (Factor, ShadowsClipping) presets.</summary>
+        /// <summary>Stretch-parameter preset labels: 8 (Factor, ShadowsClipping) presets.</summary>
         private static readonly ImmutableArray<string> StretchParamsLabels = BuildLabels(
             StretchParameters.Presets, p => p.ToString());
 
-        /// <summary>Curves-boost preset labels — 0/25/50/100/150 %.</summary>
+        /// <summary>Curves-boost preset labels: 0/25/50/100/150 %.</summary>
         private static readonly ImmutableArray<string> CurvesBoostLabels = BuildLabels(
             ViewerState.CurvesBoostPresets, b => b > 0f ? $"{b:P0}" : "Off");
 
-        /// <summary>HDR preset labels — "Off" + 4 (amount, knee) combos.</summary>
+        /// <summary>HDR preset labels: "Off" + 4 (amount, knee) combos.</summary>
         private static readonly ImmutableArray<string> HdrLabels = BuildLabels(
             ViewerState.HdrPresets, p => p.Amount > 0f ? $"{p.Amount:F1} / {p.Knee:F2}" : "Off");
 
-        /// <summary>Background-neutralization preset table — combines method × strength
+        /// <summary>Background-neutralization preset table; combines method × strength
         /// into one flat dropdown. <c>null</c> method = "Off" (disable). Mean has a
         /// strength variant to demonstrate the lerp plumbing; the other methods stay
         /// at full strength until a separate strength slider lands.</summary>
@@ -349,7 +349,7 @@ namespace TianWen.UI.Abstractions
                         }
                         else
                         {
-                            // "Off" entry — drop the document gain so the uniform reverts to identity
+                            // "Off" entry: drop the document gain so the uniform reverts to identity
                             if (_document is not null)
                             {
                                 _document.BackgroundNeutralization = null;

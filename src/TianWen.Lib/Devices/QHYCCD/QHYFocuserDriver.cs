@@ -20,10 +20,10 @@ internal record struct QHYFocuserInfo(ISerialConnection? SerialDevice);
 ///
 /// <para><b>Supported URI query parameters:</b></para>
 /// <list type="bullet">
-///   <item><see cref="DeviceQueryKey.Port"/> — serial port name (required)</item>
-///   <item><see cref="DeviceQueryKey.FocuserInitialPosition"/> — saved position to restore on connect</item>
-///   <item><see cref="DeviceQueryKey.FocuserBacklashIn"/> — known backlash steps inward</item>
-///   <item><see cref="DeviceQueryKey.FocuserBacklashOut"/> — known backlash steps outward</item>
+///   <item><see cref="DeviceQueryKey.Port"/>: serial port name (required)</item>
+///   <item><see cref="DeviceQueryKey.FocuserInitialPosition"/>; saved position to restore on connect</item>
+///   <item><see cref="DeviceQueryKey.FocuserBacklashIn"/>; known backlash steps inward</item>
+///   <item><see cref="DeviceQueryKey.FocuserBacklashOut"/>; known backlash steps outward</item>
 /// </list>
 ///
 /// <para><b>Protocol commands (JSON, 9600 baud):</b></para>
@@ -194,7 +194,7 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
 
         Logger.LogInformation("QFOC connected: firmware={FirmwareVersion}, board={BoardVersion}", _firmwareVersion, _boardVersion);
 
-        // Set speed: normal (0) — caller can change via URI params or settings later
+        // Set speed: normal (0); caller can change via URI params or settings later
         await SendCommandAsync(new QfocSetSpeedCommand(0), QfocJsonContext.Default.QfocSetSpeedCommand, cancellationToken);
         await Task.Delay(200, cancellationToken);
 
@@ -325,7 +325,7 @@ internal class QHYFocuserDriver(QHYDevice device, IServiceProvider serviceProvid
         }
         catch (OperationCanceledException)
         {
-            // Expected — drain timeout
+            // Expected: drain timeout
         }
     }
 

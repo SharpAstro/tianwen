@@ -24,7 +24,7 @@ public class FakeExternal : IExternal
 
     public FakeExternal(ITestOutputHelper testOutputHelper, FakeTimeProviderWrapper timeProvider, DirectoryInfo? root = null, [CallerMemberName] string? callerName = null)
     {
-        // Disable array pooling in tests — parallel tests share the static pool,
+        // Disable array pooling in tests: parallel tests share the static pool,
         // causing cross-test data races on pooled scratch arrays.
         Array2DPool<float>.Enabled = false;
 

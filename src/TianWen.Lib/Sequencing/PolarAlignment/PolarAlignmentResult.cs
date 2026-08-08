@@ -60,7 +60,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
                 // Near the pole, altitude ~ |latitude|; we approximate via the cone half-angle
                 // implied by AltErrorRad alone, falling back to lat from ChordAngle if needed.
                 // For arcmin-level UI, a single fixed cos(midAlt) factor at lat=45 introduces
-                // <10% error across most observer latitudes — good enough as a magnitude readout.
+                // <10% error across most observer latitudes: good enough as a magnitude readout.
                 var dAlt = AltErrorRad;
                 var dAz = AzErrorRad;
                 var rad = Math.Sqrt(dAlt * dAlt + dAz * dAz);
@@ -85,7 +85,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// <param name="SmoothedAltErrorRad">EWMA-smoothed altitude error.</param>
     /// <param name="IsSettled">True when the user has stopped moving the
     /// polar knobs, i.e. the recent error magnitudes have low variance. Does
-    /// not imply the alignment is good — see <see cref="IsAligned"/>.</param>
+    /// not imply the alignment is good: see <see cref="IsAligned"/>.</param>
     /// <param name="IsAligned">True when both smoothed errors are below the
     /// configured target accuracy. The user can click "Done" once both
     /// <see cref="IsSettled"/> and <see cref="IsAligned"/> are true.</param>
@@ -119,22 +119,22 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
 
     /// <summary>
     /// Sky-coordinate data the GUI consumes to drive the pole-centric reticle.
-    /// All positions are in J2000 (RA hours / Dec degrees) — the renderer
+    /// All positions are in J2000 (RA hours / Dec degrees); the renderer
     /// projects to sensor pixels via the live frame's WCS, so this record
     /// stays decoupled from any specific image surface or pipeline.
     ///
     /// The polar-alignment tab translates this record into a generic
     /// <c>WcsAnnotation</c> (sky markers + sky rings) consumed by the
-    /// reusable <c>WcsAnnotationLayer</c> in <c>TianWen.UI.Shared</c> —
+    /// reusable <c>WcsAnnotationLayer</c> in <c>TianWen.UI.Shared</c>; 
     /// the same layer used by the FITS viewer for plate-solve overlays,
     /// the live preview for target markers, and the mosaic composer for
     /// next-panel boundaries. No polar-specific code in the renderer.
     /// </summary>
     /// <param name="TruePoleRaHours">True (J2000) celestial pole RA. By
-    /// convention 0 — the J2000 pole is at RA=0h, Dec=±90°.</param>
+    /// convention 0: the J2000 pole is at RA=0h, Dec=±90°.</param>
     /// <param name="TruePoleDecDeg">+90 (north) or -90 (south).</param>
     /// <param name="RefractedPoleRaHours">Apparent pole RA at this instant
-    /// after the refraction transform — usually very close to the true
+    /// after the refraction transform, usually very close to the true
     /// pole's RA but non-zero when projected back through topocentric az/alt.</param>
     /// <param name="RefractedPoleDecDeg">Apparent pole declination.</param>
     /// <param name="AxisRaHours">Current mount RA-axis direction in J2000.</param>

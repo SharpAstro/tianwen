@@ -46,7 +46,7 @@ namespace TianWen.Lib.Astrometry.PlateSolve;
 /// field rotation cannot starve the shrinking tolerance at the frame edges. A final
 /// <b>chance-aware acceptance gate</b> counts bright detected stars landing within a few px of a
 /// catalog star under the final WCS and rejects any solution that cannot beat the Poisson
-/// expectation of random alignment — the dense-field failure mode produced 1,400+ "matches" that
+/// expectation of random alignment: the dense-field failure mode produced 1,400+ "matches" that
 /// were pure nearest-neighbour noise while reporting confident success.</para>
 ///
 /// <para>Requires a pre-initialised <see cref="ICelestialObjectDB"/> with Tycho-2 data and a
@@ -783,7 +783,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // Each match contributes one (u_det, v_det) → (u_true, v_true) pair:
         // observed pixel offset relative to CRPIX, and the offset the catalog
         // (RA, Dec) would land at under a perfect WCS. The latter comes from
-        // the linear WCS's SkyToPixel — which is exactly the "predicted"
+        // the linear WCS's SkyToPixel, which is exactly the "predicted"
         // pixel the affine fit produces today. The SIP polynomial fits the
         // (true − detected) residual.
         var uDetRaw = new double[n];
@@ -798,7 +798,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             var pred = linearWcs.SkyToPixel(sky.RA, sky.Dec);
             if (pred is null)
             {
-                // Behind the tangent plane — should not happen for matches
+                // Behind the tangent plane: should not happen for matches
                 // we already validated by proximity, but be defensive.
                 return linearWcs;
             }
@@ -813,10 +813,10 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // Outlier filter: the solver's late-iteration match tolerance is several
         // pixels, so the raw inlier set typically contains 5-15% false positives
         // whose residuals dwarf the actual distortion signal. Clip by 5 × MAD
-        // (median absolute deviation, the robust analogue of σ) — generous enough
+        // (median absolute deviation, the robust analogue of σ); generous enough
         // to preserve real corner distortion (~1-3 px) while culling the ~10-15 px
         // mismatches that drag the LS fit toward garbage coefficients.
-        // Robust bias correction: median, not mean — the late-iteration
+        // Robust bias correction: median, not mean; the late-iteration
         // matching tolerance admits a long-tail outlier distribution
         // (matches up to ~13.5 px on the SoL master) so the mean is pulled
         // off-true. Median is the right estimator for the constant shift,
@@ -1040,7 +1040,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // POST-forward-corrected coordinate back to the observed pixel.
         // Crucially we evaluate at the *post-forward* coords (u + A(u, v),
         // v + B(u, v)) rather than the noisy (u_true_linear) targets, so
-        // forward and inverse are consistent inverses by construction —
+        // forward and inverse are consistent inverses by construction; 
         // SkyToPixel then PixelToSky round-trips to within the polynomial's
         // own residual rather than to (noise_A + noise_AP).
         var uPostFwdArr = new double[nFiltered];
@@ -1073,7 +1073,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // Sanity-check the fit by re-evaluating SkyToPixel on every clean
         // inlier (post outlier clip) and comparing to the detected centroid.
         // We reject SIP unless it brings the pixel-space RMS down by
-        // *substantially* more than the overfit-noise floor — for N inliers
+        // *substantially* more than the overfit-noise floor, for N inliers
         // and K coefficients per axis, fitting pure noise reduces RMS by
         // ~sqrt(K/N), so we demand at least a 30% relative improvement to
         // be confident the polynomial captured a real distortion pattern

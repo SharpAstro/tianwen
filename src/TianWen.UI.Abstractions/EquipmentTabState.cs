@@ -34,7 +34,7 @@ public class EquipmentTabState
     /// <para>
     /// <b>Thread safety:</b> mutated from async signal handlers whose continuations
     /// run on thread pool threads after <c>await</c>, and read from the render thread
-    /// during hit testing. Must be a concurrent collection — a <c>HashSet</c> would
+    /// during hit testing. Must be a concurrent collection; a <c>HashSet</c> would
     /// crash with <c>IndexOutOfRangeException</c> on a bucket-array race.
     /// </para>
     /// </summary>
@@ -48,7 +48,7 @@ public class EquipmentTabState
     public Uri? PendingDisconnectConfirm { get; set; }
 
     /// <summary>Safety classification cached from the pre-check that put the URI into
-    /// <see cref="PendingDisconnectConfirm"/> — drives the warning text.</summary>
+    /// <see cref="PendingDisconnectConfirm"/>: drives the warning text.</summary>
     public EquipmentActions.DisconnectSafety PendingDisconnectSafety { get; set; }
 
     /// <summary>

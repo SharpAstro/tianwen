@@ -13,7 +13,7 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <remarks>
 /// Re-implements the atomic-write pattern from <see cref="Devices.IExternal"/>
 /// as a static helper because <see cref="Registrator"/> doesn't otherwise need
-/// the full IExternal surface (DI container, device cache, etc.) — keeping the
+/// the full IExternal surface (DI container, device cache, etc.); keeping the
 /// stacking pipeline as a pure-library concern with minimal coupling.
 /// </remarks>
 public static class RegistrationSidecar
@@ -49,7 +49,7 @@ public static class RegistrationSidecar
     /// <summary>
     /// Reads the sidecar for <paramref name="lightPath"/>. Returns null if the
     /// sidecar doesn't exist, fails to parse, or its <see cref="RegistrationResult.LightPath"/>
-    /// doesn't match (the JSON was for a different file — e.g. someone renamed
+    /// doesn't match (the JSON was for a different file, e.g. someone renamed
     /// the light without re-registering).
     /// </summary>
     public static async Task<RegistrationResult?> TryReadAsync(string lightPath, CancellationToken cancellationToken = default)

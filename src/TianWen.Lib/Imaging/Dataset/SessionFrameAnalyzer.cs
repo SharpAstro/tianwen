@@ -14,13 +14,13 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// Measurement follows the exact recipe the stacking pipeline uses for registration
 /// (calibrate → debayer → <see cref="Image.FindStarsAsync"/> → median PSF metrics), and
 /// the gate decision is the existing pure <see cref="FrameQualityFilter"/> (MAD-based,
-/// relative to the session's own median — absolute thresholds don't transfer across
+/// relative to the session's own median: absolute thresholds don't transfer across
 /// focal lengths). One path, one implementation.
 ///
 /// <para><b>Which metric actually discriminates</b> (measured on the reference archive's
 /// 2026-02-20 hand-flagged bad frames vs a healthy 2026-02-16 session, same ASI533MC Pro on
 /// a Samyang 135 f/2): <b>star count</b> is the load-bearing metric. On a fast refractor,
-/// ellipticity is a near-constant of the optics (~0.56 median for both good AND bad frames —
+/// ellipticity is a near-constant of the optics (~0.56 median for both good AND bad frames, 
 /// corner elongation), so it barely separates and an absolute ceiling would reject everything.
 /// And HFD is <i>inverted</i> under transparency loss: clouded frames measure LOWER median HFD
 /// (2.0 vs 2.8) because only bright, tight stellar cores survive detection. Transparency loss
@@ -31,7 +31,7 @@ namespace TianWen.Lib.Imaging.Dataset;
 ///
 /// <para><b>What the gate cannot catch:</b> a per-frame PSF/transparency gate rejects frames that
 /// are bad <i>for the reasons it measures</i>. Some hand-flagged bad frames are metrically
-/// indistinguishable from good ones (normal star count, HFD, ellipticity) — bad for reasons this
+/// indistinguishable from good ones (normal star count, HFD, ellipticity); bad for reasons this
 /// gate doesn't see (satellite trails, gradients, the last clear frame before clouds). Those
 /// survive by design; catching them needs orthogonal detectors, not a tighter PSF threshold.</para>
 /// </summary>

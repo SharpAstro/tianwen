@@ -177,7 +177,7 @@ namespace TianWen.UI.Abstractions
             }
 
             // Delegate pixel rendering to virtual method (overridden by VkSkyMapTab for GPU caching).
-            // Pass the already-built SiteContext so the override does not rebuild it — the two
+            // Pass the already-built SiteContext so the override does not rebuild it; the two
             // callers (this + VkSkyMapTab.RenderSkyMap) previously produced the same SiteContext
             // from the same inputs on every frame.
             RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site);
@@ -217,13 +217,13 @@ namespace TianWen.UI.Abstractions
                 DrawCometLabels(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon, pinnedIndices);
             }
 
-            // Always render the object overlay pass — when [O] is off, only pinned
+            // Always render the object overlay pass, when [O] is off, only pinned
             // planner targets are drawn (the user's planned observations should always
             // be visible as landmarks on the sky map). The showAll flag tells the engine
             // whether to include non-pinned catalog objects in the result.
             RenderObjectOverlay(db, contentRect, BaseFontSize, site, dimBelowHorizon, plannerState, State.ShowObjectOverlay);
 
-            // Mosaic panel grid — drawn BEHIND the mount reticle but ON TOP of catalog
+            // Mosaic panel grid: drawn BEHIND the mount reticle but ON TOP of catalog
             // overlays so panel outlines don't get buried under catalog markers but the
             // reticle crosshair remains the topmost element.
             if (State.MosaicPanels.Length > 0 && State.MountOverlay is { SensorFovDeg: not null })
@@ -262,7 +262,7 @@ namespace TianWen.UI.Abstractions
             // (the first frame shows only the HIP bright-star seed), show an unobtrusive top-left
             // chip so the user knows fainter stars are still streaming in. Auto-hides once the
             // async build swaps in (FullStarsLoading flips false). The sky is already fully
-            // interactive — this is purely a "more stars are coming" cue.
+            // interactive: this is purely a "more stars are coming" cue.
             if (FullStarsLoading)
             {
                 DrawText("Loading stars...".AsSpan(), fontPath,
@@ -271,7 +271,7 @@ namespace TianWen.UI.Abstractions
                     BaseFontSize * dpiScale * 0.85f, InfoText, TextAlign.Near, TextAlign.Center);
             }
 
-            // Search modal + info panel — drawn LAST so their clickable regions win
+            // Search modal + info panel: drawn LAST so their clickable regions win
             // hit testing (paint order = z-order).
             DrawSearchAndInfoPanel(plannerState, contentRect, db,
                 siteLat, siteLon, viewingTime, site, ppr, cx, cy);
@@ -288,7 +288,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Override in the GPU subclass to draw the <c>[O]</c> object overlay (ellipses
         /// for DSOs, crosses for named stars, plus labels with collision avoidance).
-        /// Base implementation is a no-op — the software / TUI fallback does not render
+        /// Base implementation is a no-op: the software / TUI fallback does not render
         /// shape markers. GPU subclasses use
         /// <see cref="Overlays.OverlayEngine.GatherSkyMapOverlayCandidates"/> +
         /// <see cref="Overlays.OverlayEngine.ProjectSkyMapCandidatesInto"/> to compute
@@ -305,7 +305,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Override in the GPU subclass to draw committed observing-plan target markers
         /// (a small reticle + label per <see cref="SkyMapState.ScheduleTargets"/> entry,
-        /// the active observation highlighted). Base implementation is a no-op — the
+        /// the active observation highlighted). Base implementation is a no-op; the
         /// software / TUI fallback does not render shape markers.
         /// </summary>
         protected virtual void RenderScheduleTargets(
@@ -328,7 +328,7 @@ namespace TianWen.UI.Abstractions
         /// Override in the GPU subclass to draw the Stellarium-style mount reticle at
         /// the connected mount's current J2000 pointing. Base implementation is a no-op.
         /// Called after the object overlay so the reticle is drawn on top of catalog
-        /// markers — the mount position should never be buried under label clutter.
+        /// markers: the mount position should never be buried under label clutter.
         /// </summary>
         protected virtual void RenderMountOverlay(
             SkyMapMountOverlay mountOverlay, RectF32 contentRect,
@@ -339,7 +339,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Override in the GPU subclass to draw fixed-frame reticles (NCP, SCP, Zenith)
         /// and horizon cardinal labels (N, S, E, W). The pole/zenith reticles are
-        /// clickable — click posts a <see cref="SkyMapSlewToObjectSignal"/> with the
+        /// clickable: click posts a <see cref="SkyMapSlewToObjectSignal"/> with the
         /// marker's current J2000 RA/Dec. Horizon-relative markers (Zenith, cardinals)
         /// should be gated on <see cref="SkyMapMode.Horizon"/> and <c>site.IsValid</c>.
         /// Base implementation is a no-op.
@@ -543,7 +543,7 @@ namespace TianWen.UI.Abstractions
             foreach (var b in ConstellationBoundary.Table)
             {
                 var midRA = (b.LowerRA + b.UpperRA) * 0.5;
-                var midDec = b.LowerDec + 2.0; // approximate — offset above lower dec boundary
+                var midDec = b.LowerDec + 2.0; // approximate; offset above lower dec boundary
                 if (!sums.TryGetValue(b.Constellation, out var c)) c = (0, 0, 0);
                 sums[b.Constellation] = (c.RaSum + midRA, c.DecSum + midDec, c.Count + 1);
             }
@@ -631,7 +631,7 @@ namespace TianWen.UI.Abstractions
                     var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(ra, dec);
                     var planetColor = DimmedIf(SkyMapRenderer.GetPlanetColor(planetIdx), belowHorizon);
 
-                    // Filled dot at the planet position — radius scales with planet type
+                    // Filled dot at the planet position: radius scales with planet type
                     var dotRadius = planetIdx is CatalogIndex.Sol or CatalogIndex.Moon ? 4f
                         : planetIdx is CatalogIndex.Jupiter or CatalogIndex.Saturn ? 3f
                         : 2f;
@@ -952,7 +952,7 @@ namespace TianWen.UI.Abstractions
             _sincePinch.Restart(); // keep the wheel-dedup grace window fresh for the whole gesture
             if (!State.IsPinching)
             {
-                // Pinch start — suppress drag, undo any drag the first finger caused, and cancel the
+                // Pinch start: suppress drag, undo any drag the first finger caused, and cancel the
                 // click-vs-drag gesture (the first finger's release must not fire a click-select).
                 State.IsPinching = true;
                 _mapGesture.Cancel();
@@ -1015,7 +1015,7 @@ namespace TianWen.UI.Abstractions
                 return true; // consume the duplicate wheel event without zooming
             }
 
-            // Scale proportionally to scroll magnitude — each unit ≈ 15% zoom.
+            // Scale proportionally to scroll magnitude, each unit ≈ 15% zoom.
             // Wheel zoom anchors at the view CENTRE (not the cursor) so it never swings RA and can't
             // spin near the pole/zenith. mouseX/mouseY are intentionally unused here.
             var factor = Math.Pow(0.85, scrollY);
@@ -1072,7 +1072,7 @@ namespace TianWen.UI.Abstractions
             State.NeedsRedraw = true;
 
             // Flood detection (see fields above): one-shot warning per burst when zoom events arrive
-            // impossibly fast — the signature of the touchpad-dual-fire / stuck-scroll FOV runaway.
+            // impossibly fast: the signature of the touchpad-dual-fire / stuck-scroll FOV runaway.
             if (_zoomFloodWindow.ElapsedMilliseconds > 200)
             {
                 _zoomFloodWindow.Restart();

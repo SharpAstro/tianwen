@@ -701,7 +701,7 @@ namespace TianWen.UI.Abstractions
                     return true;
 
                 // PageUp/PageDown mirror Right/Left (date +1 / -1), matching the sky-map tab's
-                // convention so the two tabs step the night identically. No scrub fold here —
+                // convention so the two tabs step the night identically. No scrub fold here; 
                 // the planner has no visual scrub of its own.
                 case InputKey.PageUp when _timeProvider is not null:
                     PlannerActions.ShiftPlanningDate(state, _timeProvider, 1);

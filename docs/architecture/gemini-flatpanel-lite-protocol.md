@@ -1,4 +1,4 @@
-# Gemini FlatPanel Lite — serial protocol
+# Gemini FlatPanel Lite: serial protocol
 
 Reference for TianWen's native `GeminiFlatPanelDriver` (`ICoverDriver`). The Gemini FlatPanel Lite is a
 USB flat-field light panel: a driver-controlled electroluminescent panel with 0–255 brightness and **no
@@ -48,10 +48,10 @@ few tens of ms once past the ~2 s post-open reset).
 |---------|----------|---------|
 | `>H#` | `*HGeminiFlatPanelLite#` | Identity handshake. The payload must equal `GeminiFlatPanelLite`; anything else is not this device. |
 | `>V#` | `*V<int>#` (e.g. `*V205#`) | Firmware version (integer). Minimum supported firmware is **203**. |
-| `>S#` | `*S<1\|0>xx#` (e.g. `*S100#` on / `*S000#` off) | Light status — **first** payload char is 1/0. |
+| `>S#` | `*S<1\|0>xx#` (e.g. `*S100#` on / `*S000#` off) | Light status: **first** payload char is 1/0. |
 | `>J#` | `*J<0-255>#` | Current brightness (0–255). |
 
-## Action commands — also acked (spec originally said fire-and-forget)
+## Action commands: also acked (spec originally said fire-and-forget)
 
 Real hardware acks every action with a framed `*<letter>…#` reply too (`>L#` → `*L0#`, `>D#` → `*D<b>#`,
 `>B128#` → `*B128#`). The driver's `SendAsync` drains that ack (bounded async read) so it can't offset
@@ -79,10 +79,10 @@ brightness, and `>B<n>#` changes the level whether or not the light is currently
 ## Connect handshake
 
 1. Open the port (9600-8N1, DTR + RTS asserted); wait ~2 s.
-2. `>H#` — verify the identity payload is `GeminiFlatPanelLite`.
-3. `>V#` — verify firmware ≥ 203.
-4. `>S#` — read initial on/off status.
-5. `>J#` — read initial brightness.
+2. `>H#`: verify the identity payload is `GeminiFlatPanelLite`.
+3. `>V#`: verify firmware ≥ 203.
+4. `>S#`: read initial on/off status.
+5. `>J#`: read initial brightness.
 
 The panel is then ready. (The vendor app additionally pushes beep-mode, brightness-mode, and IR presets
 at connect time; those are optional for flat capture.)
@@ -107,20 +107,20 @@ Auto-detected by `GeminiFlatPanelSerialProbe` (`ISerialProbe`, `HashTerminated`,
 
 **DTR/RTS + boot delay during discovery (validated 2026-07-04, `fix/gemini-flat-panel`).** The panel is
 a **pass-2** discovery device: the CH341 holds the MCU in reset until DTR is asserted (a cold-open with
-DTR de-asserted never answers — an earlier "DTR not required" observation was a test confound: the panel
+DTR de-asserted never answers; an earlier "DTR not required" observation was a test confound: the panel
 had already been booted by a prior DTR-asserting open), and it needs ~2 s to boot after the port opens.
 So the probe declares:
-- `Warmup = 2200 ms` — the service waits after opening, before `>H#` (`ISerialProbe.Warmup`).
-- `AssertControlLines = true` — asserts DTR+RTS, honoured **only on the isolated per-probe pass**
+- `Warmup = 2200 ms`: the service waits after opening, before `>H#` (`ISerialProbe.Warmup`).
+- `AssertControlLines = true`: asserts DTR+RTS, honoured **only on the isolated per-probe pass**
   (`ISerialProbe.AssertControlLines`), because toggling DTR on the shared pass-1 handle could reset a
   different DTR-triggered controller (e.g. some OnStep boards) on the same port.
 
 On the shared pass 1 the probe is **skipped** (it can't match without DTR), so the 2.2 s warmup is paid
 once, in pass 2, where it now matches and auto-discovery finds the panel. Probe reads use the cancellable
 **synchronous** path (`ISerialConnection.SynchronousReads`), because CH34x bridges spuriously abort async
-`BaseStream` reads (`ERROR_OPERATION_ABORTED`) after the first read — see
+`BaseStream` reads (`ERROR_OPERATION_ABORTED`) after the first read; see
 [../plans/serial-lib.md](../plans/serial-lib.md). Manual assignment
-(`CoverCalibrator://GeminiDevice/…?port=serial:COMx`) also works — that path reconstructs the device from
+(`CoverCalibrator://GeminiDevice/…?port=serial:COMx`) also works, that path reconstructs the device from
 the URI and the driver's own connect asserts DTR + boot-waits.
 
 > **Known gap:** the pinned-port *verification* tier (`VerifyPinnedPortsAsync`) runs on the shared handle

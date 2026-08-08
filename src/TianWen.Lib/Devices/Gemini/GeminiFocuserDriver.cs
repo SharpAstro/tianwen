@@ -16,7 +16,7 @@ namespace TianWen.Lib.Devices.Gemini;
 /// </summary>
 internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServiceProvider serviceProvider) : IFocuserDriver
 {
-    // The Arduino resets when the port opens (DTR auto-reset) and ignores input for ~2s while it boots — the
+    // The Arduino resets when the port opens (DTR auto-reset) and ignores input for ~2s while it boots; the
     // vendor ASCOM driver hard-sleeps on connect. We sleep through the boot before the first handshake so
     // early writes aren't dropped and their late replies can't desync later reads. Reconnect goes through the
     // liveness path (already-open conn), not here, so this cost is paid only on a genuine cold open.
@@ -39,7 +39,7 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
     public int MaxStep => _maxStep;
 
     // A myFocuserPro2 accepts an absolute move anywhere in [0, MaxStep], so the largest single increment is
-    // the full travel — the vendor driver reports MaxStep for MaxIncrement too.
+    // the full travel: the vendor driver reports MaxStep for MaxIncrement too.
     public int MaxIncrement => _maxStep;
 
     public bool CanGetStepSize => !double.IsNaN(_stepSize);
@@ -48,7 +48,7 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
 
     public bool TempCompAvailable => _tempCompAvailable;
 
-    // Unknown/unmeasured — TianWen's own backlash auto-tuning owns these (mirrors the ZWO/ASCOM native paths).
+    // Unknown/unmeasured: TianWen's own backlash auto-tuning owns these (mirrors the ZWO/ASCOM native paths).
     public int BacklashStepsIn => -1;
 
     public int BacklashStepsOut => -1;
@@ -126,7 +126,7 @@ internal sealed class GeminiFocuserDriver(GeminiFocuserDevice device, IServicePr
 
     public async ValueTask ConnectAsync(CancellationToken cancellationToken = default)
     {
-        // SerialPort.IsOpen only records that Open() succeeded — a dead USB bridge (unplugged CH34x,
+        // SerialPort.IsOpen only records that Open() succeeded; a dead USB bridge (unplugged CH34x,
         // re-enumerated port) keeps reporting IsOpen until an actual read/write fails. Re-verify with the
         // cheap :02# handshake so a reconnect (e.g. ResilientCall's fault callback) rebuilds the connection
         // instead of no-opping against a dead handle. TryClose evicts it from IExternal's per-address cache.

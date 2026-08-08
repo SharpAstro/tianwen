@@ -18,7 +18,7 @@ internal delegate ValueTask JsonRpcRequestHandler(string method, JsonElement @pa
 /// <summary>
 /// Minimal JSON-RPC 2.0 server: serves requests on an already-connected
 /// <see cref="IUtf8TextBasedConnection"/> through a <see cref="JsonRpcRequestHandler"/> until the peer
-/// disconnects or cancellation fires. Transport-agnostic — the caller owns the listen/accept (a named
+/// disconnects or cancellation fires. Transport-agnostic; the caller owns the listen/accept (a named
 /// pipe for the out-of-process ASCOM host, or a TCP accept) and hands the connected transport to
 /// <see cref="ServeAsync"/>. It speaks the server side of the same wire format <see cref="JsonRpcClient"/>
 /// speaks (client's <c>{"method","id","params"?}</c> in, this server's

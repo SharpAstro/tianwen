@@ -112,7 +112,7 @@ namespace TianWen.Lib.Tests
             var annotation = PolarAnnotationBuilder.Build(overlay);
 
             // Rings centre on the refracted pole (the practical alignment target),
-            // not the true pole — the user adjusts knobs to drive the axis marker
+            // not the true pole: the user adjusts knobs to drive the axis marker
             // into the bullseye around the refracted pole.
             foreach (var ring in annotation.Rings)
             {

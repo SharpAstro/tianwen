@@ -22,7 +22,7 @@ internal static class GeminiFlatPanelProtocol
     public const int MinFirmwareVersion = 203;
     public const string Identity = "GeminiFlatPanelLite";
 
-    // '#'-terminated framing (the LX200 family — see ProbeFraming.HashTerminated).
+    // '#'-terminated framing (the LX200 family, see ProbeFraming.HashTerminated).
     private static readonly ReadOnlyMemory<byte> Terminator = new([(byte)'#']);
 
     // Real hardware acks EVERY command with a framed *<letter>...# reply (queries AND the actions the wire
@@ -99,7 +99,7 @@ internal static class GeminiFlatPanelProtocol
     /// Writes a '#'-terminated action command and drains the controller's ack. Real hardware acks EVERY
     /// command with a framed <c>*&lt;letter&gt;...#</c> reply (the wire spec's "fire-and-forget" is wrong:
     /// <c>&gt;L#</c> -&gt; <c>*L0#</c>, <c>&gt;B128#</c> -&gt; <c>*B128#</c>). Left unread, that ack offsets the
-    /// NEXT query's read, so drain it here — via an async read bounded by <see cref="AckTimeout"/> (a firmware
+    /// NEXT query's read, so drain it here, via an async read bounded by <see cref="AckTimeout"/> (a firmware
     /// that genuinely doesn't ack just times out cleanly).
     /// </summary>
     private static async ValueTask SendAsync(ISerialConnection conn, string command, CancellationToken cancellationToken)
@@ -118,7 +118,7 @@ internal static class GeminiFlatPanelProtocol
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // No ack within AckTimeout — fine.
+            // No ack within AckTimeout: fine.
         }
     }
 

@@ -24,9 +24,9 @@ namespace TianWen.AI.Imaging;
 /// exact footprint, and appends one JSONL manifest row per tile.
 ///
 /// <para><b>Zero train/inference skew (non-negotiable).</b> Every frame is pushed through the
-/// <i>same</i> NAFNet input pre-stretch the inference path uses —
+/// <i>same</i> NAFNet input pre-stretch the inference path uses; 
 /// <see cref="ChunkedNafnetRunner.ApplyInputStretch"/> (SAS-Pro auto-detect gating
-/// <see cref="Image.MtfStretch"/> to <see cref="AiNafnetInputs.TargetMedian"/> = 0.25) — and the
+/// <see cref="Image.MtfStretch"/> to <see cref="AiNafnetInputs.TargetMedian"/> = 0.25), and the
 /// tile bytes are stored post-stretch in the <c>[0, 1]</c> convention. Python trains on the bytes
 /// as-stored and never re-implements preprocessing. Because the session master is integrated
 /// unnormalised (a genuine linear frame on the subs' scale, see <see cref="SessionRegistrar"/>),
@@ -35,11 +35,11 @@ namespace TianWen.AI.Imaging;
 ///
 /// <para><b>NaN safety.</b> Warped subs carry NaN outside their source footprint; cells are sampled
 /// only inside the session's all-frames intersection (<see cref="SessionRegistrar.RegisteredSession.StatsRect"/>),
-/// so every exported tile is fully covered by every sub and the master — no NaN reaches a tile.
+/// so every exported tile is fully covered by every sub and the master; no NaN reaches a tile.
 /// The MTF pre-stretch is itself NaN-robust, so the whole-frame stretch balance is unpoisoned.</para>
 ///
 /// <para><b>Determinism.</b> Cell selection (structure-biased) and per-cell sub choice are seeded
-/// from the portable session id, and the manifest is canonically sorted before writing — so a
+/// from the portable session id, and the manifest is canonically sorted before writing, so a
 /// re-run reproduces the tile set + row order byte-for-byte, which every downstream seeded split
 /// depends on (plan §2.4).</para>
 /// </summary>
@@ -243,8 +243,8 @@ public static class DatasetTileExporter
     /// <paramref name="rows"/>, re-derives each tile from its source frame through the SAME
     /// <see cref="ToUnitRange"/> + <see cref="ChunkedNafnetRunner.ApplyInputStretch"/> +
     /// <see cref="ExtractTileHalfs"/> path and diffs it against the bytes on disk. The point is a
-    /// CI-able pin: if the stored tile ever stops equalling "the C# stretch of the source" — a
-    /// changed stored format, a skipped stretch, a wrong cell mapping, an fp16 regression — the max
+    /// CI-able pin: if the stored tile ever stops equalling "the C# stretch of the source"; a
+    /// changed stored format, a skipped stretch, a wrong cell mapping, an fp16 regression; the max
     /// diff goes non-zero and the guarantee that Python trains on exactly what inference sees breaks
     /// loudly. Requires the session's warped scratch subs to still exist (run before cleanup).
     /// </summary>
@@ -345,7 +345,7 @@ public static class DatasetTileExporter
     }
 
     /// <summary>Extracts the CHW fp16 samples of one tile at <paramref name="cell"/> (and the
-    /// channel-0 floats via <paramref name="ch0"/>). The single source of the stored tile bytes —
+    /// channel-0 floats via <paramref name="ch0"/>). The single source of the stored tile bytes; 
     /// the parity check re-derives through this exact path so "stored == re-stretched" is pinned.
     /// NaN samples (which should not occur inside StatsRect) are clamped to 0 so a stray edge pixel
     /// can never poison training.</summary>
@@ -458,10 +458,10 @@ public static class DatasetTileExporter
         return fwhm[fwhm.Length / 2];
     }
 
-    /// <summary>Reads the shared JSONL manifest back into per-session tile counts — the resume
+    /// <summary>Reads the shared JSONL manifest back into per-session tile counts; the resume
     /// checkpoint (<see cref="DatasetBuildOptions.Resume"/>). A session listed here was FULLY
     /// exported: its rows are appended in one block as the last step of its export, after every
-    /// tile file is on disk. Unparseable lines (a torn tail from a killed run — the same case
+    /// tile file is on disk. Unparseable lines (a torn tail from a killed run, the same case
     /// <see cref="AppendManifestAsync"/> self-heals on the next append) are skipped, never fatal;
     /// a missing file yields an empty map (resume of a fresh output degrades to a normal run).</summary>
     public static async Task<Dictionary<string, int>> ReadManifestSessionTileCountsAsync(string manifestPath, CancellationToken ct)
@@ -497,7 +497,7 @@ public static class DatasetTileExporter
     }
 
     /// <summary>Appends this session's rows to the shared JSONL manifest. Self-healing: a torn
-    /// last line (a previous session's append interrupted mid-write — reachable because the build
+    /// last line (a previous session's append interrupted mid-write, reachable because the build
     /// runner fault-isolates per session and keeps going) is truncated back to the last complete
     /// row first, so a corrupt line can never get buried mid-file where every JSONL consumer would
     /// choke on it. Internal for the direct healing test.</summary>
@@ -530,7 +530,7 @@ public static class DatasetTileExporter
         stream.Seek(pos, SeekOrigin.Begin);
         if (stream.ReadByte() == '\n')
         {
-            return; // clean tail — every row complete
+            return; // clean tail; every row complete
         }
         while (pos > 0)
         {
@@ -542,17 +542,17 @@ public static class DatasetTileExporter
                 return;
             }
         }
-        stream.SetLength(0); // no newline at all — the whole file is one torn line
+        stream.SetLength(0); // no newline at all; the whole file is one torn line
     }
 
     /// <summary>
     /// Normalises a native-ADU frame into the <c>[0, 1]</c> linear convention the NAFNet input path
     /// assumes (the same convention <c>Image.ScaleFloatValuesToUnit</c> produces), through Image's
-    /// public API — the exporter must NOT reach into Lib internals, and must NOT mutate the caller's
+    /// public API: the exporter must NOT reach into Lib internals, and must NOT mutate the caller's
     /// shared master, so it builds a fresh copy via the channel-typed primary ctor (which then
     /// DERIVES an accurate image-wide <see cref="Image.MaxValue"/> from the per-channel maxima). This
     /// is what puts the frame's median below the SAS auto-detect threshold so
-    /// <see cref="ChunkedNafnetRunner.ApplyInputStretch"/> actually applies the MTF stretch — a
+    /// <see cref="ChunkedNafnetRunner.ApplyInputStretch"/> actually applies the MTF stretch; a
     /// raw-ADU frame would read as "already stretched" and pass through unstretched.
     ///
     /// <para>The divisor is <c>max(MaxValue label, actual data max)</c>, NaN-aware. The label alone

@@ -20,7 +20,7 @@ namespace TianWen.UI.Shared;
 /// Stars and static lines are stored as J2000 unit vectors in persistent GPU
 /// vertex buffers, projected to screen coordinates in the vertex shader via a
 /// view rotation matrix + stereographic projection. Pan/zoom only updates the
-/// UBO — no geometry re-upload.
+/// UBO: no geometry re-upload.
 /// </summary>
 public sealed unsafe class VkSkyMapPipeline : IDisposable
 {
@@ -531,7 +531,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         float viewportWidth, float viewportHeight,
         float offsetX, float offsetY,
         float milkyWayAlpha,
-        // Dynamic line buffers — written to ring buffer by caller
+        // Dynamic line buffers: written to ring buffer by caller
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) horizon,
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) meridian,
         (VkBuffer Buffer, uint ByteOffset, uint VertexCount) altAzGrid,
@@ -664,14 +664,14 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         // within each chunk. Cull chunks whose bounding cone misses the view cone, then
         // draw only each visible chunk's magnitude-prefix. A deep zoom (small FOV, high
         // effective magnitude) touches a handful of chunks instead of streaming the whole
-        // ~2M-star catalog to the GPU — the unbounded version TDR'd the Adreno X1-85.
+        // ~2M-star catalog to the GPU: the unbounded version TDR'd the Adreno X1-85.
         if (_starChunks.Length > 0 && _starCount > 0)
         {
             var effMag = state.EffectiveMagnitudeLimit;
 
             // View cone in J2000: axis = the look-at direction (identical to the view
             // matrix's forward vector, so the cull is exact in both equatorial and horizon
-            // modes). Radius = the full FOV — generous enough to cover the viewport diagonal
+            // modes). Radius = the full FOV: generous enough to cover the viewport diagonal
             // for any reasonable aspect, so chunks never pop in/out at the screen edges.
             var (vx, vy, vz) = SkyMapState.RaDecToUnitVec(state.CenterRA, state.CenterDec);
             var viewRadiusRad = (float)double.DegreesToRadians(Math.Min(180.0, state.FieldOfViewDeg));
@@ -1571,7 +1571,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         _disposed = true;
 
         var api = _ctx.DeviceApi;
-        // Skip the pre-teardown drain when the GPU is known wedged — an unbounded wait on a stuck
+        // Skip the pre-teardown drain when the GPU is known wedged; an unbounded wait on a stuck
         // device would hang Dispose (matches the renderer's recovery/teardown guards).
         if (!_ctx.IsGpuStuck)
         {

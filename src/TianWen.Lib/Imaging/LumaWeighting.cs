@@ -27,7 +27,7 @@ public static class LumaWeightingExtensions
 {
     /// <summary>Resolves the weighting profile to a normalised (R, G, B) weight triple.
     /// <see cref="LumaWeighting.SensorMatched"/> falls back to Rec.709 from this pure
-    /// enum-to-triple lookup — the producer resolves the actual sensor-derived weights
+    /// enum-to-triple lookup: the producer resolves the actual sensor-derived weights
     /// via <c>FilterCurveDatabase.TryComputeSensorLumaWeights(meta, ...)</c>.</summary>
     extension(LumaWeighting weighting)
     {

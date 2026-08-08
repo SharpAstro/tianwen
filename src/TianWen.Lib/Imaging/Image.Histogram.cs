@@ -621,7 +621,7 @@ public partial class Image
             }
         }
 
-        // Rec.709 luminance — keyed on the bg array length, not channelCount,
+        // Rec.709 luminance: keyed on the bg array length, not channelCount,
         // so the Bayer-3 path produces a proper luminance instead of just R.
         var lumaBg = perChannel.Length >= 3
             ? LumaWeighting.Rec709.ToLuma(perChannel[0], perChannel[1], perChannel[2])
@@ -634,7 +634,7 @@ public partial class Image
     /// Samples 3 median values (R, G, B) from a single-channel Bayer mosaic in a
     /// square region by classifying each pixel by its Bayer position. The G median
     /// pools both Bayer green positions (~2x sample count vs R and B). All values
-    /// are pedestal-subtracted. Hardcoded for RGGB layout — extend the switch
+    /// are pedestal-subtracted. Hardcoded for RGGB layout; extend the switch
     /// when other Bayer patterns become supported.
     /// </summary>
     private (float R, float G, float B) BayerMediansInRegion(

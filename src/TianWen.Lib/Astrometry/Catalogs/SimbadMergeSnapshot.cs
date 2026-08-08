@@ -24,14 +24,14 @@ namespace TianWen.Lib.Astrometry.Catalogs;
 ///
 /// <para>Determinism note: stored entries are the FINAL post-SIMBAD-merge values for keys
 /// that the SIMBAD phase added or modified. The pre-SIMBAD state (predefined objects + NGC
-/// merge) is not in the snapshot — it runs live and is fast (~104 ms combined). The apply
+/// merge) is not in the snapshot: it runs live and is fast (~104 ms combined). The apply
 /// path dict-overwrites the captured (key, value) pairs onto that pre-existing live state.</para>
 ///
 /// <para>Three dicts are snapshotted independently: <see cref="Objects"/> for
 /// <c>_objectsByIndex</c>, <see cref="Edges"/> for <c>_crossIndexLookuptable</c>, and
 /// <see cref="NameMappings"/> for <c>_objectsByCommonName</c>. The third is required because
 /// SIMBAD adds (commonName -> catIdx) entries via <c>AddCommonNameIndex(catToAddIdx, bestMatchNames)</c>
-/// where <c>bestMatchNames</c> belongs to a DIFFERENT object than catToAddIdx — those mappings
+/// where <c>bestMatchNames</c> belongs to a DIFFERENT object than catToAddIdx; those mappings
 /// are not derivable from the per-object CommonNames captured in <see cref="Objects"/> alone.</para>
 ///
 /// <para>The <see cref="EdgeSnapshot"/> record is shared with <see cref="HdHipCrossSnapshot"/>:
@@ -93,7 +93,7 @@ internal readonly record struct NameMappingSnapshot(
 
 internal static class SimbadMergeSnapshotIo
 {
-    // "TWSIMRG1" — fixed 8-byte magic. Bumping the schema increments the trailing digit.
+    // "TWSIMRG1": fixed 8-byte magic. Bumping the schema increments the trailing digit.
     private static ReadOnlySpan<byte> Magic => "TWSIMRG1"u8;
 
     private const int MagicLength = 8;

@@ -323,7 +323,7 @@ namespace TianWen.UI.Gui
             // Render the active tab content first (it may fill the full renderer surface)
             RenderContent(appState, plannerState, viewerState, timeProvider, contentRect);
 
-            // Paint sidebar and status bar on top — these register clickable regions
+            // Paint sidebar and status bar on top: these register clickable regions
             RenderSidebar(appState);
             RenderStatusBar(appState, plannerState, timeProvider);
         }
@@ -346,7 +346,7 @@ namespace TianWen.UI.Gui
         }
 
         // -----------------------------------------------------------------------
-        // Sidebar — registers each tab as a clickable region
+        // Sidebar: registers each tab as a clickable region
         // -----------------------------------------------------------------------
 
         private void RenderSidebar(GuiAppState appState)
@@ -461,7 +461,7 @@ namespace TianWen.UI.Gui
         }
 
         // -----------------------------------------------------------------------
-        // Status bar — registers clickable regions for interactive elements
+        // Status bar: registers clickable regions for interactive elements
         // -----------------------------------------------------------------------
 
         private void RenderStatusBar(GuiAppState appState, PlannerState plannerState, ITimeProvider timeProvider)
@@ -954,7 +954,7 @@ namespace TianWen.UI.Gui
 
             if (!string.IsNullOrEmpty(FontPath))
             {
-                var msg = $"{tab} — Coming soon";
+                var msg = $"{tab}. Coming soon";
                 DrawText(msg.AsSpan(), FontPath,
                     rect.X, rect.Y, rect.Width, rect.Height,
                     FontSize * 1.5f, PlaceholderText, TextAlign.Center, TextAlign.Center);

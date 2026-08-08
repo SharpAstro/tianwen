@@ -39,7 +39,7 @@ internal class SkywatcherDeviceSource(ISerialProbeService probeService, ILogger<
             mounts.Add(new SkywatcherDevice(match.DeviceUri));
         }
 
-        // WiFi discovery via UDP broadcast — unchanged, uses a different transport.
+        // WiFi discovery via UDP broadcast: unchanged, uses a different transport.
         try
         {
             await foreach (var device in DiscoverWiFiAsync(cancellationToken))

@@ -57,7 +57,7 @@ public class ActiveProfilePinnedSerialPortsProviderTests
     [Fact]
     public void SentinelPortValuesAreIgnored()
     {
-        // ?port=wifi (Canon), ?port=SkyWatcher (fake mount) — not OS ports, must not filter.
+        // ?port=wifi (Canon), ?port=SkyWatcher (fake mount), not OS ports, must not filter.
         var profile = MakeProfile(new ProfileData(
             Mount: new Uri("Mount://FakeDevice/fake?port=SkyWatcher"),
             Guider: new Uri("Guider://NoneDevice/none"),

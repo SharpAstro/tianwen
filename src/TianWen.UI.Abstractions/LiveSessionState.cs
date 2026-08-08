@@ -44,7 +44,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Which mode the live view is in: <see cref="LiveSessionMode.Preview"/>,
         /// <see cref="LiveSessionMode.Session"/>, or <see cref="LiveSessionMode.PolarAlign"/>.
-        /// Mutually exclusive — Session and PolarAlign can't both be active. Drives panel
+        /// Mutually exclusive: Session and PolarAlign can't both be active. Drives panel
         /// visibility, polling cadences, and the toolbar button states.
         /// </summary>
         public LiveSessionMode Mode { get; set; } = LiveSessionMode.Preview;
@@ -167,8 +167,8 @@ namespace TianWen.UI.Abstractions
         /// The single canonical mount-pointing snapshot (RA, Dec, HA, pier side, slewing, tracking).
         /// Fed by whichever poller currently owns the mount: <c>AppSignalHandler.PollPreviewTelemetry</c>
         /// when no session is running, and <see cref="PollSession"/> (copying <c>ISession.MountState</c>)
-        /// while a session is running. The two are mutually exclusive in time — the preview poll bails
-        /// when <see cref="IsRunning"/>, and the session poll only exists during a session — so this one
+        /// while a session is running. The two are mutually exclusive in time; the preview poll bails
+        /// when <see cref="IsRunning"/>, and the session poll only exists during a session, so this one
         /// field is always the current pointing regardless of which path produced it. Every reticle /
         /// status reader uses this field; there is deliberately no second copy to drift out of sync.
         /// <para>
@@ -177,7 +177,7 @@ namespace TianWen.UI.Abstractions
         /// The preview poll continuation runs on a thread pool thread (the session poll runs on the
         /// render thread); the render thread reads per frame. We box the value in a small reference
         /// holder so the publish is a single atomic reference write via
-        /// <see cref="Interlocked.Exchange{T}(ref T, T)"/> — readers see one consistent snapshot, no
+        /// <see cref="Interlocked.Exchange{T}(ref T, T)"/>; readers see one consistent snapshot, no
         /// lock on the render hot path.
         /// </para>
         /// </summary>
@@ -274,13 +274,13 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Latest live refinement tick. Atomic reference replacement so the render thread
-        /// always sees a consistent snapshot — the orchestrator runs on a thread pool task.
+        /// always sees a consistent snapshot: the orchestrator runs on a thread pool task.
         /// </summary>
         public LiveSolveResult? LastPolarSolve { get; set; }
 
         /// <summary>
         /// Free-form status message shown in the side panel ("Press Next before rotating
-        /// the RA axis", "Refining (1.2 Hz)", "Aligned within 1' — click Done", or the
+        /// the RA axis", "Refining (1.2 Hz)", "Aligned within 1'; click Done", or the
         /// failure reason from <see cref="TwoFrameSolveResult.FailureReason"/>).
         /// </summary>
         public string? PolarStatusMessage { get; set; }
@@ -338,7 +338,7 @@ namespace TianWen.UI.Abstractions
         /// open. Set from the session's <c>PromptRequested</c> event (via the bootstrapper); the render loop
         /// draws a confirm overlay while it is non-null, and <c>RespondSessionPromptSignal</c> calls
         /// <see cref="TianWen.Lib.Sequencing.SessionPromptEventArgs.Respond"/> and clears it. Generic across
-        /// session flows (flats now; dark-frame cover-close later) — not flats-specific.
+        /// session flows (flats now; dark-frame cover-close later), not flats-specific.
         /// </summary>
         public TianWen.Lib.Sequencing.SessionPromptEventArgs? PendingPrompt { get; set; }
 
@@ -436,7 +436,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Polls the active session and updates cached fields. Call once per frame.
-        /// Designed to be cheap — reads volatile fields, no allocations on steady state.
+        /// Designed to be cheap: reads volatile fields, no allocations on steady state.
         /// </summary>
         public void PollSession()
         {

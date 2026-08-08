@@ -141,7 +141,7 @@ public class FindBestFocusTests(ITestOutputHelper testOutputHelper)
 
     private async Task DrawSolution(MetricSampleMap sampleMap, FocusSolution solution, int minPos, int maxPos, string fileName, [CallerMemberName] string? callerName = null)
     {
-        // Transparent canvas (alpha=0) so the V-curve and dots render on top of nothing —
+        // Transparent canvas (alpha=0) so the V-curve and dots render on top of nothing; 
         // matches the prior MagickImage(MagickColors.Transparent, 1000, 1000) setup.
         using var renderer = new RgbaImageRenderer(1000, 1000);
         renderer.Surface.Clear(new RGBAColor32(0, 0, 0, 0));

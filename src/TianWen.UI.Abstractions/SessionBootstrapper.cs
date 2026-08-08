@@ -163,7 +163,7 @@ namespace TianWen.UI.Abstractions
                 // Surface each session phase transition in the notification feed.
                 // Terminal phases (Complete/Aborted/Failed) are emitted in the RunAsync
                 // finally block below, so they are skipped here to avoid duplicates.
-                // Extracted to a named local so it can be unsubscribed in finally —
+                // Extracted to a named local so it can be unsubscribed in finally; 
                 // prevents a dangling delegate from keeping a stale session alive
                 // if the session reference is ever captured here in future refactors.
                 void OnPhaseChanged(object? _, SessionPhaseChangedEventArgs e)
@@ -188,7 +188,7 @@ namespace TianWen.UI.Abstractions
                 }
                 session.PhaseChanged += OnPhaseChanged;
 
-                // RunAsync includes Finalise — run as tracked background task so:
+                // RunAsync includes Finalise: run as tracked background task so:
                 // 1. UI stays responsive (signal handler returns immediately)
                 // 2. DrainAsync at shutdown waits for Finalise to complete
                 tracker.Run(async () =>

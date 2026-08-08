@@ -111,7 +111,7 @@ internal class ZWODeviceSource : IDeviceSource<ZWODevice>
 
                     var extraQuery = seedQueryParams?.Invoke(deviceInfo);
                     var queryPart = extraQuery is { Length: > 0 } ? $"?{extraQuery}" : "";
-                    // Escape both the deviceId and the fragment — even a valid ASCII
+                    // Escape both the deviceId and the fragment, even a valid ASCII
                     // id can contain '/', spaces, or other URI-unsafe characters (and
                     // product names definitely have spaces).
                     var uri = new Uri($"{deviceType}://{typeof(ZWODevice).Name}/{Uri.EscapeDataString(deviceId)}{queryPart}#{Uri.EscapeDataString(deviceInfo.Name)}");

@@ -44,7 +44,7 @@ namespace TianWen.Lib.Tests
             var time = new FakeTimeProviderWrapper();
 
             // Capture source synthesises v1 at "any RA position", then v2 = Rotate(v1, GroundTruthAxis, delta).
-            // We don't simulate the mount's actual RA — it's enough that the camera reports a v2
+            // We don't simulate the mount's actual RA: it's enough that the camera reports a v2
             // consistent with a clean rotation around the ground-truth axis.
             var source = new SyntheticAxisCaptureSource(GroundTruthAxis, deltaRad: 60.0 * DEGREES2RADIANS, timeProvider: time);
 
@@ -75,7 +75,7 @@ namespace TianWen.Lib.Tests
 
             // Measured rotation matches commanded to sub-arcsec on synthetic
             // input (no mount slop, no sidereal contamination). Real hardware
-            // will diverge — that's the diagnostic value of exposing both.
+            // will diverge: that's the diagnostic value of exposing both.
             var measuredDeg = result.MeasuredRotationRad * RADIANS2DEGREES;
             var commandedDeg = result.CommandedRotationRad * RADIANS2DEGREES;
             commandedDeg.ShouldBe(60.0, tolerance: 0.5,
@@ -228,7 +228,7 @@ namespace TianWen.Lib.Tests
             var solver = Substitute.For<IPlateSolver>();
             var time = new FakeTimeProviderWrapper();
 
-            // Source returns Success=false on every rung with a structured reason —
+            // Source returns Success=false on every rung with a structured reason; 
             // exactly what GuiderCaptureSource does when PHD2 'Save Images' is disabled.
             const string SourceReason = "Guider produced no frame on disk \u2014 enable 'Save Images' in PHD2.";
             var source = new FailingCaptureSource(SourceReason);
@@ -894,7 +894,7 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// Minimal source that fails every capture with a structured reason — used to
+        /// Minimal source that fails every capture with a structured reason; used to
         /// pin the orchestrator's failure-reason propagation behaviour (Phase 5: PHD2
         /// 'Save Images' disabled message must reach the user).
         /// </summary>

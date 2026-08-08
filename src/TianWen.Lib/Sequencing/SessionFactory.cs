@@ -123,8 +123,8 @@ internal class SessionFactory(
         DeviceBase DeviceFromUri(Uri deviceUri, int? otaIdx = null)
         {
             // Reconcile stored URI with discovery: if the same device (by scheme+authority+path,
-            // i.e. matching stable deviceId) has been discovered with a different query — e.g.
-            // the mount was re-plugged and moved from COM5 → COM6, or DHCP reassigned the WiFi IP —
+            // i.e. matching stable deviceId) has been discovered with a different query, e.g.
+            // the mount was re-plugged and moved from COM5 → COM6, or DHCP reassigned the WiFi IP; 
             // adopt the discovered URI so transport state tracks hardware reality.
             var resolvedUri = deviceDiscovery.ReconcileUri(deviceUri);
             if (resolvedUri != deviceUri)

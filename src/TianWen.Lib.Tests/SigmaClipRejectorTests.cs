@@ -58,7 +58,7 @@ public class SigmaClipRejectorTests
     {
         // Slight noise on the 8 clean samples so MAD is non-zero (otherwise
         // the rejector breaks out on degenerate-MAD before reaching the bounds
-        // check — there's no statistical spread to measure when 8/10 samples
+        // check: there's no statistical spread to measure when 8/10 samples
         // are bit-identical).
         float[] column = [0.50f, 0.501f, 0.499f, 0.500f, 0.502f, 100.0f, 0.498f, -50.0f, 0.501f, 0.499f];
 

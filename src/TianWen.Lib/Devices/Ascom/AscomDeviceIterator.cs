@@ -144,7 +144,7 @@ internal partial class AscomDeviceIterator(ILogger<AscomDeviceIterator> logger) 
             clsidFound = true;
 
             // LocalServer32 is out-of-proc so bitness doesn't matter. InprocServer32
-            // must match our process bitness — a 32-bit DLL can't load into a 64-bit
+            // must match our process bitness: a 32-bit DLL can't load into a 64-bit
             // process (CoCreateInstance returns REGDB_E_CLASSNOTREG = "Class not registered").
             if (TryUsableServer(clsidKey, "LocalServer32", requireBitnessMatch: false, out _)
                 || TryUsableServer(clsidKey, "InprocServer32", requireBitnessMatch: true, out lastRejection))
@@ -160,7 +160,7 @@ internal partial class AscomDeviceIterator(ILogger<AscomDeviceIterator> logger) 
         return false;
     }
 
-    // Strip everything to the right of the rightmost `.exe` or `.dll` — handles quoted paths,
+    // Strip everything to the right of the rightmost `.exe` or `.dll`; handles quoted paths,
     // unquoted paths containing spaces, trailing `/Embedding` or similar args, uniformly.
     [GeneratedRegex(@"^.*\.(?:exe|dll)", RegexOptions.IgnoreCase)]
     private static partial Regex ExecutablePathRegex();
@@ -181,7 +181,7 @@ internal partial class AscomDeviceIterator(ILogger<AscomDeviceIterator> logger) 
 
         var filePath = Environment.ExpandEnvironmentVariables(match.Value.Trim().Trim('"'));
 
-        // .NET inproc drivers register InprocServer32 as "mscoree.dll" — resolve against System32.
+        // .NET inproc drivers register InprocServer32 as "mscoree.dll"; resolve against System32.
         if (!Path.IsPathRooted(filePath))
         {
             filePath = Path.Combine(Environment.SystemDirectory, filePath);
@@ -205,7 +205,7 @@ internal partial class AscomDeviceIterator(ILogger<AscomDeviceIterator> logger) 
     /// <summary>
     /// Reads the PE machine field and rejects 32-bit DLLs when we're a 64-bit process
     /// (they can't be loaded in-proc across bitness). .NET assemblies compiled AnyCPU
-    /// report as x86 in the PE header but load everywhere — detect and trust them.
+    /// report as x86 in the PE header but load everywhere; detect and trust them.
     /// </summary>
     private static bool IsPeBitnessCompatible(string filePath)
     {
@@ -219,7 +219,7 @@ internal partial class AscomDeviceIterator(ILogger<AscomDeviceIterator> logger) 
             fs.Seek(PE_HEADER_OFFSET, SeekOrigin.Begin);
             var peOffset = br.ReadInt32();
             fs.Seek(peOffset, SeekOrigin.Begin);
-            if (br.ReadUInt32() != 0x00004550u) return true; // "PE\0\0" — not a PE, don't reject
+            if (br.ReadUInt32() != 0x00004550u) return true; // "PE\0\0", not a PE, don't reject
             var machine = br.ReadUInt16();
 
             // Only reject x86 DLLs from a 64-bit process; everything else loads fine.

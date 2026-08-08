@@ -53,8 +53,8 @@ public class HdHipCrossSnapshotTests(ITestOutputHelper output)
         live.LastHdHipCrossSnapshot.ShouldNotBeNull("Live capture path produced no snapshot");
 
         var snapshot = live.LastHdHipCrossSnapshot!;
-        snapshot.HdEntries.Length.ShouldBeGreaterThan(50_000, "HD entries unexpectedly low — bad inputs?");
-        snapshot.Edges.Length.ShouldBeGreaterThan(100_000, "Edge delta unexpectedly low — bad inputs?");
+        snapshot.HdEntries.Length.ShouldBeGreaterThan(50_000, "HD entries unexpectedly low, bad inputs?");
+        snapshot.Edges.Length.ShouldBeGreaterThan(100_000, "Edge delta unexpectedly low, bad inputs?");
 
         // Default-init a second DB; if there is an embedded snapshot it'll go through the apply
         // path, otherwise it'll go through live compute (and the comparison degenerates to
@@ -65,7 +65,7 @@ public class HdHipCrossSnapshotTests(ITestOutputHelper output)
         // Spot-check 64 HD indices from the captured snapshot. We don't compare every one of
         // ~89K because building two full catalogues here already costs ~3 s in unit tests;
         // a representative spread (every Nth index from the snapshot's stable order) catches
-        // the kinds of divergence we care about — wrong RA/Dec, wrong type, wrong edges.
+        // the kinds of divergence we care about: wrong RA/Dec, wrong type, wrong edges.
         var step = Math.Max(1, snapshot.HdEntries.Length / 64);
         for (var i = 0; i < snapshot.HdEntries.Length; i += step)
         {

@@ -81,7 +81,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// before <see cref="InitDBAsync"/> returns (unless the caller passes
     /// <c>waitForTycho2BulkLoad: true</c>). Runtime callers that touch <see cref="_tycho2Data"/>
     /// or <see cref="_tycho2RaDecIndex"/> must <c>await</c> <see cref="EnsureTycho2DataLoadedAsync"/>
-    /// first. Set exactly once per instance — re-entry into <see cref="InitDBAsync"/> after
+    /// first. Set exactly once per instance: re-entry into <see cref="InitDBAsync"/> after
     /// successful init returns early without restarting it.
     /// </summary>
     private Task? _tycho2BulkLoadTask;
@@ -98,7 +98,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// Background bake of the sorted ordinal-ignore-case auto-complete list, kicked off
     /// during init as soon as <see cref="_objectsByIndex"/>, <see cref="_crossIndexLookuptable"/>,
     /// and <see cref="_objectsByCommonName"/> are fully populated (i.e. after the hd-hip-cross
-    /// phase — Tycho-2 bulk does not contribute names so we don't have to wait for it).
+    /// phase: Tycho-2 bulk does not contribute names so we don't have to wait for it).
     /// Costs ~300-600 ms on the ~400-600K entries the sky-map search modal binary-searches.
     /// Doing it here pulls the cost off the first F3-keystroke critical path: by the time the
     /// user opens search, the result is almost always already there.
@@ -375,7 +375,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         {
             // Re-entry contract: if the caller wants the bulk Tycho-2 data ready and we
             // already initialised on a prior call (with or without that wait), join the
-            // background decode here without restarting it. Idempotent — the underlying
+            // background decode here without restarting it. Idempotent; the underlying
             // task is created exactly once per instance.
             if (waitForTycho2BulkLoad)
             {
@@ -445,7 +445,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // alongside the predefined-object loop and NGC CSV parsing on the main thread.
         // By the time the SIMBAD merge loop begins, HR records are typically ready to
         // merge immediately.
-        // Skip pre-starting if a SIMBAD snapshot is embedded — the apply path won't need
+        // Skip pre-starting if a SIMBAD snapshot is embedded; the apply path won't need
         // HR's parse; on hash miss the live fallback path starts the parse synchronously.
         Task<List<SimbadCatalogDto>>? hrParseTask = simbadSnapshotResource is null
             ? ParseSimbadFileAsync(assembly, manifestNames, "HR", cancellationToken)
@@ -536,7 +536,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             // once adds tens of ms per task vs a single warmed path), and leaves CPU
             // headroom for Tycho2's own multi-threaded LZ decode running in parallel.
             // HR's parse was kicked off up front (see the hrParseTask assignment near the
-            // Tycho2 launch) UNLESS a SIMBAD snapshot was embedded — in that case the
+            // Tycho2 launch) UNLESS a SIMBAD snapshot was embedded; in that case the
             // hash check here failed, so we start it synchronously now.
             Task<List<SimbadCatalogDto>>? nextParseTask = simbadCatalogs.Length switch
             {
@@ -589,10 +589,10 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // earlier entry in this list wins on cross-referenced objects.
         //
         // Ranking:
-        //   Dobashi 2011 — 7614 entries, modern whole-sky IR+visible survey
-        //   LDN 1962     — 1802 entries, northern bias, sq-deg area (coarser)
-        //   Barnard 1927 — 349  entries, classical, single Diam only
-        //   Ced 1946     — 420  reflection nebulae; different object class, so
+        //   Dobashi 2011: 7614 entries, modern whole-sky IR+visible survey
+        //   LDN 1962: 1802 entries, northern bias, sq-deg area (coarser)
+        //   Barnard 1927: 349  entries, classical, single Diam only
+        //   Ced 1946: 420  reflection nebulae; different object class, so
         //                  rarely overlaps with the dark-cloud three above, but
         //                  has real Dim1 x Dim2 ellipses where data exists
         (string FileName, Catalog Cat)[] shapeSources =
@@ -609,7 +609,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
         _lastInitPhaseTimings.Add(("shapes", phaseSw.Elapsed));
 
-        // Wait for the small cross-ref arrays only — the bulk tyc2.bin.lz decode keeps
+        // Wait for the small cross-ref arrays only: the bulk tyc2.bin.lz decode keeps
         // running in the background and only blocks init if the Phase 2A snapshot apply
         // misses (live BuildHdHipCrossIndicesViaTyc needs _tycho2Data) or the caller asked
         // to wait for it explicitly.
@@ -665,7 +665,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         // then and the await is a no-op.
         _autoCompleteListTask = Task.Run(BuildSortedAutoCompleteList, cancellationToken);
 
-        // Optional: gate init completion on the bulk Tycho-2 load. Default false — runtime
+        // Optional: gate init completion on the bulk Tycho-2 load. Default false; runtime
         // callers that need this data will await EnsureTycho2DataLoadedAsync themselves.
         // Set true when the caller wants InitDBAsync to return only after every bit of
         // catalog state is materialised (e.g. a precompute tool, or a test that immediately
@@ -852,7 +852,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// on the task. Once the bake has finished, subsequent calls return the same baked array.
     /// <para>
     /// Building inline is also the fallback for the pre-init / not-yet-started case (defensive
-    /// only — init always starts the bake) so unit tests that construct a partially-populated
+    /// only: init always starts the bake) so unit tests that construct a partially-populated
     /// db can still call this without depending on init internals.
     /// </para>
     /// </summary>
@@ -1050,7 +1050,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         {
             // Capture the post-merge final tuple per affected key plus the new HD entries.
             // This is O(touched-keys + N), runs after the bulk merge, and is only paid in the
-            // build-time precompute path — not at runtime.
+            // build-time precompute path, not at runtime.
             subSw.Restart();
             var hdBuilder = ImmutableArray.CreateBuilder<HdEntrySnapshot>();
             for (var p = 0; p < perThread.Length; p++)
@@ -1111,7 +1111,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// <summary>
     /// Looks for an embedded <c>hd_hip_cross.bin.gz</c> resource, hash-verifies it against
     /// the embedded catalog inputs, and applies it on hit. Returns false if the resource is
-    /// missing, malformed, or stale — caller is expected to fall back to the live compute
+    /// missing, malformed, or stale: caller is expected to fall back to the live compute
     /// path. Per-path timings are added to <see cref="_lastInitPhaseTimings"/> so cold-start
     /// telemetry shows which branch ran.
     /// </summary>
@@ -1306,7 +1306,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
             // _raDecIndex.Add is idempotent (AddElementIfNotExist), so calling it for keys
             // that already exist (NGC entries that SIMBAD only updated common names on) is
-            // safe — no duplicates. The NaN guard mirrors the live PopulateSimbadStarEntries
+            // safe: no duplicates. The NaN guard mirrors the live PopulateSimbadStarEntries
             // / MergeSimbadRecords code paths that gate on ConstellationBoundary.TryFindConstellation.
             if (obj.ObjType is not ObjectType.Duplicate
                 && !double.IsNaN(obj.Ra) && !double.IsNaN(obj.Dec))
@@ -1336,7 +1336,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// <summary>
     /// Looks for an embedded <c>simbad_merge.bin.gz</c> resource, hash-verifies it against
     /// the embedded SIMBAD/NGC catalog inputs, and applies it on hit. Returns false if the
-    /// resource is malformed or stale — caller is expected to fall back to the live merge
+    /// resource is malformed or stale: caller is expected to fall back to the live merge
     /// path. Caller passes the resource manifest name discovered up-front so the apply path
     /// only runs when there is a snapshot to try.
     /// </summary>
@@ -1394,7 +1394,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// Unions <paramref name="newValues"/> into the (v1, ext[]) tuple at
     /// <paramref name="key"/>, materialising the final ext array once instead of
     /// appending item-by-item (which would re-allocate the ext array N times).
-    /// Preserves the existing v1 anchor when the key already exists — callers of
+    /// Preserves the existing v1 anchor when the key already exists; callers of
     /// TryLookupByIndex walk v1 first, and several tests assert that the FIRST
     /// inserted cross-ref (e.g. HIP for a vdB entry) stays the primary target.
     /// </summary>
@@ -1420,7 +1420,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
             if (extSet.Count == 0)
             {
-                // All newValues were duplicates of existing.i1 — nothing to do.
+                // All newValues were duplicates of existing.i1: nothing to do.
                 return;
             }
 
@@ -1667,12 +1667,12 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// Each entry is 13 bytes, packed as:
     /// <list type="table">
     /// <listheader><term>Offset</term><term>Size</term><description>Field</description></listheader>
-    /// <item><term>0</term><term>2</term><description>TYC2 (UInt16 LE) — running number within GSC region</description></item>
-    /// <item><term>2</term><term>1</term><description>TYC3 (byte) — component identifier (normally 1)</description></item>
-    /// <item><term>3</term><term>4</term><description>RA (float LE) — Right Ascension in hours [0, 24), J2000</description></item>
-    /// <item><term>7</term><term>4</term><description>Dec (float LE) — Declination in degrees [-90, +90], J2000</description></item>
-    /// <item><term>11</term><term>1</term><description>VTmag decimag — Tycho-2 VT magnitude encoded as <c>clamp(round(mag × 10) + 20, 0, 254)</c>; 0xFF = missing</description></item>
-    /// <item><term>12</term><term>1</term><description>BTmag decimag — Tycho-2 BT magnitude encoded identically; 0xFF = missing</description></item>
+    /// <item><term>0</term><term>2</term><description>TYC2 (UInt16 LE); running number within GSC region</description></item>
+    /// <item><term>2</term><term>1</term><description>TYC3 (byte); component identifier (normally 1)</description></item>
+    /// <item><term>3</term><term>4</term><description>RA (float LE). Right Ascension in hours [0, 24), J2000</description></item>
+    /// <item><term>7</term><term>4</term><description>Dec (float LE). Declination in degrees [-90, +90], J2000</description></item>
+    /// <item><term>11</term><term>1</term><description>VTmag decimag. Tycho-2 VT magnitude encoded as <c>clamp(round(mag × 10) + 20, 0, 254)</c>; 0xFF = missing</description></item>
+    /// <item><term>12</term><term>1</term><description>BTmag decimag. Tycho-2 BT magnitude encoded identically; 0xFF = missing</description></item>
     /// </list>
     /// </para>
     /// <para>
@@ -2118,7 +2118,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
                 float bv = 0.65f; // solar-type default when blue channel is missing
                 if (vtDecimag == 0xFF)
                 {
-                    // No VT — skip silently by pushing NaN; callers filter on NaN.
+                    // No VT: skip silently by pushing NaN; callers filter on NaN.
                     vMag = float.NaN;
                 }
                 else
@@ -2315,11 +2315,11 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// </summary>
     private static readonly Dictionary<int, string> HipToHrFallback = new()
     {
-        [60718] = "HR 4730",  // α1 Cru (Acrux) — brightest star in Crux
-        [65378] = "HR 5054",  // ζ UMa A (Mizar) — Big Dipper handle
-        [26727] = "HR 1931",  // η Ori — Orion
-        [36850] = "HR 2650",  // ζ Gem (Mekbuda) — Gemini, Cepheid variable
-        [50583] = "HR 4359",  // θ Leo (Chertan) — Leo
+        [60718] = "HR 4730",  // α1 Cru (Acrux), brightest star in Crux
+        [65378] = "HR 5054",  // ζ UMa A (Mizar), Big Dipper handle
+        [26727] = "HR 1931",  // η Ori, Orion
+        [36850] = "HR 2650",  // ζ Gem (Mekbuda), Gemini, Cepheid variable
+        [50583] = "HR 4359",  // θ Leo (Chertan), Leo
     };
 
     /// <summary>
@@ -2329,7 +2329,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// </summary>
     private static readonly Dictionary<int, (Half VMag, Half BMinusV)> HipMagnitudeFallback = new()
     {
-        [42913] = ((Half)1.96f, (Half)0.04f),  // δ¹ Vel (Alsephina) — eclipsing binary, SIMBAD VMag null
+        [42913] = ((Half)1.96f, (Half)0.04f),  // δ¹ Vel (Alsephina); eclipsing binary, SIMBAD VMag null
     };
 
     private bool TryLookupHIPFromTycho2(CatalogIndex hipIndex, ulong hipValue, out CelestialObject celestialObject)
@@ -2627,7 +2627,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         if (objectType == ObjectType.Duplicate)
         {
             // Duplicates are stored in _objectsByIndex for cross-reference resolution
-            // but NOT added to the spatial grid — only the primary entry belongs there.
+            // but NOT added to the spatial grid, only the primary entry belongs there.
             AddCommonNameIndex(obj.Index, obj.CommonNames);
             // when the entry is a duplicate, use the cross lookup table to list the entries it duplicates
             if (ngcSuffix.Length > 0 && TryGetCleanedUpCatalogName("NGC" + ngcSuffix, out var ngcIndexEntry))
@@ -2744,7 +2744,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             var dec     = IO.AsciiRecordReader.ReadDouble(IO.AsciiRecordReader.TakeField(ref rec));
             var vmag    = IO.AsciiRecordReader.ReadNullableDouble(IO.AsciiRecordReader.TakeField(ref rec));
             var bmv     = IO.AsciiRecordReader.ReadNullableDouble(IO.AsciiRecordReader.TakeField(ref rec));
-            // Last field is Ids — TakeField returns the whole remainder when no trailing RS.
+            // Last field is Ids: TakeField returns the whole remainder when no trailing RS.
             var ids     = IO.AsciiRecordReader.ReadStringArray(IO.AsciiRecordReader.TakeField(ref rec));
 
             records.Add(new SimbadCatalogDto(mainId, ids, objType, ra, dec, vmag, bmv));

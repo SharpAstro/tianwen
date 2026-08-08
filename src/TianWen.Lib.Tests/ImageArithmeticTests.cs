@@ -9,7 +9,7 @@ namespace TianWen.Lib.Tests;
 [Collection("Imaging")]
 public class ImageArithmeticTests
 {
-    // 5x3 buffers produce 15 floats — deliberately NOT a multiple of
+    // 5x3 buffers produce 15 floats: deliberately NOT a multiple of
     // Vector<float>.Count (4 / 8 / 16) so each test exercises both the SIMD
     // body and the scalar tail of SubtractClampVec / DivideClampVec.
     private static float[,] MakeChannel(float[] flat, int height = 3, int width = 5)

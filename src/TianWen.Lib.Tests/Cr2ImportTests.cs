@@ -21,9 +21,9 @@ namespace TianWen.Lib.Tests;
 /// two PNGs to the test temp dir for visual inspection:
 ///
 /// <list type="bullet">
-/// <item><b>raw_debayered.png</b> — debayered RGB + auto-stretch + sRGB
+/// <item><b>raw_debayered.png</b>: debayered RGB + auto-stretch + sRGB
 /// gamma, NO matrix applied. "Without matrix" baseline.</item>
-/// <item><b>raw_debayered_matrix.png</b> — same pipeline with
+/// <item><b>raw_debayered_matrix.png</b>: same pipeline with
 /// <see cref="ImageMeta.CameraToSrgbMatrix"/> applied between debayer
 /// and auto-stretch. "With matrix" preview (Phase 3 will apply this
 /// automatically in the render pipeline).</item>
@@ -62,7 +62,7 @@ public class Cr2ImportTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
 
         // Pre-load the spectral database before the import so the SASP path is
-        // available. In a real session this is loaded by SPCC startup — but in
+        // available. In a real session this is loaded by SPCC startup, but in
         // a test we drive it explicitly to confirm dispatch order: spectral
         // wins when available, dcraw fills in for models SASP doesn't cover.
         await FilterCurveDatabase.LoadAsync(ct);
@@ -72,7 +72,7 @@ public class Cr2ImportTests(ITestOutputHelper output)
         ok.ShouldBeTrue("Image.TryReadImageFile should handle .cr2 via FC.SDK.Raw");
         mosaicImage.ShouldNotBeNull();
 
-        // Image carries the Bayer mosaic as a single float channel here —
+        // Image carries the Bayer mosaic as a single float channel here; 
         // deliberately not pre-debayered, so drizzle / Bayer-aware stacking
         // workflows that need the mosaic can still get it. Color rendering
         // is a downstream concern (DebayerAsync below).
@@ -108,7 +108,7 @@ public class Cr2ImportTests(ITestOutputHelper output)
         rgbH.ShouldBe(h);
 
         // The matrix survives the `imageMeta with { SensorType = Color }`
-        // copy that DebayerAsync does — important for Phase 3 wiring.
+        // copy that DebayerAsync does: important for Phase 3 wiring.
         rgbImage.ImageMeta.CameraToSrgbMatrix.ShouldNotBeNull(
             "DebayerAsync's `imageMeta with` must preserve CameraToSrgbMatrix");
 
@@ -125,7 +125,7 @@ public class Cr2ImportTests(ITestOutputHelper output)
 
         // CI sanity: both PNGs exist and are non-trivial. Per-pixel correctness
         // of the with-matrix render is verified by visual inspection / the
-        // test-image-diff skill — there's no algorithmic ground truth to
+        // test-image-diff skill: there's no algorithmic ground truth to
         // assert against at the file level.
         new FileInfo(noMatrixPng).Length.ShouldBeGreaterThan(10_000);
         new FileInfo(matrixPng).Length.ShouldBeGreaterThan(10_000);
@@ -137,7 +137,7 @@ public class Cr2ImportTests(ITestOutputHelper output)
         // Spot-check: the matrix populated on the Image must equal the
         // dcraw factory matrix for EOS 6D (which we already validate at the
         // FC.SDK.Raw level in CanonCameraProfilesTests). This keeps the
-        // import wiring honest — if someone accidentally swaps the spectral
+        // import wiring honest, if someone accidentally swaps the spectral
         // / dcraw branches, this test catches it for the 6D case.
         var path = FixturePath;
         if (!IsFixtureUsable(path))
@@ -147,14 +147,14 @@ public class Cr2ImportTests(ITestOutputHelper output)
             return;
         }
 
-        // NB: deliberately NOT loading FilterCurveDatabase here — the dcraw
+        // NB: deliberately NOT loading FilterCurveDatabase here; the dcraw
         // fallback must work even without spectral data loaded.
         Image.TryReadImageFile(path, out var image).ShouldBeTrue();
         var matrix = image!.ImageMeta.CameraToSrgbMatrix;
         matrix.ShouldNotBeNull();
 
         // Reference values from CanonCameraProfilesTests.ComputeRgbCam_Eos6D_MatchesHandComputedValues
-        // — same matrix the FC.SDK.Raw test asserts against. Tolerance 0.01
+        //; same matrix the FC.SDK.Raw test asserts against. Tolerance 0.01
         // absorbs the float-vs-double round-trip through ComputeRgbCam.
         var expected = new[]
         {
@@ -169,7 +169,7 @@ public class Cr2ImportTests(ITestOutputHelper output)
     /// <summary>Renders a 3-channel float <see cref="Image"/> to PNG with
     /// optional camera-to-sRGB matrix application, joint auto-stretch by the
     /// global max, and sRGB gamma encode. Mirrors FC.SDK.Raw's
-    /// <c>CanonDemosaic.Finalize</c> pipeline — kept here as a temporary
+    /// <c>CanonDemosaic.Finalize</c> pipeline: kept here as a temporary
     /// stand-in for the Phase 3 render path that will do the same via
     /// <c>StretchUniforms</c>.</summary>
     private static void RenderRgbToPng(Image rgbImage, string outPath, float[]? applyMatrix)
@@ -182,7 +182,7 @@ public class Cr2ImportTests(ITestOutputHelper output)
 
         // 1. Copy channels into a working buffer; apply matrix if provided.
         //    The matrix transform mixes the three channels (camera-RGB ->
-        //    sRGB primaries) — channel-planar to interleaved layout helps
+        //    sRGB primaries): channel-planar to interleaved layout helps
         //    the inner loop stay cache-friendly.
         var working = new float[pixels * 3];
         for (var p = 0; p < pixels; p++)
@@ -204,7 +204,7 @@ public class Cr2ImportTests(ITestOutputHelper output)
             }
         }
 
-        // 2. Joint auto-stretch by global max — single divisor across all three
+        // 2. Joint auto-stretch by global max: single divisor across all three
         //    channels so WB / matrix ratios survive and the brightest pixel
         //    lands at 1.0. Without this, WB-amplified highlights clip on the
         //    ushort conversion below.
@@ -213,7 +213,7 @@ public class Cr2ImportTests(ITestOutputHelper output)
         if (max < 1e-6f) max = 1f;
 
         // 3. sRGB gamma encode + 8-bit quantise to RGBA. Standard sRGB
-        //    transfer function (IEC 61966-2-1) — what PngWriter / browsers
+        //    transfer function (IEC 61966-2-1): what PngWriter / browsers
         //    / Affinity all assume on unmanaged 8-bit images.
         var rgba = new byte[pixels * 4];
         for (var p = 0; p < pixels; p++)

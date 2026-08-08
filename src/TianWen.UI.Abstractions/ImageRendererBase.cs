@@ -6,7 +6,7 @@
 //
 // Solution: two-layer rendering with a cached offscreen framebuffer.
 //
-// Layer 1 — Image content (expensive, rarely changes):
+// Layer 1: Image content (expensive, rarely changes):
 //   Render image quad + stretch shader + star overlay + WCS grid + histogram
 //   into a VkImage offscreen framebuffer. Only re-render when:
 //   - New image loaded (NeedsTextureUpdate)
@@ -16,14 +16,14 @@
 //   - WCS grid toggled
 //   - Channel view changed
 //
-// Layer 2 — UI chrome (cheap, changes on mouse move):
+// Layer 2: UI chrome (cheap, changes on mouse move):
 //   Each frame: blit cached Layer 1 framebuffer → render toolbar, status bar,
-//   file list, info panel on top. This is just text quads — very cheap.
+//   file list, info panel on top. This is just text quads; very cheap.
 //
 // Implementation steps:
 //   1. Add offscreen VkImage + VkFramebuffer to VkFitsImagePipeline (same size as swapchain)
 //   2. Add a "blit" shader (fullscreen quad sampling the offscreen texture)
-//   3. Add ImageContentDirty flag to ViewerState — set by stretch/zoom/pan/toggle changes
+//   3. Add ImageContentDirty flag to ViewerState: set by stretch/zoom/pan/toggle changes
 //   4. In OnRender: if ImageContentDirty → render Layer 1 to offscreen → clear flag
 //   5. Always: blit offscreen → render chrome overlay → present
 //   6. Handle resize: recreate offscreen framebuffer
@@ -238,7 +238,7 @@ namespace TianWen.UI.Abstractions
         private static readonly RGBAColor32 HistogramLogOffHoverBg = RGBAColor32.FromFloat(0.35f, 0.35f, 0.40f, 0.9f);
 
         // -----------------------------------------------------------------------
-        // Abstract methods — GPU-specific rendering
+        // Abstract methods: GPU-specific rendering
         // -----------------------------------------------------------------------
 
         /// <summary>
@@ -520,7 +520,7 @@ namespace TianWen.UI.Abstractions
             }
 
             // Caller-driven sky annotations (polar alignment, plate-solve verification,
-            // target markers, mosaic panel boundaries...). Generic primitive — the
+            // target markers, mosaic panel boundaries...). Generic primitive; the
             // renderer doesn't know what the markers represent.
             // The annotation WCS is the document's (still image) or, for a document-less live source, the
             // caller-supplied OverrideWcs (polar-align solves the live preview frame and hands the WCS in).
@@ -553,7 +553,7 @@ namespace TianWen.UI.Abstractions
                 RenderStatusBar(document, state);
             }
 
-            // Dropdown overlays — rendered last so their clickables win z-order
+            // Dropdown overlays: rendered last so their clickables win z-order
             // (RegisterClickable resolves by paint order). RenderDropdownMenu is
             // a no-op when the state is closed. Toolbar-driven, so skipped with the chrome.
             if (!state.HideChrome && !string.IsNullOrEmpty(FontPath))
@@ -569,7 +569,7 @@ namespace TianWen.UI.Abstractions
         }
 
         // -----------------------------------------------------------------------
-        // Image rendering — computes placement, delegates to abstract
+        // Image rendering: computes placement, delegates to abstract
         // -----------------------------------------------------------------------
 
         private void RenderImage(IPreviewSource? source, ViewerState state, StretchUniforms stretch, WCS? gridWcs)

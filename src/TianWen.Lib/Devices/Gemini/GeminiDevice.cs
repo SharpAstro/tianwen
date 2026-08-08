@@ -12,7 +12,7 @@ namespace TianWen.Lib.Devices.Gemini;
 /// <summary>
 /// Gemini FlatPanel Lite cover/calibrator addressed by URI. The <c>port</c> query parameter carries the
 /// serial port (e.g. <c>serial:COM4</c>); baud is fixed at <see cref="GeminiFlatPanelProtocol.Baud"/>. A
-/// driver-controlled light panel with no cover flap — see <c>docs/architecture/gemini-flatpanel-lite-protocol.md</c>.
+/// driver-controlled light panel with no cover flap; see <c>docs/architecture/gemini-flatpanel-lite-protocol.md</c>.
 /// </summary>
 public record class GeminiDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
 {

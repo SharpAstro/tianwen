@@ -59,7 +59,7 @@ public class OverlayEngineTests
     [InlineData(ObjectType.Galaxy, true, OverlayMarkerKind.Ellipse)]
     [InlineData(ObjectType.Galaxy, false, OverlayMarkerKind.Circle)]
     [InlineData(ObjectType.DarkNeb, true, OverlayMarkerKind.Ellipse)]
-    // Stars are always a cross — even when a stray/cross-linked shape exists (Antares = RedSG).
+    // Stars are always a cross, even when a stray/cross-linked shape exists (Antares = RedSG).
     [InlineData(ObjectType.Star, true, OverlayMarkerKind.Cross)]
     [InlineData(ObjectType.Star, false, OverlayMarkerKind.Cross)]
     [InlineData(ObjectType.RedSG, true, OverlayMarkerKind.Cross)]
@@ -500,7 +500,7 @@ public class OverlayEngineTests
     public void ComputeOverlays_StarWithShape_ReturnsCrossNotEllipse()
     {
         // Regression (Antares / alpha Sco): a star can pick up an extended-object
-        // shape entry — the rho-Oph dark-cloud complex sits right on Antares, so a
+        // shape entry: the rho-Oph dark-cloud complex sits right on Antares, so a
         // nebula shape cross-links onto the RedSG star index. A star must still render
         // as a cross marker, never an extended-object ellipse, even when a shape is
         // present. The marker choice must gate on object TYPE, not merely "has a shape".
@@ -519,7 +519,7 @@ public class OverlayEngineTests
 
         items.Count.ShouldBeGreaterThanOrEqualTo(1);
         // RedSG is a star (its packed 's*r' code contains '*'), so the marker must be
-        // a cross — the shape entry must not promote it to an ellipse.
+        // a cross: the shape entry must not promote it to an ellipse.
         items[0].Marker.Kind.ShouldBe(OverlayMarkerKind.Cross);
     }
 
@@ -562,7 +562,7 @@ public class OverlayEngineTests
     {
         var wcs = MakeSimpleWCS();
         var obj = MakeObject(CatalogIndex.NGC1976);
-        // Very tiny shape — will be < 3px at normal zoom
+        // Very tiny shape: will be < 3px at normal zoom
         var shape = new CelestialObjectShape((Half)0.01, (Half)0.005, (Half)0.0);
         var db = new FakeDB(obj, shape: shape, gridRA: 5.0, gridDec: -2.0);
 

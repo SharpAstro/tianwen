@@ -23,7 +23,7 @@ public static class ViewerActions
         state.StatusMessage = state.StretchMode is StretchMode.None ? "Stretch: Off" : "Stretch: On";
     }
 
-    // Cycle order for stretch link — excludes None. Internal so the dropdown
+    // Cycle order for stretch link: excludes None. Internal so the dropdown
     // selector in <see cref="ImageRendererBase{TSurface}"/> can reuse the same
     // mode list (single source of truth: cycle order matches dropdown order).
     internal static readonly StretchMode[] StretchLinkModes = [StretchMode.Unlinked, StretchMode.Linked, StretchMode.Luma];
@@ -293,7 +293,7 @@ public static class ViewerActions
     }
 
     // The viewport pan drag (Begin/Update/EndPan + ViewerState.IsPanning/PanStart) moved onto the
-    // renderer's DIR.Lib PanZoomController — the gesture state lives on the controller, and only the
+    // renderer's DIR.Lib PanZoomController: the gesture state lives on the controller, and only the
     // resulting display transform (Zoom/PanOffset/ZoomToFit) is written back to ViewerState.
 
     /// <summary>

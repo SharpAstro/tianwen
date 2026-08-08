@@ -126,7 +126,7 @@ internal sealed class OwmOneCallCurrentData
 
 /// <summary>
 /// Hourly forecast entry in the One Call 3.0 response.
-/// Same flat structure as current — native hourly, no interpolation needed.
+/// Same flat structure as current: native hourly, no interpolation needed.
 /// </summary>
 internal sealed class OwmOneCallHourlyEntry
 {

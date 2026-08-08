@@ -8,7 +8,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Wire-level tests for the Gemini FlatPanel Lite codec against an in-memory
-/// <see cref="FakeGeminiFlatPanelSerialDevice"/> — the '&gt; … #' framing, the H/V/S/J queries, and the
+/// <see cref="FakeGeminiFlatPanelSerialDevice"/>: the '&gt; … #' framing, the H/V/S/J queries, and the
 /// L/D/B actions. No hardware.
 /// </summary>
 public class GeminiFlatPanelProtocolTests

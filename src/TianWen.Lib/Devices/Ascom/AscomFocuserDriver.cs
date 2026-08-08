@@ -18,7 +18,7 @@ internal class AscomFocuserDriver : AscomDeviceDriverBase, IFocuserDriver
 
     protected override ValueTask<bool> InitDeviceAsync(CancellationToken cancellationToken)
     {
-        // Cache immutable hardware capabilities — avoids a COM round-trip per property read
+        // Cache immutable hardware capabilities: avoids a COM round-trip per property read
         // and, more importantly, avoids each read being another place a hung hub can throw.
         TempCompAvailable = SafeGet(() => _focuser.TempCompAvailable, false);
         Absolute = SafeGet(() => _focuser.Absolute, false);

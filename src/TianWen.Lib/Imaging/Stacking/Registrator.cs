@@ -19,8 +19,8 @@ public static class Registrator
     /// <summary>
     /// Picks the best frame to use as the registration reference. Scores each
     /// frame by star count (per <see cref="Image.FindStarsAsync"/>) and picks
-    /// the maximum. v1 scoring is intentionally simple — count alone, not
-    /// count × (1/FWHM) — because computing FWHM doubles the per-frame load
+    /// the maximum. v1 scoring is intentionally simple; count alone, not
+    /// count × (1/FWHM), because computing FWHM doubles the per-frame load
     /// cost and isn't worth the complexity until profiling shows a star-rich
     /// but defocused frame is dragging registration quality down.
     /// </summary>
@@ -140,7 +140,7 @@ public static class Registrator
 
         if (transform is null)
         {
-            // Quad match failed — emit a non-registered result so the
+            // Quad match failed: emit a non-registered result so the
             // integrator can decide whether to skip the frame.
             return RegistrationResult.Identity(light.Path, registered: false);
         }

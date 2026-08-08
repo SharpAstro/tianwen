@@ -138,7 +138,7 @@ internal sealed class GuideLoop
     /// <summary>
     /// Target blend factor for neural model corrections after ramp-in completes.
     /// 0 = P-controller only, 1 = full neural replacement.
-    /// Default: 0.5 (50% neural, 50% P-controller — matches PHD2's prediction_gain).
+    /// Default: 0.5 (50% neural, 50% P-controller, matches PHD2's prediction_gain).
     /// During the ramp-in phase, the effective blend linearly increases from 0 to this value.
     /// </summary>
     public double NeuralBlendFactor { get; set; } = 0.5;
@@ -403,7 +403,7 @@ internal sealed class GuideLoop
 
                 var frameStart = GetTimestamp();
 
-                // Capture and process frame — release previous frame's ChannelBuffer
+                // Capture and process frame: release previous frame's ChannelBuffer
                 LastFrame?.Release();
                 var frame = await captureFrame(cancellationToken);
                 LastFrame = frame;
@@ -412,7 +412,7 @@ internal sealed class GuideLoop
 
                 if (result is null)
                 {
-                    // Star lost — wait and try again. Log only on the lost transition so a
+                    // Star lost: wait and try again. Log only on the lost transition so a
                     // multi-frame outage produces one Warning, not a flood.
                     if (!_starLost)
                     {

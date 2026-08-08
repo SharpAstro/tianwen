@@ -12,7 +12,7 @@ namespace TianWen.UI.Benchmarks;
 /// (the <c>dotnet-trace</c> cpu-sampling profile puts it at ~80% inclusive
 /// time on a Canon EOS 6D CR2), but in <see cref="ImageReadBenchmarks"/>
 /// that's bundled with the TIFF walk, slice unscramble, EXIF parse, and
-/// the <c>Image</c> construction wrappers — so timing changes upstream
+/// the <c>Image</c> construction wrappers, so timing changes upstream
 /// of FC.SDK.Raw are hard to attribute.
 ///
 /// <para>This benchmark extracts the entropy-coded JPEG strip from the
@@ -20,7 +20,7 @@ namespace TianWen.UI.Benchmarks;
 /// IFD3 has Compression=6 + StripOffsets/StripByteCounts pointing at a
 /// SOF3 LJPEG), then loops <see cref="LosslessJpeg.FromMemory(ReadOnlySpan{byte})"/>
 /// over the cached bytes. Result: a pure decode-time number with zero
-/// upstream noise — the right thing to watch when optimizing the
+/// upstream noise: the right thing to watch when optimizing the
 /// Huffman / predictor inner loops in the StbImageSharp sibling repo.</para>
 /// </summary>
 [MemoryDiagnoser]
@@ -36,7 +36,7 @@ public class LosslessJpegBenchmarks
         if (!File.Exists(cr2Path))
         {
             throw new FileNotFoundException(
-                $"CR2 fixture missing at {cr2Path} — `git lfs pull --include=\"*.CR2\"` " +
+                $"CR2 fixture missing at {cr2Path}; `git lfs pull --include=\"*.CR2\"` " +
                 "from the TianWen working tree to materialise it.", cr2Path);
         }
         var bytes = File.ReadAllBytes(cr2Path);
@@ -47,8 +47,8 @@ public class LosslessJpegBenchmarks
     public LosslessJpegResult DecodeRawIfdStrip()
         => LosslessJpeg.FromMemory(_jpegStrip);
 
-    /// <summary>Walk the outer TIFF in a Canon CR2 to find the raw IFD —
-    /// the one with <c>Compression == 6</c> (old-style JPEG) — and return
+    /// <summary>Walk the outer TIFF in a Canon CR2 to find the raw IFD; 
+    /// the one with <c>Compression == 6</c> (old-style JPEG), and return
     /// the bytes at <c>StripOffsets[0]</c> for <c>StripByteCounts[0]</c>
     /// bytes. That payload is the entropy-coded SOF3 lossless JPEG the
     /// CR2 spec puts there; <see cref="LosslessJpeg.FromMemory"/> consumes
@@ -85,7 +85,7 @@ public class LosslessJpegBenchmarks
                 else if (tag == 0x0117) stripByteCount = (int)ReadU32(entry.Slice(8, 4), littleEndian);
                 // Tag 0xC640 (CR2Slice) is the canonical raw-IFD marker. IFD0
                 // also carries Compression=6 + StripOffsets, but only the raw
-                // IFD has CR2Slice — without this check we'd grab the
+                // IFD has CR2Slice, without this check we'd grab the
                 // embedded preview JPEG (SOF0 baseline, not SOF3 lossless).
                 else if (tag == 0xC640) hasCr2Slice = true;
             }

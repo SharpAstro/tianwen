@@ -79,7 +79,7 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
     {
         // Debayer first (no-op for mono / 3-channel) so the document is built on the same
         // 1- or 3-channel image we render against. AstroImageDocument.AdoptImageAsync
-        // otherwise keeps the raw Bayer image and computes stats on a 1-channel mosaic —
+        // otherwise keeps the raw Bayer image and computes stats on a 1-channel mosaic; 
         // those uniforms wouldn't match a CPU-debayered 3-channel render (the other test in
         // this file SKIPs RGGB for exactly this reason).
         var renderImage = await source.DebayerAsync(algorithm, cancellationToken: ct);
@@ -274,7 +274,7 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
     /// Verifies that the computed post-stretch background (from measured image data)
     /// matches the actual background of the CPU-stretched image. A mismatch means
     /// the boost curve's symmetry point (SP) is placed at the wrong level.
-    /// Uses AstroImageDocument.OpenAsync and ComputeStretchUniforms directly — no duplication.
+    /// Uses AstroImageDocument.OpenAsync and ComputeStretchUniforms directly; no duplication.
     /// </summary>
     [Theory]
     // RGGB skipped: AstroImageDocument keeps raw Bayer (1-channel, GPU debayers at render time),
@@ -287,7 +287,7 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         var algorithm = Enum.Parse<DebayerAlgorithm>(algorithmStr);
         var cancellationToken = TestContext.Current.CancellationToken;
 
-        // Use the real AstroImageDocument.OpenAsync — same path as the viewer
+        // Use the real AstroImageDocument.OpenAsync: same path as the viewer
         var filePath = await SharedTestData.ExtractGZippedFitsFileAsync(imageName, cancellationToken);
         var document = await AstroImageDocument.OpenAsync(filePath, algorithm, cancellationToken);
         document.ShouldNotBeNull();
@@ -299,7 +299,7 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         }
         testOutputHelper.WriteLine($"Luma background (pedestal-subtracted): {document.LumaBackground:F6}");
 
-        // Use the real ComputeStretchUniforms — same path as the viewer
+        // Use the real ComputeStretchUniforms: same path as the viewer
         var stretchFactor = stretchPct * 0.01d;
         var sigma = -5.0;
         var stretch = document.ComputeStretchUniforms(StretchMode.Unlinked, new StretchParameters(stretchFactor, sigma));
@@ -310,11 +310,11 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         testOutputHelper.WriteLine($"  Midtones: ({stretch.Midtones.R:F6}, {stretch.Midtones.G:F6}, {stretch.Midtones.B:F6})");
         testOutputHelper.WriteLine($"  Rescale:  ({stretch.Rescale.R:F6}, {stretch.Rescale.G:F6}, {stretch.Rescale.B:F6})");
 
-        // Computed background — same call as the viewer's renderer
+        // Computed background: same call as the viewer's renderer
         var computedBg = stretch.ComputePostStretchBackground(document.PerChannelBackground, document.LumaBackground);
         testOutputHelper.WriteLine($"\nComputePostStretchBackground = {computedBg:F6}");
 
-        // CPU stretch via Pipeline B and measure actual background — same math path as the
+        // CPU stretch via Pipeline B and measure actual background; same math path as the
         // viewer (ComputeStretchUniforms + StretchChannelCpu) so the predicted bg from
         // ComputePostStretchBackground really is being checked against itself.
         var rawImage = await SharedTestData.ExtractGZippedFitsImageAsync(imageName, cancellationToken: cancellationToken);
@@ -397,7 +397,7 @@ public class ContrastBoostTests(ITestOutputHelper testOutputHelper)
         var sp = bg * (1f + 0.1f * boost);
         var hp = 0.85f;
 
-        // At SP boundary — function is continuous (both sides → sp),
+        // At SP boundary: function is continuous (both sides → sp),
         // but the midtone zone has steep slope (pow(t, <1) has infinite derivative at 0),
         // so we use a very small epsilon.
         var spEps = 0.0001f;

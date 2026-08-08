@@ -132,11 +132,11 @@ public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
     [Fact]
     public async Task TryGetCurve_BeforeLoad_ReturnsFalse()
     {
-        // FilterCurveDatabase is a static singleton — LoadAsync is idempotent.
+        // FilterCurveDatabase is a static singleton: LoadAsync is idempotent.
         // This test verifies the IsLoaded guard on TryGetCurve itself.
         if (FilterCurveDatabase.IsLoaded)
         {
-            output.WriteLine("Database already loaded by prior test — guard check skipped.");
+            output.WriteLine("Database already loaded by prior test, guard check skipped.");
             return;
         }
 

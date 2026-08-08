@@ -153,7 +153,7 @@ internal class AlpacaDeviceSource(AlpacaClient alpacaClient, ILogger<AlpacaDevic
         }
         catch (SocketException)
         {
-            // Reverse DNS lookup not available — fall through to IP string
+            // Reverse DNS lookup not available: fall through to IP string
         }
 
         return address.ToString();

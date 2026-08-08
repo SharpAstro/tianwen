@@ -18,23 +18,23 @@ only the sessions it registered, not a discrepancy. Cameras: ASI533MC Pro 30, SV
 ASI585MC Pro 2, ASI1600MM Pro 1. See § "Running it again" below before regenerating.
 Goal: train our own CNN denoiser (`IDenoiseEnhancer`) and non-stellar deconvolver
 (`INonStellarDeconvolver`) on the user's own image archive, shipped as versioned ONNX models through
-the existing `TianWen.AI` / `TianWen.AI.Imaging` stack — a third backend tier alongside RC-Astro
+the existing `TianWen.AI` / `TianWen.AI.Imaging` stack; a third backend tier alongside RC-Astro
 (paid, licensed) and SAS AI4 (free fallback).
 
 Scope boundaries settled up front:
 
 - **Training is offline, on our side** (Python/PyTorch on rented GPU). Customer machines run ONNX
-  Runtime inference only — **no Python, no on-device training** for the imaging models. (On-device
+  Runtime inference only; **no Python, no on-device training** for the imaging models. (On-device
   online learning remains a NeuralGuider-only feature; its PPEC-style per-rig adaptation is out of
   scope here.)
 - **Star removal (SXT-analogue) is in scope as a LATER phase** (P4, after denoise/deconv prove the
   pipeline) via the inject-and-remove bootstrap (§2.5). Croman's "hand-edit is the only way" holds
   only when you need ground truth for *existing* stars; synthetic injection gives exact truth by
-  construction. Until its eval gates pass, `IStarRemover` stays on RC/SAS — but a TianWen remover
+  construction. Until its eval gates pass, `IStarRemover` stays on RC/SAS, but a TianWen remover
   is required for the tier to run the full canonical program (the starless plate is the workhorse
   intermediate: `RemoveStarsStep`, `--split-plates`, star/starless dual stretch).
 
-## 1. Licensing constraint (load-bearing — read first)
+## 1. Licensing constraint (load-bearing, read first)
 
 The RC-Astro EULA (`C:\Program Files\RC-Astro\CLI\LICENSE.txt`, §10) **explicitly prohibits** using
 the Software *or its outputs*, "directly or indirectly, to create, train, fine-tune, test, benchmark
@@ -42,7 +42,7 @@ for replication purposes, distill, validate, improve, or otherwise develop any m
 model … intended to replicate, emulate, compete with, or perform functions substantially similar",
 naming *"the creation of training datasets or paired input/output datasets derived from the
 Software's operation"* verbatim. The originally-floated "rc-astro as batch oracle for golden images"
-is therefore off the table — as is using RC outputs for **validation or benchmarking** of our
+is therefore off the table, as is using RC outputs for **validation or benchmarking** of our
 models.
 
 The same section carves out *"lawful independent development of competing technologies … developed
@@ -52,7 +52,7 @@ on that carve-out:
 - **RC-Astro outputs appear nowhere in the training, validation, or metric loop.** RC remains
   what it is today: the preferred runtime backend for *processing images*.
 - **SAS AI4 model outputs are also excluded from the ML loop** until their license terms are
-  verified (open question #1) — assume the same restriction by default.
+  verified (open question #1); assume the same restriction by default.
 - All ground truth is derived from the user's own raw data (stacks, sub-pairs) or from synthetic
   degradation with published math. This is not a workaround; it is the scientifically stronger
   approach (real sensor noise, real optics) and it enables a claim RC cannot make (§7 photometric
@@ -60,11 +60,11 @@ on that carve-out:
 
 ## 2. Training-data strategy (no oracle needed)
 
-### 2.1 Denoiser ground truth — the archive already contains it
+### 2.1 Denoiser ground truth: the archive already contains it
 
 - **Noise2Noise (primary):** two registered, calibrated subs of the same target are two independent
   noise realisations of the same signal. Training input = sub A tile, target = sub B tile
-  (same footprint, same session). Expectation over pairs equals the clean signal — **no clean target
+  (same footprint, same session). Expectation over pairs equals the clean signal; **no clean target
   needed at all**, no input↔target noise correlation, and the pair count is combinatorial in subs.
 - **Stack-as-truth (evaluation + optional supervised mix):** the session's integrated master is the
   low-noise reference for held-out metrics (PSNR/SSIM vs master). As a *training* target it slightly
@@ -75,27 +75,27 @@ on that carve-out:
   quadrature, `aduPerElectron = maxAdu / fullWell`) using per-camera gain/full-well from FITS
   headers. Widens the noise-level distribution beyond what the archive naturally has.
 
-### 2.2 Deconvolver ground truth — synthetic PSF degradation
+### 2.2 Deconvolver ground truth: synthetic PSF degradation
 
 - Input = sharp master tile convolved with a synthetic PSF; target = the undegraded tile;
-  **electron-domain noise is added AFTER the blur on every pair** (never optional — deconvolution
+  **electron-domain noise is added AFTER the blur on every pair** (never optional, deconvolution
   is ill-posed and noise amplifies under inversion, so noise-free pairs train a brittle sharpener).
   PSF family: Moffat (β 2.5–4.5) with FWHM swept over [1, 8] px, elongation/PA, coma term, optional
-  linear guiding-smear kernel — and **position-varying**: P0 measures the archive's FWHM/
+  linear guiding-smear kernel, and **position-varying**: P0 measures the archive's FWHM/
   ellipticity/PA distribution **binned by field radius** (`FindStarsAsync` centroids give star
   positions; fast-lens corners genuinely differ from center), and per-tile degradation samples
   aberrations from the measured field-position distribution instead of one stationary kernel.
 - **Space-truth tier (experiment, above the own-masters baseline):** own masters are seeing-limited
   (FWHM ~2–3 px), so they teach only relative sharpening toward their own ceiling. Public HST/JWST
-  FITS from MAST (public domain / CC-BY — degrading *public archive data with our own measured PSF
+  FITS from MAST (public domain / CC-BY, degrading *public archive data with our own measured PSF
   family* is fully independent development; HST/JWST truth is *reported* as BXT's approach in
-  RC-Astro's FAQ and secondary coverage, NOT stated in the 2022 AIC talk, which predates BXT — and
+  RC-Astro's FAQ and secondary coverage, NOT stated in the 2022 AIC talk, which predates BXT, and
   our justification is independent of what BXT did) become sharper truth: downsampling to the rigs' 1–3"/px scales crushes HST noise, yielding effectively
   noiseless linear truth at our sampling. Domain gaps (filter sets ≠ OSC RGB) are handled by
-  luminance/per-channel training — PSF inversion is near-achromatic — and the tier is adopted only
+  luminance/per-channel training, PSF inversion is near-achromatic, and the tier is adopted only
   if it beats the baseline on the pinned split.
 - **PSF conditioning mirrors the SAS conditional model exactly:** a second scalar ONNX input
-  `psf01 ∈ [0,1]`, log2-encoded over [1, 8] px — the *same* encoding `HfdPsfEstimator` already
+  `psf01 ∈ [0,1]`, log2-encoded over [1, 8] px; the *same* encoding `HfdPsfEstimator` already
   produces and `OnnxIoNames.ImagePlusScalar` already classifies. Our model becomes a drop-in for
   `OnnxNonStellarDeconvolver` (different model file, same two-input signature).
 - Masters are themselves seeing-blurred, so the net learns *relative* sharpening (standard for
@@ -110,20 +110,20 @@ on that carve-out:
 
 Full survey (roots, per-era layout conventions, camera-by-era table from real FITS headers,
 extension/size/per-year breakdowns, and the complete hazard list) lives in the dedicated
-[astro-archive-survey.md](astro-archive-survey.md) — read it before starting P0. Summary: ~83,500
+[astro-archive-survey.md](astro-archive-survey.md): read it before starting P0. Summary: ~83,500
 files / ~1.96 TB across `D:\Astro-Pics` (primary) + `D:\BobbyBox-Temp` (working tree, partially
-duplicating 2024–mid-2025, plus unique Aug–Nov 2025 sessions). The **recent/good band (2024–2026)**
-— ASI533MC Pro (RGGB), ASI585MC Pro, SVBONY SV605CC (GRBG), one ASI1600MM mono session, consistent
-N.I.N.A. headers, per-session BIAS/DARK/DARKFLAT/FLAT — holds an estimated **~20,000–24,000
+duplicating 2024–mid-2025, plus unique Aug–Nov 2025 sessions). The **recent/good band (2024–2026)**;
+ASI533MC Pro (RGGB), ASI585MC Pro, SVBONY SV605CC (GRBG), one ASI1600MM mono session, consistent
+N.I.N.A. headers, per-session BIAS/DARK/DARKFLAT/FLAT; holds an estimated **~20,000–24,000
 candidate raw lights** before quality filtering. Older eras (2021–2022, ASI294/QHY178m, ~668 GB)
 are lower value; SER/planetary and CR2/DSLR are excluded in v1.
 
-**Step 0 (archive organization, before any builder code):** `tools/astro-archive-dedup.py` — a
+**Step 0 (archive organization, before any builder code):** `tools/astro-archive-dedup.py`; a
 READ-ONLY scanner producing a resumable per-file header index (`fits-index.jsonl`) plus three
 reports: `dup-files.csv` (exact-dup groups, identity = camera + `DATE-OBS` + exposure + dims,
 hash-confirmed; cross-root flagged), `nights-rollup.csv` (per camera/night light counts split
-dup/unique — the "what in BobbyBox is actually new" answer), and `calibration-coverage.csv` (per
-light group: matching darks/bias found anywhere in the archive — because **calibration masters are
+dup/unique, the "what in BobbyBox is actually new" answer), and `calibration-coverage.csv` (per
+light group: matching darks/bias found anywhere in the archive, because **calibration masters are
 shared between sessions**, per-session folders cannot be assumed). Any physical
 extraction/filing of BobbyBox uniques into Astro-Pics happens as a user-reviewed step from these
 reports; the script itself never moves or deletes anything.
@@ -164,16 +164,16 @@ Comments and trailing commas are accepted, since the file is written by hand. Fi
 field so far; the shape allows more.
 
 Load-bearing hazards for the dataset builder (all detailed with examples in the survey doc): (1)
-dedup across Astro-Pics ↔ BobbyBox-Temp *and* within Astro-Pics itself — content-hash + `DATE-OBS`
-pass (Step 0's `dup-files.csv`); (2) never ingest `AutoSave`/`PROC`/`pixinsight`/XISF processed intermediates — gate on
+dedup across Astro-Pics ↔ BobbyBox-Temp *and* within Astro-Pics itself, content-hash + `DATE-OBS`
+pass (Step 0's `dup-files.csv`); (2) never ingest `AutoSave`/`PROC`/`pixinsight`/XISF processed intermediates, gate on
 `IMAGETYP='Light'` + `EXPTIME` in [10, 300] s from headers, not folder names (BobbyBox-Temp
 especially: raw subs and XISF intermediates share the same session folders), **and exclude
 simulator cameras by `INSTRUME`** (Step 0 found 139 "Camera V3 simulator" lights from a
-2024-03-15 N.I.N.A. test session — synthetic frames would poison the noise model); (3) mixed Bayer
+2024-03-15 N.I.N.A. test session; synthetic frames would poison the noise model); (3) mixed Bayer
 patterns (RGGB vs GRBG) and mono+FILTER sessions need per-camera debayer; (4) `2026-02-20 BAD LIGHT
 EXAMPLES` (33 hand-flagged bad frames) is a free validation set for the quality gate; (5) 39+4
 `.7z` archives (~100 GB, mostly pre-2023/planetary, already out of v1 scope) are invisible to a
-folder scan unless extracted — watch for new ones under future 2024+ sessions.
+folder scan unless extracted; watch for new ones under future 2024+ sessions.
 
 ### 2.3b Running it again (facts from the 2026-07-15 run, re-measured 2026-08-03)
 
@@ -212,30 +212,30 @@ FILTER-bearing lights are all in the older mono era, outside this set.
 
 ### 2.4 Dataset builder (`tianwen dataset build`, new CLI subcommand)
 
-**CLI contract — no machine specifics in the tool.** The command ships to every user, so nothing
+**CLI contract; no machine specifics in the tool.** The command ships to every user, so nothing
 in the repo encodes this machine: archive locations are **required** parameters (`--archive-root`,
 repeatable; `--out`), with fail-fast errors instead of defaults pointing anywhere. Behavioural
 knobs are parameters with *portable* defaults: exposure gate (`--min/--max-exposure`, default
-10/300 s), instrument exclusion (`--exclude-instrume`, default `*simulator*` — generic, not a
+10/300 s), instrument exclusion (`--exclude-instrume`, default `*simulator*`; generic, not a
 camera list), tile size/cells/subs-per-cell, split-file path. Machine-specific invocations live in
 the operator's own runner scripts outside the repo (the `run-archive-step0.ps1` pattern) or in
 docs as examples only. The step-0 python helpers already conform (paths appear solely in docstring
-usage examples) — keep that bar.
+usage examples); keep that bar.
 
 C# tooling in-repo, reusing existing Lib machinery end-to-end (scan `FitsFolderFrameSource` →
 dedup → quality gate → calibrate via `MasterFrameBuilder` → debayer → register subs to the session
 master → tile export). **Calibration is resolved by header match across the whole archive, never by
-session folder** (confirmed 2026-07-11: dark/bias libraries are shared between sessions) — the same
+session folder** (confirmed 2026-07-11: dark/bias libraries are shared between sessions); the same
 `MasterGroupKey`-style identity (camera, exposure, gain, binning, ±temp) the stacker already uses;
 Step 0's `calibration-coverage.csv` is the coverage map. **Masters are built once per
-`MasterGroupKey` group and cached on disk** (the `StackingPipeline.BuildMastersAsync` mechanism —
+`MasterGroupKey` group and cached on disk** (the `StackingPipeline.BuildMastersAsync` mechanism,
 a shared dark library serving five sessions is one group, one master), with two builder-specific
 requirements: the cache dir is **one shared archive-wide location** (not per-run `outputDir`, so
 build-once holds across all ~180 sessions and re-runs), and the cached master carries an
 **input-set fingerprint** (frame count + content hashes stamped into its header) so a grown dark
 library invalidates its stale master instead of silently cache-hitting on the slug. Foreign
 pre-existing masters (PixInsight XISF / DBE'd TIFs in `PROC` dirs) are deliberately **not**
-reused — unknown rejection/scaling provenance breaks the "pure function of inputs" cache trust;
+reused; unknown rejection/scaling provenance breaks the "pure function of inputs" cache trust;
 raw calibration frames exist for essentially every 2022+ session, so rebuilding is cheap and
 reproducible. Per session:
 
@@ -244,47 +244,47 @@ reproducible. Per session:
   thresholds don't transfer across focal lengths); drops cloud/trailing/defocus frames.
   **Measured finding (2026-07-11, ASI533MC Pro on a Samyang 135 f/2, BAD-LIGHT vs healthy session):
   star count is the load-bearing metric, not HFD/ellipticity.** On a fast refractor ellipticity is a
-  rig constant (~0.56 for good AND bad — corner elongation), and HFD *inverts* under transparency
+  rig constant (~0.56 for good AND bad, corner elongation), and HFD *inverts* under transparency
   loss (clouded frames read a LOWER median HFD, 2.0 vs 2.8, because only bright tight cores survive
-  detection) — so a naive HFD gate would rank clouded frames as *sharper*. Transparency collapse
+  detection), so a naive HFD gate would rank clouded frames as *sharper*. Transparency collapse
   shows as a star-count drop (bad median 1261 vs good p10 2671), caught by the left-tail
   `StarCountTooLow` check. HFD/ellipticity are retained for rigs/failures that do move them
   (defocus, tracking) but are not this archive's discriminator. The keep-floor is raised from
-  stacking's 0.20 to 0.50 (`QualityMaxRejectFraction`) — purity over yield, since there are 20k+
+  stacking's 0.20 to 0.50 (`QualityMaxRejectFraction`); purity over yield, since there are 20k+
   subs to draw from. **Not a catch-all**: ~3 of the 33 hand-flagged bad frames are metrically
-  identical to good ones (normal star count + PSF — bad for reasons no PSF metric sees: satellite,
+  identical to good ones (normal star count + PSF, bad for reasons no PSF metric sees: satellite,
   gradient, the last clear frame before clouds); those survive by design. The exit criterion is
   "rejects the transparency/focus-bad frames, keeps the good ones", not "100% of hand-flagged".
   **Validated (cached-metrics test):** mixing the 33 bad frames into the full 400-frame healthy
   session at a realistic 8% minority, the gate rejects 30/33 bad (the 3 survivors are the
-  metrically-good ones) and trims ~8% of good frames — and that good-frame rejection is *principled*
+  metrically-good ones) and trims ~8% of good frames, and that good-frame rejection is *principled*
   (the rejected good are the measurably softer/thinner tail, not random), which for a training set
   is a purity feature, not a loss. Yield/purity note: this trims the softest ~5-10% of otherwise-fine
   frames; acceptable given 20k+ subs, and desirable for deconv (sharper master truth).
 - **Fixed tile grid per session** (256 px cells on the master's frame, sampled ~200–400 cells biased
   toward structure by local signal): every exported sub tile and the master tile share exact
   footprints, so any two subs' cell (i,j) is an N2N pair and the master's cell (i,j) is eval truth.
-  Export the master tile + a random 4–8 subs per cell (not all subs — bounds dataset size).
+  Export the master tile + a random 4–8 subs per cell (not all subs, bounds dataset size).
 - **Output**: fp16 tiles (npy-compatible raw blobs) + a JSONL manifest per tile: source file,
   session id, camera, gain, exposure, tile coords, per-tile noise σ (MAD), session median FWHM.
   Manifest rows written via a **canonical sort before any sampling** (parallel writers break every
   downstream seeded operation otherwise).
-- Budget: ~60 sessions × ~300 cells × ~9 tiles ≈ 160k tiles ≈ **50–80 GB** — one upload to a cloud
+- Budget: ~60 sessions × ~300 cells × ~9 tiles ≈ 160k tiles ≈ **50–80 GB**; one upload to a cloud
   volume, regenerable from scratch by re-running the command.
 
 **Zero train/inference skew (non-negotiable):** the tile exporter calls the *same* code the
-inference path uses — `AiNafnetInputs` MTF pre-stretch (target median 0.25, auto-skip threshold
+inference path uses; `AiNafnetInputs` MTF pre-stretch (target median 0.25, auto-skip threshold
 0.125), `[0,1]` linear convention, `ChunkedInference`-compatible geometry. Python never
 re-implements preprocessing; it consumes tiles as-stored. A `parity-check` diff (export N tiles,
 run the C# stretch and the stored bytes side by side) pins this in CI-able form.
 
-### 2.5 Star-removal ground truth — inject-and-remove bootstrap (P4)
+### 2.5 Star-removal ground truth: inject-and-remove bootstrap (P4)
 
 Ground truth for *existing* stars would need hand editing; ground truth for *injected* stars is
 exact by construction. Four stages, fully license-clean (own data + own synthetics + own model):
 
 1. **Classical bootstrap starless plates**: PSF-fit subtraction at `FindStarsAsync` detections +
-   multi-scale inpaint. Imperfections are acceptable — residual artifacts become background the
+   multi-scale inpaint. Imperfections are acceptable; residual artifacts become background the
    net must *preserve*, never content it must invent.
 2. **Synthetic star injection** onto those plates, drawn from the archive's measured PSF
    distribution (same P0 stats that calibrate the deconv sweep): Moffat cores, lens halos,
@@ -292,10 +292,10 @@ exact by construction. Four stages, fully license-clean (own data + own syntheti
    **Injection positions must be uncorrelated with the classical-removal residual sites**
    (Croman's "the network will faithfully learn all of your mistakes"): if injected stars
    preferentially land on inpaint artifacts, the net learns that removing a star reveals
-   artifacts — random placement keeps the truth under injected stars overwhelmingly clean
+   artifacts; random placement keeps the truth under injected stars overwhelmingly clean
    background.
-   Advantage of this archive: all optics are refractive (Samyang 135, ZS61, FMA180, SH61) — no
-   spider vanes, no diffraction spikes — so the morphology distribution is far narrower than a
+   Advantage of this archive: all optics are refractive (Samyang 135, ZS61, FMA180, SH61), no
+   spider vanes, no diffraction spikes, so the morphology distribution is far narrower than a
    general-purpose remover must handle.
 3. **Self-refinement loop**: run the trained net on real images → better starless plates →
    re-inject → retrain. Distills only our own model.
@@ -303,39 +303,39 @@ exact by construction. Four stages, fully license-clean (own data + own syntheti
 
 Eval is objective because injected truth is exact: removal completeness on injected stars,
 pixel-level background preservation under them, flux conservation of the stars plate; plus
-existing-star spot checks at 1:1 (the bright-saturated tail is the known hard case — keep RC/SAS
+existing-star spot checks at 1:1 (the bright-saturated tail is the known hard case, keep RC/SAS
 preferred until it passes).
 
 ## 3. Model + training
 
 - **Architecture: NAFNet, width 32, standard block config ≈ 29 M params** (the SXT 21M / NXT 24M /
   StarNet-V2 30M league; ~115 MB fp32 ONNX, same class as the SAS AI4 files the runtime already
-  handles). Capacity tuning goes DOWN via middle-block count on pinned-split ablations — Croman
+  handles). Capacity tuning goes DOWN via middle-block count on pinned-split ablations. Croman
   ("capacity saturated"), Topaz competing at 14M, and our narrower single-user domain all say >30M
   needs evidence, and width-64 (~116M) is off the table (4× the customer download for nothing).
   Same family as the SAS AI4 models, so the stride-16 / tile-256 / overlap-64 constraints of
   `ChunkedNafnetRunner` hold by construction. Denoiser: 3-channel in/out (mono handled by the
   runner's channel-tiling, as `OnnxStellarSharpener` does). Deconvolver: image + `psf01` scalar.
 - **Strength control comes free:** train full-strength models; `SharpenPipeline` already applies
-  per-step `Blend` as a post-hoc `Image.Lerp` toward the source — that *is* the user-facing strength
+  per-step `Blend` as a post-hoc `Image.Lerp` toward the source, that *is* the user-facing strength
   slider. NXT-style per-frequency knobs are explicitly deferred.
 - **Losses:** L1 (MAE) primary + MS-SSIM auxiliary; plus a **flux-preservation regulariser**
-  (per-tile mean/aperture-sum penalty) — see §7. **Adversarial/GAN losses are deliberately
-  excluded**: they optimise for plausibility, which is hallucination pressure — directly opposed
+  (per-tile mean/aperture-sum penalty); see §7. **Adversarial/GAN losses are deliberately
+  excluded**: they optimise for plausibility, which is hallucination pressure; directly opposed
   to the photometric-integrity gates. If perceptual quality ever needs a boost, prefer feature
   losses with the flux regulariser as a hard constraint.
 - **Optimisation:** AdamW, cosine schedule, grad-norm clip 1.0, early stop on held-out val, seeded
   end-to-end. Mirrors the Croman talk's recipe and prior in-house ML-pipeline experience.
 - **Discipline (proven in-house ML-pipeline patterns, adopted wholesale):**
-  - `training/EXPERIMENTS.md` — every run logged, ablations base-vs-+change on the **pinned split**,
+  - `training/EXPERIMENTS.md`: every run logged, ablations base-vs-+change on the **pinned split**,
     negative verdicts recorded to stop re-litigation.
-  - **Pinned held-out split by SESSION** (never by tile/frame — adjacent tiles leak noise/PSF stats
+  - **Pinned held-out split by SESSION** (never by tile/frame, adjacent tiles leak noise/PSF stats
     exactly like words leak page layout), committed as a flat `test-sessions.txt`.
   - **ONNX-vs-torch parity check** in the export step (run both on N val tiles, assert max prob…
     pixel delta ≤ tolerance) before any artifact is promoted.
   - **`<model>.contract.json` provenance stamped into the artifact set**: tensor conventions
     (layout, stretch constants, psf01 encoding), dataset manifest SHA-256, git commit, package pins,
-    ONNX SHA-256, timestamp — asserted at load time in C# (NeuralGuider's gate-and-refuse pattern,
+    ONNX SHA-256, timestamp; asserted at load time in C# (NeuralGuider's gate-and-refuse pattern,
     minus the delete: refuse + log + fall back to SAS).
 
 ### Infra
@@ -347,19 +347,19 @@ preferred until it passes).
 - **Full runs: an internal AKS GPU dev pool as a k8s Job** (Tesla T4 16 GB, 4 vCPU / 28 GB,
   `nvidia.com/gpu: 1`; the workload-identity Job + blob-storage pattern is already proven
   in-house). 16 GB VRAM fits NAFNet-32/64 @ 256 px with AMP; T4 ≈ 3–5× slower than a 4090, so a full
-  run is ~4–10 days — fine unattended with checkpoint-every-N-steps (restarts free). The 4-vCPU
+  run is ~4–10 days; fine unattended with checkpoint-every-N-steps (restarts free). The 4-vCPU
   loader is not a bottleneck (tiles are pre-baked fp16).
 - **Ablation sweeps (optional fast lane): RunPod Secure Cloud RTX 4090** (~$0.35–0.69/hr,
-  per-second billing, network volume ~$0.07/GB/mo) — ≈ 24–72 GPU-h ≈ **$15–50/run** when iteration
+  per-second billing, network volume ~$0.07/GB/mo); ≈ 24–72 GPU-h ≈ **$15–50/run** when iteration
   speed matters; Vast.ai interruptible (~$0.13–0.37/hr) once checkpoint-resume is proven. Pull back
   only checkpoint + ONNX.
 - Local Adreno/DirectML is for **inference smoke only** (the existing TianWen.AI path); Hexagon NPU
-  is inference-only with no vision-model path (verified) — neither trains anything.
+  is inference-only with no vision-model path (verified), neither trains anything.
 
 ## 4. Runtime integration (C#)
 
 - New `OnnxTianWenDenoiser : IDenoiseEnhancer` and `OnnxTianWenDeconvolver : INonStellarDeconvolver`
-  in `TianWen.AI.Imaging/Onnx/` — thin: model file names (`tianwen_denoise_color_v1.onnx`,
+  in `TianWen.AI.Imaging/Onnx/`: thin: model file names (`tianwen_denoise_color_v1.onnx`,
   `tianwen_deconv_nonstellar_psf_v1.onnx`) + contract assertion; the heavy lifting is the existing
   `ChunkedNafnetRunner` / `TensorImageConverter` / `OnnxIoNames`, reused verbatim.
 - **Backend selection** extends the existing single source of truth: `EnhanceBackend` gains
@@ -369,23 +369,23 @@ preferred until it passes).
   backend-cycle (right-click on the Enhance button already cycles backends).
 - **Model distribution:** published as GitHub Release assets on the TianWen repo;
   `tools/tianwen-ai-models-fetch.ps1` gains a TianWen-models section **with SHA-256 verification**
-  (the SAS fetch currently has none — ours sets the standard; contract JSON ships beside the model).
+  (the SAS fetch currently has none, ours sets the standard; contract JSON ships beside the model).
 - **Safety gates (NeuralGuider learning, scaled to fit):** default position is "present but not
   Auto-preferred"; contract mismatch → refuse + fall back; NaN/Inf/out-of-range output check on the
   stitched result → discard + fall back to input (passthrough), log a warning. No perf monitor
-  needed — this is a user-invoked batch step, not a closed loop.
+  needed; this is a user-invoked batch step, not a closed loop.
 
 ## 5. Phasing
 
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
-| **Step 0 — Archive organization** | `tools/astro-archive-dedup.py` READ-ONLY scan (header index + dup-files / nights-rollup / calibration-coverage reports); user-reviewed filing of BobbyBox uniques into Astro-Pics from the reports | Dup report reviewed; unique-to-BobbyBox sessions identified/filed; calibration coverage map exists (feeds P0's header-matched calibration) |
-| **P0 — Dataset + stats** ✅ SHIPPED 2026-07-12 | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command ✅; gate rejects transparency/focus-bad frames (star-count-led; §2.4) ✅; parity check green (maxDiff 0, in-run gate) ✅. **Real-archive run DONE 2026-07-15** (`D:\Astro-Dataset\2025-2026`, 45 sessions / 121,500 tiles); see § 2.3b for root order and the two session groups that must stay excluded. Tiles predate the master-flat pedestal fix (2026-08-03), so a regenerate is wanted before P1 trains on them. |
-| **P1 — Denoiser v1** | `training/` N2N pipeline; NAFNet-32 color run on RunPod; ONNX + contract; `OnnxTianWenDenoiser` + `--ai-backend tianwen`; eval report | Beats classical baseline + no photometric regression (§7) on held-out sessions; visually clean on 3 reference masters |
-| **P2 — Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
-| **P3 — Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
-| **P4 — Star remover** | Inject-and-remove bootstrap (§2.5): classical starless plates + measured-PSF star injector + self-refinement; `OnnxTianWenStarRemover : IStarRemover` (additive split) — completes the tier so the full canonical program runs TianWen-only | Injected-star removal completeness + background preservation + stars-plate flux conservation on held-out sessions; bright-saturated tail passes 1:1 spot checks (RC/SAS stay preferred until then) |
-| **P5 — Deferred** | Strength/frequency conditioning beyond Blend-lerp; mono-native models; drizzle-truth sharper tier; frame-quality classifier from BAD-examples; dataset-contribution flow for other users; **comet-registered stacking** (P4 unlock: star-remove subs → integrate on the `CometEphemeris`-computed per-frame comet position via WCS → recombine star-registered stars plate — the AIC comet workflow, automated by ephemeris instead of manual alignment) | — |
+| **Step 0: Archive organization** | `tools/astro-archive-dedup.py` READ-ONLY scan (header index + dup-files / nights-rollup / calibration-coverage reports); user-reviewed filing of BobbyBox uniques into Astro-Pics from the reports | Dup report reviewed; unique-to-BobbyBox sessions identified/filed; calibration coverage map exists (feeds P0's header-matched calibration) |
+| **P0: Dataset + stats** ✅ SHIPPED 2026-07-12 | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command ✅; gate rejects transparency/focus-bad frames (star-count-led; §2.4) ✅; parity check green (maxDiff 0, in-run gate) ✅. **Real-archive run DONE 2026-07-15** (`D:\Astro-Dataset\2025-2026`, 45 sessions / 121,500 tiles); see § 2.3b for root order and the two session groups that must stay excluded. Tiles predate the master-flat pedestal fix (2026-08-03), so a regenerate is wanted before P1 trains on them. |
+| **P1: Denoiser v1** | `training/` N2N pipeline; NAFNet-32 color run on RunPod; ONNX + contract; `OnnxTianWenDenoiser` + `--ai-backend tianwen`; eval report | Beats classical baseline + no photometric regression (§7) on held-out sessions; visually clean on 3 reference masters |
+| **P2: Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
+| **P3: Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
+| **P4: Star remover** | Inject-and-remove bootstrap (§2.5): classical starless plates + measured-PSF star injector + self-refinement; `OnnxTianWenStarRemover : IStarRemover` (additive split); completes the tier so the full canonical program runs TianWen-only | Injected-star removal completeness + background preservation + stars-plate flux conservation on held-out sessions; bright-saturated tail passes 1:1 spot checks (RC/SAS stay preferred until then) |
+| **P5: Deferred** | Strength/frequency conditioning beyond Blend-lerp; mono-native models; drizzle-truth sharper tier; frame-quality classifier from BAD-examples; dataset-contribution flow for other users; **comet-registered stacking** (P4 unlock: star-remove subs → integrate on the `CometEphemeris`-computed per-frame comet position via WCS → recombine star-registered stars plate, the AIC comet workflow, automated by ephemeris instead of manual alignment) | - |
 
 ## 6. Evaluation (all internal, license-clean)
 
@@ -394,21 +394,21 @@ preferred until it passes).
 - Deconv: star FWHM before/after on held-out masters; structure metrics on nebulosity (local
   contrast without ringing); "worm"/hallucination spot-checks at 1:1.
 - **No RC-Astro or SAS outputs in any metric.** Qualitative side-by-sides for a blog post are the
-  user's call as an ordinary product comparison — never part of the automated loop.
+  user's call as an ordinary product comparison, never part of the automated loop.
 - Human adjudication: a tiny local compare page (an in-house-learned lesson: blind A/B,
   don't score against "what the user kept").
 
 ## 7. The differentiator: photometric integrity
 
-Croman's own stated con: AI-processed images "destroy the scientific value" — flux and centroids
-are not conserved — *"unless they were specifically trained to conserve star flux or conserve the
+Croman's own stated con: AI-processed images "destroy the scientific value", flux and centroids
+are not conserved, *"unless they were specifically trained to conserve star flux or conserve the
 positions of star centroids"* (AIC talk, verbatim). That carve-out is this section: we train and
 gate on exactly that:
 
 - **Training:** flux-preservation regulariser (aperture-sum penalty over detected-star apertures +
   per-tile mean preservation).
 - **Eval gates:** aperture-photometry delta < X% and centroid shift < Y px (thresholds set in P1
-  from the classical pipeline's own repeatability) on held-out subs — a release-blocking gate, not
+  from the classical pipeline's own repeatability) on held-out subs; a release-blocking gate, not
   a dashboard number.
 
 This gives TianWen a claim neither RC nor SAS makes: an enhancer that is *measured* science-safe on
@@ -416,15 +416,15 @@ every release.
 
 ## 8. Risks / open questions
 
-1. **SAS AI4 model license** — verify SETI Astro's terms before *any* SAS output touches the ML loop
+1. **SAS AI4 model license**: verify SETI Astro's terms before *any* SAS output touches the ML loop
    (default: excluded, same as RC).
-2. **Master quality variance** — weak masters (few subs, poor night) as N2N eval truth understate
+2. **Master quality variance**: weak masters (few subs, poor night) as N2N eval truth understate
    quality; session gate (min sub count, min FWHM percentile) mitigates.
-3. **GRBG (SV605CC) vs RGGB** — handled by the existing debayer path; verify no channel-swap in the
+3. **GRBG (SV605CC) vs RGGB**: handled by the existing debayer path; verify no channel-swap in the
    tile exporter with a colour-target session.
-4. **Deconv hallucination risk** — the classic failure mode; mitigations: conservative default
+4. **Deconv hallucination risk**: the classic failure mode; mitigations: conservative default
    Blend, psf01 conditioning (no blind deconv), artefact spot-check protocol in eval.
-5. **~1/N noise correlation** in stack-as-truth supervised mix — N2N-primary makes this a non-issue;
+5. **~1/N noise correlation** in stack-as-truth supervised mix; N2N-primary makes this a non-issue;
    documented so nobody "optimises" it back in.
-6. **Cloud spend discipline** — pinned-split ablation protocol keeps the sweep small; budget
+6. **Cloud spend discipline**: pinned-split ablation protocol keeps the sweep small; budget
    ceiling per phase agreed before P1 kicks off (~$100–300 total expected).

@@ -20,7 +20,7 @@ public interface ISerialProbeService
 {
     /// <summary>
     /// Enumerate serial ports (excluding any pinned-in-profile ports, once Phase 3 lands)
-    /// and run all registered probes. Safe to call multiple times — each call clears
+    /// and run all registered probes. Safe to call multiple times, each call clears
     /// prior results. Non-throwing: per-port and per-probe failures are logged and
     /// absorbed; a probe that throws is treated as a no-match on that port.
     /// </summary>

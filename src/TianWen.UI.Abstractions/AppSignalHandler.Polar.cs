@@ -116,7 +116,7 @@ namespace TianWen.UI.Abstractions
                     {
                         // If the guider was looping/calibrating/guiding from a prior session,
                         // stop it cleanly first. PHD2's LoopAsync (used inside GuiderCaptureSource)
-                        // will refuse if the app is mid-calibration. Best-effort — failure here
+                        // will refuse if the app is mid-calibration. Best-effort; failure here
                         // is logged but doesn't fail the routine; the orchestrator's first frame
                         // will surface the real problem with a useful message.
                         if (activeGuider is not null)

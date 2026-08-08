@@ -6,7 +6,7 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Smoke tests for <see cref="CieReferenceData"/>. The values are transcribed
-/// from CIE 015:2018 (matching functions) and ISO/CIE 11664-2:2022 (D65) — any
+/// from CIE 015:2018 (matching functions) and ISO/CIE 11664-2:2022 (D65); any
 /// typo would silently skew the camera→sRGB matrix derivation, so we check
 /// a handful of standard identities that pin the numerical content.
 /// </summary>

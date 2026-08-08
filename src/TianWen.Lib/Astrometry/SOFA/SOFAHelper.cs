@@ -312,7 +312,7 @@ public static class SOFAHelpers
 
     /// <summary>
     /// Compute altitude for a J2000 object using a precomputed Astrom struct.
-    /// This is very fast — just trig, no Epv00 or Pnm06a.
+    /// This is very fast, just trig, no Epv00 or Pnm06a.
     /// RA in hours, Dec in degrees. Returns altitude in degrees.
     /// </summary>
     public static double AltitudeFromAstrom(double ra, double dec, in Astrom astrom)

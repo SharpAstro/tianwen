@@ -23,7 +23,7 @@ internal sealed class GeminiFlatPanelSerialProbe : ISerialProbe
     public int MaxAttempts => 1;
 
     // The CH341 bridge resets the controller when the port opens; it ignores >H# until it has booted
-    // (~2s — the vendor ASCOM driver hard-sleeps 2000ms on connect). Since discovery reopens the port per
+    // (~2s, the vendor ASCOM driver hard-sleeps 2000ms on connect). Since discovery reopens the port per
     // probe, that boot restarts every probe, so we warm up here rather than relying on other probes' time.
     public TimeSpan Warmup => TimeSpan.FromMilliseconds(2200);
 

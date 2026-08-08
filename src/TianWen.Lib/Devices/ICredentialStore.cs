@@ -1,11 +1,11 @@
 namespace TianWen.Lib.Devices;
 
 /// <summary>
-/// Stores small secrets (e.g. weather-service API keys) outside the profile JSON — in the OS
+/// Stores small secrets (e.g. weather-service API keys) outside the profile JSON; in the OS
 /// credential vault on Windows (<see cref="WindowsCredentialStore"/>) and an owner-restricted file
 /// elsewhere (<see cref="FileCredentialStore"/>).
 /// <para>
-/// Keys follow the convention <c>{deviceId}/{settingKey}</c> (e.g. <c>openweathermap/apiKey</c>) —
+/// Keys follow the convention <c>{deviceId}/{settingKey}</c> (e.g. <c>openweathermap/apiKey</c>); 
 /// keyed by device, NOT by the full device URI, so the secret survives the URI being replaced when
 /// the user switches providers or a device is re-discovered (the bug this fixes: the OWM key used to
 /// live in <c>?apiKey=</c> on the URI and was wiped on every re-assign).

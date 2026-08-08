@@ -202,7 +202,7 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         var testDir = SharedTestData.CreateTempTestOutputDir(nameof(GpuStretchPipelineTests));
         await DisplayImageWriter.WriteTiffAsync(cpuRgba, Width, Height, System.IO.Path.Combine(testDir, "cpu.tiff"), ct);
         await DisplayImageWriter.WriteTiffAsync(gpuRgba, Width, Height, System.IO.Path.Combine(testDir, "gpu.tiff"), ct);
-        // Also a per-pixel abs-diff visualisation: max(|R_diff|, |G_diff|, |B_diff|) -> grayscale.
+        // Also a per-pixel abs-diff visualisation: max(|R_diff| - |G_diff| - |B_diff|) -> grayscale.
         var diffRgba = new byte[cpuRgba.Length];
         for (var i = 0; i < cpuRgba.Length; i += 4)
         {

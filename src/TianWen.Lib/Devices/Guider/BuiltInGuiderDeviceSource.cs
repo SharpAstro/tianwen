@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 namespace TianWen.Lib.Devices.Guider;
 
 /// <summary>
-/// Device source for the built-in guider. Always available — no external software needed.
+/// Device source for the built-in guider. Always available; no external software needed.
 /// Returns a single <see cref="BuiltInGuiderDevice"/> instance on discovery.
 /// </summary>
 internal sealed class BuiltInGuiderDeviceSource : IDeviceSource<BuiltInGuiderDevice>

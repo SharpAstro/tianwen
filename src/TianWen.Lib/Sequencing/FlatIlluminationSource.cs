@@ -7,7 +7,7 @@ namespace TianWen.Lib.Sequencing;
 public enum FlatIlluminationSource
 {
     /// <summary>
-    /// A cover/calibrator device — any <see cref="Devices.ICoverDriver"/>: a flip-flat (illuminated closed
+    /// A cover/calibrator device: any <see cref="Devices.ICoverDriver"/>: a flip-flat (illuminated closed
     /// cover), a standalone driver-controlled lightbox / panel (e.g. Gemini FlatPanel Lite, which reports
     /// <see cref="Devices.CoverStatus.NotPresent"/>), or a <see cref="Devices.ManualCoverDevice"/> (a dumb
     /// hand-switched panel modelled as a degenerate driver). Time-independent: converge the exposure once,

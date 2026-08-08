@@ -17,10 +17,10 @@ namespace TianWen.Lib.Tests.Functional;
 /// Site: 48.2°N, 16.3°E. Date: 2025-12-15, session starts 22:00 UTC (midnight local).
 /// Equipment: 80mm f/6 APO refractor (480mm FL), 1024×768 sensor.
 /// At 22:00 UTC Dec 15 from Vienna, LST ≈ 4.6h:
-///   M45 (RA=3.79) HA≈0.8h, alt≈64° — high, visible
-///   M42 (RA=5.59) HA≈−1.0h, alt≈36° — near transit, visible
-///   Seagull (RA=7.06) HA≈−2.5h, alt≈23° — rising, visible above 15°
-///   Sagittarius (RA=18.0, Dec=−30°) alt≈−66° — well below horizon
+///   M45 (RA=3.79) HA≈0.8h, alt≈64°: high, visible
+///   M42 (RA=5.59) HA≈−1.0h, alt≈36°: near transit, visible
+///   Seagull (RA=7.06) HA≈−2.5h, alt≈23°: rising, visible above 15°
+///   Sagittarius (RA=18.0, Dec=−30°) alt≈−66°: well below horizon
 /// </summary>
 [Collection("Session")]
 public class SessionObservationLoopTests(ITestOutputHelper output)
@@ -76,7 +76,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(cancellationToken), cancellationToken);
 
-        // Pump time in small increments — the obs loop yields on SleepAsync until
+        // Pump time in small increments: the obs loop yields on SleepAsync until
         // we advance past its target time, ensuring deterministic sequencing.
         await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(24), cancellationToken: cancellationToken);
 
@@ -100,7 +100,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenTargetBelowHorizonWhenObservationLoopThenSkippedAndNextTargetImaged()
     {
-        // given — Sagittarius region (RA=18h, Dec=-30°) is well below horizon in December nights
+        // given: Sagittarius region (RA=18h, Dec=-30°) is well below horizon in December nights
         // from Vienna, while M42 is near transit and visible
         var ct = TestContext.Current.CancellationToken;
         var subExposure = TimeSpan.FromSeconds(30);
@@ -140,7 +140,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         // when
         await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
 
-        // then — Sgr_Region (index 0) should have been skipped
+        // then: Sgr_Region (index 0) should have been skipped
         ctx.Session.CurrentObservationIndex.ShouldBeGreaterThanOrEqualTo(1,
             "Sgr_Region should have been skipped due to being below horizon");
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0,
@@ -154,7 +154,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenThreeWinterTargetsWhenAllVisibleThenAllObservationsAdvanced()
     {
-        // given — all three targets visible at 22:00 UTC Dec 15 from Vienna (min alt 10°)
+        // given, all three targets visible at 22:00 UTC Dec 15 from Vienna (min alt 10°)
         var ct = TestContext.Current.CancellationToken;
         var subExposure = TimeSpan.FromSeconds(30);
 
@@ -202,7 +202,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         // when
         await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
 
-        // then — all three observations should have been attempted
+        // then, all three observations should have been attempted
         ctx.Session.CurrentObservationIndex.ShouldBeGreaterThanOrEqualTo(3,
             "all three observations should have been advanced through");
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThanOrEqualTo(3,
@@ -216,7 +216,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenM42WhenAltitudeDropsBelowMinThenImagingStopsEarly()
     {
-        // given — M42 transit altitude from Vienna ≈ 36.4°. With min alt 30°, M42 drops below
+        // given: M42 transit altitude from Vienna ≈ 36.4°. With min alt 30°, M42 drops below
         // ~00:45 UTC. Start at 00:20 (25 min before drop) so we capture a few frames then stop.
         var ct = TestContext.Current.CancellationToken;
         var subExposure = TimeSpan.FromSeconds(30);
@@ -249,7 +249,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         // when
         await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
 
-        // then — some frames captured, but imaging stopped early due to altitude
+        // then: some frames captured, but imaging stopped early due to altitude
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0,
             "should have captured frames while M42 was still above minimum altitude");
         ctx.Session.TotalExposureTime.ShouldBeLessThan(scheduledDuration * 0.9,
@@ -263,7 +263,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     [Fact(Timeout = 300_000)]
     public async Task GivenRefocusOnNewTargetWhenSwitchingTargetsThenBaselineStoredPerTarget()
     {
-        // given — two targets with AlwaysRefocusOnNewTarget enabled
+        // given: two targets with AlwaysRefocusOnNewTarget enabled
         var ct = TestContext.Current.CancellationToken;
         var subExposure = TimeSpan.FromSeconds(30);
 
@@ -303,7 +303,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         // when
         await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
 
-        // then — baseline HFD stored per observation index
+        // then: baseline HFD stored per observation index
         ctx.Session.BaselineByObservation.ShouldContainKey(0,
             "baseline should be stored for first observation (M42)");
         ctx.Session.BaselineByObservation.ShouldContainKey(1,
@@ -366,7 +366,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// A fork/equatorial (<see cref="AlignmentMode.Polar"/>) or Alt-Az mount never meridian-flips —
+    /// A fork/equatorial (<see cref="AlignmentMode.Polar"/>) or Alt-Az mount never meridian-flips; 
     /// only a German equatorial mount's counterweight bar would collide with the pier past the meridian.
     /// Same geometry as <see cref="GivenAcrossMeridianTargetWhenHACrossesDeadbandThenFlipAndContinueImaging"/>
     /// (a target that crosses the meridian mid-observation), but the mount reports a non-German alignment,
@@ -396,7 +396,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         using var ctx = await CreateWinterSessionAsync(observations, mountPort: null, cancellationToken: ct);
 
-        // Make the (otherwise German) fake report a non-German alignment — a fork or Alt-Az mount.
+        // Make the (otherwise German) fake report a non-German alignment; a fork or Alt-Az mount.
         ((FakeMountDriver)ctx.Mount).Alignment = alignment;
 
         await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
@@ -416,7 +416,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     /// join an <c>AcrossMeridian=true</c> observation whose target has <em>already</em> crossed the
     /// meridian (HA ≈ +0.8h west at the start of imaging). The SkyWatcher fake reports its pier side
     /// from the Dec encoder, so it stays Normal throughout a west-of-meridian track and never signals a
-    /// pier-side change. The old code re-commanded a (no-op) flip every tick — aborting every exposure,
+    /// pier-side change. The old code re-commanded a (no-op) flip every tick; aborting every exposure,
     /// writing zero frames, and slewing forever. The fix (destination-side gate + hasFlipped backstop)
     /// recognises the mount is already on the correct side and just images. We assert frames are written
     /// and the loop completes (before the fix it would never complete and TotalFramesWritten stays 0).
@@ -682,7 +682,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         await ctx.TimeProvider.WaitForFirstWaiterAsync(loopTask, ct);
         await cts.CancelAsync();
 
-        // then — the loop unwinds via OCE rather than spinning or hanging.
+        // then: the loop unwinds via OCE rather than spinning or hanging.
         await Should.ThrowAsync<OperationCanceledException>(async () => await loopTask);
 
         ctx.Session.TotalFramesWritten.ShouldBe(0, "nothing should be imaged before the scheduled start");

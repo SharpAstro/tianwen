@@ -190,7 +190,7 @@ internal sealed class TuiGuiderTab(
     private void RenderTextContent(GuiderPlaceholder? placeholder,
         MarkdownWidget graphPanel, MarkdownWidget targetPanel, MarkdownWidget statsPanel)
     {
-        // Graph panel (left) — sparklines
+        // Graph panel (left): sparklines
         if (placeholder is not null)
         {
             graphPanel.Markdown($"## Guider\n\n{GuiderActions.PlaceholderText(placeholder.Value)}");
@@ -227,7 +227,7 @@ internal sealed class TuiGuiderTab(
     }
 
     protected override void HandleTabInput(InputEvent evt){
-        // Read-only monitoring tab — no special input handling
+        // Read-only monitoring tab: no special input handling
         return;
     }
 }

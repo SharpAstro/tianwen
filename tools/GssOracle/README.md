@@ -1,8 +1,8 @@
-# GssOracle — SkyWatcher protocol oracle from GSServer's own client
+# GssOracle: SkyWatcher protocol oracle from GSServer's own client
 
 Headless harness that drives GSServer's (Green Swamp Server) `GS.SkyWatcher`
-classes — the de-facto reference client for the SkyWatcher motor-controller
-protocol — against a scripted serial port, and records the exact wire bytes GSS
+classes, the de-facto reference client for the SkyWatcher motor-controller
+protocol, against a scripted serial port, and records the exact wire bytes GSS
 emits per scenario. No ASCOM, no COM registration, no GSServer process: the
 scripted `ISerialPort` is handed straight to `SkyQueue.Start(...)` and scenarios
 are issued through the same public command objects (`SkyAxisSlew`,
@@ -18,7 +18,7 @@ The recorded transcript is committed as
 - per-scenario pinned payloads (tracking, pulses, gotos, fast slews),
 - RA pulses must be live `:I`-only rate changes (no stop/start),
 - gotos must order `:H` → `:M` (break-point steps) → `:J`,
-- and the full transcript is replayed into `FakeSkywatcherSerialDevice` — every
+- and the full transcript is replayed into `FakeSkywatcherSerialDevice`; every
   GSS command must be accepted with a grammar-matching reply, byte-identical
   for the static EQ6 parameter queries ("GSS could drive our fake").
 
@@ -40,8 +40,8 @@ Re-run after pulling a GSServer update, then re-run
 reconcile any pinned values that legitimately changed.
 
 The scripted port (`ScriptedSerialPort`) models the same canned EQ6 as
-TianWen's `FakeSkywatcherSerialDevice` — CPR 9 024 000 (`0x89B200`), timer
-1 500 000, high-speed ratio 16, worm 50 133 steps, firmware 3.39 — so the
+TianWen's `FakeSkywatcherSerialDevice`, CPR 9 024 000 (`0x89B200`), timer
+1 500 000, high-speed ratio 16, worm 50 133 steps, firmware 3.39, so the
 static query replies of the two fakes must stay byte-identical. GOTOs arrive
 instantly so GSS's FullStop poll loops terminate.
 
@@ -69,7 +69,7 @@ Single source of truth on our side: `SkywatcherProtocol.EncodeMotionMode` /
 ## Other GSS reference points the transcripts encode
 
 - **Southern hemisphere**: tracking gets the NEGATED rate (`SkyServer.SetTracking`,
-  `TrackingMode.EqS`) — the RA worm physically reverses — and the axis↔sky
+  `TrackingMode.EqS`), the RA worm physically reverses, and the axis↔sky
   mapping mirrors with it (`Axes.AxesAppToMount`: `a[0] = 180 - a[0]` for
   GermanPolar SkyWatcher). Both must flip together.
 - **RA pulse guiding** (`SkyWatcher.AxisPulse`): same-direction pulses change
@@ -78,7 +78,7 @@ Single source of truth on our side: `SkywatcherProtocol.EncodeMotionMode` /
   East zero-rate edge commands `SiderealRate/1000` ("looks stopped") instead of
   halting.
 - **`:G` mid-motion is rejected** by real firmware with `!2` ("Motor not
-  Stopped") — GSS stops and polls FullStop first (25 ms interval, stop
+  Stopped"); GSS stops and polls FullStop first (25 ms interval, stop
   re-issued every 5 polls, 3.5 s cap). Our fake emulates the rejection.
 - **`:f` axis status** is 3 ASCII nibbles, not 6 hex chars: nibble 0 =
   constant-speed-vs-GOTO / reverse / high-speed bits, nibble 1 = running,
@@ -89,7 +89,7 @@ Single source of truth on our side: `SkywatcherProtocol.EncodeMotionMode` /
 - **Dec micro-GOTO pulses** (`DecPulseGoTo`): duration → exact steps
   (arcsec × steps-per-arcsec) → relative low-speed GOTO, polled to FullStop
   (3.5 s cap). Opt-in in TianWen via `?decPulseGoto=true` on the mount URI.
-- **Minimum pulse duration**: 20 ms (`MinPulseDurationRa/Dec`) — below serial
+- **Minimum pulse duration**: 20 ms (`MinPulseDurationRa/Dec`); below serial
   round-trip latency a pulse is noise.
 
 Not ported (yet): GSS converts configured Dec backlash steps into extra pulse

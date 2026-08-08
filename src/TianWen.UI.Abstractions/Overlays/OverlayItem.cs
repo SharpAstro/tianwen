@@ -42,7 +42,7 @@ public sealed class OverlayItem
     /// the object has a common name, its magnitude, and its on-sky size. Labels
     /// are drawn in priority order so that bright / named / large objects claim
     /// their preferred slot first; lower-priority labels drop silently when they
-    /// collide rather than rotating slots or overlaying — this trades "every
+    /// collide rather than rotating slots or overlaying; this trades "every
     /// object gets a label" for stable placement that doesn't flicker as the user
     /// pans.
     /// </summary>
@@ -51,7 +51,7 @@ public sealed class OverlayItem
     /// <summary>
     /// Preferred label slot index (0..3) for the 4-position collision-avoidance scheme.
     /// Derived from a stable property of the catalog entry so the same object prefers
-    /// the same slot across frames — critical for stable label placement while the
+    /// the same slot across frames: critical for stable label placement while the
     /// user pans the sky map. 0 = right, 1 = left, 2 = above, 3 = below. Defaults to
     /// 0 (right-of-marker), preserving the FITS viewer's original behaviour.
     /// </summary>

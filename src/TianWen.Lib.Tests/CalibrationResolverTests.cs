@@ -100,7 +100,7 @@ namespace TianWen.Lib.Tests
         {
             // Gain participates in the dark score: a wrong-gain dark mis-scales the fixed pattern
             // that dark subtraction removes for N2N independence, so when a same-gain library
-            // exists it must win — regardless of input order.
+            // exists it must win: regardless of input order.
             var wrongGain = Group(FrameType.Dark, 60, -5, gain: 212);
             var sameGain = Group(FrameType.Dark, 60, -5, gain: 121);
             var light = Light(60, -5, gain: 121);
@@ -114,7 +114,7 @@ namespace TianWen.Lib.Tests
         {
             // The real-archive trade-off (2026: g121/60s/-5C lights, only a g212 60s/-5C library
             // and g121 4.5s/+22C flat-wizard darks exist): the matched-exposure/temperature dark
-            // is the better of two bad options even at the wrong gain — the warm short dark holds
+            // is the better of two bad options even at the wrong gain; the warm short dark holds
             // essentially none of the lights' dark-current pattern. Pins the penalty sizing.
             var wrongGainRightDark = Group(FrameType.Dark, 60, -5, gain: 212);
             var sameGainUselessDark = Group(FrameType.Dark, 4.5, 22, gain: 121);

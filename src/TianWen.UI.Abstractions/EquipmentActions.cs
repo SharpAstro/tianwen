@@ -282,7 +282,7 @@ public static class EquipmentActions
 
         if (mountHas && !profileHas)
         {
-            logger?.LogInformation("Site reconcile: mount reports {Lat}/{Lon} (profile empty) — adopting into profile.",
+            logger?.LogInformation("Site reconcile: mount reports {Lat}/{Lon} (profile empty), adopting into profile.",
                 mountLatRaw, mountLonRaw);
             double? elev = double.IsNaN(mountElevRaw) ? null : mountElevRaw;
             var updated = data with { SiteLatitude = mountLatRaw, SiteLongitude = mountLonRaw, SiteElevation = elev };
@@ -291,7 +291,7 @@ public static class EquipmentActions
 
         if (profileHas && !mountHas)
         {
-            logger?.LogInformation("Site reconcile: profile has {Lat}/{Lon} (mount empty) — pushing to mount.",
+            logger?.LogInformation("Site reconcile: profile has {Lat}/{Lon} (mount empty), pushing to mount.",
                 data.SiteLatitude, data.SiteLongitude);
             await mount.SetSiteLatitudeAsync(data.SiteLatitude!.Value, cancellationToken);
             await mount.SetSiteLongitudeAsync(data.SiteLongitude!.Value, cancellationToken);
@@ -341,7 +341,7 @@ public static class EquipmentActions
     /// <see cref="ProfileData.SiteLatitude"/> etc. Returns the updated
     /// <see cref="ProfileData"/> and a flag indicating whether anything changed.
     /// When the profile already has <see cref="ProfileData.SiteLatitude"/> set
-    /// the URI query is ignored — profile wins for migration.
+    /// the URI query is ignored: profile wins for migration.
     /// </summary>
     public static (ProfileData Data, bool Changed) MigrateSiteFromMountUri(ProfileData data)
     {
@@ -607,7 +607,7 @@ public static class EquipmentActions
     /// <summary>
     /// Finds the profile slot URI matching the given device URI (path-equality via
     /// <see cref="DeviceBase.SameDevice"/>). Returns the profile URI which carries
-    /// query params (API keys, ports, etc.) — these are stripped from discovered URIs,
+    /// query params (API keys, ports, etc.): these are stripped from discovered URIs,
     /// so the profile copy is what should be passed to <see cref="IDeviceHub.ConnectAsync"/>.
     /// </summary>
     public static Uri? FindAssignedUri(ProfileData? data, Uri deviceUri)
@@ -637,13 +637,13 @@ public static class EquipmentActions
     {
         /// <summary>Safe to disconnect immediately (not a camera, or cooler off and idle).</summary>
         Safe,
-        /// <summary>Camera cooler is on — needs warm-up ramp before disconnect.</summary>
+        /// <summary>Camera cooler is on: needs warm-up ramp before disconnect.</summary>
         CoolerOn,
-        /// <summary>Camera is mid-exposure / downloading — should finish before disconnect.</summary>
+        /// <summary>Camera is mid-exposure / downloading: should finish before disconnect.</summary>
         Busy,
         /// <summary>Both cooler on and camera busy.</summary>
         BusyAndCool,
-        /// <summary>State could not be read (driver error) — caller should treat as unsafe.</summary>
+        /// <summary>State could not be read (driver error); caller should treat as unsafe.</summary>
         Unknown
     }
 
@@ -939,9 +939,9 @@ public static class EquipmentActions
         NotAssigned,
         /// <summary>Assigned and currently connected via <see cref="IDeviceHub"/>.</summary>
         Connected,
-        /// <summary>Assigned, present in the latest discovery results, but not connected — connectable.</summary>
+        /// <summary>Assigned, present in the latest discovery results, but not connected; connectable.</summary>
         Disconnected,
-        /// <summary>Assigned but not present in the latest discovery results — hardware unreachable.</summary>
+        /// <summary>Assigned but not present in the latest discovery results; hardware unreachable.</summary>
         Offline
     }
 
@@ -1253,7 +1253,7 @@ public static class EquipmentActions
     /// <summary>
     /// End-of-session helper: pulls the focuser-backlash EWMA snapshot from <paramref name="session"/>,
     /// mirrors it into <paramref name="profile"/>'s focuser URIs via <see cref="ApplyBacklashEstimatesToProfile"/>,
-    /// and saves the profile to disk if anything changed. Returns the (possibly updated) profile —
+    /// and saves the profile to disk if anything changed. Returns the (possibly updated) profile; 
     /// callers should swap their UI-state <c>ActiveProfile</c> reference if it matches.
     /// </summary>
     public static async Task<Profile> SaveBacklashEstimatesIfChangedAsync(

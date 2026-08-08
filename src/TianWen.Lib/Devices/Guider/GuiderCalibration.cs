@@ -43,7 +43,7 @@ internal sealed class GuiderCalibration
 {
     /// <summary>
     /// Optional logger. Every rejection path in <see cref="CalibrateAsync"/> logs WHY it
-    /// returned null (with the measured numbers) — a silent null forces whoever reads the
+    /// returned null (with the measured numbers): a silent null forces whoever reads the
     /// session log to guess which of five quality gates fired.
     /// </summary>
     public ILogger? Logger { get; set; }
@@ -212,7 +212,7 @@ internal sealed class GuiderCalibration
             await WaitForPulseCompleteAsync(pulseTarget, timeProvider, CalibrationPulseDuration, cancellationToken);
         }
 
-        // Re-acquire after return — star position jumped back, may exceed search radius
+        // Re-acquire after return: star position jumped back, may exceed search radius
         tracker.Reset();
         var frame = await captureFrame(cancellationToken);
         if (tracker.ProcessFrame(frame.GetChannelArray(0)) is null)
@@ -539,7 +539,7 @@ internal sealed class GuiderCalibration
         GuideDirection direction,
         CancellationToken cancellationToken)
     {
-        // Record pre-clearing star position — displacement accumulates from here
+        // Record pre-clearing star position: displacement accumulates from here
         tracker.SetLockPosition();
 
         for (var i = 0; i < MaxBacklashClearingSteps; i++)
@@ -675,7 +675,7 @@ internal readonly record struct GuiderCalibrationResult(
     /// Returns the calibration with the DEC sense reversed for a German-mount meridian flip
     /// (PHD2's "reverse Dec output after meridian flip"). Across a GEM flip the Dec axis mechanically
     /// reverses relative to the sky while RA tracks the same way, so the Dec guide RESPONSE on the
-    /// sensor inverts but the RA response does not. Only the Dec rate/displacement sign flips here —
+    /// sensor inverts but the RA response does not. Only the Dec rate/displacement sign flips here; 
     /// the measured axis ANGLES still describe where the motor axes point on the sensor and are left
     /// unchanged. Negating <see cref="DecRatePixPerSec"/> inverts the Dec correction direction the
     /// <see cref="ProportionalGuideController"/> derives, which is exactly what keeps the loop

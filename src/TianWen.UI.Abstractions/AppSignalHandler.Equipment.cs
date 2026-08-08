@@ -37,7 +37,7 @@ namespace TianWen.UI.Abstractions
         /// never executes on the render thread</b>. <see cref="SignalBus.ProcessPending"/> invokes
         /// async signal handlers inline on the render thread, running each handler up to its first
         /// yielding <c>await</c> before the returned task is handed to the tracker. Several drivers
-        /// block synchronously <i>before</i> that first await — most notably ASCOM COM drivers whose
+        /// block synchronously <i>before</i> that first await; most notably ASCOM COM drivers whose
         /// <c>Connected = true/false</c> setter busy-spins <c>Application.DoEvents()</c> for ~1&#160;s
         /// (Gemini FlatPanel Lite, iOptron, …). Left inline that freezes the GUI (Not Responding), and
         /// on a host with no message pump it can crash the process. Offloading the call moves that
@@ -142,7 +142,7 @@ namespace TianWen.UI.Abstractions
             eqState.LongitudeInput.OnCancel = cancelSite;
             eqState.ElevationInput.OnCancel = cancelSite;
 
-            // Guide scope focal length — commit on Enter
+            // Guide scope focal length: commit on Enter
             eqState.GuiderFocalLengthInput.OnCommit = async text =>
             {
                 if (appState.ActiveProfile is { } profile && profile.Data is { } pd)
@@ -155,7 +155,7 @@ namespace TianWen.UI.Abstractions
                 }
             };
 
-            // OTA name / focal length / aperture — commit on Enter saves the OTA edit
+            // OTA name / focal length / aperture: commit on Enter saves the OTA edit
             Task saveOta(string _)
             {
                 if (appState.ActiveProfile is { Data: { } editData } && eqState.EditingOtaIndex >= 0)
@@ -174,7 +174,7 @@ namespace TianWen.UI.Abstractions
             eqState.FocalLengthInput.OnCommit = saveOta;
             eqState.ApertureInput.OnCommit = saveOta;
 
-            // Device string settings (API keys, ports, etc.) — commit on Enter saves the setting
+            // Device string settings (API keys, ports, etc.); commit on Enter saves the setting
             eqState.StringSettingInput.OnCommit = async _ =>
             {
                 if (eqState.EditingStringSettingKey is not { } key || eqState.EditingDeviceUri is not { } editUri)
@@ -510,7 +510,7 @@ namespace TianWen.UI.Abstractions
 
                 // Fan out to per-device ConnectDeviceSignal so each connect goes through
                 // the same in-flight gate, notification, and safety paths as a manual
-                // click. Skip URIs that the hub already considers connected — connecting
+                // click. Skip URIs that the hub already considers connected; connecting
                 // an already-connected URI just churns PendingTransitions without effect.
                 foreach (var uri in pdata.AssignedDeviceUris)
                 {
@@ -635,7 +635,7 @@ namespace TianWen.UI.Abstractions
                 }
 
                 // Pre-flight safety check. If the device is a cooled/busy camera, don't
-                // disconnect — set the per-row confirmation state so the UI shows the
+                // disconnect: set the per-row confirmation state so the UI shows the
                 // [Warm & Off] [Force Off] [Cancel] strip instead of executing.
                 var safety = await EquipmentActions.GetDisconnectSafetyAsync(hub, sig.DeviceUri, cts.Token);
                 if (safety != EquipmentActions.DisconnectSafety.Safe)
@@ -860,7 +860,7 @@ namespace TianWen.UI.Abstractions
             plannerState.Bus = bus;
             sessionState.Bus = bus;
 
-            // Refresh per-OTA camera capabilities when a driver connects or disconnects via the hub —
+            // Refresh per-OTA camera capabilities when a driver connects or disconnects via the hub; 
             // gain modes / cooling info may only become known after the driver is actually instantiated.
             if (appState.DeviceHub is { } hub)
             {

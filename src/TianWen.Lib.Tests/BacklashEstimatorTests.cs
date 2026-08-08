@@ -13,7 +13,7 @@ public class BacklashEstimatorTests
 {
     // Hyperbola: HFD(p) = a * cosh(asinh((p_perfect - p) / b))
     //   a = 1.2 (HFD at perfect focus)
-    //   b = 50  (slope coefficient — wider = shallower V-curve)
+    //   b = 50  (slope coefficient, wider = shallower V-curve)
     //   p_perfect = 1000
     private const double A = 1.2;
     private const double B = 50.0;

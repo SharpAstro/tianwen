@@ -10,7 +10,7 @@ namespace TianWen.Lib.Devices.QHYCCD;
 
 /// <summary>
 /// Serial probe for QFOC focusers (Standard + High Precision). Uses the JSON init
-/// command — see <see cref="QHYFocuserDriver.ProbeAsync"/>. 1500ms budget covers
+/// command: see <see cref="QHYFocuserDriver.ProbeAsync"/>. 1500ms budget covers
 /// the JSON handshake which includes a 150ms drain and a 300ms response wait.
 /// </summary>
 internal sealed class QfocSerialProbe : ISerialProbe
@@ -19,7 +19,7 @@ internal sealed class QfocSerialProbe : ISerialProbe
     public int BaudRate => QHYFocuserDriver.QFOC_BAUD;
     public Encoding Encoding => Encoding.ASCII;
     public ProbeExclusivity Exclusivity => ProbeExclusivity.Shared;
-    // JSON response is terminated by '}' — QHYFocuserDriver reads with TryReadTerminatedAsync.
+    // JSON response is terminated by '}': QHYFocuserDriver reads with TryReadTerminatedAsync.
     public ProbeFraming Framing => ProbeFraming.BraceTerminated;
     public TimeSpan Budget => TimeSpan.FromMilliseconds(1500);
     public int MaxAttempts => 1;

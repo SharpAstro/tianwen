@@ -10,7 +10,7 @@ public class SipPolynomialTests
 {
     /// <summary>
     /// Zero coefficient matrix means the SIP polynomial contributes
-    /// nothing — the central case for "no distortion fit yet".
+    /// nothing: the central case for "no distortion fit yet".
     /// </summary>
     [Fact]
     public void GivenZeroCoeffsThenApplyReturnsZero()
@@ -37,7 +37,7 @@ public class SipPolynomialTests
     }
 
     /// <summary>
-    /// All five order-2 SIP basis terms with known coefficients —
+    /// All five order-2 SIP basis terms with known coefficients;
     /// f(u, v) = a10 u + a01 v + a20 u² + a11 u v + a02 v².
     /// </summary>
     [Fact]
@@ -119,7 +119,7 @@ public class SipPolynomialTests
     }
 
     /// <summary>
-    /// Fit + Apply round-trip against an out-of-sample evaluation point —
+    /// Fit + Apply round-trip against an out-of-sample evaluation point;
     /// the canonical SIP use case (fit on observed inliers, apply to
     /// arbitrary pixels at PixelToSky time).
     /// </summary>

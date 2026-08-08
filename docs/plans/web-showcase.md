@@ -256,7 +256,7 @@ Chess.Web migrated; **TianWen.UI.Web must NOT migrate onto 1.1**: the component 
 wheel, no text input, and no attribute splatting - the planner would lose the divider drag, hover
 follower, and list scroll. Migration is gated on a WebGl.Renderer 1.2 that adds true
 `pointerdown`/`pointermove`/`pointerup`/`wheel` callbacks (backing-space mapped like
-`OnPointerDown`) + built-in `setPointerCapture` on press (subsumes `tianwenDragCapture`) — planned
+`OnPointerDown`) + built-in `setPointerCapture` on press (subsumes `tianwenDragCapture`); planned
 in `WebGl.Renderer/docs/plans/webglcanvas-1.2-input.md`; then
 Planner.razor's `tianwenCanvasMetrics`/`tianwenWatchResize`/`tianwenDragCapture` helpers and the
 resize plumbing all delete in favour of `OnReady`/`OnResized`. Also in 1.1: DIR.Lib 6.11's
@@ -423,12 +423,12 @@ the no-op base). All three now work on web, built by SHARING the desktop logic, 
 - **Object overlay ([O] catalog markers + [D] dark nebulae + pinned landmarks)**: new shared
   `SkyMapTab.RenderObjectOverlayPrimitive` (base partial `SkyMapTab.ObjectOverlay.cs`) draws the
   overlay with the surface-agnostic `DrawLine`/`DrawCircle`/`DrawText` primitives over the SAME shared
-  `OverlayEngine` gather/project/place-labels the desktop GPU path uses — only the rasterisation
+  `OverlayEngine` gather/project/place-labels the desktop GPU path uses, only the rasterisation
   differs (CPU primitives vs the Vulkan instanced-ellipse pipeline, which WebGL has no analogue for; a
   hand-maintained mirror exactly like `TryDrawShapeMarker` mirrors the GPU selection ellipse). Ellipses
-  are traced via `OverlayEngine.ComputeEllipseScreenAxes` (true sky PA, from the candidate — the
+  are traced via `OverlayEngine.ComputeEllipseScreenAxes` (true sky PA, from the candidate, the
   projected `OverlayItem` drops PA), stars as crosses, labels via `PlaceLabelsBestEffort`. Candidate
-  gather is cached on a quantized-centre/FOV/layer/pins key (synchronous — single-threaded WASM has no
+  gather is cached on a quantized-centre/FOV/layer/pins key (synchronous, single-threaded WASM has no
   background thread, so unlike VkSkyMapTab's async gather it walks inline, but only on a meaningful view
   change; panning within a cell just re-projects). `WebSkyMapTab` overrides `RenderObjectOverlay` to
   call it; TUI + GUI unchanged (base virtual stays no-op, VkSkyMapTab keeps its GPU override).
@@ -436,49 +436,49 @@ the no-op base). All three now work on web, built by SHARING the desktop logic, 
   mouse-up + by planet/comet label clicks, carrying the Ctrl modifier the web already plumbs through
   `RememberMouseDown`) now has a web subscriber. The desktop handler's projection/pinned-set boilerplate
   was EXTRACTED to the shared `SkyMapSearchActions.SelectAtScreenPoint` (derives ppr/centre from
-  `SkyMapState.LastContentRect` + `CurrentViewMatrix`, preferPointSource from the modifier) — both
+  `SkyMapState.LastContentRect` + `CurrentViewMatrix`, preferPointSource from the modifier), both
   `AppSignalHandler` (desktop, rewired, verified unchanged) and `Planner.razor` call the one path. Ctrl
   picks a star under an enclosing DSO ellipse. Populates `State.Search.InfoPanel`.
 - **Pin from atlas + view-in-planner**: `Planner.razor`'s new `WireSkyMapInteractions` subscribes
   `SkyMapPinObjectSignal` (`PlannerActions.TogglePinFromExternal` + re-posted `SavePlannerSessionSignal`,
   drained in the same pump), `ViewInPlannerSignal` (`CommitSuggestion` + select + a DEFERRED
-  `InvokeAsync(SwitchView)` — SwitchView navigates -> re-enters the pump otherwise), and
+  `InvokeAsync(SwitchView)`: SwitchView navigates -> re-enters the pump otherwise), and
   `SkyMapSlewToObjectSignal` (no browser mount -> a status note, not a dead button). The info panel with
   its Pin / View in Planner / Goto buttons is drawn by the shared `DrawInfoPanel`, so once a click
-  populates `InfoPanel` the buttons are already live — the only gap was the missing subscribers.
+  populates `InfoPanel` the buttons are already live; the only gap was the missing subscribers.
 - **Tests**: `SkyMapSearchActionsTests.SelectAtScreenPoint_DerivesViewportAndCtrlFromState` pins the
   extracted helper (nebula vs Ctrl-star pick via `LastContentRect`); `SkyMapObjectOverlayRenderTests`
   offline-renders the primitive overlay over the Sagittarius Milky Way on the CPU `RgbaImageRenderer`
   and diffs overlay-off vs overlay-on (the diff IS the overlay footprint), PNG dumped for eyeballing.
 - **Fourth GuiEventHandlerBase-invisible-to-web incident** (after divider drag, TextInputInteraction,
   planner search): the sky-map signal subscribers lived only in the desktop-only `AppSignalHandler`.
-  Resolved by the same rule — extract the pure body to a shared helper, re-wire on web.
+  Resolved by the same rule; extract the pure body to a shared helper, re-wire on web.
 - **Still deferred on web**: mount reticle, schedule-target markers, NCP/SCP/Zenith fixed-point
   clickable markers, Milky Way texture (all `RenderMountOverlay`/`RenderFixedPointMarkers`/etc. no-op
-  overrides — no device layer / cosmetic); the sky-flat sky-map group-frame rendering.
+  overrides; no device layer / cosmetic); the sky-flat sky-map group-frame rendering.
 
 ## Related research plans
 
-- [web-tycho2.md](web-tycho2.md) — the concrete implementation plan for full Tycho-2 in the atlas
+- [web-tycho2.md](web-tycho2.md): the concrete implementation plan for full Tycho-2 in the atlas
   (the "data source swap" the deferred item below promises), phased P1 lazy-fetch+serial-decode →
   P2 wasm-threads parallel decode → P3 IndexedDB cache → P4 tiling.
-- [web-multithreading.md](web-multithreading.md) — real browser parallelism (wasm-threads / Web
+- [web-multithreading.md](web-multithreading.md): real browser parallelism (wasm-threads / Web
   Workers / second-runtime), the GitHub-Pages COOP/COEP wall, and the "do we still need Blazor"
   question. Verdict: AOT already fixed the freeze; build none now (except the tyc2 parallel-decode
   consumer in web-tycho2).
-- [web-webgpu.md](web-webgpu.md) — a WebGPU render backend + shader reuse (GLSL→WGSL) + GPU compute
+- [web-webgpu.md](web-webgpu.md): a WebGPU render backend + shader reuse (GLSL→WGSL) + GPU compute
   to parallelize the sweep without the SharedArrayBuffer wall. Verdict: defer until interactive
   re-scoring (or a heavier GPU workload) justifies it.
 
 ## Deferred
 
-- Full Tycho-2 catalog in the browser. The render pipeline is **ready** — the instanced
+- Full Tycho-2 catalog in the browser. The render pipeline is **ready**; the instanced
   `DrawInstanced` path renders 2.5M stars fine (WebGL2; the desktop Vulkan proves the scale), so
   this is a data + payload change, not a code change. But it's a **data-delivery problem, not a
   compute/GPU one** (evaluated 2026-07-18 in [web-multithreading.md](web-multithreading.md) +
   [web-webgpu.md](web-webgpu.md)): the ~30 MB payload is the real blocker (untouched by threads or
   WebGPU); the lzip decompress is parallel across members (Lzip.Lib `LzipDecoder` `Parallel.For`) but
-  only speeds up under **wasm-threads** + a **multi-member bake** (`LzipOptions.MemberSize`) — a
+  only speeds up under **wasm-threads** + a **multi-member bake** (`LzipOptions.MemberSize`); a
   ready-made wasm-threads consumer, zero new code (GPU compute is still the wrong tool: LZMA is
   sequential-within-member). Payload levers: lazy fetch (on atlas open / zoom past HR density) /
   decoded IndexedDB snapshot / spatial tiling.

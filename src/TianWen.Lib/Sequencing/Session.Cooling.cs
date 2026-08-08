@@ -21,7 +21,7 @@ internal partial record Session
 
 
     /// <summary>
-    /// Warms cameras back to ambient temperature. Not cancellable — abruptly cutting power
+    /// Warms cameras back to ambient temperature. Not cancellable; abruptly cutting power
     /// to a cooled sensor risks thermal shock and condensation damage.
     /// </summary>
     /// <param name="rampTime">Interval between temperature checks</param>
@@ -124,7 +124,7 @@ internal partial record Session
                 }
             }
 
-            // Check exit condition before sleeping — avoid unnecessary 10s wait when already at target
+            // Check exit condition before sleeping: avoid unnecessary 10s wait when already at target
             if (!coolingStates.Any(state => state.IsRamping) || cancellationToken.IsCancellationRequested)
             {
                 if (cancellationToken.IsCancellationRequested)

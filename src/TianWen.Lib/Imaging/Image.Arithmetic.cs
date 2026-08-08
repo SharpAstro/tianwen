@@ -352,7 +352,7 @@ public partial class Image
     /// <summary>
     /// Accumulates <paramref name="other"/> into this image in place
     /// (<c>this[i] += other[i]</c>). The lone in-place exception to the
-    /// otherwise immutable arithmetic API — used by the live-stack accumulator
+    /// otherwise immutable arithmetic API: used by the live-stack accumulator
     /// where allocating a fresh result image per arriving frame would dominate
     /// the per-frame cost.
     /// </summary>
@@ -384,7 +384,7 @@ public partial class Image
     /// Negative-pixel clamp matches SetiAstro's subtract_dark_with_pedestal:
     /// the pedestal absorbs small overshoot and the clamp catches the rest so
     /// downstream stats don't see false-negative values. NaN inputs may collapse
-    /// to 0 here — calibration runs on raw lights, which don't contain NaN in
+    /// to 0 here: calibration runs on raw lights, which don't contain NaN in
     /// practice; NaN borders arise later in the pipeline (registration warp).
     /// </summary>
     private static void SubtractClampVec(ReadOnlySpan<float> lhs, ReadOnlySpan<float> rhs, float pedestal, Span<float> dst)

@@ -28,7 +28,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenWinterNightWhenSessionEndTimeThenReturnsNextMorningTwilight()
     {
-        // Dec 15, 22:00 UTC from Vienna — astronomical twilight rise on Dec 16 ~05:00–06:00 UTC
+        // Dec 15, 22:00 UTC from Vienna; astronomical twilight rise on Dec 16 ~05:00–06:00 UTC
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
@@ -73,7 +73,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     [Fact(Timeout = 120_000)]
     public async Task GivenObservationAlreadyStartedWhenWaitForDarkThenReturnsImmediately()
     {
-        // Observation started 30 minutes before the session's "now" — should skip immediately
+        // Observation started 30 minutes before the session's "now"; should skip immediately
         var ct = TestContext.Current.CancellationToken;
         var observations = new[]
         {
@@ -144,7 +144,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
 
-        // Run calibration — slews 30 min east of meridian at dec=0, then starts guiding
+        // Run calibration: slews 30 min east of meridian at dec=0, then starts guiding
         var calibrateTask = Task.Run(async () => await ctx.Session.CalibrateGuiderAsync(ct), ct);
 
         while (!calibrateTask.IsCompleted && !ct.IsCancellationRequested)
@@ -186,7 +186,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
-        // Run initialisation — connects, unparks (no-op), sets UTC, cools to sensor temp, opens covers (null=ok)
+        // Run initialisation: connects, unparks (no-op), sets UTC, cools to sensor temp, opens covers (null=ok)
         var initTask = Task.Run(async () => await ctx.Session.InitialisationAsync(ct), ct);
 
         while (!initTask.IsCompleted && !ct.IsCancellationRequested)
@@ -312,7 +312,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // Cover starts Closed
         (await coverDriver.GetCoverStateAsync(ct)).ShouldBe(CoverStatus.Closed);
 
-        // Open covers — needs time pump for the Moving → Open transition and calibrator check
+        // Open covers: needs time pump for the Moving → Open transition and calibrator check
         var openTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Open, ct), ct);
 
         while (!openTask.IsCompleted && !ct.IsCancellationRequested)
@@ -370,7 +370,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         (await coverDriver.GetCalibratorStateAsync(ct)).ShouldBe(CalibratorStatus.Ready);
         (await coverDriver.GetBrightnessAsync(ct)).ShouldBe(128);
 
-        // Open cover — should turn off calibrator first, then open
+        // Open cover: should turn off calibrator first, then open
         var openTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Open, ct), ct);
 
         while (!openTask.IsCompleted && !ct.IsCancellationRequested)
@@ -412,7 +412,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         result.ShouldBeTrue("guider focus loop should succeed (FITS with WCS → plate solve)");
 
-        output.WriteLine($"Guider focus loop succeeded — plate solved at RA={mountRa:F4}h, Dec={mountDec:F2}°");
+        output.WriteLine($"Guider focus loop succeeded, plate solved at RA={mountRa:F4}h, Dec={mountDec:F2}°");
     }
 
     // --- InitialRoughFocusAsync ---
@@ -455,7 +455,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         result.ShouldBeTrue("rough focus should succeed with synthetic star field at best focus");
 
-        output.WriteLine("Initial rough focus completed — enough stars detected");
+        output.WriteLine("Initial rough focus completed, enough stars detected");
     }
 
     // --- RunAsync (full end-to-end) ---
@@ -478,7 +478,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
             )
         };
 
-        // Use fresh session — RunAsync handles all setup internally
+        // Use fresh session: RunAsync handles all setup internally
         var timeProvider = new FakeTimeProviderWrapper(WinterNight);
         var external = new FakeExternal(output, timeProvider);
         var sp = external.BuildServiceProvider();
@@ -630,7 +630,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     public async Task GivenSettingTargetWhenEstimateRiseTimeThenReturnsNull()
     {
         // At Dec 15 22:00 UTC from Vienna, M45 (RA=3.79, Dec=24.12) is at alt ~64° and setting.
-        // It won't rise — it's past the meridian and descending.
+        // It won't rise: it's past the meridian and descending.
         var ct = TestContext.Current.CancellationToken;
         using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
@@ -639,6 +639,6 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
         result.ShouldBeNull("setting target should return null (not rising)");
 
-        output.WriteLine("M45 is setting — correctly returned null");
+        output.WriteLine("M45 is setting, correctly returned null");
     }
 }

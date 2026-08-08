@@ -68,7 +68,7 @@ internal sealed class ProportionalGuideController
     {
         if (Math.Abs(pulseMs) < MinPulseMs)
         {
-            return 0; // Dead zone — suppress tiny corrections
+            return 0; // Dead zone; suppress tiny corrections
         }
 
         // Clamp magnitude

@@ -17,7 +17,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// to a J2000 unit vector.
     ///
     /// Uses <see cref="IPlateSolver.SolveImageAsync"/> (which writes a temp
-    /// FITS internally) — no separate FITS-write step here. If
+    /// FITS internally): no separate FITS-write step here. If
     /// <see cref="PolarAlignmentConfiguration.SaveFrames"/> is enabled, the
     /// caller is responsible for copying the temp file out before the solver
     /// deletes it. Phase 2 keeps frame archiving deferred (mirrors
@@ -55,7 +55,7 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
         /// exactly -- no per-call-site drift.
         /// </summary>
         /// <param name="camera">Connected camera.</param>
-        /// <param name="displayName">Label shown in UI (e.g. "OTA #1 — Askar 71F").</param>
+        /// <param name="displayName">Label shown in UI (e.g. "OTA #1, Askar 71F").</param>
         /// <param name="focalLengthMm">OTA focal length, used both for FITS
         ///   denorm and for the auto-selection ranking.</param>
         /// <param name="apertureMm">OTA aperture in mm, same.</param>

@@ -12,25 +12,25 @@ namespace TianWen.Lib.Devices.Discovery;
 /// <summary>
 /// Two-stage serial-port discovery:
 /// <list type="number">
-///   <item><b>Verify</b> — for each <see cref="PinnedSerialPort"/> pair from
+///   <item><b>Verify</b>, for each <see cref="PinnedSerialPort"/> pair from
 ///         <see cref="IPinnedSerialPortsProvider"/>, open just that port and run only the
 ///         probes whose <see cref="ISerialProbe.MatchesDeviceHosts"/> contain the pinned
 ///         URI's host. If a match's identity (scheme + host + path) lines up with the
-///         pinned URI, the port is confirmed still-in-place — published and excluded
+///         pinned URI, the port is confirmed still-in-place; published and excluded
 ///         from Stage 2. If verification fails (no matching probe, timeout, or identity
 ///         mismatch), the port stays in the Stage 2 pool so a cable-swap can be
 ///         auto-recovered by the general probe pass.</item>
-///   <item><b>General probe</b> — every registered probe runs against every
+///   <item><b>General probe</b>: every registered probe runs against every
 ///         non-verified port, grouped by baud (port opened once per baud) and
 ///         parallelised across ports.</item>
 /// </list>
 /// Implementation notes:
 /// <list type="bullet">
-///   <item>Within a baud group, probes run sequentially on a shared open handle — the
+///   <item>Within a baud group, probes run sequentially on a shared open handle; the
 ///         key cost saving vs the legacy "each source opens its own port" model.</item>
 ///   <item>Per-attempt timeout is implemented via a linked <see cref="CancellationTokenSource"/>;
 ///         <see cref="OperationCanceledException"/> is caught only when the *inner* token
-///         fired (probe timed out) — outer cancellation always rethrows.</item>
+///         fired (probe timed out): outer cancellation always rethrows.</item>
 ///   <item>Results are published atomically per probe name; <see cref="ResultsFor(string)"/>
 ///         returns a snapshot.</item>
 /// </list>
@@ -38,12 +38,12 @@ namespace TianWen.Lib.Devices.Discovery;
 internal sealed class SerialProbeService : ISerialProbeService
 {
     // Default ladder of per-pass budget multipliers applied to each ISerialProbe.Budget.
-    // Rationale: "everyone gets a chance first" — pass 1 runs every probe on every
+    // Rationale: "everyone gets a chance first"; pass 1 runs every probe on every
     // port at the declared budget, then only the ports that produced no match get a
     // pass 2 at the extended budget. Cold ESP32 devices (OnStep WiFi controllers,
     // ~1-2s boot) are caught without making every warm probe wait the long timeout.
     //
-    // Dead ports pay the extra pass cost, but dead serial ports are cheap — a port
+    // Dead ports pay the extra pass cost, but dead serial ports are cheap; a port
     // that never produced a match in pass 1 is very likely still empty in pass 2,
     // and we bail as fast as each probe's timeout lets us.
     internal static readonly double[] DefaultPassBudgetMultipliers = [1.0, 2.0];
@@ -88,7 +88,7 @@ internal sealed class SerialProbeService : ISerialProbeService
 
         if (_probes.Length == 0)
         {
-            _logger.LogDebug("No serial probes registered — skipping.");
+            _logger.LogDebug("No serial probes registered, skipping.");
             return;
         }
 
@@ -112,7 +112,7 @@ internal sealed class SerialProbeService : ISerialProbeService
         var verifiedPorts = await VerifyPinnedPortsAsync(ports, pinned, cancellationToken);
 
         // Stage 2: general probing on every port not verified in Stage 1, with a
-        // ladder pass — each pass runs all probes on all still-unmatched ports at
+        // ladder pass, each pass runs all probes on all still-unmatched ports at
         // a fraction (or multiple) of each probe's declared Budget. Cold devices
         // that miss the first pass get a retry at a longer budget without any
         // warm probe paying the cost.
@@ -149,7 +149,7 @@ internal sealed class SerialProbeService : ISerialProbeService
             var parallelism = Math.Min(MaxPortParallelism, remainingPorts.Count);
             var passMult = mult;
             // Pass 1 uses the fast shared-connection path (one open per baud
-            // group, probes run in sequence on the same handle) — optimal when
+            // group, probes run in sequence on the same handle); optimal when
             // the device responds cleanly. Pass 2 escalates to close+reopen per
             // probe so stale bytes left by a rejected pass-1 command on probe N
             // can't concatenate into probe N+1's exchange on pass 2.
@@ -190,8 +190,8 @@ internal sealed class SerialProbeService : ISerialProbeService
     /// Stage 1 of the algorithm: for every pinned <c>(port, expected URI)</c> pair, run
     /// the subset of registered probes that can verify that URI's device family. Ports
     /// whose handshake comes back with the expected identity are excluded from the
-    /// general probe pass (and their match is published). Everything else — including
-    /// ports whose family has no registered probe yet — stays in the general pool.
+    /// general probe pass (and their match is published). Everything else, including
+    /// ports whose family has no registered probe yet; stays in the general pool.
     /// </summary>
     private async ValueTask<HashSet<string>> VerifyPinnedPortsAsync(
         IReadOnlyList<string> enumeratedPorts,
@@ -201,7 +201,7 @@ internal sealed class SerialProbeService : ISerialProbeService
         var verified = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (pinned.Count == 0 || _probes.Length == 0) return verified;
 
-        // Only verify pinned ports that are actually present in this enumeration —
+        // Only verify pinned ports that are actually present in this enumeration; 
         // a stale pin (cable unplugged, port number shifted) is nothing to verify.
         var enumeratedSet = new HashSet<string>(enumeratedPorts, StringComparer.OrdinalIgnoreCase);
         var candidates = pinned.Where(p => enumeratedSet.Contains(p.Port)).ToArray();
@@ -227,7 +227,7 @@ internal sealed class SerialProbeService : ISerialProbeService
 
                 if (matchingProbes.Length == 0)
                 {
-                    _logger.LogDebug("No registered probe can verify {ExpectedUri} — port falls through to general probing.",
+                    _logger.LogDebug("No registered probe can verify {ExpectedUri}, port falls through to general probing.",
                         entry.ExpectedUri);
                     return;
                 }
@@ -243,7 +243,7 @@ internal sealed class SerialProbeService : ISerialProbeService
                     {
                         if (!IdentityMatches(match.DeviceUri, entry.ExpectedUri))
                         {
-                            _logger.LogInformation("Port {Port} responded but identity changed: expected {Expected}, got {Actual} — will rediscover in Stage 2.",
+                            _logger.LogInformation("Port {Port} responded but identity changed: expected {Expected}, got {Actual}, will rediscover in Stage 2.",
                                 entry.Port, entry.ExpectedUri, match.DeviceUri);
                             return false;
                         }
@@ -260,7 +260,7 @@ internal sealed class SerialProbeService : ISerialProbeService
     /// <summary>
     /// Two device URIs represent the same device when their scheme (device type), host
     /// (device source) and path (stable device id) align. Query (port, filter offsets,
-    /// user-edited site) is deliberately ignored — cable movement and user edits drift
+    /// user-edited site) is deliberately ignored: cable movement and user edits drift
     /// the query, but the identity stays put.
     /// </summary>
     private static bool IdentityMatches(Uri a, Uri b)
@@ -279,7 +279,7 @@ internal sealed class SerialProbeService : ISerialProbeService
         using var portScope = _logger.BeginScope(new Dictionary<string, object> { ["Port"] = port });
 
         // One user-visible line per port so the operator can tell what discovery is
-        // actually doing — the Try* serial reads underneath are noisy on normal
+        // actually doing: the Try* serial reads underneath are noisy on normal
         // probe timeouts (port close aborts the pending read) and have been moved
         // to Debug, so the Info-level story needs to live here instead.
         // Tag each probe in the log with its framing so the ordering is self-explanatory.
@@ -327,23 +327,23 @@ internal sealed class SerialProbeService : ISerialProbeService
         var probesToRun = exclusive is not null ? [exclusive] : probesInGroup;
 
         // All probes in one group share the baud; we pick the first probe's encoding.
-        // Mixing encodings within a baud group is unusual — if it comes up, split probes.
+        // Mixing encodings within a baud group is unusual, if it comes up, split probes.
         var encoding = probesToRun[0].Encoding;
 
         // Probe isolation: close+reopen between probes so a rejected command on
         // probe N cannot leave bytes in the device-side buffer that concatenate
         // into probe N+1's exchange. Only engaged on pass 2 (isolatePerProbe) and
-        // only when >1 probe shares the baud group — pass 1 keeps the fast
+        // only when >1 probe shares the baud group: pass 1 keeps the fast
         // shared-handle path for clean responders, and pass 2 escalates to
         // isolation for the ports that didn't match pass 1 anyway.
         // Isolate per probe on pass 2, and also whenever a probe needs control lines asserted (its DTR/RTS
-        // open must be on its own handle, not shared) — even if it's the only probe in its baud group.
+        // open must be on its own handle, not shared), even if it's the only probe in its baud group.
         var isolateEachProbe = isolatePerProbe && (probesToRun.Length > 1 || Array.Exists(probesToRun, static p => p.AssertControlLines));
 
         ISerialConnection? conn = null;
         if (!isolateEachProbe)
         {
-            // Shared handle for the whole group: never assert control lines here — toggling DTR on a handle
+            // Shared handle for the whole group: never assert control lines here; toggling DTR on a handle
             // other probes reuse could reset a different DTR-triggered controller on this port.
             conn = await TryOpenAsync(assertControlLines: false);
             if (conn is null) return;
@@ -410,7 +410,7 @@ internal sealed class SerialProbeService : ISerialProbeService
                 // "no response"); synchronous reads are immune (see ISerialConnection.SynchronousReads).
                 c.SynchronousReads = true;
                 // Open/close framing at Info so every exchange in the log is visibly
-                // bracketed by the baud rate it ran at — otherwise the baud only
+                // bracketed by the baud rate it ran at: otherwise the baud only
                 // shows up inside a _logger scope, which most formatters drop.
                 _logger.LogInformation("{Port} opened @ {Baud} baud", port, baud);
                 return c;
@@ -421,7 +421,7 @@ internal sealed class SerialProbeService : ISerialProbeService
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Failed to open port at {Baud} baud — skipping.", baud);
+                _logger.LogDebug(ex, "Failed to open port at {Baud} baud, skipping.", baud);
                 return null;
             }
         }
@@ -462,8 +462,8 @@ internal sealed class SerialProbeService : ISerialProbeService
         conn.DiscardInBuffer();
 
         // Boot warm-up: some controllers reboot when the port opens (their USB bridge toggles DTR/RTS) and
-        // ignore input until booted. Wait ISerialProbe.Warmup AFTER open, BEFORE the first handshake — not
-        // counted against the per-attempt budget — then clear any boot-time chatter. Because the service
+        // ignore input until booted. Wait ISerialProbe.Warmup AFTER open, BEFORE the first handshake, not
+        // counted against the per-attempt budget, then clear any boot-time chatter. Because the service
         // reopens the port per probe, the boot restarts each time, so this must run per probe. Default zero.
         if (probe.Warmup > TimeSpan.Zero)
         {
@@ -519,7 +519,7 @@ internal sealed class SerialProbeService : ISerialProbeService
         {
             // Post-probe drain: capture any bytes that arrived DURING or AFTER
             // this probe's cancellation (the OnStep ":GVP# → 0 without #" quirk
-            // is the canonical case — the '0' shows up just after we time out
+            // is the canonical case: the '0' shows up just after we time out
             // waiting for the '#'). Doing it here, before the VerboseTag reset,
             // attributes the drained-bytes log line to the probe that actually
             // triggered them rather than the next probe in line.

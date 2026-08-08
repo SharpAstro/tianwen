@@ -122,7 +122,7 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// <summary>
     /// Believed (encoder-derived) RA/Dec at the same reference moment. Under perfect
     /// tracking the believed pointing is CONSTANT, so any deviation from this value at
-    /// read time is exactly the commanded axis motion since the reference — guide
+    /// read time is exactly the commanded axis motion since the reference; guide
     /// pulses, MoveAxis nudges, the in-flight portion of a GOTO. The post-centering
     /// branch adds that deviation to the drifted pointing 1:1: without it, pulse
     /// guiding moved the encoders but was INVISIBLE in pointing reads (the guider
@@ -137,7 +137,7 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     /// True while a post-centering GOTO is in flight and the believed-pointing anchor
     /// has not been captured yet. The fake goto computes its target steps from the HA
     /// at COMMAND time, so the believed RA on arrival is the target plus the slew
-    /// duration of sidereal motion — anchoring at the commanded target would leave a
+    /// duration of sidereal motion: anchoring at the commanded target would leave a
     /// permanent slew-duration error in every read (~9' for a long slew). Instead the
     /// first true-pointing read (camera frame) after the slew completes captures the
     /// believed pointing as the anchor (and restarts the drift clock at arrival).

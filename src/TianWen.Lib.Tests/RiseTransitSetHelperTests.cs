@@ -8,11 +8,11 @@ namespace TianWen.Lib.Tests;
 [Collection("Astrometry")]
 public class RiseTransitSetHelperTests
 {
-    // Sydney Observatory — southern hemisphere, always-visible-ish targets for coverage.
+    // Sydney Observatory: southern hemisphere, always-visible-ish targets for coverage.
     private const double SydneyLatDeg = -33.8688;
     private const double SydneyLonDeg = 151.2093;
 
-    // Standard mid-northern observer — Greenwich, for easy sanity-checking against
+    // Standard mid-northern observer: Greenwich, for easy sanity-checking against
     // published ephemeris (pick a dec that transits well above horizon from London).
     private const double GreenwichLatDeg = 51.4769;
     private const double GreenwichLonDeg = 0.0;
@@ -47,7 +47,7 @@ public class RiseTransitSetHelperTests
     [Fact]
     public void PolarisIsCircumpolarFromGreenwich()
     {
-        // Polaris: RA 2h 31m 49s, Dec +89 deg 15' — always above horizon in mid-northern latitudes.
+        // Polaris: RA 2h 31m 49s, Dec +89 deg 15', always above horizon in mid-northern latitudes.
         var raHours = 2.0 + 31.0 / 60.0 + 49.0 / 3600.0;
         var decDeg = 89.0 + 15.0 / 60.0;
 
@@ -66,7 +66,7 @@ public class RiseTransitSetHelperTests
     [Fact]
     public void AlphaCrucisNeverRisesFromGreenwich()
     {
-        // Alpha Crucis (Acrux): Dec ~ -63 deg — never rises from London (lat 51.5 deg N).
+        // Alpha Crucis (Acrux): Dec ~ -63 deg, never rises from London (lat 51.5 deg N).
         // For the object to rise we need |dec - lat| < 90, i.e. dec > -(90 - 51.5) = -38.5.
         var raHours = 12.45;
         var decDeg = -63.0;
@@ -132,7 +132,7 @@ public class RiseTransitSetHelperTests
             .ShouldBeTrue();
 
         var lstAtTransit = SiteContext.ComputeLST(transit, GreenwichLonDeg);
-        // LST wraps at 24h — compare modulo.
+        // LST wraps at 24h: compare modulo.
         var diff = Math.Abs(((lstAtTransit - raHours) % 24.0 + 24.0) % 24.0);
         if (diff > 12.0) diff = 24.0 - diff;
         diff.ShouldBeLessThan(0.01); // ~36 sidereal seconds, well under the helper's accuracy budget

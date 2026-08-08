@@ -307,8 +307,8 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
     private IReadOnlyList<AxisRate> ReadAxisRates(TelescopeAxis axis)
     {
         // ASCOM ITelescope.AxisRates(axis) returns an IAxisRates collection:
-        //   Count                 — int
-        //   Item(i)  (1-indexed)  — IRate { Minimum, Maximum }
+        //   Count: int
+        //   Item(i)  (1-indexed): IRate { Minimum, Maximum }
         using var rates = _telescope.AxisRates((int)axis);
         var count = rates.GetInt("Count");
         if (count <= 0)

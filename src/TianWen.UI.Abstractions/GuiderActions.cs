@@ -6,7 +6,7 @@ using TianWen.Lib.Sequencing;
 namespace TianWen.UI.Abstractions;
 
 /// <summary>
-/// Static helpers for the guider tab — placeholder text, formatting, sparklines.
+/// Static helpers for the guider tab: placeholder text, formatting, sparklines.
 /// </summary>
 public static class GuiderActions
 {
@@ -32,7 +32,7 @@ public static class GuiderActions
     /// </summary>
     public static (string Message, NotificationSeverity Severity)? NotificationForGuiderTransition(string? oldState, string? newState) => (oldState, newState) switch
     {
-        (_, "LostLock") => ("Guide star lost — guider is re-acquiring.", NotificationSeverity.Warning),
+        (_, "LostLock") => ("Guide star lost, guider is re-acquiring.", NotificationSeverity.Warning),
         ("LostLock", "Guiding" or "Settling") => ("Guide star re-acquired.", NotificationSeverity.Info),
         _ => null,
     };

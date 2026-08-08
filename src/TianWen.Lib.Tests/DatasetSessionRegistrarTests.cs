@@ -15,10 +15,10 @@ namespace TianWen.Lib.Tests
     /// <summary>
     /// End-to-end coverage for <see cref="SessionRegistrar"/> (dataset builder P0/#39):
     /// measure + gate + register + warp + integrate one session on synthetic RGGB data
-    /// (<see cref="RgbBayerSyntheticFixture"/> — the same 8 dithered lights + 2 darks the
+    /// (<see cref="RgbBayerSyntheticFixture"/>, the same 8 dithered lights + 2 darks the
     /// stacking synthetic test uses, so any registration/integration regression trips here
     /// too). The load-bearing dataset invariant is that every warped sub shares the master's
-    /// exact pixel grid — that is what makes cell (i, j) of any two subs an N2N pair.
+    /// exact pixel grid, that is what makes cell (i, j) of any two subs an N2N pair.
     /// </summary>
     [Collection("Imaging")]
     public class DatasetSessionRegistrarTests(ITestOutputHelper output) : IDisposable

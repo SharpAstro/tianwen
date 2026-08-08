@@ -266,7 +266,7 @@ def main() -> int:
     canonical = os.path.normpath(args.canonical)
 
     # The index is append-only (schema upgrades and move re-pointing append updated records),
-    # so the LAST record per path wins — a flat list double-counts every upgraded file — and
+    # so the LAST record per path wins, a flat list double-counts every upgraded file, and
     # records whose file no longer exists (pre-move paths) would create phantom session dirs
     # and calibration pools pointing at vanished directories.
     by_path: dict[str, dict] = {}

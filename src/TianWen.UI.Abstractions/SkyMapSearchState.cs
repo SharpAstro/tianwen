@@ -8,7 +8,7 @@ namespace TianWen.UI.Abstractions;
 
 /// <summary>
 /// One row in the live-filtered result list. Carries only what the renderer
-/// needs — the full <see cref="CelestialObject"/> is re-resolved on commit.
+/// needs: the full <see cref="CelestialObject"/> is re-resolved on commit.
 /// </summary>
 public readonly record struct SkyMapSearchResult(
     string Display,
@@ -18,7 +18,7 @@ public readonly record struct SkyMapSearchResult(
 
 /// <summary>
 /// Mutable state for the F3 search modal. Lives on <see cref="SkyMapState"/>.
-/// Collections are <see cref="ImmutableArray{T}"/> for atomic swap — the catalog
+/// Collections are <see cref="ImmutableArray{T}"/> for atomic swap; the catalog
 /// index and filter results can be rebuilt on a background thread while the
 /// render thread walks a snapshot.
 /// </summary>
@@ -69,7 +69,7 @@ public class SkyMapSearchState
     public ImmutableArray<(string Alias, CatalogIndex Index, string Display)> CometAliases { get; set; } = [];
 
     /// <summary>
-    /// Selected object — shown in the info panel after Enter / click / click-on-map.
+    /// Selected object: shown in the info panel after Enter / click / click-on-map.
     /// Null when no object is selected.
     /// </summary>
     public SkyMapInfoPanelData? InfoPanel { get; set; }

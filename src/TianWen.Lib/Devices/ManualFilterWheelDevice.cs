@@ -6,7 +6,7 @@ using TianWen.Lib.Imaging;
 namespace TianWen.Lib.Devices;
 
 /// <summary>
-/// Device record for a manual (fixed) filter holder — a single filter slot with no motor.
+/// Device record for a manual (fixed) filter holder; a single filter slot with no motor.
 /// The filter name is encoded in the URI query parameter <c>filter</c>.
 /// Used when a camera has a fixed filter (e.g., a dual-band filter in a nose adapter)
 /// that should be reported in FITS headers but doesn't need a motorized wheel.

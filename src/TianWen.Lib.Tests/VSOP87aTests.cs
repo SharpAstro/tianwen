@@ -24,7 +24,7 @@ public class VSOP87aTests
 
         // then
         reduced.ShouldBeTrue();
-        // Moon is a near-field object — parallax and simplified ephemeris give ~0.2° Az/Alt error
+        // Moon is a near-field object: parallax and simplified ephemeris give ~0.2° Az/Alt error
         var posTol = catIdx is CatalogIndex.Moon ? 0.25 : 0.1;
         actualRa.ShouldBeInRange(expRa - posTol, expRa + posTol);
         actualDec.ShouldBeInRange(expDec - posTol, expDec + posTol);

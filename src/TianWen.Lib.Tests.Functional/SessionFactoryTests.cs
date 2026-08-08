@@ -353,7 +353,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     [Fact(Timeout = 60_000)]
     public void GivenDeviceDependentGuiderWhenCreatedWithGuiderCameraThenGuiderReceivesMountAndCamera()
     {
-        // given — use BuiltInGuiderDevice which implements IDeviceDependentGuider
+        // given: use BuiltInGuiderDevice which implements IDeviceDependentGuider
         var mountDevice = CreateMountDevice();
         var cameraDevice = CreateCameraDevice(1);
         var guiderCameraDevice = CreateCameraDevice(2);
@@ -372,7 +372,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         // when
         var session = factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations));
 
-        // then — the guider driver should have received both mount and camera driver instances
+        // then: the guider driver should have received both mount and camera driver instances
         var s = session;
         var guiderDriver = s.Setup.Guider.Driver.ShouldBeAssignableTo<IDeviceDependentGuider>();
         var builtInDriver = (BuiltInGuiderDriver)guiderDriver!;
@@ -385,7 +385,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     [Fact(Timeout = 60_000)]
     public void GivenDeviceDependentGuiderWhenCreatedWithoutGuiderCameraThenThrows()
     {
-        // given — BuiltInGuiderDevice with no guider camera configured
+        // given: BuiltInGuiderDevice with no guider camera configured
         var mountDevice = CreateMountDevice();
         var cameraDevice = CreateCameraDevice();
         var builtInGuiderDevice = new BuiltInGuiderDevice();
@@ -399,7 +399,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
         var (factory, _) = CreateFactory(profileData);
         var observations = new[] { CreateDefaultObservation() };
 
-        // when/then — built-in guider requires a dedicated guider camera
+        // when/then: built-in guider requires a dedicated guider camera
         Should.Throw<InvalidOperationException>(() =>
             factory.Create(TestProfileId, SessionTestHelper.DefaultConfiguration, new ReadOnlySpan<ScheduledObservation>(observations))
         );
@@ -535,7 +535,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     [Fact(Timeout = 60_000)]
     public void GivenProfileWithFullOTAWhenCreatedThenAllDevicesWired()
     {
-        // given — OTA with camera, focuser, filter wheel, cover, aperture, and optical design
+        // given: OTA with camera, focuser, filter wheel, cover, aperture, and optical design
         var mountDevice = CreateMountDevice();
         var cameraDevice = CreateCameraDevice();
         var focuserDevice = CreateFocuserDevice();
@@ -573,7 +573,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     [Fact(Timeout = 60_000)]
     public void GivenUnresolvableDeviceUriInProfileWhenCreateThenThrowsArgumentException()
     {
-        // given — camera URI uses an unknown scheme that the registry won't resolve
+        // given: camera URI uses an unknown scheme that the registry won't resolve
         var mountDevice = CreateMountDevice();
         var guiderDevice = CreateGuiderDevice();
         var bogusUri = new Uri("bogus://unknown-device/1");
@@ -595,7 +595,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     [Fact(Timeout = 60_000)]
     public void GivenOAGOnSecondOTAWhenCreatedThenGuiderReferencesSecondTelescope()
     {
-        // given — two OTAs, OAG on the second (index 1)
+        // given: two OTAs, OAG on the second (index 1)
         var mountDevice = CreateMountDevice();
         var camera1 = CreateCameraDevice(1);
         var camera2 = CreateCameraDevice(2);
@@ -626,7 +626,7 @@ public class SessionFactoryTests(ITestOutputHelper outputHelper)
     [Fact(Timeout = 60_000)]
     public void GivenScheduleWithCustomSubExposureWhenCreateThenPreserved()
     {
-        // given — schedule with 60s sub-exposure
+        // given: schedule with 60s sub-exposure
         var mountDevice = CreateMountDevice();
         var cameraDevice = CreateCameraDevice();
         var guiderDevice = CreateGuiderDevice();

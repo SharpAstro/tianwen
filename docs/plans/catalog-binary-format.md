@@ -2,13 +2,13 @@
 
 Goal: cut `CelestialObjectDB.InitDBAsync` further by swapping the `.json` / `.csv`
 payloads inside the `.lz` embedded resources for a format that's cheaper to
-decode. Lookup paths don't change — this is purely about the one-shot init cost.
+decode. Lookup paths don't change; this is purely about the one-shot init cost.
 Keep lzip outer compression (it's doing a great job on these payloads and the
 wire size is small; the cost is the JSON/CSV parse step on top, not the LZ).
 
 > **Status (2026-05-05 update).** Option D **shipped end-to-end** (all 13 SIMBAD
 > + 2 NGC catalogs migrated to the `.gs.gz` ASCII-separated format). Outer
-> compression for the `.gs` payloads is gzip, not lzip — initial roll-out used
+> compression for the `.gs` payloads is gzip, not lzip; initial roll-out used
 > `.gs.lz` (lzip), then a benchmark of BCL decoders showed `GZipStream` decodes
 > small single-stream payloads 4-8× faster than the managed `LzipDecoder`, so
 > the final shape is `.gs.gz`. Tycho2 stays on parallel multi-member lzip; see
@@ -21,10 +21,10 @@ wire size is small; the cost is the JSON/CSV parse step on top, not the LZ).
 > Net saving: **~350 ms** on the hd-hip-cross phase.
 >
 > Two test guards live in `HdHipCrossSnapshotTests`:
->   * `GivenEmbeddedSnapshot_WhenHashedAgainstCurrentInputs_ThenItIsFresh` —
+>   * `GivenEmbeddedSnapshot_WhenHashedAgainstCurrentInputs_ThenItIsFresh`:
 >     fails CI if a contributor edits a catalog input without running
 >     `tools/precompute-hd-hip-cross.ps1`.
->   * `GivenLiveAndSnapshotPaths_WhenComparingState_ThenTheyAgree` — sample
+>   * `GivenLiveAndSnapshotPaths_WhenComparingState_ThenTheyAgree`; sample
 >     comparison between the live capture path and the apply path; catches
 >     algorithm-vs-snapshot semantic drift.
 >
@@ -77,13 +77,13 @@ Parse-bound phases (SIMBAD + NGC-CSV) total **~405 ms / 55%** of init.
 That's the target of this plan.
 
 Tycho2 (`.bin.lz`), cross-ref (`*_to_tyc*.bin.lz` / `*.json.lz`) and shapes are
-either already binary or too small to matter — leave them alone.
+either already binary or too small to matter; leave them alone.
 
 ## Options Considered
 
 ### D. ASCII-separated text via .ps1 preprocessor (LEADING RECOMMENDATION)
 
-Use ASCII control characters as separators (no escaping, ever — these bytes
+Use ASCII control characters as separators (no escaping, ever, these bytes
 don't appear in any catalog string). Encoder lives in PowerShell, runs as an
 MSBuild step. No new NuGet deps, no new .NET project.
 
@@ -98,7 +98,7 @@ Field:  raw UTF-8; numbers in invariant-culture decimal (G17 for doubles)
 ```
 
 `0x1D` GS = record terminator, `0x1E` RS = field separator, `0x1F` US =
-sub-item separator. Output stream is then lzip-compressed as today —
+sub-item separator. Output stream is then lzip-compressed as today;
 embedded resources renamed to `*.gs.lz`.
 
 **Reader pattern**
@@ -114,11 +114,11 @@ foreach (var rec in bytes.Span.Split((byte)0x1D))
 }
 ```
 
-`Span<byte>.IndexOf` is a `memchr` — same order of magnitude as MsgPack on
+`Span<byte>.IndexOf` is a `memchr`: same order of magnitude as MsgPack on
 these payload sizes. Hand-written reader per catalog shape, but the readers
 are ~30-50 lines each.
 
-**Encoder** (`tools/preprocess-catalog.ps1`) — pure pwsh:
+**Encoder** (`tools/preprocess-catalog.ps1`); pure pwsh:
 `Get-Content -Raw | ConvertFrom-Json`, iterate the records, build a
 `StringBuilder` with `[char]0x1D/0x1E/0x1F`, `[Text.Encoding]::UTF8.GetBytes`,
 shell to `lzip`. Wire as an MSBuild `<Exec>` target gated on input file
@@ -128,10 +128,10 @@ timestamps so it only re-runs when source `*.json` / `*.csv` change.
 
 - **Zero new dependencies.** No `MessagePack` NuGet, no source generator, no
   AOT-compatibility verification needed.
-- **No new .NET preprocessor project** — encoder is a single `.ps1` file in
+- **No new .NET preprocessor project**: encoder is a single `.ps1` file in
   `tools/`. Less moving parts in the source tree.
 - **Diff-able.** A `.gs.lz` file decompressed and piped through
-  `tr '\035\036\037' '\n|,'` becomes human-readable — easier to spot encoder
+  `tr '\035\036\037' '\n|,'` becomes human-readable: easier to spot encoder
   bugs than hex-dumping MessagePack.
 - **AOT-trivial.** `Span<byte>.IndexOf` + `double.Parse(string, Invariant)`
   have no reflection paths.
@@ -143,7 +143,7 @@ timestamps so it only re-runs when source `*.json` / `*.csv` change.
 
 - **Hand-written reader per catalog shape** (SIMBAD, NGC, cross-ref). Same
   drawback as Option B. Each new catalog adds ~30-50 lines of parsing.
-- **Schema changes are coupled** — encoder `.ps1` + reader edit must land
+- **Schema changes are coupled**: encoder `.ps1` + reader edit must land
   together. No `[Key(N)]` add-field-safe semantics like MessagePack.
 - **Float round-trip needs care.** Encoder writes doubles with `G17`,
   reader parses with `NumberStyles.Float | AllowExponent` invariant. Worth
@@ -167,12 +167,12 @@ and `.csv.lz` → `.msgpack.lz`. Runtime reader is a one-line change per call si
 
 - Schema evolution is as safe as JSON (add-field / reorder-safe with
   `[Key(N)]` or named keys).
-- Source-gen AOT support via `MessagePack.Generator` — no reflection at
+- Source-gen AOT support via `MessagePack.Generator`: no reflection at
   runtime, works under `PublishAot`.
 - Existing DTOs stay DTOs; no new hand-written readers.
 - MsgPack is ~5× faster to parse than JSON on these shapes (documented and
   replicable on our payload sizes).
-- Already-compressed LZ of MsgPack is 20-30% smaller than LZ of JSON —
+- Already-compressed LZ of MsgPack is 20-30% smaller than LZ of JSON;
   wire and disk both improve.
 
 **Cons**
@@ -204,13 +204,13 @@ means no runtime interning cost either.
 
 **Pros**
 
-- 10-20× faster than JSON — per-record cost drops to ~40 ns.
+- 10-20× faster than JSON: per-record cost drops to ~40 ns.
 - Smallest on-disk size (often beats JSON-LZ even without LZ).
 - Zero allocation per record at read time.
 
 **Cons**
 
-- Schema evolution is painful — add-a-field requires a version bump + branch in
+- Schema evolution is painful: add-a-field requires a version bump + branch in
   the reader. Historical incompat hurts.
 - Hand-written reader per catalog shape (SIMBAD, NGC, cross-ref variants).
 - More test surface.
@@ -232,7 +232,7 @@ Start with **D (ASCII-separated text + .ps1 preprocessor)**. Delivers ~325 ms
 saving with zero new NuGet deps and no new .NET project. Reader is hand-rolled
 per catalog shape, but each reader is small (~30-50 lines) and fully AOT-safe.
 
-Tycho2 stays untouched (already binary, off the critical path) — see
+Tycho2 stays untouched (already binary, off the critical path); see
 "Out-of-Scope" below.
 
 ## Build-time Preprocessing Design
@@ -309,7 +309,7 @@ static double ParseDouble(ReadOnlySpan<byte> utf8) =>
     double.Parse(Encoding.UTF8.GetString(utf8), NumberStyles.Float, CultureInfo.InvariantCulture);
 ```
 
-`MergeLzCsvData` is replaced by the same span-slicing pattern — `CsvFieldReader`
+`MergeLzCsvData` is replaced by the same span-slicing pattern; `CsvFieldReader`
 goes away for these payloads (CSV-quote handling is no longer needed because
 `0x1E` cannot appear in field content).
 
@@ -327,11 +327,11 @@ One catalog at a time to de-risk. Suggested order:
 
 1. **HR SIMBAD** first (heaviest file, biggest payoff). Prove the encoder + reader +
    round-trip test end-to-end on one file before changing everything.
-2. **NGC CSV** (second-heaviest, different code path — exercises CSV-style input
+2. **NGC CSV** (second-heaviest, different code path, exercises CSV-style input
    to the encoder; encoder produces the same `.gs.lz` output regardless).
 3. Remaining SIMBAD files (small, low-risk, high-volume sanity check that the
    shared `AsciiRecordReader` helper holds up).
-4. Cross-ref JSONs (`hip_to_tyc_multi`, `hd_to_tyc_multi`) — only 14 ms total
+4. Cross-ref JSONs (`hip_to_tyc_multi`, `hd_to_tyc_multi`), only 14 ms total
    so this is about consistency, not speed.
 
 Each step: verify with the 1649-test suite + the init time harness in
@@ -360,7 +360,7 @@ hd-hip-cross:bulk-merge          67 ms   serial: tuple rebuild per affected key
 ```
 
 145 ms (objects+union + bulk-merge) is **serial dict mutation on the main
-thread** — not improvable by more cores. The 152 ms parallel scan reads
+thread**, not improvable by more cores. The 152 ms parallel scan reads
 runtime-mutated state (`_objectsByIndex`, `_crossIndexLookuptable`) so it
 can't easily move to the Tycho2 background task either. Pre-bake skips the
 whole 330 ms.
@@ -387,9 +387,9 @@ A new `tools/precompute-hd-hip-cross/` console project that:
    resources the runtime sees.
 3. After init, captures the **delta** that `BuildHdHipCrossIndicesViaTyc`
    applied:
-   - **New HD entries**: list of `(hdIndex, ra, dec, vMag, bv, constellation, objType)`
-     — every HD CelestialObject created by the phase.
-   - **Edge delta**: list of `(key, [target1, target2, …])` — the new edges
+   - **New HD entries**: list of `(hdIndex, ra, dec, vMag, bv, constellation, objType)`;
+     every HD CelestialObject created by the phase.
+   - **Edge delta**: list of `(key, [target1, target2, …])`; the new edges
      added to `_crossIndexLookuptable` (post-`MergeEdgesBulk` shape, i.e.
      consolidated per key).
 4. Emits a single binary file `hd_hip_cross.bin.gz`.
@@ -425,7 +425,7 @@ if (TryLoadPrecomputedHdHipCross(assembly, manifestNames, out var snapshot)
 }
 else
 {
-    _logger.LogWarning("hd-hip-cross snapshot stale or missing — recomputing live (slow path)");
+    _logger.LogWarning("hd-hip-cross snapshot stale or missing, recomputing live (slow path)");
     BuildHdHipCrossIndicesViaTyc();
 }
 _lastInitPhaseTimings.Add(("hd-hip-cross", phaseSw.Elapsed));
@@ -442,7 +442,7 @@ fresh" test that re-runs the live path and diffs against the snapshot.
   deserialise + apply).
 - **Pro:** Snapshot stays small (~500 KB compressed), comfortable to ship
   embedded.
-- **Pro:** `objType` correctly captured at build time — no runtime patching,
+- **Pro:** `objType` correctly captured at build time; no runtime patching,
   because SIMBAD merge runs identically at build time.
 - **Pro:** Drop the embedded `hip_to_tyc.bin.lz` and `hd_to_tyc.bin.lz`
   resources entirely (they're only used to feed `BuildHdHipCrossIndicesViaTyc`,
@@ -462,7 +462,7 @@ cross-ref edge writes into `_crossIndexLookuptable`. Both are deterministic
 from the embedded `.gs.gz` files + `_predefinedObjects`.
 
 Defer until 2A ships and we've measured the deserialise-and-apply cost
-empirically — Phase 2A's binary format will likely be reusable here.
+empirically. Phase 2A's binary format will likely be reusable here.
 
 ### 2C. Lookup-speed BFS pooling (separate, smaller win)
 
@@ -475,7 +475,7 @@ to land the same `FrozenDictionary` shape.
 - **Tycho2** (`tyc2.bin.lz` + `tyc2_gsc_bounds.bin.lz`): the file is built
   with `lzip -9 -b 4MiB` (multi-member, ~5–6 members on the 21 MB tyc2.bin.lz),
   and `LzipDecoder` decompresses members in parallel via `Parallel.For` over
-  threadpool. **Switching to gzip would lose that parallelism** — single-stream
+  threadpool. **Switching to gzip would lose that parallelism**; single-stream
   GZipStream has no built-in multi-member parallel decode in the BCL, and
   hand-rolling one mirrors the existing LzipDecoder for zero net gain. Leave
   on lzip.
@@ -515,5 +515,5 @@ cross-index BFS allocations are the only obvious remaining win:
   becomes a single dict-hit (~50 ns), zero alloc. Shifts cost to init (~50 ms
   extra), but with the format migration above init has the headroom.
 
-This is a small, targeted change to do AFTER the format migration lands —
+This is a small, targeted change to do AFTER the format migration lands;
 revisit when the benchmark shows it's worth it.

@@ -19,9 +19,9 @@ namespace TianWen.Lib.Tests;
 /// <c>lx200_OnStep.cpp</c>: the very first LX200 "get product" query returns a bare
 /// <c>'0'</c> with no <c>'#'</c> terminator. Both probes in the 9600-baud group
 /// send <c>:GVP#</c>, and framed-protocols-first sort ordering puts Meade ahead
-/// of OnStep — so Meade is the probe that receives the quirky <c>'0'</c>. Meade's
+/// of OnStep, so Meade is the probe that receives the quirky <c>'0'</c>. Meade's
 /// <c>TryReadTerminatedAsync</c> never sees a <c>'#'</c>, times out, its local
-/// message buffer is discarded on the way out, and — crucially — the stream is
+/// message buffer is discarded on the way out, and, crucially, the stream is
 /// now clean for the OnStep probe which runs next on the same shared handle and
 /// sends its own <c>:GVP#</c>. That second query gets the proper <c>"On-Step#"</c>
 /// response, so OnStep matches without ever needing to "know" about the quirk.
@@ -29,7 +29,7 @@ namespace TianWen.Lib.Tests;
 /// This models the pure synchronous case (device responds to :GVP# with "0"
 /// immediately, then goes silent until the next query). The post-probe
 /// <see cref="ISerialConnection.DiscardInBuffer"/> in <c>RunSingleProbeAsync</c>
-/// runs too, but in this scenario it has nothing to drain — Meade already
+/// runs too, but in this scenario it has nothing to drain. Meade already
 /// consumed the stray byte. The drain only pays off in the orthogonal case of
 /// late-arriving bytes, which this test does not cover.
 ///
@@ -55,7 +55,7 @@ public class OnStepQuirkProbeTests(ITestOutputHelper output)
             logger,
             [new MeadeSerialProbe(), new OnStepSerialProbe()],
             pinnedPortsProvider: null,
-            // pass 1 only — the test is about the single-pass handoff from
+            // pass 1 only: the test is about the single-pass handoff from
             // Meade (absorbs the quirk) to OnStep (clean :GVP#).
             passBudgetMultipliers: [1.0]);
 
@@ -84,7 +84,7 @@ public class OnStepQuirkProbeTests(ITestOutputHelper output)
         await probeTask;
 
         stub.GvpWriteCount.ShouldBe(2,
-            "both Meade and OnStep send :GVP# on the shared handle — exactly once each");
+            "both Meade and OnStep send :GVP# on the shared handle; exactly once each");
 
         service.ResultsFor("Meade").ShouldBeEmpty(
             "Meade's :GVP# got a bare '0' with no '#' → read times out, no match (as designed)");
@@ -202,16 +202,16 @@ public class OnStepQuirkProbeTests(ITestOutputHelper output)
             }
             else if (cmd is ":GM#" or ":GL#" or ":GN#" or ":GO#")
             {
-                // Every site slot reports "unused" — exercises the branch where
+                // Every site slot reports "unused": exercises the branch where
                 // TryGetMountInfo writes a fresh UUID into the first empty slot.
                 EnqueueAscii("<AN UNUSED SITE>#");
             }
             else if (cmd.StartsWith(":S", StringComparison.Ordinal) && cmd.EndsWith("#"))
             {
-                // Set-site ack — one byte '1' for success.
+                // Set-site ack: one byte '1' for success.
                 EnqueueAscii("1");
             }
-            // Unknown commands are silently dropped — if a probe adds a new
+            // Unknown commands are silently dropped, if a probe adds a new
             // exchange the test will time out on that read and fail loudly.
 
             return ValueTask.FromResult(true);
@@ -237,7 +237,7 @@ public class OnStepQuirkProbeTests(ITestOutputHelper output)
                         message.Span[read++] = b;
                         continue;
                     }
-                    // Buffer empty — wait for either a late enqueue from another
+                    // Buffer empty: wait for either a late enqueue from another
                     // thread (there are none in this test) or cancellation. 1ms
                     // real-time polling is fine because cancellation on the fake
                     // clock still fires through the linked ct.

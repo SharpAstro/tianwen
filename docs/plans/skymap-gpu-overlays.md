@@ -88,7 +88,7 @@ DrawText calls.
 **Problem.** Overlay markers already render GPU-side (`VkOverlayShapes`), but
 `OverlayEngine.ComputeSkyMapOverlays` scans the RA/Dec grid cell-by-cell on
 the CPU every frame to decide *what* to render. When `poleInView` or
-`FOV >= 90 deg` (exactly when the meridian is visible — it goes pole-to-pole),
+`FOV >= 90 deg` (exactly when the meridian is visible, it goes pole-to-pole),
 the scan goes full all-sky: 360 RA * 181 Dec = ~65,000 cells, ~5 ms CPU
 per frame, noticeable as "lag when the meridian is in view."
 
@@ -106,9 +106,9 @@ and much cheaper than the cell scan.
 - [ ] Keep the existing per-candidate filters (mag cutoff, extended-object
       type gate, screen-bounds cull) exactly as they are. Only the outer
       iteration changes.
-- [ ] Delete the `poleInView` branch that widened to all-sky — no longer
+- [ ] Delete the `poleInView` branch that widened to all-sky; no longer
       relevant since the new pass iterates objects directly, not cells.
-- [ ] Delete the RA wrap-around handling — objects have absolute coordinates,
+- [ ] Delete the RA wrap-around handling: objects have absolute coordinates,
       projection decides visibility.
 - [ ] Keep `seen` HashSet just as a dedup guard for cross-index objects.
 
@@ -127,7 +127,7 @@ few microseconds; acceptable.
 
 **Problem.** `BuildMeridianLine` runs in `VkSkyMapTab.Render` every frame,
 rebuilding 200 verts from `site.LST`. LST drifts at ~1 second wall-clock per
-second; the meridian moves <0.0042 deg of RA per frame at 60 FPS — far below
+second; the meridian moves <0.0042 deg of RA per frame at 60 FPS; far below
 sub-pixel on screen. Still, we pay ~200 trig calls + a ring-buffer write each
 frame for zero visual change.
 
@@ -141,7 +141,7 @@ frame for zero visual change.
       offset for the draw call.
 
 **Benefit.** Saves ~1 ms per frame when idle (no pan/zoom, no LST drift that
-matters). Compounds nicely with Phase 4 — interactive + idle both become
+matters). Compounds nicely with Phase 4; interactive + idle both become
 free on the CPU side.
 
 ## Not planned (stays CPU)

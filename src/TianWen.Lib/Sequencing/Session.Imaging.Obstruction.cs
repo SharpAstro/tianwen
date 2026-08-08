@@ -8,7 +8,7 @@ using TianWen.Lib.Devices;
 namespace TianWen.Lib.Sequencing;
 
 /// <summary>
-/// FOV obstruction detection — predictive scout + altitude-nudge disambiguation.
+/// FOV obstruction detection: predictive scout + altitude-nudge disambiguation.
 /// Runs after <c>CenterOnTargetAsync</c> and before guider/imaging commitment so a
 /// target behind a tree or roof is detected fast and either waited out (if the trajectory
 /// will clear it soon) or skipped cleanly. See <c>docs/plans/fov-obstruction-detection.md</c>.
@@ -207,7 +207,7 @@ internal partial record Session
             return new ScoutResult(preMetrics, ScoutClassification.Transparency, null);
         }
 
-        // Phase 3: obstruction confirmed — estimate trajectory clear time
+        // Phase 3: obstruction confirmed; estimate trajectory clear time
         var clearIn = await EstimateObstructionClearTimeAsync(observation, cancellationToken);
         _logger.LogWarning(
             "Scout: {Target} classified as Obstruction; estimated clear in {Clear}.",
@@ -218,7 +218,7 @@ internal partial record Session
 
     /// <summary>
     /// Pure-ish classifier: compares per-OTA star counts to the previous observation's
-    /// baseline (exposure-scaled by sqrt — sky-noise scales with sqrt(t), star detectability
+    /// baseline (exposure-scaled by sqrt, sky-noise scales with sqrt(t), star detectability
     /// roughly follows). Returns the worst-OTA classification because the scout is rig-wide.
     /// </summary>
     internal (ScoutClassification Classification, float WorstRatio) ClassifyAgainstBaseline(
@@ -236,7 +236,7 @@ internal partial record Session
 
             // Sky background scales with sqrt(t); star SNR scales with sqrt(t).
             // Number of stars above a fixed SNR threshold therefore scales roughly with sqrt(t).
-            // Same setup, same field — a 10s scout vs. 120s baseline yields ~sqrt(10/120) ≈ 0.29× stars.
+            // Same setup, same field: a 10s scout vs. 120s baseline yields ~sqrt(10/120) ≈ 0.29× stars.
             var expScale = (float)Math.Sqrt(s.Exposure.TotalSeconds / b.Exposure.TotalSeconds);
             var expectedStars = b.StarCount * expScale;
             if (expectedStars <= 0) continue;
@@ -257,7 +257,7 @@ internal partial record Session
             return (ScoutClassification.Healthy, worstRatio);
         }
 
-        // Borderline (severe..healthy) and severe (<severe) both go to nudge test —
+        // Borderline (severe..healthy) and severe (<severe) both go to nudge test; 
         // we can't tell obstruction from transparency without it. Caller treats both
         // identically; we tag as Obstruction tentatively and let the nudge confirm.
         return (ScoutClassification.Obstruction, worstRatio);
@@ -279,7 +279,7 @@ internal partial record Session
 
         if (nudgeDeg <= 0)
         {
-            // No usable FOV info — can't run nudge test, treat as inconclusive (transparency)
+            // No usable FOV info: can't run nudge test, treat as inconclusive (transparency)
             _logger.LogWarning("Scout: cannot compute FOV nudge (halfFov={HalfFov}°); skipping nudge test.", halfFovDeg);
             return (preMetrics, ScoutClassification.Transparency);
         }
@@ -307,7 +307,7 @@ internal partial record Session
             }
             else
             {
-                // Nudge slew refused (e.g. above pole crossing) — bail out as inconclusive
+                // Nudge slew refused (e.g. above pole crossing): bail out as inconclusive
                 _logger.LogWarning("Scout nudge slew rejected ({PostCondition}); classifying as Transparency.", postCondition);
                 return (preMetrics, ScoutClassification.Transparency);
             }
@@ -372,7 +372,7 @@ internal partial record Session
     /// classifier skips. On a successful exposure that legitimately yielded zero stars (target
     /// fully obstructed), the returned metric preserves <c>Exposure</c> so the classifier can
     /// distinguish "took the exposure, found nothing" (obstruction signal) from "exposure
-    /// didn't happen" (transient fault — skip).
+    /// didn't happen" (transient fault, skip).
     /// </para>
     /// </summary>
     private const int MaxScoutAttempts = 2;
@@ -388,7 +388,7 @@ internal partial record Session
 
                 // Two distinct "not valid" cases reach this branch:
                 //   - metrics.Exposure == 0 (default) → exposure never ran (image-ready timeout,
-                //     null image after retries) — retry the whole exposure.
+                //     null image after retries): retry the whole exposure.
                 //   - metrics.Exposure > 0 with StarCount <= 3 → exposure ran but yielded few/no
                 //     stars. Could be real obstruction OR a single-frame transient (cosmic ray
                 //     spike, brief cloud puff). Retry once to disambiguate before letting the
@@ -460,7 +460,7 @@ internal partial record Session
             var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
             var gain = await ResilientInvokeAsync(camera, camera.GetGainAsync, ResilientCallOptions.IdempotentRead, cancellationToken);
 
-            // Preserve exposure on 0-star results — see TakeScoutFrameAsync rationale.
+            // Preserve exposure on 0-star results: see TakeScoutFrameAsync rationale.
             // FrameMetrics.FromStarList returns default(FrameMetrics) when stars.Count == 0,
             // which collapses Exposure to TimeSpan.Zero and looks identical to "exposure
             // never ran". Build the metric directly when we know the exposure completed.
@@ -491,7 +491,7 @@ internal partial record Session
     }
 
     /// <summary>
-    /// Half-FOV (degrees) of the widest OTA in the rig — drives the nudge slew amount.
+    /// Half-FOV (degrees) of the widest OTA in the rig; drives the nudge slew amount.
     /// Returns 0 when no OTA reports usable pixel scale + readout dimensions; the caller
     /// then bails out of the nudge test gracefully.
     /// </summary>
@@ -508,7 +508,7 @@ internal partial record Session
 
     /// <summary>
     /// Estimates how long until the target's natural altitude reaches
-    /// <c>currentAlt + nudgeDeg</c> — the altitude at which the scout reportedly cleared the
+    /// <c>currentAlt + nudgeDeg</c>: the altitude at which the scout reportedly cleared the
     /// obstruction. Returns null if the target is descending (will never clear at the current
     /// nudge geometry) or if it won't clear within the lookahead window (default 2 h).
     /// </summary>
@@ -544,7 +544,7 @@ internal partial record Session
         var altNext = transform.ElevationTopocentric;
         if (altNext <= altNow)
         {
-            // Target is at or past meridian — won't gain altitude
+            // Target is at or past meridian: won't gain altitude
             return null;
         }
 

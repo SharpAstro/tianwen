@@ -72,7 +72,7 @@ namespace TianWen.UI.FitsViewer
                     commandKey.SetValue(null, $"\"{exePath}\" \"%1\"");
                 }
 
-                // Register each extension via OpenWithProgids (modern per-user approach —
+                // Register each extension via OpenWithProgids (modern per-user approach,
                 // adds to "Open With" list without forcibly overriding current default)
                 foreach (var ext in extensions)
                 {

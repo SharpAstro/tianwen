@@ -34,14 +34,14 @@ public partial class Image
     }
 
     /// <summary>
-    /// Debayers into pre-allocated destination channels. Zero allocation on the output path —
+    /// Debayers into pre-allocated destination channels. Zero allocation on the output path; 
     /// the caller owns the <paramref name="destination"/> arrays and can reuse them across frames.
     /// Returns an <see cref="Image"/> wrapping the destination arrays (no new arrays allocated).
     /// </summary>
     /// <param name="destination">Pre-allocated channel arrays: 1 for BilinearMono, 3 for AHD/VNG.
     /// Must match this image's (Height, Width). Allocated by caller on first frame, reused thereafter.</param>
     /// <summary>
-    /// Debayers into pre-allocated destination <see cref="Channel"/> arrays. Zero allocation on the output path —
+    /// Debayers into pre-allocated destination <see cref="Channel"/> arrays. Zero allocation on the output path; 
     /// the caller owns the channels and can reuse them across frames.
     /// Returns an <see cref="Image"/> wrapping the channel data (no new arrays allocated).
     /// For mono/color: copies + normalizes into destination channels instead of modifying in place.
@@ -657,7 +657,7 @@ public partial class Image
     {
         var width = Width;
         var height = Height;
-        // Scratch arrays for AHD phases — pooled to avoid 6 × H×W allocations per frame
+        // Scratch arrays for AHD phases: pooled to avoid 6 × H×W allocations per frame
         using var debR = Array2DPool<float>.RentScoped(height, width);
         using var debG = Array2DPool<float>.RentScoped(height, width);
         using var debB = Array2DPool<float>.RentScoped(height, width);
@@ -947,7 +947,7 @@ public partial class Image
 
         // Phase 4: Artifact reduction - 3×3 median filter on color differences (R-G) and (B-G)
         // This smooths the abrupt H/V direction switching that causes per-pixel colour noise
-        // Reuse rgbH — it is dead after Phase 3 (saves one full 3-channel allocation)
+        // Reuse rgbH: it is dead after Phase 3 (saves one full 3-channel allocation)
         var filtered = rgbH;
         var filtR = filtered[R]; var filtG = filtered[G]; var filtB = filtered[B];
 

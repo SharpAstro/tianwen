@@ -23,17 +23,17 @@ internal static class NinaSystemEndpoints
     {
         var group = routes.MapGroup("/v2/api");
 
-        // GET /v2/api/version — connectivity check, returns version string
+        // GET /v2/api/version: connectivity check, returns version string
         group.MapGet("/version", () => Results.Json(
             ResponseEnvelope<string>.Ok(_version),
             NinaApiJsonContext.Default.ResponseEnvelopeString));
 
-        // GET /v2/api/time — current server time in ISO 8601 (UTC wire format, ninaAPI contract)
+        // GET /v2/api/time: current server time in ISO 8601 (UTC wire format, ninaAPI contract)
         group.MapGet("/time", (ITimeProvider timeProvider) => Results.Json(
             ResponseEnvelope<string>.Ok(timeProvider.GetUtcNow().ToString("o")),
             NinaApiJsonContext.Default.ResponseEnvelopeString));
 
-        // GET /v2/api/event-history — synthesized from session phase changes
+        // GET /v2/api/event-history: synthesized from session phase changes
         group.MapGet("/event-history", (IHostedSession hosted, ITimeProvider timeProvider) =>
         {
             var events = new List<NinaEventDto>();
@@ -72,7 +72,7 @@ internal static class NinaSystemEndpoints
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaEventDtoArray);
         });
 
-        // GET /v2/api/profile/show — active profile (TNS passes ?active=true)
+        // GET /v2/api/profile/show: active profile (TNS passes ?active=true)
         group.MapGet("/profile/show", async (IHostedSession hosted, CancellationToken ct) =>
         {
             if (hosted.CurrentSession is not { } session)
@@ -88,7 +88,7 @@ internal static class NinaSystemEndpoints
                 NinaApiJsonContext.Default.ResponseEnvelopeNinaProfileDto);
         });
 
-        // GET /v2/api/profile/switch?profileid= — set active profile
+        // GET /v2/api/profile/switch?profileid=: set active profile
         group.MapGet("/profile/switch", (string profileid, IHostedSession hosted) =>
         {
             if (!Guid.TryParse(profileid, out var guid))
@@ -104,7 +104,7 @@ internal static class NinaSystemEndpoints
                 NinaApiJsonContext.Default.ResponseEnvelopeString);
         });
 
-        // GET /v2/api/profile/list-available — list profiles (alias for /v2/api/profile/show without ?active)
+        // GET /v2/api/profile/list-available: list profiles (alias for /v2/api/profile/show without ?active)
         group.MapGet("/profile/list-available", (IDeviceDiscovery deviceDiscovery) =>
         {
             var profiles = deviceDiscovery.RegisteredDevices(DeviceType.Profile)

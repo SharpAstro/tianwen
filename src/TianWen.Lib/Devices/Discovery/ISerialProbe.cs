@@ -13,14 +13,14 @@ namespace TianWen.Lib.Devices.Discovery;
 /// the probe service opens each port once per baud, runs all probes for that baud
 /// group sequentially against the shared open handle, and publishes matches keyed by
 /// probe <see cref="Name"/>. Device sources read matches from the service during
-/// <c>DiscoverAsync</c> — they no longer open ports themselves.
+/// <c>DiscoverAsync</c>: they no longer open ports themselves.
 /// </summary>
 public interface ISerialProbe
 {
     /// <summary>
     /// Stable identifier (e.g. <c>"Skywatcher"</c>, <c>"OnStep"</c>, <c>"QFOC"</c>).
     /// Device sources look up matches via <see cref="ISerialProbeService.ResultsFor(string)"/>
-    /// using this key — must be unique across all registered probes.
+    /// using this key: must be unique across all registered probes.
     /// </summary>
     string Name { get; }
 
@@ -39,14 +39,14 @@ public interface ISerialProbe
     /// bytes in the device-side buffer that contaminate the next probe's response.
     /// Keeping the unframed probe at the tail means only it ever has to deal with
     /// stale bytes, and every framed probe before it exits cleanly on its terminator.
-    /// Default <see cref="ProbeFraming.Unframed"/> — the conservative choice for new
+    /// Default <see cref="ProbeFraming.Unframed"/>: the conservative choice for new
     /// probes that haven't declared their framing.
     /// </summary>
     ProbeFraming Framing => ProbeFraming.Unframed;
 
     /// <summary>
     /// Encoding used for ASCII/text-based writes and reads. Binary probes typically
-    /// use <see cref="Encoding.ASCII"/> — the encoding only matters when the probe
+    /// use <see cref="Encoding.ASCII"/>: the encoding only matters when the probe
     /// calls string-based overloads on <see cref="ISerialConnection"/>.
     /// </summary>
     Encoding Encoding => Encoding.ASCII;
@@ -54,7 +54,7 @@ public interface ISerialProbe
     /// <summary>
     /// Shared (default) lets the probe run alongside other probes in the same baud
     /// group on a shared port. ExclusiveBaud reserves the baud group for this probe
-    /// only — reserved for future binary protocols with stateful handshakes.
+    /// only: reserved for future binary protocols with stateful handshakes.
     /// </summary>
     ProbeExclusivity Exclusivity => ProbeExclusivity.Shared;
 
@@ -74,14 +74,14 @@ public interface ISerialProbe
     /// <summary>
     /// Quiet delay the service waits AFTER opening the port and BEFORE the first handshake, not counted
     /// against <see cref="Budget"/>. For controllers that reboot when the port opens (their USB bridge
-    /// toggles DTR/RTS on open) and ignore input until booted — e.g. the Gemini FlatPanel's CH341, ~2s.
+    /// toggles DTR/RTS on open) and ignore input until booted, e.g. the Gemini FlatPanel's CH341, ~2s.
     /// Because the service opens/closes the port per probe, the boot restarts every probe, so the delay must
     /// live in the probe rather than being amortised across the baud group. Default zero (no warm-up).
     /// </summary>
     TimeSpan Warmup => TimeSpan.Zero;
 
     /// <summary>
-    /// When true, the service asserts DTR + RTS when opening the port for this probe — needed by bridges that
+    /// When true, the service asserts DTR + RTS when opening the port for this probe; needed by bridges that
     /// hold the MCU in reset until DTR is asserted (e.g. the Gemini FlatPanel's CH341, which never answers
     /// otherwise). Honoured ONLY on the isolated per-probe pass (each probe has its own handle there); on the
     /// shared first pass it is ignored, because toggling DTR on a handle shared with other probes could reset
@@ -92,10 +92,10 @@ public interface ISerialProbe
     /// <summary>
     /// Device-URI host names this probe can verify for pinned-port verification
     /// (see <see cref="ISerialProbeService"/>'s two-tier algorithm). Typically a
-    /// single entry — the name of the <see cref="IDeviceSource{TDevice}"/> host that
+    /// single entry: the name of the <see cref="IDeviceSource{TDevice}"/> host that
     /// the probe publishes URIs under (e.g. <c>"OnStepDevice"</c>,
     /// <c>"SkywatcherDevice"</c>). Default empty means the probe doesn't participate
-    /// in verification — pinned ports referencing its family always fall through to
+    /// in verification: pinned ports referencing its family always fall through to
     /// the general probe pass.
     /// </summary>
     IReadOnlyCollection<string> MatchesDeviceHosts => [];
@@ -106,7 +106,7 @@ public interface ISerialProbe
     /// stash inside <see cref="SerialProbeMatch.Port"/> and use when building the
     /// device URI. Return a match on success, null on no-match. Exceptions thrown here
     /// are caught by the service, logged with full <c>port/baud/probe</c> scope, and
-    /// treated as no-match — probes should not try to catch-all themselves.
+    /// treated as no-match: probes should not try to catch-all themselves.
     /// </summary>
     ValueTask<SerialProbeMatch?> ProbeAsync(string port, ISerialConnection conn, CancellationToken cancellationToken);
 }
@@ -119,14 +119,14 @@ public enum ProbeExclusivity
     /// <summary>Can share the open handle with sibling probes in the same baud group.</summary>
     Shared,
 
-    /// <summary>Claims the baud group exclusively — sibling probes are skipped on that port.</summary>
+    /// <summary>Claims the baud group exclusively: sibling probes are skipped on that port.</summary>
     ExclusiveBaud,
 }
 
 /// <summary>
 /// Response framing of an <see cref="ISerialProbe"/>. The enum value doubles as a
 /// sort priority within a baud group (lower = runs earlier). Ordering is chosen so
-/// framed protocols — which exit cleanly on a terminator byte — run before unframed
+/// framed protocols, which exit cleanly on a terminator byte, run before unframed
 /// probes that can over-read and leave stale bytes behind for the next probe.
 /// </summary>
 public enum ProbeFraming
@@ -141,7 +141,7 @@ public enum ProbeFraming
     BraceTerminated = 2,
 
     /// <summary>
-    /// No byte terminator — the probe reads a fixed byte count (e.g. QHYCFW3 "VRS"
+    /// No byte terminator: the probe reads a fixed byte count (e.g. QHYCFW3 "VRS"
     /// returns exactly 8 bytes). Runs last because a timed-out or over-read fixed-length
     /// read can desync the buffer for any probe that runs after it on the same handle.
     /// </summary>

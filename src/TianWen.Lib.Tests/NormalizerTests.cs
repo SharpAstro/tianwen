@@ -12,7 +12,7 @@ namespace TianWen.Lib.Tests;
 [Collection("Imaging")]
 public class NormalizerTests
 {
-    // 5x3 = 15 floats — not a Vector<float>.Count multiple (4/8/16), so the
+    // 5x3 = 15 floats, not a Vector<float>.Count multiple (4/8/16), so the
     // scalar tail of NormalizeVec gets exercised by every test.
     private static Image Mono(float[] values)
     {
@@ -47,7 +47,7 @@ public class NormalizerTests
         stats.PerChannelMin.Length.ShouldBe(1);
         stats.PerChannelMedian.Length.ShouldBe(1);
         stats.PerChannelMin[0].ShouldBe(0f, tolerance: 1e-5f);
-        // Sort-based median is exact — pixel 7 (out of 15) = value 0.07.
+        // Sort-based median is exact: pixel 7 (out of 15) = value 0.07.
         stats.PerChannelMedian[0].ShouldBe(0.07f, tolerance: 1e-5f);
     }
 
@@ -80,7 +80,7 @@ public class NormalizerTests
         // Frame A bright, frame B dim. Both have IDENTICAL spatial pattern
         // (same relative gradient), only the absolute level differs.
         // After normalization to the same target, both should produce nearly
-        // identical output — the whole point of normalization.
+        // identical output: the whole point of normalization.
         var bright = new float[15];
         var dim = new float[15];
         for (var i = 0; i < 15; i++)
@@ -119,7 +119,7 @@ public class NormalizerTests
         var result = Normalizer.Apply(image, stats, targetMedian: 0.3f);
 
         // out = (0.5 - 0.5) * 1.0 = 0.0  (since scale falls back to 1, but min == 0.5 so output is 0)
-        // The result is a flat zero image — caller is expected to handle "no
+        // The result is a flat zero image: caller is expected to handle "no
         // dynamic range to normalize" by skipping the frame in the integrator
         // or interpreting the zero-flat output as a sentinel.
         foreach (var v in Flatten(result))

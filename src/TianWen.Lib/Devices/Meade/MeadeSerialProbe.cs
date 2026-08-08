@@ -13,7 +13,7 @@ namespace TianWen.Lib.Devices.Meade;
 /// <see cref="MeadeDeviceSource.TryGetMountInfo"/> which also writes a UUID into an
 /// unused site-name slot so the deviceId stays stable across USB re-enumeration.
 /// Lives in the 9600-baud group and shares the open handle with other LX200-style
-/// probes (OnStep, QHYCFW3, QFOC) — no redundant opens.
+/// probes (OnStep, QHYCFW3, QFOC): no redundant opens.
 /// </summary>
 internal sealed class MeadeSerialProbe : ISerialProbe
 {

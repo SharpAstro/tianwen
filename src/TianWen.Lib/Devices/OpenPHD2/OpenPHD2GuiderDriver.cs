@@ -122,7 +122,7 @@ internal class OpenPHD2GuiderDriver : IGuider, IDeviceSource<OpenPHD2GuiderDevic
         }
         catch (Exception ex) when (ex is System.Net.Sockets.SocketException or System.IO.IOException)
         {
-            // PHD2 not running — not an error during discovery, just means no guider available
+            // PHD2 not running, not an error during discovery, just means no guider available
             Logger.LogDebug(ex, "PHD2 not reachable during discovery");
         }
     }

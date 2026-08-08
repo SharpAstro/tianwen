@@ -83,7 +83,7 @@ public class GeminiFlatPanelHardwareTests(ITestOutputHelper testOutputHelper)
                 (await cover.GetCalibratorStateAsync(ct)).ShouldBe(CalibratorStatus.Ready);
                 (await cover.GetBrightnessAsync(ct)).ShouldBe(GeminiFlatPanelProtocol.MaxBrightness);
 
-                // Audible confirmation at the peak: a short beep pulse (>T1# .. >T0#). Diagnostic only —
+                // Audible confirmation at the peak: a short beep pulse (>T1# .. >T0#). Diagnostic only; 
                 // the beeper is not part of ICoverDriver, so reach through the concrete driver.
                 if (cover is GeminiFlatPanelDriver gemini)
                 {

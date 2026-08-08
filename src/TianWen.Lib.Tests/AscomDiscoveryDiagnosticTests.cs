@@ -16,7 +16,7 @@ namespace TianWen.Lib.Tests;
 /// Diagnostic, machine-dependent tests that probe ASCOM discovery step by step on the
 /// developer's actual box. They Skip on non-Windows and Skip when the ASCOM Platform is not
 /// installed. The point is to surface *why* discovery is empty by dumping the raw registry
-/// state that <see cref="AscomDeviceIterator"/> looks at — Registry32 vs Registry64 vs Default —
+/// state that <see cref="AscomDeviceIterator"/> looks at, Registry32 vs Registry64 vs Default, 
 /// so we can tell whether the issue is missing keys, a wrong registry view, or version gating.
 /// </summary>
 [SupportedOSPlatform("Windows")]
@@ -108,7 +108,7 @@ public class AscomDiscoveryDiagnosticTests(ITestOutputHelper output)
     /// <summary>
     /// Mirrors <see cref="AscomDeviceIterator.CheckMininumAscomPlatformVersion"/> exactly.
     /// If this skips on a machine that has ASCOM installed, the iterator's Registry32-only
-    /// gating is the bug — Platform 7 (or x64-only installs) writes to the native key, not
+    /// gating is the bug: Platform 7 (or x64-only installs) writes to the native key, not
     /// the WoW6432Node redirect.
     /// </summary>
     [Fact]
@@ -146,7 +146,7 @@ public class AscomDiscoveryDiagnosticTests(ITestOutputHelper output)
 
         if (bestVersion is null)
         {
-            Assert.Skip("ASCOM Platform not installed (no version value in any registry view) — nothing to diagnose.");
+            Assert.Skip("ASCOM Platform not installed (no version value in any registry view), nothing to diagnose.");
         }
 
         output.WriteLine($"Best Platform Version found across views: {bestVersion} (in {sourceView}, value name '{sourceValueName}')");
@@ -167,13 +167,13 @@ public class AscomDiscoveryDiagnosticTests(ITestOutputHelper output)
     public async Task IteratorCheckSupportReturnsTrueWhenAscomPlatformInstalled()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "ASCOM only on Windows.");
-        Assert.SkipUnless(AnyRegistryViewHasAscomPlatform(), "ASCOM Platform not installed in any registry view — nothing to diagnose.");
+        Assert.SkipUnless(AnyRegistryViewHasAscomPlatform(), "ASCOM Platform not installed in any registry view, nothing to diagnose.");
 
         var iterator = new AscomDeviceIterator(NullLogger<AscomDeviceIterator>.Instance);
         var supported = await iterator.CheckSupportAsync(TestContext.Current.CancellationToken);
 
         output.WriteLine($"AscomDeviceIterator.CheckSupportAsync = {supported}");
-        supported.ShouldBeTrue("ASCOM is visibly installed but the iterator says unsupported — discovery will silently return nothing.");
+        supported.ShouldBeTrue("ASCOM is visibly installed but the iterator says unsupported, discovery will silently return nothing.");
     }
 
     [Fact]
@@ -188,7 +188,7 @@ public class AscomDiscoveryDiagnosticTests(ITestOutputHelper output)
         var supported = await iterator.CheckSupportAsync(TestContext.Current.CancellationToken);
         if (!supported)
         {
-            Assert.Fail("Iterator says unsupported despite ASCOM being installed — see CheckMinimumAscomPlatformVersionMatchesIteratorContract for diagnosis.");
+            Assert.Fail("Iterator says unsupported despite ASCOM being installed, see CheckMinimumAscomPlatformVersionMatchesIteratorContract for diagnosis.");
         }
 
         await iterator.DiscoverAsync(TestContext.Current.CancellationToken);
@@ -217,7 +217,7 @@ public class AscomDiscoveryDiagnosticTests(ITestOutputHelper output)
 
     private static bool AnyRegistryViewHasAscomPlatform()
     {
-        // Look for either spelling — Platform <= 6.x uses 'PlatformVersion',
+        // Look for either spelling: Platform <= 6.x uses 'PlatformVersion',
         // Platform 7.x uses 'Platform Version' (with a space).
         foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64, RegistryView.Default })
         {

@@ -15,7 +15,7 @@ namespace TianWen.Cli;
 
 /// <summary>
 /// <c>tianwen dataset build</c> -- training-dataset builder (docs/plans/ai-denoise-deconv.md §2.4).
-/// CLI contract: NO machine specifics — archive roots and the output dir are required parameters
+/// CLI contract: NO machine specifics; archive roots and the output dir are required parameters
 /// with fail-fast validation; behavioural knobs carry portable defaults only.
 /// </summary>
 internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<DatasetSubCommand>? logger = null)
@@ -25,7 +25,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
         var archiveRootOpt = new Option<string[]>("--archive-root")
         {
             Description = "Archive root scanned recursively for raw lights + calibration (repeatable; " +
-                          "pass the canonical root first — it wins deduplication ties).",
+                          "pass the canonical root first; it wins deduplication ties).",
             Required = true,
             AllowMultipleArgumentsPerToken = true,
         };
@@ -94,7 +94,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
         {
             Description = "Skip any session that resolves no master dark (instead of registering it " +
                           "uncalibrated). An uncalibrated N2N pair shares the sensor's fixed-pattern " +
-                          "dark signal, so it is not a valid training sample — use this to drop e.g. a " +
+                          "dark signal, so it is not a valid training sample; use this to drop e.g. a " +
                           "camera whose dark library is missing from the archive.",
         };
         var requireGainMatchOpt = new Option<bool>("--require-gain-match")
@@ -109,7 +109,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
         {
             Description = "Case-insensitive wildcard on SWCREATE; only LIGHTS authored by matching " +
                           "software are kept (e.g. '*N.I.N.A.*' to exclude SharpCap planetary/EAA " +
-                          "captures). Applies to lights only — calibration frames resolve regardless " +
+                          "captures). Applies to lights only; calibration frames resolve regardless " +
                           "of authoring tool. Empty = no filter.",
             DefaultValueFactory = _ => "",
         };

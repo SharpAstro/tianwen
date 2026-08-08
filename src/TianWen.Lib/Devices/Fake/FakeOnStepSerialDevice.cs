@@ -21,7 +21,7 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
 
     private enum ParkState { NotParked, Parking, Parked, Failed }
 
-    // Park state lives in the subclass — the LX200 base has no concept of parked.
+    // Park state lives in the subclass: the LX200 base has no concept of parked.
     // Volatile.Read/Write provide the fence; the field itself doesn't carry the
     // volatile keyword (passing a volatile field by ref is what triggers CS0420).
     private int _parkStateRaw = (int)ParkState.NotParked;
@@ -67,7 +67,7 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
 
             case ":hQ#":
                 // Set-park stores the current position as the new park position.
-                // The fake doesn't model a configurable park position — accept and ack.
+                // The fake doesn't model a configurable park position; accept and ack.
                 _responseBuffer.Append('1');
                 return true;
 
@@ -106,14 +106,14 @@ internal sealed class FakeOnStepSerialDevice : FakeMeadeLX200SerialDevice
     }
 
     /// <summary>
-    /// Simulated drive ratio at the output (sky) axis — 11,378 steps per degree, matching
+    /// Simulated drive ratio at the output (sky) axis: 11,378 steps per degree, matching
     /// a typical TeeSeek-class harmonic mount:
     /// <list type="bullet">
     ///   <item><description>NEMA 17 stepper @ 200 full-steps/rev × 256 microsteps = 51,200 microsteps/motor-rev</description></item>
     ///   <item><description>80:1 harmonic strain-wave reducer → 4,096,000 microsteps per 360° sky rotation</description></item>
     ///   <item><description>4,096,000 ÷ 360 ≈ <b>11,378 steps/°</b></description></item>
     /// </list>
-    /// That gives ~0.32" per step at the sky — consistent with what real OnStep harmonic
+    /// That gives ~0.32" per step at the sky: consistent with what real OnStep harmonic
     /// mounts report in their <c>:GXE6#</c> configuration query. Downstream users of
     /// <see cref="GetAxisPositionAsync"/> (e.g. neural-guider PE feature engineering)
     /// see realistic, monotonically changing encoder values.

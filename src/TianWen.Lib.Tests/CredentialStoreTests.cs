@@ -7,7 +7,7 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Covers the credential store fallback (<see cref="FileCredentialStore"/> — the path CI/Linux
+/// Covers the credential store fallback (<see cref="FileCredentialStore"/>, the path CI/Linux
 /// exercises; the Windows Credential Manager backend is not unit-tested to avoid writing into the
 /// real per-user vault) and the property that fixes the OpenWeatherMap-key-wiped-on-provider-switch
 /// bug: the secret is keyed by device, not by the device URI.
@@ -47,7 +47,7 @@ public class CredentialStoreTests(ITestOutputHelper output)
 
         // Switching the weather provider away and back yields a freshly-discovered, *keyless* OWM
         // device URI. Because the credential key is derived from the device id (not the URI), the
-        // secret is still found — the bug (key wiped on provider switch) is gone.
+        // secret is still found: the bug (key wiped on provider switch) is gone.
         var rediscovered = new OpenWeatherMapDevice();
         rediscovered.CredentialKey.ShouldBe(configured.CredentialKey);
         store.Get(rediscovered.CredentialKey).ShouldBe("my-owm-key");

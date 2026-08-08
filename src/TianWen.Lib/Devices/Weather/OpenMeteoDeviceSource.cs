@@ -33,7 +33,7 @@ internal sealed class OpenMeteoDeviceSource(ILogger<OpenMeteoDeviceSource> logge
         catch (System.Exception ex)
         {
             _reachable = false;
-            logger.LogDebug(ex, "Open-Meteo HEAD request failed — device will not appear in the picker");
+            logger.LogDebug(ex, "Open-Meteo HEAD request failed, device will not appear in the picker");
         }
         return _reachable;
     }

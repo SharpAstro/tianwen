@@ -60,7 +60,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     // Southern-hemisphere flag from the latest RA :G command's dir bit 1. The bit is
     // informational for motion (bit 0 alone sets rotation direction, matching GSS's
     // pulse path which omits it entirely), but the firmware uses it to pick the
-    // direction when auto-resuming sidereal tracking after a GOTO completes — in the
+    // direction when auto-resuming sidereal tracking after a GOTO completes; in the
     // south the RA worm tracks in reverse. Only RA needs it; Dec has no tracking.
     private bool _raSouthern;
 
@@ -135,7 +135,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
     /// <summary>
     /// Integrates axis motion since the last call. Invoked by the 50ms simulation
-    /// timer AND synchronously at the head of every protocol command — without the
+    /// timer AND synchronously at the head of every protocol command, without the
     /// latter, a guide pulse shorter than the timer period (J ... K inside one tick)
     /// would move the axis by nothing at all: the stop command must first account
     /// for the motion that occurred while the axis was running.
@@ -197,7 +197,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     _raDirection = _raSouthern ? 1 : 0;
                     _raSlewDegPerSec = 0;
                     _raHighSpeed = false;
-                    // _raRunning stays true — now tracking at sidereal rate
+                    // _raRunning stays true, now tracking at sidereal rate
                 }
                 else
                 {
@@ -210,7 +210,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 if (_decGotoMode)
                 {
                     // Goto: move toward target, stop when reached.
-                    // On arrival we both stop the axis and clear _decGotoMode — leaving
+                    // On arrival we both stop the axis and clear _decGotoMode; leaving
                     // the goto flag set after the slew completes makes the next status
                     // query report Dec as "not tracking" (same convention as RA), and
                     // matches the post-arrival state the RA branch maintains.
@@ -266,7 +266,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 #if DEBUG
         _logger.LogTrace("--> {Message}", dataStr);
 #endif
-        // Bring axis positions up to date before the command takes effect — a stop
+        // Bring axis positions up to date before the command takes effect; a stop
         // command must observe the motion that ran since the last 50ms tick, or
         // sub-tick guide pulses (J ... K within one period) would be lost entirely.
         AdvanceSimulation();
@@ -340,7 +340,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                 }
 
                 case 'j': // Current position
-                case 'd': // Secondary (dual-)encoder count — GSS queries it during init;
+                case 'd': // Secondary (dual-)encoder count; GSS queries it during init;
                           // the fake has one perfect encoder, so both report the same.
                 {
                     var pos = axis == '1' ? _posRa : _posDec;
@@ -395,8 +395,8 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'G': // Motion mode
                 {
-                    // Real firmware rejects :G while the motor is running — error !2
-                    // "Motor not Stopped" — and ignores the command. Emulating that makes
+                    // Real firmware rejects :G while the motor is running; error !2
+                    // "Motor not Stopped", and ignores the command. Emulating that makes
                     // the whole test suite enforce the stop-then-:G contract: any driver
                     // path that forgets StopAxisAndWaitAsync diverges loudly instead of
                     // silently working on the fake but failing on hardware.
@@ -407,7 +407,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     }
                     // Real wire format (GSServer Commands.SetMotionMode): 2 data chars
                     // <func><dir>. func: 0=hs-GOTO, 1=ls-slew (tracking/guide), 2=ls-GOTO,
-                    // 3=hs-slew — the speed bit inverts meaning between goto and slew.
+                    // 3=hs-slew: the speed bit inverts meaning between goto and slew.
                     // dir: bit0=reverse, bit1=southern hemisphere. Motion follows bit0
                     // only; the hemisphere bit is stored so post-GOTO tracking auto-resume
                     // runs in the correct direction for the site.

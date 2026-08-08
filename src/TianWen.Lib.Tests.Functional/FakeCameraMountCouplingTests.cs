@@ -500,7 +500,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     /// zero-drift reference was captured once per driver lifetime, so after a GOTO the random
     /// star field rendered with an offset equal to the whole slew (tens of thousands of pixels)
     /// and every post-slew guide frame was starless. A pointing jump far beyond anything drift
-    /// can produce must re-baseline the reference so the drift term restarts near zero — while
+    /// can produce must re-baseline the reference so the drift term restarts near zero, while
     /// ordinary tracking drift (the signal the guider nulls) must survive untouched.
     /// </summary>
     [Fact(Timeout = 60_000)]
@@ -549,7 +549,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     /// <summary>
     /// Regression for "guiding starts on a starless field and flatlines silently": with a
     /// reusable in-memory calibration, the guide-start path skipped any acquisition check and
-    /// called SetLockPosition on nothing — the loop then reported healthy Guiding/Settling with
+    /// called SetLockPosition on nothing: the loop then reported healthy Guiding/Settling with
     /// an empty graph forever. Acquisition is now gated: bounded retries, then a loud
     /// GuidingErrorEvent and a return to Idle.
     /// </summary>
@@ -600,7 +600,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         // Stop (slew-to-target in a real session), cloud over, restart with the cached calibration.
         await guider.StopCaptureAsync(TimeSpan.FromSeconds(5), ct);
 
-        // Drain the loop's in-flight exposure before restarting — a real session slews for a
+        // Drain the loop's in-flight exposure before restarting; a real session slews for a
         // minute between stop and restart, so the camera is never still Exposing at re-start.
         for (var i = 0; i < 40; i++)
         {
@@ -610,7 +610,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
 
         // Full overcast: CloudCoverage >= 1.0 renders genuinely starless frames (partial
         // cloud attenuation caps at 90% and lets the brightest star through; ST-4
-        // mega-pulses are no longer usable as a stand-in — they now physically move the
+        // mega-pulses are no longer usable as a stand-in; they now physically move the
         // mount, and the camera's slew detection would just re-baseline to a fresh field).
         guideCam.CloudCoverage = 1.0;
         await guider.GuideAsync(settlePixels: 1.5, settleTime: 3.0, settleTimeout: 90.0, ct);
@@ -637,7 +637,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
 
     /// <summary>
     /// Star loss during guiding must surface as the PHD2-style "LostLock" app state (red label +
-    /// notification upstream) instead of a healthy-looking Guiding/Settling with a flat graph —
+    /// notification upstream) instead of a healthy-looking Guiding/Settling with a flat graph; 
     /// and must clear back to Guiding once the tracker re-acquires.
     /// </summary>
     [Fact(Timeout = 120_000)]
@@ -726,7 +726,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     /// <summary>
     /// With a catalog DB wired, the guide camera projects REAL catalog stars at the coupled
     /// mount's live pointing (guide-scope cone error + camera roll applied), so it produces an
-    /// acquirable star field at ANY pointing — including immediately after a GOTO, which was the
+    /// acquirable star field at ANY pointing, including immediately after a GOTO, which was the
     /// random-field fallback's failure mode.
     /// </summary>
     [Fact(Timeout = 120_000)]
@@ -760,7 +760,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         frame.Release();
         tracker.IsAcquired.ShouldBeTrue("catalog stars must render at the initial pointing");
 
-        // GOTO elsewhere and capture again — the field must follow the mount.
+        // GOTO elsewhere and capture again: the field must follow the mount.
         await mount.BeginSlewRaDecAsync(6.2, 43.0, ct);
         for (var i = 0; i < 600 && await mount.IsSlewingAsync(ct); i++)
         {
@@ -775,7 +775,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         tracker2.ProcessFrame(frame2.GetChannelArray(0));
         frame2.Release();
         tracker2.IsAcquired.ShouldBeTrue(
-            "the star field must follow the mount to the new pointing — this was the starless-after-slew bug");
+            "the star field must follow the mount to the new pointing; this was the starless-after-slew bug");
     }
 
     /// <summary>
@@ -830,7 +830,7 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         output.WriteLine($"render centre: RA={centre!.Value.RaJ2000:F5}h Dec={centre.Value.DecJ2000:F4}° (native 6.00000h/45.0000°, expected J2000 {expectedRa:F5}h/{expectedDec:F4}°)");
         centre.Value.RaJ2000.ShouldBe(expectedRa, 5e-4);
         centre.Value.DecJ2000.ShouldBe(expectedDec, 5e-3);
-        // The conversion must be material — ~25 years of precession, not a native pass-through.
+        // The conversion must be material: ~25 years of precession, not a native pass-through.
         Math.Abs(centre.Value.RaJ2000 - 6.0).ShouldBeGreaterThan(0.01,
             "rendering the J2000 sky at the raw JNOW pointing is the bug this guards against");
     }
@@ -879,6 +879,6 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         // And the native reading genuinely differs (the mount really is topocentric).
         var nativeRa = await mount.GetRightAscensionAsync(ct);
         (Math.Abs(nativeRa - raJ2000) * 15.0 * 60.0 * cosDec).ShouldBeGreaterThan(5.0,
-            "native (JNOW) and J2000 must differ by ~25 years of precession (~8' at this pointing) — if not, this test lost its teeth");
+            "native (JNOW) and J2000 must differ by ~25 years of precession (~8' at this pointing), if not, this test lost its teeth");
     }
 }

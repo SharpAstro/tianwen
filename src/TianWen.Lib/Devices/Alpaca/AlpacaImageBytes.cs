@@ -50,7 +50,7 @@ internal static class AlpacaImageBytes
     /// row-major <c>[Height, Width]</c> layout holding raw ADU values.
     ///
     /// ImageBytes transmits a 2D image as <c>[Dimension1 = Width(X), Dimension2 = Height(Y)]</c>
-    /// in row-major order (last index fastest) — i.e. column-major in image terms, so the flat
+    /// in row-major order (last index fastest), i.e. column-major in image terms, so the flat
     /// index of pixel <c>(x, y)</c> is <c>y + x*Height</c>. This method transposes that into
     /// <see cref="Channel"/>'s <c>[y, x]</c> layout. Pixels are read host-endian (all supported
     /// targets are little-endian, matching ASCOM's own transfer assumption).

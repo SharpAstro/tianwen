@@ -39,7 +39,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     protected override void OnConnected()
     {
         // Initialize sensor readout area to full frame on first connect.
-        // BinX must be set first — NumX/NumY setters validate against binned size.
+        // BinX must be set first: NumX/NumY setters validate against binned size.
         lock (_lock)
         {
             if (_cameraSettings.BinX <= 0)
@@ -138,7 +138,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     // (pulseGuideSource=Mount/Auto) or via this camera's ST-4 port
     // (pulseGuideSource=Camera, forwarded as if a guide cable were wired to the
     // mount's autoguide port) change the encoders and hence the pointing the
-    // next exposure snapshots — the loop closes through the mount with no
+    // next exposure snapshots: the loop closes through the mount with no
     // session awareness; the camera self-resolves the mount from the device
     // hub, mirroring how it self-resolves the catalog DB. The in-camera
     // _starPositionX/Y integrator only models sensor-visible periodic error
@@ -205,7 +205,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// mount is considered to have slewed (GOTO) rather than drifted: misalignment drift is
     /// arcseconds-per-minute, so 10 arcminutes between frames can only be a slew. On detection the
     /// zero-drift reference re-baselines to the new pointing and the in-camera star-position
-    /// integrator resets — the guide cam sees a fresh field at the new target instead of the old
+    /// integrator resets: the guide cam sees a fresh field at the new target instead of the old
     /// field offset by the (sensor-dwarfing) slew distance.
     /// </summary>
     private const double SlewDetectionThresholdArcsec = 600.0;
@@ -269,7 +269,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// Updates the PE component of the star position. Called each frame before rendering.
     /// STANDALONE ONLY (no coupled mount): the original wall-clock sine integration, kept for the
     /// self-contained unit-test camera. When a mount IS coupled, periodic error is the mount's
-    /// responsibility — it rides on the mount's TRUE pointing (FakeSkywatcher's positional
+    /// responsibility: it rides on the mount's TRUE pointing (FakeSkywatcher's positional
     /// <see cref="Disturbance.Terms.PeriodicErrorTerm"/>, keyed to the RA worm encoder) and reaches
     /// the sensor through the moving projection centre (guide cam: the live mount pointing snapshot;
     /// main cam: the true-minus-believed delta). Applying it here too would double-count it
@@ -282,7 +282,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             return;
         }
 
-        // Coupled: the mount owns periodic error (see remarks). Leave _starPositionX untouched —
+        // Coupled: the mount owns periodic error (see remarks). Leave _starPositionX untouched; 
         // when coupled, ST-4 forwards to the mount and never writes it either, so it stays 0.
         if (ResolveCoupledMount() is not null)
         {
@@ -527,7 +527,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     {
         lock (_lock)
         {
-            // Strip the channel's buffer — ownership was transferred to the Image in GetImageAsync,
+            // Strip the channel's buffer: ownership was transferred to the Image in GetImageAsync,
             // so a second GetImageAsync must not harvest the same (already-transferred) ref.
             // Keep _lastImageData so GetImageReadyAsync still returns true until next StartExposureAsync.
             _lastImageData = _lastImageData is { } channel ? channel with { Buffer = null } : null;
@@ -771,7 +771,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         {
             throw new System.IO.IOException("Simulated transient camera fault (test seam).");
         }
-        // Decrement went below 0 — clamp to 0 so steady state stays at 0.
+        // Decrement went below 0: clamp to 0 so steady state stays at 0.
         Interlocked.CompareExchange(ref TransientStartExposureFailures, 0, -1);
 
         // Fake-only: the synthetic-star renderer needs the celestial catalog to
@@ -829,7 +829,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             try
             {
                 // The catalog projection centre and the drift reference are J2000 quantities;
-                // read the pointing via the frame-converting helper — a raw native (JNOW) read
+                // read the pointing via the frame-converting helper; a raw native (JNOW) read
                 // here would shift the rendered sky by ~22' of precession at epoch 2026, which
                 // is exactly the offset that wedged plate-solve centering. The transform is
                 // built once and its clock refreshed per exposure (updateTime: true).
@@ -847,7 +847,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                 // Worm-gear periodic error rides on the mount's TRUE pointing now (FakeSkywatcher's
                 // positional PeriodicErrorTerm, keyed to its own RA worm encoder), so the swing is
                 // already in (mountRa, mountDec) above and reaches the sensor through the live
-                // projection centre — no encoder snapshot needed here, and IntegratePeDrift no longer
+                // projection centre: no encoder snapshot needed here, and IntegratePeDrift no longer
                 // applies camera-side PE when a mount is coupled (it would double-count this term).
                 var slewDetected = false;
                 lock (_lock)
@@ -857,8 +857,8 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                         // GOTO between exposures: re-baseline the zero-drift reference and reset
                         // the in-camera star integrator (ST-4 corrections + PE accumulated for the
                         // OLD field are meaningless at the new pointing). Without this the random
-                        // star field rendered "drift" equal to the whole slew — tens of thousands
-                        // of pixels — leaving every post-slew guide frame starless.
+                        // star field rendered "drift" equal to the whole slew; tens of thousands
+                        // of pixels: leaving every post-slew guide frame starless.
                         _starPositionX = 0;
                         _starPositionY = 0;
                         slewDetected = true;
@@ -989,7 +989,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                             dest = free;
                             break;
                         }
-                        // Wrong size — drop it
+                        // Wrong size: drop it
                     }
 
                     float[,] array;
@@ -1166,8 +1166,8 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         // pointing change; the star field follows via the live projection centre /
         // MountDriftPixels), exactly like real hardware. The previous in-camera
         // shortcut (shift the star integrator, mount untouched) closed the guide loop
-        // with dynamics no real rig has — instantaneous full-magnitude corrections,
-        // perfectly sensor-axis-aligned, encoders frozen — which let a neural guider
+        // with dynamics no real rig has: instantaneous full-magnitude corrections,
+        // perfectly sensor-axis-aligned, encoders frozen, which let a neural guider
         // train on a plant that doesn't exist.
         if (ResolveCoupledMount() is { CanPulseGuide: true } mount)
         {
@@ -1208,7 +1208,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// In-camera star offset only: integrated PE wobble + accumulated ST-4 corrections, WITHOUT
     /// the mount-drift term. Used by the guide-camera catalog render path, where the mount's
     /// pointing change (drift and slews alike) is already expressed through the live projection
-    /// centre — adding <see cref="MountDriftPixels"/> on top would double-count it.
+    /// centre: adding <see cref="MountDriftPixels"/> on top would double-count it.
     /// </summary>
     private (double X, double Y) InCameraStarOffset
     {
@@ -1221,7 +1221,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     /// <summary>
     /// True when the pointing change between two consecutive guide exposures exceeds
-    /// <see cref="SlewDetectionThresholdArcsec"/> on either axis — i.e. a GOTO, not drift.
+    /// <see cref="SlewDetectionThresholdArcsec"/> on either axis, i.e. a GOTO, not drift.
     /// Caller must hold <c>_lock</c>.
     /// </summary>
     private static bool IsSlewSizedJump(double prevRaHours, double prevDecDeg, double raHours, double decDeg)
@@ -1337,7 +1337,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     /// <summary>
     /// Test seam: J2000 projection centre (RA hours, Dec degrees) of the most recent
-    /// catalog-star render — i.e. the stamped <see cref="Target"/> for main cameras, or the
+    /// catalog-star render, i.e. the stamped <see cref="Target"/> for main cameras, or the
     /// coupled mount's frame-converted pointing plus cone error for the guide camera. Null when
     /// the last render fell back to the random star field.
     /// </summary>
@@ -1638,7 +1638,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         }
 
         // MaxValue is the peak pixel actually observed in this frame (mirrors what a real driver
-        // reports — see DALCameraDriver.DownloadImage), NOT the sensor's fixed ADC full-scale: bodyLevel
+        // reports: see DALCameraDriver.DownloadImage), NOT the sensor's fixed ADC full-scale: bodyLevel
         // is clamped well below 1.0 for a realistic short-exposure preview, so the true max is usually
         // far under MaxADU. The fixed full-scale still travels separately via ImageMeta.SensorFullScaleAdu
         // (mirrors ICameraDriver.GetImageAsync's wiring) so LiveCameraFrameStream.DeepCopy normalises the
@@ -1680,7 +1680,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// <summary>
     /// Sensor presets indexed by fake device ID (mod table length).
     /// </summary>
-    /// <summary>Guide camera preset (IMX178M). Not in the main list — used only for FakeGuideCam.</summary>
+    /// <summary>Guide camera preset (IMX178M). Not in the main list; used only for FakeGuideCam.</summary>
     internal static readonly SensorPreset GuideCameraPreset =
         new SensorPreset("IMX178M", 3096, 2080, 2.4, SensorType.Monochrome, 4, 0, 570, 16383);
 
@@ -1690,23 +1690,23 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// </summary>
     private static readonly SensorPreset[] Presets =
     [
-        // ID 1: Sony IMX294C — large color, deep sky workhorse
+        // ID 1: Sony IMX294C; large color, deep sky workhorse
         new SensorPreset("IMX294C", 4144, 2822, 4.63, SensorType.RGGB, 4, 0, 570, 65535),
-        // ID 2: Sony IMX533M — square mono, narrowband
+        // ID 2: Sony IMX533M; square mono, narrowband
         new SensorPreset("IMX533M", 3008, 3008, 3.76, SensorType.Monochrome, 4, 0, 460, 65535),
-        // ID 3: Sony IMX571C — APS-C color, wide-field
+        // ID 3: Sony IMX571C; APS-C color, wide-field
         new SensorPreset("IMX571C", 6248, 4176, 3.76, SensorType.RGGB, 4, 0, 100, 65535),
-        // ID 4: Sony IMX455M — full-frame mono, premium
+        // ID 4: Sony IMX455M; full-frame mono, premium
         new SensorPreset("IMX455M", 9576, 6388, 3.76, SensorType.Monochrome, 4, 0, 100, 65535),
-        // ID 5: Sony IMX585C — color, fast planetary/EAA
+        // ID 5: Sony IMX585C; color, fast planetary/EAA
         new SensorPreset("IMX585C", 3856, 2180, 2.9, SensorType.RGGB, 4, 0, 570, 65535),
-        // ID 6: Sony IMX411M — medium-format mono
+        // ID 6: Sony IMX411M; medium-format mono
         new SensorPreset("IMX411M", 14208, 10656, 3.76, SensorType.Monochrome, 4, 0, 100, 65535),
-        // ID 7: Sony IMX410C — full-frame color
+        // ID 7: Sony IMX410C; full-frame color
         new SensorPreset("IMX410C", 6072, 4042, 3.76, SensorType.RGGB, 4, 0, 100, 65535),
-        // ID 8: Sony IMX464M — compact mono, planetary
+        // ID 8: Sony IMX464M; compact mono, planetary
         new SensorPreset("IMX464M", 2712, 1538, 2.9, SensorType.Monochrome, 4, 0, 570, 65535),
-        // ID 9: Sony IMX678C — small color, high QE
+        // ID 9: Sony IMX678C; small color, high QE
         new SensorPreset("IMX678C", 3856, 2180, 2.0, SensorType.RGGB, 4, 0, 570, 65535),
     ];
 

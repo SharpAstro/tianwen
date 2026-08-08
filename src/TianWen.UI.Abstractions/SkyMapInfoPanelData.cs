@@ -165,7 +165,7 @@ public readonly record struct SkyMapInfoPanelData(
     }
 
     // Local-only alt/az from a SiteContext (fast; no SOFA pipeline needed for display).
-    // For the precision plate-solving needs the full Transform path — but the info
+    // For the precision plate-solving needs the full Transform path, but the info
     // panel displays alt/az to the nearest 0.1 deg, so this is plenty.
     private static (double AltDeg, double AzDeg) ComputeAltAz(
         double raHours, double decDeg, in SiteContext site)

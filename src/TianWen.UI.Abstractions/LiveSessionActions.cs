@@ -16,7 +16,7 @@ using TianWen.Lib.Sequencing;
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
-    /// Static helpers for the live session tab — phase labels, colors, formatting,
+    /// Static helpers for the live session tab: phase labels, colors, formatting,
     /// plus I/O helpers for preview capture / snapshot / focuser jog. These are
     /// pure-dependency helpers (no signal bus, no DI container) so they're directly
     /// testable with fakes.
@@ -80,7 +80,7 @@ namespace TianWen.UI.Abstractions
         /// <summary>Phase-specific status text with countdowns and context.</summary>
         public static string PhaseStatusText(LiveSessionState state, ITimeProvider timeProvider)
         {
-            // Use CurrentActivity if available — it's more specific than the phase-level text
+            // Use CurrentActivity if available: it's more specific than the phase-level text
             if (state.CurrentActivity is { Length: > 0 } activity)
             {
                 return activity;
@@ -395,7 +395,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>
         /// Returns the new preview gain for one OTA given the current user-override
-        /// (<paramref name="current"/> — <c>null</c> means "use camera default"),
+        /// (<paramref name="current"/>, <c>null</c> means "use camera default"),
         /// the camera capability telemetry, and a signed direction (+1 / -1).
         /// <para>
         /// For numeric-gain cameras the step is <c>max(1, (GainMax-GainMin) / 20)</c>,
@@ -428,7 +428,7 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Compact label for a preview exposure duration in seconds — shows minutes above
+        /// Compact label for a preview exposure duration in seconds; shows minutes above
         /// 60s (e.g. "2m"), seconds with up to 4 significant digits below (e.g. "0.5s", "30s").
         /// </summary>
         public static string FormatExposureLabel(double sec)

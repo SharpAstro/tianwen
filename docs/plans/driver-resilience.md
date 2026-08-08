@@ -4,7 +4,7 @@ Sub-plan of [`first-light-resilience.md`](first-light-resilience.md).
 
 Goal: a single dropped USB cable, COM glitch, or TCP disconnect must **not**
 end the session. Today every driver call in the imaging hot path is a naked
-`await` — the first exception bubbles to `Session.RunAsync`'s outer catch,
+`await`: the first exception bubbles to `Session.RunAsync`'s outer catch,
 `SessionPhase.Failed` gets set, and we finalise.
 
 This is the highest-priority first-light-readiness item. Ship it before the
@@ -16,9 +16,9 @@ resilient.
 What we have:
 
 - `IDeviceDriver.Connected` (atomic int gate at `DeviceDriverBase.cs:50`).
-- `IDeviceDriver.ConnectAsync` / `DisconnectAsync` (cheap, idempotent — both
+- `IDeviceDriver.ConnectAsync` / `DisconnectAsync` (cheap, idempotent, both
   funnel through `SetConnectionStateAsync`).
-- `LoggerCatchExtensions.CatchAsync(...)` — catches-and-logs a single
+- `LoggerCatchExtensions.CatchAsync(...)`: catches-and-logs a single
   call, returns a default value. Used in `Session.PollDeviceStatesAsync`
   for telemetry reads. No retry, no reconnect.
 - `Session.RunAsync`'s outer `catch (Exception)` that sets `Failed`.
@@ -31,12 +31,12 @@ What's missing:
 - A reconnect step between retries when `Connected == false`.
 - A per-device fault counter so repeated transient faults escalate before
   the session silently grinds.
-- An explicit "in-flight exposure invalidated by reconnect" state — today
+- An explicit "in-flight exposure invalidated by reconnect" state; today
   the camera-driver contract is undefined if the USB drops mid-exposure.
 
 ## Design
 
-### Phase 1 — `ResilientCall` helper
+### Phase 1: `ResilientCall` helper
 
 New file `TianWen.Lib/Sequencing/ResilientCall.cs`. Central primitive:
 
@@ -87,27 +87,27 @@ Semantics:
    - Retry `op`.
 3. On `OperationCanceledException` when `ct` fired, rethrow immediately.
 4. On exhausted attempts or non-idempotent failure, rethrow the last
-   exception — the caller decides the session-level response.
+   exception; the caller decides the session-level response.
 
-### Phase 2 — Hot-path audit
+### Phase 2: Hot-path audit
 
 Wrap the driver calls in `Session.Imaging.cs` and `Session.Focus.cs`:
 
 | Call site (approx) | Call | Idempotency |
 |--------------------|------|-------------|
-| `Session.Imaging.cs:50,66,79` | `mount.Driver.BeginSlewToTargetAsync` | **Non-idempotent** — issuing twice could cancel the first and re-queue. Wrap with `NonIdempotentAction` (no retry) but pre-call `EnsureConnectedAsync`. |
+| `Session.Imaging.cs:50,66,79` | `mount.Driver.BeginSlewToTargetAsync` | **Non-idempotent**: issuing twice could cancel the first and re-queue. Wrap with `NonIdempotentAction` (no retry) but pre-call `EnsureConnectedAsync`. |
 | `Session.Imaging.cs:95` | `WaitForSlewCompleteAsync` | Idempotent (polls). `IdempotentRead`. |
 | `Session.Imaging.cs:104` | `GetHourAngleAsync` | `IdempotentRead`. |
-| `Session.Imaging.cs:377` | `camera.Driver.StartExposureAsync` | **Non-idempotent critical** — retry requires explicit state handling, see Phase 3. |
+| `Session.Imaging.cs:377` | `camera.Driver.StartExposureAsync` | **Non-idempotent critical**: retry requires explicit state handling, see Phase 3. |
 | `Session.Imaging.cs:417,543,1049` | `camDriver.GetImageAsync` | Idempotent-with-caveat: reading the buffer twice is fine, but if the camera dropped the exposure, this returns empty. Wrap with `IdempotentRead` and treat empty-image as "exposure invalidated". |
-| `Session.Focus.cs` focuser calls | `MoveToAsync`, `GetPositionAsync` | Position read = idempotent. `MoveToAsync` = non-idempotent but targets absolute coordinates, so retry after reconnect is actually safe — special-case with `MaxAttempts=2`. |
+| `Session.Focus.cs` focuser calls | `MoveToAsync`, `GetPositionAsync` | Position read = idempotent. `MoveToAsync` = non-idempotent but targets absolute coordinates, so retry after reconnect is actually safe; special-case with `MaxAttempts=2`. |
 | Filter wheel `SetPositionAsync` | | Absolute target, same reasoning as focuser move. `MaxAttempts=2`. |
 | Guider start / pause / unpause | | Guider has its own retry surface (`GuidingTries`). Wrap only the outer `StartGuidingLoopAsync` and `DitherWaitAsync` with `NonIdempotentAction`. |
 
 Every wrapped call uses a logger scope with `["Device"] = driver.Name` so
 reconnect attempts are greppable.
 
-### Phase 3 — In-flight exposure handling
+### Phase 3: In-flight exposure handling
 
 The nasty case: USB drops during a 300 s exposure.
 
@@ -115,7 +115,7 @@ The nasty case: USB drops during a 300 s exposure.
    camera.
 2. USB disconnects; `GetImageAsync` throws or returns empty.
 3. Driver fault counter increments; `ResilientCall` reconnects.
-4. Camera state post-reconnect is **device-specific** — ZWO / QHY / ASCOM
+4. Camera state post-reconnect is **device-specific**: ZWO / QHY / ASCOM
    all differ. Spec: a reconnect during an active exposure invalidates
    the in-flight frame. The imaging loop treats `GetImageAsync` returning
    empty-after-reconnect as a "lost frame" event:
@@ -127,26 +127,26 @@ The nasty case: USB drops during a 300 s exposure.
    and propagate via the new `ImageLoopNextAction.DeviceUnrecoverable`
    path (see Phase 4).
 
-### Phase 4 — Escalation boundary
+### Phase 4: Escalation boundary
 
-Resilience must terminate — "USB bump survives, dead mount doesn't pretend
+Resilience must terminate; "USB bump survives, dead mount doesn't pretend
 to be alive".
 
 1. Each driver gets a `faultCount` accumulator in the session (not in the
-   driver — session-scoped). `ResilientCall` increments it on every
+   driver; session-scoped). `ResilientCall` increments it on every
    reconnect attempt.
 2. Config: `SessionConfiguration.DeviceFaultEscalationThreshold = 5`.
 3. When any driver crosses the threshold, the session pauses imaging,
    logs a summary, and either:
    - Runs a longer reconnect (e.g. `ConnectAsync` with a 30 s timeout),
-     resets the counter, and retries. — OR —
+     resets the counter, and retries. OR,
    - Returns `ImageLoopNextAction.DeviceUnrecoverable`, setting
      `SessionPhase.Failed` cleanly (finalise still runs).
 4. The counter decays on sustained healthy operation (e.g. `-1` every 10
    successful frames) so a bad hour on Tuesday doesn't poison Wednesday's
    session.
 
-### Phase 5 — Telemetry poll proactive reconnect
+### Phase 5: Telemetry poll proactive reconnect
 
 `Session.PollDeviceStatesAsync` already catches-and-swallows telemetry
 read failures via `CatchAsync`. Add: if three consecutive polls for the
@@ -163,13 +163,13 @@ New:
   `FakeFlakyDriver` that can inject N consecutive failures.
 
 Edited:
-- `Session.Imaging.cs` — every driver call in the hot path (see audit table).
-- `Session.Focus.cs` — focuser move + read wrappers.
-- `Session.cs` — fault-counter dictionary, decay logic, escalation check in
+- `Session.Imaging.cs`: every driver call in the hot path (see audit table).
+- `Session.Focus.cs`: focuser move + read wrappers.
+- `Session.cs`: fault-counter dictionary, decay logic, escalation check in
   `RunAsync`'s outer try/catch.
-- `SessionConfiguration.cs` — new fields.
-- `ImagingLoopResult.cs` — new `DeviceUnrecoverable` variant.
-- `Session.PollDeviceStatesAsync` — proactive reconnect hook.
+- `SessionConfiguration.cs`: new fields.
+- `ImagingLoopResult.cs`: new `DeviceUnrecoverable` variant.
+- `Session.PollDeviceStatesAsync`: proactive reconnect hook.
 
 ## Risks
 
@@ -201,7 +201,7 @@ Edited:
   Does that driver already have its own reconnect? If yes, skip Phase 4
   escalation for the guider; if no, add to the audit list.
 - **FakeTimeProvider interaction.** Retries use `ITimeProvider.SleepAsync`
-  so tests can advance fake time — confirm `Task.Delay(duration,
+  so tests can advance fake time; confirm `Task.Delay(duration,
   timeProvider, ct)` is NOT used anywhere in the new code (memory:
   `SleepAsync` is mandatory for testability).
 

@@ -226,7 +226,7 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
     }
 
     /// <summary>
-    /// Device identity key — scheme + authority + path, ignoring query/fragment.
+    /// Device identity key: scheme + authority + path, ignoring query/fragment.
     /// Matches <see cref="DeviceBase.SameDevice"/>.
     /// </summary>
     private static string DeviceKey(Uri uri) => uri.GetLeftPart(UriPartial.Path);

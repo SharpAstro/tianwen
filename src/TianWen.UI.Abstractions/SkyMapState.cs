@@ -35,7 +35,7 @@ namespace TianWen.UI.Abstractions
         public double FieldOfViewDeg { get; set; } = 60.0;
 
         /// <summary>Display mode: equatorial (RA/Dec grid) or horizon (Alt/Az grid).
-        /// Defaults to Horizon — keeps the horizon line horizontal and zenith up, which
+        /// Defaults to Horizon: keeps the horizon line horizontal and zenith up, which
         /// matches how most users naturally navigate ("look north-east", "high in the
         /// south") rather than by abstract RA/Dec coordinates.</summary>
         public SkyMapMode Mode { get; set; } = SkyMapMode.Horizon;
@@ -67,7 +67,7 @@ namespace TianWen.UI.Abstractions
         public bool MilkyWayAvailable { get; set; }
 
         /// <summary>
-        /// Show the catalog object overlay (Messier / NGC / IC / named stars) — same
+        /// Show the catalog object overlay (Messier / NGC / IC / named stars); same
         /// overlay as the FITS viewer's <c>[O]</c> toggle. Off by default because the
         /// sky map is already dense with stars and constellation figures.
         /// </summary>
@@ -151,19 +151,19 @@ namespace TianWen.UI.Abstractions
         public bool IsDragging { get; set; }
         public (float X, float Y) DragStart { get; set; }
         public (double RA, double Dec) DragStartCenter { get; set; }
-        /// <summary>View matrix at drag start — needed for correct unproject during drag.</summary>
+        /// <summary>View matrix at drag start: needed for correct unproject during drag.</summary>
         public Matrix4x4 DragStartViewMatrix { get; set; }
 
         /// <summary>FOV at the start of a pinch gesture, for absolute scale application.</summary>
         public double PinchStartFov { get; set; }
 
-        /// <summary>True while a two-finger pinch is active — suppresses drag.</summary>
+        /// <summary>True while a two-finger pinch is active; suppresses drag.</summary>
         public bool IsPinching { get; set; }
 
         /// <summary>
         /// User-controlled base magnitude limit floor. Brighter = lower number.
         /// Keyboard + / − adjusts this; the effective limit sent to the GPU also
-        /// grows as the user zooms in — see <see cref="EffectiveMagnitudeLimit"/>.
+        /// grows as the user zooms in: see <see cref="EffectiveMagnitudeLimit"/>.
         /// Must stay in sync with the Milky Way bake's <c>--min-mag</c>: stars
         /// fainter than this limit contribute to the diffuse texture, brighter
         /// ones are drawn as point sprites. A mismatch produces halos.
@@ -248,7 +248,7 @@ namespace TianWen.UI.Abstractions
         }
 
         // Planet positions at the current viewingTime. Keyed on the exact
-        // DateTimeOffset — SkyMapTab feeds viewingTime from _cachedLiveTime which
+        // DateTimeOffset: SkyMapTab feeds viewingTime from _cachedLiveTime which
         // is quantized to 1 s (or jumps in bulk when the planner date shifts),
         // so bit equality is sufficient for the 59 out of 60 frames per second
         // that carry an identical viewingTime. Planets move at most ~0.5"/s

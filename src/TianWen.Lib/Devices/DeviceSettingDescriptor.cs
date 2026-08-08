@@ -261,7 +261,7 @@ public static class DeviceSettingHelper
                 var val = HttpUtility.ParseQueryString(uri.Query)[key];
                 return val ?? defaultValue;
             },
-            // Increment/Decrement are no-ops — the UI sets the value directly via WithQueryParam
+            // Increment/Decrement are no-ops: the UI sets the value directly via WithQueryParam
             Increment: uri => uri,
             Decrement: uri => uri,
             IsVisible: isVisible,

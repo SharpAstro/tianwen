@@ -190,7 +190,7 @@
     <PackageReference Include="ZWOptical.SDK" />
     <!-- Every device driver in Devices/ does `using TianWen.DAL`. Declaring it
          directly here (rather than relying on the transitive via QHYCCD.SDK /
-         ZWOptical.SDK) is the honest "this project imports it" signal — same
+         ZWOptical.SDK) is the honest "this project imports it" signal; same
          pattern as the SharpAstro codec direct refs below. -->
     <PackageReference Include="TianWen.DAL" />
   </ItemGroup>

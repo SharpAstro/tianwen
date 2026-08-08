@@ -30,8 +30,8 @@ namespace TianWen.Lib.Imaging;
 ///
 /// <para><b>Affine fitting</b></para>
 /// <list type="bullet">
-///   <item><see cref="FitAffineTransform"/> — raw least-squares affine (dest → source).</item>
-///   <item><see cref="FindOffsetAndRotationAsync"/> — same fit but validated via
+///   <item><see cref="FitAffineTransform"/>: raw least-squares affine (dest → source).</item>
+///   <item><see cref="FindOffsetAndRotationAsync"/>; same fit but validated via
 ///         <see cref="Matrix3x2Helper.Decompose"/>: rejects non-uniform scale (&gt; <c>solutionTolerance</c>),
 ///         significant skew, or negative scale (mirror flip).</item>
 /// </list>
@@ -43,7 +43,7 @@ namespace TianWen.Lib.Imaging;
 /// <b>catalog plate solving</b>, where projected catalog stars and detected image stars have
 /// different populations (faint catalog stars below the detection threshold, detected artefacts
 /// absent from the catalog). The differing nearest-neighbour sets produce incompatible quad
-/// geometries, yielding too few matches for a reliable affine fit — and top-K brightness
+/// geometries, yielding too few matches for a reliable affine fit, and top-K brightness
 /// selection does <em>not</em> rescue it: probed on a dense Vela field (5,080 in-frame catalog
 /// stars, 1,580 detected), no quad lock formed at any K from 50 to 500 in either parity,
 /// because saturation scrambles the bright-end flux-vs-magnitude ranking and a quad needs the
@@ -76,7 +76,7 @@ public class StarReferenceTable
     /// <param name="minimumCount">Minimum number of quad matches required (6 for stacking, 3 for sparse fields).</param>
     /// <param name="quadTolerance">Maximum absolute difference allowed on each of the 6 quad distances.
     /// Note: <see cref="StarQuad.Dist1"/> is in absolute pixels while Dist2–Dist6 are normalised ratios,
-    /// so this tolerance has mixed units — it works because stacking images have near-identical Dist1 values.</param>
+    /// so this tolerance has mixed units: it works because stacking images have near-identical Dist1 values.</param>
     /// <returns>A reference table of matched pairs, or <c>null</c> if too few matches survive outlier removal.</returns>
     public static StarReferenceTable? FindFit(StarQuadList quadStarDistances1, StarQuadList quadStarDistances2, int minimumCount = 6, float quadTolerance = 0.008f)
         => FindFitWithDiagnostics(quadStarDistances1, quadStarDistances2, minimumCount, quadTolerance).Table;

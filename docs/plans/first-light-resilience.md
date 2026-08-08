@@ -8,11 +8,11 @@ what isn't, and in what order we tackle it**.
 
 ## Sub-plans
 
-1. [`driver-resilience.md`](driver-resilience.md) — per-call
+1. [`driver-resilience.md`](driver-resilience.md): per-call
    reconnect + retry + fault-counter escalation. Wraps hot-path driver
    calls so a USB hiccup, COM fault, or TCP drop doesn't end the session.
    **Status: SHIPPED (merged to main).** See [`../architecture/driver-resilience.md`](../architecture/driver-resilience.md).
-2. [`fov-obstruction-detection.md`](fov-obstruction-detection.md) —
+2. [`fov-obstruction-detection.md`](fov-obstruction-detection.md):
    predictive scout frame + altitude-nudge disambiguation + trajectory-aware
    wait decision, so a target behind a tree is detected fast and either
    waited out or skipped cleanly. **Status: SHIPPED on branch
@@ -20,10 +20,10 @@ what isn't, and in what order we tackle it**.
    **Known gaps not closed by v1** (detail in the plan + arch doc):
    - First observation of the night returns `Healthy` unconditionally
      (no prior baseline to compare against).
-   - Guider calibration slew (`Session.Lifecycle.cs:19`) is not scouted —
+   - Guider calibration slew (`Session.Lifecycle.cs:19`) is not scouted;
      tracked as TODO L147.
    - Guider field is not exposured separately (imaging-OTA only).
-3. *(optional backlog)* `PLAN-site-horizon-mask.md` — static per-azimuth
+3. *(optional backlog)* `PLAN-site-horizon-mask.md`: static per-azimuth
    horizon profile so the scheduler can pre-reject known-obstructed targets
    at plan-build time instead of rediscovering them at runtime. Only spin
    this up if sub-plans 1+2 in production still show too many runtime scout
@@ -34,13 +34,13 @@ what isn't, and in what order we tackle it**.
 
 ## Goal
 
-Failure resilience — *"a single bad event should not end the session"*. The
+Failure resilience; *"a single bad event should not end the session"*. The
 two classes of bad event that matter:
 
-- **Environmental** — fixed FOV obstruction (tree, building, neighbour's
+- **Environmental**: fixed FOV obstruction (tree, building, neighbour's
   roof) or localised cloud blocks the current target for some or all of
   the allocated window. Addressed by sub-plan 2.
-- **Equipment** — USB cable glitches, mount loses serial handshake, guider
+- **Equipment**: USB cable glitches, mount loses serial handshake, guider
   WS disconnects, ASCOM COM throws. Addressed by sub-plan 1.
 
 ## Non-goals (explicit)
@@ -48,7 +48,7 @@ two classes of bad event that matter:
 - **Non-linear scheduling.** `Session.ObservationLoopAsync` is deliberately
   sequential: one target at a time, order determined by `ObservationScheduler`
   at schedule-build time. Re-ranking or branching mid-session is out of
-  scope — the user has confirmed the current model is by design. Every new
+  scope; the user has confirmed the current model is by design. Every new
   resilience behaviour must compose with linear execution (skip / advance /
   repeat), not replace it.
 - **Multi-target concurrent OTAs.** See `CLAUDE.md` -> "Single-mount /
@@ -68,7 +68,7 @@ Before adding anything, the baseline the sub-plans build on:
 - In-flight deterioration detection + `WaitForConditionRecoveryAsync`
   (`Session.Imaging.cs:665-691`, default `ConditionRecoveryTimeout = 10 min`).
 - Focus drift detection via HFD regression on per-observation baselines.
-- `LoggerCatchExtensions.CatchAsync` — single-shot swallow-and-log, used
+- `LoggerCatchExtensions.CatchAsync`: single-shot swallow-and-log, used
   for telemetry in `PollDeviceStatesAsync`.
 
 Sub-plan 2 feeds into the existing `WaitForConditionRecoveryAsync` rather
@@ -92,14 +92,14 @@ Ship in order:
 
 Apply across all sub-plans:
 
-- Use `ITimeProvider.SleepAsync` everywhere — never `Task.Delay(..., tp, ct)`
+- Use `ITimeProvider.SleepAsync` everywhere, never `Task.Delay(..., tp, ct)`
   (memory: `FakeTimeProvider` test compatibility).
 - Every new driver-call wrapper and every new scout path gets a logger
   scope with `["Device"]` / `["Phase"]` so SEQ queries work.
 - New `SessionConfiguration` fields land with sensible defaults and full
   XML docs; no "please configure before using" behaviour.
 - Tests for new Session-level behaviour use the cooperative time-pump
-  pattern (memory: `ExternalTimePump = true` + `Advance` loop) — never
+  pattern (memory: `ExternalTimePump = true` + `Advance` loop), never
   `SleepAsync(subExposure)` inside a pump loop.
 
 ## Memory trail

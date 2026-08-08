@@ -9,10 +9,10 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Pins the manual (hand-switched) flat light panel modelled as a degenerate <see cref="ICoverDriver"/> —
+/// Pins the manual (hand-switched) flat light panel modelled as a degenerate <see cref="ICoverDriver"/>; 
 /// mirroring <see cref="ManualFilterWheelTests"/>. It reports no cover flap (<see cref="CoverStatus.NotPresent"/>)
-/// and a user-operated calibrator (Ready on demand, no analog brightness control), and — unlike the manual
-/// filter wheel — round-trips through the keyed URI factory so a profile can reference it.
+/// and a user-operated calibrator (Ready on demand, no analog brightness control), and; unlike the manual
+/// filter wheel: round-trips through the keyed URI factory so a profile can reference it.
 /// </summary>
 [Collection("Device")]
 public class ManualCoverDriverTests(ITestOutputHelper output)

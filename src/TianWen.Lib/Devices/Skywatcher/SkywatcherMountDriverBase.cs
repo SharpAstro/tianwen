@@ -84,7 +84,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// Mount alignment mode (<c>?alignment=GermanPolar|Polar|AltAz</c>; default German equatorial).
     /// This is a USER setting, mirroring GSServer: the same AZ/EQ hardware (e.g. a SkyWatcher AZ-GTi
     /// on a wedge vs flat) reports the identical motor-controller model code, so the protocol cannot
-    /// tell which way it is mounted — the SynScan app asks at connect; we make it configurable.
+    /// tell which way it is mounted: the SynScan app asks at connect; we make it configurable.
     /// <para>
     /// German/Polar drive the equatorial HA/Dec encoder-step transforms in this class. <b>Alt-az is
     /// REPORTED</b> (so the session skips meridian-flip + pier-side logic) but coordinate slews,
@@ -110,7 +110,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             throw new NotSupportedException(
                 $"{operation} is not supported in alt-azimuth alignment mode. The TianWen SkyWatcher driver " +
-                "drives equatorial mounts only — put the mount on an equatorial wedge and set alignment=GermanPolar. " +
+                "drives equatorial mounts only; put the mount on an equatorial wedge and set alignment=GermanPolar. " +
                 "Full alt-az support is tracked in docs/plans/altaz-mount-support.md.");
         }
     }
@@ -243,7 +243,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             }
 
             // Tracking runs the RA axis as a low-speed slew in the hemisphere's sidereal
-            // direction — forward in the north, reverse in the south (GSS feeds EqS the
+            // direction: forward in the north, reverse in the south (GSS feeds EqS the
             // negated rate).
             var south = IsSouthernHemisphere;
             var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
@@ -254,7 +254,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             {
                 // Already running at a constant-speed rate in the tracking direction
                 // (e.g. firmware auto-resumed tracking after a GOTO): change only the
-                // step period — GSS AxisSlew's rateChangeOnly path. Re-sending :G here
+                // step period: GSS AxisSlew's rateChangeOnly path. Re-sending :G here
                 // would be rejected by real firmware (!2 motor not stopped).
                 await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
             }
@@ -461,7 +461,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // Refresh cached encoder positions from the mount before computing the delta.
         // Without this, _posRa / _posDec may be stale (only updated on Get*Async reads),
         // and a stale value that happens to match the target produces delta=0 in
-        // SlewAxisToAsync, which silently no-ops the slew — exactly the "sometimes
+        // SlewAxisToAsync, which silently no-ops the slew; exactly the "sometimes
         // doesn't react" symptom.
         var raResp = await SendAndReceiveAsync('j', '1', null, cancellationToken);
         if (SkywatcherProtocol.TryParseResponse(raResp, out var raData) && raData.Length >= 6)
@@ -629,12 +629,12 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             // West = (1+f) x sidereal, East = (1-f) x sidereal, both in the tracking
             // direction (forward north / reverse south). Commanding f x sidereal with a
             // direction flag (the old behaviour) made BOTH pulses drift the star east
-            // relative to the sky — a West pulse ran the axis slower than sidereal (-f
-            // relative) and an East pulse reversed it (-(1+f) relative) — with a (1+f)/f
+            // relative to the sky: a West pulse ran the axis slower than sidereal (-f
+            // relative) and an East pulse reversed it (-(1+f) relative), with a (1+f)/f
             // gain asymmetry between the two directions.
             var rateFactor = direction is GuideDirection.West ? 1.0 + guideFraction : 1.0 - guideFraction;
             // East at guide fraction 1.0x gives a combined rate of 0; the motor boards
-            // cannot encode a zero step period, so command sidereal/1000 instead — the
+            // cannot encode a zero step period, so command sidereal/1000 instead; the
             // axis "looks stopped" without a stop/start transient (GSS does the same).
             var guideSpeed = siderealDegPerSec * Math.Max(rateFactor, 1e-3);
             var t1Pulse = SkywatcherProtocol.EncodeUInt24(
@@ -650,7 +650,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             {
                 // The axis is already running at sidereal in the tracking direction and the
                 // combined rate never changes sign (f <= 1): change ONLY the step period
-                // (:I) live, then restore it. No stop/start — a K+G+I+J round trip adds
+                // (:I) live, then restore it. No stop/start; a K+G+I+J round trip adds
                 // decel/accel transients comparable to a short pulse's length, and real
                 // firmware rejects :G while the motor is running (error !2).
                 await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
@@ -660,7 +660,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 }
                 finally
                 {
-                    // Restore the sidereal step period even when the pulse is cancelled —
+                    // Restore the sidereal step period even when the pulse is cancelled; 
                     // a stuck guide rate would drift the mount at (1±f) x sidereal forever.
                     var t1Sidereal = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, siderealDegPerSec, false, _highSpeedRatio);
                     await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1Sidereal), CancellationToken.None);
@@ -702,7 +702,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             }
 
             // Real firmware rejects :G while the axis is still decelerating from the previous
-            // pulse's :K2 (error !2, silently discarded by SendCommandAsync) — the pulse is then
+            // pulse's :K2 (error !2, silently discarded by SendCommandAsync); the pulse is then
             // lost. Mirror the decPulseGoTo / slew paths: ensure a full stop before :G2. Cheap
             // when already stopped (one status round-trip).
             if ((await QueryAxisStatusAsync('2', cancellationToken)).IsRunning)
@@ -897,8 +897,8 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     }
 
     /// <summary>
-    /// If the encoder is still at raw home (0,0) — i.e. the user just connected and the
-    /// mount has not been moved — push a sync to (LST, ±90°) so the driver reports a
+    /// If the encoder is still at raw home (0,0), i.e. the user just connected and the
+    /// mount has not been moved: push a sync to (LST, ±90°) so the driver reports a
     /// sensible "parked at the pole" position. The original DoConnectDeviceAsync init
     /// also runs this block, but at that stage <c>_siteLatitude</c> is still NaN
     /// (profile-driven reconcile pushes lat/lon AFTER connect), so the sync gets skipped
@@ -909,7 +909,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     {
         if (!Connected) return;
         // "Parked at the pole" is an equatorial reporting convenience. In alt-az the home IS the raw
-        // encoder zero (az 0 = north, alt 0 = horizontal), so there is nothing to sync — and an RA/Dec
+        // encoder zero (az 0 = north, alt 0 = horizontal), so there is nothing to sync, and an RA/Dec
         // sync is refused in alt-az anyway. Skip it so setting the site never fails for an alt-az mount.
         if (_alignmentMode == AlignmentMode.AltAz) return;
         if (_cprRa == 0 || _cprDec == 0) return;
@@ -958,7 +958,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // pending iterative-goto refinement or it would chase the old sky target after
         // the park slew stops.
         _gotoTargetRa = double.NaN;
-        // Stop both axes (tracking may be running) before the home goto — the goto's
+        // Stop both axes (tracking may be running) before the home goto; the goto's
         // :G is rejected with !2 on a moving motor.
         await StopAxisAndWaitAsync('1', cancellationToken);
         await StopAxisAndWaitAsync('2', cancellationToken);

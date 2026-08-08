@@ -17,7 +17,7 @@ namespace TianWen.Lib.Astrometry.SOFA
     public static class SofaFunctions
     {
         // =====================================================================
-        // Phase 1: Foundation — vector/matrix primitives
+        // Phase 1: Foundation; vector/matrix primitives
         // =====================================================================
 
         /// <summary>Normalize angle into the range [0, 2pi).</summary>

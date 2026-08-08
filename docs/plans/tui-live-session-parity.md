@@ -33,7 +33,7 @@ Use `Console.Lib` native widgets (`TextBar`, `ScrollableList`, `MenuBase`) for
 everything that's fundamentally text (mount section, buttons, status bars).
 
 `GuideGraphRenderer` already holds the pure math (`ComputeYScale`, `ComputeWindow`,
-`ErrorToY`) — shared by both hosts. The per-host render loop reads those and
+`ErrorToY`); shared by both hosts. The per-host render loop reads those and
 drives `FillRect` / `DrawLine`.
 
 ## Phases
@@ -47,14 +47,14 @@ drives `FillRect` / `DrawLine`.
 - [ ] Same for `RenderVCurveChart` → `VCurveRenderer.Render<TSurface>(...)`.
 - [ ] Same for `RenderTimeline` / `RenderPreviewTimeline` → `SessionTimelineRenderer`.
 - [ ] Same for `RenderMiniSparkline` → `CoolingSparklineRenderer`.
-- [ ] No TUI changes in this phase — purely moving code so the GPU tab shrinks
+- [ ] No TUI changes in this phase: purely moving code so the GPU tab shrinks
       and the TUI tab gets the same entry points.
 
 ### Phase 2: Twilight / phase timeline band in TUI
 
 - [ ] Add a third `Panel.Dock(DockStyle.Top, 2)` row below `_guideBar` for a
       timeline strip (2 cells tall ≈ 40px Sixel band on typical terminal).
-- [ ] Wrap a `Canvas<RgbaImage>` + `RgbaImageRenderer` — render via
+- [ ] Wrap a `Canvas<RgbaImage>` + `RgbaImageRenderer`: render via
       `SessionTimelineRenderer.Render` each frame.
 - [ ] Session-running → phase bars; preview → twilight bands. Branching already
       exists in the shared helper.
@@ -90,13 +90,13 @@ drives `FillRect` / `DrawLine`.
 
 - [ ] Replace `RenderPreviewToolbar` text-only rendering with `ActionRow` buttons
       (reuses the existing `_rows` / `Tracker.Register` plumbing for hit testing).
-- [ ] Buttons: `[Fit] [1:1] [Raw/Lnk/Unl/Lum] [S±] [B]` — clicking each toggles
+- [ ] Buttons: `[Fit] [1:1] [Raw/Lnk/Unl/Lum] [S±] [B]`; clicking each toggles
       `_viewerState` the same way the keyboard handlers do today.
 
 ### Phase 7: ABORT button + modal overlay
 
 - [ ] Add an `ActionRow` on the bottom strip (right side) with a red `ABORT`
-      button when `liveState.IsRunning` — posts the same signal the keyboard
+      button when `liveState.IsRunning`: posts the same signal the keyboard
       path does.
 - [ ] When `liveState.ShowAbortConfirm`, render a centered modal: red bg
       `Canvas` + text `"Confirm ABORT? Enter to confirm, Escape to cancel"`.
@@ -122,7 +122,7 @@ drives `FillRect` / `DrawLine`.
 
 ## Why this ordering
 
-- Phase 1 (extract helpers) is the de-risking step — it's a pure refactor with
+- Phase 1 (extract helpers) is the de-risking step; it's a pure refactor with
   no behavior change, confirmed by the GPU tab still rendering identically
   before any TUI changes land. Everything downstream reuses those helpers.
 - Phase 2 → 3 adds the most visible "oh yeah, this looks like the GUI now"
@@ -130,7 +130,7 @@ drives `FillRect` / `DrawLine`.
   glanceable.
 - Phases 4–5 are contextual (V-curve only during autofocus, mount only in
   preview) so they're less load-bearing on first impression.
-- Phases 6–7 are interaction parity (buttons, modal) — lower priority than
+- Phases 6–7 are interaction parity (buttons, modal); lower priority than
   the information density phases.
 - Phase 8 is cosmetic polish.
 
@@ -140,6 +140,6 @@ drives `FillRect` / `DrawLine`.
   about rendering that state through a different host.
 - No new signals. All actions (`TakePreviewSignal`, `ConfirmAbortSessionSignal`,
   etc.) already exist and are consumed by `AppSignalHandler`.
-- Not trying to match GPU pixel-for-pixel — terminal cell grid + Sixel tiling
+- Not trying to match GPU pixel-for-pixel: terminal cell grid + Sixel tiling
   put a hard lower bound on visual fidelity. The goal is functional parity and
   the same information at a glance, not a screenshot diff.

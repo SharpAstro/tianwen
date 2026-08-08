@@ -48,7 +48,7 @@ public static class FilterCurveDatabase
     /// <summary>
     /// Loads <c>filter_curves.gs.gz</c>, <c>sensor_qe.gs.gz</c>, and
     /// <c>pickles_sed.gs.gz</c> from embedded resources.
-    /// Idempotent — subsequent calls are no-ops.
+    /// Idempotent: subsequent calls are no-ops.
     /// </summary>
     public static ValueTask LoadAsync(CancellationToken ct = default)
     {
@@ -56,7 +56,7 @@ public static class FilterCurveDatabase
         if (_loadTask is { IsCompletedSuccessfully: true })
             return ValueTask.CompletedTask;
 
-        // Serialise initialisation through a single Task — subsequent callers
+        // Serialise initialisation through a single Task; subsequent callers
         // await the same Task instead of racing on the partially-populated state.
         var existing = Interlocked.CompareExchange(ref _loadTask,
             Task.Run(() => DoLoad(ct)), null);
@@ -82,7 +82,7 @@ public static class FilterCurveDatabase
         ImmutableInterlocked.Update(ref _allSensors, (current, incoming) =>
             current.AddRange(incoming), sensors);
 
-        // Sensor model names are short and unambiguous (e.g. "IMX533") —
+        // Sensor model names are short and unambiguous (e.g. "IMX533"); 
         // index by un-normalised upper-case EXTNAME for exact case-insensitive lookup.
         foreach (var s in _allSensors)
             _sensorsByNormalizedName.TryAdd(s.Name.ToUpperInvariant(), s);
@@ -422,7 +422,7 @@ public static class FilterCurveDatabase
         }
 
         // Extract numeric model from product name (e.g. "533" from "ASI533MC")
-        // and match against sensor names — prefer shorter matching keys
+        // and match against sensor names: prefer shorter matching keys
         var numbers = ExtractNumbers(needle);
         FilterCurve? bestByNumber = null;
         var bestKeyLength = int.MaxValue;
@@ -598,7 +598,7 @@ public static class FilterCurveDatabase
     /// standard photometric profile in that case).
     /// </summary>
     /// <remarks>
-    /// This is an unweighted broadband integral — no photopic V(<i>λ</i>) convolution,
+    /// This is an unweighted broadband integral: no photopic V(<i>λ</i>) convolution,
     /// because the database does not ship the CIE 1931 luminosity function. The result
     /// is therefore "what fraction of the broadband photon flux lands in each channel"
     /// rather than "what fraction of perceived brightness." For typical OSC sensors the
@@ -762,7 +762,7 @@ public static class FilterCurveDatabase
     /// callers can use either source interchangeably.
     /// </summary>
     /// <param name="cameraModel">EXIF model string (Canon) or sensor model
-    /// (OSC astro). Free-form — the implementation normalises to the SASP
+    /// (OSC astro). Free-form: the implementation normalises to the SASP
     /// filter-name convention (uppercase, runs of non-alphanumerics collapsed
     /// to single underscores).</param>
     /// <param name="matrix">9 floats, row-major camera-RGB to sRGB.</param>

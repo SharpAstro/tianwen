@@ -27,8 +27,8 @@ namespace TianWen.Lib.Devices.Guider;
 ///   [19]    Altitude / 90 (normalized to [0, 1])
 ///   [20]    Declination / 90 (normalized to [-1, 1])
 ///   [21]    Time since last correction (seconds, clamped to 30)
-///   [22-23] RA encoder phase (sin, cos) — worm gear PE phase (0 when unavailable)
-///   [24-25] Dec encoder phase (sin, cos) — Dec gear phase (0 when unavailable)
+///   [22-23] RA encoder phase (sin, cos): worm gear PE phase (0 when unavailable)
+///   [24-25] Dec encoder phase (sin, cos): Dec gear phase (0 when unavailable)
 ///
 /// Output (2):
 ///   [0] RA correction (normalized: -1 to +1, maps to -MaxPulse to +MaxPulse)

@@ -32,7 +32,7 @@ internal class FakeSgpSerialDevice : ISerialConnection
     private int _eyepieceLight = 0;
     private string _firmwareVersion = "170518";
 
-    // Camera snap state (units TBD — possibly seconds)
+    // Camera snap state (units TBD, possibly seconds)
     private bool _cameraActive;
     private int _cameraShutter = 30;
     private int _cameraInterval = 5;
