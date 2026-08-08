@@ -136,6 +136,25 @@ namespace TianWen.UI.Abstractions
 
         private static UiTheme _current = new UiTheme { Palette = DarkPalette, Metrics = Metrics };
 
+        // Seeds the shared DIR.Lib widgets that keep their own palette, so a process that never calls
+        // Apply (a test, a headless render) still draws them in the startup scheme rather than in the
+        // library's defaults.
+        static GuiTheme() => PublishToSharedWidgets(DarkPalette);
+
+        /// <summary>
+        /// Pushes the resolved palette into the DIR.Lib widgets that hold their own copy.
+        /// </summary>
+        /// <remarks>
+        /// These widgets are shared across consumers, so they cannot read a TianWen static; they take a
+        /// palette instead and derive once. Called only when the palette MOVES, which is the contract
+        /// those properties document: deriving per frame would rebuild eight colours for every field on
+        /// screen. The bug that put this here: night mode restyled every surface TianWen draws itself
+        /// and still left a slate-blue input box in the middle of the Equipment tab, because
+        /// <c>TextInputRenderer</c> had the first consumer's dark scheme frozen into it.
+        /// </remarks>
+        private static void PublishToSharedWidgets(UiPalette palette)
+            => TextInputRenderer.Colors = TextInputColors.FromPalette(palette);
+
         /// <summary>The state the user picked. Change it through <see cref="Apply"/>.</summary>
         public static UiThemeState State { get; private set; } = UiThemeState.Dark;
 
@@ -172,6 +191,7 @@ namespace TianWen.UI.Abstractions
 
             _current = new UiTheme { Palette = resolved, Metrics = Metrics };
             PaletteGeneration++;
+            PublishToSharedWidgets(resolved);
             return true;
         }
 
