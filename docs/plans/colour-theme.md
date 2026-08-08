@@ -1,6 +1,9 @@
 # One colour core across the org site, the GUI and the viewer
 
-Status: PLANNED. Supersedes nothing; `GuiTheme` and `ViewerTheme` are the current state.
+Status: **C0, C1 and the F12-blocking half of C2 are DONE (2026-08-07/08).** Three palettes ship on
+one 16-role `UiPalette`, F12 toggles Night, and the window chrome follows the theme. **The literal
+sweep itself is barely started**: 300 of the original 317 remain (see "What C2 landed"). C3 to C5
+are open.
 
 Three surfaces carry three unrelated palettes today. This unifies them on one token set with
 four states (System / Light / Dark / Night), where Night is a dark-adaptation mode for use at
@@ -275,9 +278,16 @@ hues apart. That pair is the tightest call in the palette (about 22 degrees of h
 validating at the mount, so error should also carry a form cue (filled stripe against warn's
 outline) as cheap insurance.
 
-Anything that currently encodes meaning in hue needs the same treatment: guide-graph RA against
-Dec, cooling state, the flip countdown. In Night they take positions in the warm band plus a dash
-or weight difference.
+Anything that currently encodes meaning in hue needs the same treatment: cooling state, the flip
+countdown. In Night they take positions in the warm band plus a dash or weight difference.
+
+**The guide graph is the exception, by the user's call (2026-08-08): RA and Dec keep their blue and
+orange in every state.** The two traces are the one place where a Night-safe pair genuinely cannot
+be found, since neither blue nor green is available and two warm hues 20 degrees apart are not
+separable at speed on a scrolling plot. Recolouring them would have meant inventing a dash or
+weight distinction for the sake of a rule, on the surface most likely to be read at a glance.
+Leaving them is a deliberate hole in Night's coverage rather than an oversight, and it is a small
+one: the guide graph is a bounded region, not a full-screen ground.
 
 ### In Night, labels use BodyText. DimText is for chrome nobody reads
 
@@ -349,9 +359,11 @@ has settled in one consumer.
 |---|---|---|
 | C0 | **DONE 2026-08-07. DIR.Lib**: `UiPalette` widened to 16 roles as a `sealed record` with computed `IsDark`; new `TabBarColors` + `FromPalette` and a settable `TabBar.Colors`; `MenuColors.FromPalette`. Pinned by `UiPaletteTests` (11). | C1 |
 | C1 | **DONE 2026-08-07.** `GuiTheme` now carries all three palettes plus `Apply`/`Resolve`; `ViewerTheme` follows it instead of holding a second scheme. | everything |
-| C2 | Sweep the 317 literals to role lookups, `TianWen.UI.Abstractions` first (266 of them). Anything genuinely local (sky-map object classes, plate-solve markers) stays local but gains a Night variant. | C3, C4 |
-| C3 | `SDL3.SDL.GetSystemTheme()`, title bar, desktop accent. Persist the choice; add the state cycle and a keystroke. | |
-| C4 | Non-hue reinforcement wherever meaning was carried by hue: guide RA/Dec, cooling, flip countdown, severity fill-vs-outline. | |
+| C2a | **DONE 2026-08-08.** Unfreeze the palette snapshots: 34 `static readonly` fields initialised from `GuiTheme.Palette` across six tabs, plus `EquipmentPanelStyle.Default` and `HomeBoardStyle.Default`, to computed properties. This was the actual reason F12 only moved the Home board. | C2b |
+| C2b | **DONE 2026-08-08.** Window chrome (`VkGuiRenderer`) onto roles: 17 literals to 0. `GuiTheme.InkOn` for ink on a semantic fill. A 16-pair contrast matrix pinned in `GuiThemeTests`. | |
+| C2c | **NOT STARTED.** The actual sweep: ~300 literals still outside the roles, `TianWen.UI.Abstractions` first (256 of them). Anything genuinely local (sky-map object classes, plate-solve markers) stays local but gains a Night variant. | C4 |
+| C3 | `SDL3.SDL.GetSystemTheme()`, title bar, desktop accent. Persist the choice; add the state cycle. **The keystroke half is done** (F12 toggles Night, restoring the state it came from). | |
+| C4 | Non-hue reinforcement wherever meaning was carried by hue: cooling, flip countdown, severity fill-vs-outline. **Guide RA/Dec is out of scope** (user, 2026-08-08: stays as is). | |
 | C5 | Field-validate Night at the mount, especially the warn/error pair, and tune. | C1 to C4 |
 
 The site needs no change. `profile/README.md` needs no change.
@@ -384,6 +396,68 @@ reference read and can never be observed torn between a state change and the des
 answer. `Apply` returns whether the palette actually moved, which is the signal a consumer needs to
 rebuild anything it projects (a `TabBarColors`, a cached gradient) without doing it per frame.
 
+## What C2 landed, and what it did not (2026-08-08)
+
+Shipped as PRs #143 and #144 against DIR.Lib 7.11.1921.
+
+**Be clear about the scope, because the phase name oversells it.** C2 was written as "sweep the 317
+literals". The literal count today is **300**, so the sweep moved about 17. What actually shipped is
+the part that was blocking everything else, and it is worth separating the two:
+
+| | Then | Now |
+|---|---|---|
+| Frozen palette snapshots | 34 fields + 2 style `Default`s | 0 |
+| `VkGuiRenderer` literals | 17 | 0 |
+| Literals everywhere else | ~300 | ~300 |
+
+**The frozen snapshots were the whole reason F12 appeared broken, and they are worse than a
+literal.** `private static readonly RGBAColor32 X = GuiTheme.Palette.Y;` and
+`public static Style Default { get; } = new(...)` both run once at type-init, so six tabs captured
+the startup palette and painted it forever. A literal shows up in a grep for colour constants; a
+field initialised *from the palette* reads as correct. C0/C1 had already found two of these and
+predicted more, and there were 34. Fix is a computed property (`=>`); `RGBAColor32` is four bytes,
+so there is nothing to weigh.
+
+Grep for them **loosely** (`static readonly RGBAColor32.*Palette\.`). A pattern anchored on
+`= GuiTheme.` misses a fully-qualified `= TianWen.UI.Abstractions.GuiTheme.Palette.X`, which is
+exactly how one survived the first pass.
+
+**Four defects, and every one was found by running the app or computing a number.** None was
+visible in the source, and two of them had been introduced within the hour:
+
+- The Home board's online dot went blue. `Success` was unstated in Light and Dark so it fell back
+  to `Accent`, and in Dark `Info` *is* `Accent`, which collapsed "online" and "running" onto one
+  colour. Both states now state a green.
+- The `Connect All` button measured about 1.4:1 (dim label on the green fill).
+- `PlaceholderText` measured 1.50 to 1.89:1 in all three states, from mapping it to
+  `SeparatorStrong`.
+- Night's `Info` sat at 2.46:1.
+
+So the lesson is procedural rather than technical: **a role lookup makes a colour consistent, not
+legible. Only the pairing is legible**, and nothing in the type system checks a pairing.
+
+**Two rules now enforced by tests** in `GuiThemeTests`, which is what stops the above recurring:
+
+- A **contrast matrix**: 16 text pairs x 3 states, floor 4.5 (Night 3.4, per the ceiling above).
+  Worst pair per state today: Light 5.02, Dark 5.08, Night 3.43.
+- **`GuiTheme.InkOn(fill)`** is the single ink-on-a-filled-chip rule, and it *measures both
+  candidates* rather than branching on `RGBAColor32.Luminance`. That property is a gamma-encoded
+  NTSC approximation, which is not the quantity a contrast ratio is defined on, and it guessed the
+  crossover wrong. Any *fixed* ink is wrong too, because a semantic fill's lightness flips between
+  states.
+
+Two things deliberately sit outside the matrix. The locked-tab icon is around 1.5:1, because WCAG
+exempts inactive components and a locked tab should read as unavailable. And a selection fill is
+*supposed* to be subtle against its panel: 1.27 Light, 1.28 Dark, 1.21 Night. Do not "fix" Night's
+by lightening it, which drops BodyText-on-Selection from 4.11 to about 2.9. Both are pinned as
+tests stating the intent, so a later reader finds the reasoning instead of the number.
+
+**What C2c still faces.** The remaining ~300 split into genuine chrome that simply has not been
+swept (`LiveSessionTab` alone still holds `GraphBg #12121a`, `RowAltBg`, `ProgressBg`, `AbortBg`),
+and local data-series colours that need Night variants rather than roles: `AltitudeChartRenderer`
+41, `SkyMapRenderer` 14, `GuideGraphRenderer` 9. The first group is mechanical. The second needs a
+decision per chart, and one of those decisions is already taken (RA/Dec stays).
+
 ## Decisions taken
 
 - **A new shared core rather than one surface adopting another**, designed against all four states
@@ -391,3 +465,12 @@ rebuild anything it projects (a `TabBarColors`, a cached gradient) without doing
 - **Chrome only. The image is never recoloured.**
 - **The app gets a light theme**, because system detection without one is a no-op for half its
   users, and daytime planning and stacking are real work.
+- **F12 toggles Night**, matching SharpCap. Toggling off restores the *state* it came from, not the
+  resolved palette, so a rig sitting on System stays on System.
+- **The guide graph's RA and Dec keep their hues in Night** (user, 2026-08-08). See the Night
+  section for why this is the one place the encode-in-form rule is not worth applying.
+- **The tab emoji stay full-colour in Night** (user, 2026-08-08). They come from the bundled emoji
+  font, so a blue camera and a yellow bell are the only non-red things on screen. The alternatives
+  were a monochrome fallback in Night only, or drawing them as shapes; neither is worth the work
+  for eight glyphs on a rail, and both trade a legible icon for a compliant one. Revisit only if
+  field use at the mount says otherwise, which is C5's job.
