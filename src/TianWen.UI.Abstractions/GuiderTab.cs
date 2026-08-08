@@ -40,15 +40,16 @@ namespace TianWen.UI.Abstractions
         // Colors. The palette-derived ones are PROPERTIES, not static readonly fields: a field
         // initialiser snapshots the palette at type-init, so this tab went on painting the startup
         // scheme through every theme switch. RGBAColor32 is a struct, so reading through allocates
-        // nothing. The literals below have no role yet and still need Night variants.
+        // nothing. What literals remain are CATEGORICAL series (index N, no severity to express)
+        // or the two-trace exemption, each noted at its declaration.
         private static RGBAColor32 ContentBg => GuiTheme.Palette.ContentBg;
         private static RGBAColor32 PanelBg => GuiTheme.Palette.PanelBg;
         private static RGBAColor32 HeaderBg => GuiTheme.Palette.HeaderBg;
         private static RGBAColor32 HeaderText => GuiTheme.Palette.HeaderText;
         private static RGBAColor32 BodyText => GuiTheme.Palette.BodyText;
         private static RGBAColor32 DimText => GuiTheme.Palette.DimText;
-        private static readonly RGBAColor32 PlaceholderText = new RGBAColor32(0x66, 0x66, 0x88, 0xff);
-        private static readonly RGBAColor32 AlertText = new RGBAColor32(0xff, 0x55, 0x44, 0xff);
+        private static RGBAColor32 PlaceholderText => GuiTheme.Palette.DimText;
+        private static RGBAColor32 AlertText => GuiTheme.Palette.Error;
 
         public GuiderTabState State { get; } = new GuiderTabState();
 
@@ -279,11 +280,15 @@ namespace TianWen.UI.Abstractions
                     .RowH(BaseStatsLineH);
         }
 
-        private static readonly RGBAColor32 CrosshairColor = new RGBAColor32(0x00, 0xff, 0x00, 0xaa);
+        // Marks drawn ON the guide frame, not on chrome. The image is never recoloured (a sub of a faint
+        // thing is already dark), so these sit on pixels whose brightness the theme does not control and
+        // they stay fixed on purpose. RA/Dec additionally keep their hues by the same decision the guide
+        // graph does: see docs/plans/colour-theme.md.
+        private static RGBAColor32 CrosshairColor => GuiTheme.Palette.Accent.WithAlpha(0xaa);
         private static readonly RGBAColor32 CalRaColor = new RGBAColor32(0xff, 0x88, 0x22, 0xcc); // orange for RA
         private static readonly RGBAColor32 CalDecColor = new RGBAColor32(0x22, 0x88, 0xff, 0xcc); // blue for Dec
         private static readonly RGBAColor32 CalOriginColor = new RGBAColor32(0xff, 0xff, 0xff, 0xcc);
-        private static readonly RGBAColor32 CameraBg = new RGBAColor32(0x0a, 0x0a, 0x0a, 0xff);
+        private static RGBAColor32 CameraBg => GuiTheme.Palette.ContentBg;
 
         private void RenderGuideCamera(RectF32 rect, float fontSize)
         {
@@ -564,7 +569,7 @@ namespace TianWen.UI.Abstractions
             => DrawLine(x0, y0, x1, y1, color);
 
 
-        private static readonly RGBAColor32 ProfileBg = new RGBAColor32(0x12, 0x12, 0x1a, 0xff);
+        private static RGBAColor32 ProfileBg => GuiTheme.Palette.ContentBg;
 
         /// <summary>
         /// Star profile: 1D intensity cross-section through the guide-star centre (horizontal + vertical
@@ -582,7 +587,7 @@ namespace TianWen.UI.Abstractions
             StarProfilePlotRenderer.Render(Renderer, rect, hProfile, vProfile, DpiScale, FontPath, fontSize);
         }
 
-        private static readonly RGBAColor32 TargetBg = new RGBAColor32(0x10, 0x10, 0x18, 0xff);
+        private static RGBAColor32 TargetBg => GuiTheme.Palette.ContentBg;
 
         /// <summary>
         /// PHD2-style target view: 2D scatter of RA (X) vs Dec (Y) error with RMS circle. Delegates the

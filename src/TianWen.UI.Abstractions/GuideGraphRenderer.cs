@@ -17,13 +17,17 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class GuideGraphRenderer
 {
-    public static readonly RGBAColor32 GraphBg = new RGBAColor32(0x12, 0x12, 0x1a, 0xff);
-    public static readonly RGBAColor32 GridColor = new RGBAColor32(0x33, 0x33, 0x44, 0xff);
-    public static readonly RGBAColor32 ZeroLineColor = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
+    public static RGBAColor32 GraphBg => GuiTheme.Palette.ContentBg;
+    public static RGBAColor32 GridColor => GuiTheme.Palette.Separator;
+    public static RGBAColor32 ZeroLineColor => GuiTheme.Palette.SeparatorStrong;
+    // A two-trace plot keeps its hues in EVERY state, Night included (user, 2026-08-08). Night has
+    // neither blue nor green to spend, and two warm hues twenty degrees apart do not separate at
+    // speed on a moving plot, so recolouring would invent a dash-or-weight distinction for the
+    // rule's sake on a surface read at a glance. See docs/plans/colour-theme.md.
     public static readonly RGBAColor32 RaColor = new RGBAColor32(0x44, 0x88, 0xff, 0xff);
     public static readonly RGBAColor32 DecColor = new RGBAColor32(0xff, 0x88, 0x44, 0xff);
-    public static readonly RGBAColor32 DitherMarkerColor = new RGBAColor32(0xff, 0xff, 0x44, 0x88);
-    public static readonly RGBAColor32 SettlingShadeColor = new RGBAColor32(0x44, 0x44, 0x00, 0x30);
+    public static RGBAColor32 DitherMarkerColor => GuiTheme.Palette.Warn.WithAlpha(0x88);
+    public static RGBAColor32 SettlingShadeColor => GuiTheme.Palette.Warn.WithAlpha(0x30);
     public static readonly RGBAColor32 RaCorrectionColor = new RGBAColor32(0x44, 0x88, 0xff, 0x55);
     public static readonly RGBAColor32 DecCorrectionColor = new RGBAColor32(0xff, 0x88, 0x44, 0x55);
 

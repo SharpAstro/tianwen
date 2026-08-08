@@ -94,31 +94,41 @@ namespace TianWen.UI.Abstractions
         // Colors. The palette-derived ones are PROPERTIES, not static readonly fields: a field
         // initialiser snapshots the palette at type-init, so this tab went on painting the startup
         // scheme through every theme switch. RGBAColor32 is a struct, so reading through allocates
-        // nothing. The literals below have no role yet and still need Night variants.
+        // nothing. What literals remain are CATEGORICAL series (index N, no severity to express)
+        // or the two-trace exemption, each noted at its declaration.
         private static RGBAColor32 ContentBg        => GuiTheme.Palette.ContentBg;
         private static RGBAColor32 PanelBg          => GuiTheme.Palette.PanelBg;
         private static RGBAColor32 HeaderBg         => GuiTheme.Palette.HeaderBg;
         private static RGBAColor32 HeaderText       => GuiTheme.Palette.HeaderText;
         private static RGBAColor32 BodyText         => GuiTheme.Palette.BodyText;
         private static RGBAColor32 DimText          => GuiTheme.Palette.DimText;
-        private static readonly RGBAColor32 BrightText       = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+        private static RGBAColor32 BrightText       => GuiTheme.Palette.BodyText;
         private static RGBAColor32 SeparatorColor   => GuiTheme.Palette.Separator;
-        private static readonly RGBAColor32 GraphBg          = new RGBAColor32(0x12, 0x12, 0x1a, 0xff);
+        private static RGBAColor32 GraphBg          => GuiTheme.Palette.ContentBg;
+        // RA and Dec keep blue and orange in EVERY state, Night included (user, 2026-08-08). Night has
+        // neither blue nor green to spend, and two warm hues twenty degrees apart do not separate at
+        // speed on a scrolling plot, so recolouring these would invent a dash-or-weight distinction for
+        // the rule's sake on the surface most likely to be read at a glance. See
+        // docs/plans/colour-theme.md, "Semantic hue survives".
         private static readonly RGBAColor32 RaColor          = new RGBAColor32(0x44, 0x88, 0xff, 0xff); // blue
         private static readonly RGBAColor32 DecColor         = new RGBAColor32(0xff, 0x88, 0x44, 0xff); // orange
-        private static readonly RGBAColor32 AbortBg          = new RGBAColor32(0xcc, 0x33, 0x33, 0xff);
-        private static readonly RGBAColor32 AbortText        = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-        private static readonly RGBAColor32 ConfirmStripBg   = new RGBAColor32(0x88, 0x22, 0x22, 0xff);
-        private static readonly RGBAColor32 RowAltBg         = new RGBAColor32(0x1a, 0x1a, 0x24, 0xff);
-        private static readonly RGBAColor32 ProgressBg       = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
-        private static readonly RGBAColor32 ProgressFill     = new RGBAColor32(0x30, 0x88, 0x30, 0xff);
+        private static RGBAColor32 AbortBg          => GuiTheme.Palette.Error;
+        private static RGBAColor32 AbortText        => GuiTheme.InkOn(GuiTheme.Palette.Error);
+        private static RGBAColor32 ConfirmStripBg   => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Error, 0.55f);
+        private static RGBAColor32 RowAltBg         => GuiTheme.AltRowBg;
+        private static RGBAColor32 ProgressBg       => GuiTheme.Palette.Separator;
+        private static RGBAColor32 ProgressFill     => GuiTheme.Palette.Success;
         // Timeline colours (bg, tick, now-needle) now live in SessionTimelineRenderer (the paint-owning control).
-        private static readonly RGBAColor32 StatusSlewing    = new RGBAColor32(0xcc, 0xcc, 0x44, 0xff); // yellow
-        private static readonly RGBAColor32 StatusSolving    = new RGBAColor32(0x44, 0xaa, 0xcc, 0xff); // cyan
-        private static readonly RGBAColor32 StatusTracking   = new RGBAColor32(0x44, 0xcc, 0x44, 0xff); // green
+        // Mount activity is severity-shaped, so it takes the semantic roles: in motion is a caution,
+        // solving is informational, tracking is the good state.
+        private static RGBAColor32 StatusSlewing    => GuiTheme.Palette.Warn;
+        private static RGBAColor32 StatusSolving    => GuiTheme.Palette.Info;
+        private static RGBAColor32 StatusTracking   => GuiTheme.Palette.Success;
         // V-curve chart colours now live in VCurveChartRenderer (the paint-owning control).
 
         // Per-camera color palette (temp = solid, power = same hue lighter)
+        // Categorical: camera index N, no severity to express, so a role lookup would collapse
+        // them onto one another. Stays local and fixed, like the schedule's target colours.
         private static readonly RGBAColor32[] CameraTempColors =
         [
             new RGBAColor32(0x44, 0x88, 0xff, 0xff), // blue

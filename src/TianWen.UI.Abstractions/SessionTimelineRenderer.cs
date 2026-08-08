@@ -13,10 +13,10 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class SessionTimelineRenderer
 {
-    private static readonly RGBAColor32 TimelineBg       = new RGBAColor32(0x18, 0x18, 0x22, 0xff);
-    private static readonly RGBAColor32 TimelineTickColor = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
-    private static readonly RGBAColor32 NowNeedleColor   = new RGBAColor32(0xff, 0xff, 0xff, 0xcc);
-    private static readonly RGBAColor32 BrightText       = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+    private static RGBAColor32 TimelineBg       => GuiTheme.Palette.ContentBg;
+    private static RGBAColor32 TimelineTickColor => GuiTheme.Palette.SeparatorStrong;
+    private static RGBAColor32 NowNeedleColor   => GuiTheme.SkyInk(0xcc);
+    private static RGBAColor32 BrightText       => GuiTheme.SkyInk();
 
     /// <summary>Running-session phase timeline: coloured phase bars + now needle + time-axis ticks.</summary>
     public static void RenderPhaseTimeline<TSurface>(
@@ -153,10 +153,11 @@ public static class SessionTimelineRenderer
             rect.X + pad + (float)((t - tStart).TotalSeconds / totalSeconds) * (rect.Width - pad * 2);
 
         // Twilight zone colors
-        var civilColor = new RGBAColor32(0x44, 0x44, 0x22, 0x88);
-        var nautColor = new RGBAColor32(0x22, 0x33, 0x55, 0x88);
-        var astroColor = new RGBAColor32(0x11, 0x22, 0x44, 0x88);
-        var nightColor = new RGBAColor32(0x00, 0x00, 0x22, 0xcc);
+        // The same sky ramp the altitude chart uses, so the two twilight depictions cannot drift.
+        var civilColor = GuiTheme.SkyBand(0.26f).WithAlpha(0x88);
+        var nautColor = GuiTheme.SkyBand(0.19f).WithAlpha(0x88);
+        var astroColor = GuiTheme.SkyBand(0.13f).WithAlpha(0x88);
+        var nightColor = GuiTheme.SkyBand(0.05f).WithAlpha(0xcc);
 
         // Fill the twilight bands
         if (state.CivilSet is { } cs)

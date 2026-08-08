@@ -54,8 +54,8 @@ namespace TianWen.UI.Abstractions
             var btnW = 36f * dpiScale;
             var btnFs = fontSize * 0.8f;
 
-            var activeBg = new RGBAColor32(0x44, 0x66, 0x99, 0xff);
-            var inactiveBg = new RGBAColor32(0x2a, 0x2a, 0x35, 0xff);
+            var activeBg = GuiTheme.PrimaryButtonBg;
+            var inactiveBg = GuiTheme.NeutralButtonBg;
 
             // The whole strip is ONE HStack of Clickable button nodes (was an `x += btnW + pad` cursor +
             // per-button RenderButton). Sizes are already device px, so the tree renders at dpiScale:1f.
@@ -243,7 +243,7 @@ namespace TianWen.UI.Abstractions
                 rows.Add(Layout.Builder.Text(focLabel, BaseFontSize, tel.FocuserIsMoving ? StatusSlewing : BodyText).RowH(BaseRowHeight));
 
                 var capturedI = i;
-                var jogBg = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
+                var jogBg = GuiTheme.NeutralButtonBg;
 
                 // Jog buttons row: [<<] [<] "10 | 100" [>] [>>] as one HStack.
                 Layout.Node JogBtn(string glyph, string action, int delta) =>
@@ -365,8 +365,8 @@ namespace TianWen.UI.Abstractions
             // with the PolarAlignmentSession's own captures (different frame settings, breaks the solve cadence).
             var polarActive = state.Mode == LiveSessionMode.PolarAlign;
             var captureBtnColor = polarActive
-                ? new RGBAColor32(0x33, 0x33, 0x33, 0xff)
-                : new RGBAColor32(0x33, 0x66, 0x33, 0xff);
+                ? GuiTheme.NeutralButtonBg
+                : GuiTheme.GoButtonBg;
             var captureBtnText = polarActive ? DimText : BrightText;
             rows.Add(Layout.Builder.HStack(
                     expCtrl.Stretch(),
@@ -421,12 +421,12 @@ namespace TianWen.UI.Abstractions
                     && state.PreviewPlateSolving[otaIndex];
                 var solveLabel = solving ? "Solving\u2026" : "Solve";
                 var solveBg = solving
-                    ? new RGBAColor32(0x33, 0x33, 0x33, 0xff)
-                    : new RGBAColor32(0x22, 0x44, 0x66, 0xff);
+                    ? GuiTheme.NeutralButtonBg
+                    : GuiTheme.PrimaryButtonBg;
                 var solveText = solving ? DimText : BrightText;
                 rows.Add(Layout.Builder.HStack(
                         Layout.Builder.Text("Save", BaseFontSize * 0.85f, BrightText, TextAlign.Center, TextAlign.Center)
-                            .WStar().HStar().Bg(new RGBAColor32(0x22, 0x55, 0x44, 0xff))
+                            .WStar().HStar().Bg(GuiTheme.GoButtonBg)
                             .Clickable(new HitResult.ButtonHit($"PreviewSave{otaIndex}"), _ => PostSignal(new SaveSnapshotSignal(otaIndex))),
                         Layout.Builder.Spacer().WFixed(4f).HStar(),
                         Layout.Builder.Text(solveLabel, BaseFontSize * 0.85f, solveText, TextAlign.Center, TextAlign.Center)

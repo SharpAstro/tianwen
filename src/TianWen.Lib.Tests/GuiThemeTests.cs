@@ -212,6 +212,108 @@ namespace TianWen.Lib.Tests
         public void NightSuccessBorrowsTheAccentBecauseGreenIsUnavailable()
             => GuiTheme.NightPalette.Success.ShouldBe(GuiTheme.NightPalette.Accent);
 
+        // C2c introduced DERIVED fills (Mix of two roles) for buttons, alt rows and the sky ramp. A
+        // derived colour can land anywhere, so its label needs the same guarantee a stated role gets,
+        // and only InkOn can give it: the mix moves with the theme, so no fixed ink can be right.
+        [Theory]
+        [InlineData("Light")]
+        [InlineData("Dark")]
+        [InlineData("Night")]
+        public void EveryDerivedButtonFillCanCarryItsLabel(string state)
+        {
+            try
+            {
+                GuiTheme.Apply(ByState(state), desktopIsDark: state != "Light");
+
+                (string Name, RGBAColor32 Fill)[] fills =
+                [
+                    ("NeutralButtonBg", GuiTheme.NeutralButtonBg),
+                    ("PrimaryButtonBg", GuiTheme.PrimaryButtonBg),
+                    ("GoButtonBg", GuiTheme.GoButtonBg),
+                    ("CautionButtonBg", GuiTheme.CautionButtonBg),
+                    ("DangerButtonBg", GuiTheme.DangerButtonBg),
+                ];
+
+                foreach (var (name, fill) in fills)
+                {
+                    var ratio = Contrast(GuiTheme.InkOn(fill), fill);
+                    ratio.ShouldBeGreaterThanOrEqualTo(4.5, $"{state}: ink on {name} is {ratio:F2}:1");
+                }
+            }
+            finally
+            {
+                // Static app state: hand it back the way every other test expects to find it.
+                GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+            }
+        }
+
+        // The twilight ramp has ONE job beyond looking like sky: civil must read brighter than nautical,
+        // which must read brighter than astronomical. That ordering is why SkyBand is anchored on black
+        // rather than on ContentBg -- anchoring on the page inverts it in Light, where "further from the
+        // ground" means darker, so civil twilight would render darker than astronomical in one state.
+        [Theory]
+        [InlineData("Light")]
+        [InlineData("Dark")]
+        [InlineData("Night")]
+        public void TheTwilightRampKeepsItsOrderingInEveryState(string state)
+        {
+            try
+            {
+                GuiTheme.Apply(ByState(state), desktopIsDark: state != "Light");
+
+                var civil = Luminance(GuiTheme.SkyBand(0.26f));
+                var nautical = Luminance(GuiTheme.SkyBand(0.19f));
+                var astro = Luminance(GuiTheme.SkyBand(0.13f));
+
+                civil.ShouldBeGreaterThan(nautical, $"{state}: civil twilight must be the brightest band");
+                nautical.ShouldBeGreaterThan(astro, $"{state}: nautical must sit above astronomical");
+
+                // And labels over that sky stay legible, which BodyText could not manage: it is near-black
+                // in Light, where the plot is still a dark sky panel.
+                Contrast(GuiTheme.SkyInk(), GuiTheme.SkyBand(0.09f)).ShouldBeGreaterThanOrEqualTo(4.5);
+            }
+            finally
+            {
+                // Static app state: hand it back the way every other test expects to find it.
+                GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+            }
+        }
+
+        // An alternate row must be VISIBLE against the panel and still subtle enough not to read as a
+        // selection. Deriving it (halfway to ContentBg) is what makes it correct in both directions:
+        // darker than the panel on a dark ground, lighter on a light one, with nobody picking a sign.
+        [Theory]
+        [InlineData("Light")]
+        [InlineData("Dark")]
+        [InlineData("Night")]
+        public void AnAlternateRowIsVisibleButQuieterThanASelection(string state)
+        {
+            try
+            {
+                GuiTheme.Apply(ByState(state), desktopIsDark: state != "Light");
+
+                var banding = Contrast(GuiTheme.AltRowBg, GuiTheme.Palette.PanelBg);
+                banding.ShouldBeGreaterThan(1.0, $"{state}: the alt row is indistinguishable from the panel");
+                banding.ShouldBeLessThan(Contrast(GuiTheme.Palette.Selection, GuiTheme.Palette.PanelBg) + 0.15);
+
+                Contrast(GuiTheme.Palette.BodyText, GuiTheme.AltRowBg)
+                    .ShouldBeGreaterThanOrEqualTo(state == "Night" ? 3.4 : 4.5);
+            }
+            finally
+            {
+                // Static app state: hand it back the way every other test expects to find it.
+                GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+            }
+        }
+
+        private static UiThemeState ByState(string state) => state switch
+        {
+            "Light" => UiThemeState.Light,
+            "Dark" => UiThemeState.Dark,
+            "Night" => UiThemeState.Night,
+            _ => throw new ArgumentOutOfRangeException(nameof(state), state, "unknown state"),
+        };
+
         // The rule Night exists to keep: blue is the most rod-stimulating channel per unit radiance
         // (V' ~0.61 at the sRGB blue primary against ~0.0155 at red), so it is zero everywhere. A
         // single stray blue component would undo the mode's whole purpose while still looking red.

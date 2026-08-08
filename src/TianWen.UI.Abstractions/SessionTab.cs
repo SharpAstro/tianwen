@@ -29,7 +29,8 @@ namespace TianWen.UI.Abstractions
         // Colors. The palette-derived ones are PROPERTIES, not static readonly fields: a field
         // initialiser snapshots the palette at type-init, so this tab went on painting the startup
         // scheme through every theme switch. RGBAColor32 is a struct, so reading through allocates
-        // nothing. The literals below have no role yet and still need Night variants.
+        // nothing. What literals remain are CATEGORICAL series (index N, no severity to express)
+        // or the two-trace exemption, each noted at its declaration.
         private static RGBAColor32 ContentBg      => GuiTheme.Palette.ContentBg;
         private static RGBAColor32 PanelBg        => GuiTheme.Palette.PanelBg;
         private static RGBAColor32 HeaderBg       => GuiTheme.Palette.HeaderBg;
@@ -37,16 +38,19 @@ namespace TianWen.UI.Abstractions
         private static RGBAColor32 BodyText       => GuiTheme.Palette.BodyText;
         private static RGBAColor32 DimText        => GuiTheme.Palette.DimText;
         private static RGBAColor32 SeparatorColor => GuiTheme.Palette.Separator;
-        private static readonly RGBAColor32 StepperBg      = new RGBAColor32(0x2a, 0x2a, 0x3a, 0xff);
-        private static readonly RGBAColor32 ToggleOnBg     = new RGBAColor32(0x30, 0x60, 0x40, 0xff);
-        private static readonly RGBAColor32 ToggleOffBg    = new RGBAColor32(0x40, 0x30, 0x30, 0xff);
-        private static readonly RGBAColor32 CycleBg        = new RGBAColor32(0x30, 0x50, 0x80, 0xff);
-        private static readonly RGBAColor32 RowAltBg       = new RGBAColor32(0x1a, 0x1a, 0x24, 0xff);
-        private static readonly RGBAColor32 AccentColor    = new RGBAColor32(0x66, 0xbb, 0xff, 0xff);
-        private static readonly RGBAColor32 WarningColor   = new RGBAColor32(0xff, 0xd7, 0x00, 0xff);
-        private static readonly RGBAColor32 HintText       = new RGBAColor32(0x55, 0x55, 0x66, 0xff);
-        private static readonly RGBAColor32 OtaHeaderBg    = new RGBAColor32(0x24, 0x24, 0x32, 0xff);
-        private static readonly RGBAColor32 FrameCountText = new RGBAColor32(0x88, 0xdd, 0x88, 0xff);
+        private static RGBAColor32 StepperBg      => GuiTheme.Palette.Separator;
+        // A toggle's two states are "this is on" and "this is off", not two arbitrary tints, so they
+        // sit on Success and Error muted back into the panel: saturated enough to read at a glance,
+        // dark enough to carry the label.
+        private static RGBAColor32 ToggleOnBg     => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Success, 0.45f);
+        private static RGBAColor32 ToggleOffBg    => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Error, 0.35f);
+        private static RGBAColor32 CycleBg        => GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Accent, 0.55f);
+        private static RGBAColor32 RowAltBg       => GuiTheme.AltRowBg;
+        private static RGBAColor32 AccentColor    => GuiTheme.Palette.Accent;
+        private static RGBAColor32 WarningColor   => GuiTheme.Palette.Warn;
+        private static RGBAColor32 HintText       => GuiTheme.Palette.DimText;
+        private static RGBAColor32 OtaHeaderBg    => GuiTheme.Palette.HeaderBg;
+        private static RGBAColor32 FrameCountText => GuiTheme.Palette.Success;
         private static RGBAColor32 SelectedRowBg           => GuiTheme.Palette.Selection;
 
         private float _totalConfigHeight;
@@ -269,10 +273,10 @@ namespace TianWen.UI.Abstractions
         // -----------------------------------------------------------------------
 
         // Button colors
-        private static readonly RGBAColor32 StartBtnBg      = new RGBAColor32(0x22, 0x66, 0x22, 0xff);
-        private static readonly RGBAColor32 StartBtnText     = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-        private static readonly RGBAColor32 DisabledBtnBg    = new RGBAColor32(0x33, 0x33, 0x3a, 0xff);
-        private static readonly RGBAColor32 DisabledBtnText  = new RGBAColor32(0x66, 0x66, 0x77, 0xff);
+        private static RGBAColor32 StartBtnBg      => GuiTheme.Palette.Success;
+        private static RGBAColor32 StartBtnText    => GuiTheme.InkOn(GuiTheme.Palette.Success);
+        private static RGBAColor32 DisabledBtnBg   => GuiTheme.Palette.Separator;
+        private static RGBAColor32 DisabledBtnText => GuiTheme.Palette.DimText;
 
         // Shared stepper button styling for this tab (design-unit [-]/[+] look), passed to
         // FormRowLayout.StepperControl so the config + camera steppers share one definition.

@@ -13,6 +13,10 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class StarProfilePlotRenderer
 {
+    // A two-trace plot keeps its hues in EVERY state, Night included (user, 2026-08-08). Night has
+    // neither blue nor green to spend, and two warm hues twenty degrees apart do not separate at
+    // speed on a moving plot, so recolouring would invent a dash-or-weight distinction for the
+    // rule's sake on a surface read at a glance. See docs/plans/colour-theme.md.
     private static readonly RGBAColor32 LineColor  = new RGBAColor32(0x44, 0x99, 0x44, 0x88);
     private static readonly RGBAColor32 VLineColor = new RGBAColor32(0x44, 0x88, 0x99, 0x88);
     private static readonly RGBAColor32 FitColor   = new RGBAColor32(0x66, 0xff, 0x66, 0xff);

@@ -35,13 +35,16 @@ namespace TianWen.UI.Abstractions
                 var inPolar = state.Mode == LiveSessionMode.PolarAlign;
                 var inPlanetary = state.Mode == LiveSessionMode.Planetary;
                 var inFlats = state.Mode == LiveSessionMode.Flats;
+                // The four modes separate by WEIGHT as much as by hue, so they stay distinguishable in
+                // Night where there is only one hue to spend. Flats keeps a warn-toned pill because the
+                // mode is literally about a light source, and that reads in every state.
                 var modePillColor = inPolar
-                    ? StatusSolving                                    // cyan while PA running
+                    ? StatusSolving                                                                    // informational, PA running
                     : inPlanetary
-                        ? new RGBAColor32(0x40, 0x33, 0x66, 0xff)      // muted purple-blue for Planetary
+                        ? GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Accent, 0.35f)       // muted
                         : inFlats
-                            ? new RGBAColor32(0x88, 0x66, 0x22, 0xff)  // warm amber for Flats (light source)
-                            : new RGBAColor32(0x55, 0x33, 0x88, 0xff); // purple for plain Preview
+                            ? GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Warn, 0.6f)      // the panel is on
+                            : GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Accent, 0.65f);  // plain preview
                 var pillLabel = inPolar ? "POLAR \u25BE" : inPlanetary ? "PLANETARY \u25BE" : inFlats ? "FLATS \u25BE" : "PREVIEW \u25BE";
                 var pillX = rect.X + pad;
                 var pillY = rect.Y + pad;
@@ -307,14 +310,14 @@ namespace TianWen.UI.Abstractions
             // "the safe, expected choice", which is exactly the wrong signal for a claim the person
             // clicking may not be in a position to make.
             var continueBg = warning is null
-                ? new RGBAColor32(0x44, 0xaa, 0x66, 0xff)
-                : new RGBAColor32(0xb0, 0x7a, 0x22, 0xff);
+                ? GuiTheme.GoButtonBg
+                : GuiTheme.Palette.Warn;
 
             var btnH = rowH * 1.3f;
             var btnY = cardY + cardH - btnH - pad;
             var btnRow = Layout.Builder.HStack(
                     Layout.Builder.Text(prompt.CancelLabel, fontSize, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(new RGBAColor32(0x33, 0x33, 0x3a, 0xff))
+                        .WStar().HStar().Bg(GuiTheme.NeutralButtonBg)
                         .Clickable(new HitResult.ButtonHit("SessionPromptCancel"), _ => PostSignal(new RespondSessionPromptSignal(false))),
                     Layout.Builder.Text(prompt.ContinueLabel, fontSize, BrightText, TextAlign.Center, TextAlign.Center)
                         .WStar().HStar().Bg(continueBg)

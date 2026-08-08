@@ -15,11 +15,11 @@ namespace TianWen.UI.Abstractions;
 /// </summary>
 public static class VCurveChartRenderer
 {
-    private static readonly RGBAColor32 GraphBg   = new RGBAColor32(0x12, 0x12, 0x1a, 0xff);
-    private static readonly RGBAColor32 AxisColor = new RGBAColor32(0x44, 0x44, 0x55, 0xff); // dim axis lines
-    private static readonly RGBAColor32 DotColor  = new RGBAColor32(0x44, 0xcc, 0xff, 0xff); // cyan dots
-    private static readonly RGBAColor32 FitColor  = new RGBAColor32(0xff, 0x66, 0x33, 0xcc); // orange-red fit curve
-    private static readonly RGBAColor32 BestColor = new RGBAColor32(0x44, 0xff, 0x44, 0xaa); // green best-focus line
+    private static RGBAColor32 GraphBg   => GuiTheme.Palette.ContentBg;
+    private static RGBAColor32 AxisColor => GuiTheme.Palette.SeparatorStrong;
+    private static RGBAColor32 DotColor  => GuiTheme.Palette.Info;                 // measured HFD samples
+    private static RGBAColor32 FitColor  => GuiTheme.Palette.Warn.WithAlpha(0xcc); // the fitted hyperbola
+    private static RGBAColor32 BestColor => GuiTheme.Palette.Success.WithAlpha(0xaa); // best focus
 
     /// <summary>Renders the V-curve: scatter dots for measured HFD + the fitted hyperbola + best-focus line.</summary>
     public static void Render<TSurface>(
