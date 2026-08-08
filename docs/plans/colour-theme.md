@@ -497,6 +497,19 @@ and an alternate row is visible against the panel but quieter than a selection.
   resolved palette, so a rig sitting on System stays on System.
 - **The guide graph's RA and Dec keep their hues in Night** (user, 2026-08-08). See the Night
   section for why this is the one place the encode-in-form rule is not worth applying.
+- **The sky map keeps its own colours entirely, star colours included** (user, 2026-08-08), and the
+  reason is worth stating because it looks wrong until you check *when*. Its background is
+  `SkyMapState.SkyBackgroundColorForSunAltitude`, a ramp keyed on **solar altitude rather than on
+  the theme**. A screenshot at 17:00 shows a full-screen blue-grey star chart, which reads as the
+  worst remaining Night gap; but F12 is used at the mount, where the sun is below -18° and the same
+  function already returns `#020308`, near-black with 8 units of blue. Nobody dark-adapted ever sees
+  the blue state. This also spares a shader change: star colour is computed in GLSL (`bvToRgb` in
+  `skymap_star.vert`, mirrored by `SkyMapProjection.StarColor`), so recolouring stars would mean a
+  uniform, a re-bake of the SPIR-V and a CPU/GPU mirror update, for a state that is not observed.
+  **Before judging any Night surface, check whether its colour is a function of something other
+  than the theme, and reproduce that state** (`TIANWEN_NOW` anchors the clock to a real night).
+  De-magicking those constants in place is welcome; re-deriving them from the palette is a
+  behaviour change and is not.
 - **The tab emoji stay full-colour in Night** (user, 2026-08-08). They come from the bundled emoji
   font, so a blue camera and a yellow bell are the only non-red things on screen. The alternatives
   were a monochrome fallback in Night only, or drawing them as shapes; neither is worth the work
