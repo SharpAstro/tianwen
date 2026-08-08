@@ -126,7 +126,8 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
             state.MinHeightAboveHorizon,
             state.WeatherForecast is { Count: > 0 } wf ? wf[0].Time.GetHashCode() : 0,
             state.AstroDark.GetHashCode(),
-            slidersHash.ToHashCode()
+            slidersHash.ToHashCode(),
+            TianWen.UI.Abstractions.GuiTheme.PaletteGeneration
         );
 
         // Re-render only on cache miss AND when no upload is already queued for
@@ -371,5 +372,9 @@ public sealed class VkPlannerTab : PlannerTab<VulkanContext>, IDisposable
         int MinAltitude,
         int WeatherForecastHash,
         int AstroDarkHash,
-        int SlidersHash);
+        int SlidersHash,
+        // The theme is an INPUT to the chart even though it is not chart data. Without it, F12 left
+        // this cached texture painting the old palette while every other surface moved: the
+        // frozen-snapshot bug one layer out.
+        int PaletteGeneration);
 }
