@@ -207,7 +207,11 @@ namespace TianWen.UI.Abstractions
             // three landed near 4:1 on white when black would have given 4.5 or better). Comparing the
             // two candidates has no crossover to get wrong.
             var white = new RGBAColor32(0xff, 0xff, 0xff, 0xff);
-            var ink = new RGBAColor32(0x14, 0x10, 0x08, 0xff);
+            // Warm near-black, with the blue channel at ZERO rather than the 8 it used to carry. Eight
+            // units are imperceptible here, but Night's invariant is that no colour on screen spends
+            // blue at all, and an invariant with a "except a bit, in the ink" clause is one nobody can
+            // check. Dropping it costs nothing: the ink is a near-black either way.
+            var ink = new RGBAColor32(0x14, 0x10, 0x00, 0xff);
             return Contrast(white, fill) >= Contrast(ink, fill) ? white : ink;
         }
 
@@ -274,10 +278,27 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Ink legible on <see cref="SkyBand"/>, which is dark whatever the theme.</summary>
         /// <remarks>
-        /// A sky panel cannot take <see cref="UiPalette.BodyText"/>: that is near-black in Light, so
-        /// labels over the plot would vanish in exactly the state with the most contrast to spare.
+        /// <para>
+        /// Prefers <see cref="UiPalette.BodyText"/> and falls back to white only when the palette's own
+        /// text cannot carry the dark plot. That fallback fires in Light alone, where BodyText is
+        /// near-black and would vanish over the sky panel.
+        /// </para>
+        /// <para>
+        /// <b>Do NOT simplify this to <see cref="InkOn"/>.</b> InkOn picks whichever of white or
+        /// near-black measures better, and against a dark plot that is always white, so Night's chart
+        /// title rendered pure white: full blue and full green, on the one screen whose entire purpose
+        /// is to spend neither. Legibility was never the failing constraint here; the palette's own
+        /// BodyText clears 4.5:1 on this ground in both dark states.
+        /// </para>
         /// </remarks>
-        public static RGBAColor32 SkyInk(byte alpha = 0xff) => InkOn(SkyBand(0.09f)).WithAlpha(alpha);
+        public static RGBAColor32 SkyInk(byte alpha = 0xff)
+        {
+            var ground = SkyBand(0.09f);
+            var ink = Contrast(Palette.BodyText, ground) >= 4.5
+                ? Palette.BodyText
+                : new RGBAColor32(0xff, 0xff, 0xff, 0xff);
+            return ink.WithAlpha(alpha);
+        }
 
         // WCAG relative luminance + contrast ratio. Small enough to keep here rather than take a
         // dependency, and it is the only place production code needs it.

@@ -314,6 +314,52 @@ namespace TianWen.Lib.Tests
             _ => throw new ArgumentOutOfRangeException(nameof(state), state, "unknown state"),
         };
 
+        // NightSpendsNoBlueAtAll below checks the palette's stated roles, and that was not enough: a
+        // DERIVED colour can reintroduce the channel the roles carefully avoid. It did. SkyInk was
+        // InkOn(sky), InkOn returns whichever of white or near-black measures better, and against a
+        // dark plot that is always white, so Night's chart title rendered pure white -- full blue AND
+        // full green, on the one screen whose whole purpose is to spend neither. The user caught it in
+        // a screenshot. Everything derived is therefore checked here too.
+        [Fact]
+        public void NightSpendsNoBlueInAnyDERIVEDColourEither()
+        {
+            try
+            {
+                GuiTheme.Apply(UiThemeState.Night, desktopIsDark: true);
+
+                (string Name, RGBAColor32 Value)[] derived =
+                [
+                    ("AltRowBg", GuiTheme.AltRowBg),
+                    ("NeutralButtonBg", GuiTheme.NeutralButtonBg),
+                    ("PrimaryButtonBg", GuiTheme.PrimaryButtonBg),
+                    ("GoButtonBg", GuiTheme.GoButtonBg),
+                    ("CautionButtonBg", GuiTheme.CautionButtonBg),
+                    ("DangerButtonBg", GuiTheme.DangerButtonBg),
+                    ("SkyInk", GuiTheme.SkyInk()),
+                    ("SkyBand(0.05)", GuiTheme.SkyBand(0.05f)),
+                    ("SkyBand(0.13)", GuiTheme.SkyBand(0.13f)),
+                    ("SkyBand(0.19)", GuiTheme.SkyBand(0.19f)),
+                    ("SkyBand(0.26)", GuiTheme.SkyBand(0.26f)),
+                    ("InkOn(Success)", GuiTheme.InkOn(GuiTheme.Palette.Success)),
+                    ("InkOn(Warn)", GuiTheme.InkOn(GuiTheme.Palette.Warn)),
+                    ("InkOn(Error)", GuiTheme.InkOn(GuiTheme.Palette.Error)),
+                ];
+
+                foreach (var (name, value) in derived)
+                {
+                    value.Blue.ShouldBe((byte)0, $"Night: {name} spends blue");
+                }
+
+                // And the sky panel's ink is still readable, which is the constraint that made the
+                // white fallback tempting in the first place.
+                Contrast(GuiTheme.SkyInk(), GuiTheme.SkyBand(0.09f)).ShouldBeGreaterThanOrEqualTo(3.4);
+            }
+            finally
+            {
+                GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+            }
+        }
+
         // The rule Night exists to keep: blue is the most rod-stimulating channel per unit radiance
         // (V' ~0.61 at the sRGB blue primary against ~0.0155 at red), so it is zero everywhere. A
         // single stray blue component would undo the mode's whole purpose while still looking red.
