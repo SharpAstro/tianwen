@@ -1,9 +1,8 @@
 # One colour core across the org site, the GUI and the viewer
 
-Status: **C0, C1 and the F12-blocking half of C2 are DONE (2026-08-07/08).** Three palettes ship on
-one 16-role `UiPalette`, F12 toggles Night, and the window chrome follows the theme. **The literal
-sweep itself is barely started**: 300 of the original 317 remain (see "What C2 landed"). C3 to C5
-are open.
+Status: **C0, C1 and C2 are DONE (2026-08-07/08).** Three palettes ship on one 16-role `UiPalette`,
+F12 toggles Night, and the sweep is down to **98 literals from the original 317**, all of them
+deliberate and noted at their declaration. C3 to C5 are open, and C4 has shrunk.
 
 Three surfaces carry three unrelated palettes today. This unifies them on one token set with
 four states (System / Light / Dark / Night), where Night is a dark-adaptation mode for use at
@@ -361,7 +360,7 @@ has settled in one consumer.
 | C1 | **DONE 2026-08-07.** `GuiTheme` now carries all three palettes plus `Apply`/`Resolve`; `ViewerTheme` follows it instead of holding a second scheme. | everything |
 | C2a | **DONE 2026-08-08.** Unfreeze the palette snapshots: 34 `static readonly` fields initialised from `GuiTheme.Palette` across six tabs, plus `EquipmentPanelStyle.Default` and `HomeBoardStyle.Default`, to computed properties. This was the actual reason F12 only moved the Home board. | C2b |
 | C2b | **DONE 2026-08-08.** Window chrome (`VkGuiRenderer`) onto roles: 17 literals to 0. `GuiTheme.InkOn` for ink on a semantic fill. A 16-pair contrast matrix pinned in `GuiThemeTests`. | |
-| C2c | **NOT STARTED.** The actual sweep: ~300 literals still outside the roles, `TianWen.UI.Abstractions` first (256 of them). Anything genuinely local (sky-map object classes, plate-solve markers) stays local but gains a Night variant. | C4 |
+| C2c | **DONE 2026-08-08.** The sweep proper: 300 literals to 98. Adds the derivations it needed (`Mix`, `AltRowBg`, five named button fills, `SkyBand`/`SkyInk`) so a tint stays derived instead of becoming a new literal. What remains is categorical series and the two-trace exemption, noted at each declaration. | C4 |
 | C3 | `SDL3.SDL.GetSystemTheme()`, title bar, desktop accent. Persist the choice; add the state cycle. **The keystroke half is done** (F12 toggles Night, restoring the state it came from). | |
 | C4 | Non-hue reinforcement wherever meaning was carried by hue: cooling, flip countdown, severity fill-vs-outline. **Guide RA/Dec is out of scope** (user, 2026-08-08: stays as is). | |
 | C5 | Field-validate Night at the mount, especially the warn/error pair, and tune. | C1 to C4 |
@@ -452,11 +451,40 @@ exempts inactive components and a locked tab should read as unavailable. And a s
 by lightening it, which drops BodyText-on-Selection from 4.11 to about 2.9. Both are pinned as
 tests stating the intent, so a later reader finds the reasoning instead of the number.
 
-**What C2c still faces.** The remaining ~300 split into genuine chrome that simply has not been
-swept (`LiveSessionTab` alone still holds `GraphBg #12121a`, `RowAltBg`, `ProgressBg`, `AbortBg`),
-and local data-series colours that need Night variants rather than roles: `AltitudeChartRenderer`
-41, `SkyMapRenderer` 14, `GuideGraphRenderer` 9. The first group is mechanical. The second needs a
-decision per chart, and one of those decisions is already taken (RA/Dec stays).
+## What C2c landed (2026-08-08)
+
+300 literals to 98, and the 98 are the point: each is either a **categorical series** (schedule
+target N, camera N, weather class, sky-map object class) where a role lookup would collapse
+distinct things onto one colour, or the **two-trace exemption**. Every one carries a comment
+saying which, so a future sweep does not "finish the job" by breaking them.
+
+**A tint has to stay derived, or the sweep just relocates the problem.** Replacing
+`#1a1a24` with a hand-picked "slightly lighter than the panel" is the same frozen literal in a new
+place. So the sweep added the derivations first: `Mix(a, b, t)`, `AltRowBg`, five named button
+fills (neutral / primary / go / caution / danger), and `SkyBand` + `SkyInk`. Every call site then
+names an intent rather than a colour, and a theme switch reaches all of them.
+
+**Two surfaces DEPICT the sky rather than framing it**, and they need the opposite treatment from a
+panel: the altitude chart's plot area and the session timeline's twilight bar stay dark in every
+state, exactly as image data is never recoloured. What the theme changes there is the *hue*, which
+`SkyBand` takes from `Info`, so Night gets a warm sky instead of the one colour it cannot afford.
+
+`SkyBand` is anchored on **black, not `ContentBg`**, and that is load-bearing. Anchoring on the page
+inverts the twilight ordering in Light, where further from the ground means darker while on a dark
+ground it means brighter, so civil twilight would have rendered darker than astronomical in exactly
+one state. A test pins the ordering in all three.
+
+**The frozen-snapshot bug had a second costume, and only running the app found it.** After the
+sweep, F12 turned every surface red except the planner's altitude chart, which stayed blue.
+`VkPlannerTab` renders that chart to a **cached GPU texture** keyed on the data it draws, and a
+theme switch changes none of that data. So `GuiTheme` now exposes `PaletteGeneration`, bumped
+whenever the resolved palette moves, and the cache key carries it. Note why `Apply`'s existing
+boolean was not enough: it tells the caller who asked, and a cache is usually held by someone who
+did not. **Anything caching a projection of the palette owes that generation in its key.**
+
+Three tests added, all pinning things a role lookup cannot guarantee on its own: every derived
+button fill can carry its `InkOn` label in all three states, the twilight ramp keeps its ordering,
+and an alternate row is visible against the panel but quieter than a selection.
 
 ## Decisions taken
 
