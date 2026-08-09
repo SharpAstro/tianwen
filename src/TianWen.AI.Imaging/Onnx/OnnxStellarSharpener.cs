@@ -23,7 +23,6 @@ public sealed class OnnxStellarSharpener(
     : IStellarSharpener, IDisposable
 {
     private const string Model = "deep_sharp_stellar_AI4.onnx";
-    private const int ModelChannels = 3;
 
     private readonly object _gate = new();
     private InferenceSession? _session;
@@ -66,7 +65,6 @@ public sealed class OnnxStellarSharpener(
 
         var result = ChunkedNafnetRunner.Run(
             input, session, imageInputName, outputName,
-            modelChannels: ModelChannels,
             chunkSize: chunkSize, overlap: overlap,
             extraInputs: null,
             ct: ct);
@@ -74,10 +72,10 @@ public sealed class OnnxStellarSharpener(
         var megapixels = (sourceChannels * srcW * (double)srcH) / 1_000_000.0;
         var throughputMpps = result.TotalMs > 0 ? megapixels * 1000.0 / result.TotalMs : 0.0;
         logger?.LogInformation(
-            "OnnxStellarSharpener.EnhanceAsync: {Model} {W}x{H}x{C} chunks={Chunks} stretchApplied={StretchApplied} " +
+            "OnnxStellarSharpener.EnhanceAsync: {Model} {W}x{H}x{C} modelCh={ModelChannels} chunks={Chunks} stretchApplied={StretchApplied} " +
             "stretch={Stretch}ms prep={Prep}ms infer={Infer}ms stitch={Stitch}ms unstretch={Unstretch}ms " +
             "throughput={Mpps:F2} Mp/s total={Total}ms",
-            Model, srcW, srcH, sourceChannels, result.ChunkCount, result.StretchApplied,
+            Model, srcW, srcH, sourceChannels, result.ModelChannels, result.ChunkCount, result.StretchApplied,
             result.StretchMs, result.PrepMs, result.InferMs, result.StitchMs, result.UnstretchMs,
             throughputMpps, result.TotalMs);
 

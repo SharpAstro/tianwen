@@ -11,10 +11,13 @@ namespace TianWen.AI.Imaging.Onnx;
 
 /// <summary>
 /// AI4 NAFNet star-removal enhancer. Selects between
-/// <c>darkstar_mono_AI4.onnx</c> (1 channel) and
-/// <c>darkstar_color_AI4.onnx</c> (3 channels) by input
+/// <c>darkstar_mono_AI4.onnx</c> and <c>darkstar_color_AI4.onnx</c> by input
 /// <see cref="Image.ChannelCount"/> and delegates the actual pipeline to
-/// <see cref="ChunkedNafnetRunner"/>.
+/// <see cref="ChunkedNafnetRunner"/>. The two files are the same 3-channel
+/// architecture with different weights, so the choice is about which training
+/// distribution to use, not about tensor shape -- a mono source replicates its
+/// one channel into all three input slots
+/// (see <see cref="OnnxIoNames.ImageInputChannels"/>).
 /// </summary>
 /// <remarks>
 /// <para>Domain semantics: linear-units in / linear-units out, but the
@@ -82,7 +85,6 @@ public sealed class OnnxStarRemover(
 
         var result = ChunkedNafnetRunner.Run(
             input, session, imageInputName, outputName,
-            modelChannels: sourceChannels,   // darkstar models match source: mono->1, color->3
             chunkSize: chunkSize, overlap: overlap,
             extraInputs: null,
             ct: ct);
@@ -90,10 +92,10 @@ public sealed class OnnxStarRemover(
         var megapixels = (sourceChannels * srcW * (double)srcH) / 1_000_000.0;
         var throughputMpps = result.TotalMs > 0 ? megapixels * 1000.0 / result.TotalMs : 0.0;
         logger?.LogInformation(
-            "OnnxStarRemover.EnhanceAsync: {Model} {W}x{H}x{C} chunks={Chunks} stretchApplied={StretchApplied} " +
+            "OnnxStarRemover.EnhanceAsync: {Model} {W}x{H}x{C} modelCh={ModelChannels} chunks={Chunks} stretchApplied={StretchApplied} " +
             "stretch={Stretch}ms prep={Prep}ms infer={Infer}ms stitch={Stitch}ms unstretch={Unstretch}ms " +
             "throughput={Mpps:F2} Mp/s total={Total}ms",
-            modelName, srcW, srcH, sourceChannels, result.ChunkCount, result.StretchApplied,
+            modelName, srcW, srcH, sourceChannels, result.ModelChannels, result.ChunkCount, result.StretchApplied,
             result.StretchMs, result.PrepMs, result.InferMs, result.StitchMs, result.UnstretchMs,
             throughputMpps, result.TotalMs);
 

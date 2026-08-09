@@ -35,6 +35,44 @@ internal static class OnnxIoNames
     }
 
     /// <summary>
+    /// The channel count the model declares on its NCHW image input, i.e. the C in
+    /// <c>[N, C, H, W]</c>.
+    /// <para>
+    /// <b>Ask the model, never assume.</b> The AI4 family ships separate mono and colour weight
+    /// bundles (<c>darkstar_mono</c> / <c>darkstar_color</c>, <c>deep_denoise_mono</c> /
+    /// <c>deep_denoise_color</c>), and the obvious reading -- that a "mono" model therefore takes one
+    /// channel -- is wrong: they share one 3-channel architecture and differ only in what they were
+    /// trained on, so a mono source is fed by replicating its single channel across the three input
+    /// slots. Two enhancers used to hardcode <c>modelChannels: sourceChannels</c> on that assumption
+    /// and threw <c>Got: 1 Expected: 3</c> for every mono frame, which no test caught because every
+    /// star-removal and denoise test fed colour. The declared dimension cannot drift from the file on
+    /// disk, so read it.
+    /// </para>
+    /// </summary>
+    /// <param name="fallback">Returned when the model leaves the channel dimension dynamic (ORT
+    /// reports a non-positive dim). Such a model accepts any channel count, so the caller's own
+    /// source channel count is the right answer.</param>
+    public static int ImageInputChannels(InferenceSession session, string imageInputName, int fallback)
+    {
+        if (!session.InputMetadata.TryGetValue(imageInputName, out var meta))
+        {
+            throw new InvalidOperationException(
+                $"OnnxIoNames.ImageInputChannels: no input named '{imageInputName}' (have: " +
+                string.Join(", ", session.InputMetadata.Keys) + ").");
+        }
+
+        var dims = meta.Dimensions;
+        if (dims.Length != 4)
+        {
+            throw new InvalidOperationException(
+                $"OnnxIoNames.ImageInputChannels: '{imageInputName}' is not a rank-4 NCHW image input; " +
+                $"got [{string.Join(",", dims)}].");
+        }
+
+        return dims[1] > 0 ? dims[1] : fallback;
+    }
+
+    /// <summary>
     /// Two-input image + scalar classification. Used by
     /// <see cref="OnnxNonStellarDeconvolver"/>. The image input has rank 4
     /// (NCHW); the scalar input has rank &lt;= 2 (e.g. <c>[1, 1]</c>). Same

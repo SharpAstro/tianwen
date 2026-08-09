@@ -31,13 +31,14 @@ namespace TianWen.AI.Imaging.Onnx;
 /// <see cref="ChunkedInference.RemoveBorder"/> per channel ->
 /// <see cref="Image.MtfUnstretch"/>.</para>
 ///
-/// <para>Channel-count handling. If the input source channel count differs
-/// from the model's expected channel count, the runner tiles source channel
-/// 0 across all model input slots (source=1, model=3 -- the canonical mono
-/// case for stellar/deconv NAFNet models) and extracts only output channel
-/// 0. If source matches model (3->3 or 1->1), a direct per-channel copy is
-/// used. Source=3 with model=1 is rejected -- we never need it, and
-/// silently down-mixing would be wrong.</para>
+/// <para>Channel-count handling. The model's expected channel count is read off its own declared
+/// input shape (<see cref="OnnxIoNames.ImageInputChannels"/>), not supplied by the caller: every
+/// shipped AI4 NAFNet turns out to take 3 channels, including the ones named "mono", which differ
+/// from their colour siblings in training data rather than in tensor shape. If the source channel
+/// count differs from the model's, the runner tiles source channel 0 across all model input slots
+/// (source=1, model=3 -- the canonical mono case) and extracts only output channel 0. If source
+/// matches model (3->3 or 1->1), a direct per-channel copy is used. Source=3 with model=1 is
+/// rejected -- we never need it, and silently down-mixing would be wrong.</para>
 /// </remarks>
 public static class ChunkedNafnetRunner
 {
@@ -51,9 +52,6 @@ public static class ChunkedNafnetRunner
     /// model (resolved by the caller -- single-input models have one
     /// metadata key, multi-input models classify by rank).</param>
     /// <param name="outputName">Name of the output tensor.</param>
-    /// <param name="modelChannels">Channel dimension the ONNX model expects
-    /// on its image input -- 1 for <c>darkstar_mono_AI4.onnx</c>, 3 for
-    /// every other AI4 NAFNet.</param>
     /// <param name="chunkSize">Tile size in pixels.</param>
     /// <param name="overlap">Inter-chunk overlap in pixels (must be &gt;= 2 *
     /// <see cref="AiNafnetInputs.StitchBorderPx"/> for the inner regions
@@ -66,13 +64,17 @@ public static class ChunkedNafnetRunner
         InferenceSession session,
         string imageInputName,
         string outputName,
-        int modelChannels,
         int chunkSize,
         int overlap,
         IReadOnlyList<NamedOnnxValue>? extraInputs = null,
         CancellationToken ct = default)
     {
         var (sourceChannels, srcW, srcH) = input.Shape;
+
+        // The model's own declared input shape decides how many channel slots to pack -- never the
+        // caller's belief about which weight bundle it loaded. See OnnxIoNames.ImageInputChannels
+        // for why "mono model" does not imply "one channel".
+        var modelChannels = OnnxIoNames.ImageInputChannels(session, imageInputName, fallback: sourceChannels);
         ValidateChannels(sourceChannels, modelChannels);
 
         var totalSw = Stopwatch.StartNew();
@@ -269,7 +271,7 @@ public static class ChunkedNafnetRunner
         var totalMs = totalSw.ElapsedMilliseconds;
 
         return new ChunkedNafnetResult(
-            output, chunkCount, stretchMs, prepMs, inferMs, stitchMs, unstretchMs, totalMs, stretchApplied);
+            output, chunkCount, modelChannels, stretchMs, prepMs, inferMs, stitchMs, unstretchMs, totalMs, stretchApplied);
     }
 
     /// <summary>
@@ -361,10 +363,14 @@ public static class ChunkedNafnetRunner
 /// means the MtfStretch/MtfUnstretch round-trip ran; <c>false</c> means
 /// the input was already in (or near) the NAFNet training distribution and
 /// the source was fed to the network verbatim.
+/// <see cref="ModelChannels"/> is what the model declared it wanted, which the
+/// enhancers log beside the source channel count so the mono-tiling decision is
+/// legible after the fact rather than inferred from a crash.
 /// </summary>
 public sealed record ChunkedNafnetResult(
     Image Output,
     int ChunkCount,
+    int ModelChannels,
     long StretchMs,
     long PrepMs,
     long InferMs,

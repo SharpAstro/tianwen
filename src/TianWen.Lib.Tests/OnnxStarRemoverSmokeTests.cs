@@ -23,36 +23,40 @@ namespace TianWen.Lib.Tests;
 [Collection("Imaging")]
 public class OnnxStarRemoverSmokeTests(ITestOutputHelper output)
 {
-    private static bool HasColorModel(out string skipMessage)
+    private static bool HasModel(string fileName, out string skipMessage)
     {
         var resolver = new ModelResolver();
-        if (resolver.TryResolve("darkstar_color_AI4.onnx", out _))
+        if (resolver.TryResolve(fileName, out _))
         {
             skipMessage = string.Empty;
             return true;
         }
-        skipMessage = "darkstar_color_AI4.onnx not found; run tools/tianwen-ai-models-fetch.ps1 to enable this test.";
+        skipMessage = $"{fileName} not found; run tools/tianwen-ai-models-fetch.ps1 to enable this test.";
         return false;
     }
 
-    private static Image BuildSyntheticRgbWithStars(int w, int h)
+    private static bool HasColorModel(out string skipMessage) => HasModel("darkstar_color_AI4.onnx", out skipMessage);
+
+    private static bool HasMonoModel(out string skipMessage) => HasModel("darkstar_mono_AI4.onnx", out skipMessage);
+
+    private static Image BuildSyntheticWithStars(int channels, int w, int h)
     {
-        // 3-channel synthetic plate: low-key sky background plus a handful of
-        // Gaussian "stars". Constant background means a well-functioning star
-        // remover should produce something close to uniform after the
-        // pipeline runs. Values in [0, 1] as required by OnnxStarRemover.
-        var r = new float[h, w];
-        var g = new float[h, w];
-        var b = new float[h, w];
+        // Synthetic plate: low-key sky background plus a handful of Gaussian
+        // "stars". Constant background means a well-functioning star remover
+        // should produce something close to uniform after the pipeline runs.
+        // Values in [0, 1] as required by OnnxStarRemover.
+        var planes = new float[channels][,];
+        for (var c = 0; c < channels; c++) planes[c] = new float[h, w];
         const float bg = 0.10f;
 
-        for (var y = 0; y < h; y++)
+        for (var c = 0; c < channels; c++)
         {
-            for (var x = 0; x < w; x++)
+            for (var y = 0; y < h; y++)
             {
-                r[y, x] = bg;
-                g[y, x] = bg;
-                b[y, x] = bg;
+                for (var x = 0; x < w; x++)
+                {
+                    planes[c][y, x] = bg;
+                }
             }
         }
 
@@ -76,15 +80,16 @@ public class OnnxStarRemoverSmokeTests(ITestOutputHelper output)
                     var x = sx + dx;
                     if ((uint)x >= (uint)w) continue;
                     var weight = peak * MathF.Exp(-(dx * dx + dy * dy) / (2f * sigma * sigma));
-                    r[y, x] = MathF.Min(1f, r[y, x] + weight);
-                    g[y, x] = MathF.Min(1f, g[y, x] + weight);
-                    b[y, x] = MathF.Min(1f, b[y, x] + weight);
+                    for (var c = 0; c < channels; c++)
+                    {
+                        planes[c][y, x] = MathF.Min(1f, planes[c][y, x] + weight);
+                    }
                 }
             }
         }
 
-        return new Image([r, g, b], BitDepth.Float32, 1.0f, 0f, 0f,
-            new ImageMeta { SensorType = SensorType.Color });
+        return new Image(planes, BitDepth.Float32, 1.0f, 0f, 0f,
+            new ImageMeta { SensorType = channels == 1 ? SensorType.Monochrome : SensorType.Color });
     }
 
     [Fact]
@@ -97,7 +102,7 @@ public class OnnxStarRemoverSmokeTests(ITestOutputHelper output)
         // the whole image fits in a single chunk + border -- exercises the
         // stretch/infer/unstretch path without multi-chunk stitching.
         const int w = 256, h = 192;
-        var src = BuildSyntheticRgbWithStars(w, h);
+        var src = BuildSyntheticWithStars(channels: 3, w, h);
         // Wire a real logger so the timing breakdown shows up in test output.
         // Verifies the LogInformation call lands and lets us eyeball the
         // per-phase numbers when re-running the smoke test.
@@ -120,6 +125,41 @@ public class OnnxStarRemoverSmokeTests(ITestOutputHelper output)
             {
                 float.IsFinite(span[i]).ShouldBeTrue($"non-finite at c={c} index={i}: {span[i]}");
             }
+        }
+
+        result.Release();
+    }
+
+    [Fact]
+    public async Task EnhanceAsync_MonoTilesToThreeAndExtractsChannelZero()
+    {
+        // The regression this file did not have. darkstar_mono_AI4.onnx is named
+        // "mono" for its training set, not its tensor shape: it takes 3 channels
+        // like every other AI4 NAFNet. The enhancer used to pass the SOURCE
+        // channel count as the model's, so every mono frame died with
+        // "Got invalid dimensions for input: image ... Got: 1 Expected: 3" --
+        // and nothing caught it, because both existing pipeline tests fed
+        // colour. Mono is the ASI1600MM / narrowband path, so this is not an
+        // exotic input.
+        if (!HasMonoModel(out var skip)) { Assert.Skip(skip); return; }
+
+        const int w = 256, h = 192;
+        var src = BuildSyntheticWithStars(channels: 1, w, h);
+        using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
+        using var enhancer = new OnnxStarRemover(new ModelResolver(), factory.CreateLogger<OnnxStarRemover>(), chunkSize: 512, overlap: 64);
+
+        var result = await enhancer.EnhanceAsync(src, TestContext.Current.CancellationToken);
+
+        result.ShouldNotBeNull();
+        var (channels, outW, outH) = result.Shape;
+        channels.ShouldBe(1);
+        outW.ShouldBe(w);
+        outH.ShouldBe(h);
+
+        var span = result.GetChannelSpan(0);
+        for (var i = 0; i < span.Length; i++)
+        {
+            float.IsFinite(span[i]).ShouldBeTrue($"non-finite at index={i}: {span[i]}");
         }
 
         result.Release();

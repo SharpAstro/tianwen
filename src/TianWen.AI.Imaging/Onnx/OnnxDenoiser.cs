@@ -12,10 +12,11 @@ namespace TianWen.AI.Imaging.Onnx;
 
 /// <summary>
 /// AI4 NAFNet noise-reduction enhancer. Selects between
-/// <c>deep_denoise_mono_AI4*.onnx</c> (1 channel) and
-/// <c>deep_denoise_color_AI4*.onnx</c> (3 channels) by input
-/// <see cref="Image.ChannelCount"/>, and between Default / Lite / Walking
-/// weight bundles by the <see cref="DenoiseVariant"/> argument.
+/// <c>deep_denoise_mono_AI4*.onnx</c> and <c>deep_denoise_color_AI4*.onnx</c>
+/// by input <see cref="Image.ChannelCount"/>, and between Default / Lite /
+/// Walking weight bundles by the <see cref="DenoiseVariant"/> argument. As with
+/// the darkstar pair, mono-versus-colour selects the training distribution and
+/// not the tensor shape (see <see cref="OnnxIoNames.ImageInputChannels"/>).
 /// Single ONNX input (no PSF conditional); delegates the actual pipeline
 /// to <see cref="ChunkedNafnetRunner"/>.
 /// </summary>
@@ -82,7 +83,6 @@ public sealed class OnnxDenoiser(
 
         var result = ChunkedNafnetRunner.Run(
             input, session, imageInputName, outputName,
-            modelChannels: sourceChannels,   // denoise models match source: mono->1, color->3
             chunkSize: chunkSize, overlap: overlap,
             extraInputs: null,
             ct: ct);
@@ -90,10 +90,10 @@ public sealed class OnnxDenoiser(
         var megapixels = (sourceChannels * srcW * (double)srcH) / 1_000_000.0;
         var throughputMpps = result.TotalMs > 0 ? megapixels * 1000.0 / result.TotalMs : 0.0;
         logger?.LogInformation(
-            "OnnxDenoiser.EnhanceAsync: {Model} variant={Variant} {W}x{H}x{C} chunks={Chunks} stretchApplied={StretchApplied} " +
+            "OnnxDenoiser.EnhanceAsync: {Model} variant={Variant} {W}x{H}x{C} modelCh={ModelChannels} chunks={Chunks} stretchApplied={StretchApplied} " +
             "stretch={Stretch}ms prep={Prep}ms infer={Infer}ms stitch={Stitch}ms unstretch={Unstretch}ms " +
             "throughput={Mpps:F2} Mp/s total={Total}ms",
-            modelName, variant, srcW, srcH, sourceChannels, result.ChunkCount, result.StretchApplied,
+            modelName, variant, srcW, srcH, sourceChannels, result.ModelChannels, result.ChunkCount, result.StretchApplied,
             result.StretchMs, result.PrepMs, result.InferMs, result.StitchMs, result.UnstretchMs,
             throughputMpps, result.TotalMs);
 
