@@ -33,9 +33,12 @@ Available in `.claude/skills/<name>/SKILL.md`: auto-invocable when the request m
 | `release-tianwen` | Cut a TianWen binary release (workflow_dispatch + GitHub Release with .tar.gz assets) |
 | `sibling-status` | Git status + version across all SharpAstro repos |
 | `check-ci` | GitHub Actions CI status across all repos |
-| `bump-version` | Bump TianWen version in all 4 required locations |
-| `run-gui` / `run-tui` | Build and launch the GUI / CLI TUI with stderr redirect |
+| `bump-version` | Bump TianWen's version: the one `<VersionMajorMinor>` in `src/Directory.Build.props` |
+| `run-gui` / `run-tui` / `run-fits` | Build and launch the GUI / CLI TUI / FITS viewer with stderr redirect |
 | `test-filter` | Run tests matching a name pattern |
+| `test-image-diff` | Diff test-output PNGs across run folders to flag visual regressions |
+| `test-output-prune` | Delete old `yyyyMMdd` test-output folders, keeping the N most recent |
+| `stack` | Run `tianwen stack` against a folder of FITS lights + calibration |
 | `tick-todo` | Mark a TODO item done and update CLAUDE.md, PLAN files, and memory |
 
 ## Project Overview
@@ -44,9 +47,9 @@ TianWen is a .NET 10 library for astronomical device management, image processin
 Supports cameras, mounts, focusers, filter wheels, cover/calibrators, and guiders via ASCOM, Alpaca (HTTP),
 ZWO, QHYCCD, Meade LX200, Skywatcher, OnStep (serial + WiFi/mDNS), iOptron SkyGuider Pro, Gemini FlatPanel
 Lite (native serial cover/calibrator), Gemini Focuser Pro (native serial focuser, a rebadged myFocuserPro2),
-PHD2, and a built-in guider. Published as `TianWen.Lib` on NuGet,
-plus four AOT-published binaries (`tianwen` CLI,
-`tianwen-server` headless, `tianwen-gui`, `tianwen-fits`).
+PHD2, and a built-in guider. Published as `TianWen.Lib` on NuGet, plus AOT-published binaries — of
+which **four are release assets** (`tianwen` CLI, `tianwen-server` headless, `tianwen-gui`,
+`tianwen-fits`) and two are built but not shipped as `.tar.gz` (`tianwen-mcp`, `tianwen-ascomhost`).
 
 Repository: https://github.com/SharpAstro/tianwen
 
@@ -80,8 +83,10 @@ src/
 └── TianWen.AI.MCP/                # MCP (Model Context Protocol) stdio server (AOT-published → `tianwen-mcp`)
 ```
 
-CLI, Server, FitsViewer, Gui, MCP set `<AssemblyName>` to a short lower-case name so the published
-binaries are `tianwen`, `tianwen-server`, `tianwen-fits`, `tianwen-gui`, `tianwen-mcp`.
+Six projects set `PublishAot` + an `<AssemblyName>` short lower-case name: `tianwen`,
+`tianwen-server`, `tianwen-fits`, `tianwen-gui`, `tianwen-mcp`, `tianwen-ascomhost`. **Only the
+first four are packaged as release assets** by `.github/workflows/dotnet.yml` — adding a binary to
+the release means adding it to the upload/glob steps there as well as setting the properties here.
 
 ## Build & Test Commands
 
@@ -127,24 +132,17 @@ be outliers (the latter via a separate `UseLocalFitsLib` switch) but were folded
 there is **no** per-library switch anymore. Trade-off: a missing checkout of *any* listed sibling flips
 the whole set back to packages (all-or-nothing), which is fine on a dev box that has them all.
 
-**`WebGl.Renderer` used to be an exception on both counts, and the two ways it bit are the argument for
-never making one again.** It is consumed only by `TianWen.UI.Web`, which sits outside `TianWen.slnx`, and
-that project used to **opt out of CPM** so its Blazor deps could carry inline versions. The convenience
-cost two real defects: (1) a sibling-family bump sweeping `Directory.Packages.props` could not see an
-inline pin, so it sat two minors behind (`1.12.*` while `1.13` was published) and became the last member
-still built against DIR.Lib 7.0 after the rest moved to 7.4, leaving the package graph to unify DIR.Lib
-by taking the highest version rather than by intent; (2) it was gated on `UseLocalSiblings` yet absent
-from that property's own `Exists(...)` list, so a box with every other sibling cloned resolved the switch
-to `true` and then pointed a `ProjectReference` at a path that was not there.
+**There are no CPM opt-outs left in `src/`, and a new one needs a real technical justification, not
+"this project is not in the solution".** `TianWen.UI.Web` + `.E2E` were the two opt-outs and each drifted
+exactly as you would expect: a sibling-family bump sweeping `Directory.Packages.props` cannot see an
+inline pin, so WebGl.Renderer sat two minors behind and became the last consumer on DIR.Lib 7.0 after the
+rest moved to 7.4 (the graph then unified DIR.Lib by highest-version rather than by intent), and
+`Microsoft.NET.Test.Sdk` sat at 18.6.0 inline against 18.3.0 centrally. **Being outside a solution never
+had any bearing on CPM**, which resolves by walking directories, so the opt-out bought nothing.
 
-Both are now closed: the project is under CPM like everything else (all three of its versions live in
-`Directory.Packages.props`), and `WebGl.Renderer` is in the `Exists(...)` list, so the switch and that
-`ProjectReference` agree by construction. **Being outside a solution never had any bearing on CPM**,
-which resolves by walking directories, so the opt-out bought nothing it could not have had anyway.
-`TianWen.UI.Web.E2E` opted out for the same non-reason and had drifted the same way
-(`Microsoft.NET.Test.Sdk` 18.6.0 inline against 18.3.0 centrally, since reconciled upward to 18.6.0 for
-every test project); it is now under CPM too. **There are no CPM opt-outs left in `src/`, and a new one
-needs a real technical justification, not "this project is not in the solution".**
+**A sibling in the `UseLocalSiblings` gate must also be in that property's own `Exists(...)` list.**
+WebGl.Renderer was gated on the switch but absent from the list, so a box with every *other* sibling
+cloned resolved it to `true` and aimed a `ProjectReference` at a path that was not there.
 
 **Both web projects stay out of `TianWen.slnx`, which is a separate and legitimate decision.**
 `TianWen.UI.Web` is a Blazor WASM app whose sole CI is `pages.yml` (a mono AOT publish, far too heavy for
@@ -154,11 +152,10 @@ solution-wide `dotnet test` must not sweep it up. Run them explicitly:
 
 **`open-vs.ps1` generates `TianWen.local.slnx`** at the repo root (gitignored) by re-rooting
 `src/TianWen.slnx` and appending a `/Siblings/` folder, so Go To Definition lands in sibling *source*.
-Its project list **must** match the `UseLocalSiblings` `Exists(...)` conjunction, and nothing enforces
-that: it had drifted to `../StbImageSharp` for all seven codec projects (that repo is `../Codecs` now),
-and was missing `LAN.Lib`, `SharpAstro.Codecs` and `WebGl.Renderer`. A generated solution with
-unresolvable entries loads with them silently unloaded rather than failing, so touch one file and re-read
-the other.
+Its project list **must** match the `UseLocalSiblings` `Exists(...)` conjunction and **nothing enforces
+that** — it had drifted to `../StbImageSharp` for all seven codec projects (that repo is `../Codecs`
+now) and was missing three others. A generated solution with unresolvable entries loads with them
+silently unloaded rather than failing, so touch one file and re-read the other.
 
 For libraries without auto-detection (`FC.SDK`, `ZWOptical.SDK`, `TianWen.DAL`),
 prefer to extend the `UseLocalSiblings` switch in
@@ -168,51 +165,53 @@ cadence forces a version bump), commit + push + wait for NuGet publish; **do not
 local nupkg feeds or run `dotnet pack` to short-circuit the release dance, since CI builds
 will still pull from nuget.org and a local-only nupkg will mask version-skew bugs.
 
-### How every sibling repo is versioned (one property, read back in CI)
+### Releasing a sibling (three traps the org doc does not cover)
 
-**To cut a release in ANY SharpAstro repo, edit `<VersionMajorMinor>` in its `Directory.Build.props`
-and nothing else.** Every repo now uses the same shape, under the same property name, so the answer to
-"where does this repo's version live" never varies:
+**The mechanism is org-wide and documented once, in the imported `.github/CLAUDE.md` ("Versioning")
+plus `.github/docs/dotnet-ci-pattern.md` — a release in ANY SharpAstro repo is editing
+`<VersionMajorMinor>` in that repo's `Directory.Build.props` and nothing else.** Do not restate it
+here. What follows is only what that doc omits:
 
-- **`Directory.Build.props`** (repo root, or `src/` where the repo keeps one there) holds
-  `<VersionMajorMinor>X.Y</VersionMajorMinor>`. Everything else in the repo derives from it:
-  `<VersionPrefix Condition="'$(VersionPrefix)' == ''">$(VersionMajorMinor).0</VersionPrefix>` for local
-  builds, and `AssemblyVersion` as `$(VersionMajorMinor).0.0` where a repo pins one.
-- **The workflow READS IT BACK** rather than restating it. A `dotnet msbuild <props> -getProperty:VersionMajorMinor`
-  step writes `VERSION_PREFIX=<X.Y>.<run>` into `$GITHUB_ENV` before restore. `-getProperty` only
-  *evaluates* the file, so it needs no restore and runs first.
+- **`DOTNET_NOLOGO: 1` must be in the workflow `env:`.** The version is captured from `dotnet msbuild
+  -getProperty` stdout, so the SDK's first-run banner must not be able to land in it. Pair it with a
+  shape check that *fails the run*, so a renamed or unresolvable property cannot quietly stamp every
+  package as `.<run>`.
+- **Release notes go in the workflow `env:`, never beside the number.** Several entries contain a
+  double hyphen, which XML forbids inside a comment (see the NU1015 note in memory).
+- **A test step that rebuilds a `GeneratePackageOnBuild` project without `-p:Version` publishes a
+  second, stray package.** It packs again at the csproj default `X.Y.0` into the same `bin/Release`
+  the publish job globs with `**/*.nupkg`; both get pushed and `--skip-duplicate` hides it by making
+  the re-push a no-op rather than an error. This cost WebGl.Renderer a stray package on every run for
+  fifteen releases. Pass `--no-build` to `dotnet test` (what most repos do) or
+  `-p:GeneratePackageOnBuild=false`. To audit: list a package's versions and look for a bare `X.Y.0`
+  beside the run-numbered ones.
 
-**Why it is read back rather than duplicated:** CI stamps one `-p:Version` across the whole repo, so a
-per-csproj version only ever surfaces in a *local* build, which is exactly where nobody looks, while a
-workflow copy silently decides what ships. Nothing compared them, and they drifted. DIR.Lib.Shaping
-sat at 6.8.0 while DIR.Lib was 7.5.0, so a local `dotnet pack` shipped the satellite a full major
-behind the library it ships with; SdlVulkan's Inspector/WebView trio sat at 6.0.0 against 7.4.0; and
-Codecs' own comment recorded the 3.5 work shipping as 3.4.49 because only one of its two copies moved.
-The SDK repos had the inverse: no csproj version at all, so a local pack produced the SDK default
-1.0.0 against a package whose real line was 4.2 or 2.0.
+`LALR.CC` is deliberately exempt from the shared shape (tag-driven, version guarded against the pushed
+`vX.Y.Z`); leave it alone.
 
-Two rules that make the step safe, both load-bearing:
-- **`DOTNET_NOLOGO: 1` in the workflow `env:`.** The value is captured from stdout, so the SDK's
-  first-run banner must not be able to land in it.
-- **A shape check that fails the run.** An unresolvable or renamed property must not quietly stamp
-  every package as `.<run>`.
+**TianWen now uses that shape too** (converted 2026-08-09; it was seven hand-edited places until
+then). `<VersionMajorMinor>` lives in `src/Directory.Build.props` and everything derives: `VersionPrefix`
+for every project (guarded on empty so CI's `-p:Version` wins), `AssemblyVersion` in
+`TianWen.Lib.csproj` as `$(VersionMajorMinor).0.0`, and CI's `VERSION_PREFIX`. `/bump-version` edits
+the one line. **A version literal in a csproj or the workflow is now a regression** — delete it and
+let it derive.
 
-**Release notes stay in the workflow `env:`, not next to the number.** Several entries contain a double
-hyphen, which XML forbids inside a comment. Add the entry there when you bump the property here.
+Two things specific to this repo's conversion:
 
-**`LALR.CC` is deliberately exempt** and should stay that way. It is tag-driven, not run-number driven:
-the package version *is* `<Version>` in `LALR.CC.csproj`, and its workflow already has a guard step that
-fails when a pushed `vX.Y.Z` tag disagrees with it. That is the same invariant, one place, CI verifies
-instead of duplicating, expressed for a different release model, and converting it would break the
-tag-to-version contract the guard enforces.
-
-**A live failure mode worth knowing** (it cost WebGl.Renderer a stray published package on every run
-for fifteen releases): if a **test step rebuilds a `GeneratePackageOnBuild` project without
-`-p:Version`**, it packs a *second* time at the csproj default `X.Y.0`, into the same `bin/Release` the
-publish job globs with `**/*.nupkg`. Both get pushed, and `--skip-duplicate` hides it by making the
-re-push a no-op rather than an error. Either pass `--no-build` to `dotnet test` (what most repos here
-do) or `-p:GeneratePackageOnBuild=false`. To audit: list a package's versions and look for a bare
-`X.Y.0` sitting beside the run-numbered ones.
+- **The read-back writes BOTH `$GITHUB_ENV` and a `build` job output**, because `$GITHUB_ENV` is
+  **per-job** and five jobs here consume `VERSION_PREFIX` (`build`, `test-unit`, `test-functional`,
+  `publish-apps`, `release`). The bare-step form that single-job repos use (Lzip.Lib, the reference
+  implementation) would have set it for `build` only and left the rest empty — silently malforming
+  `-p:Version=` and tagging a release `v.`. So `build`'s "Resolve version prefix" step exports
+  `version-prefix`, and every consumer declares `needs: build` plus a job-level
+  `env: VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}`, which leaves all the `run:` lines
+  untouched. **A new job that builds or publishes needs both halves.** It lives in `build` rather than
+  a dedicated `version` job on purpose: `build` already checks out and sets up the SDK, so a separate
+  job would only serialise its own runner startup onto every push and PR.
+- **It closed a latent bug.** `TianWen.Lib` sets `GeneratePackageOnBuild` but had no `VersionPrefix`
+  of its own, so a local `dotnet build` packed it at the SDK default **1.0.0** while its
+  `AssemblyVersion` read 6.1 — there was a 43 MB `TianWen.Lib.1.0.0.nupkg` sitting in `bin/Release`
+  to prove it. The shared `VersionPrefix` now covers every project.
 
 ## Key Technologies
 
@@ -266,8 +265,17 @@ See [docs/plans/device-simulator-ci.md](docs/plans/device-simulator-ci.md).
 
 Tests grouped into `[Collection("X")]` by functional area. All `Session*Tests` share `[Collection("Session")]`
 and run sequentially to avoid thread pool starvation from concurrent `Task.Run` + `FakeTimeProvider` timer
-callbacks. `maxParallelThreads: 4` in `xunit.runner.json`. **No wall-clock `CancellationTokenSource` timeouts**
-in session tests; use `[Fact(Timeout = ...)]`; inner timeouts cause flakes.
+callbacks. **No wall-clock `CancellationTokenSource` timeouts** in session tests; use
+`[Fact(Timeout = ...)]`; inner timeouts cause flakes.
+
+**Less parallelism is faster here, and the config only counts if it is copied to the output.** All three
+test projects carry an `xunit.runner.json` (`maxParallelThreads: 4`; Simulators pins 1 +
+`parallelizeTestCollections: false`) **and** a matching
+`<Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />`. `TianWen.Lib.Tests`
+had neither for a long time while this file claimed otherwise, so xUnit silently defaulted to the core
+count (12) and thrashed the box; adding the file plus the `Content Include` cut the suite from 8m45–12m
+to 7m46 **and made it green** — contention was dominating. Never diagnose a slow suite by re-running it
+repeatedly: one run with a TRX logger, then rank durations.
 
 `SessionTestHelper` defaults to `FakeMountDriver`; pass `mountPort: "LX200"` or `"SkyWatcher"` only for
 protocol-specific tests.
@@ -504,9 +512,9 @@ that into `Channel`'s `[y, x]` row-major layout (see `AlpacaImageBytesTests`). `
 downloads + decodes **once** when the server first reports `imageready`, populating `ImageData` /
 `ChannelBuffer` for the default `ICameraDriver.GetImageAsync`; `StartExposureAsync` clears them so the
 next frame re-downloads. Before this, `ImageData => null` meant the camera connected but never
-returned a frame, which is why `AddAlpaca()` was previously left unregistered. **Not yet validated
-against a live Omni/Alpaca Simulator**: the decoder is byte-exact + unit-pinned but the HTTP
-round-trip is unverified.
+returned a frame, which is why `AddAlpaca()` was previously left unregistered. **The HTTP round-trip
+is validated against a live OmniSim** by `AlpacaSimulatorTests.Camera_ExposesAndDownloadsViaImageBytes`
+(see the simulator suite below) — the decoder stays separately byte-pinned by `AlpacaImageBytesTests`.
 
 ### Device Secrets (Credential Store)
 
@@ -1494,6 +1502,31 @@ touches six places: the `GuiTab` enum, `GuiAppState.TabOrder`, `TabChrome`, the 
 Ctrl+letter map, the two `VkGuiRenderer` switches, and
 `GuiTabNavigationTests.TabOrder_IsTheSidebarLayoutOrder` (which pins the order and will go red by
 design).
+
+### Colour Theme (`GuiTheme`, four states incl. Night)
+
+`GuiTheme` (`TianWen.UI.Abstractions/GuiTheme.cs`) owns the one palette every surface paints with;
+`UiThemeState` is **System / Light / Dark / Night**, and `GuiTheme.Apply(state, desktopIsDark)`
+resolves + swaps it in as a single reference write. `Palette` is one reference read, never torn. The
+source XML comments carry the full rationale (including the scotopic-sensitivity numbers) — read them
+before changing a colour.
+
+- **Anything that CACHES a projection of the palette owes `GuiTheme.PaletteGeneration` in its cache
+  key.** `Apply` bumps the generation only when the resolved palette actually moves. This is the
+  frozen-snapshot bug in another costume: the planner chart renders to a GPU texture keyed on the data
+  it draws, a theme switch changes none of that data, so the chart kept painting the old palette after
+  F12 while every other surface moved. `Apply`'s `bool` return ("did it change") cannot fix a cache —
+  the consumer may not have been asked — but a generation is comparable later by anyone.
+- **Night is not a darker Dark, and is deliberately unreachable from `System`.** F12 toggles it
+  (SharpCap's night-vision gesture). Blue is **zero** throughout and green is spent only to buy hue
+  separation, because red is the only cheap channel for dark adaptation; red-on-black caps at 5.25:1,
+  so the whole text ladder fits under that ceiling — anything that must be READ uses `BodyText`, and
+  `DimText` is reserved for chrome nobody needs to read. Two derived colours had leaked blue into
+  Night and had to be fixed; derive new ones from the palette, never from a literal.
+- **Judge Night at night.** A sky-map screenshot taken at 5pm shows its daylight tint, not the theme's;
+  anchor the clock with `TIANWEN_NOW` before concluding a Night colour is wrong.
+
+98 raw colour literals remain of an original 317, all categorical or two-trace series by design.
 
 ### Image Pipeline & Buffer Lifecycle
 
