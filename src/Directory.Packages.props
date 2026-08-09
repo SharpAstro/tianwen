@@ -417,8 +417,6 @@
     <PackageVersion Include="FC.SDK" Version="3.0.*" />
     <!-- Floating: Canon raw decoder (.cr2/.cr3 -> mosaic). Same repo + release line as FC.SDK. -->
     <PackageVersion Include="FC.SDK.Raw" Version="3.0.*" />
-    <!-- Image encoding -->
-    <PackageVersion Include="StbImageWriteSharp" Version="1.16.7" />
     <!-- Blazor WebAssembly host for TianWen.UI.Web. That project is outside TianWen.slnx and is not
          part of the desktop test/release chain, but it is still governed by this file: being outside a
          solution has no bearing on CPM, which is resolved by walking directories. -->

@@ -222,7 +222,7 @@ Two things specific to this repo's conversion:
 | Testing | xUnit v3 + Shouldly + NSubstitute |
 | Imaging | SharpAstro codecs facade + DIR.Lib Tiff/Png, FITS.Lib (Magick.NET removed) |
 | UI / GPU | SDL3 + Vulkan (SdlVulkan.Renderer) |
-| Hosting | ASP.NET Core Minimal API, StbImageWriteSharp |
+| Hosting | ASP.NET Core Minimal API, SharpAstro.Jpeg (preview encode) |
 | Astronomy | ASCOM, ZWOptical.SDK, QHYCCD.SDK, IAU SOFA (C# port) |
 
 ## Testing Conventions

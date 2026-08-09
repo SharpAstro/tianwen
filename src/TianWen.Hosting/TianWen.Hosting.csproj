@@ -19,18 +19,22 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="StbImageWriteSharp" />
-  </ItemGroup>
-
-  <!-- JpegIccInjector (embeds sRGB v4 into the prepared-image JPEG output) +
+  <!-- SharpAstro.Jpeg (JpegEncoder.Encode, the baseline JPEG writer for the preview) +
+       JpegIccInjector (embeds sRGB v4 into the prepared-image JPEG output) +
        Color.Icc (IccProfiles.SRgbV4): sibling ProjectReference during local dev,
-       NuGet PackageReference for CI / package builds. -->
+       NuGet PackageReference for CI / package builds.
+       SharpAstro.Jpeg replaced the third-party StbImageWriteSharp here: its encoder is a
+       faithful port of the same stb_image_write writer (byte-for-byte identical output for
+       the same pixels + quality), so the preview bytes did not change, and the encode now
+       comes from the same codec family as the injector that post-processes it. TianWen.Lib
+       already used it for the Ultra HDR path. -->
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Jpeg\SharpAstro.Jpeg.csproj" />
     <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Jpeg.IccInjector\SharpAstro.Jpeg.IccInjector.csproj" />
     <ProjectReference Include="..\..\..\Codecs\src\SharpAstro.Color.Icc\SharpAstro.Color.Icc.csproj" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="SharpAstro.Jpeg" />
     <PackageReference Include="SharpAstro.Jpeg.IccInjector" />
     <PackageReference Include="SharpAstro.Color.Icc" />
   </ItemGroup>

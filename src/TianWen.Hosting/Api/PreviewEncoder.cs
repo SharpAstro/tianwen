@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using SharpAstro.Color.Icc;
 using SharpAstro.Jpeg;
-using StbImageWriteSharp;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.Hosting.Api
@@ -78,20 +77,26 @@ namespace TianWen.Hosting.Api
                 var outHeight = validScale ? Math.Max(1, (int)(height * scale)) : height;
 
                 var isColor = channelCount >= 3;
-                var components = isColor ? ColorComponents.RedGreenBlue : ColorComponents.Grey;
                 var bytesPerPixel = isColor ? 3 : 1;
                 var outBytes = new byte[outWidth * outHeight * bytesPerPixel];
 
                 Downsample(rgba, width, height, outBytes, outWidth, outHeight, bytesPerPixel);
 
-                using var ms = new MemoryStream();
-                var writer = new ImageWriter();
-                writer.WriteJpg(outBytes, outWidth, outHeight, components, ms, Math.Clamp(quality, 1, 100));
+                // In-family baseline encoder, same codec family as the JpegIccInjector below. It is a
+                // faithful port of the stb_image_write JPEG writer and is byte-for-byte identical to it
+                // for the same pixels and quality, and Subsampling.Auto reproduces stbiw's own
+                // quality-derived 4:4:4-vs-4:2:0 choice, so the encoded preview is unchanged.
+                var jpeg = JpegEncoder.Encode(
+                    outBytes,
+                    outWidth,
+                    outHeight,
+                    bytesPerPixel,
+                    new JpegEncodeOptions { Quality = Math.Clamp(quality, 1, 100) });
 
                 // Tag as sRGB v4 so colour-managed clients (Nina, Touch N Stars, a browser) render the
                 // preview with the correct gamma. The injector slips an APP2 segment in after the existing
                 // JFIF APP0, leaving the entropy-coded body untouched.
-                return JpegIccInjector.EmbedIccProfile(ms.GetBuffer().AsSpan(0, (int)ms.Length), IccProfiles.SRgbV4);
+                return JpegIccInjector.EmbedIccProfile(jpeg, IccProfiles.SRgbV4);
             }
             finally
             {
