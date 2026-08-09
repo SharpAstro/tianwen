@@ -559,8 +559,10 @@ loop.OnPostFrame = () =>
     }
     plannerState.NeedsRedraw = false;
 
-    // Update window title with session state (only when changed). The title names what you are
-    // LOOKING at, so it follows the active context -- including WHICH rig, when that is not this computer.
+    // Update window title (only when changed). The title names what you are LOOKING at: the active
+    // tab's icon + name exactly as the sidebar draws them (TabTitleChrome, so the Live Session glyph
+    // follows the mode), the profile it runs -- prefixed with WHICH rig, when that is not this
+    // computer -- and, while a session runs, its phase + target after a separating middle dot.
     var ls = guiRenderer.ViewContexts.Active.LiveSession;
     var viewed = guiRenderer.ViewContexts.Active;
 
@@ -576,14 +578,20 @@ loop.OnPostFrame = () =>
         }
     }
 
-    var viewedName = viewed.IsLocal ? "TianWen" : viewed.DisplayName;
-    var newTitle = ls.IsRunning
-        ? ls.ActiveObservation is { Target: var target }
-            ? $"\U0001F52D {LiveSessionActions.PhaseLabel(ls.Phase)} - {target.Name}"
-            : $"\U0001F52D {LiveSessionActions.PhaseLabel(ls.Phase)}"
-        : viewedProfile is { Length: > 0 } profile
-            ? $"\U0001F52D {viewedName} - {profile}"
-            : $"\U0001F52D {viewedName}";
+    var (tabIcon, tabLabel) = guiRenderer.TabTitleChrome(appState.ActiveTab);
+    // The local rig is implied by the window itself, so only a remote rig names itself.
+    var context = viewed.IsLocal
+        ? viewedProfile
+        : viewedProfile is { Length: > 0 } p ? $"{viewed.DisplayName} - {p}" : viewed.DisplayName;
+    var newTitle = context is { Length: > 0 }
+        ? $"{tabIcon} {tabLabel} - {context}"
+        : $"{tabIcon} {tabLabel}";
+    if (ls.IsRunning)
+    {
+        newTitle = ls.ActiveObservation is { Target: var target }
+            ? $"{newTitle} · {LiveSessionActions.PhaseLabel(ls.Phase)} - {target.Name}"
+            : $"{newTitle} · {LiveSessionActions.PhaseLabel(ls.Phase)}";
+    }
     if (newTitle != lastWindowTitle)
     {
         lastWindowTitle = newTitle;
