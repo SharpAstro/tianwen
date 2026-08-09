@@ -11,14 +11,26 @@ on:
   workflow_dispatch:
 
 env:
-  VERSION_PREFIX: 6.1.${{ github.run_number }}
   VERSION_REV: ${{ github.run_attempt }}
   VERSION_HASH: +${{ github.sha }}
   BUILD_CONF: Release
+  # The version is CAPTURED from `dotnet msbuild -getProperty` stdout in build's "Resolve version
+  # prefix" step, so the SDK's first-run banner must not be able to land in it.
+  DOTNET_NOLOGO: 1
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Published for the downstream jobs. $GITHUB_ENV is PER-JOB, so the `echo >> $GITHUB_ENV` step
+    # that single-job repos use (Lzip.Lib, the reference implementation) would set VERSION_PREFIX
+    # for this job only and leave test-unit / test-functional / publish-apps / release with an empty
+    # value -- silently malforming `-p:Version=` and tagging a release `v.`. A job output crosses
+    # the boundary; each consumer maps it back to the same env name, so no `run:` line changes.
+    # Resolved here rather than in a dedicated `version` job so it costs no extra runner: this job
+    # already checks out and sets up the SDK, and a separate job would serialise its own startup
+    # onto every push and PR.
+    outputs:
+      version-prefix: ${{ steps.resolve-version.outputs.prefix }}
     steps:
     # The PreprocessCatalogs MSBuild target produces the *.gs.gz embedded
     # resources from *.json.lz / *.csv.lz sources, decoding the .lz inputs with
@@ -54,6 +66,27 @@ jobs:
         dotnet-version: 10.0.x
         cache: true
         cache-dependency-path: src/Directory.Packages.props
+    # Read the major.minor back from the ONE place it is written (src/Directory.Build.props ->
+    # VersionMajorMinor) instead of restating it in this file. It used to be a literal in the
+    # workflow `env:`, so the number lived in two places and nothing compared them.
+    #
+    # -getProperty only EVALUATES the file: nothing is built and no restore is needed, so this runs
+    # before restore. The value is CAPTURED from stdout, so nothing else may print to it:
+    # DOTNET_NOLOGO (workflow env) keeps the SDK first-run banner out, and the shape check makes
+    # anything unexpected, or a renamed property, FAIL the run rather than quietly stamping every
+    # package and the release tag as ".<run>". Written to BOTH $GITHUB_ENV (for this job's own steps)
+    # and $GITHUB_OUTPUT (for the downstream jobs, since $GITHUB_ENV does not cross a job boundary).
+    - name: Resolve version prefix
+      id: resolve-version
+      run: |
+        MM="$(dotnet msbuild src/Directory.Build.props -getProperty:VersionMajorMinor -nologo | tr -d '[:space:]')"
+        case "$MM" in
+          [0-9]*.[0-9]*) ;;
+          *) echo "::error::VersionMajorMinor did not resolve from src/Directory.Build.props (got '$MM')"; exit 1 ;;
+        esac
+        echo "VERSION_PREFIX=${MM}.${{ github.run_number }}" >> "$GITHUB_ENV"
+        echo "prefix=${MM}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+        echo "Resolved VERSION_PREFIX=${MM}.${{ github.run_number }}"
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src
@@ -79,6 +112,8 @@ jobs:
 
   test-unit:
     needs: build
+    env:
+      VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
     # Matrix on x86_64 + ARM64 so we cover both architectures. `fail-fast: false` so a
     # regression on one architecture doesn't cancel the other.
     strategy:
@@ -236,6 +271,8 @@ jobs:
   test-functional:
     needs: build
     runs-on: ubuntu-latest
+    env:
+      VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
     steps:
     # astrometry-data-2mass-08-19 alone is ~1 GB. Caching saves ~30-60s and a
     # fair chunk of network on every run.
@@ -292,6 +329,8 @@ jobs:
   publish-apps:
     needs: build
     if: github.event_name == 'workflow_dispatch'
+    env:
+      VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
     strategy:
       fail-fast: false
       matrix:
@@ -390,11 +429,13 @@ jobs:
   # target-platform publishes succeeded. Workflow_dispatch only -- piggybacks
   # off publish-apps, which is also dispatch-gated.
   release:
-    needs: [test-unit, test-functional, publish-apps]
+    needs: [build, test-unit, test-functional, publish-apps]
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
     steps:
     - uses: actions/download-artifact@v8
       with:

@@ -1,5 +1,35 @@
 <Project>
 
+  <PropertyGroup>
+    <!--
+      THE version for this repo, and the only place it is written. It used to be stated SEVEN times:
+      AssemblyVersion in TianWen.Lib.csproj, a VersionPrefix default in each of the five published
+      apps, and VERSION_PREFIX in .github/workflows/dotnet.yml. CI stamps one -p:Version over the
+      whole build, so the csproj copies only ever surfaced in a LOCAL build (exactly where nobody
+      looks) while the workflow copy silently decided what shipped. Nothing compared them.
+
+      NOTE: no double hyphen anywhere in this comment. XML forbids it inside a comment, and MSBuild
+      reports it as MSB4025 "the project file could not be loaded", which reads like corruption
+      rather than punctuation.
+
+      The workflow now READS this back (dotnet msbuild -getProperty:VersionMajorMinor) in a `version`
+      job and passes it to the others as a job output, so a release bump is this one line and CI
+      cannot publish a version the packages disagree with. Matches every other SharpAstro repo; see
+      the org's .github/CLAUDE.md "Versioning" and .github/docs/dotnet-ci-pattern.md.
+
+      A release bump is 1.0 -> 1.1 additive, 1.x -> 2.x breaking. The patch segment is CI's
+      (github.run_number) and is never written by hand.
+    -->
+    <VersionMajorMinor>6.1</VersionMajorMinor>
+    <!--
+      Local builds get Major.Minor.0; CI passes -p:Version=Major.Minor.<run><attempt>+<sha> and the
+      condition lets it win. This applies to EVERY project, which also closes a latent bug:
+      TianWen.Lib sets GeneratePackageOnBuild but had no VersionPrefix of its own, so a local
+      `dotnet build` packed TianWen.Lib at the SDK default 1.0.0 while its AssemblyVersion read 6.1.
+    -->
+    <VersionPrefix Condition="'$(VersionPrefix)' == ''">$(VersionMajorMinor).0</VersionPrefix>
+  </PropertyGroup>
+
   <!--
     Auto-detect sibling SharpAstro working copies.
     When a sibling repo exists locally, its project is used via ProjectReference
