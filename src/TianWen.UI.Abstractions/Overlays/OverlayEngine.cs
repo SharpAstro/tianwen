@@ -854,6 +854,11 @@ public static class OverlayEngine
                     // target of a type the overlay doesn't normally draw (e.g. a Star Forming Region /
                     // molecular cloud, which is not an "extended" type) would be dropped here and
                     // never render, even though the user explicitly pinned it.
+                    // ONE cross-index closure per object. The pinned check and the duplicate check
+                    // below both need it, and it is the single most expensive question asked per
+                    // candidate, so asking it twice doubled the cost of the whole walk.
+                    var hasCrossIndices = db.TryGetCrossIndices(catIdx, out var crossIndices);
+
                     var isPinnedEarly = false;
                     if (pinnedCatalogIndices is not null)
                     {
@@ -862,9 +867,9 @@ public static class OverlayEngine
                         {
                             isPinnedEarly = true;
                         }
-                        else if (db.TryGetCrossIndices(catIdx, out var xrefs))
+                        else if (hasCrossIndices)
                         {
-                            foreach (var x in xrefs)
+                            foreach (var x in crossIndices)
                             {
                                 if (pinnedCatalogIndices.Contains(x)) { isPinnedEarly = true; break; }
                             }
@@ -897,7 +902,7 @@ public static class OverlayEngine
                     }
 
                     // Cross-catalog dedupe (e.g. HIP/HD/HR for the same star)
-                    if (db.TryGetCrossIndices(catIdx, out var crossIndices))
+                    if (hasCrossIndices)
                     {
                         var isDuplicate = false;
                         foreach (var crossIdx in crossIndices)
