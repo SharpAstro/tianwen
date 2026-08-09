@@ -172,10 +172,16 @@ rootCommand.SetAction(async (parseResult, ct) =>
     // No path and no subcommand → show help (default behavior)
 });
 
+// Every subcommand action already returns a considered exit code (1 for a bad invocation, 2 for a
+// pipeline that ran and failed). Discarding InvokeAsync's result threw all of them away and let the
+// process fall off the end at 0, so `tianwen image sharpen` printed "Sharpen failed: ..." and then
+// told its caller it had succeeded -- invisible interactively, and exactly wrong in a script or a CI
+// step. The code has to survive the shutdown block below, hence the local.
+int exitCode;
 var parsedResult = rootCommand.Parse(args);
 if (parsedResult.Errors.Count is 0)
 {
-    await parsedResult.InvokeAsync(cancellationToken: consoleHost.ApplicationLifetime.ApplicationStopped);
+    exitCode = await parsedResult.InvokeAsync(cancellationToken: consoleHost.ApplicationLifetime.ApplicationStopped);
 }
 else
 {
@@ -183,6 +189,7 @@ else
     {
         consoleHost.WriteError(error.Message);
     }
+    exitCode = 1;
 }
 
 if (terminal.IsAlternateScreen)
@@ -191,3 +198,5 @@ if (terminal.IsAlternateScreen)
 }
 await host.StopAsync();
 await host.WaitForShutdownAsync();
+
+return exitCode;
