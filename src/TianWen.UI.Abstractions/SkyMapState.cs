@@ -171,12 +171,42 @@ namespace TianWen.UI.Abstractions
         public float MagnitudeLimit { get; set; } = 8.5f;
 
         /// <summary>
+        /// Slope of the zoom-OUT magnitude falloff, in magnitudes per decade of FOV. Separate from
+        /// the 2.5 zoom-in slope because the two directions answer different questions: zooming in
+        /// reveals stars that were too faint to matter, while zooming out is about stopping the ones
+        /// already on screen from piling up.
+        /// </summary>
+        private const double WideFieldMagFalloffPerDecade = 3.0;
+
+        /// <summary>Most magnitudes the zoom-out falloff may subtract, however wide the field.</summary>
+        private const double MaxWideFieldMagReduction = 2.0;
+
+        /// <summary>
         /// FOV-aware magnitude limit (Stellarium-style <c>computeRCMag</c> analogue).
         /// As the user zooms in (FOV shrinks) the effective limit grows, revealing
-        /// fainter stars that live in the Tycho-2 regime at high zoom.
+        /// fainter stars that live in the Tycho-2 regime at high zoom; as the user zooms
+        /// out it falls, so the Milky Way stops blowing out.
         /// <para>
-        /// Formula: <c>base + max(0, log10(60 / fov) * 2.5)</c>. Pinned so widening
-        /// the view never dips below the user's chosen floor.
+        /// Formula: <c>base + log10(60 / fov) * slope</c>, with slope 2.5 zooming in and
+        /// <see cref="WideFieldMagFalloffPerDecade"/> zooming out, the reduction capped at
+        /// <see cref="MaxWideFieldMagReduction"/>.
+        /// </para>
+        /// <para>
+        /// <b>Why the zoom-out branch is not simply pinned to the floor any more.</b> A star sprite
+        /// cannot shrink below about a pixel, so widening the field packs the same stars into fewer
+        /// pixels and their flux adds up: at 94 degrees the Milky Way drew 58k sprites into a band a
+        /// few hundred pixels wide and washed out to a solid glow. Dropping the limit is how
+        /// planetarium software answers that, and it is cheaper as well, since the culled stars are
+        /// never submitted.
+        /// </para>
+        /// <para>
+        /// <b>The cost, stated plainly.</b> <see cref="MagnitudeLimit"/> is also the split against
+        /// the Milky Way bake: fainter stars live in the diffuse texture, brighter ones are sprites.
+        /// So a star between the reduced limit and the floor is drawn by neither, and the band is
+        /// slightly dimmer than physically correct rather than merely less blown out. That is the
+        /// intended trade at wide field, where those stars are sub-pixel anyway; it is also why the
+        /// reduction is capped instead of running away with FOV. It is NOT a licence to move
+        /// <see cref="MagnitudeLimit"/> itself out of sync with the bake, which still produces halos.
         /// </para>
         /// </summary>
         /// <returns>Effective magnitude cutoff for the GPU vertex shader.</returns>
@@ -185,8 +215,11 @@ namespace TianWen.UI.Abstractions
             get
             {
                 var fov = Math.Max(0.1, FieldOfViewDeg);
-                var zoomBonus = Math.Max(0.0, Math.Log10(60.0 / fov) * 2.5);
-                return MagnitudeLimit + (float)zoomBonus;
+                var decades = Math.Log10(60.0 / fov);
+                var zoomAdjust = decades >= 0.0
+                    ? decades * 2.5
+                    : Math.Max(-MaxWideFieldMagReduction, decades * WideFieldMagFalloffPerDecade);
+                return MagnitudeLimit + (float)zoomAdjust;
             }
         }
 
