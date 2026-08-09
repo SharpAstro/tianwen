@@ -191,23 +191,55 @@ namespace TianWen.UI.Gui
         private const string LiveSessionPlanetaryIcon = "\U0001FA90"; // ringed planet (Planetary mode)
         private const string LiveSessionFlatsIcon     = "\U0001F4A1"; // light bulb (Flats mode)
 
-        // Per-tab sidebar chrome (icon + hover tooltip with the Ctrl+letter shortcut). The sidebar
-        // ORDER comes from GuiAppState.TabOrder (shared with Ctrl+Tab cycling) so the visual order
-        // and the cycle order can't drift apart.
-        private static readonly Dictionary<GuiTab, (string Icon, string Tooltip)> TabChrome = new()
+        // Per-tab sidebar chrome (icon + display name + Ctrl+letter shortcut; the hover tooltip is
+        // "Label (Shortcut)"). The sidebar ORDER comes from GuiAppState.TabOrder (shared with
+        // Ctrl+Tab cycling) so the visual order and the cycle order can't drift apart. The label is
+        // a separate field because the window title reuses it (via TabTitleChrome) without the
+        // shortcut suffix.
+        private static readonly Dictionary<GuiTab, (string Icon, string Label, string Shortcut)> TabChrome = new()
         {
             // House, not satellite/antenna/globe: the icon has to stay neutral between local and remote,
             // or a single-scope user's one-card board looks like a remote-monitoring feature they do not
             // use -- and it names the SCREEN, which is due to hold multi-night progress beside the cards.
-            [GuiTab.Home]          = ("\U0001F3E0",        "Home (Ctrl+H)"),
-            [GuiTab.Equipment]     = ("\U0001F52D",        "Equipment (Ctrl+E)"),
-            [GuiTab.Planner]       = ("\U0001F4C5",        "Planner (Ctrl+P)"),
-            [GuiTab.SkyMap]        = ("\U0001F30C",        "Sky Map (Ctrl+M)"),
-            [GuiTab.Session]       = ("\U0001F3AC",        "Session Setup (Ctrl+S)"),
-            [GuiTab.LiveSession]   = (LiveSessionIdleIcon, "Live Session (Ctrl+L)"),
-            [GuiTab.Guider]        = ("\U0001F3AF",        "Guider (Ctrl+G)"),
-            [GuiTab.Notifications] = ("\U0001F514",        "Notifications (Ctrl+N)"),
+            [GuiTab.Home]          = ("\U0001F3E0",        "Home",          "Ctrl+H"),
+            [GuiTab.Equipment]     = ("\U0001F52D",        "Equipment",     "Ctrl+E"),
+            [GuiTab.Planner]       = ("\U0001F4C5",        "Planner",       "Ctrl+P"),
+            [GuiTab.SkyMap]        = ("\U0001F30C",        "Sky Map",       "Ctrl+M"),
+            [GuiTab.Session]       = ("\U0001F3AC",        "Session Setup", "Ctrl+S"),
+            [GuiTab.LiveSession]   = (LiveSessionIdleIcon, "Live Session",  "Ctrl+L"),
+            [GuiTab.Guider]        = ("\U0001F3AF",        "Guider",        "Ctrl+G"),
+            [GuiTab.Notifications] = ("\U0001F514",        "Notifications", "Ctrl+N"),
         };
+
+        // The Live Session glyph follows the VIEWED context's state: a running session flips to
+        // "camera with flash"; otherwise the mode picks the glyph -- compass for Polar Align, ringed
+        // planet for Planetary, light bulb for Flats, camera for Preview. (Mirrors the mode pill so
+        // the sidebar reads at a glance.) A flat run deliberately leaves IsRunning false, so the
+        // running-session glyph never masks the Flats one for the duration of the run.
+        private string LiveSessionIcon => ViewedLiveSession.IsRunning
+            ? LiveSessionRunningIcon
+            : ViewedLiveSession.Mode switch
+            {
+                LiveSessionMode.PolarAlign => LiveSessionPolarIcon,
+                LiveSessionMode.Planetary => LiveSessionPlanetaryIcon,
+                LiveSessionMode.Flats => LiveSessionFlatsIcon,
+                _ => LiveSessionIdleIcon,
+            };
+
+        /// <summary>
+        /// Icon + display name for <paramref name="tab"/> exactly as the sidebar draws it this frame
+        /// (the Live Session glyph follows the viewed context's mode/run state). The window title is
+        /// built from this, so the title and the sidebar can never disagree about the active tab.
+        /// </summary>
+        public (string Icon, string Label) TabTitleChrome(GuiTab tab)
+        {
+            var (icon, label, _) = TabChrome[tab];
+            if (tab is GuiTab.LiveSession)
+            {
+                icon = LiveSessionIcon;
+            }
+            return (icon, label);
+        }
 
         // Window chrome, entirely from the shared palette. PROPERTIES, not static readonly fields: a
         // field initialiser snapshots at type-init, which is how the one palette-derived colour that was
@@ -372,24 +404,10 @@ namespace TianWen.UI.Gui
             for (var i = 0; i < tabs.Length; i++)
             {
                 var tab = tabs[i];
-                var (icon, tooltip) = TabChrome[tab];
-                // Live Session icon reflects the active mode: a running session flips to "camera with
-                // flash"; otherwise the mode picks the glyph -- compass for Polar Align, ringed planet for
-                // Planetary, light bulb for Flats, camera for Preview. (Mirrors the mode pill so the
-                // sidebar reads at a glance.) A flat run deliberately leaves IsRunning false, so the
-                // running-session glyph never masks the Flats one for the duration of the run.
-                if (tab is GuiTab.LiveSession)
-                {
-                    icon = ViewedLiveSession.IsRunning
-                        ? LiveSessionRunningIcon
-                        : ViewedLiveSession.Mode switch
-                        {
-                            LiveSessionMode.PolarAlign => LiveSessionPolarIcon,
-                            LiveSessionMode.Planetary => LiveSessionPlanetaryIcon,
-                            LiveSessionMode.Flats => LiveSessionFlatsIcon,
-                            _ => LiveSessionIdleIcon,
-                        };
-                }
+                // One path with the window title: the mode-following Live Session glyph is resolved
+                // inside TabTitleChrome (see LiveSessionIcon), never re-derived here.
+                var (icon, label) = TabTitleChrome(tab);
+                var shortcut = TabChrome[tab].Shortcut;
                 var btnY = startY + i * buttonSize;
                 var isActive = appState.ActiveTab == tab;
                 var isLocked = (noProfile && tab is not GuiTab.Equipment)
@@ -425,7 +443,7 @@ namespace TianWen.UI.Gui
 
                 if (isHover)
                 {
-                    hoverTooltip = tooltip;
+                    hoverTooltip = $"{label} ({shortcut})";
                     hoverY = btnY + buttonSize * 0.5f;
                 }
             }

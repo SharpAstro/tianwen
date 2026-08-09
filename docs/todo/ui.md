@@ -48,6 +48,35 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
   via the console inspector: row 3 `Mount` returns as unselected). Remember the cursor index per tab
   instance across `Attach`, clamped to the rebuilt item count.
 
+## TUI terminal integration (Windows Terminal / ConEmu), explored 2026-08-08
+
+The TUI already writes the terminal title (OSC 0, change-gated in the `TuiSubCommand` render block)
+and Console.Lib already speaks OSC 8 (hyperlinks), OSC 52 (clipboard) and Sixel, so surfacing session
+state through the terminal is a small addition that follows an existing pattern:
+
+- [ ] **Taskbar progress via OSC 9;4** (`ESC ] 9 ; 4 ; <state> ; <pct> BEL` -- ConEmu's sequence,
+  rendered by Windows Terminal 1.6+ as progress on the taskbar button; every other mainstream
+  terminal consumes an unknown OSC silently, so it can be emitted unconditionally, same rule as the
+  existing OSC 0 title). Add an `Osc9Progress` helper beside `Osc8` in Console.Lib (the library owns
+  escape shapes, the app owns the mapping) and emit it change-gated next to the title write:
+  - imaging: state 1 (normal) + percent -- reuse the `F:n/~est` math `TuiLiveSessionTab.RenderTopBar`
+    already does (extract it to `LiveSessionActions` so the top bar and the taskbar cannot disagree);
+  - running with no meaningful denominator (cooling / slew / focus / guider calibration): state 3
+    (indeterminate);
+  - pending session prompt: state 4 (paused/yellow) -- the rig is blocked on a human, which is exactly
+    what a taskbar-visible state exists to surface;
+  - `SessionPhase.Failed`: state 2 (error/red);
+  - idle: state 0 (remove), and also clear it on the quit path so a stale bar cannot outlive the run.
+- [ ] **BEL on prompt raise** (once per prompt, alongside state 4): Windows Terminal's `bellStyle`
+  can flash the taskbar/window on BEL (user-configurable; the default is audible only), which turns
+  "a prompt is waiting" into an OS-level attention signal with no new machinery.
+- [ ] **Meridian-flip warning in the title**: within N minutes of the flip, prepend a countdown to
+  the already change-gated title (the four taskbar states are too coarse for a countdown). Ties into
+  the "Meridian flip countdown indicator" item in the Live Session section above.
+- [ ] Consider unifying the TUI title shape with the GUI's window title
+  (`{tab icon} {tab} - {profile} · {phase} - {target}`, `TianWen.UI.Gui/Program.cs`); the TUI
+  currently writes `\U0001F52D {profile} — {tab}` with the phase folded into the tab name.
+
 ## FITS Viewer
 
 - [ ] Rename HDR button/label to "Compress Highlights"
