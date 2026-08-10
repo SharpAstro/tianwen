@@ -105,6 +105,17 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                           "skip a session left with no same-gain dark. Unknown gain stays a wildcard; " +
                           "flats are unaffected.",
         };
+        var maxDarkDeltaTOpt = new Option<double?>("--max-dark-delta-t")
+        {
+            Description = "Reject a dark whose sensor temperature is known and further than this many " +
+                          "degrees C from the lights (not just score-penalise it). Dark current roughly " +
+                          "doubles per 6 C, so a dark far off temperature under-subtracts badly and the " +
+                          "residual fixed pattern stays correlated between the two subs of an N2N pair. " +
+                          "Without this, temperature only weights the score, so a lone badly-mismatched " +
+                          "dark still wins and the session is recorded as calibrated. Pairs with " +
+                          "--require-dark to skip a session left with none. Unknown temperature stays a " +
+                          "wildcard. Omit for no limit (the right value depends on the sensor).",
+        };
         var softwareOpt = new Option<string>("--software")
         {
             Description = "Case-insensitive wildcard on SWCREATE; only LIGHTS authored by matching " +
@@ -130,7 +141,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, softwareOpt, discoverOnlyOpt, resumeOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, softwareOpt, discoverOnlyOpt, resumeOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -168,6 +179,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 TestFraction = parseResult.GetValue(testFractionOpt),
                 RequireDarkCalibration = parseResult.GetValue(requireDarkOpt),
                 RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),
+                MaxDarkTemperatureDelta = parseResult.GetValue(maxDarkDeltaTOpt),
                 SoftwareIncludePattern = parseResult.GetValue(softwareOpt)!,
                 Resume = parseResult.GetValue(resumeOpt),
             };
