@@ -245,9 +245,9 @@ namespace TianWen.Lib.Tests
 
             // Manifest healed + complete: every row parseable, per-session counts match the
             // uninterrupted run: M42's rows were neither dropped nor duplicated.
-            var counts = await DatasetTileExporter.ReadManifestSessionTileCountsAsync(first.ManifestPath, ct);
-            counts.Values.Sum().ShouldBe(first.TotalTiles);
-            counts.Single(kv => kv.Key.StartsWith("M42|", StringComparison.Ordinal)).Value.ShouldBe(m42Rows.Length);
+            var counts = await DatasetTileExporter.ReadManifestCheckpointsAsync(first.ManifestPath, ct);
+            counts.Values.Sum(c => c.TileCount).ShouldBe(first.TotalTiles);
+            counts.Single(kv => kv.Key.StartsWith("M42|", StringComparison.Ordinal)).Value.TileCount.ShouldBe(m42Rows.Length);
 
             // Resume again with everything complete: nothing re-runs, manifest byte-identical.
             var manifestBytes = File.ReadAllBytes(first.ManifestPath);
@@ -257,6 +257,145 @@ namespace TianWen.Lib.Tests
             third.TotalTiles.ShouldBe(first.TotalTiles);
             third.ParityChecked.ShouldBeFalse(); // nothing exported this run to gate
             File.ReadAllBytes(first.ManifestPath).ShouldBe(manifestBytes);
+        }
+
+        /// <summary>
+        /// A resumed run must not narrow the PSF/noise report. It used to: the report was in-memory
+        /// derived state rewritten at the end of every run, so resuming an archive where only one
+        /// session needed work replaced a whole-archive report with a one-session one, and the rest
+        /// could not be recovered (the field-radius profile is measured on the session master, which
+        /// lives in scratch wiped per session). This drives a real two-session build, resumes it, and
+        /// asserts the rendered report still describes BOTH.
+        /// </summary>
+        [Fact]
+        public async Task Run_Resume_KeepsThePsfReportCoveringEverySessionEverMeasured()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+            WriteShiftedCopies(m42, Path.Combine(root, "N43", "LIGHT"));
+
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = Path.Combine(_dir, "out"),
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            first.Registered.ShouldBe(2);
+            var fullReport = await File.ReadAllTextAsync(first.ReportPath, ct);
+            fullReport.ShouldContain("- Sessions: 2");
+            (await DatasetPsfStore.ReadAsync(first.PsfStorePath, cancellationToken: ct)).Count.ShouldBe(2);
+
+            // Resume with everything already exported: nothing is re-registered, which is precisely
+            // the case that used to destroy the report.
+            var resumed = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+            resumed.Registered.ShouldBe(0);
+            resumed.Resumed.ShouldBe(2);
+            resumed.PsfMissing.ShouldBe(0);
+
+            var afterResume = await File.ReadAllTextAsync(first.ReportPath, ct);
+            afterResume.ShouldContain("- Sessions: 2");
+            // Byte-identical, not merely non-empty: rebuilt from the store in a deterministic order,
+            // so a resume is a no-op on the report rather than a re-derivation that could drift.
+            afterResume.ShouldBe(fullReport);
+        }
+
+        /// <summary>
+        /// The manifest is a claim about the past, not proof. Deleting a session's tiles used to leave
+        /// resume reporting "already exported", skipping it, and finishing with exit 0 while counting
+        /// tiles that were gone; the manifest and the filesystem then disagreed with nothing to say
+        /// so. A checkpoint is now honoured only if the tiles are actually there.
+        /// </summary>
+        [Fact]
+        public async Task Run_Resume_ReRegistersASessionWhoseTilesWentMissing()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+
+            var outDir = Path.Combine(_dir, "out");
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            first.Registered.ShouldBe(1);
+            first.TotalTiles.ShouldBeGreaterThan(0);
+
+            // Wipe the tiles but leave the manifest claiming them, exactly the state a manual cleanup
+            // (or a half-deleted output dir) leaves behind.
+            var tileDir = Directory.GetDirectories(Path.Combine(outDir, "tiles")).Single();
+            Directory.Delete(tileDir, recursive: true);
+
+            var resumed = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+
+            resumed.Resumed.ShouldBe(0);        // NOT treated as already done
+            resumed.Registered.ShouldBe(1);     // re-registered instead
+            resumed.TotalTiles.ShouldBe(first.TotalTiles);
+            Directory.EnumerateFiles(tileDir, "*.f16").Count().ShouldBe(first.TotalTiles);
+        }
+
+        /// <summary>A fresh (non-resume) run over an output dir that already has a manifest rotates it
+        /// aside rather than deleting it: the tiles it describes are still on disk, and erasing the
+        /// only record of them leaves them unaccounted for.</summary>
+        [Fact]
+        public async Task Run_WithoutResume_RotatesAnExistingManifestInsteadOfDeletingIt()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = Path.Combine(_dir, "out"),
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            var original = await File.ReadAllBytesAsync(first.ManifestPath, ct);
+
+            await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+
+            var rotated = first.ManifestPath + ".bak-1";
+            File.Exists(rotated).ShouldBeTrue();
+            (await File.ReadAllBytesAsync(rotated, ct)).ShouldBe(original);
+
+            // A third fresh run rotates to the next free index rather than clobbering the first backup.
+            await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            File.Exists(first.ManifestPath + ".bak-2").ShouldBeTrue();
         }
 
         [Fact]

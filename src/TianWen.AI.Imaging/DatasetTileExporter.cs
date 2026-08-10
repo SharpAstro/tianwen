@@ -458,18 +458,31 @@ public static class DatasetTileExporter
         return fwhm[fwhm.Length / 2];
     }
 
-    /// <summary>Reads the shared JSONL manifest back into per-session tile counts; the resume
+    /// <summary>What the manifest records about one already-exported session: how many tiles it
+    /// wrote, and the directory they went to (relative to the output dir, forward slashes). The
+    /// directory is carried so a resuming run can check the tiles are actually THERE rather than
+    /// trusting the manifest alone; see <see cref="ReadManifestCheckpointsAsync"/>.</summary>
+    public sealed record ManifestCheckpoint(string SessionId, int TileCount, string TileDirRelative);
+
+    /// <summary>Reads the shared JSONL manifest back into per-session checkpoints; the resume
     /// checkpoint (<see cref="DatasetBuildOptions.Resume"/>). A session listed here was FULLY
     /// exported: its rows are appended in one block as the last step of its export, after every
     /// tile file is on disk. Unparseable lines (a torn tail from a killed run, the same case
     /// <see cref="AppendManifestAsync"/> self-heals on the next append) are skipped, never fatal;
-    /// a missing file yields an empty map (resume of a fresh output degrades to a normal run).</summary>
-    public static async Task<Dictionary<string, int>> ReadManifestSessionTileCountsAsync(string manifestPath, CancellationToken ct)
+    /// a missing file yields an empty map (resume of a fresh output degrades to a normal run).
+    ///
+    /// <para><b>The manifest is a claim, not proof.</b> It says what WAS written, so a resuming run
+    /// must verify the tiles still exist before skipping the session: delete a tile directory and
+    /// the old count-only checkpoint still reported "already exported", the session was skipped, and
+    /// the run finished with exit 0 while claiming tiles that were gone. Hence the directory here.</para>
+    /// </summary>
+    public static async Task<Dictionary<string, ManifestCheckpoint>> ReadManifestCheckpointsAsync(string manifestPath, CancellationToken ct)
     {
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var dirs = new Dictionary<string, string>(StringComparer.Ordinal);
         if (!File.Exists(manifestPath))
         {
-            return counts;
+            return [];
         }
         await foreach (var line in File.ReadLinesAsync(manifestPath, ct))
         {
@@ -491,9 +504,17 @@ public static class DatasetTileExporter
             if (row is not null)
             {
                 counts[row.SessionId] = counts.TryGetValue(row.SessionId, out var n) ? n + 1 : 1;
+                var slash = row.Tile.LastIndexOf('/');
+                dirs[row.SessionId] = slash > 0 ? row.Tile[..slash] : string.Empty;
             }
         }
-        return counts;
+
+        var checkpoints = new Dictionary<string, ManifestCheckpoint>(StringComparer.Ordinal);
+        foreach (var (sessionId, count) in counts)
+        {
+            checkpoints[sessionId] = new ManifestCheckpoint(sessionId, count, dirs.GetValueOrDefault(sessionId, string.Empty));
+        }
+        return checkpoints;
     }
 
     /// <summary>Appends this session's rows to the shared JSONL manifest. Self-healing: a torn
@@ -501,7 +522,7 @@ public static class DatasetTileExporter
     /// runner fault-isolates per session and keeps going) is truncated back to the last complete
     /// row first, so a corrupt line can never get buried mid-file where every JSONL consumer would
     /// choke on it. Internal for the direct healing test.</summary>
-    internal static async Task AppendManifestAsync(string manifestPath, ImmutableArray<TileManifestRow> rows, CancellationToken ct)
+    internal static Task AppendManifestAsync(string manifestPath, ImmutableArray<TileManifestRow> rows, CancellationToken ct)
     {
         var sb = new System.Text.StringBuilder();
         foreach (var row in rows)
@@ -509,40 +530,9 @@ public static class DatasetTileExporter
             sb.Append(JsonSerializer.Serialize(row, DatasetManifestJsonContext.Default.TileManifestRow));
             sb.Append('\n');
         }
-        // OpenOrCreate + ReadWrite (not FileMode.Append, which forbids the backward scan).
-        await using var stream = new FileStream(manifestPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
-        TruncateTornTail(stream);
-        stream.Seek(0, SeekOrigin.End);
-        await using var writer = new StreamWriter(stream);
-        await writer.WriteAsync(sb.ToString().AsMemory(), ct);
-    }
-
-    /// <summary>Every complete manifest row ends in <c>'\n'</c>; a file not ending in one has a
-    /// torn tail from an interrupted append. Scan backwards to the last newline (the torn tail is
-    /// at most one ~300-byte row, so the byte-wise walk is trivially cheap) and truncate there.</summary>
-    private static void TruncateTornTail(FileStream stream)
-    {
-        if (stream.Length == 0)
-        {
-            return;
-        }
-        var pos = stream.Length - 1;
-        stream.Seek(pos, SeekOrigin.Begin);
-        if (stream.ReadByte() == '\n')
-        {
-            return; // clean tail; every row complete
-        }
-        while (pos > 0)
-        {
-            pos--;
-            stream.Seek(pos, SeekOrigin.Begin);
-            if (stream.ReadByte() == '\n')
-            {
-                stream.SetLength(pos + 1);
-                return;
-            }
-        }
-        stream.SetLength(0); // no newline at all; the whole file is one torn line
+        // The append + torn-tail heal lives in JsonLinesFile, shared with the PSF store: both are
+        // append-only per-session checkpoints and the backward scan only needs to be right once.
+        return JsonLinesFile.AppendAsync(manifestPath, sb.ToString(), ct);
     }
 
     /// <summary>

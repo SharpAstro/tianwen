@@ -44,9 +44,14 @@ public static class DatasetBuildRunner
     /// training sample. Distinct from <paramref name="Failed"/> (an error), and from the silent
     /// too-few-subs skip.</param>
     /// <param name="Resumed">Sessions skipped wholesale because their tiles were already in the
-    /// manifest (<see cref="DatasetBuildOptions.Resume"/>); their prior tile counts fold into
-    /// <paramref name="TotalTiles"/> but they are NOT re-registered, so the PSF/noise report of a
-    /// resumed run covers only the sessions registered in THAT run.</param>
+    /// manifest AND still on disk (<see cref="DatasetBuildOptions.Resume"/>); their prior tile counts
+    /// fold into <paramref name="TotalTiles"/> and their PSF stats come from
+    /// <see cref="DatasetPsfStore"/>, so the report still covers them without re-registration.</param>
+    /// <param name="PsfMissing">Resumed sessions that have tiles but no stored PSF record, so the
+    /// report does not cover them. Non-zero means the report is incomplete and says which flag fixes
+    /// it (<see cref="DatasetBuildOptions.RegenPsfForExportedSessions"/>).</param>
+    /// <param name="PsfRemeasured">Already-exported sessions re-registered purely to recover their
+    /// PSF measurement; their tiles were left untouched.</param>
     public sealed record RunResult(
         int Sessions,
         int Registered,
@@ -59,7 +64,10 @@ public static class DatasetBuildRunner
         double ParityMaxDiff,
         string ManifestPath,
         string SplitPath,
-        string ReportPath);
+        string ReportPath,
+        string PsfStorePath,
+        int PsfMissing,
+        int PsfRemeasured);
 
     public static async Task<RunResult> RunAsync(
         DatasetBuildOptions options,
@@ -99,23 +107,40 @@ public static class DatasetBuildRunner
         // so its partial files are simply overwritten).
         var manifestPath = Path.Combine(outDir, DatasetTileExporter.ManifestFileName);
         var priorTiles = options.Resume
-            ? await DatasetTileExporter.ReadManifestSessionTileCountsAsync(manifestPath, cancellationToken)
-            : new Dictionary<string, int>(StringComparer.Ordinal);
+            ? await DatasetTileExporter.ReadManifestCheckpointsAsync(manifestPath, cancellationToken)
+            : new Dictionary<string, DatasetTileExporter.ManifestCheckpoint>(StringComparer.Ordinal);
         if (!options.Resume && File.Exists(manifestPath))
         {
-            File.Delete(manifestPath);
+            // Rotated, never deleted: the manifest is the only record of what a previous run
+            // exported, and the tiles it describes are still on disk. A fresh run legitimately
+            // starts a new one, but erasing the old leaves those tiles unaccounted for.
+            var rotated = JsonLinesFile.NextFreeBackupPath(manifestPath);
+            File.Move(manifestPath, rotated);
+            logger?.LogWarning("Fresh (non-resume) run: existing manifest moved aside to {Rotated}.", Path.GetFileName(rotated));
         }
+
+        // The PSF/noise report's inputs are checkpointed per session, so the report accumulates
+        // across runs instead of being rebuilt from whatever the current run happened to register.
+        // Before this, a resumed run's report was rewritten from only its own sessions and the prior
+        // content was lost, unrecoverably: the field-radius profile is measured on the session
+        // master, which lives in scratch that is wiped per session.
+        var statsDir = Path.Combine(outDir, "stats");
+        var reportPath = Path.Combine(statsDir, "psf-noise-report.md");
+        var psfStorePath = Path.Combine(statsDir, DatasetPsfStore.FileName);
+        var psfBySession = await DatasetPsfStore.ReadAsync(psfStorePath, logger, cancellationToken);
 
         // 3. Per-session pipeline. Scratch (warped subs) is wiped after each session so peak disk is
         //    bounded by the largest single session, not the whole archive; the masters cache
         //    (outDir/masters) is separate and preserved for build-once reuse.
         var masterCache = new MasterCache(Path.Combine(outDir, "masters"), logger);
         var scratchRoot = Path.Combine(outDir, "_scratch");
-        var reportAcc = new DatasetPsfNoiseReport.Accumulator();
+        var sessionIds = new HashSet<string>(sessions.Select(s => s.Id), StringComparer.Ordinal);
         var registered = 0;
         var failed = 0;
         var skippedNoDark = 0;
         var resumed = 0;
+        var psfMissing = 0;
+        var psfRemeasured = 0;
         var totalTiles = 0;
         var parityChecked = false;
         var parityMaxDiff = 0.0;
@@ -124,14 +149,41 @@ public static class DatasetBuildRunner
         {
             cancellationToken.ThrowIfCancellationRequested();
             idx++;
-            if (priorTiles.TryGetValue(session.Id, out var tiles))
+
+            // Resume decides per ARTIFACT, not per session: tiles and the PSF record are checkpointed
+            // separately, so a session can legitimately need one and not the other.
+            var checkpoint = priorTiles.GetValueOrDefault(session.Id);
+            var tilesReusable = checkpoint is not null && TilesStillPresent(outDir, checkpoint, logger);
+            var psfOnly = false;
+            if (tilesReusable && checkpoint is not null)
             {
-                resumed++;
-                totalTiles += tiles;
-                progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} resumed ({tiles} tiles already exported)");
-                continue;
+                if (psfBySession.ContainsKey(session.Id))
+                {
+                    resumed++;
+                    totalTiles += checkpoint.TileCount;
+                    progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} resumed ({checkpoint.TileCount} tiles + PSF already recorded)");
+                    continue;
+                }
+                if (!options.RegenPsfForExportedSessions)
+                {
+                    resumed++;
+                    psfMissing++;
+                    totalTiles += checkpoint.TileCount;
+                    progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} resumed ({checkpoint.TileCount} tiles, PSF record MISSING)");
+                    continue;
+                }
+                // Tiles are fine and stay untouched; re-register only to recover the master the PSF
+                // measurement needs. Their count is banked HERE, not after a successful re-measure:
+                // the tiles are on disk either way, so a re-measurement that fails must not make the
+                // run under-report the tiles it still has.
+                psfOnly = true;
+                totalTiles += checkpoint.TileCount;
+                progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} re-measuring PSF (tiles kept) ...");
             }
-            progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} ...");
+            else
+            {
+                progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} ...");
+            }
 
             // Fault-isolated per session: discovery validated only HEADERS, so a truncated /
             // unreadable file first explodes here (LoadFullAsync -> IOException), potentially hours
@@ -163,21 +215,35 @@ public static class DatasetBuildRunner
                 }
                 registered++;
 
-                var export = await DatasetTileExporter.ExportAsync(
-                    reg, outDir, options.TileSize, options.CellsPerSession, options.SubsPerCell, logger, cancellationToken);
-                totalTiles += export.Rows.Length;
-
-                // In-run zero-skew gate: verify the first exported session's stored tiles equal the C#
-                // stretch of their source (before its scratch is wiped).
-                if (!parityChecked && export.Rows.Length > 0)
+                if (psfOnly)
                 {
-                    var parity = await DatasetTileExporter.VerifyParityAsync(reg, outDir, export.Rows, sampleCount: 8, cancellationToken);
-                    parityMaxDiff = parity.MaxAbsDiff;
-                    parityChecked = true;
-                    progress?.Report($"[dataset] parity: maxDiff={parity.MaxAbsDiff} over {parity.Checked} tiles");
+                    psfRemeasured++; // tile count already banked before the try
+                }
+                else
+                {
+                    var export = await DatasetTileExporter.ExportAsync(
+                        reg, outDir, options.TileSize, options.CellsPerSession, options.SubsPerCell, logger, cancellationToken);
+                    totalTiles += export.Rows.Length;
+
+                    // In-run zero-skew gate: verify the first exported session's stored tiles equal the C#
+                    // stretch of their source (before its scratch is wiped).
+                    if (!parityChecked && export.Rows.Length > 0)
+                    {
+                        var parity = await DatasetTileExporter.VerifyParityAsync(reg, outDir, export.Rows, sampleCount: 8, cancellationToken);
+                        parityMaxDiff = parity.MaxAbsDiff;
+                        parityChecked = true;
+                        progress?.Report($"[dataset] parity: maxDiff={parity.MaxAbsDiff} over {parity.Checked} tiles");
+                    }
                 }
 
-                await reportAcc.AddAsync(reg, logger, cancellationToken);
+                // Measure, PERSIST, then re-render the report. Persisting before rendering is what
+                // makes a kill at any point cost only the in-flight session: the store holds every
+                // session measured so far, and the rendered report is rebuilt from the store rather
+                // than from this run's in-memory accumulator.
+                var psf = await DatasetPsfNoiseReport.MeasureSessionAsync(reg, logger: logger, cancellationToken: cancellationToken);
+                await DatasetPsfStore.AppendAsync(psfStorePath, psf, cancellationToken);
+                psfBySession[session.Id] = psf;
+                await WriteReportAsync(reportPath, psfBySession, sessionIds, logger, cancellationToken);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -191,26 +257,84 @@ public static class DatasetBuildRunner
             }
         }
 
-        // 4. PSF/noise distribution report.
-        var reportPath = Path.Combine(outDir, "stats", "psf-noise-report.md");
-        await DatasetPsfNoiseReport.WriteMarkdownAsync(reportAcc.Build(), reportPath, cancellationToken);
+        // 4. PSF/noise distribution report, rebuilt from the checkpoint store so it covers every
+        //    session ever measured into this output dir, not just this run's.
+        await WriteReportAsync(reportPath, psfBySession, sessionIds, logger, cancellationToken);
 
         TryDelete(scratchRoot);
-        if (resumed > 0)
+        if (psfMissing > 0)
         {
-            // The report accumulator only sees sessions registered THIS run -- a resumed session's
-            // registration scratch is long gone, so its PSF stats cannot be re-measured cheaply.
+            // Actionable rather than merely apologetic: name the flag that fixes it and say what it
+            // costs, because the fix means re-registering those sessions.
             logger?.LogWarning(
-                "Resume: PSF/noise report covers only the {Registered} session(s) registered in this run; {Resumed} resumed session(s) are not re-measured.",
-                registered, resumed);
+                "PSF/noise report is missing {Missing} session(s) that have tiles but no stored PSF record, so it describes {Covered} of {Total}. Re-run with RegenPsfForExportedSessions (--regen-psf) to measure them; that re-registers each one (tiles are left untouched).",
+                psfMissing, psfBySession.Count, sessions.Length);
         }
         progress?.Report(
-            $"[dataset] done: {registered}/{sessions.Length} sessions{(resumed > 0 ? $" (+{resumed} resumed)" : "")} -> {totalTiles} tiles " +
+            $"[dataset] done: {registered}/{sessions.Length} sessions{(resumed > 0 ? $" (+{resumed} resumed)" : "")}" +
+            $"{(psfRemeasured > 0 ? $" ({psfRemeasured} PSF re-measured)" : "")} -> {totalTiles} tiles " +
             $"({failed} failed, {skippedNoDark} skipped-no-dark); " +
+            $"PSF report covers {psfBySession.Count(kv => sessionIds.Contains(kv.Key))}/{sessions.Length}; " +
             $"parity {(parityChecked ? parityMaxDiff == 0.0 ? "OK" : $"DIFF {parityMaxDiff}" : "n/a")}");
         return new RunResult(
             sessions.Length, registered, failed, skippedNoDark, resumed, totalTiles, testSessions.Length,
-            parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath);
+            parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath, psfStorePath, psfMissing, psfRemeasured);
+    }
+
+    /// <summary>
+    /// Renders the report from the PSF store, filtered to the sessions the CURRENT discovery found.
+    /// The store is append-only and never pruned, so a session dropped from the archive (or excluded
+    /// by a changed gate) leaves its record behind; including it would make the report describe a
+    /// dataset that no longer exists, while deleting it would throw away a measurement that cost a
+    /// full registration.
+    /// </summary>
+    private static async Task WriteReportAsync(
+        string reportPath,
+        Dictionary<string, DatasetPsfNoiseReport.SessionPsf> psfBySession,
+        HashSet<string> sessionIds,
+        ILogger? logger,
+        CancellationToken cancellationToken)
+    {
+        var acc = new DatasetPsfNoiseReport.Accumulator();
+        // Ordered so the rendered report is deterministic regardless of the order sessions were
+        // measured across however many runs it took.
+        foreach (var id in psfBySession.Keys.Where(sessionIds.Contains).OrderBy(id => id, StringComparer.Ordinal))
+        {
+            acc.Add(psfBySession[id], logger);
+        }
+        await DatasetPsfNoiseReport.WriteMarkdownAsync(acc.Build(), reportPath, cancellationToken);
+    }
+
+    /// <summary>
+    /// Verifies a manifest checkpoint against the filesystem: the tile directory must exist and hold
+    /// at least as many tiles as the manifest claims. The manifest records what WAS written, so
+    /// trusting it alone means a session whose tiles were moved or deleted is skipped as "already
+    /// exported" and the run reports success over files that are not there. Costs one directory
+    /// enumeration per resumed session.
+    /// </summary>
+    private static bool TilesStillPresent(string outDir, DatasetTileExporter.ManifestCheckpoint checkpoint, ILogger? logger)
+    {
+        if (checkpoint.TileDirRelative.Length == 0)
+        {
+            return false;
+        }
+        var dir = Path.Combine(outDir, checkpoint.TileDirRelative.Replace('/', Path.DirectorySeparatorChar));
+        if (!Directory.Exists(dir))
+        {
+            logger?.LogWarning(
+                "  [{Session}] manifest claims {Claimed} tiles in {Dir} but the directory is gone -- re-registering instead of resuming.",
+                checkpoint.SessionId, checkpoint.TileCount, checkpoint.TileDirRelative);
+            return false;
+        }
+        var onDisk = Directory.EnumerateFiles(dir, "*" + DatasetTileExporter.TileExtension).Count();
+        if (onDisk < checkpoint.TileCount)
+        {
+            logger?.LogWarning(
+                "  [{Session}] manifest claims {Claimed} tiles in {Dir} but only {OnDisk} are present -- re-registering instead of resuming.",
+                checkpoint.SessionId, checkpoint.TileCount, checkpoint.TileDirRelative, onDisk);
+            return false;
+        }
+        return true;
     }
 
     private static int CalCount(IReadOnlyDictionary<FrameType, List<CalibrationResolver.CalGroup>> groups, FrameType type) =>

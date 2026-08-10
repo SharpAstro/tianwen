@@ -128,11 +128,20 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
         {
             Description = "Stop after session discovery and print the inventory (no tiles written).",
         };
+        var regenPsfOpt = new Option<bool>("--regen-psf")
+        {
+            Description = "Re-measure PSF/noise stats for sessions whose tiles are already exported " +
+                          "but which have no record in stats/psf-sessions.jsonl, so the report covers " +
+                          "them. Leaves their tiles untouched. Costs a full re-registration per " +
+                          "session (the profile is measured on the session master), which is why a " +
+                          "plain --resume reports them as missing instead of doing this by default.",
+        };
         var resumeOpt = new Option<bool>("--resume")
         {
             Description = "Continue a stopped run: keep the existing manifest as the checkpoint and " +
-                          "skip every session already fully exported to it (the interrupted session " +
-                          "re-runs cleanly). Use the SAME roots and gates as the stopped run.",
+                          "skip every session already fully exported to it whose tiles are still on " +
+                          "disk (the interrupted session re-runs cleanly). Use the SAME roots and " +
+                          "gates as the stopped run.",
         };
 
         var buildCommand = new Command("build", "Build the training tile set from raw archive lights.")
@@ -141,7 +150,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, softwareOpt, discoverOnlyOpt, resumeOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -182,6 +191,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 MaxDarkTemperatureDelta = parseResult.GetValue(maxDarkDeltaTOpt),
                 SoftwareIncludePattern = parseResult.GetValue(softwareOpt)!,
                 Resume = parseResult.GetValue(resumeOpt),
+                RegenPsfForExportedSessions = parseResult.GetValue(regenPsfOpt),
             };
 
             // User path exclusions append to the built-in processed-data defaults (never replace them).
@@ -249,12 +259,20 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 $"[dataset] {result.Registered}/{result.Sessions} sessions" +
                 $"{(result.Resumed > 0 ? $" (+{result.Resumed} resumed)" : "")} -> {result.TotalTiles} tiles" +
                 $"{(result.Failed > 0 ? $" ({result.Failed} FAILED, see log)" : "")}" +
-                $"{(result.SkippedNoDark > 0 ? $" ({result.SkippedNoDark} skipped: no dark calibration)" : "")}; " +
+                $"{(result.SkippedNoDark > 0 ? $" ({result.SkippedNoDark} skipped: no dark calibration)" : "")}" +
+                $"{(result.PsfRemeasured > 0 ? $" ({result.PsfRemeasured} PSF re-measured)" : "")}; " +
                 $"{result.TestSessions} test sessions held out; " +
                 $"parity {(result.ParityChecked ? result.ParityMaxDiff == 0d ? "OK" : $"DIFF {result.ParityMaxDiff}" : "n/a")}");
             consoleHost.WriteScrollable($"[dataset] manifest: {result.ManifestPath}");
             consoleHost.WriteScrollable($"[dataset] split:    {result.SplitPath}");
             consoleHost.WriteScrollable($"[dataset] report:   {result.ReportPath}");
+            consoleHost.WriteScrollable($"[dataset] psf store: {result.PsfStorePath}");
+            if (result.PsfMissing > 0)
+            {
+                consoleHost.WriteScrollable(
+                    $"[dataset] WARNING: {result.PsfMissing} session(s) have tiles but no PSF record, so the report does not " +
+                    $"cover them. Re-run with --regen-psf to measure them (tiles are left untouched).");
+            }
 
             // A non-zero parity diff means the stored tiles no longer equal the C# stretch of their
             // source -- train/inference skew. Fail the command so CI catches it.
