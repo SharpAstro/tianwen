@@ -341,6 +341,19 @@ preferred until it passes).
   excluded**: they optimise for plausibility, which is hallucination pressure; directly opposed
   to the photometric-integrity gates. If perceptual quality ever needs a boost, prefer feature
   losses with the flux regulariser as a hard constraint.
+- **Mask a `StitchBorderPx` border out of every loss, and read the constant rather than picking a
+  number.** This is a train/inference asymmetry the tile format cannot fix, so it has to be built into
+  the loss from the first run. At inference the outer **16 px** (`AiNafnetInputs.StitchBorderPx`) of
+  every 256 px chunk is discarded and never reaches the output: `ChunkedInference.Stitch` sums only
+  each chunk's central 224x224 and averages the overlaps, precisely because that rim is where NAFNet's
+  tile-edge artefacts live (SAS Pro's `stitch_chunks_ignore_border(border_size=16)` does the same).
+  A loss taken over the full 256x256 training tile therefore spends capacity on a border condition the
+  model never meets: at the tile rim its receptive field runs off the crop into whatever the framework
+  pads (zeros, typically), whereas at inference that neighbourhood is real pixels from an adjacent
+  chunk. Masking the rim costs 25 % of the tile's pixels per sample and removes the mismatch.
+  **The tiles themselves need no change** (the exporter never clips or zero-pads: cells are required
+  to lie wholly inside `StatsRect`, and a star bisected by a tile edge is bisected identically in the
+  master and its subs, so the loss never asks the model to invent the missing half).
 - **Optimisation:** AdamW, cosine schedule, grad-norm clip 1.0, early stop on held-out val, seeded
   end-to-end. Mirrors the Croman talk's recipe and prior in-house ML-pipeline experience.
 - **Discipline (proven in-house ML-pipeline patterns, adopted wholesale):**
@@ -424,7 +437,7 @@ preferred until it passes).
 |---|---|---|
 | **Step 0: Archive organization** | `tools/astro-archive-dedup.py` READ-ONLY scan (header index + dup-files / nights-rollup / calibration-coverage reports); user-reviewed filing of BobbyBox uniques into Astro-Pics from the reports | Dup report reviewed; unique-to-BobbyBox sessions identified/filed; calibration coverage map exists (feeds P0's header-matched calibration) |
 | **P0: Dataset + stats** ✅ SHIPPED 2026-07-12 | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command ✅; gate rejects transparency/focus-bad frames (star-count-led; §2.4) ✅; parity check green (maxDiff 0, in-run gate) ✅. **Real-archive run DONE 2026-07-15** (`D:\Astro-Dataset\2025-2026`, 45 sessions / 121,500 tiles); see § 2.3b for root order and the two session groups that must stay excluded. Tiles predate the master-flat pedestal fix (2026-08-03), so a regenerate is wanted before P1 trains on them. |
-| **P1: Denoiser v1** | `training/` N2N pipeline; NAFNet-32 color run on RunPod; ONNX + contract; `OnnxTianWenDenoiser` + `--ai-backend tianwen`; eval report | Beats classical baseline + no photometric regression (§7) on held-out sessions; visually clean on 3 reference masters |
+| **P1: Denoiser v1** | `training/` N2N pipeline (loss masks a `StitchBorderPx` rim, §3); NAFNet-32 color run on RunPod; ONNX + contract; `OnnxTianWenDenoiser` + `--ai-backend tianwen`; eval report | Beats classical baseline + no photometric regression (§7) on held-out sessions; visually clean on 3 reference masters; **no tile-seam artefact** visible on a full-frame master (the border-masked loss is what this checks) |
 | **P2: Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
 | **P3: Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
 | **P4: Star remover** | Inject-and-remove bootstrap (§2.5): classical starless plates + measured-PSF star injector + self-refinement; `OnnxTianWenStarRemover : IStarRemover` (additive split); completes the tier so the full canonical program runs TianWen-only | Injected-star removal completeness + background preservation + stars-plate flux conservation on held-out sessions; bright-saturated tail passes 1:1 spot checks (RC/SAS stay preferred until then) |
