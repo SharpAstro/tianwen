@@ -22,13 +22,33 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
         Image.StarMasks.Length.ShouldBeGreaterThanOrEqualTo(maxScaledRadius);
     }
 
+    /// <summary>
+    /// Byte-pins detector output per image + SNR floor.
+    ///
+    /// <para><b>The RGGB counts dropped by ~1.1 % on 2026-08-11</b> (3,046 -> 3,014 at SNR 10, 2,786 ->
+    /// 2,753 at SNR 30) when detection stopped reporting the same star more than once. A saturated
+    /// star's above-threshold halo extends past the <c>HfdFactor * HFD</c> star-area mask, so halo
+    /// pixels re-ran <c>AnalyseStar</c>, whose centre of gravity landed back on the same core, and
+    /// every copy was counted. The removed entries were duplicates, not stars: the accompanying
+    /// duplicate-pair pin is what holds that line, since a count pin cannot (duplicates only push a
+    /// count up, and up is the direction an expectation drifts to).</para>
+    ///
+    /// <para><b><paramref name="expectedDuplicatePairs"/> is 1 for the dense RGGB frame, and that is a
+    /// measurement, not a tolerance.</b> One pair survives at (2943.11, 761.56) / (2943.19, 761.55),
+    /// HFD 3.60 / 3.57, out of 3,014 stars. It is NOT a parallelism race: 12 consecutive runs over the
+    /// identical input produced the same count and the same coordinates, and it sits mid-band
+    /// (row 14 of the 44-row chunk), not on the interleaved even/odd chunk seam. The exact geometry
+    /// that lets that one centroid escape a mask which should cover it is not yet explained, so it is
+    /// pinned rather than rounded away: an increase means the duplicate class is back, and a drop to 0
+    /// means someone fixed this and should say so here.</para>
+    /// </summary>
     [Theory]
-    [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89)]
-    [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28)]
-    [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2786, 5000)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3046, 5000)]
-    public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null)
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89, null, 0)]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28, null, 0)]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13, null, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2753, 5000, 1)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3014, 5000, 1)]
+    public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null, int expectedDuplicatePairs = 0)
     {
         // given
         const int channel = 0;
@@ -42,6 +62,36 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
         // then
         actualStars.ShouldNotBeEmpty();
         actualStars.Count.ShouldBe(expectedStars);
+
+        // No star reported twice. On a real dense frame this is the assertion that gives the count
+        // above its meaning: 3,014 distinct stars, not 3,046 detections of 3,014 stars.
+        var all = actualStars.ToArray();
+        var duplicates = 0;
+        var detail = "";
+        const int chunkSize = 2 * ((int)(Image.HfdFactor * Image.BoxRadius) + 1);
+        for (var i = 0; i < all.Length; i++)
+        {
+            for (var j = i + 1; j < all.Length; j++)
+            {
+                if (MathF.Abs(all[i].XCentroid - all[j].XCentroid) < 1f
+                    && MathF.Abs(all[i].YCentroid - all[j].YCentroid) < 1f)
+                {
+                    duplicates++;
+                    if (detail.Length == 0)
+                    {
+                        // Chunk-relative row says whether this is the interleaved-parallelism seam
+                        // (a star straddling two row bands) rather than an uncovered-mask case.
+                        var rowInChunk = (int)MathF.Round(all[i].YCentroid) % chunkSize;
+                        detail = $" first at ({all[i].XCentroid:F2}, {all[i].YCentroid:F2}) hfd={all[i].HFD:F2}" +
+                                 $" / ({all[j].XCentroid:F2}, {all[j].YCentroid:F2}) hfd={all[j].HFD:F2}," +
+                                 $" rowInChunk={rowInChunk} of {chunkSize}";
+                    }
+                }
+            }
+        }
+        testOutputHelper.WriteLine("{0} @ SNR {1}: {2} stars, {3} duplicate pair(s){4}", name, snrMin, all.Length, duplicates, detail);
+        duplicates.ShouldBe(expectedDuplicatePairs,
+            $"{duplicates} duplicate detection pair(s) in {name} at SNR {snrMin}, expected {expectedDuplicatePairs}.{detail}");
     }
 
     [Theory]

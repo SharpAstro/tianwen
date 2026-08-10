@@ -78,8 +78,62 @@ public class SyntheticStarDetectionTests(ITestOutputHelper output)
             $"No stars detected at defocus={defocusSteps} snrMin={snrMin}");
     }
 
+    /// <summary>
+    /// Every detection must be a DISTINCT position: a star may not be reported twice.
+    ///
+    /// <para>This is the invariant that <c>GivenDefocusLevelThenMinimumStarCountMet</c> silently
+    /// depended on and did not state. Its focused case asserted 50 detections from a 50-star field
+    /// whose magnitudes span 5 to 12, so a good fraction sit under the SNR-10 floor and the target was
+    /// unreachable honestly; it passed only because a saturated star's above-threshold halo extends
+    /// past the <c>HfdFactor * HFD</c> star-area mask, so halo pixels re-analysed the same core and
+    /// each copy was counted again. Detection now rejects a candidate whose centroid is already inside
+    /// the accepted-star area, and the count fell to its true value.</para>
+    ///
+    /// <para>A count floor cannot catch that class of bug (duplicates only ever push the count UP,
+    /// through the assertion), so this asserts the property instead. 1.5 px is comfortably below the
+    /// closest genuine pair this field can produce: 50 stars over 1280x960 gives an expected 0.11
+    /// pairs within 6 px, so any sub-pixel cluster is a duplicate, not a close double.</para>
+    /// </summary>
     [Theory]
-    [InlineData(0, 50)]    // focused → detect most of 50 stars
+    [InlineData(0)]
+    [InlineData(20)]
+    [InlineData(50)]
+    public async Task GivenAnyDefocusLevel_ThenNoStarIsDetectedTwice(int defocusSteps)
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var data = SyntheticStarFieldRenderer.Render(
+            Width, Height, defocusSteps: defocusSteps,
+            exposureSeconds: Exposure, starCount: 50, seed: Seed, noiseSeed: 1);
+
+        var image = ToImage(data);
+        var stars = await image.FindStarsAsync(0, snrMin: 10f, maxStars: 200, cancellationToken: ct);
+        var all = stars.ToArray();
+
+        var duplicates = 0;
+        (float X, float Y)? worst = null;
+        for (var i = 0; i < all.Length; i++)
+        {
+            for (var j = i + 1; j < all.Length; j++)
+            {
+                if (MathF.Abs(all[i].XCentroid - all[j].XCentroid) < 1.5f
+                    && MathF.Abs(all[i].YCentroid - all[j].YCentroid) < 1.5f)
+                {
+                    duplicates++;
+                    worst ??= (all[i].XCentroid, all[i].YCentroid);
+                }
+            }
+        }
+
+        output.WriteLine("defocus={0} → {1} stars, {2} duplicate pair(s){3}",
+            defocusSteps, all.Length, duplicates,
+            worst is { } w ? $" first at ({w.X:F2}, {w.Y:F2})" : "");
+
+        duplicates.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(0, 40)]    // focused → most of the 50 injected clear SNR 10; the rest are mag 11-12
     [InlineData(20, 30)]   // slight defocus → still many
     [InlineData(50, 15)]   // moderate → some
     public async Task GivenDefocusLevelThenMinimumStarCountMet(int defocusSteps, int minExpected)

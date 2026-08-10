@@ -255,7 +255,8 @@ public partial class Image
                                         localCalls++;
                                         if (AnalyseStar(channel, fitsX, fitsY, BoxRadius, out var star)
                                             && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
-                                            && star.SNR >= snrMin)
+                                            && star.SNR >= snrMin
+                                            && !CentroidAlreadyClaimed(img_star_area, star, width, height))
                                         {
                                             localAccepted++;
                                             starList.Add(star);
@@ -304,6 +305,43 @@ public partial class Image
         } while (starList.Count < minStars && retries > 0);/* reduce detection level till enough stars are found. Note that faint stars have less positional accuracy */
 
         return new StarList(starList, img_star_area);
+    }
+
+    /// <summary>
+    /// True when this candidate's CENTROID already lies inside the accepted-star area, i.e. it is a
+    /// re-detection of a star that has already been recorded.
+    ///
+    /// <para><b>Why the trigger pixel is not enough.</b> The loop skips pixels already inside
+    /// <c>img_star_area</c>, but that area is only <c>HfdFactor * HFD</c> in radius, and HFD
+    /// systematically UNDERSTATES a saturated star's footprint: a flat-topped core has a small
+    /// half-flux diameter while its halo stays above the detection threshold far outside the mask. So
+    /// a halo pixel passes the trigger check, <see cref="AnalyseStar"/> runs, and its centre of
+    /// gravity lands back on the same core, which is then recorded again; each copy re-marks the same
+    /// small region, so the halo is never covered and the whole ring of it re-detects. Measured on one
+    /// SV605CC frame: a single mag-bright star produced the entire top 100 by flux, all at
+    /// (1473.93, 2984.91), 1 distinct position out of 100.
+    /// </para>
+    ///
+    /// <para>Testing the resulting centroid instead closes it without widening the mask (which would
+    /// swallow genuine close pairs) and without a second dedup pass over the star list. The cost is
+    /// one bit read per accepted candidate.</para>
+    ///
+    /// <para>Consequences of NOT doing this, all of which were live: star count inflated (3,569 vs
+    /// 3,349 distinct on that frame) so the dataset quality gate mis-ranks frames; median HFD pulled
+    /// toward whichever star duplicated most; the PSF field-radius profile weights one star hundreds
+    /// of times; and brightest-K quad selection degenerates, because <see cref="StarQuadList"/>
+    /// discards quads whose centroids sit within 1 px of each other, so a duplicated top-K collapses
+    /// to a single quad and registration fails outright.</para>
+    ///
+    /// <para>Races are benign and pre-existing: the interleaved two-phase chunk scheme already means
+    /// a neighbouring chunk may be marking the mask concurrently. A missed read costs one duplicate,
+    /// never a wrong star.</para>
+    /// </summary>
+    private static bool CentroidAlreadyClaimed(BitMatrix starArea, in ImagedStar star, int width, int height)
+    {
+        var cx = (int)MathF.Round(star.XCentroid);
+        var cy = (int)MathF.Round(star.YCentroid);
+        return cx >= 0 && cx < width && cy >= 0 && cy < height && starArea[cy, cx];
     }
 
     /// <summary>
