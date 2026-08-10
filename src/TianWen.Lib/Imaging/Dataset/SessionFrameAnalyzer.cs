@@ -11,8 +11,10 @@ namespace TianWen.Lib.Imaging.Dataset;
 
 /// <summary>
 /// Per-frame quality measurement + session-relative gating for the dataset builder.
-/// Measurement follows the exact recipe the stacking pipeline uses for registration
-/// (calibrate → debayer → <see cref="Image.FindStarsAsync"/> → median PSF metrics), and
+/// Measurement is calibrate → <see cref="Image.FindStarsAsync"/> on the pre-debayer image
+/// → median PSF metrics (see <see cref="MeasureAsync"/> for why detection is pre-debayer;
+/// this deliberately no longer mirrors the stacking pipeline, which still detects on a
+/// colour-debayered channel), and
 /// the gate decision is the existing pure <see cref="FrameQualityFilter"/> (MAD-based,
 /// relative to the session's own median: absolute thresholds don't transfer across
 /// focal lengths). One path, one implementation.
@@ -48,9 +50,25 @@ public static class SessionFrameAnalyzer
         bool KeepFloorTriggered);
 
     /// <summary>
-    /// Loads one light, applies calibration when masters are available, debayers, and
-    /// measures star metrics. Returns the metrics plus the (debayered-frame) star list.
+    /// Loads one light, applies calibration when masters are available, and measures star
+    /// metrics. Returns the metrics plus the star list.
     /// All intermediate images are transient (FITS-loaded, no camera buffers to recycle).
+    /// <para><b>Detection runs on the PRE-DEBAYER image</b>, so
+    /// <see cref="Image.FindStarsAsync"/> takes its own <c>BilinearMono</c> path for an RGGB frame
+    /// and folds all four photosites into one luminance plane. Detecting on a channel of a
+    /// colour-debayered frame is what this replaced, and it was wrong for a reason that does not
+    /// show up on a star-rich field: R and B are quarter-density planes, so interpolation
+    /// manufactures ~1000 spurious detections per frame that pass the only size floor
+    /// (<c>HFD &gt; 0.8</c>) because the kernel smooths them into plausible round blobs. Measured
+    /// on Helix 2025-08-09, only 7.8% of red-plane detections reproduced on the next sub, against
+    /// 31.8% mono and 41.9% green, and the session failed to register at all. Mono also keeps the
+    /// choice independent of the filter, which a per-channel pick cannot: under a dual or quad-band
+    /// filter the green photosites carry OIII plus continuum while red carries Ha alone.
+    /// Coordinates are unaffected, <c>BilinearMono</c> is full-resolution on the same grid.</para>
+    /// <para>The debayer below is retained deliberately and is not dead weight to be tidied away
+    /// without measuring: <see cref="Image.DebayerAsync"/> can rescale its input in place, so it
+    /// participates in what detection then sees. The 314/314 result was measured with it present.
+    /// </para>
     /// </summary>
     public static async Task<AnalyzedFrame> MeasureAsync(
         FrameInfo frame,
@@ -63,7 +81,7 @@ public static class SessionFrameAnalyzer
         var raw = await frame.LoadFullAsync(cancellationToken);
         var calibrated = calibrator?.Apply(raw) ?? raw;
         var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
-        var stars = await debayered.FindStarsAsync(channel: 0, snrMin: snrMin, minStars: minStars, cancellationToken: cancellationToken);
+        var stars = await calibrated.FindStarsAsync(channel: 0, snrMin: snrMin, minStars: minStars, cancellationToken: cancellationToken);
         var metrics = new FrameMetrics(
             MedianHfd: stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median),
             MedianFwhm: stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median),

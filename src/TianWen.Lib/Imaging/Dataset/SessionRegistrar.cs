@@ -51,8 +51,17 @@ public static class SessionRegistrar
 
     /// <summary>Cap on the brightest stars used to build quad fingerprints. Bright stars
     /// reproduce across detection-threshold jitter between frames, so the top-K signature
-    /// stays stable. Mirrors the stacker's <c>QuadStars</c> default.</summary>
-    private const int QuadStars = 500;
+    /// stays stable.
+    /// <para>100, NOT the stacker's 500, and the difference is load-bearing rather than a
+    /// preference. A quad matches only when the same four stars form it in both frames, so with a
+    /// fraction p of the top-K detections real, at most about p^4 of quads can match. p falls with
+    /// depth: measured on Helix 2025-08-09, mono detections were 68% real at top-50, 59% at
+    /// top-100, 41% at top-200 and 32% over all 601. At 500 that tail dominates the fingerprint set
+    /// (p^4 near 1%, roughly 4 usable quads of 375, under the minimumCount of 6) and the session
+    /// registered 0 of 316 subs; at 100 it registered 314 of 314, with the match tolerances
+    /// tightening from mostly-0.5 to mostly-0.1/0.2. The stacker still uses 500 and has the same
+    /// exposure on a thin field, but changing it needs its own end-to-end validation.</para></summary>
+    private const int QuadStars = 100;
 
     /// <summary>Quad-match tolerance ladder: try tight first, loosen on failure. Verbatim
     /// from <c>StackingPipeline.QuadTolerances</c>.</summary>
@@ -183,9 +192,14 @@ public static class SessionRegistrar
 
         // 4. Register each survivor against the reference from the RETAINED star lists.
         using var referenceSorted = new SortedStarList(reference.Stars);
-        _ = await referenceSorted.FindQuadsAsync(maxStars: QuadStars, cancellationToken: cancellationToken);
+        var referenceQuads = await referenceSorted.FindQuadsAsync(maxStars: QuadStars, cancellationToken: cancellationToken);
+        logger?.LogInformation("  [{Session}] reference quads={Quads} from {Stars} retained stars (top {Cap})",
+            session.Id, referenceQuads.Count, referenceSorted.Count, QuadStars);
         var matched = new List<(SessionFrameAnalyzer.AnalyzedFrame Frame, Matrix3x2 Transform)>(survivors.Length);
-        var skipped = 0;
+        var skippedTooFewStars = 0;
+        var skippedNoQuadFit = 0;
+        var minLightQuads = int.MaxValue;
+        var maxLightQuads = 0;
         foreach (var f in survivors)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -196,31 +210,68 @@ public static class SessionRegistrar
             }
             if (f.Stars.Count < MinStarsForMatch)
             {
-                skipped++;
-                logger?.LogDebug("  [{Session}] {File} stars={Stars} -> skip (too few)",
-                    session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count);
+                skippedTooFewStars++;
+                logger?.LogDebug("  [{Session}] {File} stars={Stars} (< {Min}) -> skip (too few)",
+                    session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, MinStarsForMatch);
                 continue;
             }
             using var lightSorted = new SortedStarList(f.Stars);
-            _ = await lightSorted.FindQuadsAsync(maxStars: QuadStars, cancellationToken: cancellationToken);
-            var (solution, _, _) = await TryMatchAsync(lightSorted, referenceSorted, QuadStars);
+            var lightQuads = await lightSorted.FindQuadsAsync(maxStars: QuadStars, cancellationToken: cancellationToken);
+            minLightQuads = Math.Min(minLightQuads, lightQuads.Count);
+            maxLightQuads = Math.Max(maxLightQuads, lightQuads.Count);
+            var (solution, quadTolerance, rmsResidualPx) = await TryMatchAsync(lightSorted, referenceSorted, QuadStars);
             if (solution is null)
             {
-                skipped++;
-                logger?.LogDebug("  [{Session}] {File} -> skip (no quad fit at any tolerance)",
-                    session.Id, Path.GetFileName(f.Frame.Path));
+                skippedNoQuadFit++;
+                // Both counts are already in hand, so state them: "no fit" on its own cannot
+                // separate a DETECTION problem (few quads on this sub) from a GEOMETRY one
+                // (plenty of quads on both sides that still do not correspond), and those two
+                // have opposite fixes.
+                logger?.LogDebug(
+                    "  [{Session}] {File} stars={Stars} quads={Quads} vs reference quads={RefQuads} -> skip (no quad fit up to tolerance {MaxTol})",
+                    session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, lightQuads.Count,
+                    referenceQuads.Count, QuadTolerances[^1]);
                 continue;
             }
+            logger?.LogDebug(
+                "  [{Session}] {File} stars={Stars} quads={Quads} -> matched at tolerance {Tol} (rms {Rms:F2} px)",
+                session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, lightQuads.Count,
+                quadTolerance, rmsResidualPx);
             // Rigid (rotation + isotropic scale + translation) refinement on top of the bulk
             // quad fit -- closes the sub-pixel residual the fingerprint match averages away.
             var refined = RegistrationRefiner.RefineRigid(lightSorted, referenceSorted, solution.Value).Refined;
             matched.Add((f, refined));
         }
-        logger?.LogInformation("  [{Session}] registered {Matched}/{Survivors} (skipped {Skipped})",
-            session.Id, matched.Count, survivors.Length, skipped);
+        logger?.LogInformation(
+            "  [{Session}] registered {Matched}/{Survivors} (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit)",
+            session.Id, matched.Count, survivors.Length, skippedTooFewStars + skippedNoQuadFit,
+            skippedTooFewStars, skippedNoQuadFit);
         if (matched.Count < 2)
         {
-            logger?.LogWarning("  [{Session}] fewer than 2 registered subs -- skipped", session.Id);
+            // WARNING level, which is what a bake log actually shows, so it has to be
+            // self-diagnosing. The bare form of this message cost a whole-session drop that could
+            // not be explained without re-running the session at Debug: it named neither the star
+            // counts nor the quad counts, both of which were already computed right here.
+            //
+            // Read the two together, because they separate the only two causes and those have
+            // opposite fixes. FEW quads everywhere is a detection problem. PLENTY of quads on both
+            // sides that still do not correspond is a PURITY problem in the quad-forming set, and
+            // that is what the Helix 2025-08-09 drop turned out to be: a quad matches only when
+            // the same four stars form it in both frames, so with a fraction p of the top-K
+            // detections real, only about p^4 of quads can match at all. Measured on that session,
+            // detecting on the VNG-interpolated RED plane gave p = 0.08 (1024 detections, 384
+            // reference quads, 0 of 316 subs matched); the quarter-density R and B planes
+            // manufacture ~1000 spurious detections per frame that interpolation smooths into
+            // plausible round blobs. Hence detection now runs on the pre-debayer image, which
+            // routes through BilinearMono, and QuadStars is 100 rather than 500 to keep the
+            // fingerprint set at the bright end where p is high: p = 0.59 at top-100 versus 0.32
+            // over all 601 mono detections, which took the same session to 314/314.
+            logger?.LogWarning(
+                "  [{Session}] fewer than 2 registered subs -- skipped. survivors={Survivors}, reference {RefFile} stars={RefStars} quads={RefQuads}, other subs' quads {MinQuads}..{MaxQuads}, skipped {TooFew} too-few-stars + {NoFit} no-quad-fit",
+                session.Id, survivors.Length, Path.GetFileName(reference.Frame.Path),
+                referenceSorted.Count, referenceQuads.Count,
+                minLightQuads == int.MaxValue ? 0 : minLightQuads, maxLightQuads,
+                skippedTooFewStars, skippedNoQuadFit);
             return null;
         }
 
@@ -292,7 +343,7 @@ public static class SessionRegistrar
 
         return new RegisteredSession(
             session, result.Master, subsList, canvasW, canvasH, statsRect,
-            reference.Frame, survivors.Length, matched.Count, skipped);
+            reference.Frame, survivors.Length, matched.Count, skippedTooFewStars + skippedNoQuadFit);
 
         async IAsyncEnumerable<Image> WarpedProducer([EnumeratorCancellation] CancellationToken token)
         {
