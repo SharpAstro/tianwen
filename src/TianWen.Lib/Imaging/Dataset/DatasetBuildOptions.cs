@@ -132,7 +132,24 @@ public sealed record DatasetBuildOptions
     /// export, so "rows present" means "fully exported". The session a stop interrupted mid-export
     /// has no rows and re-runs cleanly (deterministic tile names overwrite its partial files).
     /// Assumes the SAME archive roots and gates as the interrupted run; changed options make the
-    /// checkpoint's session set stale. The PSF/noise report of a resumed run covers only the
-    /// sessions registered in that run. Default false (fresh manifest, prior behaviour).</summary>
+    /// checkpoint's session set stale. A skip additionally requires the tiles to still be PRESENT on
+    /// disk (count matching the manifest); the manifest is a claim about the past, not proof, and a
+    /// session whose tiles went missing is re-registered rather than silently counted. The PSF/noise
+    /// report accumulates across runs via <see cref="DatasetPsfStore"/>, so a resumed run no longer
+    /// narrows it; a session with tiles but no stored PSF record needs
+    /// <see cref="RegenPsfForExportedSessions"/>. Default false (fresh manifest, prior behaviour).</summary>
     public bool Resume { get; init; } = false;
+
+    /// <summary>
+    /// When true, a session whose tiles are already exported but which has NO record in
+    /// <see cref="DatasetPsfStore"/> is re-registered so its PSF/noise stats can be measured, and its
+    /// tiles are left exactly as they are (no re-export, no manifest rows).
+    ///
+    /// <para>Opt-in because it is expensive and the cost is invisible from the outside: the
+    /// field-radius profile is measured on the session MASTER, which only exists as the output of
+    /// register + integrate, so recovering it costs the same as building the session in the first
+    /// place. A plain resume must stay a fast skip, so it reports how many sessions are missing PSF
+    /// records and leaves the choice to the caller. Default false.</para>
+    /// </summary>
+    public bool RegenPsfForExportedSessions { get; init; } = false;
 }

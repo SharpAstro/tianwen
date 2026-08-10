@@ -12,10 +12,27 @@ seam), and `DatasetPsfNoiseReport` + `DatasetSplitWriter` (Lib).
 **The real-archive run happened on 2026-07-15** (this line used to say it was still to do). Output is
 `D:\Astro-Dataset\2025-2026\`: **45 sessions, 4,958 subs, 121,500 tiles** (every session hits the same
 300-cell x 9 cap), plus `test-sessions.txt` pinning 5 held-out sessions, and
-`stats/psf-noise-report.md`. Note the report's header reads 31 sessions / 3,433 subs against the
-manifest's 45 / 4,958: that is the documented resume behaviour, since a resumed run's report covers
-only the sessions it registered, not a discrepancy. Cameras: ASI533MC Pro 30, SV605CC 12,
-ASI585MC Pro 2, ASI1600MM Pro 1. See § "Running it again" below before regenerating.
+`stats/psf-noise-report.md`. Cameras: ASI533MC Pro 30, SV605CC 12, ASI585MC Pro 2, ASI1600MM Pro 1.
+See § "Running it again" below before regenerating.
+
+**That run's report header read 31 sessions / 3,433 subs against the manifest's 45 / 4,958, and this
+document used to call that "the documented resume behaviour ... not a discrepancy". It was a defect,
+and calling it documented behaviour is what let it survive.** The report was derived state held in
+memory for one run and overwritten at the end of it, so a resumed run rewrote the whole file from
+only the sessions it happened to register. It is not recoverable after the fact either: the
+field-radius profile is measured on the session MASTER, which exists only as the output of register +
+integrate and lives in scratch that is wiped per session. So every resume permanently narrowed the
+one artifact that tells the deconvolution sweep what PSF range to cover.
+
+Fixed 2026-08-10: `DatasetPsfStore` (`stats/psf-sessions.jsonl`) checkpoints each session's raw
+measurement samples as it completes, and the report is re-rendered from that store after every
+session, so it accumulates across runs and a killed run costs only its in-flight session. Recovering
+the sessions measured before the store existed needs `--regen-psf`, which re-registers an
+already-exported session purely to re-measure it and leaves its tiles untouched. Two related
+protections landed with it: a resume checkpoint is honoured only if the tiles are still PRESENT on
+disk (the manifest is a claim about the past, and a session whose tiles were deleted was being
+skipped as "already exported" while the run reported success over missing files), and a fresh
+non-resume run rotates an existing manifest to `.bak-N` instead of deleting it.
 Goal: train our own CNN denoiser (`IDenoiseEnhancer`) and non-stellar deconvolver
 (`INonStellarDeconvolver`) on the user's own image archive, shipped as versioned ONNX models through
 the existing `TianWen.AI` / `TianWen.AI.Imaging` stack; a third backend tier alongside RC-Astro

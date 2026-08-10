@@ -40,6 +40,36 @@ public static class DatasetPsfNoiseReport
     /// 1 = corner) falls in <c>[RMin, RMax)</c>, over all session masters.</summary>
     public sealed record RadiusBin(double RMin, double RMax, double MedianFwhm, double MedianEllipticity, int Stars);
 
+    /// <summary>The raw per-bin star samples for ONE session, before any cross-session median.</summary>
+    /// <param name="Fwhm">Every sampled star's FWHM whose field radius fell in this bin.</param>
+    /// <param name="Ellipticity">The same stars' ellipticities, index-aligned with <paramref name="Fwhm"/>.</param>
+    public sealed record RadiusSamples(float[] Fwhm, float[] Ellipticity);
+
+    /// <summary>
+    /// One session's contribution to the report, in the form that gets PERSISTED
+    /// (<see cref="DatasetPsfStore"/>) so the report survives a partial or resumed run.
+    ///
+    /// <para>These are raw samples, not per-session summaries, and that is load-bearing: the report's
+    /// field-radius profile is a median over every star in a bin across all sessions of an optical
+    /// train, which a stored median-of-medians could not reconstruct. Persisting the samples means a
+    /// resumed run rebuilds a byte-identical report to the one an uninterrupted run would have
+    /// produced.</para>
+    /// </summary>
+    /// <param name="SessionId">Portable session id; the store's key (last record per id wins).</param>
+    /// <param name="OpticalTrain">
+    /// <see cref="CalibrationResolver.CalTrain.Describe"/> of the session's train. Stored rather than
+    /// re-derived because re-deriving needs the session's frames, which a resumed run has not read.
+    /// </param>
+    /// <param name="Bins">Per-bin samples, indexed by bin; length is the report's radius-bin count.</param>
+    public sealed record SessionPsf(
+        string SessionId,
+        string OpticalTrain,
+        float[] SubFwhm,
+        float[] SubHfd,
+        float[] SubEllipticity,
+        double MasterNoiseRelative,
+        RadiusSamples[] Bins);
+
     /// <summary>Per-optical-train sub-report. The field-radius PSF profile lives HERE, never
     /// aggregated across trains: a Newtonian's coma grows with field radius while a refractor's does
     /// not, so a merged profile would smear the position-varying degradation the deconvolver sweep
@@ -91,6 +121,81 @@ public static class DatasetPsfNoiseReport
     }
 
     /// <summary>
+    /// Measures ONE registered session into a persistable <see cref="SessionPsf"/>: the per-sub
+    /// metrics the gate already retained (no detection), the master's relative background sigma, and
+    /// one star detection on the master binned by field radius.
+    ///
+    /// <para>Separated from <see cref="Accumulator.Add(SessionPsf, ILogger?)"/> so the archive builder
+    /// can persist the record and fold the very same object, which is what lets a resumed run rebuild
+    /// the report without the master it no longer has. This is the only place a measurement is
+    /// produced.</para>
+    /// </summary>
+    public static async Task<SessionPsf> MeasureSessionAsync(
+        SessionRegistrar.RegisteredSession session,
+        int radiusBins = 5,
+        float snrMin = 5f,
+        int maxStars = 3000,
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
+    {
+        var label = CalibrationResolver.CalTrain.OpticalTrain(session.Session.Lights[0]).Describe();
+
+        var subFwhm = new float[session.Subs.Length];
+        var subHfd = new float[session.Subs.Length];
+        var subEcc = new float[session.Subs.Length];
+        for (var i = 0; i < session.Subs.Length; i++)
+        {
+            var metrics = session.Subs[i].Metrics;
+            subFwhm[i] = metrics.MedianFwhm;
+            subHfd[i] = metrics.MedianHfd;
+            subEcc[i] = metrics.MedianEllipticity;
+        }
+
+        var binFwhm = new List<float>[radiusBins];
+        var binEcc = new List<float>[radiusBins];
+        for (var b = 0; b < radiusBins; b++)
+        {
+            binFwhm[b] = new List<float>();
+            binEcc[b] = new List<float>();
+        }
+
+        var stars = await session.Master.FindStarsAsync(
+            channel: 0, snrMin: snrMin, maxStars: maxStars, cancellationToken: cancellationToken);
+        var cx = session.CanvasWidth * 0.5;
+        var cy = session.CanvasHeight * 0.5;
+        var halfDiag = 0.5 * Math.Sqrt((double)session.CanvasWidth * session.CanvasWidth + (double)session.CanvasHeight * session.CanvasHeight);
+        if (halfDiag > 0)
+        {
+            foreach (var star in stars)
+            {
+                var dx = star.XCentroid - cx;
+                var dy = star.YCentroid - cy;
+                var rNorm = Math.Sqrt(dx * dx + dy * dy) / halfDiag;
+                var bin = Math.Min(radiusBins - 1, (int)(rNorm * radiusBins));
+                if (bin < 0) bin = 0;
+                binFwhm[bin].Add(star.StarFWHM);
+                binEcc[bin].Add(star.Ellipticity);
+            }
+        }
+
+        var bins = new RadiusSamples[radiusBins];
+        for (var b = 0; b < radiusBins; b++)
+        {
+            bins[b] = new RadiusSamples(binFwhm[b].ToArray(), binEcc[b].ToArray());
+        }
+
+        logger?.LogInformation("  [{Session}] PSF sampled {Stars} stars ({Train})", session.Session.Id, stars.Count, label);
+        return new SessionPsf(
+            SessionId: session.Session.Id,
+            OpticalTrain: label,
+            SubFwhm: subFwhm,
+            SubHfd: subHfd,
+            SubEllipticity: subEcc,
+            MasterNoiseRelative: RelativeBackgroundMad(session.Master),
+            Bins: bins);
+    }
+
+    /// <summary>
     /// Incremental report builder: fold one <see cref="SessionRegistrar.RegisteredSession"/> in at a
     /// time (<see cref="AddAsync"/>) then <see cref="Build"/>. Per-sub metrics come from the gate's
     /// retained <see cref="FrameMetrics"/> (no detection); the field-radius profile re-detects stars
@@ -105,8 +210,11 @@ public static class DatasetPsfNoiseReport
         private readonly int _maxStars;
         // One accumulator per optical train (OTA/camera). The field-radius profile is optics-specific
         // -- it must not merge a coma-heavy Newtonian with a flat-field refractor -- so everything is
-        // bucketed by CalTrain and the overall population summary is derived by concatenation.
-        private readonly Dictionary<CalibrationResolver.CalTrain, TrainAcc> _byTrain = new();
+        // bucketed by train and the overall population summary is derived by concatenation. Keyed by
+        // the train's DESCRIBED label rather than the CalTrain value, because a record read back from
+        // the store carries only the label (its frames were never re-read) and must bucket with a
+        // freshly measured session of the same train.
+        private readonly Dictionary<string, TrainAcc> _byTrain = new(StringComparer.Ordinal);
 
         public Accumulator(int radiusBins = 5, float snrMin = 5f, int maxStars = 3000)
         {
@@ -115,45 +223,50 @@ public static class DatasetPsfNoiseReport
             _maxStars = maxStars;
         }
 
+        /// <summary>Measures a freshly registered session then folds it in. The measurement half is
+        /// <see cref="MeasureSessionAsync"/> so a caller that wants to PERSIST the record (the
+        /// archive builder, via <see cref="DatasetPsfStore"/>) measures once and folds the same
+        /// record, rather than there being a second way to compute one.</summary>
         public async Task AddAsync(SessionRegistrar.RegisteredSession session, ILogger? logger = null, CancellationToken cancellationToken = default)
+            => Add(await MeasureSessionAsync(session, _radiusBins, _snrMin, _maxStars, logger, cancellationToken), logger);
+
+        /// <summary>
+        /// Folds one session's persisted samples into the accumulator. This is the ONLY path that
+        /// mutates the accumulator, so a record read back from <see cref="DatasetPsfStore"/> and a
+        /// record just measured are treated identically by construction.
+        /// </summary>
+        public void Add(SessionPsf record, ILogger? logger = null)
         {
-            var train = CalibrationResolver.CalTrain.OpticalTrain(session.Session.Lights[0]);
-            if (!_byTrain.TryGetValue(train, out var acc))
+            if (record.Bins.Length != _radiusBins)
             {
-                _byTrain[train] = acc = new TrainAcc(train.Describe(), _radiusBins);
+                // Only reachable if the radius-bin count changed between runs, which would make the
+                // stored samples unbinnable. Loud rather than silent: a dropped session is exactly
+                // the failure this store exists to prevent.
+                logger?.LogWarning(
+                    "PSF record for {Session} has {Actual} radius bin(s), expected {Expected} -- not folded into the report. Delete {Store} to re-measure at the new bin count.",
+                    record.SessionId, record.Bins.Length, _radiusBins, DatasetPsfStore.FileName);
+                return;
+            }
+
+            // Keyed by the STORED label, so a resumed session (whose frames were never re-read) lands
+            // in the same train bucket as a freshly measured one.
+            if (!_byTrain.TryGetValue(record.OpticalTrain, out var acc))
+            {
+                _byTrain[record.OpticalTrain] = acc = new TrainAcc(record.OpticalTrain, _radiusBins);
             }
 
             acc.Sessions++;
-            foreach (var sub in session.Subs)
+            acc.Fwhm.AddRange(record.SubFwhm);
+            acc.Hfd.AddRange(record.SubHfd);
+            acc.Ecc.AddRange(record.SubEllipticity);
+            acc.Subs += record.SubFwhm.Length;
+            acc.Noise.Add(record.MasterNoiseRelative);
+            for (var b = 0; b < _radiusBins; b++)
             {
-                acc.Fwhm.Add(sub.Metrics.MedianFwhm);
-                acc.Hfd.Add(sub.Metrics.MedianHfd);
-                acc.Ecc.Add(sub.Metrics.MedianEllipticity);
-                acc.Subs++;
+                acc.BinFwhm[b].AddRange(record.Bins[b].Fwhm);
+                acc.BinEcc[b].AddRange(record.Bins[b].Ellipticity);
+                acc.StarsSampled += record.Bins[b].Fwhm.Length;
             }
-
-            acc.Noise.Add(RelativeBackgroundMad(session.Master));
-
-            var stars = await session.Master.FindStarsAsync(
-                channel: 0, snrMin: _snrMin, maxStars: _maxStars, cancellationToken: cancellationToken);
-            var cx = session.CanvasWidth * 0.5;
-            var cy = session.CanvasHeight * 0.5;
-            var halfDiag = 0.5 * Math.Sqrt((double)session.CanvasWidth * session.CanvasWidth + (double)session.CanvasHeight * session.CanvasHeight);
-            if (halfDiag > 0)
-            {
-                foreach (var star in stars)
-                {
-                    var dx = star.XCentroid - cx;
-                    var dy = star.YCentroid - cy;
-                    var rNorm = Math.Sqrt(dx * dx + dy * dy) / halfDiag;
-                    var bin = Math.Min(_radiusBins - 1, (int)(rNorm * _radiusBins));
-                    if (bin < 0) bin = 0;
-                    acc.BinFwhm[bin].Add(star.StarFWHM);
-                    acc.BinEcc[bin].Add(star.Ellipticity);
-                    acc.StarsSampled++;
-                }
-            }
-            logger?.LogInformation("  [{Session}] PSF sampled {Stars} stars ({Train})", session.Session.Id, stars.Count, acc.Label);
         }
 
         public Report Build()
