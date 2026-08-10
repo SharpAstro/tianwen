@@ -166,13 +166,14 @@ public static class CalibrationResolver
         IReadOnlyDictionary<FrameType, List<CalGroup>> calGroups,
         MasterCache masterCache,
         bool requireGainMatch = false,
+        double? maxDarkTemperatureDelta = null,
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
         var light = session.Lights[0];
         var lightKey = MasterGroupKey.FromFrame(light);
 
-        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light, requireGainMatch);
+        var darkGroup = BestDark(calGroups.GetValueOrDefault(FrameType.Dark), light, requireGainMatch, maxDarkTemperatureDelta);
         var flatGroup = BestFlat(calGroups.GetValueOrDefault(FrameType.Flat), light);
 
         // A gain/offset-mismatched dark is only ever picked when no same-gain library exists (the
@@ -260,7 +261,7 @@ public static class CalibrationResolver
     /// see <see cref="GainMismatchPenalty"/>). Score ties break by ordinal <see cref="MasterGroupKey.Slug"/>
     /// so the pick never depends on dictionary / filesystem enumeration order (the build's determinism
     /// claim).</summary>
-    internal static CalGroup? BestDark(List<CalGroup>? darks, FrameInfo light, bool requireGainMatch = false)
+    internal static CalGroup? BestDark(List<CalGroup>? darks, FrameInfo light, bool requireGainMatch = false, double? maxTempDelta = null)
     {
         if (darks is null) return null;
         var lightKey = MasterGroupKey.FromFrame(light);
@@ -279,7 +280,8 @@ public static class CalibrationResolver
                 || !ExposureCompatible(g.Key.Exposure, lightKey.Exposure)
                 || !DimensionCompatible(g.Key, lightKey)
                 || !g.Train.CameraCompatibleWith(lightCamera)
-                || !GainCompatible(g.Key, lightKey, requireGainMatch)) continue;
+                || !GainCompatible(g.Key, lightKey, requireGainMatch)
+                || !TemperatureCompatible(g.Key, lightKey, maxTempDelta)) continue;
             var score = TempPenalty(g.Key, lightKey) * 10.0
                 + Math.Abs((g.Key.Exposure - lightKey.Exposure).TotalSeconds)
                 + GainPenalty(g.Key, lightKey)
@@ -383,6 +385,19 @@ public static class CalibrationResolver
     /// off, gain only weights the score (see <see cref="GainPenalty"/>).</summary>
     private static bool GainCompatible(MasterGroupKey g, MasterGroupKey light, bool requireGainMatch) =>
         !requireGainMatch || !(g.Gain >= 0 && light.Gain >= 0 && g.Gain != light.Gain);
+
+    /// <summary>The strict temperature gate (opt-in via
+    /// <see cref="DatasetBuildOptions.MaxDarkTemperatureDelta"/>): when set, a dark whose sensor
+    /// temperature is KNOWN and further than the limit from the lights' is rejected outright rather
+    /// than merely score-penalised. Without it temperature is only <see cref="TempPenalty"/>, which
+    /// cannot exclude anything: when a badly-mismatched dark is the sole candidate it still wins,
+    /// and the session is recorded as calibrated. An unknown temperature on either side stays a
+    /// wildcard, matching how <see cref="GainCompatible"/> treats an unknown gain.</summary>
+    private static bool TemperatureCompatible(MasterGroupKey g, MasterGroupKey light, double? maxTempDelta) =>
+        maxTempDelta is not { } max
+        || g.TemperatureC is not { } gt
+        || light.TemperatureC is not { } lt
+        || Math.Abs(gt - lt) <= max;
 
     private static bool DimensionCompatible(MasterGroupKey g, MasterGroupKey light) =>
         g.SensorType == light.SensorType

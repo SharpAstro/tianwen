@@ -94,6 +94,30 @@ public sealed record DatasetBuildOptions
     /// Default false.</summary>
     public bool RequireGainMatch { get; init; } = false;
 
+    /// <summary>Maximum |dark - light| sensor temperature, in degrees C, for a dark to be a
+    /// candidate at all. Null (default) keeps the prior behaviour, where temperature only weights
+    /// the score and there is no cutoff.
+    ///
+    /// <para><b>Why a score is not enough.</b> Dark current roughly doubles per 6 C, so a dark shot
+    /// far from the light's temperature under-subtracts by a large factor: 17 C off is about 7x.
+    /// Every other axis (exposure, dimensions, camera, and with <see cref="RequireGainMatch"/> the
+    /// gain) is a hard gate, so a same-gain, same-exposure dark 17 C too cold passes every gate and
+    /// then wins on score, because it is the ONLY candidate. It is then recorded as calibrated. The
+    /// residual fixed pattern that leaves behind is <b>correlated between both subs of an N2N
+    /// pair</b>, which is precisely the independence the training objective assumes, so the sample
+    /// is worse than useless: the model learns to reproduce the residual rather than average it
+    /// away.</para>
+    ///
+    /// <para>Pairs with <see cref="RequireDarkCalibration"/> exactly as
+    /// <see cref="RequireGainMatch"/> does: this narrows the candidates, require-dark then skips a
+    /// session left with none. A frame with no temperature header on either side stays a wildcard,
+    /// so a header-less library is not silently dropped.</para>
+    ///
+    /// <para>Portable default is null rather than a number: the right tolerance is a property of
+    /// the sensor's dark current, not of this tool. The operator's runner picks it (the reference
+    /// archive uses 1 C for the ASI533 and 3 C for the SV605CC).</para></summary>
+    public double? MaxDarkTemperatureDelta { get; init; }
+
     /// <summary>Case-insensitive wildcard on the SWCREATE header; when non-empty, only LIGHTS whose
     /// creating software matches are kept (e.g. <c>*N.I.N.A.*</c> to exclude SharpCap planetary/EAA
     /// captures that carry Light-like headers but were never meant for deep-sky training).

@@ -305,6 +305,57 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void BestDark_WithoutATemperatureLimit_ALoneBadlyMismatchedDarkStillWins()
+        {
+            // The behaviour the limit exists to fix, pinned so it cannot be mistaken for a bug later:
+            // temperature is only a score term, and a score cannot exclude a sole candidate. A -5 C
+            // dark against +12 C lights passes every hard gate (same gain, same exposure, same
+            // sensor) and is returned, after which the session records as calibrated.
+            var tooCold = Group(FrameType.Dark, 120, -5, gain: 120);
+            var warmLight = Light(120, 12, gain: 120);
+
+            CalibrationResolver.BestDark([tooCold], warmLight).ShouldBe(tooCold);
+        }
+
+        [Fact]
+        public void BestDark_MaxTempDelta_RejectsATooDistantDark_ButKeepsOneInTolerance()
+        {
+            // Strict temperature: a KNOWN 17 C gap is a hard reject, not a penalty. Dark current
+            // roughly doubles per 6 C, so that dark under-subtracts by about 7x and leaves a residual
+            // fixed pattern CORRELATED between both subs of an N2N pair. With only that dark -> null
+            // (so RequireDarkCalibration then skips the session); add one at temperature and it wins.
+            var tooCold = Group(FrameType.Dark, 120, -5, gain: 120);
+            var warmLight = Light(120, 12, gain: 120);
+
+            CalibrationResolver.BestDark([tooCold], warmLight, maxTempDelta: 3.0).ShouldBeNull();
+
+            var atTemperature = Group(FrameType.Dark, 120, 12, gain: 120);
+            CalibrationResolver.BestDark([tooCold, atTemperature], warmLight, maxTempDelta: 3.0).ShouldBe(atTemperature);
+        }
+
+        [Fact]
+        public void BestDark_MaxTempDelta_IsInclusiveAtTheLimit()
+        {
+            // Exactly at the tolerance is IN, matching how the calibration map reports "within 1.0 C".
+            var atLimit = Group(FrameType.Dark, 120, -8, gain: 120);
+            var light = Light(120, -5, gain: 120);
+
+            CalibrationResolver.BestDark([atLimit], light, maxTempDelta: 3.0).ShouldBe(atLimit);
+            CalibrationResolver.BestDark([atLimit], light, maxTempDelta: 2.9).ShouldBeNull();
+        }
+
+        [Fact]
+        public void BestDark_MaxTempDelta_UnknownTemperatureStaysAWildcard()
+        {
+            // Mirrors the unknown-gain rule: a header-less library must not be silently dropped by a
+            // gate it cannot answer. A missing CCD-TEMP reaches MasterGroupKey as NaN -> null.
+            var unknownTemp = Group(FrameType.Dark, 120, float.NaN, gain: 120);
+            var light = Light(120, -5, gain: 120);
+
+            CalibrationResolver.BestDark([unknownTemp], light, maxTempDelta: 1.0).ShouldBe(unknownTemp);
+        }
+
+        [Fact]
         public void BestFlat_UnknownTelescopeOnEitherSide_IsAWildcard_NotADrop()
         {
             // A missing TELESCOP/FOCALLEN header must not wrongly drop an otherwise-matching flat
