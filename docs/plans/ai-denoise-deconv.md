@@ -342,8 +342,34 @@ preferred until it passes).
 
 - Repo layout: `training/` at repo root (Python: `dataset.py`, `train_denoise.py`,
   `train_deconv.py`, `export_onnx.py`, `parity_check.py`, `requirements.txt`, `EXPERIMENTS.md`,
-  `test-sessions.txt`). Dev smoke runs: torch-CPU under WSL (no win-arm64 torch wheels; the venv
-  bootstrap gets documented in `requirements.txt` comments).
+  `test-sessions.txt`). The venv bootstrap gets documented in `requirements.txt` comments.
+- **Dev smoke runs: native torch + CUDA, no WSL** (measured 2026-08-10). The earlier note here said
+  torch-CPU under WSL "no win-arm64 torch wheels"; that was laptop provenance and is wrong for the
+  x64 dev box. Wheel coverage is a property of the host, so check the index for your interpreter
+  rather than assuming either way. Measured working setup: GTX 1070 (Pascal, `sm_61`), 8 GB, driver
+  582.66; `torch==2.13.0+cu126` lists `sm_61` in `torch.cuda.get_arch_list()`. **No system CUDA
+  toolkit is required to train**, because the wheel bundles its own CUDA runtime and cuDNN (9.10.2);
+  a toolkit is only needed to compile CUDA C++. If one is installed anyway it must be **12.4 to
+  12.9**: CUDA 13.x dropped every architecture below `sm_75`, so it cannot target Pascal at all,
+  and it is what a bare `winget install Nvidia.CUDA` gives you. Pin with
+  `winget pin add --id Nvidia.CUDA --version "12.*"` so a routine upgrade cannot silently break it.
+- **The local GPU cannot do a full NAFNet-32 run, and the reason is AMP.** The T4 sizing above
+  ("16 GB VRAM fits NAFNet-32/64 @ 256 px with AMP") names the exact assumption Pascal breaks:
+  tensor cores start at compute 7.0, and GP104 runs fp16 at 1/64 rate, so local training is locked
+  to fp32 at a measured 4.85 TFLOPS. With 8 GB against 256 px activations on a 29 M-param
+  restoration net, batch sizes collapse as well. Rented GPU stays the plan for full runs.
+- **What the local GPU is for: de-risking the rented run before paying for it.** Two failures from
+  the in-house ML pipeline whose discipline § 3 already adopts wholesale were both cheap to catch
+  locally and expensive to catch remotely: one run lost at the export step because the legacy ONNX
+  tracer baked a fixed sequence dim into reshapes (only the dynamo exporter keeps it dynamic), and
+  another lost because early-stop patience was shorter than the cosine schedule, killing it while
+  the LR was still hot. So validate locally first: the data path off `D:\Astro-Dataset\2025-2026`,
+  the loop with checkpoint/resume, **the ONNX export plus its parity check** (the actual deliverable,
+  since customers run ONNX), and a shrunk width-8/16 variant to prove convergence end-to-end. The
+  rented job then becomes the same script with more GPU, not a debugging session at hourly rates.
+  Do not extrapolate a local-vs-rented ratio from fp32 measurements: a 1.2 M-param fp32 transformer
+  on this box ran 58 s/epoch against 31 s on a T4 (1.87x), but that gap widens sharply for a conv
+  net where the rented GPU uses AMP and this one cannot.
 - **Full runs: an internal AKS GPU dev pool as a k8s Job** (Tesla T4 16 GB, 4 vCPU / 28 GB,
   `nvidia.com/gpu: 1`; the workload-identity Job + blob-storage pattern is already proven
   in-house). 16 GB VRAM fits NAFNet-32/64 @ 256 px with AMP; T4 ≈ 3–5× slower than a 4090, so a full
