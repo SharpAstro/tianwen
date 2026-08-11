@@ -152,4 +152,29 @@ public sealed record DatasetBuildOptions
     /// records and leaves the choice to the caller. Default false.</para>
     /// </summary>
     public bool RegenPsfForExportedSessions { get; init; } = false;
+
+    /// <summary>
+    /// When true, each integrated session master is written to
+    /// <c>&lt;out&gt;/session-masters/&lt;sessionSlug&gt;.fits</c> and kept.
+    ///
+    /// <para><b>The master is the only perishable artifact a run produces.</b> Scratch is wiped per
+    /// session, so afterwards the master exists nowhere, and every statistic measured ON it (the
+    /// field-radius PSF profile, which is the input to the deconvolver's position-varying sweep) can
+    /// then only be recovered by registering the whole session again. That has cost two full 7h16m
+    /// re-runs in two days: once for a star-detection fix, once for an FWHM estimator fix. Neither
+    /// re-derived anything that needed the SUBS; both needed only the master, which the run had
+    /// already built and thrown away.</para>
+    ///
+    /// <para>Costs about 108 MB per session (union canvas, RGB float32), so roughly 5.4 GB for a
+    /// 50-session archive, against re-registration at ~9 minutes per session. Defaults to
+    /// <c>true</c>: the asymmetry is stark enough that keeping it is the sane default, and a caller
+    /// that genuinely cannot spare the disk can turn it off deliberately.</para>
+    ///
+    /// <para><b>What this does NOT cover:</b> the per-sub PSF distribution
+    /// (<c>SessionPsf.SubFwhm</c>) comes from the analysis pass over every sub, not from the master,
+    /// so re-deriving that half still needs a calibrate + detect sweep of the subs. Much cheaper than
+    /// register + integrate, but not free. Retaining masters makes the field-radius half nearly free
+    /// and leaves the per-sub half a separate question.</para>
+    /// </summary>
+    public bool RetainSessionMasters { get; init; } = true;
 }

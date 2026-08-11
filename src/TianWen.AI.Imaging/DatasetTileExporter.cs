@@ -620,7 +620,12 @@ public static class DatasetTileExporter
         return (int)(hash & 0x7FFFFFFF);
     }
 
-    private static string Sanitize(string id)
+    /// <summary>
+    /// Filename-safe form of a session id. <c>internal</c> rather than private because
+    /// <see cref="DatasetBuildRunner"/> names retained session masters with it: a master and its tile
+    /// directory must carry the SAME slug, or tracing one to the other means re-deriving the mapping.
+    /// </summary>
+    internal static string Sanitize(string id)
     {
         var buf = id.ToCharArray();
         for (var i = 0; i < buf.Length; i++)

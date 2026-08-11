@@ -141,6 +141,7 @@ public static class DatasetBuildRunner
         var resumed = 0;
         var psfMissing = 0;
         var psfRemeasured = 0;
+        var mastersRetained = 0;
         var totalTiles = 0;
         var parityChecked = false;
         var parityMaxDiff = 0.0;
@@ -213,6 +214,45 @@ public static class DatasetBuildRunner
                 {
                     continue;
                 }
+
+                // Retain the integrated master BEFORE anything else touches it. This is the only
+                // perishable output of the whole run: scratch is wiped per session, so afterwards the
+                // master exists nowhere, and re-deriving anything measured on it has meant registering
+                // the session again (two 7h16m re-runs in two days, for a detection fix and an FWHM
+                // fix, neither of which needed the subs). Written once and skipped if present, so a
+                // resume costs nothing.
+                //
+                // Best-effort ON PURPOSE, in its own catch: retention is a convenience, the
+                // measurement below is the job. A full disk must not cost this session its PSF record
+                // as well as its master, which is what letting it fall to the per-session catch would
+                // do (that path counts a failure and skips the measure).
+                if (options.RetainSessionMasters)
+                {
+                    try
+                    {
+                        var mastersDir = Path.Combine(outDir, "session-masters");
+                        Directory.CreateDirectory(mastersDir);
+                        var masterPath = Path.Combine(mastersDir, DatasetTileExporter.Sanitize(session.Id) + ".fits");
+                        if (File.Exists(masterPath))
+                        {
+                            logger?.LogDebug("  [{Session}] session master already retained", session.Id);
+                        }
+                        else
+                        {
+                            // Write to a temp name and move, so a kill mid-write cannot leave a
+                            // truncated FITS that a later run would treat as already retained.
+                            var tempPath = masterPath + ".partial";
+                            reg.Master.WriteToFitsFile(tempPath);
+                            File.Move(tempPath, masterPath, overwrite: true);
+                            mastersRetained++;
+                            logger?.LogDebug("  [{Session}] session master retained", session.Id);
+                        }
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        logger?.LogWarning(ex, "  [{Session}] could not retain the session master; continuing", session.Id);
+                    }
+                }
                 registered++;
 
                 if (psfOnly)
@@ -275,6 +315,7 @@ public static class DatasetBuildRunner
             $"{(psfRemeasured > 0 ? $" ({psfRemeasured} PSF re-measured)" : "")} -> {totalTiles} tiles " +
             $"({failed} failed, {skippedNoDark} skipped-no-dark); " +
             $"PSF report covers {psfBySession.Count(kv => sessionIds.Contains(kv.Key))}/{sessions.Length}; " +
+            $"{(options.RetainSessionMasters ? $"{mastersRetained} master(s) retained; " : "")}" +
             $"parity {(parityChecked ? parityMaxDiff == 0.0 ? "OK" : $"DIFF {parityMaxDiff}" : "n/a")}");
         return new RunResult(
             sessions.Length, registered, failed, skippedNoDark, resumed, totalTiles, testSessions.Length,
