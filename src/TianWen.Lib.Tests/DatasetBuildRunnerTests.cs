@@ -391,6 +391,68 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// --regen-psf fills GAPS and --force-psf RE-MEASURES REGARDLESS, and the difference matters
+        /// because the sessions whose records are wrong after an estimator change are exactly the ones
+        /// that already have a record. The gap-fill cannot reach them by construction, so before the
+        /// force flag existed the only way to re-measure was to delete the whole store by hand, which
+        /// also discarded the records of sessions that were still fine.
+        /// </summary>
+        [Fact]
+        public async Task Run_ForcePsf_ReMeasuresSessionsThatAlreadyHaveARecord_WhereRegenPsfWillNot()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = Path.Combine(_dir, "out"),
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            first.Registered.ShouldBe(1);
+            var tilesDir = Path.Combine(options.OutputDir, "tiles");
+            var tilesAfterFirst = Directory.GetFiles(tilesDir, "*.f16", SearchOption.AllDirectories).Length;
+
+            // Gap-fill has no gap to fill, so it resumes without measuring anything.
+            var regen = await DatasetBuildRunner.RunAsync(
+                options with { Resume = true, RegenPsfForExportedSessions = true }, cancellationToken: ct);
+            regen.Resumed.ShouldBe(1);
+            regen.PsfRemeasured.ShouldBe(0);
+
+            // Force re-measures the very same session.
+            var forced = await DatasetBuildRunner.RunAsync(
+                options with { Resume = true, ForcePsfRemeasure = true }, cancellationToken: ct);
+            forced.PsfRemeasured.ShouldBe(1);
+            forced.Resumed.ShouldBe(0);
+            // A PSF-only pass still counts as Registered, because it genuinely re-registers the
+            // session to rebuild the master the measurement needs; only the TILES are spared.
+            // PsfRemeasured is the field that distinguishes it from a full export.
+            forced.Registered.ShouldBe(1);
+
+            // Tiles are untouched by a re-measure, and the tile count is still banked.
+            Directory.GetFiles(tilesDir, "*.f16", SearchOption.AllDirectories).Length.ShouldBe(tilesAfterFirst);
+            forced.TotalTiles.ShouldBe(first.TotalTiles);
+
+            // Last-wins by id, so the store gained a line but the report still covers one session.
+            var store = await DatasetPsfStore.ReadAsync(first.PsfStorePath, cancellationToken: ct);
+            store.Count.ShouldBe(1);
+            (await File.ReadAllLinesAsync(first.PsfStorePath, ct))
+                .Count(l => l.Trim().Length > 0).ShouldBe(2);
+        }
+
+        /// <summary>
         /// The manifest is a claim about the past, not proof. Deleting a session's tiles used to leave
         /// resume reporting "already exported", skipping it, and finishing with exit 0 while counting
         /// tiles that were gone; the manifest and the filesystem then disagreed with nothing to say
