@@ -133,7 +133,11 @@ public static class DatasetBuildRunner
         //    bounded by the largest single session, not the whole archive; the masters cache
         //    (outDir/masters) is separate and preserved for build-once reuse.
         var masterCache = new MasterCache(Path.Combine(outDir, "masters"), logger);
-        var scratchRoot = Path.Combine(outDir, "_scratch");
+        // Always the "_scratch" leaf, so an operator-supplied ScratchRoot keeps its own directory:
+        // TryDelete below removes this path, and it must never be the caller's parent.
+        var scratchRoot = Path.Combine(
+            string.IsNullOrWhiteSpace(options.ScratchRoot) ? outDir : options.ScratchRoot,
+            "_scratch");
         var sessionIds = new HashSet<string>(sessions.Select(s => s.Id), StringComparer.Ordinal);
         var registered = 0;
         var failed = 0;
