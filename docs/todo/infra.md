@@ -95,6 +95,61 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
       `ScanBackgroundRegion` accepts optional `BitMatrix? starMask`, re-scanned with
       48×48 squares after detection. Star mask reused from `StarList.StarMask`.
 
+## Dataset builder: make a re-measure cheap
+
+- [ ] **Retain the session masters so re-deriving PSF stats does not mean re-registering.**
+  **Evidence: two full 7h16m re-runs in two days** (2026-08-10 the star-detection duplicate fix,
+  2026-08-11 the FWHM estimator fix), both of which re-registered 50 sessions purely to recompute a
+  handful of numbers per star. `DatasetPsfStore` checkpoints *measured values*, which is exactly right
+  for surviving an interrupted run and useless for surviving a change to the estimator that produced
+  them. The measurement itself takes seconds; the registration takes the 7 hours.
+
+  Why it currently cannot be short-circuited: the field-radius profile (`Bins[].Fwhm`, the only part
+  P2's synthetic-PSF sweep actually needs) is measured by detecting stars on the **session master**,
+  and the master exists only as the output of register + integrate into `outDir/_scratch`, which is
+  wiped per session on purpose so peak disk is bounded by the largest single session.
+
+  **Classify the change before choosing a mechanism**, because it is easy to build something that
+  helps less than it appears to:
+
+  | Change | What re-measuring needs |
+  |---|---|
+  | Registration or integration itself | Full re-register. Unavoidable, and correct. |
+  | **Detection** (which stars, centroid, aperture sizing) | The master's PIXELS (field-radius half) and the subs' pixels (per-sub half) |
+  | **A quantity derived from one star's radial profile** (the FWHM change) | Only the stored profile |
+
+  Two candidate mechanisms:
+
+  - **(A) Keep the 50 session masters.** ~108 MB each (3008x3008x3 float32), so ~5.4 GB, or ~2.7 GB at
+    fp16. Covers the detection *and* derived classes for the field-radius half, and is nearly free to
+    implement: write the master to a retained per-session path instead of only into scratch. Disk is
+    abundant on this box and the masters are already computed. **Preferred**, because it covers the
+    strictly larger class of change.
+  - **(B) Persist the per-star radial profile** (`profileFlux` / `profileWeight` from
+    `Image.AnalyseStar`, ~8-16 floats per star; ~219k sampled stars implies roughly 5-15 MB). Covers
+    only the derived class, but covers it for **both** halves, and is small enough to commit-adjacent.
+    A cheap complement to (A), not a substitute.
+
+  **The per-sub half does not fully benefit either way, and say so up front.** `SubFwhm[]` comes from
+  the analysis pass over each of the 5,984 subs, so re-deriving it needs a calibrate + detect sweep of
+  the subs. That is far cheaper than register + integrate but not free (order 40 min), and retaining
+  masters does nothing for it. Mechanism (B) is what makes that half cheap.
+
+  Precedent for the shape: `TianWen.Lib.Tests/Data/vela-mosaic-starlists.json.gz` stands in 2.1 MiB of
+  star positions for ~9 GB of FITS, because the property under test was geometric. Same idea, applied
+  to the dataset builder's own statistics.
+
+- [ ] **`--regen-psf` oversells what it does; either rename it or make it mean its name.**
+  `DatasetBuildRunner.RunAsync` returns early for a session that already has a PSF record **before**
+  consulting `RegenPsfForExportedSessions`, so the flag only fills in *missing* records and cannot
+  force a re-measure. The 2026-08-11 FWHM re-run therefore needed the store rotated aside by hand to
+  make all 50 records "missing" before the flag would do anything. The doc comment is accurate but the
+  name is not, and it mispredicted its own behaviour within a day of being written, which is evidence
+  about the name rather than about the reader. Options: rename to `--fill-missing-psf`, or add a force
+  path and let missing-record be the subset. Note that rotating the store is *independently* worth
+  doing (it preserves the prior distribution for a before/after comparison, which an append-only
+  last-wins force would bury), so whichever way this goes, keep rotation as the documented gesture.
+
 ## Build / dev environment (local siblings)
 
 - [x] **NuGet graph-restore source-key alignment: standardized on `nuget.org`** (DONE 2026-07-04,
