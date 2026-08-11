@@ -1,0 +1,79 @@
+TianWen -- third-party attributions
+===================================
+
+This file credits methods, data and code that TianWen builds on. It records credit
+and provenance; it does not grant or restrict anything. The licence TianWen itself
+is offered under is in LICENSE.
+
+
+Star measurement method (HFD, background, aperture sizing)
+---------------------------------------------------------
+
+`TianWen.Lib/Imaging/Image.StarDetection.cs` measures stars by the approach Han
+Kleijn documented for ASTAP: a median-plus-MAD background taken from an annulus
+outside the aperture, a 3-sigma signal gate, a flux-weighted centroid with the
+aperture shrunk until the star is boxed, a radial signal histogram to size the
+aperture, and a flux-weighted approximation of the half flux diameter.
+
+  Han Kleijn, ASTAP / HNSKY -- https://www.hnsky.org/astap.htm
+
+The HFD approximation itself is credited by that documentation to Kazuhisa
+Miyashita:
+
+  https://astro-limovie.info/occultation_observation/halffluxdiameter/halffluxdiameter_en.html
+
+Further descriptions of the same measurement consulted along the way:
+
+  https://en.wikipedia.org/wiki/Half_flux_diameter
+  https://www.lost-infinity.com/night-sky-image-processing-part-6-measuring-the-half-flux-diameter-hfd-of-a-star-a-simple-c-implementation/
+  http://www.ccdware.com/Files/ITS%20Paper.pdf  (page 10, HFD Measurement Algorithm)
+
+Two parts of that file are deliberately not the published method: FWHM is measured
+as an interpolated radial half-maximum crossing rather than the area of the
+above-half-maximum samples (see `HalfMaxDiameter`), and ellipticity comes from the
+flux-weighted second-moment matrix.
+
+
+IAU SOFA
+--------
+
+`TianWen.Lib/Astrometry/SOFA/` contains C# code derived from routines published by
+the International Astronomical Union's Standards of Fundamental Astronomy service.
+
+  http://www.iausofa.org
+
+As the SOFA licence requires of derived work, these routines do not carry the
+"iau" or "sofa" prefixes, are not the SOFA routines themselves, and are not
+endorsed by the IAU. Any error in them is ours.
+
+
+Embedded data
+-------------
+
+  Jupiter reference image (`Devices/Fake/Data/jupiter.rgb.gz`), used only by the
+  fake camera's synthetic planetary capture: NASA / ESA Hubble OPAL 2024, public
+  domain. https://science.nasa.gov/asset/hubble/jupiter-opal-2024/
+
+  Star, deep-sky and spectral catalogues under `Astrometry/Catalogs/` retain the
+  terms of their upstream sources (Tycho-2, OpenNGC, SIMBAD, Pickles); see the
+  fetch scripts beside them for the origin of each.
+
+
+External programs, invoked and never linked
+-------------------------------------------
+
+TianWen can drive several third-party programs as separate processes, passing data
+through files and reading their output back. None of their code is compiled into
+or distributed with TianWen, and each is obtained and licensed by the user
+directly from its author:
+
+  ASTAP (`AstapPlateSolver`)                 https://www.hnsky.org/astap.htm
+  astrometry.net (`AstrometryNetPlateSolver`) https://astrometry.net
+  GraXpert (gradient correction)             https://graxpert.com
+  RC-Astro BlurXTerminator / NoiseXTerminator / StarXTerminator  https://www.rc-astro.com
+  SETI Astro Suite ONNX models               https://www.setiastro.com
+
+RC-Astro's licence forbids using its outputs to train, validate or benchmark a
+competing model. TianWen's own model work (see docs/plans/ai-denoise-deconv.md)
+therefore uses no RC-Astro or SETI Astro output anywhere in its training,
+validation or metric path.
