@@ -47,7 +47,7 @@ TianWen is a .NET 10 library for astronomical device management, image processin
 Supports cameras, mounts, focusers, filter wheels, cover/calibrators, and guiders via ASCOM, Alpaca (HTTP),
 ZWO, QHYCCD, Meade LX200, Skywatcher, OnStep (serial + WiFi/mDNS), iOptron SkyGuider Pro, Gemini FlatPanel
 Lite (native serial cover/calibrator), Gemini Focuser Pro (native serial focuser, a rebadged myFocuserPro2),
-PHD2, and a built-in guider. Published as `TianWen.Lib` on NuGet, plus AOT-published binaries — of
+PHD2, and a built-in guider. Published as `TianWen.Lib` on NuGet, plus AOT-published binaries, of
 which **four are release assets** (`tianwen` CLI, `tianwen-server` headless, `tianwen-gui`,
 `tianwen-fits`) and two are built but not shipped as `.tar.gz` (`tianwen-mcp`, `tianwen-ascomhost`).
 
@@ -85,7 +85,7 @@ src/
 
 Six projects set `PublishAot` + an `<AssemblyName>` short lower-case name: `tianwen`,
 `tianwen-server`, `tianwen-fits`, `tianwen-gui`, `tianwen-mcp`, `tianwen-ascomhost`. **Only the
-first four are packaged as release assets** by `.github/workflows/dotnet.yml` — adding a binary to
+first four are packaged as release assets** by `.github/workflows/dotnet.yml`; adding a binary to
 the release means adding it to the upload/glob steps there as well as setting the properties here.
 
 ## Build & Test Commands
@@ -153,7 +153,7 @@ solution-wide `dotnet test` must not sweep it up. Run them explicitly:
 **`open-vs.ps1` generates `TianWen.local.slnx`** at the repo root (gitignored) by re-rooting
 `src/TianWen.slnx` and appending a `/Siblings/` folder, so Go To Definition lands in sibling *source*.
 Its project list **must** match the `UseLocalSiblings` `Exists(...)` conjunction and **nothing enforces
-that** — it had drifted to `../StbImageSharp` for all seven codec projects (that repo is `../Codecs`
+that**: it had drifted to `../StbImageSharp` for all seven codec projects (that repo is `../Codecs`
 now) and was missing three others. A generated solution with unresolvable entries loads with them
 silently unloaded rather than failing, so touch one file and re-read the other.
 
@@ -167,8 +167,9 @@ will still pull from nuget.org and a local-only nupkg will mask version-skew bug
 
 ### Releasing a sibling (three traps the org doc does not cover)
 
-**The mechanism is org-wide and documented once, in the imported `.github/CLAUDE.md` ("Versioning")
-plus `.github/docs/dotnet-ci-pattern.md` — a release in ANY SharpAstro repo is editing
+**The mechanism is org-wide and documented once, in the imported `../.github/CLAUDE.md` ("Versioning")
+plus `../.github/docs/dotnet-ci-pattern.md` (the org root's `.github` clone, one level up from this
+repo, NOT this repo's own `.github/`): a release in ANY SharpAstro repo is editing
 `<VersionMajorMinor>` in that repo's `Directory.Build.props` and nothing else.** Do not restate it
 here. What follows is only what that doc omits:
 
@@ -193,7 +194,7 @@ here. What follows is only what that doc omits:
 then). `<VersionMajorMinor>` lives in `src/Directory.Build.props` and everything derives: `VersionPrefix`
 for every project (guarded on empty so CI's `-p:Version` wins), `AssemblyVersion` in
 `TianWen.Lib.csproj` as `$(VersionMajorMinor).0.0`, and CI's `VERSION_PREFIX`. `/bump-version` edits
-the one line. **A version literal in a csproj or the workflow is now a regression** — delete it and
+the one line. **A version literal in a csproj or the workflow is now a regression**; delete it and
 let it derive.
 
 Two things specific to this repo's conversion:
@@ -201,7 +202,7 @@ Two things specific to this repo's conversion:
 - **The read-back writes BOTH `$GITHUB_ENV` and a `build` job output**, because `$GITHUB_ENV` is
   **per-job** and five jobs here consume `VERSION_PREFIX` (`build`, `test-unit`, `test-functional`,
   `publish-apps`, `release`). The bare-step form that single-job repos use (Lzip.Lib, the reference
-  implementation) would have set it for `build` only and left the rest empty — silently malforming
+  implementation) would have set it for `build` only and left the rest empty, silently malforming
   `-p:Version=` and tagging a release `v.`. So `build`'s "Resolve version prefix" step exports
   `version-prefix`, and every consumer declares `needs: build` plus a job-level
   `env: VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}`, which leaves all the `run:` lines
@@ -210,7 +211,7 @@ Two things specific to this repo's conversion:
   job would only serialise its own runner startup onto every push and PR.
 - **It closed a latent bug.** `TianWen.Lib` sets `GeneratePackageOnBuild` but had no `VersionPrefix`
   of its own, so a local `dotnet build` packed it at the SDK default **1.0.0** while its
-  `AssemblyVersion` read 6.1 — there was a 43 MB `TianWen.Lib.1.0.0.nupkg` sitting in `bin/Release`
+  `AssemblyVersion` read 6.1; there was a 43 MB `TianWen.Lib.1.0.0.nupkg` sitting in `bin/Release`
   to prove it. The shared `VersionPrefix` now covers every project.
 
 ## Key Technologies
@@ -220,7 +221,7 @@ Two things specific to this repo's conversion:
 | DI / Logging | Microsoft.Extensions.* |
 | CLI | System.CommandLine v2 + Pastel |
 | Testing | xUnit v3 + Shouldly + NSubstitute |
-| Imaging | SharpAstro codecs facade + DIR.Lib Tiff/Png, FITS.Lib (Magick.NET removed) |
+| Imaging | SharpAstro codecs facade (`SharpAstro.Tiff`/`.Png`/`.Exr`/...), FITS.Lib (Magick.NET removed) |
 | UI / GPU | SDL3 + Vulkan (SdlVulkan.Renderer) |
 | Hosting | ASP.NET Core Minimal API, SharpAstro.Jpeg (preview encode) |
 | Astronomy | ASCOM, ZWOptical.SDK, QHYCCD.SDK, IAU SOFA (C# port) |
@@ -273,8 +274,8 @@ test projects carry an `xunit.runner.json` (`maxParallelThreads: 4`; Simulators 
 `parallelizeTestCollections: false`) **and** a matching
 `<Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />`. `TianWen.Lib.Tests`
 had neither for a long time while this file claimed otherwise, so xUnit silently defaulted to the core
-count (12) and thrashed the box; adding the file plus the `Content Include` cut the suite from 8m45–12m
-to 7m46 **and made it green** — contention was dominating. Never diagnose a slow suite by re-running it
+count (12) and thrashed the box; adding the file plus the `Content Include` cut the suite from 8m45-12m
+to 7m46 **and made it green**: contention was dominating. Never diagnose a slow suite by re-running it
 repeatedly: one run with a TRX logger, then rank durations.
 
 `SessionTestHelper` defaults to `FakeMountDriver`; pass `mountPort: "LX200"` or `"SkyWatcher"` only for
@@ -360,6 +361,21 @@ screenshot-poll-and-OCR**. Three pieces compose:
      `render_liveness` classifies ALIVE/BLOCKED/DEAD (and on BLOCKED prints the `dotnet-stack report -p <pid>`
      to capture the frozen frame); `watchSeconds>0` polls until it wedges. Use this, not screenshot/describe,
      to decide IF the render thread is stuck (those also block when it is).
+   - **Validation report** (`validation_report`, and read it with the gate in mind): **a zero message count
+     is evidence of correctness only when `active` is true.** `active` is the DEBUG + `SDLVK_VALIDATION=1`
+     gate AND `layerAvailable`, and before SdlVulkan.Renderer 7.11 only the gate was reported, so a host
+     with no Khronos validation layer installed answered `enabled: true` with zero messages and zero sync
+     hazards, indistinguishable from a clean run. That reading is what sent a device-loss investigation
+     upstream down the wrong path. Install the Vulkan SDK's layer before believing a clean report.
+
+   **A GPU fault names itself now** (SdlVulkan.Renderer 7.11, which is where the `Shaders/` + swapchain path
+   got its validation-layer pass). `VK_ERROR_DEVICE_LOST` is terminal and logs event 115 instead of entering
+   swapchain recovery, which could never work once the device is gone and used to surface as a
+   "recovery storm" (event 110) that reads like a workload problem. So a wedge and a dead device are now
+   distinguishable in `GUI_*.log`, and `render_liveness` BLOCKED means the render thread, not the device.
+   Event 501 additionally names the selected GPU (device, type, driver + API version, queue family, how many
+   were enumerated), so a report is attributable to hardware from our own log; selection now prefers a
+   discrete GPU, which is a preference and a no-op on an integrated-only box.
 
    `StartSession` needs ≥1 pinned target (`PlannerState.Proposals.Length > 0`, else it no-ops with "pin
    targets in the Planner first"). Planner pins persist **per-profile** to `AppData/Planner` and reload at
@@ -426,7 +442,7 @@ around the picture instead of blanking it). Ctrl+H also works now -- Console.Lib
 
 ## Coding Style
 
-Enforced via `.editorconfig`:
+Enforced via `src/.editorconfig` (it sits beside the solution, not at the repo root):
 - 4 spaces, CRLF line endings, block-scoped namespaces (`namespace Foo { }`, not file-scoped)
 - Primary constructors preferred for DI
 - No implicit `new(...)`, always `new SomeType()`
@@ -514,7 +530,7 @@ downloads + decodes **once** when the server first reports `imageready`, populat
 next frame re-downloads. Before this, `ImageData => null` meant the camera connected but never
 returned a frame, which is why `AddAlpaca()` was previously left unregistered. **The HTTP round-trip
 is validated against a live OmniSim** by `AlpacaSimulatorTests.Camera_ExposesAndDownloadsViaImageBytes`
-(see the simulator suite below) — the decoder stays separately byte-pinned by `AlpacaImageBytesTests`.
+(see the simulator suite below); the decoder stays separately byte-pinned by `AlpacaImageBytesTests`.
 
 ### Device Secrets (Credential Store)
 
@@ -726,7 +742,7 @@ or "re-order" logic must operate on the OTA set as a single unit.
 
 `RunAsync` workflow: `InitialisationAsync` → wait for twilight → `CoolCamerasToSetpointAsync` →
 `InitialRoughFocusAsync` → `AutoFocusAllTelescopesAsync` → `CalibrateGuiderAsync` → `ObservationLoopAsync`.
-See class XML doc + `PLAN-*.md` for details on each phase.
+See the class XML doc + the relevant `docs/plans/*.md` for details on each phase.
 
 **Session failure surfacing (`ISession.FailureReason`):** when a run ends `SessionPhase.Failed`, the
 session carries a plain-language, user-actionable reason (which device to check, what to do) -- surfaced
@@ -1508,19 +1524,19 @@ design).
 `GuiTheme` (`TianWen.UI.Abstractions/GuiTheme.cs`) owns the one palette every surface paints with;
 `UiThemeState` is **System / Light / Dark / Night**, and `GuiTheme.Apply(state, desktopIsDark)`
 resolves + swaps it in as a single reference write. `Palette` is one reference read, never torn. The
-source XML comments carry the full rationale (including the scotopic-sensitivity numbers) — read them
+source XML comments carry the full rationale (including the scotopic-sensitivity numbers); read them
 before changing a colour.
 
 - **Anything that CACHES a projection of the palette owes `GuiTheme.PaletteGeneration` in its cache
   key.** `Apply` bumps the generation only when the resolved palette actually moves. This is the
   frozen-snapshot bug in another costume: the planner chart renders to a GPU texture keyed on the data
   it draws, a theme switch changes none of that data, so the chart kept painting the old palette after
-  F12 while every other surface moved. `Apply`'s `bool` return ("did it change") cannot fix a cache —
-  the consumer may not have been asked — but a generation is comparable later by anyone.
+  F12 while every other surface moved. `Apply`'s `bool` return ("did it change") cannot fix a cache
+  (the consumer may not have been asked), but a generation is comparable later by anyone.
 - **Night is not a darker Dark, and is deliberately unreachable from `System`.** F12 toggles it
   (SharpCap's night-vision gesture). Blue is **zero** throughout and green is spent only to buy hue
   separation, because red is the only cheap channel for dark adaptation; red-on-black caps at 5.25:1,
-  so the whole text ladder fits under that ceiling — anything that must be READ uses `BodyText`, and
+  so the whole text ladder fits under that ceiling; anything that must be READ uses `BodyText`, and
   `DimText` is reserved for chrome nobody needs to read. Two derived colours had leaked blue into
   Night and had to be fixed; derive new ones from the palette, never from a literal.
 - **Judge Night at night.** A sky-map screenshot taken at 5pm shows its daylight tint, not the theme's;
@@ -1612,13 +1628,20 @@ not reintroduce an `Image`-keyed cache. Two parallel collections passing the sam
 flake; the `Background()` histogram peak drifts off scale once the data has been rescaled
 to `[0, 1]` while `MaxValue` still reads the original.
 
-### Float TIFF Convention (DIR.Lib Tiff I/O; Magick.NET fully removed)
+### Float TIFF Convention (`SharpAstro.Tiff` I/O; Magick.NET fully removed)
 
 **Magick.NET is no longer a dependency anywhere in this repo** (no PackageReference in any
 project incl. tests; remaining "Magick" strings are historical comments). Float32 TIFF I/O goes
-through `DIR.Lib.Tiff.TiffWriter`/`TiffReader` (`Image.Export.cs` / `Image.Import.cs`); imports
+through `SharpAstro.Tiff.TiffWriter`/`TiffReader` (`Image.Export.cs` / `Image.Import.cs`); imports
 route through the SharpAstro codecs facade (extension-based, no Magick fallback; CR2/CR3 →
 FC.SDK.Raw, FITS → FITS.Lib).
+
+**These types are NOT in DIR.Lib, though they used to be.** DIR.Lib 3.0 extracted the codec layer
+into the `Codecs` repo's own packages and 4.0 dropped the dependencies outright, so the namespaces
+TianWen imports are `SharpAstro.Png` / `.Jpeg` / `.Tiff` / `.Color.Icc` / `.Jxr` / `.Exr` / `.Exif` /
+`.Codecs`, pinned as one family through `$(SharpAstroCodecsVersion)` (see the sibling table above,
+which lists the same family). A `DIR.Lib.Tiff.*` or `DIR.Lib.Color.*` reference anywhere is a stale
+name, not a second implementation.
 
 The **on-disk convention** predates the swap and must not regress, because two reader families
 disagree about float TIFFs:
@@ -1637,22 +1660,25 @@ bits as uint) + `SMinSampleValue = 0` / `SMaxSampleValue = 65535` (the `Q16HdriQ
 const, kept so ImageMagick-based tools read back at their expected `[0, 65535]`). `[0, 1]` is
 the canonical in-memory range on read as well.
 
-See `DIR.Lib.Tests/TiffWriterRoundTripTests.cs` for the byte-level reader probe and
-`TianWen.Lib.Tests/TiffRoundTripTests.cs` for the round-trip + SATURATE/unit-scale guard.
+See the `Codecs` repo's `tests/SharpAstro.Codecs.Tests/TiffWriterRoundTripTests.cs` for the
+byte-level reader probe and `TianWen.Lib.Tests/TiffRoundTripTests.cs` for the round-trip +
+SATURATE/unit-scale guard.
 
-**DIR.Lib Phase-1.5 additions** (available as of DIR.Lib 2.14.x):
+**The codec surface these paths rely on** (long-standing baseline, not a changelog; the current pins
+live in `Directory.Packages.props`):
 
-- `DIR.Lib.Color.IccProfiles.SRgbV4`: bundled 588-byte sRGB v4 profile bytes
+- `SharpAstro.Color.Icc.IccProfiles.SRgbV4`: bundled 588-byte sRGB v4 profile bytes
   (LittleCMS-generated). Pass to `TiffPageOptions.IccProfile` or
   `PngWriter.Encode(..., iccProfile)` to embed a colour-management tag without
   having to source profile bytes yourself.
-- `PngWriter.EncodeGray8` / `EncodeGray16` / `EncodeRgba16`; bit-depth and
+- `SharpAstro.Png.PngWriter.EncodeGray8` / `EncodeGray16` / `EncodeRgba16`; bit-depth and
   grayscale variants on top of the original RGBA8 entry point. 16-bit overloads
   accept `ReadOnlySpan<ushort>` in system-endian and byte-swap to PNG's required
-  BE order internally.
+  BE order internally. Each also takes a `PngWriteOptions` overload (that is the one that
+  carries `Cicp`, used by the PQ-HDR PNG path).
 - `PngWriter.Encode(rgba, w, h, iccProfile)`: emits an `iCCP` chunk between
   IHDR and IDAT, keyword "ICC profile", zlib-deflated. Empty span = no chunk.
-- `DIR.Lib.Tiff.TiffReader.Read(stream | span)`: pure-managed decoder; v1
+- `SharpAstro.Tiff.TiffReader.Read(stream | span)`: pure-managed decoder; v1
   scope is strip layout + Uncompressed/Deflate/ZlibPkzip + 8/16/32-bit uint
   or IeeeFloat + contig planar config. Both "II" (LE) and "MM" (BE) byte
   orders are accepted; the reader detects file-order from the header and
@@ -1676,11 +1702,15 @@ WCS annotation), `.Histogram`, `.InfoPanel` (incl. WB + wavelet sliders), `.Stat
 monolith. The whole chrome is arranged from ONE layout pass rooted at `ContentRegion` (see the
 `.Layout.cs` banner) -- never hand-place chrome at `(0,0,Width,...)`.
 
-**One slider widget.** The WB sliders, the 6 wavelet-layer sliders, and the SER transport scrub are the
-same horizontal press/drag/release track. `ImageRendererBase.TrackSlider.cs` is the single source:
-`DrawTrackSlider(trackX, trackW, barCenterY, handleY, handleH, frac, fillColor, hitBand, hit)` (render +
-register the drag hit-band) and `static TrackFrac(RectF32, px)` (the cursor-X -> fraction drag math). A
-new track-style control calls these; never re-triplicate the bar/fill/handle/clamp math.
+**One slider widget, and it lives in DIR.Lib now.** The WB sliders, the 6 wavelet-layer sliders, and the
+SER transport scrub are the same horizontal press/drag/release track. The single source is
+`PixelWidgetBase` (DIR.Lib), upstreamed out of TianWen by the controls plan, so there is no
+`ImageRendererBase.TrackSlider.cs` here to look for:
+`DrawTrackSlider(trackX, trackW, barCenterY, handleY, handleH, frac, fillColor, hitBand, hit, chrome)`
+(render + register the drag hit-band) plus a `(trackX, trackW, handleY, handleH, frac, ...)` overload for
+the common case where the bar runs through the middle of the handle, and
+`static TrackFrac(RectF32, px)` (the cursor-X -> fraction drag math). A new track-style control calls
+these; never re-triplicate the bar/fill/handle/clamp math.
 
 **One viewer (no mini viewer).** There is no separate "mini viewer" -- the Live Session preview, polar-align,
 and guide-cam all host this same full viewer configured chromeless (`ViewerState.HideChrome` drops the
@@ -1724,8 +1754,9 @@ pedestal → rescale → MTF). Don't reimplement it.
 
 The stretch pipeline runs in two parallel implementations that must produce visually equivalent
 output for the same `StretchUniforms`:
-- **GPU**: `VkFitsImagePipeline.glsl` `stretchChannel` (per-channel) + `StretchLumaPixelCpu` analogue
-  in shader (Luma); used by the live FITS viewer.
+- **GPU**: `TianWen.UI.Shared/Shaders/image.frag` (loaded by `VkFitsImagePipeline` from the baked
+  `Shaders/spirv/image.frag.spv`): `stretchChannel` (per-channel) + the Luma branch that mirrors
+  `StretchLumaPixelCpu`; used by the live FITS viewer.
 - **CPU**: `Image.StretchChannelCpu`, `Image.StretchLumaPixelCpu`, `Image.ApplyHdr`,
   `Image.ApplyCurveLut`, `Image.ApplyBoost`, `Image.RenderStretchedRgba`; used by
   `ConsoleImageRenderer` (TUI Sixel) and tests (`StretchTests_NewPipeline`). Never use the GPU.
@@ -1974,11 +2005,20 @@ Centralized in `Directory.Packages.props`: version numbers go there, not in indi
 
 ## Runtime Data (AppData)
 
-`%LOCALAPPDATA%/TianWen/`:
+`%LOCALAPPDATA%/TianWen/`. The whole set, because there is **no** single choke point that creates these:
+`IExternal.CreateSubDirectoryInAppDataFolder(name)` covers four of them, `Planner`/`Session` are built
+from `AppDataFolder` directly, `Profiles`/`Logs` off `SharedStaticData.CommonDataRoot`, and `models` +
+`lan-node-id.txt` are resolved by their own owners. Add a directory here when you add one there.
 ```
 TianWen/
-├── Logs/        # Per-day log files: GUI_*.log, FitsViewer_*.log
-├── Profiles/   # Per-profile data (*.json + NeuralGuider/*.ngm + BacklashHistory/*.json)
-├── Planner/    # Persisted planner state (pinned targets)
-└── Secrets/    # Non-Windows only: 0600 file per device secret (Windows uses Credential Manager)
+├── Logs/<date>/        # <appName>_<timestamp>.log per process: GUI_*, FitsViewer_*, ... (FileLoggerProvider)
+├── Profiles/           # Per-profile data (*.json + NeuralGuider/*.ngm + BacklashHistory/*.json)
+├── Planner/            # Pinned targets: <profileId>/<date>.json, remote rigs under rigs/<bindingId>/
+├── Session/            # Session-setup state, <profileId>.json (SessionPersistence)
+├── Guider/             # Guider frames dumped for plate solving (guider_*.fits + .ini)
+├── Weather/            # OpenMeteo / OpenWeatherMap forecast cache
+├── SmallBodies/        # JPL SBDB comet cache: comets.json + apparitions.json
+├── models/             # AI ONNX models (ModelResolver; also probes SASpro's own models dir)
+├── Secrets/            # Non-Windows only: 0600 file per device secret (Windows uses Credential Manager)
+└── lan-node-id.txt     # tianwen-server's stable LAN NodeId, the key remote-rig bindings persist against
 ```
