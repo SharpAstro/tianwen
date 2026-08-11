@@ -146,10 +146,34 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        [Fact]
+        public async Task ReadManifestCheckpoints_ToleratesRowsFromBeforeTheFwhmColumnWasDropped()
+        {
+            // Resume must survive the SessionMedianFwhm removal. A manifest written by an older
+            // build carries that property on every row; if the reader rejected unknown members, a
+            // resume against it would see zero checkpoints and silently re-export all 50 sessions
+            // (~7 hours, and the tiles are already on disk). Deserialization ignores it, so the
+            // checkpoint still resolves; this pins that rather than leaving it to a default.
+            var ct = TestContext.Current.CancellationToken;
+            Directory.CreateDirectory(_dir);
+            var path = Path.Combine(_dir, "legacy-manifest.jsonl");
+            var legacy = /*lang=json*/ """
+                {"Tile":"tiles/a/x0_y0_master.f16","SessionId":"a|Cam","Camera":"Cam","Frame":"master","SourceFile":"","CellX":0,"CellY":0,"TileSize":64,"Channels":3,"Gain":100,"ExposureSeconds":1,"NoiseMad":0.1,"SessionMedianFwhm":3.5682}
+                """;
+            await File.WriteAllTextAsync(path, legacy + "\n", ct);
+
+            var checkpoints = await DatasetTileExporter.ReadManifestCheckpointsAsync(path, ct);
+
+            var checkpoint = checkpoints.ShouldHaveSingleItem().Value;
+            checkpoint.SessionId.ShouldBe("a|Cam");
+            checkpoint.TileCount.ShouldBe(1);
+            checkpoint.TileDirRelative.ShouldBe("tiles/a");
+        }
+
         private static DatasetTileExporter.TileManifestRow Row(string tile) => new(
             Tile: tile, SessionId: "b|Cam", Camera: "Cam", Frame: "master",
             SourceFile: "", CellX: 0, CellY: 0, TileSize: 64, Channels: 3, Gain: 100,
-            ExposureSeconds: 1, NoiseMad: 0.1, SessionMedianFwhm: 2.5);
+            ExposureSeconds: 1, NoiseMad: 0.1);
 
         [Fact]
         public async Task AppendManifest_HealsTornTailBeforeAppending()

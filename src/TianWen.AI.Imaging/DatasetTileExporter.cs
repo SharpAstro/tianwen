@@ -65,7 +65,20 @@ public static class DatasetTileExporter
     /// <param name="Gain">Camera gain (session-uniform).</param>
     /// <param name="ExposureSeconds">Sub exposure in seconds.</param>
     /// <param name="NoiseMad">Per-tile noise proxy: MAD of the stored channel-0 tile.</param>
-    /// <param name="SessionMedianFwhm">Session-wide median FWHM (px) over the registered subs.</param>
+    /// <remarks>
+    /// There is deliberately no session median FWHM here, and re-adding one would reintroduce a bug
+    /// that already happened. This row is written once, at export time, and a session that resumes
+    /// with its tiles intact never rewrites its rows; the PSF store is rewritten independently (and
+    /// <c>--force-psf</c> rewrites only the store). So the moment the estimator changed, 45 of 50
+    /// sessions were left carrying quantized FWHM values that no longer matched the store, and the
+    /// column looked authoritative while being wrong.
+    /// <para>
+    /// FWHM belongs to the PSF store, which is its single source of truth: a per-session median is
+    /// <c>median(SubFwhm)</c> over that session's record in <c>stats/psf-sessions.jsonl</c>, joined
+    /// on <see cref="SessionId"/>. That is exactly what this column used to hold, so nothing is lost
+    /// by its absence -- only the second copy that could drift.
+    /// </para>
+    /// </remarks>
     public sealed record TileManifestRow(
         string Tile,
         string SessionId,
@@ -78,8 +91,7 @@ public static class DatasetTileExporter
         int Channels,
         int Gain,
         double ExposureSeconds,
-        double NoiseMad,
-        double SessionMedianFwhm);
+        double NoiseMad);
 
     /// <summary>Summary of one session's export.</summary>
     public sealed record TileExportResult(
@@ -202,7 +214,6 @@ public static class DatasetTileExporter
             }
         }
 
-        var sessionMedianFwhm = MedianFwhm(session.Subs);
         var refMeta = session.Reference.Meta;
         var channels = session.Master.ChannelCount;
         var rows = ImmutableArray.CreateBuilder<TileManifestRow>();
@@ -218,7 +229,7 @@ public static class DatasetTileExporter
                 Tile: $"tiles/{slug}/{file}", SessionId: imaging.Id, Camera: imaging.Camera,
                 Frame: "master", SourceFile: "", CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
                 Channels: channels, Gain: refMeta.Gain, ExposureSeconds: refMeta.ExposureDuration.TotalSeconds,
-                NoiseMad: mad, SessionMedianFwhm: sessionMedianFwhm));
+                NoiseMad: mad));
         }
 
         // Sub tiles, iterated sub-major so only one stretched sub is resident at a time.
@@ -247,7 +258,7 @@ public static class DatasetTileExporter
                     Tile: $"tiles/{slug}/{file}", SessionId: imaging.Id, Camera: imaging.Camera,
                     Frame: "sub", SourceFile: sourceName, CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
                     Channels: channels, Gain: subMeta.Gain, ExposureSeconds: subMeta.ExposureDuration.TotalSeconds,
-                    NoiseMad: mad, SessionMedianFwhm: sessionMedianFwhm));
+                    NoiseMad: mad));
                 subTiles++;
             }
         }
@@ -514,18 +525,6 @@ public static class DatasetTileExporter
         Array.Copy(scratch, result, take);
         Array.Sort(result); // stable sub order per cell
         return result;
-    }
-
-    private static double MedianFwhm(ImmutableArray<SessionRegistrar.RegisteredSub> subs)
-    {
-        if (subs.Length == 0) return 0.0;
-        var fwhm = new float[subs.Length];
-        for (var i = 0; i < subs.Length; i++)
-        {
-            fwhm[i] = subs[i].Metrics.MedianFwhm;
-        }
-        Array.Sort(fwhm);
-        return fwhm[fwhm.Length / 2];
     }
 
     /// <summary>What the manifest records about one already-exported session: how many tiles it
