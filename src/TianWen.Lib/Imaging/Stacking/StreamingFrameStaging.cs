@@ -136,6 +136,11 @@ public static class StreamingFrameStaging
         }
     }
 
+    /// <summary>The largest finite <see cref="Half"/>, as float: 65504. Values at or above
+    /// 65520 convert to +Inf, and 65519.999... is not representable, so this is the ceiling
+    /// a staged sample can carry.</summary>
+    private static readonly float HalfMaxValue = (float)Half.MaxValue;
+
     /// <summary>
     /// Writes <paramref name="image"/>'s pixels to <paramref name="path"/> as
     /// <see cref="System.Half"/> (float16) -- half the bytes of float32 at a
@@ -143,6 +148,22 @@ public static class StreamingFrameStaging
     /// environments; quantisation noise sits below typical sensor read noise.
     /// Reader unpacks Half-&gt;float on stripe reads so the integrator is
     /// unchanged.
+    ///
+    /// <para><b>The conversion saturates at ±<see cref="Half.MaxValue"/> (65,504) instead of
+    /// overflowing to ±Inf, and that clamp is load-bearing.</b> A calibrated frame legitimately
+    /// exceeds the Half range: a N.I.N.A. 16-bit light peaks at 65,532 before calibration, and
+    /// flat division at a vignetted saturated star core pushes it higher still. A bare
+    /// <c>(Half)</c> cast turns every such pixel into +Inf, integration then averages the Inf
+    /// into the master (Inf where those samples dominate, NaN where the rejection math meets
+    /// Inf-Inf), and everything derived from the master's MaxValue collapses -- measured
+    /// 2026-08-11 on the real archive: 5 of 50 dataset sessions had their masters poisoned at
+    /// exactly the saturated star cores and all 1,500 of their master tiles quantised to zero,
+    /// while the zero-skew parity gate stayed green (zeros compare equal to zeros). A saturated
+    /// core clamped to 65,504 is the honest value: the pixel was saturated at capture; the
+    /// sensor never knew the true flux either.</para>
+    ///
+    /// <para>NaN passes through unchanged, deliberately: the warp fills the out-of-footprint
+    /// border with NaN as its no-coverage marker, and both clamp comparisons are false for NaN.</para>
     /// </summary>
     public static void WriteHalf(Image image, string path)
     {
@@ -169,7 +190,16 @@ public static class StreamingFrameStaging
                 {
                     for (var x = 0; x < width; x++)
                     {
-                        halfSpan[x] = (Half)arr[y, x];
+                        var v = arr[y, x];
+                        if (v > HalfMaxValue)
+                        {
+                            v = HalfMaxValue;
+                        }
+                        else if (v < -HalfMaxValue)
+                        {
+                            v = -HalfMaxValue;
+                        }
+                        halfSpan[x] = (Half)v;
                     }
                     fs.Write(MemoryMarshal.AsBytes(halfSpan));
                 }
