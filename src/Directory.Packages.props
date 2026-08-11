@@ -186,7 +186,7 @@
          where it happened not to fit. PaintLayout now fits every Content.Text to its arranged rect
          through the new public TextFit. Relevant to every tab here, since the whole chrome is arranged
          from one layout pass.
-         7.11 is the current pin, and unlike the last few it is one TianWen asked for. UiPalette gained
+         7.11 was the one TianWen asked for, and unlike the last few before it. UiPalette gained
          eight roles (Accent, AccentAlt, Focus, SeparatorStrong, Success, Info, Warn, Error) and became a
          sealed record with required members, which is what GuiTheme's Light/Dark/Night palettes are built
          on; see MIGRATION.md in that repo. BREAKING there, so this pin cannot go backwards. 7.10 (TabBar
@@ -196,8 +196,29 @@
          Console.Lib, SdlVulkan.Renderer and WebGl.Renderer still pin DIR.Lib 7.8.* and are NOT being
          re-released for this: all three reference UiPalette zero times, so there is nothing to port, and
          the graph unifies DIR.Lib upward to 7.11 for us anyway. That unification is the standing smell
-         noted elsewhere in this file, not something this bump introduces. -->
-    <PackageVersion Include="DIR.Lib" Version="7.12.*" />
+         noted elsewhere in this file, not something this bump introduces.
+         7.12 (TextInputColors, additive) was taken without this prose moving; it says so now.
+         Two of the crossed minors are text MEASUREMENT behaviour, which is why an app whose whole chrome
+         is arranged from one layout pass wants them: 7.13 bounds the SDF rasterize retry (a glyph that
+         can never rasterize is given up on instead of retried forever) and carries a whitespace-advance
+         fix that shipped unnoted, and 7.14 makes ShrinkToWidth return a size it actually measured rather
+         than an unverified estimate. 7.17 follows Fonts.Lib to 1.11. 7.15 and
+         7.16 are TabBar (a "+" after the last tab, then hover from a pointer the bar is given) and are
+         not exercised here for the same reason 7.9 and 7.10 were not: TianWen draws its own sidebar
+         chrome.
+         7.18 is the current pin and is what this bump is FOR: Layout.Content.Icon, a leaf named by
+         MEANING (Grid / List / Auto) that each surface then draws the way that surface actually can, the
+         pixel painter from rectangles and a cell painter from a block-element glyph. The Home board's
+         view selector is its first consumer here. A Text run carrying a symbol character is the obvious
+         alternative and is the wrong tool, because the two surfaces fail in opposite directions: on a
+         pixel surface a glyph missing from the bound font arrives as .notdef, an empty box exactly where
+         the icon belongs, while a cell surface cannot draw rectangles at all but is relied on for
+         precisely those glyph ranges.
+         The whole family moved with it (Console.Lib 4.21, SdlVulkan.Renderer 7.13 and WebGl.Renderer
+         1.19 all pin DIR.Lib 7.18.*), so for the first time in several minors no member lags and the
+         graph resolves ONE DIR.Lib by intent rather than by highest version. That retires the standing
+         smell noted above, until some member is next left behind. -->
+    <PackageVersion Include="DIR.Lib" Version="7.18.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -318,8 +339,16 @@
          4.19 is the current pin, and the reason for the bump: TextBar.Caret parks the terminal's own
          cursor at a column of a bar's text. TuiEquipmentTab's site row needs it — three fields in one bar
          means the caret column is an offset into the joined string, which no single-field widget can
-         derive. 4.18 is what put the caret on ITerminalViewport in the first place. -->
-    <PackageVersion Include="Console.Lib" Version="4.19.*" />
+         derive. 4.18 is what put the caret on ITerminalViewport in the first place.
+         4.20 was the no-code lockstep rebuild that follows DIR.Lib 7.14, taken so the TUI and the GPU
+         surface keep resolving ONE DIR.Lib rather than two. Nothing in the TUI changed.
+         4.21 is the current pin and is NOT a rebuild: it is the cell half of DIR.Lib 7.18's
+         Layout.Content.Icon. CellLayout paints the icon a shared tree names, mapping Grid / List / Auto
+         onto the block-element and mathematical-operator ranges a terminal font is relied on to carry
+         (the same well every border and tree marker here already draws from). So a view selector authored
+         once renders on the GPU board and in TuiHomeTab, which is the whole point of naming an icon by
+         meaning rather than by drawing. -->
+    <PackageVersion Include="Console.Lib" Version="4.21.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -390,8 +419,47 @@
          GpuStretchPipelineTests all render offscreen, so a rejection on the CI runner could hang the job
          instead of failing it. An offscreen submit now RETRIES a rejection instead of dropping the frame,
          which is right because offscreen the frame IS the output and a dropped one reads back stale or
-         blank pixels indistinguishable from a render. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.10.*" />
+         blank pixels indistinguishable from a render.
+         7.12 is the current pin and 7.11 is the substance: five renderer fixes found by running under
+         the Khronos validation layer from the Vulkan SDK, which is the same wedge/device-loss hunt 7.9
+         and 7.10 are above. Read as a set, they say a GPU fault must NAME itself.
+         (a) VK_ERROR_DEVICE_LOST is terminal now, not a swapchain-recovery case. It used to enter the
+         mid-frame recovery path, which cannot work once the device and every object it owns are gone, so
+         it re-failed on the next submit (three attempts inside 34ms) and escaped only because the
+         recover-streak detector tripped, logging a "recovery storm" that reads as a WORKLOAD problem and
+         points diagnosis away from a dead device. New event 115 says device loss instead. That matters
+         here because our own render-thread watchdog (the inspector's render_liveness ALIVE/BLOCKED/DEAD)
+         is the other half of the same diagnosis, and it was being handed a load-shedding story.
+         (b) The render-finished semaphore is per swapchain IMAGE now, not per frame in flight: present
+         waits until the presentation engine releases the image, image count is not bounded by
+         MaxFramesInFlight, so a new submit could re-signal a semaphore an earlier present still waited on
+         (VUID-vkQueueSubmit-pSignalSemaphores-00067). Latent while presentation is regular, which is why
+         it surfaced upstream as device losses over Remote Desktop.
+         (c) One shared subpass-dependency pair, declared once in VulkanDevice.FillSubpassDependencies and
+         used by all six creation sites, with srcAccessMask = ColorAttachmentWrite. Render-pass
+         compatibility covers dependencies, so pre-baked pipelines drawn inside the thumbnail-capture pass
+         (two) after being baked against the swapchain pass (one) reported
+         VUID-vkCmdDraw-renderPass-02684; and srcAccessMask = 0 ordered execution without a memory
+         dependency on the previous frame's storeOp write, a WRITE_AFTER_WRITE hazard on alternating
+         frames. This repo drew through both passes: the thumbnail path backs the inspector's screenshot
+         verb, and OffscreenGpuFixture / VkRendererPrimitiveTests / VkHistogramPipelineTests /
+         GpuStretchPipelineTests all render offscreen.
+         (d) validationReport stops lying. "enabled" came straight from the DEBUG + SDLVK_VALIDATION gate,
+         so a host with no Khronos layer installed reported enabled:true with zero messages, read once as
+         a clean run when nothing had been checking anything. It now also reports layerAvailable and
+         active. RULE for us: a zero message count out of the inspector's validation_report tool is
+         evidence of correctness only when active is true.
+         (e) Prefers a DiscreteGpu (a preference, never a requirement, so an integrated-only box is
+         unaffected, including the win-arm64 dev box, where it is a no-op) and logs the selection as
+         event 501: device name, type, driver version, API version, queue family, count enumerated. Until
+         this, a GPU report in our own logs could not be attributed to hardware at all.
+         7.12 itself adds a window icon from an RgbaImage, which nothing here sets yet.
+         7.13 is the current pin and carries no renderer change at all: it follows DIR.Lib to 7.18 so the
+         backend paints Layout.Content.Icon through the same PixelWidgetBase every other leaf goes
+         through, and so this repo resolves one DIR.Lib rather than two. Verified on the CI path
+         (-p:UseLocalDirLib=false) rather than a plain build, which self-enables the sibling switch and
+         resolves the project's own 7.18.0 instead of the published package. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.13.*" />
     <!-- The WebGL2 backend for the same DIR.Lib Renderer, consumed ONLY by TianWen.UI.Web (which sits
          outside TianWen.slnx). It lives here, next to its desktop counterpart, because it used to be
          pinned inline in that csproj instead: a sibling-family bump that swept this file could not see
@@ -399,11 +467,17 @@
          member built against DIR.Lib 7.0 after the rest moved to 7.4. The package graph then unified
          DIR.Lib by taking the highest version rather than by intent. Bump it with the family.
          1.14 was the no-code lockstep rebuild against DIR.Lib 7.4; 1.15 the same against DIR.Lib 7.5;
-         1.16 is the current pin, the same against DIR.Lib 7.8 (nothing in 7.6 or 7.7 touched this
-         backend). It has moved with the family each time rather than being found two minors behind, which
-         is the point of it living here. DIR.Lib 7.7's tree-stated hyperlinks matter most on this backend,
-         since a web host is the one that can render a real anchor. -->
-    <PackageVersion Include="WebGl.Renderer" Version="1.17.*" />
+         1.16 the same against DIR.Lib 7.8 (nothing in 7.6 or 7.7 touched this backend). It has moved with
+         the family each time rather than being found two minors behind, which is the point of it living
+         here. DIR.Lib 7.7's tree-stated hyperlinks matter most on this backend, since a web host is the
+         one that can render a real anchor.
+         1.18 followed DIR.Lib 7.14 with the rest of the family; 1.17 brought the canvas capture and its
+         events in as one family.
+         1.19 is the current pin and follows DIR.Lib to 7.18, so the web backend inherits
+         Layout.Content.Icon from the shared painter with no code of its own. Taken in the same cut as
+         SdlVulkan.Renderer 7.13, which is the arrangement this comment has been arguing for since 1.12
+         sat two minors behind: the family lands together or it does not land. -->
+    <PackageVersion Include="WebGl.Renderer" Version="1.19.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR. Both packages ship from the FC.SDK repo at one release line, so they move
