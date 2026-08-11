@@ -481,6 +481,68 @@ namespace TianWen.Lib.Tests
             options.ShouldBe(["Auto", "Cards", "Table"]);
         }
 
+        /// <summary>
+        /// The segments are <see cref="Layout.Content.Icon"/> leaves, not text runs, which is what lets the
+        /// same tree paint rectangles on the GPU board and a block-element glyph in the terminal. Asserting
+        /// the CONTENT rather than a pixel keeps this a statement about the tree both surfaces read.
+        /// </summary>
+        [Fact]
+        public void EachSegmentCarriesItsShapesIcon()
+        {
+            var tree = HomeBoardLayout.Build(
+                ImmutableArray.Create(Card("A")), HomeBoardStyle.Default, 200 * 8f, Now,
+                view: HomeBoardView.Table, onSelectView: _ => _ => { });
+
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, 200, 56), CellMeasureContext.PixelAuthored);
+
+            var icons = arranged
+                .Where(a => a.Node.Hit is HitResult.ButtonHit { Action: var action }
+                    && action.StartsWith("HomeView:"))
+                .Select(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Icon icon }
+                    ? icon.Kind
+                    : (Layout.IconKind?)null)
+                .ToArray();
+
+            icons.ShouldBe([Layout.IconKind.Auto, Layout.IconKind.Grid, Layout.IconKind.List]);
+        }
+
+        /// <summary>
+        /// The segments are the fixed width they ask for, not a third of the header each.
+        /// <para>
+        /// This is the <c>RowH</c> trap in its second costume, and it is why this file exists: <c>RowH</c>
+        /// means "a full-width row of fixed height", so it sets <c>Width = Star</c> and silently discards a
+        /// <c>WFixed</c> before it. The selector had been built that way from the start, which compiled,
+        /// rendered, and spread three buttons across the whole bar -- only an arranged rect says so.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void TheSegmentsKeepTheirFixedWidthInsteadOfSharingTheHeader()
+        {
+            var tree = HomeBoardLayout.Build(
+                ImmutableArray.Create(Card("A")), HomeBoardStyle.Default, 200 * 8f, Now,
+                view: HomeBoardView.Auto, onSelectView: _ => _ => { },
+                theme: UiThemeState.Dark, onCycleTheme: _ => { });
+
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, 200, 56), CellMeasureContext.PixelAuthored);
+
+            var widths = arranged
+                .Where(a => a.Node.Hit is HitResult.ButtonHit { Action: var action }
+                    && action.StartsWith("HomeView:"))
+                .Select(a => a.Bounds.Width)
+                .ToArray();
+
+            widths.Length.ShouldBe(3);
+            foreach (var w in widths)
+            {
+                // 26 design units is 3.25 cells at PixelAuthored's 8px cell; a Star segment on this board
+                // came out at ~47.
+                w.ShouldBeLessThanOrEqualTo(5, "a segment is fixed-width, not Star");
+                w.ShouldBeGreaterThan(1);
+            }
+        }
+
         [Fact]
         public void ABoardWithNowhereToStoreTheChoiceDrawsNoSelector()
         {
@@ -496,6 +558,51 @@ namespace TianWen.Lib.Tests
             // expression tree, which cannot contain an `is` pattern.
             arranged.Count(a =>
                     a.Node.Hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("HomeView:"))
+                .ShouldBe(0);
+        }
+
+        /// <summary>
+        /// The theme control shows the state it is IN, not the one a click reaches. With four states no
+        /// single mark can say "what happens next", and the reader's actual question is which scheme they
+        /// are looking at.
+        /// </summary>
+        [Theory]
+        [InlineData(UiThemeState.System, "System")]
+        [InlineData(UiThemeState.Light, "Light")]
+        [InlineData(UiThemeState.Dark, "Dark")]
+        [InlineData(UiThemeState.Night, "Night")]
+        public void TheThemeControlNamesTheStateItIsIn(UiThemeState state, string label)
+        {
+            var tree = HomeBoardLayout.Build(
+                ImmutableArray.Create(Card("A")), HomeBoardStyle.Default, 200 * 8f, Now,
+                theme: state, onCycleTheme: _ => { });
+
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, 200, 56), CellMeasureContext.PixelAuthored);
+
+            Texts(arranged).ShouldContain(label);
+
+            arranged.Count(a =>
+                    a.Node.Hit is HitResult.ButtonHit { Action: var action }
+                    && action == $"HomeTheme:{state}")
+                .ShouldBe(1);
+        }
+
+        [Fact]
+        public void ABoardWithNoThemeCallbackDrawsNoThemeControl()
+        {
+            // Same rule as the shape selector: the callback IS the permission to offer the control, so a
+            // host with no theme to change does not get a button that silently does nothing.
+            var tree = HomeBoardLayout.Build(
+                ImmutableArray.Create(Card("A")), HomeBoardStyle.Default, 200 * 8f, Now,
+                onSelectView: _ => _ => { });
+
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, 200, 56), CellMeasureContext.PixelAuthored);
+
+            arranged.Count(a =>
+                    a.Node.Hit is HitResult.ButtonHit { Action: var action }
+                    && action.StartsWith("HomeTheme:"))
                 .ShouldBe(0);
         }
 

@@ -533,5 +533,47 @@ namespace TianWen.Lib.Tests
                 GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
             }
         }
+
+        // Four clicks return you to where you started, which is the property that makes a cycler
+        // usable at all: every state is reachable and none is a dead end.
+        [Fact]
+        public void TheCycleVisitsAllFourStatesAndComesBack()
+        {
+            var seen = new[]
+            {
+                UiThemeState.System.Next(),
+                UiThemeState.System.Next().Next(),
+                UiThemeState.System.Next().Next().Next(),
+                UiThemeState.System.Next().Next().Next().Next(),
+            };
+
+            seen.ShouldBe([UiThemeState.Light, UiThemeState.Dark, UiThemeState.Night, UiThemeState.System]);
+        }
+
+        // The composition invariant between the two theme controls. Night is entered from the CYCLER
+        // here, so the remembered "state before Night" has to come from the cycler too -- otherwise F12
+        // restores whatever the last toggle recorded, which is stale exactly when both are used, and the
+        // observer who cycled into Night at the mount is dropped somewhere they never chose.
+        [Fact]
+        public void CyclingIntoNightIsWhatF12ThenRestoresFrom()
+        {
+            try
+            {
+                GuiTheme.Apply(UiThemeState.Light, desktopIsDark: false);
+
+                GuiTheme.CycleTheme();
+                GuiTheme.State.ShouldBe(UiThemeState.Dark);
+
+                GuiTheme.CycleTheme();
+                GuiTheme.State.ShouldBe(UiThemeState.Night);
+
+                GuiTheme.ToggleNight();
+                GuiTheme.State.ShouldBe(UiThemeState.Dark, "F12 returns to where the CYCLE entered Night");
+            }
+            finally
+            {
+                GuiTheme.Apply(UiThemeState.Dark, desktopIsDark: true);
+            }
+        }
     }
 }

@@ -111,6 +111,13 @@ public readonly record struct ToggleFullscreenSignal;
 public readonly record struct ToggleNightModeSignal;
 
 /// <summary>
+/// Advance to the next of the four theme states (System, Light, Dark, Night). Posted by the Home
+/// screen's theme control; <see cref="ToggleNightModeSignal"/> stays the F12 gesture and the two compose,
+/// since both go through the same remember-where-Night-came-from path.
+/// </summary>
+public readonly record struct CycleUiThemeSignal;
+
+/// <summary>
 /// Open an external URL in the user's default browser. Posted by desktop (SDL/Vulkan) hosts, which have
 /// no DOM and handle it through the OS shell; the web host renders links as real &lt;a&gt; elements and
 /// never posts this. A host with no subscriber simply drops it (no-op), so it is safe to post anywhere.
