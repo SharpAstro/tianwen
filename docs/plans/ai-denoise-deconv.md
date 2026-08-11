@@ -401,8 +401,11 @@ Error bars are part of the prior: LP varies with hour (curfews), season, and aer
 is a distribution and the gate is a consistency check, never an exact-subtraction assert. Clouded
 frames would poison the fit (clouds amplify LP several-fold) but the P0 quality gate already drops
 them. A site with too few frames can bootstrap the prior from public VIIRS upward radiance through
-a Garstang-style propagation model (VIIRS is public domain; the Falchi 2016 atlas is CC BY-NC,
-keep it out of anything shipped).
+a Garstang-style propagation model. VIIRS is public domain; the Falchi 2016 atlas is CC BY-NC and
+stays out of anything shipped, **and the reason is not whether SharpAstro is commercial**: TianWen
+is LGPL-2.1, which grants every downstream consumer commercial-use rights, so NC material inside a
+shipped artifact would be a grant we do not hold. Internal dev-side use (fitting, eval,
+cross-checking our own prior against the atlas) is non-commercial and fine.
 
 **The P0 tiles are the wrong artifact for this model; it needs its own exporter.** A gradient is a
 whole-frame low-frequency phenomenon, so a 256 px native-res crop of a 3008 px sensor is a
