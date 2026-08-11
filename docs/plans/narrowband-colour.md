@@ -780,11 +780,12 @@ this all exists to prevent. Identity and interpretation are different jobs.
 ### (b) Verify
 
 - **Measure our own crosstalk coefficients instead of sourcing DBXtract's table.** This is the one
-  worth doing. ADR-2 says reimplement the algebra and source the coefficients from DBXtract rather
-  than lifting them from Alchemy. Better still: **fit them from our own data**, wherever the archive
-  has the same target through a dual-band OSC and through mono narrowband, or dual-band data with a
-  known sensor. Measured coefficients are our own measurements, which retires the licence question
-  entirely and grounds phase 3 in this rig rather than a published average.
+  worth doing, and since 2026-08-11 the reason is purely technical: taking DBXtract's table is lawful
+  under AGPL-3.0, so this is no longer about permission. **Fit them from our own data** wherever the
+  archive has the same target through a dual-band OSC and through mono narrowband, or dual-band data
+  with a known sensor. Measured coefficients ground phase 3 in *this* rig rather than a published
+  average over somebody else's filters and sensor, which is the actual benefit; retiring the licence
+  question was only ever a side effect and is now moot.
 - **Does the AAD scale solver converge on real pairs?** Cheap to check: run it across every
   narrowband/broadband pair the scan finds and look at the distribution of `k` and the residual
   curvature. A well-behaved solver should give a tight `k` per filter/sensor combination.
@@ -883,9 +884,18 @@ wanted:
   crosstalk coefficients originate from **DBXtract**, so if we want them in phase 3 we source them
   from there and record the provenance.
 
-**Consequence.** Phase 3 is still gated on sourcing the table cleanly, which is why it sits behind
-phases 1 and 2. Vendoring is now available as a fallback if a reimplementation of some specific step
-proves disproportionate; it is a deliberate choice with a bookkeeping cost, not a prohibition.
+**Consequence, revised 2026-08-11: phase 3 is no longer licence-gated and may be re-ordered.** It sat
+behind phases 1 and 2 because the coefficient table had to be sourced without a licence problem.
+`DBXtract.py` and `VeraLux_Alchemy.py` are both GPL-3.0 Siril scripts, so under AGPL-3.0 taking the
+table from either is lawful and that gate is gone. What remains is **provenance hygiene, not
+permission**: prefer DBXtract because it is where the numbers originate, and record which file and
+revision they came from, so a future reader can tell a sourced constant from a guessed one. Better
+still, fit them from our own data (see "Verify" above), which makes them measurements rather than
+anyone's table.
+
+Vendoring is likewise now a fallback rather than a prohibition, available if reimplementing some
+specific step proves disproportionate. It carries a real cost: a vendored part stays GPL-3.0 while the
+rest of the tree is AGPL-3.0, and every future edit has to keep that straight.
 
 ### ADR-3: SPCC narrowband is blocked on a spectra source, and is scoped to exclude SHO
 

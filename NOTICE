@@ -93,7 +93,19 @@ directly from its author:
   RC-Astro BlurXTerminator / NoiseXTerminator / StarXTerminator  https://www.rc-astro.com
   SETI Astro Suite ONNX models               https://www.setiastro.com
 
-RC-Astro's licence forbids using its outputs to train, validate or benchmark a
-competing model. TianWen's own model work (see docs/plans/ai-denoise-deconv.md)
-therefore uses no RC-Astro or SETI Astro output anywhere in its training,
-validation or metric path.
+**Driving these programs to process images is ordinary licensed use and is not
+restricted here.** RC-Astro runs as a separate process (`rc-astro --json`) against
+the user's own licence, and SETI Astro's ONNX models are fetched by the user with
+`tools/tianwen-ai-models-fetch.ps1`. TianWen distributes **no third-party model
+weights** and no vendor binaries of its own; it locates what the user installed.
+Nothing in this section forms part of TianWen's Corresponding Source, because none
+of it is part of TianWen.
+
+The one restriction is narrow and applies only to building our own models:
+RC-Astro's licence forbids using its outputs to create, train, validate or
+benchmark a competing model, naming paired input/output datasets explicitly. So
+TianWen's own model work (docs/plans/ai-denoise-deconv.md) uses no RC-Astro or
+SETI Astro output anywhere in its training, validation or metric path, and SETI
+Astro is excluded on the same assumption pending verification of its terms. That
+prohibition is contractual rather than a matter of copyright, so TianWen's own
+licence has no bearing on it either way.
