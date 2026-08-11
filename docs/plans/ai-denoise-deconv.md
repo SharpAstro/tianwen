@@ -15,6 +15,15 @@ seam), and `DatasetPsfNoiseReport` + `DatasetSplitWriter` (Lib).
 `stats/psf-noise-report.md`. Cameras: ASI533MC Pro 30, SV605CC 12, ASI585MC Pro 2, ASI1600MM Pro 1.
 See § "Running it again" below before regenerating.
 
+**Superseded 2026-08-10/11 by the calibration-gated regenerate**, `D:\Astro-Dataset\2025-2026-calgated`:
+**50/58 sessions, 5,984 registered subs, 135,000 tiles** (post-pedestal-fix binary, dark matching gated
+on temperature; the 7 skips awaiting darks are listed in `darks-to-shoot.csv`; the 8th skip is HIP 42861,
+genuinely too star-poor to register). `stats/psf-sessions.jsonl` covers all 50, re-measured 2026-08-11
+with the duplicate-detection fix. One known skew, accepted: 49 sessions' tile registrations predate that
+detection fix (they registered fine; the fix mainly rescued sessions that could not), only Helix was
+re-exported post-fix. A future full rebake unifies it; not urgent, since a registration either converged
+on dozens of quads or was rejected wholesale.
+
 **That run's report header read 31 sessions / 3,433 subs against the manifest's 45 / 4,958, and this
 document used to call that "the documented resume behaviour ... not a discrepancy". It was a defect,
 and calling it documented behaviour is what let it survive.** The report was derived state held in
@@ -504,7 +513,7 @@ anyway, the synthetic truth is exact). The held-out split stays by session, unch
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
 | **Step 0: Archive organization** | `tools/astro-archive-dedup.py` READ-ONLY scan (header index + dup-files / nights-rollup / calibration-coverage reports); user-reviewed filing of BobbyBox uniques into Astro-Pics from the reports | Dup report reviewed; unique-to-BobbyBox sessions identified/filed; calibration coverage map exists (feeds P0's header-matched calibration) |
-| **P0: Dataset + stats** ✅ SHIPPED 2026-07-12 | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command ✅; gate rejects transparency/focus-bad frames (star-count-led; §2.4) ✅; parity check green (maxDiff 0, in-run gate) ✅. **Real-archive run DONE 2026-07-15** (`D:\Astro-Dataset\2025-2026`, 45 sessions / 121,500 tiles); see § 2.3b for root order and the two session groups that must stay excluded. Tiles predate the master-flat pedestal fix (2026-08-03), so a regenerate is wanted before P1 trains on them. |
+| **P0: Dataset + stats** ✅ SHIPPED 2026-07-12 | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command ✅; gate rejects transparency/focus-bad frames (star-count-led; §2.4) ✅; parity check green (maxDiff 0, in-run gate) ✅. **Real-archive run DONE 2026-07-15**, regenerated post-pedestal-fix 2026-08-10/11 as `D:\Astro-Dataset\2025-2026-calgated` (50 sessions / 135,000 tiles + `psf-sessions.jsonl` covering all 50); see § 2.3b for root order and the two session groups that must stay excluded. P1 trains on the calgated set. |
 | **P1: Denoiser v1** | `training/` N2N pipeline (loss masks a `StitchBorderPx` rim, §3); NAFNet-32 color run on RunPod; ONNX + contract; `OnnxTianWenDenoiser` + `--ai-backend tianwen`; eval report | Beats classical baseline + no photometric regression (§7) on held-out sessions; visually clean on 3 reference masters; **no tile-seam artefact** visible on a full-frame master (the border-masked loss is what this checks) |
 | **P2: Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
 | **P3: Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
