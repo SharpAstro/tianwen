@@ -115,6 +115,31 @@ public static class DatasetTileExporter
         CancellationToken cancellationToken = default)
     {
         var imaging = session.Session;
+
+        // A non-finite master extremum silently zeroes EVERY tile, so refuse before writing anything.
+        //
+        // This is not hypothetical. StreamingFrameStaging used to cast a float straight to Half, so a
+        // sub whose pixels reached the 16-bit ceiling (N.I.N.A. writes a 14-bit sensor scaled into
+        // [0, 65532], and Half tops out at 65504) staged as +Inf. The integrator averaged that into
+        // the master, the master's MaxValue became +Inf, ToUnitRange below divided by it, and every
+        // sample went to 0. Five sessions wrote 1,500 tiles of pure zeroes that looked like perfectly
+        // ordinary files, and nothing noticed until a human opened one in ASTAP.
+        //
+        // The parity check cannot catch this class by construction: it compares stored bytes against
+        // bytes re-derived through the same path, and zeroes equal zeroes. It pins drift, never
+        // emptiness. So the guard has to be a separate assertion about the DATA, made here.
+        //
+        // Throwing rather than warning is deliberate: a poisoned master makes the whole session's
+        // output worthless, the runner already catches per-session faults and moves on, and a
+        // half-written session is worse than a skipped one.
+        if (!float.IsFinite(session.Master.MaxValue) || !float.IsFinite(session.Master.MinValue))
+        {
+            throw new InvalidOperationException(
+                $"[{imaging.Id}] master pixel range is not finite (min={session.Master.MinValue}, " +
+                $"max={session.Master.MaxValue}); every exported tile would be zero. This means a " +
+                $"sub overflowed during staging or integration, not that the tiler is at fault.");
+        }
+
         var slug = Sanitize(imaging.Id);
         var tilesDir = Path.Combine(outDir, "tiles", slug);
         Directory.CreateDirectory(tilesDir);
@@ -188,7 +213,7 @@ public static class DatasetTileExporter
             cancellationToken.ThrowIfCancellationRequested();
             var cell = selected[c];
             var file = $"x{cell.X}_y{cell.Y}_master{TileExtension}";
-            var mad = WriteTile(masterStretched, cell, tileSize, Path.Combine(tilesDir, file));
+            var mad = WriteTile(masterStretched, cell, tileSize, Path.Combine(tilesDir, file), imaging.Id);
             rows.Add(new TileManifestRow(
                 Tile: $"tiles/{slug}/{file}", SessionId: imaging.Id, Camera: imaging.Camera,
                 Frame: "master", SourceFile: "", CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
@@ -217,7 +242,7 @@ public static class DatasetTileExporter
             {
                 var cell = selected[cellIndex];
                 var file = $"x{cell.X}_y{cell.Y}_s{subIdx:D3}{TileExtension}";
-                var mad = WriteTile(subStretched, cell, tileSize, Path.Combine(tilesDir, file));
+                var mad = WriteTile(subStretched, cell, tileSize, Path.Combine(tilesDir, file), imaging.Id);
                 rows.Add(new TileManifestRow(
                     Tile: $"tiles/{slug}/{file}", SessionId: imaging.Id, Camera: imaging.Camera,
                     Frame: "sub", SourceFile: sourceName, CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
@@ -337,11 +362,56 @@ public static class DatasetTileExporter
 
     /// <summary>Writes one CHW fp16 tile at <paramref name="cell"/> and returns the MAD of the
     /// stored channel-0 tile (the manifest's per-tile noise proxy).</summary>
-    private static double WriteTile(Image stretched, Point cell, int tileSize, string path)
+    private static double WriteTile(Image stretched, Point cell, int tileSize, string path, string sessionId)
     {
         var halfs = ExtractTileHalfs(stretched, cell, tileSize, out var ch0Buf);
+        EnsureTileIsUsable(halfs, cell, sessionId, path);
         File.WriteAllBytes(path, MemoryMarshal.AsBytes<Half>(halfs).ToArray());
         return Mad(ch0Buf);
+    }
+
+    /// <summary>
+    /// Backstop against writing a tile that is structurally worthless as training data: one holding a
+    /// non-finite sample, or one that is uniformly zero.
+    ///
+    /// <para>Deliberately separate from <see cref="ExtractTileHalfs"/> rather than folded into it,
+    /// because <see cref="VerifyParityAsync"/> re-derives through that same method purely to compare
+    /// bytes. Parity must be able to read back a bad tile in order to report on it; only the WRITE
+    /// path gets to refuse.</para>
+    ///
+    /// <para>An all-zero tile cannot occur legitimately. Cells are constrained to the all-frames
+    /// intersection (<c>StatsRect</c>), which is NaN-free and carries real sky, and the stretch puts
+    /// background well above zero. When it does happen it means the master was poisoned upstream, so
+    /// this fires per tile and the session fails rather than emitting a plausible-looking set of empty
+    /// files. The master-level check in <see cref="ExportAsync"/> should catch that case first and
+    /// with a better message; this covers whatever it does not anticipate.</para>
+    /// </summary>
+    private static void EnsureTileIsUsable(ReadOnlySpan<Half> samples, Point cell, string sessionId, string path)
+    {
+        var allZero = true;
+        for (var i = 0; i < samples.Length; i++)
+        {
+            var v = (float)samples[i];
+            if (!float.IsFinite(v))
+            {
+                throw new InvalidOperationException(
+                    $"[{sessionId}] tile at ({cell.X},{cell.Y}) holds a non-finite sample ({v}) at index {i}; " +
+                    $"refusing to write {Path.GetFileName(path)}.");
+            }
+            if (v != 0f)
+            {
+                allZero = false;
+            }
+        }
+
+        if (allZero)
+        {
+            throw new InvalidOperationException(
+                $"[{sessionId}] tile at ({cell.X},{cell.Y}) is entirely zero; refusing to write " +
+                $"{Path.GetFileName(path)}. The cell lies inside the NaN-free intersection and the " +
+                $"stretch lifts background above zero, so this means the master is poisoned, not that " +
+                $"the sky was blank.");
+        }
     }
 
     /// <summary>Extracts the CHW fp16 samples of one tile at <paramref name="cell"/> (and the

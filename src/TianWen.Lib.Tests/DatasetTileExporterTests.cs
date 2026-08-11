@@ -191,5 +191,70 @@ namespace TianWen.Lib.Tests
             var lines = (await File.ReadAllLinesAsync(path, ct)).Where(l => l.Length > 0).ToArray();
             lines.ShouldHaveSingleItem().ShouldContain("tiles/b/");
         }
+
+        /// <summary>Rebuilds a registered session's master with a caller-chosen declared range and
+        /// pixel fill, so a poisoned master can be handed to the exporter without needing a poisoned
+        /// integration to produce one.</summary>
+        private static SessionRegistrar.RegisteredSession WithMaster(
+            SessionRegistrar.RegisteredSession registered, float maxValue, float fill)
+        {
+            var source = registered.Master;
+            var data = Image.CreateChannelData(source.ChannelCount, source.Height, source.Width);
+            if (fill != 0f)
+            {
+                for (var c = 0; c < source.ChannelCount; c++)
+                {
+                    for (var y = 0; y < source.Height; y++)
+                    {
+                        for (var x = 0; x < source.Width; x++)
+                        {
+                            data[c][y, x] = fill;
+                        }
+                    }
+                }
+            }
+            var master = new Image(data, BitDepth.Float32, maxValue: maxValue, minValue: 0f, pedestal: 0f,
+                imageMeta: source.ImageMeta);
+            return registered with { Master = master };
+        }
+
+        [Fact]
+        public async Task Export_RefusesAMasterWhosePixelRangeIsNotFinite()
+        {
+            // The exact shape the WriteHalf overflow produced: a sub reached the 16-bit ceiling, staged
+            // as +Inf, the integrator averaged it in, and the master's MaxValue went infinite. Dividing
+            // by it zeroed every sample, so five sessions wrote 1,500 tiles of pure zeroes that looked
+            // like ordinary files. Parity could never catch it, because zeroes equal zeroes.
+            var ct = TestContext.Current.CancellationToken;
+            var registered = await RegisterFixtureAsync(ct);
+            var poisoned = WithMaster(registered, float.PositiveInfinity, fill: 0f);
+
+            var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
+                await DatasetTileExporter.ExportAsync(
+                    poisoned, Path.Combine(_dir, "out-inf"), tileSize: TileSize, cellsPerSession: 4,
+                    subsPerCell: SubsPerCell, logger: new XunitLogger(output), cancellationToken: ct));
+
+            ex.Message.ShouldContain("not finite");
+            // Refused before writing: no half-populated tile directory left behind.
+            Directory.Exists(Path.Combine(_dir, "out-inf", "tiles")).ShouldBeFalse();
+        }
+
+        [Fact]
+        public async Task Export_RefusesToWriteATileThatIsEntirelyZero()
+        {
+            // The backstop for whatever the master-range check does not anticipate. A finite declared
+            // range over all-zero pixels survives that check, stretches to zeroes, and would otherwise
+            // write a full set of empty tiles.
+            var ct = TestContext.Current.CancellationToken;
+            var registered = await RegisterFixtureAsync(ct);
+            var blank = WithMaster(registered, maxValue: 1f, fill: 0f);
+
+            var ex = await Should.ThrowAsync<InvalidOperationException>(async () =>
+                await DatasetTileExporter.ExportAsync(
+                    blank, Path.Combine(_dir, "out-zero"), tileSize: TileSize, cellsPerSession: 4,
+                    subsPerCell: SubsPerCell, logger: new XunitLogger(output), cancellationToken: ct));
+
+            ex.Message.ShouldContain("entirely zero");
+        }
     }
 }
