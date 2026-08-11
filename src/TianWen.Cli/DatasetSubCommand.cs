@@ -136,6 +136,16 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                           "session (the profile is measured on the session master), which is why a " +
                           "plain --resume reports them as missing instead of doing this by default.",
         };
+        var forcePsfOpt = new Option<bool>("--force-psf")
+        {
+            Description = "Re-measure PSF/noise stats for EVERY exported session, replacing records " +
+                          "that already exist. Tiles are left untouched. Unlike --regen-psf, which " +
+                          "only fills gaps and is therefore cheap and idempotent, this is what an " +
+                          "estimator change needs: the records that are wrong are exactly the ones " +
+                          "that already exist. Costs a full re-registration per session, so it is " +
+                          "never implied. The store is last-wins by session id, so the superseded " +
+                          "records stay in the file and remain readable for comparison.",
+        };
         var resumeOpt = new Option<bool>("--resume")
         {
             Description = "Continue a stopped run: keep the existing manifest as the checkpoint and " +
@@ -161,7 +171,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, scratchRootOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, scratchRootOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -204,6 +214,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 ScratchRoot = parseResult.GetValue(scratchRootOpt)!,
                 Resume = parseResult.GetValue(resumeOpt),
                 RegenPsfForExportedSessions = parseResult.GetValue(regenPsfOpt),
+                ForcePsfRemeasure = parseResult.GetValue(forcePsfOpt),
             };
 
             // User path exclusions append to the built-in processed-data defaults (never replace them).

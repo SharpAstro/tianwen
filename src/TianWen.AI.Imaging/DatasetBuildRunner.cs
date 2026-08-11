@@ -162,19 +162,22 @@ public static class DatasetBuildRunner
             var psfOnly = false;
             if (tilesReusable && checkpoint is not null)
             {
-                if (psfBySession.ContainsKey(session.Id))
+                // Two separate intents, kept separate because they cost wildly different amounts.
+                // RegenPsfForExportedSessions FILLS GAPS: it is idempotent and touches only sessions
+                // the report does not cover, so it converges and re-running it is nearly free.
+                // ForcePsfRemeasure RE-MEASURES REGARDLESS, which is what an estimator change needs
+                // and what the gap-fill cannot express: a session that already has a record is
+                // exactly the one whose record is now wrong. It costs a full re-registration of
+                // EVERY exported session, so it is never implied.
+                var hasRecord = psfBySession.ContainsKey(session.Id);
+                var measure = options.ForcePsfRemeasure || (!hasRecord && options.RegenPsfForExportedSessions);
+                if (!measure)
                 {
                     resumed++;
+                    if (!hasRecord) { psfMissing++; }
                     totalTiles += checkpoint.TileCount;
-                    progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} resumed ({checkpoint.TileCount} tiles + PSF already recorded)");
-                    continue;
-                }
-                if (!options.RegenPsfForExportedSessions)
-                {
-                    resumed++;
-                    psfMissing++;
-                    totalTiles += checkpoint.TileCount;
-                    progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} resumed ({checkpoint.TileCount} tiles, PSF record MISSING)");
+                    progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} resumed ({checkpoint.TileCount} tiles" +
+                        (hasRecord ? " + PSF already recorded)" : ", PSF record MISSING)"));
                     continue;
                 }
                 // Tiles are fine and stay untouched; re-register only to recover the master the PSF
@@ -183,7 +186,8 @@ public static class DatasetBuildRunner
                 // run under-report the tiles it still has.
                 psfOnly = true;
                 totalTiles += checkpoint.TileCount;
-                progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} re-measuring PSF (tiles kept) ...");
+                progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} re-measuring PSF" +
+                    (hasRecord ? " (forced, tiles kept)" : " (tiles kept)") + " ...");
             }
             else
             {

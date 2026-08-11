@@ -207,4 +207,25 @@ public sealed record DatasetBuildOptions
     /// working; check that the scratch volume is the one taking the write burst.</para>
     /// </summary>
     public string ScratchRoot { get; init; } = "";
+
+    /// <summary>
+    /// Re-measure the PSF/noise record for exported sessions <b>even when one already exists</b>,
+    /// replacing it. Tiles are left untouched.
+    ///
+    /// <para>Distinct from <see cref="RegenPsfForExportedSessions"/>, which fills GAPS: that one only
+    /// touches sessions the report does not cover, so it is idempotent, converges, and costs nothing
+    /// on a second run. It cannot express the case this exists for, because the sessions whose
+    /// records are wrong are precisely the ones that HAVE a record.</para>
+    ///
+    /// <para><b>Use it when the measurement itself changed</b>, which is the only time it is correct:
+    /// a new FWHM estimator, a different star-detection path, a changed radius binning. It costs a
+    /// full re-registration of every exported session, so it is never implied by anything and
+    /// defaults off. Before this existed the only way to force a re-measure was to delete
+    /// <c>stats/psf-sessions.jsonl</c> by hand, which also threw away the records of sessions that
+    /// were still fine.</para>
+    ///
+    /// <para>Safe to append rather than rewrite: <c>DatasetPsfStore</c> is last-wins by session id by
+    /// design, so a re-measure adds a line and the earlier record stays readable for comparison.</para>
+    /// </summary>
+    public bool ForcePsfRemeasure { get; init; }
 }
