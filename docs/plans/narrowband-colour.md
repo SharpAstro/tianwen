@@ -405,6 +405,65 @@ B = OIII
 then a star stretch, SCNR, and a fixed saturation boost of 1.2. Workflow: strip stars from the
 palette composite and **discard them**, generate RGB stars from the narrowband planes, recombine.
 
+### H. Spectral Extract (synthesised narrowband from OSC, by fitting the QE curves)
+
+[Source](https://github.com/Ionfreefly01/siril-spectral-extract) (GPL-3.0-or-later, Python 3 +
+PyQt6 + OpenCV + tifffile, a Siril 1.4 script). Found 2026-08-11.
+
+**It attacks phase 3 from the other end, and the method is better founded than the one phase 3
+currently names.** Where `DBXtract` hardcodes per-channel line responses for one sensor and one
+filter, this *derives* the mixing coefficients per sensor by fitting the channel response curves to
+the passband you asked for, as a regularised least squares:
+
+```
+minimise || T(lambda) - (a_R*QE_R(lambda) + a_G*QE_G(lambda) + a_B*QE_B(lambda)) ||^2 + alpha*||a||^2
+extracted = a_R*R + a_G*G + a_B*B
+```
+
+Three properties worth having, none of which the hardcoded-table approach gives:
+
+- **It fits the whole curve, not the transmission at one wavelength.** Our measured table above reads
+  throughput at 4861 / 5007 / 6563 / 6717 Angstrom. That says how much of each line reaches each
+  channel; it says nothing about what continuum comes with it. Fitting against `T(lambda)` minimises
+  out-of-band leakage explicitly, which is what makes the result a *passband* rather than a ratio.
+- **Negative coefficients are the continuum rejection.** Subtracting the broadband light that leaked
+  into the other channels is what buys an effective passband narrower than any single channel.
+- **The Tikhonov term is not decoration.** Negative coefficients amplify noise, so `alpha` is the
+  knob that trades achieved bandwidth against noise gain. A phase 3 unmix without one has that
+  trade-off happening anyway, just not under anyone's control.
+
+**Do not import its headline limitation without checking whether it applies to us. It probably does
+not.** The author is admirably blunt: "three broadband measurements cannot be unmixed into a 3 nm
+passband", and a 12 nm Ha request comes back at about 88 nm effective. That is measured for a **bare
+OSC with no narrowband filter**, where the only spectral structure available is the CFA itself, and
+it is the correct answer for that problem. **Phase 3's input is a different and much better
+conditioned one: an OSC behind a dual, tri or quad-band filter.** The filter has already done the
+narrowing, so the solve is not "synthesise 12 nm out of a 100 nm channel" but "separate two lines
+the CFA mixed, inside windows that are already narrow". Conflating the two would make phase 3 look
+impossible when it is not. The converse error is just as available: the measured table shows Ha
+arriving in green at about 0.19 of red on every one of these filters, so the mixing is real and a
+naive channel assignment is not a substitute for the solve.
+
+**What this costs us is small, because the inputs are already shipped.** `FilterCurveDatabase`
+carries `SONY_CMOS_{R,G,B}-UVIRCUT_/_<filter>` and the Canon equivalents for L-eNhance, L-eXtreme,
+Antlia ALP-T and Antlia Triband, which is sensor CFA times filter per channel: exactly the
+`QE_{R,G,B}(lambda)` this fit needs, pre-convolved. `CameraColorMatrix.ComputeCamXyz(qe, cfaR, cfaG,
+cfaB)` already integrates curves of that shape. The missing piece is a three-unknown regularised
+least-squares solve and a target-passband generator, not a new data dependency. That is a
+meaningfully cheaper phase 3 than sourcing or measuring a crosstalk table.
+
+**The single most useful thing to take is the honesty, not the algebra: report the achieved
+passband.** The tool tells the user "you asked for 12 nm, this sensor gives you 88". Nothing in this
+plan currently produces that number, and phase 3 without it is a black box that silently returns a
+worse answer on a filter it cannot serve. Emitting requested-versus-achieved per channel, from the
+fitted residual, is what would let the phase refuse a job instead of doing it badly. It also gives
+the verification sweep in section (b) something concrete to measure per filter and sensor.
+
+**Licence changes nothing here.** GPL-3.0-or-later, so ADR-2 applies exactly as revised: lawful to
+vendor under AGPL-3.0 since 2026-08-11, still reimplemented by preference rather than by
+prohibition. It is Python against PyQt6, OpenCV and Siril's scripting host in any case, so there is
+nothing portable to lift; what transfers is the formulation above.
+
 **Note the convergence.** That green row is our phase 2 lerp exactly, with `mix_g = 0.70`, which is
 *the same 0.7/0.3 split* the RESCUE video used for its nebula mix. Two independent sources landing on
 the same coefficient for the same reason (rotate hue off the Ha/OIII extremes) is decent evidence the
