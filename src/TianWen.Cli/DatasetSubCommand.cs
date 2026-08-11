@@ -143,6 +143,17 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                           "disk (the interrupted session re-runs cleanly). Use the SAME roots and " +
                           "gates as the stopped run.",
         };
+        var scratchRootOpt = new Option<string>("--scratch-root")
+        {
+            Description = "Parent for the per-session warped-sub scratch (a '_scratch' subdirectory " +
+                          "is created and deleted there; the parent is never touched). Default: " +
+                          "beside the output. Scratch is the build's dominant I/O and is pure churn: " +
+                          "every sub is warped to a ~117 MB float32 FITS, read back by the " +
+                          "integrator, then deleted. Putting it on a fast local disk when the " +
+                          "archive lives on a slow one is often the single biggest speedup available. " +
+                          "Size for the largest SESSION, not the archive: ~40 GB for 300 subs.",
+            DefaultValueFactory = _ => "",
+        };
 
         var buildCommand = new Command("build", "Build the training tile set from raw archive lights.")
         {
@@ -150,7 +161,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, scratchRootOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -190,6 +201,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),
                 MaxDarkTemperatureDelta = parseResult.GetValue(maxDarkDeltaTOpt),
                 SoftwareIncludePattern = parseResult.GetValue(softwareOpt)!,
+                ScratchRoot = parseResult.GetValue(scratchRootOpt)!,
                 Resume = parseResult.GetValue(resumeOpt),
                 RegenPsfForExportedSessions = parseResult.GetValue(regenPsfOpt),
             };

@@ -177,4 +177,34 @@ public sealed record DatasetBuildOptions
     /// and leaves the per-sub half a separate question.</para>
     /// </summary>
     public bool RetainSessionMasters { get; init; } = true;
+
+    /// <summary>
+    /// Parent directory for the per-session warped-sub scratch. Empty (the default) puts it at
+    /// <c>&lt;out&gt;/_scratch</c>, beside the tiles; otherwise scratch lands in
+    /// <c>&lt;ScratchRoot&gt;/_scratch</c>. Only ever that subdirectory is created and deleted, so
+    /// pointing this at an existing directory cannot take the directory itself with it.
+    ///
+    /// <para><b>Why this is worth a knob: scratch is the build's dominant I/O by a wide margin, and
+    /// it is pure churn.</b> Registration warps every sub onto the union canvas and persists it as a
+    /// float32 FITS (~117 MB each on a 3250x3060x3 canvas), the integrator reads them all back, and
+    /// the lot is deleted when the session ends. A 200-sub session therefore writes and re-reads
+    /// roughly 47 GB that nothing outside that session will ever look at.</para>
+    ///
+    /// <para>Measured on this dev box 2026-08-11, mid-run: the archive and output live on a USB
+    /// <b>hard disk</b> sustaining ~37 MB/s with a disk queue length of 1.67 (saturated, requests
+    /// waiting), while the process used <b>12% of a 16-core CPU</b>. The build was entirely I/O-bound
+    /// on spinning rust, at ~11 minutes per session. Pointing scratch at an NVMe volume moves the
+    /// churn off the slow disk and leaves only the archive reads and the tile writes there. Size the
+    /// target for the largest single session, not the archive: peak is subs x canvas bytes, so allow
+    /// ~40 GB for a 300-sub session.</para>
+    ///
+    /// <para>Confirmed the same day by sampling both disks through one session with scratch on NVMe:
+    /// the warp phase wrote at <b>400-564 MB/s</b> (against the 37 MB/s the same writes got on the
+    /// hard disk) with the slow disk completely idle, the integrator then read scratch back at
+    /// ~300 MB/s, and the slow disk went busy again only for the next session's raw lights at
+    /// 22-38 MB/s. <b>So the remaining slow-disk traffic is the archive reads, which is irreducible:
+    /// the lights live there.</b> Do not read a busy archive disk as evidence this setting is not
+    /// working; check that the scratch volume is the one taking the write burst.</para>
+    /// </summary>
+    public string ScratchRoot { get; init; } = "";
 }
