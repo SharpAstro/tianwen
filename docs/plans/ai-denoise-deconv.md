@@ -421,9 +421,10 @@ frames would poison the fit (clouds amplify LP several-fold) but the P0 quality 
 them. A site with too few frames can bootstrap the prior from public VIIRS upward radiance through
 a Garstang-style propagation model. VIIRS is public domain; the Falchi 2016 atlas is CC BY-NC and
 stays out of anything shipped, **and the reason is not whether SharpAstro is commercial**: TianWen
-is LGPL-2.1, which grants every downstream consumer commercial-use rights, so NC material inside a
-shipped artifact would be a grant we do not hold. Internal dev-side use (fitting, eval,
-cross-checking our own prior against the atlas) is non-commercial and fine.
+is AGPL-3.0-or-later, which grants every downstream consumer commercial-use rights (copyleft
+constrains secrecy, not commerce), so NC material inside a shipped artifact would be a grant we do
+not hold. Internal dev-side use (fitting, eval, cross-checking our own prior against the atlas) is
+non-commercial and fine.
 
 **The P0 tiles are the wrong artifact for this model; it needs its own exporter.** A gradient is a
 whole-frame low-frequency phenomenon, so a 256 px native-res crop of a 3008 px sensor is a
@@ -442,8 +443,12 @@ dominated by 135 mm fields where Ha covers most of the frame (Carina, Vela SNR, 
 training pairs where the injected gradient is known and the underlying nebulosity must survive are
 exactly the discrimination signal.
 
-**Licensing**: GraXpert is GPL-3.0; the narrowband-references rule applies verbatim: reimplement
-the idea, never vendor code or weights, and its outputs are never training targets (unnecessary
+**Licensing**: GraXpert is GPL-3.0. Since TianWen went **AGPL-3.0-or-later** (2026-08-11), section 13
+expressly permits combining with GPL-3.0 material, so vendoring its code would be lawful where it once
+was not. The preference still runs the other way, for the reasons in narrowband ADR-2: a vendored part
+stays GPL-3.0 and needs that tracked forever, and a Python-to-C# port is most of the work regardless.
+**Its weights are a separate matter and stay out**, since a model trained on someone else's data
+distribution is not what this plan is for, and its outputs are never training targets (unnecessary
 anyway, the synthetic truth is exact). The held-out split stays by session, unchanged.
 
 ## 3. Model + training

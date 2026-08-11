@@ -2,8 +2,11 @@ TianWen -- third-party attributions
 ===================================
 
 This file credits methods, data and code that TianWen builds on. It records credit
-and provenance; it does not grant or restrict anything. The licence TianWen itself
-is offered under is in LICENSE.
+and provenance; it does not grant or restrict anything. TianWen itself is offered
+under the GNU Affero General Public License version 3 or later (LICENSE), together
+with one additional permission under section 7 covering the proprietary
+hardware-vendor SDKs it must link to talk to cameras and mounts
+(LICENSE.EXCEPTION).
 
 
 Star measurement method (HFD, background, aperture sizing)
@@ -32,6 +35,23 @@ Two parts of that file are deliberately not the published method: FWHM is measur
 as an interpolated radial half-maximum crossing rather than the area of the
 above-half-maximum samples (see `HalfMaxDiameter`), and ellipticity comes from the
 flux-weighted second-moment matrix.
+
+ASTAP is published by Han Kleijn under the **GNU Lesser General Public License,
+version 3 or (at its option) any later version**; its own copyright and licence
+notice is kept verbatim in `astap-readme.txt` at the root of this repository, where
+it has been since the project began. TianWen is licensed under the GNU Affero
+General Public License version 3 or later, and LGPL-3.0 material may be
+incorporated into an AGPL-3.0 work: LGPL-3.0 is GPL-3.0 with additional
+permissions, those permissions may be dropped to yield GPL-3.0, and AGPL-3.0
+section 13 expressly permits combining GPL-3.0 material and conveying the result.
+
+So should any part of `Image.StarDetection.cs` be held to be a work derived from
+ASTAP's source rather than an independent implementation of a published method, the
+combination is permitted and the Corresponding Source that section 13 requires to
+be offered to network users extends to it.
+
+Releases made before 2026-08-11 were issued under LGPL-2.1 and remain available
+under those terms; the repository history holds that text.
 
 
 IAU SOFA

@@ -356,8 +356,10 @@ public partial class Image
     /// documented for ASTAP (<see href="https://www.hnsky.org/astap.htm"/>), which in turn
     /// credits Kazuhisa Miyashita for the HFD approximation
     /// (<see href="https://astro-limovie.info/occultation_observation/halffluxdiameter/halffluxdiameter_en.html"/>).
-    /// Credit for the method belongs there; see the repository <c>NOTICE</c> file. ASTAP itself is
-    /// a separate optional external program here (<c>AstapPlateSolver</c>), never linked code.</para>
+    /// Credit for the method belongs there; see the repository <c>NOTICE</c> file, and
+    /// <c>astap-readme.txt</c> at the repository root for ASTAP's own copyright and LGPL-3.0-or-later
+    /// notice. ASTAP as a plate *solver* is a separate optional external program here
+    /// (<c>AstapPlateSolver</c>), invoked as a process and never linked.</para>
     /// <para><b>FWHM departs from that method deliberately</b> and is measured from an
     /// interpolated radial half-maximum crossing rather than a count of pixels above half
     /// maximum; see <see cref="HalfMaxDiameter"/> for why.</para>

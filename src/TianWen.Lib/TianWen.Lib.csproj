@@ -8,6 +8,10 @@
     <AssemblyVersion>$(VersionMajorMinor).0.0</AssemblyVersion>
     <PackageID>TianWen.Lib</PackageID>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- A file, not a PackageLicenseExpression: the terms are AGPL-3.0-or-later PLUS the section-7
+         additional permission in LICENSE.EXCEPTION (which lets TianWen link the proprietary vendor
+         camera/mount SDKs), and SPDX has no identifier for a bespoke exception. LICENSE.EXCEPTION is
+         packed alongside; both must travel with the package or the terms are only half stated. -->
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
     <RepositoryUrl>https://github.com/SharpAstro/tianwen.git</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -138,6 +142,8 @@
     </CatalogPreprocess>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../LICENSE" Pack="True" PackagePath="/" />
+    <None Include="../../LICENSE.EXCEPTION" Pack="True" PackagePath="/" />
+    <None Include="../../NOTICE" Pack="True" PackagePath="/" />
     <None Include="../.editorconfig" Link=".editorconfig" />
   </ItemGroup>
 

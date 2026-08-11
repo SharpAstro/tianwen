@@ -1,0 +1,57 @@
+TianWen -- additional permission under GNU AGPL version 3 section 7
+===================================================================
+
+TianWen is licensed under the GNU Affero General Public License, version 3 or (at
+your option) any later version. The full text of that licence is in LICENSE. This
+file states one additional permission, granted under section 7 of it.
+
+
+Why this exists
+---------------
+
+TianWen drives astronomical hardware, and for most of that hardware the only way
+to talk to it is a software development kit supplied by the manufacturer under its
+own proprietary terms. Nobody but those vendors can relicense their SDKs under a
+free licence. Without the permission below, conveying a working build of TianWen
+would violate the licence, and the project could not ship the binaries it exists
+to ship.
+
+This is an ordinary and well-established use of section 7, not a loophole: the
+permission loosens obligations only on my own code, and only far enough to let
+TianWen talk to hardware.
+
+
+The permission
+--------------
+
+As the sole copyright holder of TianWen, I give you permission to link or combine
+TianWen with the proprietary software development kits, device drivers and runtime
+libraries listed below, and to convey the resulting work. The terms of the GNU
+Affero General Public License version 3 continue to apply to TianWen itself in
+every other respect, including the obligation in section 13 to offer the
+Corresponding Source to users interacting with a modified version over a network.
+
+  * QHYCCD SDK (qhyccd.dll, libqhyccd.so, libqhyccd.dylib) -- QHYCCD
+  * ZWO ASI SDK, including its camera, filter-wheel and focuser libraries -- ZWO
+  * Canon EOS Digital SDK (EDSDK) and its RAW decoding components -- Canon Inc.
+  * ASCOM Platform components, and any third-party ASCOM or Alpaca device driver
+  * ONNX Runtime execution-provider libraries supplied by hardware vendors,
+    including Qualcomm QNN and Microsoft DirectML
+  * Any other software development kit, device driver or runtime library supplied
+    by a hardware vendor that is required either to operate astronomical imaging,
+    mount, focusing, filter or accessory hardware, or to run inference on that
+    vendor's accelerator
+
+
+What it does not do
+-------------------
+
+This permission covers combining TianWen with vendor software of the kind listed
+above, and nothing more. In particular it does not permit conveying TianWen, or
+any work based on it, under terms that withhold the corresponding source of
+TianWen's own code, and it does not waive section 13. It grants nothing in respect
+of the vendor software itself, which remains under its own terms, and nothing in
+respect of anyone else's copyright.
+
+As section 7 provides, you may remove this additional permission from any copy of
+TianWen that you convey.
