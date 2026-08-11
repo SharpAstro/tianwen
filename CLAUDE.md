@@ -1481,6 +1481,24 @@ across surface kinds, so a change to the card lands on both surfaces or neither.
   be hidden (two rigs can be waiting, so only one could be at the front). Both shapes are `Layout.Node`
   projections over the same `RigCard` data in `HomeBoardLayout`, so the shared tree costs nothing here --
   it is a description language, not a fixed shape, and both surfaces get the table for free.
+- **The header's two controls are icon segments plus a four-state theme cycler**, and both are shared-tree
+  nodes rather than per-surface chrome. The shape selector is three `Layout.Content.Icon` leaves
+  (DIR.Lib 7.18): the pixel painter builds each from rectangles and `CellLayout` picks a block-element
+  glyph, which is why an icon names its MEANING (`Grid` / `List` / `Auto`) and not its drawing -- a `Text`
+  run carrying a symbol character would be .notdef on a pixel surface missing that face, and rectangles do
+  not exist on a cell one. **Auto keeps a visible segment**: it is the default state, so lighting nothing
+  would leave the board's commonest configuration unlabelled, and the camera-convention bracketed `A` is
+  what makes it sayable at icon size. The theme cycler beside it advances System -> Light -> Dark -> Night
+  (`CycleUiThemeSignal` -> `GuiTheme.CycleTheme`) and is deliberately a WORD, not a pictogram: the fourth
+  mark would have to separate Night from Dark at 13 px, and a crescent is drawn by over-painting the
+  button's own ground, which the shared painter cannot do (it is handed ink and no background). Cycling
+  into Night records where it came from, so a later F12 restores that rather than a stale toggle memory.
+- **`.RowH(h)` sets `Width = Star` and silently eats a `.WFixed(w)` before it.** It means "a full-width row
+  of fixed height", which is right for a card and wrong for a button. The view segments were built that way
+  from the start, so `ViewButtonWidth` was inert for their whole life and three buttons sprawled across the
+  bar; use `.WFixed(w).HFixed(h)` for anything that is genuinely fixed on both axes. Neither a build nor a
+  screenshot review catches this -- only an arranged rect does, which is what
+  `HomeTabLayoutTests.TheSegmentsKeepTheirFixedWidthInsteadOfSharingTheHeader` asserts.
 - **`Build` takes the viewport, not a resolved column count.** Columns, card detail and cards-vs-table are
   all decided inside it; both hosts previously ran the same `ColumnsFor` -> `ColumnWidth` -> `DetailFor`
   arithmetic, and every new input had to be threaded through both again.

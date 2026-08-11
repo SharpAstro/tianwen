@@ -42,13 +42,20 @@ namespace TianWen.UI.Abstractions
                 HomeBoardLayout.Build(
                     appState.HomeCards, HomeBoardStyle.Default,
                     contentRect.Width / scale, now, contentRect.Height / scale,
-                    appState.HomeBoardView, SelectAction, SelectViewAction),
+                    appState.HomeBoardView, SelectAction, SelectViewAction,
+                    GuiTheme.State, CycleThemeAction),
                 contentRect);
         }
 
         /// <summary>Posts the header selector's choice; the handler stores it and nothing else happens.</summary>
         private Action<InputModifier>? SelectViewAction(HomeBoardView view) =>
             _ => PostSignal(new SetHomeBoardViewSignal(view));
+
+        /// <summary>
+        /// Advances the theme. Routed through the signal rather than calling <see cref="GuiTheme"/> here, so
+        /// the control and F12 land on one path and every host gets the same behaviour.
+        /// </summary>
+        private void CycleThemeAction(InputModifier _) => PostSignal(new CycleUiThemeSignal());
 
         /// <summary>
         /// Looking at a rig, not driving it. Local and remote go through the same two signals the profile

@@ -59,7 +59,8 @@ internal sealed class TuiHomeTab(
             appState.HomeCards, HomeBoardStyle.Default,
             Content.Width * PixelAuthoredCellWidth, timeProvider.GetUtcNow(),
             Content.Height * PixelAuthoredCellHeight,
-            appState.HomeBoardView, SelectAction, SelectViewAction);
+            appState.HomeBoardView, SelectAction, SelectViewAction,
+            GuiTheme.State, CycleThemeAction);
     }
 
     /// <summary>Design units per character cell, matching <see cref="CellMeasureContext.PixelAuthored"/>'s 8x16.</summary>
@@ -79,6 +80,17 @@ internal sealed class TuiHomeTab(
         bus.Post(new SetHomeBoardViewSignal(view));
         NeedsRedraw = true;
     };
+
+    /// <summary>
+    /// Advances the theme, posting the same signal the GUI board's control does. The TUI honours it because
+    /// every colour it paints comes from the same palette, and Night is the state an observer at the mount
+    /// wants whichever surface they happen to be sitting in front of.
+    /// </summary>
+    private void CycleThemeAction(InputModifier _)
+    {
+        bus.Post(new CycleUiThemeSignal());
+        NeedsRedraw = true;
+    }
 
     /// <summary>Looking at a rig, not driving it -- the same two signals the GUI board posts.</summary>
     private Action<InputModifier>? SelectAction(RigCard card) => _ =>

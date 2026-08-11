@@ -202,6 +202,10 @@ namespace TianWen.UI.Abstractions
         /// <param name="view">The user's choice from the header selector; Auto reacts to <paramref name="height"/>.</param>
         /// <param name="onSelectView">Posts the header selector's choice, or null to draw no selector -- which
         /// is what a caller that has nowhere to persist the choice should do.</param>
+        /// <param name="theme">Which of the four theme states the control SHOWS. Passed in rather than read
+        /// off <see cref="GuiTheme"/> for the same reason <paramref name="style"/> is: this builder stays a
+        /// pure function of its arguments, so a test can arrange any state without touching global state.</param>
+        /// <param name="onCycleTheme">Advances the theme, or null to draw no theme control.</param>
         public static Layout.Node Build(
             ImmutableArray<RigCard> cards,
             HomeBoardStyle style,
@@ -210,7 +214,9 @@ namespace TianWen.UI.Abstractions
             float height = float.PositiveInfinity,
             HomeBoardView view = HomeBoardView.Auto,
             Func<RigCard, Action<InputModifier>?>? onSelect = null,
-            Func<HomeBoardView, Action<InputModifier>?>? onSelectView = null)
+            Func<HomeBoardView, Action<InputModifier>?>? onSelectView = null,
+            UiThemeState theme = UiThemeState.Dark,
+            Action<InputModifier>? onCycleTheme = null)
         {
             var cardArea = width - BodyPadding * 2f;
             var columns = ColumnsFor(cardArea, cards.Length);
@@ -240,7 +246,7 @@ namespace TianWen.UI.Abstractions
             }
 
             return Layout.Builder.VStack(
-                    Header(cards, style, view, fellBack, onSelectView),
+                    Header(cards, style, view, fellBack, onSelectView, theme, onCycleTheme),
                     body)
                 .Bg(style.ContentBg);
         }
@@ -292,7 +298,8 @@ namespace TianWen.UI.Abstractions
         /// event into the nudge that the window is too small.</param>
         private static Layout.Node Header(
             ImmutableArray<RigCard> cards, HomeBoardStyle style, HomeBoardView view, bool fellBackToTable,
-            Func<HomeBoardView, Action<InputModifier>?>? onSelectView)
+            Func<HomeBoardView, Action<InputModifier>?>? onSelectView,
+            UiThemeState theme, Action<InputModifier>? onCycleTheme)
         {
             var waiting = 0;
             foreach (var card in cards)
@@ -311,7 +318,7 @@ namespace TianWen.UI.Abstractions
 
             // A leading spacer rather than padding on the text, so the bar's background stays full-bleed
             // while the label lines up with the cards inset below it.
-            var children = ImmutableArray.CreateBuilder<Layout.Node>(6);
+            var children = ImmutableArray.CreateBuilder<Layout.Node>(8);
             children.Add(Layout.Builder.Spacer().WFixed(BodyPadding).HStar());
             children.Add(Layout.Builder
                 .Text(label, BaseFontSize * 1.05f, style.HeaderText, TextAlign.Near, TextAlign.Center)
@@ -323,7 +330,18 @@ namespace TianWen.UI.Abstractions
                 {
                     children.Add(ViewButton(option, view, style, onSelectView));
                 }
+            }
 
+            if (onCycleTheme is not null)
+            {
+                // Set off from the view segments, which are one control: adjacent buttons at the same gap
+                // would read as a four-cell selector whose fourth cell does something unrelated.
+                children.Add(Layout.Builder.Spacer().WFixed(8f).HStar());
+                children.Add(ThemeButton(theme, style, onCycleTheme));
+            }
+
+            if (onSelectView is not null || onCycleTheme is not null)
+            {
                 children.Add(Layout.Builder.Spacer().WFixed(BodyPadding).HStar());
             }
 
@@ -333,17 +351,72 @@ namespace TianWen.UI.Abstractions
                 .Bg(style.HeaderBg);
         }
 
+        /// <summary>Width of the theme cycler. Fixed, and sized for its longest label ("System").</summary>
+        private const float ThemeButtonWidth = 56f;
+
+        /// <summary>
+        /// The four-state theme control: one button that SHOWS the current state and advances on click.
+        /// <para>
+        /// <b>A word rather than a pictogram, unlike the view segments beside it.</b> Two reasons, and the
+        /// second is the load-bearing one. A sun / crescent / half-disc set needs a fourth mark for
+        /// <see cref="UiThemeState.Night"/> that reads as distinct from Dark at 13 px, and the obvious one
+        /// (a red crescent) is a colour difference on a control the user is looking at precisely because
+        /// they are unsure which scheme is on. And a crescent is drawn by over-painting an offset disc in
+        /// the button's own background, which the shared icon painter cannot do: it is handed an ink
+        /// colour and no ground. So the states that would need icons are exactly the states an icon
+        /// cannot say here, while "Night" is unambiguous on both surfaces and needs no font that a
+        /// terminal might lack.
+        /// </para>
+        /// </summary>
+        private static Layout.Node ThemeButton(
+            UiThemeState theme, HomeBoardStyle style, Action<InputModifier>? onCycleTheme) =>
+            Layout.Builder
+                .Text(theme.Label(), BaseFontSize * 0.85f, style.BodyText, TextAlign.Center, TextAlign.Center)
+                // HFixed rather than RowH, for the reason spelt out in ViewButton.
+                .WFixed(ThemeButtonWidth)
+                .HFixed(HeaderHeight - 8f)
+                .Radius(4f)
+                .Bg(style.ViewedCardBg)
+                // Named by the state it currently SHOWS, not the one a click reaches: that is what an
+                // inspector snapshot and a test both want to assert, and it matches the label.
+                .Clickable(new HitResult.ButtonHit($"HomeTheme:{theme}"), onCycleTheme);
+
         /// <summary>Selector order, and the single list both the buttons and the tests read.</summary>
         private static readonly ImmutableArray<HomeBoardView> ViewOptions =
             [HomeBoardView.Auto, HomeBoardView.Cards, HomeBoardView.Table];
 
-        /// <summary>Width of one selector button. Fixed, so the label cannot squeeze the rig count out.</summary>
-        private const float ViewButtonWidth = 54f;
+        /// <summary>
+        /// Width of one selector segment. A square-ish cell now that the segments carry a pictogram rather
+        /// than a word, which is most of what the icons bought: three words cost 162 units of a header that
+        /// also has to hold the rig count, and the count is the thing the board exists to state.
+        /// </summary>
+        private const float ViewButtonWidth = 26f;
+
+        /// <summary>Icon side within a segment. Leaves a couple of units of breathing room either side.</summary>
+        private const float ViewIconSize = 13f;
 
         /// <summary>
-        /// One segmented-selector button. Segments rather than a dropdown: there are three, they are all
-        /// short, and the current one has to be readable at a glance from across the room -- a dropdown would
-        /// hide two of the three behind a click and still cost the same width.
+        /// What each shape LOOKS like, which is the whole reason <see cref="Layout.Content.Icon"/> names a
+        /// meaning rather than a drawing: the GPU board gets rectangles and the TUI gets a block-element
+        /// glyph from one tree.
+        /// </summary>
+        private static Layout.IconKind IconFor(HomeBoardView view) => view switch
+        {
+            HomeBoardView.Cards => Layout.IconKind.Grid,
+            HomeBoardView.Table => Layout.IconKind.List,
+            _ => Layout.IconKind.Auto,
+        };
+
+        /// <summary>
+        /// One segmented-selector button. Segments rather than a dropdown: there are three, and the current
+        /// one has to be readable at a glance from across the room -- a dropdown would hide two of the three
+        /// behind a click and still cost the same width.
+        /// <para>
+        /// <b>All three stay visible, Auto included.</b> Auto is a real state and the default one, so
+        /// hiding it behind "no segment lit" would make the board's most common configuration the one with
+        /// no indication of what it is doing. The camera-style bracketed A is the affordance that makes it
+        /// showable at icon size at all.
+        /// </para>
         /// </summary>
         private static Layout.Node ViewButton(
             HomeBoardView option, HomeBoardView selected, HomeBoardStyle style,
@@ -351,10 +424,14 @@ namespace TianWen.UI.Abstractions
         {
             var isSelected = option == selected;
             var node = Layout.Builder
-                .Text(option.ToString(), BaseFontSize * 0.85f,
-                    isSelected ? style.BodyText : style.DimText, TextAlign.Center, TextAlign.Center)
+                .Icon(IconFor(option), ViewIconSize, isSelected ? style.BodyText : style.DimText)
+                // HFixed, NOT RowH: RowH is "a full-width row of fixed height" and sets Width = Star, which
+                // silently discards the WFixed above it. That is what the segments were doing before the
+                // icons landed -- ViewButtonWidth was inert and the three buttons sprawled across the whole
+                // header, which is only obvious once you look at an arranged rect. Same trap the card's
+                // width hit (see HomeTabLayoutTests' class remarks).
                 .WFixed(ViewButtonWidth)
-                .RowH(HeaderHeight - 8f)
+                .HFixed(HeaderHeight - 8f)
                 .Radius(4f)
                 .Clickable(new HitResult.ButtonHit($"HomeView:{option}"), onSelectView(option));
 

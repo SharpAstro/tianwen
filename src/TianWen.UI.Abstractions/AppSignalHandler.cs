@@ -918,6 +918,12 @@ namespace TianWen.UI.Abstractions
                 _appState.NeedsRedraw = true;
             });
 
+            bus.Subscribe<CycleUiThemeSignal>(_ =>
+            {
+                GuiTheme.CycleTheme();
+                _appState.NeedsRedraw = true;
+            });
+
             // Store autocomplete cache setter as a public action
             SetAutoCompleteCache = cache => _autoCompleteCache = cache;
         }

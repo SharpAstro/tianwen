@@ -364,6 +364,27 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Advances to the next state in <see cref="UiThemeStateExtensions"/>' order, which is what a
+        /// four-state theme control on a screen posts. Same return contract as <see cref="Apply"/>.
+        /// </summary>
+        /// <remarks>
+        /// It remembers the state it entered Night FROM, exactly as <see cref="ToggleNight"/> does, so the
+        /// two controls compose: cycling into Night and then pressing F12 lands back where the cycle came
+        /// from rather than on whatever the last toggle happened to record. Without this the memory would
+        /// be stale precisely when both are used, which is the case an observer at the mount is in.
+        /// </remarks>
+        public static bool CycleTheme()
+        {
+            var next = State.Next();
+            if (next == UiThemeState.Night)
+            {
+                _stateBeforeNight = State;
+            }
+
+            return Apply(next, DesktopIsDark);
+        }
+
+        /// <summary>
         /// Which palette a state resolves to. Pure, so the settings UI can preview a state without
         /// adopting it. <see cref="UiThemeState.System"/> never resolves to
         /// <see cref="NightPalette"/>: a desktop has no way to ask for dark adaptation, and

@@ -41,4 +41,46 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         Night,
     }
+
+    /// <summary>
+    /// The two questions a theme CONTROL has to answer that the enum itself cannot: what comes next, and
+    /// what to call the state on screen. Pure, so a control can preview a state without adopting it, and
+    /// separate from <see cref="GuiTheme"/> because neither answer needs the resolved palette.
+    /// </summary>
+    public static class UiThemeStateExtensions
+    {
+        extension(UiThemeState theme)
+        {
+            /// <summary>
+            /// The next state in the cycler's order: System, Light, Dark, Night, and back.
+            /// <para>
+            /// <b>Night is in the cycle on purpose, and that does not contradict
+            /// <see cref="UiThemeState.Night"/>'s "never by accident".</b> What must never happen is
+            /// <see cref="UiThemeState.System"/> RESOLVING to Night, which would drop an observer into red
+            /// chrome because their desktop happens to be dark. Reaching it by clicking a control that
+            /// names the state it is about to select is the opposite of that: it is the explicit choice
+            /// the enum asks for. F12 stays the fast gesture, for the observer already at the mount.
+            /// </para>
+            /// </summary>
+            public UiThemeState Next() => theme switch
+            {
+                UiThemeState.System => UiThemeState.Light,
+                UiThemeState.Light => UiThemeState.Dark,
+                UiThemeState.Dark => UiThemeState.Night,
+                _ => UiThemeState.System,
+            };
+
+            /// <summary>
+            /// What to call the state on a control. <see cref="UiThemeState.System"/> is the one whose enum
+            /// name says nothing to a reader, since what it means is "whatever the desktop is set to".
+            /// </summary>
+            public string Label() => theme switch
+            {
+                UiThemeState.Light => "Light",
+                UiThemeState.Dark => "Dark",
+                UiThemeState.Night => "Night",
+                _ => "System",
+            };
+        }
+    }
 }
