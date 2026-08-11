@@ -323,6 +323,74 @@ pixel-level background preservation under them, flux conservation of the stars p
 existing-star spot checks at 1:1 (the bright-saturated tail is the known hard case, keep RC/SAS
 preferred until it passes).
 
+### 2.6 Gradient-removal ground truth: flatten-and-inject (P5)
+
+A trained gradient remover (the GraXpert analogue) fills `IGradientCorrector`, the one enhancer
+role every other phase leaves on SAS permanently (RC-Astro has no gradient product), so together
+with P4 it completes the TianWen-only tier. It is also the easiest truth of the four model types:
+a gradient is an additive low-frequency field in linear space, so exact ground truth is
+manufactured rather than measured. Captured 2026-08-11; independent of P1/P2/P4 (it needs only
+P0's calibrated sessions, registration optional) and far cheaper to train, so it can run whenever
+a slot opens.
+
+1. **Flatten classically**: star-masked low-order polynomial / RBF background fit on the session
+   master (the `StarMask` + `ScanBackgroundRegion` machinery already exists), subtract. The plate
+   does not need to be perfectly gradient-free, only consistent: exactly as with §2.5's starless
+   plates, residual flattening artefacts become background the net must preserve, never content it
+   must invent.
+2. **Inject a synthetic gradient**: input = flattened + gradient, target = flattened (the
+   subtraction formulation keeps §7's flux gates directly applicable). Family: low-order 2D
+   polynomials, edge light-pollution ramps, corner glows, plus the physically-modelled moon-scatter
+   surface below. Amplitudes and orientations sampled from the measured archive distribution, not
+   guessed.
+3. **Measure first (the P0-equivalent)**: fit low-order star-masked backgrounds to every session
+   master and report amplitude relative to sky level, orientation, and shape percentiles; a sibling
+   section to the PSF report, same measure-then-sweep pattern as §2.2.
+
+**Physically-derived covariates (moon geometry + frame rotation) earn their keep three ways.**
+Every frame's header carries `DATE-OBS` + site + pointing, the ephemerides are in-repo
+(`MeeusMoon` position + illumination, `VSOP87a` sun), and one `CatalogPlateSolver` solve on the
+session master supplies the WCS rotation that projects sky directions into pixel coordinates. So
+per-sub moon-target separation, moon altitude, illumination, target altitude/azimuth, and the
+in-frame direction of any sky-anchored ramp are computable offline AND at inference, from the FITS
+header alone, with no user input:
+
+- **Conditional sampling**: regress the measured gradient distribution against the covariates so
+  injection samples conditionally (moon up and close draws a strong directed ramp toward the
+  projected moon azimuth; a moonless dark-site frame draws the weak altitude/airmass ramp) instead
+  of isotropically.
+- **A physical family member**: the Krisciunas & Schaefer (1991) moonlight sky-brightness model
+  evaluated over the frame footprint yields a realistic non-linear moon-scatter surface, better
+  than any polynomial at small separations.
+- **Optional inference conditioning** (the psf01 pattern): scalars the net receives so it can tell
+  an expected gradient direction from genuine large-scale nebulosity, which is the core ambiguity
+  of this model class. GraXpert cannot do this (no ephemeris, no header contract); we can. Three
+  caveats: the light-pollution azimuth is site-specific (not computable, stays learned), clouds
+  break the physics (covariates are inputs the net may weigh, never a subtraction the pipeline
+  asserts), and multiple scalars need a new `OnnxIoNames` signature (`ImagePlusScalar` carries
+  exactly one).
+
+**The P0 tiles are the wrong artifact for this model; it needs its own exporter.** A gradient is a
+whole-frame low-frequency phenomenon, so a 256 px native-res crop of a 3008 px sensor is a
+near-constant offset with no context, and the stored tiles are MTF pre-stretched while gradients
+are additive in linear. The training sample is the whole calibrated frame downsampled to model
+resolution (GraXpert-style): predict the background at low res, bicubic-upsample, subtract at full
+res. Full-res pixels never pass through the net, so the hallucination class of §8.4 is
+structurally absent here. Masters and calibrated subs both qualify as scenes; flats have already
+removed vignetting, so a calibrated sub's residual background is sky gradient, exactly the target,
+and each sub is its own realization as altitude and moon geometry drift through a night (5,984
+registered subs vs 50 masters in the current set).
+
+**Why this archive is unusually good for it**: the classic gradient-AI failure mode is eating real
+large-scale nebulosity, and models trained on mostly-empty fields are worst at it. This archive is
+dominated by 135 mm fields where Ha covers most of the frame (Carina, Vela SNR, Orion, Rim), so
+training pairs where the injected gradient is known and the underlying nebulosity must survive are
+exactly the discrimination signal.
+
+**Licensing**: GraXpert is GPL-3.0; the narrowband-references rule applies verbatim: reimplement
+the idea, never vendor code or weights, and its outputs are never training targets (unnecessary
+anyway, the synthetic truth is exact). The held-out split stays by session, unchanged.
+
 ## 3. Model + training
 
 - **Architecture: NAFNet, width 32, standard block config ≈ 29 M params** (the SXT 21M / NXT 24M /
@@ -441,7 +509,8 @@ preferred until it passes).
 | **P2: Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
 | **P3: Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
 | **P4: Star remover** | Inject-and-remove bootstrap (§2.5): classical starless plates + measured-PSF star injector + self-refinement; `OnnxTianWenStarRemover : IStarRemover` (additive split); completes the tier so the full canonical program runs TianWen-only | Injected-star removal completeness + background preservation + stars-plate flux conservation on held-out sessions; bright-saturated tail passes 1:1 spot checks (RC/SAS stay preferred until then) |
-| **P5: Deferred** | Strength/frequency conditioning beyond Blend-lerp; mono-native models; drizzle-truth sharper tier; frame-quality classifier from BAD-examples; dataset-contribution flow for other users; **comet-registered stacking** (P4 unlock: star-remove subs → integrate on the `CometEphemeris`-computed per-frame comet position via WCS → recombine star-registered stars plate, the AIC comet workflow, automated by ephemeris instead of manual alignment) | - |
+| **P5: Gradient remover** | §2.6 flatten-and-inject: archive gradient-distribution report (the measure-then-sweep P0-equivalent); whole-frame downsampled LINEAR exporter (the P0 tiles are the wrong artifact, §2.6); moon/geometry covariates (`MeeusMoon` + `VSOP87a` + one WCS solve per session); small background-prediction net + ONNX; `OnnxTianWenGradientCorrector : IGradientCorrector` | Injected gradients on held-out masters removed to below the classical-fit residual baseline; nebulosity / large-scale flux preserved (§7 gates). Order-independent of P1-P4 (needs only P0) |
+| **P6: Deferred** | Strength/frequency conditioning beyond Blend-lerp; mono-native models; drizzle-truth sharper tier; frame-quality classifier from BAD-examples; dataset-contribution flow for other users; **comet-registered stacking** (P4 unlock: star-remove subs → integrate on the `CometEphemeris`-computed per-frame comet position via WCS → recombine star-registered stars plate, the AIC comet workflow, automated by ephemeris instead of manual alignment) | - |
 
 ## 6. Evaluation (all internal, license-clean)
 
