@@ -150,6 +150,28 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
   doing (it preserves the prior distribution for a before/after comparison, which an append-only
   last-wins force would bury), so whichever way this goes, keep rotation as the documented gesture.
 
+## Licensing / release hygiene
+
+- [ ] **Ship third-party notices with the release binaries.** The four AOT release assets
+  (`tianwen`, `tianwen-server`, `tianwen-gui`, `tianwen-fits`) **static-link everything**, so each
+  `.tar.gz` is a binary redistribution of its dependencies. MIT and BSD both require the copyright
+  notice be reproduced in such a redistribution, and the assets carry no notices at all today.
+  Concretely at least: `FITS.Lib` / CSharpFITS, whose BSD-style terms say "Redistributions in binary
+  form must reproduce the above copyright notice ... in the documentation" (Thomas McGlynn, Samuel
+  Carliles, Virtual Observatory India), the seven MIT SharpAstro siblings, SDL3 (zlib) and DotNext.
+  `Codecs` is UNLICENSE so it needs nothing, and QHYCCD.SDK already separates QHYCCD's proprietary
+  natives from its MIT wrapper in its own `license.txt`.
+
+  Two ways: generate `THIRD-PARTY-NOTICES.txt` at publish time from the restored dependency graph, or
+  hand-maintain it and accept the drift. Prefer generated. Then add it to the release upload globs in
+  `.github/workflows/dotnet.yml` beside the binaries, and reference it from `NOTICE`, which today
+  credits methods and data but says nothing about linked code.
+
+  Worth stating so it is not re-investigated: **every sibling repo IS properly licensed.** An earlier
+  pass claimed FITS.Lib, Codecs and QHYCCD.SDK had no licence file, which was wrong; the check globbed
+  only `LICENSE*` and `COPYING*` and missed `license.txt`, `UNLICENSE` and `license.txt`
+  respectively. All three also declare `PackageLicenseFile` in their csproj.
+
 ## Build / dev environment (local siblings)
 
 - [x] **NuGet graph-restore source-key alignment: standardized on `nuget.org`** (DONE 2026-07-04,

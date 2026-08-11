@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using TianWen.AI.Imaging;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Dataset;
 using Xunit;
 
@@ -257,6 +258,84 @@ namespace TianWen.Lib.Tests
             third.TotalTiles.ShouldBe(first.TotalTiles);
             third.ParityChecked.ShouldBeFalse(); // nothing exported this run to gate
             File.ReadAllBytes(first.ManifestPath).ShouldBe(manifestBytes);
+        }
+
+        /// <summary>
+        /// The integrated session master is retained, named with the SAME slug as its tile directory,
+        /// and never rewritten once present.
+        ///
+        /// <para><b>Why this artifact matters more than it looks.</b> The master is the only perishable
+        /// output of a build: scratch is wiped per session, so afterwards it exists nowhere, and the
+        /// field-radius PSF profile (the input to the deconvolver's position-varying sweep) is measured
+        /// ON it. Recovering anything measured there therefore meant registering the whole session
+        /// again, which cost two full 7h16m archive re-runs in two days, once for a star-detection fix
+        /// and once for an FWHM estimator fix. Neither needed the subs; both needed only a master the
+        /// run had already built and discarded.</para>
+        ///
+        /// <para>The not-rewritten half is the load-bearing assertion. A resume must not spend 108 MB
+        /// of I/O per already-retained session, and the write goes via a <c>.partial</c> temp name
+        /// precisely so a kill mid-write cannot leave a truncated FITS that a later run would mistake
+        /// for a complete one, which is the manifest-claims-missing-tiles bug in another costume.</para>
+        /// </summary>
+        [Fact]
+        public async Task Run_RetainsTheSessionMaster_WithTheTileSlug_AndDoesNotRewriteItOnResume()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+
+            var outDir = Path.Combine(_dir, "out");
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            first.Registered.ShouldBe(1);
+
+            var mastersDir = Path.Combine(outDir, "session-masters");
+            var masters = Directory.GetFiles(mastersDir, "*.fits");
+            masters.Length.ShouldBe(1, "one registered session, one retained master");
+            // No .partial survives a clean run: the temp name is moved into place, never left behind.
+            Directory.GetFiles(mastersDir, "*.partial").ShouldBeEmpty();
+
+            // The master's name is the tile directory's name, so one traces to the other directly.
+            var tileDirs = Directory.GetDirectories(Path.Combine(outDir, "tiles"));
+            tileDirs.Length.ShouldBe(1);
+            Path.GetFileNameWithoutExtension(masters[0]).ShouldBe(Path.GetFileName(tileDirs[0]));
+
+            // It is a readable FITS carrying the integration, not a stub.
+            Image.TryReadFitsFile(masters[0], out var master, out _).ShouldBeTrue();
+            master.ShouldNotBeNull();
+            master.Width.ShouldBeGreaterThan(0);
+            master.Height.ShouldBeGreaterThan(0);
+            output.WriteLine($"retained master {Path.GetFileName(masters[0])}: {master.Width}x{master.Height}x{master.ChannelCount}");
+
+            // Resume with everything already done: the master must not be rewritten.
+            var stampBefore = File.GetLastWriteTimeUtc(masters[0]);
+            var lengthBefore = new FileInfo(masters[0]).Length;
+            var second = await DatasetBuildRunner.RunAsync(options with { Resume = true }, cancellationToken: ct);
+            second.Resumed.ShouldBe(1);
+            File.GetLastWriteTimeUtc(masters[0]).ShouldBe(stampBefore);
+            new FileInfo(masters[0]).Length.ShouldBe(lengthBefore);
+
+            // Opting out writes nothing, so a caller short of disk can genuinely decline it.
+            var optOutDir = Path.Combine(_dir, "out-noretain");
+            var third = await DatasetBuildRunner.RunAsync(
+                options with { OutputDir = optOutDir, RetainSessionMasters = false }, cancellationToken: ct);
+            third.Registered.ShouldBe(1);
+            Directory.Exists(Path.Combine(optOutDir, "session-masters")).ShouldBeFalse();
         }
 
         /// <summary>
