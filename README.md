@@ -330,3 +330,26 @@ Design deep-dives live under [`docs/architecture/`](docs/architecture/):
 - [Fake disturbance model](docs/architecture/fake-disturbance-model.md): the believed/true pointing split used by the fake drivers for unattended end-to-end testing.
 
 Per-feature implementation plans + status are in [`docs/plans/`](docs/plans/) (e.g. the planetary lucky-imaging stack in [`planetary-stacking.md`](docs/plans/planetary-stacking.md)); `CLAUDE.md` is the contributor architecture guide.
+
+## License
+
+**GNU Affero General Public License v3.0 or later** ([`LICENSE`](LICENSE)), plus one
+additional permission under section 7 ([`LICENSE.EXCEPTION`](LICENSE.EXCEPTION)).
+
+What that means in practice:
+
+- **Build on it freely, including commercially.** You may use, modify, sell and deploy TianWen. The
+  one condition is reciprocity: if you convey it, or offer a modified version to users over a
+  network, those users get the corresponding source under these same terms. `TianWen.Lib` is
+  published on NuGet to be consumed; it is not available for closed-source products.
+- **The section 7 permission exists so TianWen can talk to hardware.** Cameras and mounts are only
+  reachable through proprietary vendor SDKs (QHYCCD, ZWO, Canon EDSDK, ASCOM drivers, vendor ONNX
+  execution providers), which nobody but their vendors can relicense. The permission covers linking
+  those and nothing else; it does not waive the source obligation.
+- **Section 13 is the reason for Affero rather than plain GPL.** TianWen ships a headless server, a
+  REST/WebSocket API and multi-rig remote mirroring, so running it as a hosted service is a likely
+  way it gets used. Plain GPL treats network use as neither conveying nor distribution and would ask
+  nothing of a hosted deployment.
+
+Third-party methods, data and programs TianWen builds on are credited in [`NOTICE`](NOTICE).
+Releases before 2026-08-11 were made under LGPL-2.1 and remain available under those terms.

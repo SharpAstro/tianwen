@@ -836,7 +836,7 @@ has not changed.)
 | **Deterministic across sessions** | Yes, tied to catalog photometry | Per-image, so two nights of the same target can normalize differently | No, it is hand work |
 | **Effort for us** | High (spectra source, storage, query path) | **Low** (about a day for B1+B3) | Medium (hue axis on an existing stage) |
 | **Fixes the red-dominated HOO complaint** | Indirectly | **Directly, this is exactly what it is for** | Only by hand |
-| **Licence** | Docs only, no code taken | **GPL-3.0**, so reimplement, never copy | Unknown, not inspected |
+| **Licence** | Docs only, no code taken | **GPL-3.0**; reimplement by preference, not by prohibition (ADR-2, revised for AGPL-3.0) | Unknown, not inspected |
 
 The row that decides it is "new data dependency" crossed with "fixes the actual complaint".
 
@@ -863,16 +863,29 @@ conflating the two is how a "calibrated" label ends up on an image nobody calibr
 
 ### ADR-2: Reimplement from the algorithm, do not vendor the code
 
-**Decision.** VeraLux is GPL-3.0-or-later; TianWen is LGPL-2.1. Write our own implementation from the
-maths recorded above. Do not copy source, and do not lift the coefficient table out of
-`VeraLux_Alchemy.py`.
+**Decision.** Write our own implementation from the maths recorded above. Do not copy source, and do
+not lift the coefficient table out of `VeraLux_Alchemy.py`.
 
-**Why.** Copying GPL-3.0 source into an LGPL-2.1 library is a licence violation, and a coefficient
-table copied verbatim carries the compilation with it. The crosstalk coefficients originate from
-**DBXtract**, so if we want them in phase 3 we source them from there and record the provenance.
+**Why.** **Revised 2026-08-11 and the decision is unchanged, but the reason is no longer licensing.**
+The original reason was that copying GPL-3.0 source into an LGPL-2.1 library is a violation. TianWen
+is now **AGPL-3.0-or-later**, and AGPL-3.0 section 13 expressly permits combining a covered work with
+GPL-3.0 material and conveying the result, so vendoring VeraLux would be *lawful*. It is still not
+wanted:
 
-**Consequence.** Phase 3 is gated on sourcing the table cleanly, which is why it sits behind phases 1
-and 2 rather than shipping with them.
+- **Vendored GPL-3.0 parts stay GPL-3.0**, as section 13 provides, so the file would carry different
+  terms from the rest of the tree and every future edit needs that kept straight. A self-contained
+  algebraic transform is not worth that bookkeeping.
+- **Python is not the target.** These are numpy scripts operating on whole-image arrays; TianWen needs
+  span-based single-pass C# that composes with the existing stretch pipeline. A port is most of the
+  work either way, and a mechanical translation of GPL source is a derivative work without being any
+  less effort.
+- The **coefficient table is a separate question** and the licence change does not settle it. The
+  crosstalk coefficients originate from **DBXtract**, so if we want them in phase 3 we source them
+  from there and record the provenance.
+
+**Consequence.** Phase 3 is still gated on sourcing the table cleanly, which is why it sits behind
+phases 1 and 2. Vendoring is now available as a fallback if a reimplementation of some specific step
+proves disproportionate; it is a deliberate choice with a bookkeeping cost, not a prohibition.
 
 ### ADR-3: SPCC narrowband is blocked on a spectra source, and is scoped to exclude SHO
 

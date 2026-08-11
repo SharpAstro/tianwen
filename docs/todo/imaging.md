@@ -300,7 +300,8 @@ Summary of what was decided, so this file is not misleading on its own:
   MAD/percentile gain applied **about the background**, aligning G and B to R, followed by an `Ha`/`OIII`
   to RGB lerp. No catalog, no plate solve, no new data, and it is what actually fixes red-dominated HOO.
   Built almost entirely from primitives we already have. Reimplement from the maths in the plan: the
-  reference implementation is GPL-3.0 and must not be copied into an LGPL-2.1 library (ADR-2).
+  reference implementation is GPL-3.0; reimplement rather than vendor by preference now that TianWen
+  is AGPL-3.0-or-later and vendoring would be lawful (ADR-2, revised 2026-08-11).
 - [ ] **Phase 3: dual-band Ha/OIII unmixing** (optional, gated on a known sensor). DBXtract algebra plus a
   nine-coefficient per-sensor crosstalk table, sourced from DBXtract rather than lifted from the script.
 - [ ] **Phase 4: SPCC narrowband. BLOCKED, and the framing this item used to carry was wrong** (ADR-3). It
