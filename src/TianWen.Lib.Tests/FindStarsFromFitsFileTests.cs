@@ -1,6 +1,7 @@
 ﻿using Shouldly;
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using TianWen.UI.Abstractions;
@@ -92,6 +93,54 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
         testOutputHelper.WriteLine("{0} @ SNR {1}: {2} stars, {3} duplicate pair(s){4}", name, snrMin, all.Length, duplicates, detail);
         duplicates.ShouldBe(expectedDuplicatePairs,
             $"{duplicates} duplicate detection pair(s) in {name} at SNR {snrMin}, expected {expectedDuplicatePairs}.{detail}");
+    }
+
+    /// <summary>
+    /// FWHM must be a continuous measurement, not a function of an integer pixel count.
+    ///
+    /// <para>Until 2026-08-11 FWHM was the diameter of the disc whose area equals the COUNT of
+    /// samples above half maximum (<c>2*sqrt(count/pi)</c>), so every value it could ever report lay
+    /// on the lattice <c>{2*sqrt(n/pi)}</c>: 2.257, 2.523, 2.764, 2.985, 3.192, ... a step of about
+    /// 0.2 px. Over the 2025-2026 archive that put the per-sub median FWHM at the identical 2.523 px
+    /// on the 5th through 75th percentiles and flattened the field-radius PSF profile on four of
+    /// five optical trains. It is now an interpolated radial half-maximum crossing.</para>
+    ///
+    /// <para>A percentile assertion cannot catch a return to the old behaviour (the lattice values
+    /// are perfectly plausible numbers), so this inverts the estimator: recover <c>n</c> from each
+    /// FWHM and check it is not an integer. The old code scores 100 % on-lattice by construction.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 5000)]
+    [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 500)]
+    public async Task GivenDetectedStars_ThenFwhmIsNotQuantisedToThePixelCountLattice(string name, float snrMin, int maxStars)
+    {
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: TestContext.Current.CancellationToken);
+        var stars = await image.FindStarsAsync(0, snrMin, maxStars, cancellationToken: TestContext.Current.CancellationToken);
+
+        var fwhms = stars.ToArray().Select(s => s.StarFWHM).Where(f => f > 0f).ToArray();
+        fwhms.Length.ShouldBeGreaterThan(20, "need a population to characterise");
+
+        // n = area of the half-max disc = pi * (fwhm/2)^2. Integer n means the pixel-count form.
+        var onLattice = 0;
+        foreach (var f in fwhms)
+        {
+            var n = MathF.PI * f * f * 0.25f;
+            if (MathF.Abs(n - MathF.Round(n)) < 1e-3f)
+            {
+                onLattice++;
+            }
+        }
+
+        var fraction = (double)onLattice / fwhms.Length;
+        var sorted = fwhms.Order().ToArray();
+        testOutputHelper.WriteLine(
+            "{0}: {1} stars, FWHM p5={2:F3} p50={3:F3} p95={4:F3}, {5} distinct, {6}/{7} on-lattice ({8:P1})",
+            name, fwhms.Length, sorted[sorted.Length / 20], sorted[sorted.Length / 2], sorted[sorted.Length * 19 / 20],
+            fwhms.Distinct().Count(), onLattice, fwhms.Length, fraction);
+
+        fraction.ShouldBeLessThan(0.2, $"{fraction:P1} of FWHM values sit on the integer-count lattice; the quantised estimator is back");
+        // And the distribution must actually spread, which the old form could not do.
+        sorted[sorted.Length / 20].ShouldBeLessThan(sorted[sorted.Length * 19 / 20]);
     }
 
     [Theory]

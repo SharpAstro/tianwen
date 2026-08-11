@@ -345,8 +345,23 @@ public partial class Image
     }
 
     /// <summary>
-    /// calculate star HFD and FWHM, SNR, xc and yc are center of gravity.All x, y coordinates in array[0..] positions
+    /// Measures one star candidate: HFD, FWHM, SNR, flux and the flux-weighted centroid
+    /// (<c>xc</c>, <c>yc</c>). All coordinates are zero-based array positions.
     /// </summary>
+    /// <remarks>
+    /// <para><b>Attribution.</b> The measurement approach followed here (a median-plus-MAD
+    /// background from an annulus outside the aperture, a 3-sigma signal gate, a flux-weighted
+    /// centroid with the aperture shrunk until the star is boxed, a radial signal histogram to
+    /// size the aperture, and the flux-weighted HFD approximation) is the method Han Kleijn
+    /// documented for ASTAP (<see href="https://www.hnsky.org/astap.htm"/>), which in turn
+    /// credits Kazuhisa Miyashita for the HFD approximation
+    /// (<see href="https://astro-limovie.info/occultation_observation/halffluxdiameter/halffluxdiameter_en.html"/>).
+    /// Credit for the method belongs there; see the repository <c>NOTICE</c> file. ASTAP itself is
+    /// a separate optional external program here (<c>AstapPlateSolver</c>), never linked code.</para>
+    /// <para><b>FWHM departs from that method deliberately</b> and is measured from an
+    /// interpolated radial half-maximum crossing rather than a count of pixels above half
+    /// maximum; see <see cref="HalfMaxDiameter"/> for why.</para>
+    /// </remarks>
     /// <param name="x1">x</param>
     /// <param name="y1">y</param>
     /// <param name="boxRadius">box radius</param>
@@ -436,7 +451,9 @@ public partial class Image
             bool boxed;
             do
             {
-                // Get center of gravity whithin star detection box and count signal pixels, repeat reduce annulus radius till symmetry to remove stars
+                // Flux-weighted centroid over the signal pixels in the box, plus a count of how
+                // many were illuminated. The enclosing loop shrinks the box until the star is
+                // "boxed" (fill test below), which is what keeps a neighbour out of the aperture.
                 sumVal = 0.0f;
                 var sumValX = 0.0f;
                 var sumValY = 0.0f;
@@ -481,7 +498,9 @@ public partial class Image
                 }
 
                 var rs2_1 = boxRadius + boxRadius + 1;
-                boxed = signal_counter >= 2.0f / 9 * (rs2_1 * rs2_1);/*are inside the box 2 of the 9 of the pixels illuminated? Works in general better for solving then ovality measurement as used in the past*/
+                /* Fill test: at least 2/9 of the box illuminated. A fill fraction separates one
+                   boxed star from a crowded box more reliably than an ovality measure does. */
+                boxed = signal_counter >= 2.0f / 9 * (rs2_1 * rs2_1);
 
                 if (!boxed)
                 {
@@ -542,12 +561,17 @@ public partial class Image
                 illuminated_pixels += distance_histogram[r_aperture];
                 if (distance_histogram[r_aperture] > 0)
                 {
-                    histStart = true; /*continue until we found a value>0, center of defocused star image can be black having a central obstruction in the telescope*/
+                    /* Only start hunting for the outer edge once some signal has been seen: a
+                       defocused star imaged through a central obstruction is dark in the middle,
+                       so an empty innermost bin is not the edge. */
+                    histStart = true;
                 }
 
                 if (distance_top_value < distance_histogram[r_aperture])
                 {
-                    distance_top_value = distance_histogram[r_aperture]; /* this should be 2*pi*r_aperture if it is nice defocused star disk */
+                    /* Peak annulus population, which approaches 2*pi*r for an evenly illuminated
+                       defocused disk; the loop exit compares later annuli against it. */
+                    distance_top_value = distance_histogram[r_aperture];
                 }
                 /* find a distance where there is no pixel illuminated, so the border of the star image of interest */
             } while (r_aperture < boxRadius && (!histStart || distance_histogram[r_aperture] > 0.1f * distance_top_value));
@@ -575,8 +599,7 @@ public partial class Image
             return false;
         }
 
-        // Get HFD + second-order moments (for ellipticity).
-        var pixel_counter = 0;
+        // Get HFD, the radial profile (for FWHM) and second-order moments (for ellipticity).
         sumVal = 0.0f; // reset
         var sumValR = 0.0f;
         // Second moments accumulate only positive-flux pixels around
@@ -584,20 +607,43 @@ public partial class Image
         // star can overflow float precision before normalisation.
         double sumPosFlux = 0, sumMxx = 0, sumMyy = 0, sumMxy = 0;
 
-        // Get HFD using the aproximation routine assuming that HFD line divides the star in equal portions of gravity:
-        for (var i = -r_aperture; i <= r_aperture; i++) /*Make steps of one pixel*/
+        // Azimuthally averaged radial profile, as flux and weight per integer radius. Bins
+        // 0..r_aperture are complete annuli (a circle of radius <= r_aperture fits inside the
+        // square being walked); the one extra bin catches the fractional spill from the outermost
+        // samples and is corner-only, so it is used to interpolate against but never as a result.
+        Span<float> profileFlux = stackalloc float[r_aperture + 2];
+        Span<float> profileWeight = stackalloc float[r_aperture + 2];
+        // Redundant today (no [SkipLocalsInit] in this assembly, so stackalloc is zeroed) and kept
+        // deliberately: both spans are accumulated into, never fully written, so adding that
+        // attribute for perf later would otherwise start every star from uninitialised stack.
+        profileFlux.Clear();
+        profileWeight.Clear();
+
+        // The centroid is a sub-pixel position, so every sample is a sub-pixel interpolation
+        // rather than a pixel lookup.
+        for (var i = -r_aperture; i <= r_aperture; i++)
         {
             for (var j = -r_aperture; j <= r_aperture; j++)
             {
-                var val = SubpixelValue(channel, xc + i, yc + j) - bg; /* the calculated center of gravity is a floating point position and can be anywhere, so calculate pixel values on sub-pixel level */
-                var r = MathF.Sqrt(i * i + j * j); /* distance from star gravity center */
-                sumVal += val;/* sumVal will be star total star flux*/
-                sumValR += val * r; /* method Kazuhisa Miyashita, see notes of HFD calculation method, note calculate HFD over square area. Works more accurate then for round area */
-                if (val >= valMax * 0.5)
+                var val = SubpixelValue(channel, xc + i, yc + j) - bg;
+                var r = MathF.Sqrt(i * i + j * j); /* distance from the centroid */
+                sumVal += val;      /* total star flux */
+                sumValR += val * r; /* flux-weighted radius; the HFD approximation below inverts it */
+
+                // Split each sample between the two bracketing integer radii in proportion to its
+                // fractional radius. That makes the profile piecewise-linear in r instead of a
+                // histogram, which is what lets the half-maximum crossing be interpolated: an
+                // integer bin count is exactly what used to quantise FWHM.
+                var rFloor = (int)r;
+                if (rFloor <= r_aperture)
                 {
-                    // How many pixels are above half maximum
-                    pixel_counter++;
+                    var frac = r - rFloor;
+                    profileFlux[rFloor] += val * (1f - frac);
+                    profileWeight[rFloor] += 1f - frac;
+                    profileFlux[rFloor + 1] += val * frac;
+                    profileWeight[rFloor + 1] += frac;
                 }
+
                 if (val > 0f)
                 {
                     // SubpixelValue takes (channel, x, y), so i = dx, j = dy.
@@ -611,7 +657,7 @@ public partial class Image
 
         var flux = MathF.Max(sumVal, 0.00001f); /* prevent dividing by zero or negative values */
         var hfd = MathF.Max(0.7f, 2 * sumValR / flux);
-        var star_fwhm = 2 * MathF.Sqrt(pixel_counter / MathF.PI);/*calculate from surface (by counting pixels above half max) the diameter equals FWHM */
+        var star_fwhm = HalfMaxDiameter(profileFlux, profileWeight, valMax * 0.5f, r_aperture);
 
         // Moment-based ellipticity from the 2x2 flux-weighted second-
         // moment matrix [[Mxx, Mxy], [Mxy, Myy]] (each normalised by
@@ -638,8 +684,13 @@ public partial class Image
             }
         }
 
-        // SNR formula assumes Poisson statistics on ADU counts (gain=1).
-        // For normalized [0,1] images, scale flux and sd back to ADU range so shot noise is correct.
+        // SNR for the shot-noise-limited and sky-limited cases together:
+        //   snr = flux / sqrt(flux + r^2 * pi * sd^2)
+        // where flux is the signal above 3*sd and the second term is the background variance over
+        // the measurement aperture. Assumes Poisson statistics on ADU counts at unity gain
+        // (ADU/e- = 1); see https://en.wikipedia.org/wiki/Signal-to-noise_ratio_(imaging) .
+        // For [0,1]-normalised images, flux and sd are scaled back to the ADU range first, or the
+        // shot-noise term would be meaningless.
         var aduScale = MaxValue > 1.0f + float.Epsilon ? 1.0f : ushort.MaxValue;
         var aduFlux = flux * aduScale;
         var aduSdBg = sd_bg * aduScale;
@@ -647,64 +698,67 @@ public partial class Image
 
         star = new ImagedStar(hfd, star_fwhm, snr, flux, xc, yc, ellipticity);
         return true;
-        /*For both bright stars (shot-noise limited) or skybackground limited situations
-        snr := signal/noise
-        snr := star_signal/sqrt(total_signal)
-        snr := star_signal/sqrt(star_signal + sky_signal)
-        equals
-        snr:=flux/sqrt(flux + r*r*pi* sd^2).
+    }
 
-        r is the diameter used for star flux measurement. Flux is the total star flux detected above 3* sd.
+    /// <summary>
+    /// Full width at half maximum, as twice the radius at which the azimuthally averaged radial
+    /// profile falls through <paramref name="halfMax"/>, linearly interpolated between the two
+    /// bracketing integer radii. Returns 0 when no radius is above half maximum (nothing
+    /// measurable), and the aperture diameter when the profile never descends through it.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why not the area of the above-half-maximum pixels.</b> Counting samples above half
+    /// maximum and inverting the disc area (<c>2*sqrt(count/pi)</c>, the classical recipe, and what
+    /// this measured until 2026-08-11) makes FWHM a function of an INTEGER, so it can only ever
+    /// take the values <c>2*sqrt(n/pi)</c>: 2.257, 2.523, 2.764, 2.985, 3.192, ... A step of about
+    /// 0.2 px at the sizes a typical rig delivers is coarser than the seeing variation being
+    /// measured, and the effect is not subtle. Measured over 5,984 registered subs of the 2025-2026
+    /// archive, the per-sub median FWHM was the SAME NUMBER (2.523 px, i.e. n = 5) at the 5th, 25th,
+    /// 50th and 75th percentile, and the field-radius profile it feeds could not resolve
+    /// centre-to-corner PSF growth on four of five optical trains. HFD, being flux-weighted, was
+    /// continuous over the same population (2.313 to 3.735 px).</para>
+    /// <para>Interpolating a crossing instead costs one extra pair of accumulators, reuses the
+    /// radius the HFD sum already computes, and yields a continuous estimate.</para>
+    /// <para><b>Scanning outward for the OUTERMOST radius above half maximum is load-bearing.</b> A
+    /// heavily defocused star imaged through a central obstruction has an annular profile that dips
+    /// in the middle, so the first descending crossing would report the central hole rather than the
+    /// star. Taking the last bin above half maximum measures the outer width, which is what FWHM
+    /// means for such a profile.</para>
+    /// </remarks>
+    private static float HalfMaxDiameter(ReadOnlySpan<float> profileFlux, ReadOnlySpan<float> profileWeight, float halfMax, int rAperture)
+    {
+        var last = -1;
+        for (var k = 0; k <= rAperture; k++)
+        {
+            if (profileWeight[k] > 0f && profileFlux[k] / profileWeight[k] > halfMax)
+            {
+                last = k;
+            }
+        }
 
-        Assuming unity gain ADU/e-=1
-        See https://en.wikipedia.org/wiki/Signal-to-noise_ratio_(imaging)
-        https://www1.phys.vt.edu/~jhs/phys3154/snr20040108.pdf
-        http://spiff.rit.edu/classes/phys373/lectures/signal/signal_illus.html*/
+        if (last < 0)
+        {
+            // Nothing above half maximum inside the aperture. Reachable because valMax is the peak
+            // over the larger box, which can belong to a neighbour outside r_aperture; the previous
+            // pixel-count form returned 0 here too, and consumers already filter on FWHM > 0.
+            return 0f;
+        }
 
+        var inner = profileFlux[last] / profileWeight[last];
+        if (profileWeight[last + 1] <= 0f)
+        {
+            return 2f * rAperture;
+        }
 
-        /*==========Notes on HFD calculation method=================
-          Documented this HFD definition also in https://en.wikipedia.org/wiki/Half_flux_diameter
-          References:
-          https://astro-limovie.info/occultation_observation/halffluxdiameter/halffluxdiameter_en.html       by Kazuhisa Miyashita. No sub-pixel calculation
-          https://www.lost-infinity.com/night-sky-image-processing-part-6-measuring-the-half-flux-diameter-hfd-of-a-star-a-simple-c-implementation/
-          http://www.ccdware.com/Files/ITS%20Paper.pdf     See page 10, HFD Measurement Algorithm
+        var outer = profileFlux[last + 1] / profileWeight[last + 1];
+        var drop = inner - outer;
+        if (drop <= 0f)
+        {
+            // Profile still at or above half maximum at the aperture edge: the star fills the
+            // aperture, so the aperture diameter is the best available lower bound.
+            return 2f * rAperture;
+        }
 
-          HFD, Half Flux Diameter is defined as: The diameter of circle where total flux value of pixels inside is equal to the outside pixel's.
-          HFR, half flux radius:=0.5*HFD
-          The pixel_flux:=pixel_value - background.
-
-          The approximation routine assumes that the HFD line divides the star in equal portions of gravity:
-              sum(pixel_flux * (distance_from_the_centroid - HFR))=0
-          This can be rewritten as
-             sum(pixel_flux * distance_from_the_centroid) - sum(pixel_values * (HFR))=0
-             or
-             HFR:=sum(pixel_flux * distance_from_the_centroid))/sum(pixel_flux)
-             HFD:=2*HFR
-
-          This is not an exact method but a very efficient routine. Numerical checking with an a highly oversampled artificial Gaussian shaped star indicates the following:
-
-          Perfect two dimensional Gaussian shape with σ=1:   Numerical HFD=2.3548*σ                     Approximation 2.5066, an offset of +6.4%
-          Homogeneous disk of a single value  :              Numerical HFD:=disk_diameter/sqrt(2)       Approximation disk_diameter/1.5, an offset of -6.1%
-
-          The approximate routine is robust and efficient.
-
-          Since the number of pixels illuminated is small and the calculated center of star gravity is not at the center of an pixel, above summation should be calculated on sub-pixel level (as used here)
-          or the image should be re-sampled to a higher resolution.
-
-          A sufficient signal to noise is required to have valid HFD value due to background noise.
-
-          Note that for perfect Gaussian shape both the HFD and FWHM are at the same 2.3548 σ.
-          */
-
-
-        /*=============Notes on FWHM:=====================
-           1)	Determine the background level by the averaging the boarder pixels.
-           2)	Calculate the standard deviation of the background.
-
-               Signal is anything 3 * standard deviation above background
-
-           3)	Determine the maximum signal level of region of interest.
-           4)	Count pixels which are equal or above half maximum level.
-           5)	Use the pixel count as area and calculate the diameter of that area  as diameter:=2 *sqrt(count/pi).*/
+        return 2f * (last + (inner - halfMax) / drop);
     }
 }

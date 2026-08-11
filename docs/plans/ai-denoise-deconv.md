@@ -124,6 +124,24 @@ on that carve-out:
   `psf01 ∈ [0,1]`, log2-encoded over [1, 8] px; the *same* encoding `HfdPsfEstimator` already
   produces and `OnnxIoNames.ImagePlusScalar` already classifies. Our model becomes a drop-in for
   `OnnxNonStellarDeconvolver` (different model file, same two-input signature).
+- **Two range facts about that encoding, both measured 2026-08-11, both easy to get wrong.** The
+  `[1, 8]` px is a **radius**, so (a) a FWHM sweep of [1, 8] px is a radius sweep of [0.5, 4] px and
+  only reaches `psf01` 0.667, leaving the top third of the conditioning range untrained while
+  `HfdPsfEstimator` can legitimately emit 1.0, and (b) the **bottom** of the range is above what a
+  wide-field undersampled rig delivers: the archive's own frames measure FWHM ~1.8 to 2.4 px, i.e. a
+  radius of 0.92 to 1.22 px, so everything below 2.0 px FWHM **clamps to `psf01` = 0** and becomes
+  indistinguishable to the model. So sweep to FWHM 16 px, and give TianWen's own contract a lower
+  floor than 1.0 px; only the SAS drop-in signature is pinned to `[1, 8]`.
+  (These numbers postdate the FWHM estimator fix below and are not comparable to earlier ones.)
+- **The FWHM measurement was quantised until 2026-08-11 and the P0 report is stale because of it.**
+  `Image.AnalyseStar` derived FWHM from the area of the above-half-maximum sample COUNT
+  (`2*sqrt(n/pi)`), so it could only return lattice values ~0.2 px apart, which put the per-sub median
+  at the identical 2.523 px across the 5th to 75th percentile of 5,984 subs and flattened the
+  field-radius profile on four of five optical trains. It is now an interpolated radial half-maximum
+  crossing (`Image.HalfMaxDiameter`), continuous and ~0.5 px lower on undersampled stars (a
+  unit-area-per-sample count over-estimates a half-max disc smaller than a pixel). **The
+  `psf-sessions.jsonl` store therefore needs another `--regen-psf` pass before the sweep is
+  calibrated from it**; the tiles are unaffected.
 - Masters are themselves seeing-blurred, so the net learns *relative* sharpening (standard for
   synthetically-bootstrapped deconv nets). Two mitigations: prefer the sharpest sessions as truth
   (median FWHM gate), and optionally use 2× Bayer-drizzle masters as a sharper truth tier.

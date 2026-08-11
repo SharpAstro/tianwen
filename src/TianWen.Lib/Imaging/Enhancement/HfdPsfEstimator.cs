@@ -51,10 +51,11 @@ public sealed class HfdPsfEstimator(ILogger<HfdPsfEstimator>? logger = null) : I
             return EncodeRadiusToPsf01(DefaultRadiusPx);
         }
 
-        // Median FWHM across detected stars. ImagedStar.StarFWHM is already in
-        // pixels (computed during analyse-star using the same Gaussian-fit
-        // assumption SAS Pro's measure_psf_radius uses), so no further
-        // conversion is needed besides the FWHM -> radius halving.
+        // Median FWHM across detected stars. ImagedStar.StarFWHM is already in pixels (measured
+        // during analyse-star as an interpolated radial half-maximum crossing), so the only
+        // conversion needed is the FWHM -> radius halving. SAS Pro's measure_psf_radius arrives at
+        // its radius by a different route (SEP-based), so treat the two as the same QUANTITY, not
+        // as the same estimator.
         var fwhms = stars.Select(s => s.StarFWHM).Where(f => f > 0f && !float.IsNaN(f)).ToArray();
         if (fwhms.Length == 0)
         {
