@@ -203,25 +203,25 @@ Each verb maps to an enhancer / classical implementation that hasn't been wired 
 Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
 
 - [x] **Masked finishing boost for the preview render** (2026-07-03); `Image.MaskedBoost` composes the new mask primitives (`LuminanceRangeMask` + `BlendThroughMask` + `Saturate` / `ContrastBoost`, `Image.Masks.cs`) into the Affinity masked-contrast-boost + saturation macro; surfaced as `stack --saturation/--contrast-boost` + the same flags on `image render`, applied to the stretched preview PNG only (`MasterPreviewRenderer.ApplyMaskedBoost`). Basic mask support shipped alongside: `Invert`, `Binarize`, `GaussianBlur` (feathering), scalar `Multiply` (partial-strength masks). Linear masters + split-plate TIFFs untouched by design.
-- [ ] **Geometric black-point estimation (EZ_SoftStretch's method), as an alternative to the MAD sigma-clip.**
-  Our autostretch derives the black point statistically: `median + (-2.8 x MAD)`, mirroring Siril's
-  `find_linked_midtones_balance`, which assumes a roughly Gaussian background. EZ_SoftStretch derives it
-  **geometrically from the shape of the cumulative histogram** instead, and the difference is worth having.
-  Per channel: build a cumulative histogram from 0 up to the median (averaging adjacent bins); find the
-  noise floor as the first bin whose cumulative exceeds `(totalPixels / 10000) * aggressiveness`;
-  least-squares fit a line to the cumulative between that floor and the histogram peak; **the black point
-  is that line's x-intercept** (`-c/m`). It also computes **R-squared as a confidence measure** and falls back
-  to 0 with a warning when the fit fails or lands above the median. Verified identical in the 2023
-  build (v0.11, from the user's `EZ_Suite.zip`) as in the GitHub archive; defaults are
-  `aggressiveness = 10` and `htExpandLow = 0.05`. Two things we do not have: a black
-  point that does not assume a Gaussian background, and a *confidence* number telling us when the estimate
-  is untrustworthy (today a bad MAD silently produces a bad stretch). Its other idea is `htExpandLow`, fed
-  as a **negative output shadow** in the histogram transform so input-black maps above 0: a deliberate
-  "do not crush the blacks" control, which is the "soft" in soft stretch. **Licence: reimplement only,
-  and more strictly than the VeraLux case.** `EZ_SoftStretch.js` (S. Dimant / darkarchon, 2020-2023,
-  [archive](https://github.com/Arkatufus/Ez-Processing-Suite)) carries a bare copyright line with **no
-  licence grant at all**, which is all-rights-reserved, not GPL. Take the algorithm, never the code.
-  (Surfaced 2026-08-02 via the "RESCUE the BLUE" video's reference thread; adjacent to
+- [ ] **Give the autostretch black point a confidence signal, and an estimator that does not assume a
+  Gaussian background.** Two gaps in our own code, stated as such because they are worth closing on
+  their own merits. We derive the black point statistically as `median + (-2.8 x MAD)`, mirroring
+  Siril's `find_linked_midtones_balance`, which (a) assumes a roughly Gaussian background and (b)
+  reports nothing when it is wrong, so **a bad MAD silently produces a bad stretch** and the first
+  anyone hears of it is a render that looks off. A confidence number is arguably the more valuable
+  half: it lets the pipeline warn or fall back instead of quietly emitting a bad frame.
+  A **geometric** estimator gives both. Per channel: build a cumulative histogram from 0 up to the
+  median (averaging adjacent bins); take the noise floor as the first bin whose cumulative exceeds
+  `(totalPixels / 10000) * aggressiveness`; least-squares fit a line to the cumulative between that
+  floor and the histogram peak; the black point is that line's **x-intercept** (`-c/m`), and the fit's
+  **R-squared is the confidence measure**, falling back to 0 with a warning when the fit fails or lands
+  above the median. Worth pairing with a **negative output shadow** in the histogram transform, so
+  input-black maps above 0: a deliberate "do not crush the blacks" control (a sensible default is
+  around 0.05).
+  *Prior art:* this is the approach EZ_SoftStretch takes. Its source carries a bare copyright line with
+  **no licence grant at all**, i.e. all rights reserved, not GPL, and it is deliberately not linked
+  here: the method above is all that is needed and all that is usable. Do not go looking for the code.
+  (Surfaced 2026-08-02 via the "RESCUE the BLUE" workflow; adjacent to
   [narrowband-colour](../plans/narrowband-colour.md) but a stretch concern, not a colour one.)
 - [ ] **DarkStructureEnhance: a one-sided unsharp mask that darkens dust lanes.** Read from source
   (`DarkStructureEnhance.js`, Carlos Sonnenstein + Oriol Lehmkuhl, PTeam). Two steps. **Mask:** an
@@ -234,8 +234,10 @@ Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3).
   the dark structures get pushed down. Repeated `iterations` times through a ProcessContainer. Runs on
   **stretched** data, typically last in the workflow, no user mask needed. **Cheap for us:** we already
   have a-trous wavelets (`WaveletSharpen`, from the planetary stacker), the MTF (`Image.StretchValue`)
-  and `BlendThroughMask`, so this is composition rather than new maths. Same licence caution as
-  EZ_SoftStretch: take the algorithm, not the code. (2026-08-02, from the "RESCUE the BLUE" workflow.)
+  and `BlendThroughMask`, so this is composition rather than new maths. **Licence: algorithm only.**
+  `DarkStructureEnhance.js` ships with PixInsight and its reuse terms have not been established, so it
+  gets the same treatment as any unverified source: implement from the description above, do not copy.
+  (2026-08-02, from the "RESCUE the BLUE" workflow.)
 - [ ] **`tianwen image adjust` standalone verb**: apply `Image.MaskedBoost` (and the raw mask primitives, e.g. `--export-mask` for previewing what a step will touch) to an already-stretched TIFF/FITS plate outside the stack/render flow. The primitives + CLI parsing shape (mirror `image render`'s flags) are in place; deferred until a concrete need.
 - [ ] **Mask morphology (dilate / erode)**: the remaining classic mask ops beyond invert/feather/binarize; useful for growing a star mask before protection. Deferred until a consumer exists.
 
