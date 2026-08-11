@@ -145,6 +145,20 @@ on that carve-out:
   construction), p5 2.146 / p50 2.947 / p95 4.004, and `SubFwhm` 5,961 distinct of 5,984. So the
   store is calibrated for the sweep. `--force-psf` exists because the ordinary regen only FILLS
   GAPS, which cannot correct a record that is present and wrong.
+- **One lens under two `TELESCOP` spellings was two optical trains, so it had two weaker profiles.**
+  The archive recorded the Samyang 135 as both "SAMYANG 135mm" (3 sessions) and "Samyang 135 f/2 ED"
+  (35), and since the field-radius profile is measured PER TRAIN the sweep was being calibrated from
+  a 3-session profile that disagreed with the 35-session one most where it had least data (inner bin
+  3.411 px on 1,293 stars against 3.052 px on 11,422). `TelescopeAliases` merges them at REPORT
+  RENDER time, never on the way into the store, so the store keeps what the headers said and a bad
+  alias costs a re-render rather than a re-measure. Merged: 38 sessions / 4,327 subs / 184,694 stars,
+  and the report names the spellings it folded together, because a merge that changes a train's
+  session count has to be visible in the artifact.
+  **The alias touches the NAME only, never the focal length.** The same archive holds
+  "WO ZS61 @ 288mm" and "WO ZS61 @ 360mm": one scope behind a 0.8x reducer and behind a
+  flattener claiming 1x (360 x 0.8 = 288). A reducer changes exactly the off-axis aberration this
+  profile exists to measure, so those stay separate trains and a name-only collapse would merge
+  them.
 - Masters are themselves seeing-blurred, so the net learns *relative* sharpening (standard for
   synthetically-bootstrapped deconv nets). Two mitigations: prefer the sharpest sessions as truth
   (median FWHM gate), and optionally use 2× Bayer-drizzle masters as a sharper truth tier.
