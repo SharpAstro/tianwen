@@ -90,13 +90,71 @@ public static class CalibrationResolver
             return sb.ToString();
         }
 
+        /// <summary>What <see cref="Describe"/> writes for an empty instrument, and what
+        /// <see cref="TryParseDescription"/> reads back as empty. One constant so the two directions
+        /// cannot drift apart.</summary>
+        private const string UnknownCamera = "unknown camera";
+
         /// <summary>Human label for the PSF/noise report, e.g. "ZWO ASI533MC Pro / Askar @ 1000mm".</summary>
         public string Describe()
         {
-            var sb = new System.Text.StringBuilder(Instrument.Length > 0 ? Instrument : "unknown camera");
+            var sb = new System.Text.StringBuilder(Instrument.Length > 0 ? Instrument : UnknownCamera);
             if (Telescope.Length > 0) sb.Append(" / ").Append(Telescope);
             if (FocalLength > 0) sb.Append(" @ ").Append(FocalLength.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("mm");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Inverse of <see cref="Describe"/>: recovers a train from its rendered label. Needed
+        /// because a session read back from <see cref="DatasetPsfStore"/> carries ONLY that label
+        /// (its frames were never re-read), so anything wanting to reason about the telescope of a
+        /// stored session has nothing else to go on. <b>Keep this beside <see cref="Describe"/></b>
+        /// -- they are one grammar written twice, and a parser living in another file is one edit
+        /// away from silently disagreeing with its producer.
+        /// </summary>
+        /// <returns><c>false</c> for a blank label; otherwise true, with unrecognised trailing text
+        /// left in the telescope rather than being dropped, so nothing is invented.</returns>
+        public static bool TryParseDescription(string label, out CalTrain train)
+        {
+            // Not `default`: this is a record struct, so that would hand back null strings.
+            train = new CalTrain("", "", -1);
+            if (string.IsNullOrWhiteSpace(label))
+            {
+                return false;
+            }
+
+            var rest = label.AsSpan().Trim();
+
+            // Trailing " @ <n>mm", omitted by Describe when the focal length was unknown. Parsed
+            // off first because a telescope name may itself contain " / " but cannot contain this.
+            var focalLength = -1;
+            var at = rest.LastIndexOf(" @ ");
+            if (at >= 0)
+            {
+                var tail = rest[(at + 3)..];
+                if (tail.EndsWith("mm")
+                    && int.TryParse(tail[..^2], System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                {
+                    focalLength = parsed;
+                    rest = rest[..at];
+                }
+            }
+
+            // First " / " splits camera from telescope; omitted when the telescope was unknown.
+            var slash = rest.IndexOf(" / ");
+            var camera = slash >= 0 ? rest[..slash] : rest;
+            var telescope = slash >= 0 ? rest[(slash + 3)..] : [];
+
+            // Describe writes this placeholder for an empty instrument, so map it back to empty
+            // rather than inventing a camera literally named "unknown camera".
+            if (camera.SequenceEqual(UnknownCamera))
+            {
+                camera = [];
+            }
+
+            train = new CalTrain(camera.ToString(), telescope.ToString(), focalLength);
+            return true;
         }
 
         private static string Norm(string? s) => s?.Trim() ?? "";

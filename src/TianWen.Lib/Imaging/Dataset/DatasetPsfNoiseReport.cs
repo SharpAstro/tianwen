@@ -75,6 +75,11 @@ public static class DatasetPsfNoiseReport
     /// not, so a merged profile would smear the position-varying degradation the deconvolver sweep
     /// must reproduce. Keyed by <see cref="CalibrationResolver.CalTrain.OpticalTrain"/> (camera +
     /// telescope + focal length -- i.e. one profile per OTA/camera combination).</summary>
+    /// <param name="RecordedAs">The distinct header labels that folded into this train, sorted; a
+    /// single entry equal to <paramref name="OpticalTrain"/> in the ordinary case. More than one
+    /// means <see cref="TelescopeAliases"/> merged differently-spelled headers, and the report says
+    /// so: a merge that changes how many sessions back a profile has to be visible in the artifact,
+    /// or the reader cannot tell a genuine 38-session train from an over-eager alias.</param>
     public sealed record TrainReport(
         string OpticalTrain,
         int Sessions,
@@ -84,7 +89,8 @@ public static class DatasetPsfNoiseReport
         Percentiles SubHfd,
         Percentiles SubEllipticity,
         ImmutableArray<RadiusBin> FieldRadiusProfile,
-        Percentiles MasterNoiseRelative);
+        Percentiles MasterNoiseRelative,
+        ImmutableArray<string> RecordedAs);
 
     /// <summary>The full report: an archive-wide population summary (the per-sub metrics + noise
     /// floor the denoiser sees across everything) plus a per-optical-train breakdown, each carrying
@@ -249,11 +255,15 @@ public static class DatasetPsfNoiseReport
             }
 
             // Keyed by the STORED label, so a resumed session (whose frames were never re-read) lands
-            // in the same train bucket as a freshly measured one.
-            if (!_byTrain.TryGetValue(record.OpticalTrain, out var acc))
+            // in the same train bucket as a freshly measured one -- but canonicalised first, so one
+            // lens recorded under two TELESCOP spellings is one train here even though the store
+            // faithfully kept both names. Display-time merge: see TelescopeAliases.
+            var label = TelescopeAliases.CanonicalizeLabel(record.OpticalTrain);
+            if (!_byTrain.TryGetValue(label, out var acc))
             {
-                _byTrain[record.OpticalTrain] = acc = new TrainAcc(record.OpticalTrain, _radiusBins);
+                _byTrain[label] = acc = new TrainAcc(label, _radiusBins);
             }
+            acc.RecordedAs.Add(record.OpticalTrain);
 
             acc.Sessions++;
             acc.Fwhm.AddRange(record.SubFwhm);
@@ -296,6 +306,7 @@ public static class DatasetPsfNoiseReport
                 }
                 trains.Add(new TrainReport(
                     OpticalTrain: acc.Label,
+                    RecordedAs: [.. acc.RecordedAs],
                     Sessions: acc.Sessions,
                     Subs: acc.Subs,
                     StarsSampled: acc.StarsSampled,
@@ -330,6 +341,10 @@ public static class DatasetPsfNoiseReport
         private sealed class TrainAcc
         {
             public string Label { get; }
+            /// <summary>Distinct header labels folded into this train (usually just one). A
+            /// SortedSet so the rendered note is deterministic across runs, like everything else in
+            /// this report.</summary>
+            public readonly SortedSet<string> RecordedAs = new(StringComparer.Ordinal);
             public int Sessions;
             public int Subs;
             public long StarsSampled;
@@ -393,6 +408,13 @@ public static class DatasetPsfNoiseReport
         {
             sb.AppendLine(string.Create(ci, $"### {train.OpticalTrain}"));
             sb.AppendLine();
+            // Only when an alias actually merged something: on the ordinary single-spelling train
+            // this line would be noise repeating the heading.
+            if (train.RecordedAs.Length > 1)
+            {
+                sb.AppendLine(string.Create(ci,
+                    $"- Merged from {train.RecordedAs.Length} header spellings: {string.Join("; ", train.RecordedAs)}"));
+            }
             sb.AppendLine(string.Create(ci,
                 $"- Sessions: {train.Sessions} | Subs: {train.Subs} | Stars: {train.StarsSampled}"));
             sb.AppendLine(string.Create(ci,
