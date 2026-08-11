@@ -139,9 +139,12 @@ on that carve-out:
   at the identical 2.523 px across the 5th to 75th percentile of 5,984 subs and flattened the
   field-radius profile on four of five optical trains. It is now an interpolated radial half-maximum
   crossing (`Image.HalfMaxDiameter`), continuous and ~0.5 px lower on undersampled stars (a
-  unit-area-per-sample count over-estimates a half-max disc smaller than a pixel). **The
-  `psf-sessions.jsonl` store therefore needs another `--regen-psf` pass before the sweep is
-  calibrated from it**; the tiles are unaffected.
+  unit-area-per-sample count over-estimates a half-max disc smaller than a pixel). The tiles are
+  unaffected. **Re-measured 2026-08-11** (`--force-psf`, all 50 sessions): `Bins[].Fwhm` is now
+  206,432 distinct values of 209,578 with only 1.0% left on the old lattice (was 100% by
+  construction), p5 2.146 / p50 2.947 / p95 4.004, and `SubFwhm` 5,961 distinct of 5,984. So the
+  store is calibrated for the sweep. `--force-psf` exists because the ordinary regen only FILLS
+  GAPS, which cannot correct a record that is present and wrong.
 - Masters are themselves seeing-blurred, so the net learns *relative* sharpening (standard for
   synthetically-bootstrapped deconv nets). Two mitigations: prefer the sharpest sessions as truth
   (median FWHM gate), and optionally use 2× Bayer-drizzle masters as a sharper truth tier.
@@ -310,9 +313,16 @@ reproducible. Per session:
   footprints, so any two subs' cell (i,j) is an N2N pair and the master's cell (i,j) is eval truth.
   Export the master tile + a random 4–8 subs per cell (not all subs, bounds dataset size).
 - **Output**: fp16 tiles (npy-compatible raw blobs) + a JSONL manifest per tile: source file,
-  session id, camera, gain, exposure, tile coords, per-tile noise σ (MAD), session median FWHM.
+  session id, camera, gain, exposure, tile coords, per-tile noise σ (MAD).
   Manifest rows written via a **canonical sort before any sampling** (parallel writers break every
   downstream seeded operation otherwise).
+- **FWHM is deliberately NOT in the manifest** (the `SessionMedianFwhm` column was dropped
+  2026-08-12). Condition on `median(SubFwhm)` from `stats/psf-sessions.jsonl`, joined on
+  `SessionId`. The manifest row is written once, at export time, and a session that resumes with
+  its tiles intact never rewrites its rows, while the PSF store is rewritten independently
+  (`--force-psf` rewrites only the store). So the column survived the estimator change carrying
+  quantized values for 45 of 50 sessions, looking authoritative while being wrong, and not as a
+  uniform offset that could be scaled away. One fact, one writer: the store.
 - Budget: ~60 sessions × ~300 cells × ~9 tiles ≈ 160k tiles ≈ **50–80 GB**; one upload to a cloud
   volume, regenerable from scratch by re-running the command.
 
