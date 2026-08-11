@@ -373,11 +373,36 @@ header alone, with no user input:
   than any polynomial at small separations.
 - **Optional inference conditioning** (the psf01 pattern): scalars the net receives so it can tell
   an expected gradient direction from genuine large-scale nebulosity, which is the core ambiguity
-  of this model class. GraXpert cannot do this (no ephemeris, no header contract); we can. Three
-  caveats: the light-pollution azimuth is site-specific (not computable, stays learned), clouds
-  break the physics (covariates are inputs the net may weigh, never a subtraction the pipeline
-  asserts), and multiple scalars need a new `OnnxIoNames` signature (`ImagePlusScalar` carries
-  exactly one).
+  of this model class. GraXpert cannot do this (no ephemeris, no header contract); we can. Two
+  caveats: clouds break the physics (covariates are inputs the net may weigh, never a subtraction
+  the pipeline asserts), and multiple scalars need a new `OnnxIoNames` signature
+  (`ImagePlusScalar` carries exactly one).
+
+**A site LP prior: site-specific does not mean unknowable.** The full-sky light-pollution field is
+not linear, but its restriction to a <= 5 deg FOV is locally linear-to-quadratic, and for a fixed
+site it is quasi-static in HORIZON coordinates. Static field plus varying pointing means the
+archive itself can fit it: per-sub linear background fits (moonless frames, or the Krisciunas &
+Schaefer moon term subtracted first) regressed against pointing alt-az and time-of-night, with a
+per-train PIXEL-fixed term alongside the sky-anchored one. The two components separate naturally
+because pointing varies across sessions while the sensor does not, so the pixel-fixed term both
+absorbs and incidentally *measures* residual flat error, a free diagnostic. Once fitted, per-frame
+LP prediction IS computed (pointing + WCS rotation + clock), which buys the two things §2.6 needs:
+
+- **Simulation**: injected LP ramps take the direction and relative amplitude the site model
+  predicts for that frame's pointing, so the synthetic LP population matches the site's actual
+  dome geometry instead of an isotropic guess.
+- **A real-frame validation gate, the one synthetic injection cannot provide**: on held-out REAL
+  frames, the component the model removes must agree in direction and relative amplitude with the
+  predicted LP; systematic disagreement (wrong direction, under-removal along the predicted axis)
+  fails the gate. Injected-gradient eval only ever tests synthetic truth; real frames otherwise
+  have no truth at all, so this is the only physics-anchored check on them.
+
+Error bars are part of the prior: LP varies with hour (curfews), season, and aerosols, so the fit
+is a distribution and the gate is a consistency check, never an exact-subtraction assert. Clouded
+frames would poison the fit (clouds amplify LP several-fold) but the P0 quality gate already drops
+them. A site with too few frames can bootstrap the prior from public VIIRS upward radiance through
+a Garstang-style propagation model (VIIRS is public domain; the Falchi 2016 atlas is CC BY-NC,
+keep it out of anything shipped).
 
 **The P0 tiles are the wrong artifact for this model; it needs its own exporter.** A gradient is a
 whole-frame low-frequency phenomenon, so a 256 px native-res crop of a 3008 px sensor is a
@@ -518,7 +543,7 @@ anyway, the synthetic truth is exact). The held-out split stays by session, unch
 | **P2: Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
 | **P3: Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
 | **P4: Star remover** | Inject-and-remove bootstrap (§2.5): classical starless plates + measured-PSF star injector + self-refinement; `OnnxTianWenStarRemover : IStarRemover` (additive split); completes the tier so the full canonical program runs TianWen-only | Injected-star removal completeness + background preservation + stars-plate flux conservation on held-out sessions; bright-saturated tail passes 1:1 spot checks (RC/SAS stay preferred until then) |
-| **P5: Gradient remover** | §2.6 flatten-and-inject: archive gradient-distribution report (the measure-then-sweep P0-equivalent); whole-frame downsampled LINEAR exporter (the P0 tiles are the wrong artifact, §2.6); moon/geometry covariates (`MeeusMoon` + `VSOP87a` + one WCS solve per session); small background-prediction net + ONNX; `OnnxTianWenGradientCorrector : IGradientCorrector` | Injected gradients on held-out masters removed to below the classical-fit residual baseline; nebulosity / large-scale flux preserved (§7 gates). Order-independent of P1-P4 (needs only P0) |
+| **P5: Gradient remover** | §2.6 flatten-and-inject: archive gradient-distribution report (the measure-then-sweep P0-equivalent); per-site LP prior fitted in horizon coordinates (sky-anchored vs pixel-fixed regression, the latter doubling as a residual-flat-error probe); whole-frame downsampled LINEAR exporter (the P0 tiles are the wrong artifact, §2.6); moon/geometry covariates (`MeeusMoon` + `VSOP87a` + one WCS solve per session); small background-prediction net + ONNX; `OnnxTianWenGradientCorrector : IGradientCorrector` | Injected gradients on held-out masters removed to below the classical-fit residual baseline; on held-out REAL frames the removed component agrees with the site-LP prediction (direction + relative amplitude, consistency not exact-subtraction); nebulosity / large-scale flux preserved (§7 gates). Order-independent of P1-P4 (needs only P0) |
 | **P6: Deferred** | Strength/frequency conditioning beyond Blend-lerp; mono-native models; drizzle-truth sharper tier; frame-quality classifier from BAD-examples; dataset-contribution flow for other users; **comet-registered stacking** (P4 unlock: star-remove subs → integrate on the `CometEphemeris`-computed per-frame comet position via WCS → recombine star-registered stars plate, the AIC comet workflow, automated by ephemeris instead of manual alignment) | - |
 
 ## 6. Evaluation (all internal, license-clean)
