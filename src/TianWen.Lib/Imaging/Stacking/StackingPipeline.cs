@@ -567,6 +567,16 @@ public sealed class StackingPipeline(
         var referenceStars = await referenceDebayered.FindStarsAsync(channel: 0, snrMin: options.SnrMin, minStars: options.MinStars, cancellationToken: ct);
         var referenceSorted = new SortedStarList(referenceStars);
         var referenceQuads = await referenceSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
+        // State the fingerprint set on SUCCESS, not only when registration collapses. Both counts
+        // were already computed here and thrown away, and their absence is what makes the
+        // still-pending port of the dataset builder's two registration fixes (detect pre-debayer
+        // rather than on an interpolated colour plane; cap QuadStars at the bright end) unmeasurable
+        // on this path: the effect shows up as a change in reference stars and quads BEFORE it shows
+        // up as a change in how many frames register, and a run that registers everything both ways
+        // would otherwise look identical. Mirrors SessionRegistrar's line of the same shape so the
+        // two paths' logs can be read side by side.
+        logger.LogInformation("  reference {File} stars={Stars} quads={Quads} (top {Cap})",
+            Path.GetFileName(reference.Path), referenceSorted.Count, referenceQuads.Count, options.QuadStars);
         // Reference-frame metrics so the matched tuple gets a real
         // FrameMetrics even for the reference (which skips the register
         // loop's star-detection path). Used by the post-registration
@@ -591,6 +601,17 @@ public sealed class StackingPipeline(
             FrameCache.DecideCacheCap(lightList.Count, calibratedFrameBytes));
         var matched = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>();
         var skipCount = 0;
+        // Skips split by CAUSE plus the light-side quad range, for the same reason the reference
+        // counts are logged above: a bare skip tally cannot separate a DETECTION problem (few quads
+        // anywhere) from a PURITY one (plenty of quads on both sides that still do not correspond),
+        // and those have opposite fixes. A quad matches only when the same four stars form it in
+        // both frames, so with a fraction p of the top-K detections real, at most about p^4 of quads
+        // can match. That is why the dataset path's fix was as much about WHICH stars form the
+        // fingerprint set as about how many.
+        var skippedTooFewStars = 0;
+        var skippedNoQuadFit = 0;
+        var minLightQuads = int.MaxValue;
+        var maxLightQuads = 0;
         sw.Restart();
         foreach (var lightInfo in lightList)
         {
@@ -613,17 +634,23 @@ public sealed class StackingPipeline(
                 if (stars.Count < MinStarsForMatch)
                 {
                     transform = null;
+                    skippedTooFewStars++;
                     logger.LogInformation("  [{Name}] stars={Stars} -> SKIP (too few stars)", name, stars.Count);
                 }
                 else
                 {
                     using var lightSorted = new SortedStarList(stars);
-                    _ = await lightSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
+                    var lightQuads = await lightSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
+                    minLightQuads = Math.Min(minLightQuads, lightQuads.Count);
+                    maxLightQuads = Math.Max(maxLightQuads, lightQuads.Count);
                     var (solution, tolUsed, _) = await TryMatchAsync(lightSorted, referenceSorted, options.QuadStars);
                     transform = solution;
                     if (transform is null)
                     {
-                        logger.LogInformation("  [{Name}] stars={Stars} -> SKIP (no quad fit at any tolerance)", name, stars.Count);
+                        skippedNoQuadFit++;
+                        logger.LogInformation(
+                            "  [{Name}] stars={Stars} quads={Quads} vs reference quads={RefQuads} -> SKIP (no quad fit at any tolerance)",
+                            name, stars.Count, lightQuads.Count, referenceQuads.Count);
                     }
                     else
                     {
@@ -655,8 +682,8 @@ public sealed class StackingPipeline(
                         var medEcc = stars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median);
                         frameMetrics = new FrameMetrics(medHfd, medFwhm, medEcc, stars.Count);
                         logger.LogInformation(
-                            "  [{Name}] stars={Stars} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
-                            name, stars.Count, medHfd, medFwhm, medEcc, tolUsed, refRotDeg, refScale, refTx, refTy, refRms, refMatched);
+                            "  [{Name}] stars={Stars} quads={Quads} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
+                            name, stars.Count, lightQuads.Count, medHfd, medFwhm, medEcc, tolUsed, refRotDeg, refScale, refTx, refTy, refRms, refMatched);
                     }
                 }
             }
@@ -666,8 +693,10 @@ public sealed class StackingPipeline(
             matched.Add((lightInfo, transform.Value, frameMetrics));
             progress?.Report(new StackingProgress(StackingPhase.Registering, slug, matched.Count + skipCount, lightList.Count));
         }
-        logger.LogInformation("  registered {Matched}/{Attempted} frames (skipped {Skipped}) in {ElapsedMs} ms",
-            matched.Count, lightList.Count, skipCount, sw.ElapsedMilliseconds);
+        logger.LogInformation(
+            "  registered {Matched}/{Attempted} frames (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit; other subs' quads {MinQuads}..{MaxQuads}) in {ElapsedMs} ms",
+            matched.Count, lightList.Count, skipCount, skippedTooFewStars, skippedNoQuadFit,
+            minLightQuads == int.MaxValue ? 0 : minLightQuads, maxLightQuads, sw.ElapsedMilliseconds);
         hostTracker.Log(logger, $"register/{slug}");
 
         // Post-registration quality filter. Off by default; enable via
