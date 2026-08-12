@@ -125,6 +125,6 @@ namespace TianWen.Lib.Tests
             SubHfd: OneStar,
             SubEllipticity: OneStar,
             MasterNoiseRelative: 0.001,
-            Bins: [new DatasetPsfNoiseReport.RadiusSamples(OneStar, OneStar)]);
+            BinsByChannel: [[new DatasetPsfNoiseReport.RadiusSamples(OneStar, OneStar)]]);
     }
 }

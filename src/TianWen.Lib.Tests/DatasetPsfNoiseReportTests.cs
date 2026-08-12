@@ -45,11 +45,19 @@ namespace TianWen.Lib.Tests
             // positive FWHM.
             var train = report.Trains.ShouldHaveSingleItem();
             train.OpticalTrain.ShouldContain("SynthBayer");
-            train.FieldRadiusProfile.Length.ShouldBe(bins);
-            train.FieldRadiusProfile[0].RMin.ShouldBe(0.0);
-            train.FieldRadiusProfile[^1].RMax.ShouldBe(1.0);
-            train.FieldRadiusProfile.Sum(b => b.Stars).ShouldBe((int)report.StarsSampled);
-            train.FieldRadiusProfile.Count(b => b.Stars > 0 && b.MedianFwhm > 0).ShouldBeGreaterThan(0);
+            // One profile per channel of the master, each with one entry per bin.
+            train.FieldRadiusProfiles.ShouldNotBeEmpty();
+            train.RadialSessions.ShouldBe(1);
+            foreach (var channel in train.FieldRadiusProfiles)
+            {
+                channel.Bins.Length.ShouldBe(bins);
+                channel.Bins[0].RMin.ShouldBe(0.0);
+                channel.Bins[^1].RMax.ShouldBe(1.0);
+            }
+            // Summed across EVERY channel, because StarsSampled counts them all: a per-channel profile
+            // that only accounted for channel 0 would silently under-report.
+            train.FieldRadiusProfiles.Sum(p => p.Bins.Sum(b => b.Stars)).ShouldBe((int)report.StarsSampled);
+            train.FieldRadiusProfiles[0].Bins.Count(b => b.Stars > 0 && b.MedianFwhm > 0).ShouldBeGreaterThan(0);
 
             // Percentiles are monotone non-decreasing and the PSF metrics are positive.
             foreach (var p in new[] { report.SubFwhm, report.SubHfd, report.SubEllipticity })
@@ -147,7 +155,7 @@ namespace TianWen.Lib.Tests
             report.Trains.Select(t => t.OpticalTrain).ShouldContain(s => s.Contains("SynthBayer"));
             report.Trains.Select(t => t.OpticalTrain).ShouldContain(s => s.Contains("QHY294PROC") && s.Contains("Newtonian") && s.Contains("800mm"));
             // Each train carries its own full profile; the overall star count is the sum of both.
-            report.Trains.ShouldAllBe(t => t.FieldRadiusProfile.Length == 4);
+            report.Trains.ShouldAllBe(t => t.FieldRadiusProfiles.All(p => p.Bins.Length == 4));
             report.StarsSampled.ShouldBe(report.Trains.Sum(t => t.StarsSampled));
 
             // The Markdown renders one field-radius subsection per train.
@@ -193,7 +201,7 @@ namespace TianWen.Lib.Tests
             }
             var record = new DatasetPsfNoiseReport.SessionPsf(
                 SessionId: "banded", OpticalTrain: "T", SubFwhm: [3f], SubHfd: [3f],
-                SubEllipticity: [0.5f], MasterNoiseRelative: 0.004, Bins: bins);
+                SubEllipticity: [0.5f], MasterNoiseRelative: 0.004, BinsByChannel: [bins]);
 
             var acc = new DatasetPsfNoiseReport.Accumulator(radiusBins: mix.Length);
             acc.Add(record);
@@ -201,7 +209,7 @@ namespace TianWen.Lib.Tests
 
             var train = report.Trains.ShouldHaveSingleItem();
             train.BandedSessions.ShouldBe(1);
-            var widths = train.FieldRadiusProfile.Select(b => b.MedianFwhm).ToArray();
+            var widths = train.FieldRadiusProfiles.ShouldHaveSingleItem().Bins.Select(b => b.MedianFwhm).ToArray();
             // The band keeps the bright population at every radius, so the profile is flat. Without
             // banding the last annulus reads 4.0 against the first's 3.0 -- a fabricated 33% "fall".
             foreach (var w in widths)
@@ -220,7 +228,7 @@ namespace TianWen.Lib.Tests
             var record = new DatasetPsfNoiseReport.SessionPsf(
                 SessionId: "legacy", OpticalTrain: "T", SubFwhm: [3f], SubHfd: [3f],
                 SubEllipticity: [0.5f], MasterNoiseRelative: 0.004,
-                Bins: [new DatasetPsfNoiseReport.RadiusSamples([3.0f, 4.0f], [0.5f, 0.5f])]);
+                BinsByChannel: [[new DatasetPsfNoiseReport.RadiusSamples([3.0f, 4.0f], [0.5f, 0.5f])]]);
 
             var acc = new DatasetPsfNoiseReport.Accumulator(radiusBins: 1);
             acc.Add(record);
@@ -228,8 +236,87 @@ namespace TianWen.Lib.Tests
 
             var train = report.Trains.ShouldHaveSingleItem();
             train.BandedSessions.ShouldBe(0);
-            train.FieldRadiusProfile.ShouldHaveSingleItem().Stars.ShouldBe(2);
+            train.FieldRadiusProfiles.ShouldHaveSingleItem().Bins.ShouldHaveSingleItem().Stars.ShouldBe(2);
         }
+
+        /// <summary>
+        /// The field-radius profile is kept PER CHANNEL, and the channels must not be pooled or
+        /// overwritten. Red is the widest channel on 48 of 49 archive masters, so the previous
+        /// channel-0-only profile described red's field dependence while reading as the frame's, and
+        /// averaging the channels would report a width no channel actually has.
+        /// </summary>
+        [Fact]
+        public void FieldRadiusProfile_IsKeptPerChannel_SoOneChannelCannotSpeakForTheFrame()
+        {
+            // Two channels with deliberately different widths, flat across the field so the assertion
+            // is about WHICH channel a number came from and nothing else.
+            var record = new DatasetPsfNoiseReport.SessionPsf(
+                SessionId: "per-channel", OpticalTrain: "T", SubFwhm: [3f], SubHfd: [3f],
+                SubEllipticity: [0.5f], MasterNoiseRelative: 0.004,
+                BinsByChannel:
+                [
+                    [Samples(4.0f), Samples(4.0f)],   // channel 0, the wide one
+                    [Samples(2.0f), Samples(2.0f)],   // channel 1, the narrow one
+                ]);
+
+            var acc = new DatasetPsfNoiseReport.Accumulator(radiusBins: 2);
+            acc.Add(record);
+            var train = acc.Build().Trains.ShouldHaveSingleItem();
+
+            train.RadialSessions.ShouldBe(1);
+            train.FieldRadiusProfiles.Length.ShouldBe(2);
+            train.FieldRadiusProfiles[0].Channel.ShouldBe(0);
+            train.FieldRadiusProfiles[1].Channel.ShouldBe(1);
+            foreach (var bin in train.FieldRadiusProfiles[0].Bins)
+            {
+                bin.MedianFwhm.ShouldBe(4.0, tolerance: 1e-6);
+            }
+            foreach (var bin in train.FieldRadiusProfiles[1].Bins)
+            {
+                bin.MedianFwhm.ShouldBe(2.0, tolerance: 1e-6);
+            }
+
+            // The rendered table names the channel, so a reader cannot mistake one for the frame.
+            train.FieldRadiusProfiles.Select(p => p.Channel).ShouldBe([0, 1]);
+        }
+
+        /// <summary>
+        /// A channel measurable on one session but not another must not shift the others' samples by a
+        /// slot. Same hazard the per-channel stacked profile already guards: blue is the first channel
+        /// to become unmeasurable on a star-poor field, and a mono session carries one channel where a
+        /// colour one carries three.
+        /// </summary>
+        [Fact]
+        public void AChannelMissingFromOneSession_DoesNotShiftAnotherSessionsChannels()
+        {
+            var colour = new DatasetPsfNoiseReport.SessionPsf(
+                SessionId: "colour", OpticalTrain: "T", SubFwhm: [3f], SubHfd: [3f],
+                SubEllipticity: [0.5f], MasterNoiseRelative: 0.004,
+                BinsByChannel: [[Samples(4.0f)], [Samples(3.0f)], [Samples(5.0f)]]);
+            var mono = new DatasetPsfNoiseReport.SessionPsf(
+                SessionId: "mono", OpticalTrain: "T", SubFwhm: [3f], SubHfd: [3f],
+                SubEllipticity: [0.5f], MasterNoiseRelative: 0.004,
+                BinsByChannel: [[Samples(4.0f)]]);
+
+            var acc = new DatasetPsfNoiseReport.Accumulator(radiusBins: 1);
+            acc.Add(colour);
+            acc.Add(mono);
+            var train = acc.Build().Trains.ShouldHaveSingleItem();
+
+            train.FieldRadiusProfiles.Length.ShouldBe(3);
+            // Channel 0 pooled both sessions (both 4.0); channels 1 and 2 saw only the colour session,
+            // and crucially channel 2 still reads 5.0 rather than having inherited the mono sample.
+            train.FieldRadiusProfiles[0].Bins[0].Stars.ShouldBe(2);
+            train.FieldRadiusProfiles[1].Bins[0].Stars.ShouldBe(1);
+            train.FieldRadiusProfiles[1].Bins[0].MedianFwhm.ShouldBe(3.0, tolerance: 1e-6);
+            train.FieldRadiusProfiles[2].Bins[0].Stars.ShouldBe(1);
+            train.FieldRadiusProfiles[2].Bins[0].MedianFwhm.ShouldBe(5.0, tolerance: 1e-6);
+        }
+
+        /// <summary>One annulus holding a single star of the given width; ellipticity is a constant
+        /// because these tests are about which channel a width came from.</summary>
+        private static DatasetPsfNoiseReport.RadiusSamples Samples(float fwhm)
+            => new([fwhm], [0.5f]);
 
         /// <summary>A minimal record carrying one profile per channel; the per-sub arrays are only
         /// there because the report needs somewhere to take percentiles from.</summary>
@@ -242,7 +329,7 @@ namespace TianWen.Lib.Tests
                 SubHfd: [2.7f],
                 SubEllipticity: [0.5f],
                 MasterNoiseRelative: 0.004,
-                Bins: [new DatasetPsfNoiseReport.RadiusSamples([2.9f], [0.5f])],
+                BinsByChannel: [[new DatasetPsfNoiseReport.RadiusSamples([2.9f], [0.5f])]],
                 MasterProfiles: profiles);
     }
 }

@@ -531,7 +531,10 @@ namespace TianWen.Lib.Tests
             refreshed.SubEllipticity.ShouldBe(priorRecord.SubEllipticity);
             // Master-derived values are genuinely re-measured off the same pixels, so they reproduce.
             refreshed.MasterNoiseRelative.ShouldBe(priorRecord.MasterNoiseRelative, tolerance: 1e-9);
-            refreshed.Bins.Length.ShouldBe(priorRecord.Bins.Length);
+            refreshed.BinsByChannel.ShouldNotBeNull();
+            priorRecord.BinsByChannel.ShouldNotBeNull();
+            refreshed.BinsByChannel.Length.ShouldBe(priorRecord.BinsByChannel.Length);
+            refreshed.BinsByChannel[0].Length.ShouldBe(priorRecord.BinsByChannel[0].Length);
 
             output.WriteLine(
                 $"cheap re-measure: remeasured={cheap.PsfRemeasured} fromMaster={cheap.PsfRemeasuredFromMaster} registered={cheap.Registered}");

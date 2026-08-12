@@ -62,6 +62,12 @@ public static class DatasetPsfNoiseReport
     /// for exactly this reason, via a peak band, and these bins did not.</para></param>
     public sealed record RadiusSamples(float[] Fwhm, float[] Ellipticity, float[]? Flux = null);
 
+    /// <summary>One channel's field-radius profile across a train's sessions.</summary>
+    /// <param name="Channel">Channel index in the master's own order (0 = red for the archive's RGGB
+    /// sensors).</param>
+    /// <param name="Bins">Annuli from centre to corner, always <c>radiusBins</c> long.</param>
+    public sealed record ChannelRadiusProfile(int Channel, ImmutableArray<RadiusBin> Bins);
+
     /// <summary>
     /// One session's contribution to the report, in the form that gets PERSISTED
     /// (<see cref="DatasetPsfStore"/>) so the report survives a partial or resumed run.
@@ -124,7 +130,7 @@ public static class DatasetPsfNoiseReport
         float[] SubHfd,
         float[] SubEllipticity,
         double MasterNoiseRelative,
-        RadiusSamples[] Bins,
+        RadiusSamples[][]? BinsByChannel,
         PsfProfileFit.Result?[]? MasterProfiles = null,
         string? MasterStrategy = null);
 
@@ -154,7 +160,8 @@ public static class DatasetPsfNoiseReport
         Percentiles SubFwhm,
         Percentiles SubHfd,
         Percentiles SubEllipticity,
-        ImmutableArray<RadiusBin> FieldRadiusProfile,
+        ImmutableArray<ChannelRadiusProfile> FieldRadiusProfiles,
+        int RadialSessions,
         Percentiles MasterNoiseRelative,
         ImmutableArray<string> RecordedAs,
         ImmutableArray<ChannelProfile> ChannelProfiles,
@@ -294,41 +301,12 @@ public static class DatasetPsfNoiseReport
     {
         var label = opticalTrain;
 
-        var binFwhm = new List<float>[radiusBins];
-        var binEcc = new List<float>[radiusBins];
-        var binFlux = new List<float>[radiusBins];
-        for (var b = 0; b < radiusBins; b++)
-        {
-            binFwhm[b] = new List<float>();
-            binEcc[b] = new List<float>();
-            binFlux[b] = new List<float>();
-        }
-
-        var stars = await master.FindStarsAsync(
-            channel: 0, snrMin: snrMin, maxStars: maxStars, cancellationToken: cancellationToken);
         var cx = canvasWidth * 0.5;
         var cy = canvasHeight * 0.5;
         var halfDiag = 0.5 * Math.Sqrt((double)canvasWidth * canvasWidth + (double)canvasHeight * canvasHeight);
-        if (halfDiag > 0)
-        {
-            foreach (var star in stars)
-            {
-                var dx = star.XCentroid - cx;
-                var dy = star.YCentroid - cy;
-                var rNorm = Math.Sqrt(dx * dx + dy * dy) / halfDiag;
-                var bin = Math.Min(radiusBins - 1, (int)(rNorm * radiusBins));
-                if (bin < 0) bin = 0;
-                binFwhm[bin].Add(star.StarFWHM);
-                binEcc[bin].Add(star.Ellipticity);
-                binFlux[bin].Add(star.Flux);
-            }
-        }
 
-        var bins = new RadiusSamples[radiusBins];
-        for (var b = 0; b < radiusBins; b++)
-        {
-            bins[b] = new RadiusSamples(binFwhm[b].ToArray(), binEcc[b].ToArray(), binFlux[b].ToArray());
-        }
+        var stars = await master.FindStarsAsync(
+            channel: 0, snrMin: snrMin, maxStars: maxStars, cancellationToken: cancellationToken);
 
         // PSF SHAPE, measured on the master per COLOUR CHANNEL. Separate from the per-bin FWHM
         // samples because it answers a different question: those describe how the width varies
@@ -344,12 +322,19 @@ public static class DatasetPsfNoiseReport
         // one place the per-channel measurement is not free.
         var (channelCount, _, _) = master.Shape;
         var masterProfiles = new PsfProfileFit.Result?[channelCount];
+        // The field-radius bins are per channel for the same reason the stacked profile is, and they
+        // are FREE here: each channel's stars are already being detected for the profile fit, and the
+        // bins were simply being built from channel 0's list before the loop and called the master's.
+        // Red is the widest channel on 48 of 49 archive masters, so a channel-0-only radial profile
+        // described red's field dependence while reading as the frame's.
+        var binsByChannel = new RadiusSamples[channelCount][];
         for (var c = 0; c < channelCount; c++)
         {
             var channelStars = c == 0
                 ? stars
                 : await master.FindStarsAsync(
                     channel: c, snrMin: snrMin, maxStars: maxStars, cancellationToken: cancellationToken);
+            binsByChannel[c] = BinByFieldRadius(channelStars, cx, cy, halfDiag, radiusBins);
             masterProfiles[c] = PsfProfileFit.Measure(master, c, channelStars);
 
             if (masterProfiles[c] is { } fit)
@@ -372,9 +357,53 @@ public static class DatasetPsfNoiseReport
             SubHfd: subHfd,
             SubEllipticity: subEllipticity,
             MasterNoiseRelative: RelativeBackgroundMad(master),
-            Bins: bins,
+            BinsByChannel: binsByChannel,
             MasterProfiles: masterProfiles,
             MasterStrategy: masterStrategy);
+    }
+
+    /// <summary>
+    /// Buckets one channel's detected stars into field-radius annuli, normalised so 0 is the frame
+    /// centre and 1 the corner. Raw samples, never a median: the report's profile is a median over
+    /// every star in a bin across a whole optical train, which a stored median-of-medians could not
+    /// reconstruct, and a brightness band has to be applied before any reduction (see
+    /// <see cref="RadiusSamples.Flux"/>).
+    /// </summary>
+    private static RadiusSamples[] BinByFieldRadius(
+        StarList stars, double cx, double cy, double halfDiag, int radiusBins)
+    {
+        var binFwhm = new List<float>[radiusBins];
+        var binEcc = new List<float>[radiusBins];
+        var binFlux = new List<float>[radiusBins];
+        for (var b = 0; b < radiusBins; b++)
+        {
+            binFwhm[b] = new List<float>();
+            binEcc[b] = new List<float>();
+            binFlux[b] = new List<float>();
+        }
+
+        // A degenerate canvas has no radius to bin by; the empty bins still render, as "0 stars".
+        if (halfDiag > 0)
+        {
+            foreach (var star in stars)
+            {
+                var dx = star.XCentroid - cx;
+                var dy = star.YCentroid - cy;
+                var rNorm = Math.Sqrt(dx * dx + dy * dy) / halfDiag;
+                var bin = Math.Min(radiusBins - 1, (int)(rNorm * radiusBins));
+                if (bin < 0) bin = 0;
+                binFwhm[bin].Add(star.StarFWHM);
+                binEcc[bin].Add(star.Ellipticity);
+                binFlux[bin].Add(star.Flux);
+            }
+        }
+
+        var bins = new RadiusSamples[radiusBins];
+        for (var b = 0; b < radiusBins; b++)
+        {
+            bins[b] = new RadiusSamples(binFwhm[b].ToArray(), binEcc[b].ToArray(), binFlux[b].ToArray());
+        }
+        return bins;
     }
 
     /// <summary>
@@ -419,17 +448,13 @@ public static class DatasetPsfNoiseReport
         /// </summary>
         public void Add(SessionPsf record, ILogger? logger = null)
         {
-            if (record.Bins.Length != _radiusBins)
-            {
-                // Only reachable if the radius-bin count changed between runs, which would make the
-                // stored samples unbinnable. Loud rather than silent: a dropped session is exactly
-                // the failure this store exists to prevent.
-                logger?.LogWarning(
-                    "PSF record for {Session} has {Actual} radius bin(s), expected {Expected} -- not folded into the report. Delete {Store} to re-measure at the new bin count.",
-                    record.SessionId, record.Bins.Length, _radiusBins, DatasetPsfStore.FileName);
-                return;
-            }
-
+            // A record with no per-channel bins predates them (they were channel 0 only, under a
+            // different member) and is still folded for everything else it carries: the sub metrics and
+            // the noise floor are unaffected, and dropping the session outright would narrow the report
+            // for a field-radius profile it can regain from its retained master. RadialSessions below
+            // is what tells the reader how many are covered. The per-channel bin-count check lives in
+            // the loop, since a channel can be short on its own.
+            //
             // Keyed by the STORED label, so a resumed session (whose frames were never re-read) lands
             // in the same train bucket as a freshly measured one -- but canonicalised first, so one
             // lens recorded under two TELESCOP spellings is one train here even though the store
@@ -471,33 +496,79 @@ public static class DatasetPsfNoiseReport
             // sessions and a shared absolute flux cut would keep the deep sessions' faint tail while
             // discarding a shallow session entirely. See RadiusSamples.Flux for what the band is for;
             // without it this profile reports each annulus's brightness composition and inverts.
-            var band = FluxBand(record.Bins);
-            for (var b = 0; b < _radiusBins; b++)
+            // Banded PER CHANNEL as well as per session: a star's flux differs between channels (which
+            // is why each channel is detected on its own stars in the first place), so one band shared
+            // across channels would cut red and blue at green's brightness.
+            var banded = false;
+            var foldedAnyChannel = false;
+            for (var c = 0; c < (record.BinsByChannel?.Length ?? 0); c++)
             {
-                var samples = record.Bins[b];
-                var flux = samples.Flux;
-                for (var i = 0; i < samples.Fwhm.Length; i++)
+                var channelBins = record.BinsByChannel![c];
+                if (channelBins.Length != _radiusBins)
                 {
-                    // A record written before Flux was stored has no band available. Those keep the
-                    // old (confounded) behaviour rather than being dropped, so an existing store still
-                    // renders; the rendered table says which sessions are banded.
-                    if (band is not null && flux is not null && i < flux.Length
-                        && (flux[i] < band.Value.Low || flux[i] > band.Value.High))
+                    // Same loud-not-silent posture as the whole-record check above.
+                    logger?.LogWarning(
+                        "PSF record for {Session} channel {Channel} has {Actual} radius bin(s), expected {Expected} -- that channel is not folded into the report.",
+                        record.SessionId, c, channelBins.Length, _radiusBins);
+                    continue;
+                }
+
+                // Grown on demand, like ChannelFwhm: a record can carry more channels than an earlier
+                // one, and a channel measurable on one session but not another must not shift the
+                // others' samples by one slot.
+                while (acc.ChannelBinFwhm.Count <= c)
+                {
+                    acc.ChannelBinFwhm.Add(NewBinLists(_radiusBins));
+                    acc.ChannelBinEcc.Add(NewBinLists(_radiusBins));
+                }
+
+                foldedAnyChannel = true;
+                var band = FluxBand(channelBins);
+                banded |= band is not null;
+                for (var b = 0; b < _radiusBins; b++)
+                {
+                    var samples = channelBins[b];
+                    var flux = samples.Flux;
+                    for (var i = 0; i < samples.Fwhm.Length; i++)
                     {
-                        continue;
+                        // A record written before Flux was stored has no band available. Those keep the
+                        // old (confounded) behaviour rather than being dropped, so an existing store
+                        // still renders; the rendered table says which sessions are banded.
+                        if (band is not null && flux is not null && i < flux.Length
+                            && (flux[i] < band.Value.Low || flux[i] > band.Value.High))
+                        {
+                            continue;
+                        }
+                        acc.ChannelBinFwhm[c][b].Add(samples.Fwhm[i]);
+                        if (i < samples.Ellipticity.Length)
+                        {
+                            acc.ChannelBinEcc[c][b].Add(samples.Ellipticity[i]);
+                        }
+                        acc.StarsSampled++;
                     }
-                    acc.BinFwhm[b].Add(samples.Fwhm[i]);
-                    if (i < samples.Ellipticity.Length)
-                    {
-                        acc.BinEcc[b].Add(samples.Ellipticity[i]);
-                    }
-                    acc.StarsSampled++;
                 }
             }
-            if (band is not null)
+            if (banded)
             {
                 acc.BandedSessions++;
             }
+            // Gated on a channel having ACTUALLY been folded, not merely on bins being present: a
+            // record whose every channel was skipped for a bin-count mismatch contributes no radial
+            // samples, and counting it would overstate the profile's coverage.
+            if (foldedAnyChannel)
+            {
+                acc.RadialSessions++;
+            }
+        }
+
+        private static List<float>[] NewBinLists(int radiusBins)
+        {
+            var lists = new List<float>[radiusBins];
+            for (var b = 0; b < radiusBins; b++)
+            {
+                lists[b] = new List<float>();
+            }
+            return lists;
         }
 
         /// <summary>
@@ -545,15 +616,20 @@ public static class DatasetPsfNoiseReport
 
             foreach (var acc in _byTrain.Values.OrderBy(a => a.Label, StringComparer.Ordinal))
             {
-                var profile = ImmutableArray.CreateBuilder<RadiusBin>(_radiusBins);
-                for (var b = 0; b < _radiusBins; b++)
+                var radialProfiles = ImmutableArray.CreateBuilder<ChannelRadiusProfile>(acc.ChannelBinFwhm.Count);
+                for (var c = 0; c < acc.ChannelBinFwhm.Count; c++)
                 {
-                    profile.Add(new RadiusBin(
-                        RMin: (double)b / _radiusBins,
-                        RMax: (double)(b + 1) / _radiusBins,
-                        MedianFwhm: Median(acc.BinFwhm[b]),
-                        MedianEllipticity: Median(acc.BinEcc[b]),
-                        Stars: acc.BinFwhm[b].Count));
+                    var profile = ImmutableArray.CreateBuilder<RadiusBin>(_radiusBins);
+                    for (var b = 0; b < _radiusBins; b++)
+                    {
+                        profile.Add(new RadiusBin(
+                            RMin: (double)b / _radiusBins,
+                            RMax: (double)(b + 1) / _radiusBins,
+                            MedianFwhm: Median(acc.ChannelBinFwhm[c][b]),
+                            MedianEllipticity: Median(acc.ChannelBinEcc[c][b]),
+                            Stars: acc.ChannelBinFwhm[c][b].Count));
+                    }
+                    radialProfiles.Add(new ChannelRadiusProfile(c, profile.MoveToImmutable()));
                 }
                 var channels = ImmutableArray.CreateBuilder<ChannelProfile>(acc.ChannelFwhm.Count);
                 for (var c = 0; c < acc.ChannelFwhm.Count; c++)
@@ -579,7 +655,8 @@ public static class DatasetPsfNoiseReport
                     // blue is too star-poor to stack still HAS a measured profile, and reporting the
                     // worst channel's count would understate coverage.
                     ProfileSessions: acc.ChannelFwhm.Count == 0 ? 0 : acc.ChannelFwhm.Max(l => l.Count),
-                    FieldRadiusProfile: profile.MoveToImmutable(),
+                    FieldRadiusProfiles: radialProfiles.MoveToImmutable(),
+                    RadialSessions: acc.RadialSessions,
                     MasterNoiseRelative: PercentilesOf(acc.Noise),
                     MasterStrategies: [.. acc.MasterStrategies.Select(kv => new StrategyCount(kv.Key, kv.Value))],
                     BandedSessions: acc.BandedSessions));
@@ -625,8 +702,14 @@ public static class DatasetPsfNoiseReport
             /// <summary>Stacked-profile samples per channel; outer index is the channel.</summary>
             public readonly List<List<float>> ChannelFwhm = new();
             public readonly List<List<float>> ChannelBeta = new();
-            public readonly List<float>[] BinFwhm;
-            public readonly List<float>[] BinEcc;
+            /// <summary>Field-radius samples per channel, then per annulus. Outer index is the channel,
+            /// grown on demand; inner array is always <c>radiusBins</c> long.</summary>
+            public readonly List<List<float>[]> ChannelBinFwhm = new();
+            public readonly List<List<float>[]> ChannelBinEcc = new();
+            /// <summary>Sessions carrying per-channel field-radius bins at all. Lower than
+            /// <see cref="Sessions"/> where records predate them and need a re-measure, which now reads
+            /// the retained master rather than re-registering.</summary>
+            public int RadialSessions;
             /// <summary>Sessions per master integrator. Sorted so the rendered line is deterministic,
             /// like every other aggregate here.</summary>
             public readonly SortedDictionary<string, int> MasterStrategies = new(StringComparer.Ordinal);
@@ -638,13 +721,6 @@ public static class DatasetPsfNoiseReport
             public TrainAcc(string label, int radiusBins)
             {
                 Label = label;
-                BinFwhm = new List<float>[radiusBins];
-                BinEcc = new List<float>[radiusBins];
-                for (var b = 0; b < radiusBins; b++)
-                {
-                    BinFwhm[b] = new List<float>();
-                    BinEcc[b] = new List<float>();
-                }
             }
         }
     }
@@ -747,13 +823,33 @@ public static class DatasetPsfNoiseReport
                 ? "- Field-radius stars are brightness-banded per session (55th-90th flux percentile)."
                 : string.Create(ci, $"- Field-radius stars brightness-banded for {train.BandedSessions}/{train.Sessions} sessions; the rest predate stored flux and are NOT comparable (re-run with --force-psf)."));
             sb.AppendLine();
-            sb.AppendLine("| Radius (norm) | Median FWHM (px) | Median ellipticity | Stars |");
-            sb.AppendLine("|---------------|------------------|--------------------|-------|");
-            foreach (var bin in train.FieldRadiusProfile)
+            if (train.RadialSessions < train.Sessions)
             {
-                sb.AppendLine(string.Create(ci, $"| {bin.RMin:F2}-{bin.RMax:F2} | {bin.MedianFwhm:F3} | {bin.MedianEllipticity:F3} | {bin.Stars} |"));
+                sb.AppendLine(string.Create(ci, $"- Field-radius profile covers {train.RadialSessions}/{train.Sessions} sessions; the rest predate per-channel bins (re-run with --force-psf, which now reads the retained master)."));
+                sb.AppendLine();
             }
-            sb.AppendLine();
+
+            if (train.FieldRadiusProfiles.Length == 0)
+            {
+                sb.AppendLine("- Field-radius PSF profile: not measured for this train.");
+                sb.AppendLine();
+            }
+
+            // PER CHANNEL, never pooled. Red is the widest channel on 48 of 49 archive masters, so a
+            // single table built from channel 0 described red's field dependence while reading as the
+            // frame's, and averaging the channels would report a width no channel actually has.
+            foreach (var channel in train.FieldRadiusProfiles)
+            {
+                sb.AppendLine(string.Create(ci, $"Channel {channel.Channel}:"));
+                sb.AppendLine();
+                sb.AppendLine("| Radius (norm) | Median FWHM (px) | Median ellipticity | Stars |");
+                sb.AppendLine("|---------------|------------------|--------------------|-------|");
+                foreach (var bin in channel.Bins)
+                {
+                    sb.AppendLine(string.Create(ci, $"| {bin.RMin:F2}-{bin.RMax:F2} | {bin.MedianFwhm:F3} | {bin.MedianEllipticity:F3} | {bin.Stars} |"));
+                }
+                sb.AppendLine();
+            }
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");

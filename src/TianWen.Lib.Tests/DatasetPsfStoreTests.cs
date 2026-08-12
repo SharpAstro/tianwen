@@ -57,7 +57,7 @@ namespace TianWen.Lib.Tests
                 SubHfd: [fwhm - 0.2f, fwhm - 0.1f, fwhm],
                 SubEllipticity: [0.5f, 0.52f, 0.54f],
                 MasterNoiseRelative: noise,
-                Bins: samples);
+                BinsByChannel: [samples]);
         }
 
         [Fact]
@@ -77,11 +77,14 @@ namespace TianWen.Lib.Tests
             back.SubFwhm.ShouldBe(written.SubFwhm);
             back.SubHfd.ShouldBe(written.SubHfd);
             back.SubEllipticity.ShouldBe(written.SubEllipticity);
-            back.Bins.Length.ShouldBe(written.Bins.Length);
-            for (var b = 0; b < written.Bins.Length; b++)
+            back.BinsByChannel.ShouldNotBeNull();
+            written.BinsByChannel.ShouldNotBeNull();
+            back.BinsByChannel.Length.ShouldBe(written.BinsByChannel.Length);
+            back.BinsByChannel[0].Length.ShouldBe(written.BinsByChannel[0].Length);
+            for (var b = 0; b < written.BinsByChannel[0].Length; b++)
             {
-                back.Bins[b].Fwhm.ShouldBe(written.Bins[b].Fwhm);
-                back.Bins[b].Ellipticity.ShouldBe(written.Bins[b].Ellipticity);
+                back.BinsByChannel[0][b].Fwhm.ShouldBe(written.BinsByChannel[0][b].Fwhm);
+                back.BinsByChannel[0][b].Ellipticity.ShouldBe(written.BinsByChannel[0][b].Ellipticity);
             }
         }
 
@@ -230,17 +233,28 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void A_BinCountMismatch_IsRefusedLoudly_NotFoldedInWrong()
+        public void A_BinCountMismatch_DropsOnlyTheRadialSamples_NotTheWholeSession()
         {
-            // Only reachable if the radius-bin count changed between runs. Dropping the session is
-            // the lesser evil versus binning 3 bins' samples into 5, but it must not be silent, so
-            // the accumulator warns and the session count proves it was not folded.
+            // Only reachable if the radius-bin count changed between runs, and binning 3 bins' samples
+            // into 5 must never happen. It used to cost the whole session, which was heavier than
+            // necessary: the per-sub metrics and the noise floor do not depend on the bin count at all,
+            // so they are folded and only the mis-binned channel's samples are refused. Still loud
+            // (the accumulator warns), and now countable: RadialSessions says how many sessions the
+            // field-radius profile actually covers, so the loss is visible in the report rather than
+            // showing up as a session that vanished.
             var acc = new DatasetPsfNoiseReport.Accumulator(radiusBins: 5);
             acc.Add(Record("s1", "train A", 2.5f, 0.004, bins: 3));
-            acc.Build().Sessions.ShouldBe(0);
+
+            var mismatched = acc.Build();
+            mismatched.Sessions.ShouldBe(1, "the sub metrics and noise floor are bin-count independent");
+            var trainA = mismatched.Trains.ShouldHaveSingleItem();
+            trainA.RadialSessions.ShouldBe(0, "no channel could be binned");
+            trainA.FieldRadiusProfiles.ShouldBeEmpty("mis-binned samples must not land in the wrong annuli");
 
             acc.Add(Record("s2", "train A", 2.5f, 0.004, bins: 5));
-            acc.Build().Sessions.ShouldBe(1);
+            var withGood = acc.Build();
+            withGood.Sessions.ShouldBe(2);
+            withGood.Trains.ShouldHaveSingleItem().RadialSessions.ShouldBe(1, "only the correctly binned one");
         }
     }
 }
