@@ -172,6 +172,28 @@ on that carve-out:
   construction), p5 2.146 / p50 2.947 / p95 4.004, and `SubFwhm` 5,961 distinct of 5,984. So the
   store is calibrated for the sweep. `--force-psf` exists because the ordinary regen only FILLS
   GAPS, which cannot correct a record that is present and wrong.
+- **Channel 0's field-radius profile runs BACKWARDS, and P2 must not consume it yet
+  (measured 2026-08-13 on the drizzle set).** Per-channel bins (`SessionPsf.BinsByChannel`) split what
+  a merged table had been averaging. On the largest homogeneous group, ASI533MC / Samyang 135 @ 130mm,
+  BayerDrizzle, 26 sessions, 140k red stars, channel 0's median FWHM FALLS from 2.637 px at centre to
+  2.006 at the corner (0.761) while channels 1 and 2 RISE (1.627 -> 2.174 and 1.625 -> 2.132). It is
+  channel 0 on every colour train; both mono trains run the correct direction. This is what the older
+  "the centre-to-corner fall is session-dependent, one of three sessions flat" note was actually
+  seeing.
+  - **Not a demosaic artifact, unlike the G/R ratio.** It is present under BOTH integrators (drizzled
+    0.761, Float16Staged 0.905) and Bayer drizzle interpolates nothing. There are two separate red
+    anomalies and only one of them is AHD's.
+  - **Not optics either, and this settles it without a model.** Red's ELLIPTICITY degrades toward the
+    corner (0.478 -> 0.577, the worst of the three channels) from the SAME stars in the SAME bins. A
+    star cannot become more elongated and sharper at once, so the FWHM number is what is wrong.
+  - **Likely mechanism: the brightness banding is PER CHANNEL.** Field-radius stars are banded on the
+    55th-90th flux percentile per session per channel, and measured FWHM swings 25-30% with brightness
+    (see the profile survey). The banded flux moves in opposite directions by channel and FWHM follows
+    its sign every time: red -15.7% (0.01653 -> 0.01393), green +39.6%, blue +48.4%. The bands are not
+    comparable in absolute terms either (red centre 0.01653 against blue 0.00847). Fix by banding on a
+    COMMON reference across channels, the way the per-channel ratio check already did with a common
+    star set, then re-derive; if the inversion goes, it is confirmed. Until then the position-varying
+    sweep would learn to sharpen red toward the CENTRE.
 - **One lens under two `TELESCOP` spellings was two optical trains, so it had two weaker profiles.**
   The archive recorded the Samyang 135 as both "SAMYANG 135mm" (3 sessions) and "Samyang 135 f/2 ED"
   (35), and since the field-radius profile is measured PER TRAIN the sweep was being calibrated from
