@@ -46,20 +46,48 @@ namespace TianWen.Lib.Imaging.Dataset;
 public static class SessionRegistrar
 {
     /// <summary>
-    /// Default for <c>minSubsForHalfMasters</c>: fewest registered subs a session needs before it is
-    /// split into a half-master pair. Each half has to be a usable integration in its own right, and
-    /// the drizzle R/B coverage floor (<see cref="DrizzleStrategy.AutoSelectMinFrameCount"/>) applies
-    /// to each half separately rather than to the session, so the session needs twice it.
-    ///
-    /// <para><b>This floor is derived from a DRIZZLE constraint and is the wrong bound for an AHD
-    /// half</b>, which is why the caller can override it. Measured over the archive: 25 of 61 session
-    /// directories reach 60 subs and only ~10 reach 120, so at this default the half-master pairs
-    /// (the whole point of which is teaching the model the noise level a real master has) would exist
-    /// for about ten sessions. An AHD half needs no per-Bayer-position coverage, and the halves exist
-    /// to carry a noise LEVEL rather than colour fidelity, so a lower floor is defensible on the
-    /// non-drizzled path. Left at the derived value until that is decided deliberately.</para>
+    /// Fewest registered subs a <b>drizzled</b> session needs before it is split into a half-master
+    /// pair. Each half has to be a usable integration in its own right, and drizzle's binding
+    /// constraint is per-Bayer-position R/B coverage
+    /// (<see cref="DrizzleStrategy.AutoSelectMinFrameCount"/>), which applies to each half separately
+    /// rather than to the session; so the session needs twice it. Below this a half has coverage
+    /// HOLES in red and blue, which no amount of noise-level diversity would be worth.
     /// </summary>
-    public const int MinSubsForHalfMasters = 2 * DrizzleStrategy.AutoSelectMinFrameCount;
+    public const int MinSubsForHalfMastersDrizzled = 2 * DrizzleStrategy.AutoSelectMinFrameCount;
+
+    /// <summary>
+    /// Fewest frames a <b>rejection-integrated</b> (AHD + sigma-clip) half needs. Two independent
+    /// reasons put it here, and neither is the coverage argument above, which does not apply when
+    /// nothing is being deposited per Bayer position:
+    /// <list type="number">
+    /// <item><b>It must get a real rejector.</b> <c>StackingPipeline.BuildRejector</c> returns
+    /// <see langword="null"/> below 5 frames (no rejection at all, which is the very defect that
+    /// makes an uncalibrated drizzle unacceptable), then <c>LinearFitClipRejector</c> up to 30. At 20
+    /// a half sits comfortably inside the band the stacker itself selects for that depth, with
+    /// margin above the dead zone.</item>
+    /// <item><b>Its noise must be master-like, not sub-like.</b> 20 frames puts a half at ~0.22x a
+    /// single sub, i.e. a genuine master; a 5-frame half would land at ~0.45x, halfway to a sub, and
+    /// the sub tiles already cover that regime far more cheaply.</item>
+    /// </list>
+    /// </summary>
+    public const int MinFramesPerRejectedHalfMaster = 20;
+
+    /// <summary><inheritdoc cref="MinFramesPerRejectedHalfMaster" path="/summary/node()"/></summary>
+    public const int MinSubsForHalfMastersRejected = 2 * MinFramesPerRejectedHalfMaster;
+
+    /// <summary>
+    /// The half-master floor for a session, which depends on HOW its master is integrated: one number
+    /// is wrong for both cases. Measured over the 50 sessions of the current dataset (registered sub
+    /// counts, median 126, range 15 to 314): the drizzle floor admits 26 of them and the rejected
+    /// floor 48.
+    ///
+    /// <para>Note what the floor does NOT change: the pair's noise RATIO. Each half integrates half
+    /// of its own session, so halfA against halfB is sqrt(2) at every floor. Lowering it does not
+    /// produce shallower pairs, it admits sessions whose whole master is shallower, which is extra
+    /// noise-level diversity and is exactly what the conditioning input exists to span.</para>
+    /// </summary>
+    public static int MinSubsForHalfMasters(bool drizzled) =>
+        drizzled ? MinSubsForHalfMastersDrizzled : MinSubsForHalfMastersRejected;
 
     /// <summary>
     /// Whether this session's master should be Bayer-drizzled. Two independent conditions, and
@@ -203,9 +231,11 @@ public static class SessionRegistrar
     /// <param name="minSubs">Minimum survivors required to build a session master.</param>
     /// <param name="minSubsForHalfMasters">Registered subs required before the session is also split
     /// into a half-master pair; below it <see cref="RegisteredSession.HalfMasterA"/> and
-    /// <see cref="RegisteredSession.HalfMasterB"/> stay null. See
-    /// <see cref="MinSubsForHalfMasters"/> for why the default is a drizzle-derived number and when
-    /// to pass something else.</param>
+    /// <see cref="RegisteredSession.HalfMasterB"/> stay null. <see langword="null"/> (the default)
+    /// picks per master strategy via <see cref="MinSubsForHalfMasters(bool)"/>, which is the correct
+    /// behaviour: the drizzled floor answers a coverage constraint and the rejected floor answers a
+    /// rejection one, so a single number is wrong for one of them. Pass a value only to override
+    /// deliberately.</param>
     /// <param name="debayerAlgorithm">Debayer used for both measurement and warping.</param>
     /// <param name="logger">Optional progress log.</param>
     public static async Task<RegisteredSession?> RegisterAsync(
@@ -215,7 +245,7 @@ public static class SessionRegistrar
         float qualityRejectSigma = 3f,
         float qualityMaxRejectFraction = 0.5f,
         int minSubs = 10,
-        int minSubsForHalfMasters = MinSubsForHalfMasters,
+        int? minSubsForHalfMasters = null,
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
@@ -450,7 +480,10 @@ public static class SessionRegistrar
         //     to remove.
         Image? halfA = null;
         Image? halfB = null;
-        if (subsList.Length >= minSubsForHalfMasters)
+        // Per strategy unless the caller insists: the drizzled floor answers R/B coverage and the
+        // rejected one answers rejection strength, so one number would be wrong for one of them.
+        var halfMasterFloor = minSubsForHalfMasters ?? MinSubsForHalfMasters(useDrizzle);
+        if (subsList.Length >= halfMasterFloor)
         {
             halfA = await IntegrateSubsetAsync(
                 all.Where(i => i % 2 == 0).ToImmutableArray(), "_half_a");
@@ -462,9 +495,13 @@ public static class SessionRegistrar
         }
         else
         {
+            // Names the floor that applied AND why, because the two floors differ by 3x and a reader
+            // of the log cannot otherwise tell a coverage refusal from a rejection one.
             logger?.LogInformation(
-                "  [{Session}] no half-master pair: {Frames} subs is under the {Min} needed to split",
-                session.Id, subsList.Length, minSubsForHalfMasters);
+                "  [{Session}] no half-master pair: {Frames} subs is under the {Min} a {Kind} half needs ({Reason})",
+                session.Id, subsList.Length, halfMasterFloor,
+                useDrizzle ? nameof(IntegrationStrategyKind.BayerDrizzle) : nameof(IntegrationStrategyKind.Float16Staged),
+                useDrizzle ? "per-Bayer-position R/B coverage" : "enough frames for a real rejector");
         }
 
         return new RegisteredSession(
