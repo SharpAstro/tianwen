@@ -1,6 +1,11 @@
 # TianWen-Trained Denoise + Deconvolution Models ("own AI")
 
-**Status: P0 SHIPPED (2026-07-12); P1+ NOT STARTED.**
+**Status: P0 SHIPPED (2026-07-12); P1 DE-RISKED, full training run not yet made; P2+ NOT STARTED.**
+"P1+ NOT STARTED" is what this line used to say, and it stayed there through the entire smoke
+campaign: § 3a documents **eleven** completed N2N variants on the GTX 1070 and names **v8** as the
+config, § 7 carries measured photometric gates, and the training environment is settled. What has
+NOT happened is the full-scale run on the real tile set. Read "not started" as "no shipped model",
+never as "no P1 work exists", or the eleven variants get repeated.
 P0 (the full `tianwen dataset build` pipeline: scan -> discover sessions + calibration -> gate ->
 archive-wide header-matched calibrate -> register + integrate -> zero-skew fp16 tile export + JSONL
 manifest -> PSF/noise report -> pinned by-session split -> in-run parity gate) is code-complete and
@@ -23,6 +28,23 @@ with the duplicate-detection fix. One known skew, accepted: 49 sessions' tile re
 detection fix (they registered fine; the fix mainly rescued sessions that could not), only Helix was
 re-exported post-fix. A future full rebake unifies it; not urgent, since a registration either converged
 on dozens of quads or was rejected wholesale.
+
+**Superseded in turn on 2026-08-12/13 by the drizzled rebake**, `D:\Astro-Dataset\2025-2026-drizzle`,
+which is now **the training set**: **64/68 sessions, 197,400 tiles (70.7 GB), 64 retained session
+masters (6.7 GB), parity OK**, in 4h34m. The 3 skips are sessions with no resolvable dark. It is the
+full rebake the paragraph above deferred, so the registration skew it accepted is gone. Two properties
+matter downstream. **The master integrator is gated per session and split 45 BayerDrizzle / 19
+Float16Staged**, so any per-channel statistic read across the whole set averages two populations that
+are not comparable; split on `MasterStrategy` in `stats/psf-sessions.jsonl` first. And **the held-out
+split is pinned by a stable hash bucket of the session id** (`test-sessions.txt`, 6 sessions), so
+adding sessions later never reshuffles it.
+
+One caveat on its statistics, because it is invisible from the numbers: the bake launched at 20:17,
+minutes before the per-channel field-radius bins and the retained-master read landed, so all 64
+records in `psf-sessions.jsonl` carry the old single-channel `Bins` key and the field-radius profile
+reads as covering 0 of 64 sessions until a `--force-psf` pass re-measures them. That pass reads the
+retained masters rather than re-registering from the archive, so it costs minutes, not the ~7h the
+original registration took.
 
 **That run's report header read 31 sessions / 3,433 subs against the manifest's 45 / 4,958, and this
 document used to call that "the documented resume behaviour ... not a discrepancy". It was a defect,
@@ -856,7 +878,7 @@ That belongs in the same registrar pass as the drizzle change so the archive is 
 | Phase | Deliverable | Exit criterion |
 |---|---|---|
 | **Step 0: Archive organization** | `tools/astro-archive-dedup.py` READ-ONLY scan (header index + dup-files / nights-rollup / calibration-coverage reports); user-reviewed filing of BobbyBox uniques into Astro-Pics from the reports | Dup report reviewed; unique-to-BobbyBox sessions identified/filed; calibration coverage map exists (feeds P0's header-matched calibration) |
-| **P0: Dataset + stats** ✅ SHIPPED 2026-07-12 | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command ✅; gate rejects transparency/focus-bad frames (star-count-led; §2.4) ✅; parity check green (maxDiff 0, in-run gate) ✅. **Real-archive run DONE 2026-07-15**, regenerated post-pedestal-fix 2026-08-10/11 as `D:\Astro-Dataset\2025-2026-calgated` (50 sessions / 135,000 tiles + `psf-sessions.jsonl` covering all 50); see § 2.3b for root order and the two session groups that must stay excluded. P1 trains on the calgated set. |
+| **P0: Dataset + stats** ✅ SHIPPED 2026-07-12 | `tianwen dataset build` (scan/dedup/gate/calibrate/register/tile+manifest, zero-skew export; calibration header-matched archive-wide, never per-folder); archive PSF/noise distribution report; pinned `test-sessions.txt` | Tile set regenerable one-command ✅; gate rejects transparency/focus-bad frames (star-count-led; §2.4) ✅; parity check green (maxDiff 0, in-run gate) ✅. **Real-archive run DONE 2026-07-15**, regenerated post-pedestal-fix 2026-08-10/11 as `D:\Astro-Dataset\2025-2026-calgated` (50 sessions / 135,000 tiles + `psf-sessions.jsonl` covering all 50); see § 2.3b for root order and the two session groups that must stay excluded. **Rebaked again 2026-08-12/13 as `D:\Astro-Dataset\2025-2026-drizzle` (64 sessions / 197,400 tiles / 64 retained masters), and THAT is what P1 trains on**, not the calgated set. |
 | **P1: Denoiser v1** | `training/` N2N pipeline (loss masks a `StitchBorderPx` rim, §3); NAFNet-32 color run on RunPod; ONNX + contract; `OnnxTianWenDenoiser` + `--ai-backend tianwen`; eval report | Beats classical baseline + no photometric regression (§7) on held-out sessions; visually clean on 3 reference masters; **no tile-seam artefact** visible on a full-frame master (the border-masked loss is what this checks) |
 | **P2: Deconvolver v1** | Synthetic-PSF pipeline (measured-distribution sweep); psf01-conditioned NAFNet; `OnnxTianWenDeconvolver`; eval incl. FWHM-reduction + artefact checks | Measured FWHM reduction on held-out masters without ringing/worms; photometric gates hold |
 | **P3: Ship** | Auto-order wiring, fetch-script + release assets, CLI/GUI surfacing, `docs` + CLAUDE.md section | `stack --enhance --ai-backend tianwen` end-to-end on a fresh machine (models auto-fetched) |
