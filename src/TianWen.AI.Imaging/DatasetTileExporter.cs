@@ -52,12 +52,55 @@ public static class DatasetTileExporter
     /// <summary>Manifest file name written under the output directory.</summary>
     public const string ManifestFileName = "tiles-manifest.jsonl";
 
+    /// <summary>
+    /// The <see cref="TileManifestRow.Frame"/> vocabulary. Named constants because these strings are
+    /// the join key a trainer selects on, and they appear in four places that must agree (the tile
+    /// filename, the row, the canonical sort, and the parity check's source resolution).
+    ///
+    /// <para><b>"Half" is overloaded in this file, deliberately kept apart.</b>
+    /// <see cref="ExtractTileHalfs"/> and its <see cref="Half"/> spans are fp16 STORAGE; a
+    /// half-MASTER is one of two disjoint integrations of the session. Anything referring to the
+    /// latter says <c>halfMaster</c>.</para>
+    /// </summary>
+    public const string FrameMaster = "master";
+
+    /// <inheritdoc cref="FrameMaster"/>
+    public const string FrameSub = "sub";
+
+    /// <summary>
+    /// One of the two disjoint half-session integrations (<see cref="SessionRegistrar.RegisteredSession.HalfMasterA"/>).
+    /// The A/B pair is an N2N pair at ~1.41x a full master's noise, which is the regime a denoiser is
+    /// actually deployed in; sub pairs sit at 2.96x even at the deepest 4v4 the sub tiles allow, so a
+    /// model trained on those alone has to extrapolate to the case that matters most.
+    /// </summary>
+    public const string FrameHalfMasterA = "halfmaster_a";
+
+    /// <inheritdoc cref="FrameHalfMasterA"/>
+    public const string FrameHalfMasterB = "halfmaster_b";
+
+    /// <summary>
+    /// Canonical rank of a <see cref="TileManifestRow.Frame"/> for the manifest sort: master, then
+    /// the half-master pair in A/B order, then subs. Stated as a rank rather than left to
+    /// <see cref="string.CompareOrdinal(string, string)"/> on the value, which would silently reorder
+    /// the file the next time a frame kind is added or renamed ("halfmaster_a" sorts BEFORE "master"
+    /// lexicographically, so the old ordinal compare would have quietly moved the master row).
+    /// </summary>
+    private static int FrameRank(string frame) => frame switch
+    {
+        FrameMaster => 0,
+        FrameHalfMasterA => 1,
+        FrameHalfMasterB => 2,
+        _ => 3,
+    };
+
     /// <summary>One manifest row per exported tile.</summary>
     /// <param name="Tile">Blob path relative to the output directory (forward slashes).</param>
     /// <param name="SessionId">Portable session id (keys the pinned train/test split).</param>
     /// <param name="Camera">INSTRUME of the session.</param>
-    /// <param name="Frame">"master" for the eval-truth tile, else "sub".</param>
-    /// <param name="SourceFile">Original raw light file name for a sub tile; "" for the master.</param>
+    /// <param name="Frame">One of <see cref="FrameMaster"/>, <see cref="FrameHalfMasterA"/>,
+    /// <see cref="FrameHalfMasterB"/>, <see cref="FrameSub"/>.</param>
+    /// <param name="SourceFile">Original raw light file name for a sub tile; "" for the master and
+    /// the half-masters, which are integrations of many lights rather than one file.</param>
     /// <param name="CellX">Tile origin X on the union canvas (shared across the cell's tiles).</param>
     /// <param name="CellY">Tile origin Y on the union canvas.</param>
     /// <param name="TileSize">Tile edge length in pixels (square).</param>
@@ -98,6 +141,7 @@ public static class DatasetTileExporter
         int Cells,
         int MasterTiles,
         int SubTiles,
+        int HalfMasterTiles,
         string ManifestPath,
         ImmutableArray<TileManifestRow> Rows);
 
@@ -144,12 +188,18 @@ public static class DatasetTileExporter
         // Throwing rather than warning is deliberate: a poisoned master makes the whole session's
         // output worthless, the runner already catches per-session faults and moves on, and a
         // half-written session is worse than a skipped one.
-        if (!float.IsFinite(session.Master.MaxValue) || !float.IsFinite(session.Master.MinValue))
+        RequireFiniteRange(session.Master, "master", imaging.Id);
+        // The half-masters go through the identical ToUnitRange division, so they carry the identical
+        // exposure to it; a guard on the master alone would let a poisoned half write 2 zero tiles per
+        // cell into a set whose master tiles are all fine, which is worse than either extreme because
+        // the session looks healthy.
+        if (session.HalfMasterA is { } preA)
         {
-            throw new InvalidOperationException(
-                $"[{imaging.Id}] master pixel range is not finite (min={session.Master.MinValue}, " +
-                $"max={session.Master.MaxValue}); every exported tile would be zero. This means a " +
-                $"sub overflowed during staging or integration, not that the tiler is at fault.");
+            RequireFiniteRange(preA, FrameHalfMasterA, imaging.Id);
+        }
+        if (session.HalfMasterB is { } preB)
+        {
+            RequireFiniteRange(preB, FrameHalfMasterB, imaging.Id);
         }
 
         var slug = Sanitize(imaging.Id);
@@ -173,7 +223,7 @@ public static class DatasetTileExporter
         {
             logger?.LogWarning("  [{Session}] intersection {Rect} too small for a {Tile}px tile -- no tiles",
                 imaging.Id, rect, tileSize);
-            return new TileExportResult(0, 0, 0, Path.Combine(outDir, ManifestFileName), []);
+            return new TileExportResult(0, 0, 0, 0, Path.Combine(outDir, ManifestFileName), []);
         }
 
         var seed = StableSeed(imaging.Id);
@@ -218,18 +268,43 @@ public static class DatasetTileExporter
         var channels = session.Master.ChannelCount;
         var rows = ImmutableArray.CreateBuilder<TileManifestRow>();
 
-        // Master tiles (one per selected cell).
-        for (var c = 0; c < selected.Count; c++)
+        // Master tiles (one per selected cell), then the half-master pair over the SAME cells, so a
+        // cell's master / halfA / halfB / sub tiles are all the same footprint on the same grid.
+        var masterTiles = EmitWholeFrameTiles(masterStretched, FrameMaster);
+        var halfMasterTiles = 0;
+        // Stretched one at a time and dropped: each is another full-canvas float image (124 MB on a
+        // 236-sub session), and the session record already holds three unstretched ones.
+        if (session.HalfMasterA is { } halfMasterA)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var cell = selected[c];
-            var file = $"x{cell.X}_y{cell.Y}_master{TileExtension}";
-            var mad = WriteTile(masterStretched, cell, tileSize, Path.Combine(tilesDir, file), imaging.Id);
-            rows.Add(new TileManifestRow(
-                Tile: $"tiles/{slug}/{file}", SessionId: imaging.Id, Camera: imaging.Camera,
-                Frame: "master", SourceFile: "", CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
-                Channels: channels, Gain: refMeta.Gain, ExposureSeconds: refMeta.ExposureDuration.TotalSeconds,
-                NoiseMad: mad));
+            var (stretched, _, _, _) = ChunkedNafnetRunner.ApplyInputStretch(ToUnitRange(halfMasterA));
+            halfMasterTiles += EmitWholeFrameTiles(stretched, FrameHalfMasterA);
+        }
+        if (session.HalfMasterB is { } halfMasterB)
+        {
+            var (stretched, _, _, _) = ChunkedNafnetRunner.ApplyInputStretch(ToUnitRange(halfMasterB));
+            halfMasterTiles += EmitWholeFrameTiles(stretched, FrameHalfMasterB);
+        }
+
+        // One tile per selected cell out of a whole-session frame (the master or one half-master), as
+        // opposed to the per-sub pass below. Deliberately no integrated-frame COUNT on the row: what a
+        // consumer conditions on is the noise level, NoiseMad measures it per tile, and a second
+        // derived copy of a session-level fact on a row that is never rewritten is exactly how the
+        // FWHM column came to be authoritative while wrong (see TileManifestRow's remarks).
+        int EmitWholeFrameTiles(Image stretched, string frame)
+        {
+            for (var c = 0; c < selected.Count; c++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var cell = selected[c];
+                var file = $"x{cell.X}_y{cell.Y}_{frame}{TileExtension}";
+                var mad = WriteTile(stretched, cell, tileSize, Path.Combine(tilesDir, file), imaging.Id);
+                rows.Add(new TileManifestRow(
+                    Tile: $"tiles/{slug}/{file}", SessionId: imaging.Id, Camera: imaging.Camera,
+                    Frame: frame, SourceFile: "", CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
+                    Channels: channels, Gain: refMeta.Gain, ExposureSeconds: refMeta.ExposureDuration.TotalSeconds,
+                    NoiseMad: mad));
+            }
+            return selected.Count;
         }
 
         // Sub tiles, iterated sub-major so only one stretched sub is resident at a time.
@@ -256,22 +331,23 @@ public static class DatasetTileExporter
                 var mad = WriteTile(subStretched, cell, tileSize, Path.Combine(tilesDir, file), imaging.Id);
                 rows.Add(new TileManifestRow(
                     Tile: $"tiles/{slug}/{file}", SessionId: imaging.Id, Camera: imaging.Camera,
-                    Frame: "sub", SourceFile: sourceName, CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
+                    Frame: FrameSub, SourceFile: sourceName, CellX: cell.X, CellY: cell.Y, TileSize: tileSize,
                     Channels: channels, Gain: subMeta.Gain, ExposureSeconds: subMeta.ExposureDuration.TotalSeconds,
                     NoiseMad: mad));
                 subTiles++;
             }
         }
 
-        // Canonical manifest order (cell, then master before subs, then sub index) BEFORE writing --
+        // Canonical manifest order (cell, then frame kind, then sub index) BEFORE writing --
         // parallel/interleaved writers would otherwise break every downstream seeded operation.
         var sorted = rows.ToImmutable().Sort(RowOrder);
         var manifestPath = Path.Combine(outDir, ManifestFileName);
         await AppendManifestAsync(manifestPath, sorted, cancellationToken);
 
-        logger?.LogInformation("  [{Session}] exported {Cells} cells -> {Master} master + {Sub} sub tiles",
-            imaging.Id, selected.Count, selected.Count, subTiles);
-        return new TileExportResult(selected.Count, selected.Count, subTiles, manifestPath, sorted);
+        logger?.LogInformation(
+            "  [{Session}] exported {Cells} cells -> {Master} master + {HalfMaster} half-master + {Sub} sub tiles",
+            imaging.Id, selected.Count, masterTiles, halfMasterTiles, subTiles);
+        return new TileExportResult(selected.Count, masterTiles, subTiles, halfMasterTiles, manifestPath, sorted);
     }
 
     /// <summary>
@@ -326,15 +402,27 @@ public static class DatasetTileExporter
 
         Image ResolveStretched(TileManifestRow row)
         {
-            var key = row.Frame == "master" ? "master" : "sub:" + row.SourceFile;
+            // Keyed by FRAME for every whole-session kind and by source file for a sub. A key derived
+            // from SourceFile alone cannot work here: the master and both half-masters carry "", so
+            // they would share one cache entry and the parity check would compare a half-master's
+            // stored tile against the master's pixels and report a difference that is not there.
+            var key = row.Frame == FrameSub ? "sub:" + row.SourceFile : row.Frame;
             if (stretchedCache.TryGetValue(key, out var cached))
             {
                 return cached;
             }
             Image frame;
-            if (row.Frame == "master")
+            if (row.Frame != FrameSub)
             {
-                frame = session.Master;
+                frame = row.Frame switch
+                {
+                    FrameMaster => session.Master,
+                    FrameHalfMasterA => session.HalfMasterA,
+                    FrameHalfMasterB => session.HalfMasterB,
+                    _ => null,
+                } ?? throw new IOException(
+                    $"Parity check could not resolve source for {row.Tile} (frame={row.Frame}); the " +
+                    $"session no longer carries that frame.");
             }
             else
             {
@@ -365,10 +453,37 @@ public static class DatasetTileExporter
         if (cmp != 0) return cmp;
         cmp = a.CellX.CompareTo(b.CellX);
         if (cmp != 0) return cmp;
-        // master sorts before sub; then by source file for a stable sub order.
-        cmp = string.CompareOrdinal(a.Frame, b.Frame); // "master" < "sub"
+        // Master, half-master A, half-master B, then subs (see FrameRank); then by tile path, which
+        // orders subs stably by their zero-padded index.
+        cmp = FrameRank(a.Frame).CompareTo(FrameRank(b.Frame));
         if (cmp != 0) return cmp;
         return string.CompareOrdinal(a.Tile, b.Tile);
+    }
+
+    /// <summary>
+    /// Refuses a frame whose extrema are not finite. <see cref="ToUnitRange"/> divides by
+    /// <c>MaxValue</c>, so a single +Inf sample sends every tile derived from that frame to zero, and
+    /// the parity check cannot see it (it compares stored bytes against bytes re-derived through the
+    /// same path, and zeroes equal zeroes; it pins drift, never emptiness).
+    ///
+    /// <para>Not hypothetical: <c>StreamingFrameStaging</c> used to cast float straight to
+    /// <see cref="Half"/>, so a sub reaching the 16-bit ceiling (N.I.N.A. writes a 14-bit sensor
+    /// scaled into [0, 65532]; <see cref="Half"/> tops out at 65504) staged as +Inf, the integrator
+    /// averaged it into the master, and five sessions wrote 1,500 tiles of pure zeroes that looked
+    /// like ordinary files. Nothing noticed until a human opened one in ASTAP.</para>
+    ///
+    /// <para>Throws rather than warns: the runner already isolates per-session faults and moves on,
+    /// and a half-written session is worse than a skipped one.</para>
+    /// </summary>
+    private static void RequireFiniteRange(Image frame, string label, string sessionId)
+    {
+        if (!float.IsFinite(frame.MaxValue) || !float.IsFinite(frame.MinValue))
+        {
+            throw new InvalidOperationException(
+                $"[{sessionId}] {label} pixel range is not finite (min={frame.MinValue}, " +
+                $"max={frame.MaxValue}); every tile exported from it would be zero. This means a " +
+                $"sub overflowed during staging or integration, not that the tiler is at fault.");
+        }
     }
 
     /// <summary>Writes one CHW fp16 tile at <paramref name="cell"/> and returns the MAD of the
