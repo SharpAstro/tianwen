@@ -698,7 +698,7 @@ public partial class Image
         var aduSdBg = sd_bg * aduScale;
         var snr = aduFlux / MathF.Sqrt(aduFlux + r_aperture * r_aperture * MathF.PI * aduSdBg * aduSdBg);
 
-        star = new ImagedStar(hfd, star_fwhm, snr, flux, xc, yc, ellipticity);
+        star = new ImagedStar(hfd, star_fwhm, snr, flux, xc, yc, ellipticity, bg);
         return true;
     }
 
