@@ -84,6 +84,22 @@ public static class DatasetPsfNoiseReport
     /// direction flips between trains (blue/red 0.738 SH61 but 1.279 ZS61), which is why this is
     /// stored per channel per session rather than reduced to one archive-wide correction.</para>
     /// </param>
+    /// <param name="MasterStrategy">
+    /// Which integrator produced the master these numbers were measured on
+    /// (<see cref="SessionRegistrar.RegisteredSession.MasterStrategy"/>), or null on a record
+    /// written before it was tracked. <b>Every consumer of the per-channel numbers above must
+    /// group by this.</b> Drizzle is gated per session, so the archive legitimately holds both
+    /// kinds, and the two are not comparable here: an AHD master reconstructs two of every three
+    /// colour samples from neighbours, and it reconstructs GREEN from closer neighbours than red
+    /// or blue because green has twice the CFA sampling. That is a mechanism which produces
+    /// exactly the green-is-narrower result documented above, so a mixed population would let
+    /// demosaic behaviour masquerade as chromatic optics. Drizzled masters interpolate nothing
+    /// and are the clean measurement.
+    /// <para>It lives here, at SESSION level, and deliberately NOT on
+    /// <c>DatasetTileExporter.TileManifestRow</c>: a session-level fact copied onto every tile row
+    /// is how the manifest's FWHM column drifted into being authoritative and wrong (see that
+    /// record's remarks). One home, joined on <paramref name="SessionId"/>.</para>
+    /// </param>
     public sealed record SessionPsf(
         string SessionId,
         string OpticalTrain,
@@ -92,7 +108,8 @@ public static class DatasetPsfNoiseReport
         float[] SubEllipticity,
         double MasterNoiseRelative,
         RadiusSamples[] Bins,
-        PsfProfileFit.Result?[]? MasterProfiles = null);
+        PsfProfileFit.Result?[]? MasterProfiles = null,
+        string? MasterStrategy = null);
 
     /// <summary>Per-optical-train sub-report. The field-radius PSF profile lives HERE, never
     /// aggregated across trains: a Newtonian's coma grows with field radius while a refractor's does
@@ -124,7 +141,16 @@ public static class DatasetPsfNoiseReport
         Percentiles MasterNoiseRelative,
         ImmutableArray<string> RecordedAs,
         ImmutableArray<ChannelProfile> ChannelProfiles,
-        int ProfileSessions);
+        int ProfileSessions,
+        ImmutableArray<StrategyCount> MasterStrategies);
+
+    /// <summary>How many of a train's sessions were mastered by one integrator
+/// (<see cref="SessionPsf.MasterStrategy"/>; <c>"(unrecorded)"</c> for records written before it was
+    /// tracked). Carried into the report so the per-channel table can never quietly average an AHD
+    /// population together with a drizzled one, which would read as chromatic optics and is demosaic
+    /// behaviour: see <see cref="SessionPsf.MasterStrategy"/> for the mechanism and the measured size
+    /// of it.</summary>
+    public sealed record StrategyCount(string Strategy, int Sessions);
 
     /// <summary>One channel's stacked-profile summary across a train's sessions.</summary>
     /// <param name="Channel">Channel index, in the master's own order (0 = red for the archive's
@@ -283,7 +309,8 @@ public static class DatasetPsfNoiseReport
             SubEllipticity: subEcc,
             MasterNoiseRelative: RelativeBackgroundMad(session.Master),
             Bins: bins,
-            MasterProfiles: masterProfiles);
+            MasterProfiles: masterProfiles,
+            MasterStrategy: session.MasterStrategy.ToString());
     }
 
     /// <summary>
@@ -351,6 +378,8 @@ public static class DatasetPsfNoiseReport
             acc.RecordedAs.Add(record.OpticalTrain);
 
             acc.Sessions++;
+            var strategy = string.IsNullOrWhiteSpace(record.MasterStrategy) ? "(unrecorded)" : record.MasterStrategy;
+            acc.MasterStrategies[strategy] = acc.MasterStrategies.TryGetValue(strategy, out var seen) ? seen + 1 : 1;
             for (var c = 0; c < (record.MasterProfiles?.Length ?? 0); c++)
             {
                 if (record.MasterProfiles![c] is not { } profile)
@@ -431,7 +460,8 @@ public static class DatasetPsfNoiseReport
                     // worst channel's count would understate coverage.
                     ProfileSessions: acc.ChannelFwhm.Count == 0 ? 0 : acc.ChannelFwhm.Max(l => l.Count),
                     FieldRadiusProfile: profile.MoveToImmutable(),
-                    MasterNoiseRelative: PercentilesOf(acc.Noise)));
+                    MasterNoiseRelative: PercentilesOf(acc.Noise),
+                    MasterStrategies: [.. acc.MasterStrategies.Select(kv => new StrategyCount(kv.Key, kv.Value))]));
 
                 allFwhm.AddRange(acc.Fwhm);
                 allHfd.AddRange(acc.Hfd);
@@ -476,6 +506,9 @@ public static class DatasetPsfNoiseReport
             public readonly List<List<float>> ChannelBeta = new();
             public readonly List<float>[] BinFwhm;
             public readonly List<float>[] BinEcc;
+            /// <summary>Sessions per master integrator. Sorted so the rendered line is deterministic,
+            /// like every other aggregate here.</summary>
+            public readonly SortedDictionary<string, int> MasterStrategies = new(StringComparer.Ordinal);
 
             public TrainAcc(string label, int radiusBins)
             {
@@ -548,6 +581,20 @@ public static class DatasetPsfNoiseReport
                 // they differ far more than a reader would assume: see SessionPsf.MasterProfiles.
                 sb.AppendLine(string.Create(ci,
                     $"- Master PSF profile ({train.ProfileSessions}/{train.Sessions} sessions), PER CHANNEL:"));
+                // Named, and called out when it is mixed. The per-channel ratios below are only an
+                // optical statement within ONE integrator: an AHD master reconstructs green from
+                // closer neighbours than red, which manufactures "green is narrower" (measured on one
+                // session both ways: G/R 0.767 AHD vs 0.947 drizzled). Averaging the two populations
+                // produces a number that describes neither, and nothing in the table would show it.
+                if (train.MasterStrategies.Length > 0)
+                {
+                    var mix = string.Join(", ", train.MasterStrategies.Select(s => $"{s.Strategy} {s.Sessions}"));
+                    sb.AppendLine(train.MasterStrategies.Length == 1
+                        ? $"- Master integrator: {mix}"
+                        : $"- Master integrator MIXED ({mix}) -- the per-channel ratios below average " +
+                          "populations that are not comparable; split by MasterStrategy in stats/" +
+                          $"{DatasetPsfStore.FileName} before using them");
+                }
                 sb.AppendLine();
                 sb.AppendLine("| Channel | Sessions | FWHM p50 (px) | vs ch0 | Moffat beta p5 | p50 | p95 |");
                 sb.AppendLine("|---------|----------|---------------|--------|----------------|-----|-----|");
