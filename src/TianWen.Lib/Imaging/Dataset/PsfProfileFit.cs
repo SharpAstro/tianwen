@@ -29,6 +29,18 @@ namespace TianWen.Lib.Imaging.Dataset
         /// it would let the noise floor drive a log-space fit.</summary>
         private const double NoiseFloor = 0.002;
 
+        /// <summary>
+        /// Largest log-space residual a reported Moffat may have. Above it <see cref="Measure"/>
+        /// returns <see langword="null"/> rather than a shape nobody should use.
+        ///
+        /// <para>Set from the measured separation, not by taste: repeat measurements on real masters
+        /// give 0.07 to 0.22 when the fit describes the profile and 0.77 to 0.98 when it does not, so
+        /// anything in between is already an order of magnitude from healthy. The failures are also
+        /// self-identifying in a second way, which is why one threshold is enough: they come with beta
+        /// collapsed toward the bottom of the search grid.</para>
+        /// </summary>
+        private const double MaxAcceptableLogRms = 0.5;
+
         /// <summary>Nothing else detected within this radius, so the wings being fitted belong to
         /// the star rather than to a neighbour.</summary>
         private const double IsolationRadius = 16.0;
@@ -127,13 +139,47 @@ namespace TianWen.Lib.Imaging.Dataset
                 samples[b] = new List<float>();
             }
 
-            var stacked = 0;
-            for (var i = 0; i < starArray.Length && stacked < maxStars; i++)
+            // Qualifying stars are collected FIRST and then sampled deterministically, rather than
+            // taking the first maxStars the input happens to yield.
+            //
+            // This was a real defect, not tidiness. Repeating the measurement on bit-identical pixels
+            // (max abs diff exactly 0 between two independent drizzle runs) gave FWHM stable to
+            // +/-0.02 px but beta swinging 5.20 / 5.25 / 2.45 with the residual jumping 0.07 / 0.10 /
+            // 0.97, about one run in three, because star DETECTION returns the same stars in a
+            // different order and this loop then stacked a different 400 of them. FWHM survives that
+            // (it comes from the high-signal half-maximum crossing) but the fit does not: the outer
+            // bins sit near NoiseFloor, so a slightly different subset flips a marginal bin into or
+            // out of fitBins below, and that bin's log-residual dominates the sum. Ordering by peak
+            // and striding also removes a second hazard the old form had: with more candidates than
+            // maxStars it took a PREFIX of the detection order, which is spatially correlated, so the
+            // stack could be weighted toward one part of a field whose PSF varies with field radius.
+            var candidates = new List<int>();
+            for (var i = 0; i < starArray.Length; i++)
             {
-                if (peaks[i] < lowPeak || peaks[i] > highPeak)
+                if (peaks[i] >= lowPeak && peaks[i] <= highPeak)
                 {
-                    continue;
+                    candidates.Add(i);
                 }
+            }
+            candidates.Sort((a, b) =>
+            {
+                var cmp = peaks[b].CompareTo(peaks[a]);
+                if (cmp != 0) return cmp;
+                cmp = starArray[a].YCentroid.CompareTo(starArray[b].YCentroid);
+                return cmp != 0 ? cmp : starArray[a].XCentroid.CompareTo(starArray[b].XCentroid);
+            });
+            // Brightest first, and take the top maxStars rather than spreading evenly across the band.
+            // Measured, because the even spread was tried first and was worse: striding the whole band
+            // made the red channel of an emission-nebula master unfittable on BOTH an AHD and a
+            // drizzled master (residual over 0.5, so rejected), where taking the bright end fits at
+            // 0.07 to 0.2. The band is only the 55th to 75th percentile of peaks, but even inside it
+            // SNR matters: whatever background survives the annulus subtraction is a larger fraction
+            // of a fainter star's peak, which is the same mechanism that makes faint stars measure
+            // 25-30% wider, and in the wings that residue is what a log-space fit sees.
+            var stacked = 0;
+            for (var k = 0; k < candidates.Count && stacked < maxStars; k++)
+            {
+                var i = candidates[k];
                 var sx = starArray[i].XCentroid;
                 var sy = starArray[i].YCentroid;
                 if (sx < IsolationRadius || sy < IsolationRadius
@@ -193,6 +239,24 @@ namespace TianWen.Lib.Imaging.Dataset
             }
 
             var (beta, moffatRms) = FitMoffatBeta(profile, radii, fitBins, fwhm);
+            if (moffatRms > MaxAcceptableLogRms)
+            {
+                // Refuse rather than report. The beta search is an exhaustive grid from 1 to 25, so a
+                // large residual is never a search that got stuck: it means the STACKED PROFILE could
+                // not be described by any Moffat, and the beta minimising it is then a fitting
+                // artifact rather than a shape. Measured on real masters, a converged fit lands at
+                // 0.07 to 0.22 while these land at 0.77 to 0.98, and the bad ones come with beta
+                // collapsed near the bottom of the grid, so the number looks like a plausible
+                // heavy-winged PSF while being meaningless.
+                //
+                // A silently reported one is worse than none, and had already done damage: the
+                // archive-wide beta survey was one measurement per master, so an unknown share of it
+                // is failure draws, which is what "the plan's assumed beta 2.5-4.5 is wrong for the
+                // sessions that dominate" was partly built on. Callers already handle null (the
+                // report prints "not measured for this train"), and this keeps the OTHER channels of
+                // the same session, which are fitted independently.
+                return null;
+            }
             var gaussRms = GaussianLogRms(profile, radii, fitBins, fwhm);
             return new Result(fwhm, beta, moffatRms, gaussRms, stacked);
         }
