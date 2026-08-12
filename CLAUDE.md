@@ -1489,16 +1489,32 @@ across surface kinds, so a change to the card lands on both surfaces or neither.
   not exist on a cell one. **Auto keeps a visible segment**: it is the default state, so lighting nothing
   would leave the board's commonest configuration unlabelled, and the camera-convention bracketed `A` is
   what makes it sayable at icon size. The theme cycler beside it advances System -> Light -> Dark -> Night
-  (`CycleUiThemeSignal` -> `GuiTheme.CycleTheme`) and is deliberately a WORD, not a pictogram: the fourth
-  mark would have to separate Night from Dark at 13 px, and a crescent is drawn by over-painting the
-  button's own ground, which the shared painter cannot do (it is handed ink and no background). Cycling
-  into Night records where it came from, so a later F12 restores that rather than a stale toggle memory.
+  (`CycleUiThemeSignal` -> `GuiTheme.CycleTheme`) and shows a MARK PLUS THE WORD, selected by
+  `ThemeControlStyle` (a code-level choice, not a user setting). Icon-only is a real option and the wrong
+  default: three marks cover four states because Night IS a dark scheme and takes the same crescent as Dark,
+  and inside Night the whole UI is red, so the colour that would separate them says nothing -- on the one
+  control whose job is telling an observer at the mount which scheme they are in. Cycling into Night records
+  where it came from, so a later F12 restores that rather than a stale toggle memory.
 - **`.RowH(h)` sets `Width = Star` and silently eats a `.WFixed(w)` before it.** It means "a full-width row
   of fixed height", which is right for a card and wrong for a button. The view segments were built that way
   from the start, so `ViewButtonWidth` was inert for their whole life and three buttons sprawled across the
   bar; use `.WFixed(w).HFixed(h)` for anything that is genuinely fixed on both axes. Neither a build nor a
   screenshot review catches this -- only an arranged rect does, which is what
   `HomeTabLayoutTests.TheSegmentsKeepTheirFixedWidthInsteadOfSharingTheHeader` asserts.
+- **A `Stack` places children at the cross-axis START, so centring a row's controls needs
+  `.CrossCenter()`** (`Layout.CrossAlign`, DIR.Lib 7.21). Without it a `HFixed` control in a taller bar hugs
+  the top and its centre sits half the slack high -- which the header did, visibly, and which reads as a
+  styling bug rather than a layout one. Do **not** re-solve it by padding the container or wrapping each
+  child in a spacer sandwich: both worked, and both re-derive at the call site a position the engine already
+  knows, the padding version also insetting the row's label horizontally as a side effect. The Home header
+  is the reference consumer, pinned by `EveryHeaderControlSharesOneTopAndBottom_CentredInTheBar`.
+- **An icon draws at the size it DECLARES and every kind inks that full square** (DIR.Lib 7.20 + 7.21).
+  Before 7.20 `Content.Icon.Size` was a measure-time hint only, so a 13-unit mark in a 20-unit cell painted
+  at 20 and stood a third taller than the label beside it; before 7.21 the kinds inked between 63% and 100%
+  of their declared size, so a row of different marks was ragged whatever the alignment. Both were measured
+  from rendered ink rather than eyeballed, which is the only way to see either. Consequence for a consumer:
+  **size a mark to the text it sits beside** (about 13 units against a 13 px label's ~10 units of cap
+  height), and size it independently where it stands alone in a button.
 - **`Build` takes the viewport, not a resolved column count.** Columns, card detail and cards-vs-table are
   all decided inside it; both hosts previously ran the same `ColumnsFor` -> `ColumnWidth` -> `DetailFor`
   arithmetic, and every new input had to be threaded through both again.

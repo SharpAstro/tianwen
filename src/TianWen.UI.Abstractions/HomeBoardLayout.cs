@@ -120,6 +120,33 @@ namespace TianWen.UI.Abstractions
     }
 
     /// <summary>
+    /// How the theme control presents itself. A code-level choice, not a user setting: a host knows how much
+    /// header it has, and a reader should never have to configure their way to a legible control.
+    /// <para>
+    /// <b><see cref="IconOnly"/> is a real option and is the wrong default</b>, which is worth stating
+    /// because it is the obvious one. Four states share three marks: <see cref="UiThemeState.Night"/> is a
+    /// dark scheme, so it takes the same crescent as <see cref="UiThemeState.Dark"/>, and inside Night the
+    /// entire UI is red, so the colour that would otherwise separate them says nothing. A control whose only
+    /// job is telling an observer at the mount which scheme they are in cannot be ambiguous about exactly
+    /// that pair. Keep it for a header too tight for anything else, where two dark states reading alike
+    /// beats the control being dropped.
+    /// </para>
+    /// </summary>
+    public enum ThemeControlStyle
+    {
+        /// <summary>The mark plus the state's name. The default: the mark carries the family at a glance and
+        /// the word settles Dark from Night.</summary>
+        IconAndLabel,
+
+        /// <summary>The mark alone, at one segment's width. See the type remarks before choosing it.</summary>
+        IconOnly,
+
+        /// <summary>The word alone. Unambiguous, but a text pill beside three pictograms reads as a
+        /// different species of control.</summary>
+        LabelOnly
+    }
+
+    /// <summary>
     /// Builds the whole home screen as ONE <see cref="Layout.Node"/> tree, the way
     /// <see cref="EquipmentPanelLayout"/> builds the equipment panel: a static function from data to a tree,
     /// so every rect is arranged by the engine and assertable in a unit test.
@@ -173,6 +200,24 @@ namespace TianWen.UI.Abstractions
         /// <summary>Height of the full-bleed header bar.</summary>
         public const float HeaderHeight = 28f;
 
+        /// <summary>
+        /// Slack left above and below the header bar's controls, which is what separates them from the app's
+        /// own top bar directly above.
+        /// <para>
+        /// Both bars paint <c>Palette.HeaderBg</c>, so controls that stop short of the bar's edge leave a
+        /// band of that same colour above them: space without a seam. An earlier attempt put a strip of
+        /// <c>ContentBg</c> between the two bars instead, which reads as a dark rule drawn across the window.
+        /// </para>
+        /// <para>
+        /// The controls are CENTRED by <c>Layout.CrossAlign.Center</c> (DIR.Lib 7.21), not by this number. A
+        /// Stack used to place every child at the cross-axis start, so a Fixed-height button in a taller bar
+        /// hugged the top and sat half the slack high; the workaround here was to pad the bar and make every
+        /// child Star-height, which also inset the label horizontally as a side effect. The engine knows both
+        /// extents, so it is the right place for the arithmetic.
+        /// </para>
+        /// </summary>
+        public const float HeaderControlSlack = 4f;
+
         /// <summary>Inset of the card area from the content edges.</summary>
         public const float BodyPadding = 12f;
 
@@ -206,6 +251,8 @@ namespace TianWen.UI.Abstractions
         /// off <see cref="GuiTheme"/> for the same reason <paramref name="style"/> is: this builder stays a
         /// pure function of its arguments, so a test can arrange any state without touching global state.</param>
         /// <param name="onCycleTheme">Advances the theme, or null to draw no theme control.</param>
+        /// <param name="themeControl">How that control presents itself; see <see cref="ThemeControlStyle"/>
+        /// before reaching for <see cref="ThemeControlStyle.IconOnly"/>.</param>
         public static Layout.Node Build(
             ImmutableArray<RigCard> cards,
             HomeBoardStyle style,
@@ -216,7 +263,8 @@ namespace TianWen.UI.Abstractions
             Func<RigCard, Action<InputModifier>?>? onSelect = null,
             Func<HomeBoardView, Action<InputModifier>?>? onSelectView = null,
             UiThemeState theme = UiThemeState.Dark,
-            Action<InputModifier>? onCycleTheme = null)
+            Action<InputModifier>? onCycleTheme = null,
+            ThemeControlStyle themeControl = ThemeControlStyle.IconAndLabel)
         {
             var cardArea = width - BodyPadding * 2f;
             var columns = ColumnsFor(cardArea, cards.Length);
@@ -246,7 +294,7 @@ namespace TianWen.UI.Abstractions
             }
 
             return Layout.Builder.VStack(
-                    Header(cards, style, view, fellBack, onSelectView, theme, onCycleTheme),
+                    Header(cards, style, view, fellBack, onSelectView, theme, onCycleTheme, themeControl),
                     body)
                 .Bg(style.ContentBg);
         }
@@ -299,7 +347,8 @@ namespace TianWen.UI.Abstractions
         private static Layout.Node Header(
             ImmutableArray<RigCard> cards, HomeBoardStyle style, HomeBoardView view, bool fellBackToTable,
             Func<HomeBoardView, Action<InputModifier>?>? onSelectView,
-            UiThemeState theme, Action<InputModifier>? onCycleTheme)
+            UiThemeState theme, Action<InputModifier>? onCycleTheme,
+            ThemeControlStyle themeControl)
         {
             var waiting = 0;
             foreach (var card in cards)
@@ -337,7 +386,7 @@ namespace TianWen.UI.Abstractions
                 // Set off from the view segments, which are one control: adjacent buttons at the same gap
                 // would read as a four-cell selector whose fourth cell does something unrelated.
                 children.Add(Layout.Builder.Spacer().WFixed(8f).HStar());
-                children.Add(ThemeButton(theme, style, onCycleTheme));
+                children.Add(ThemeButton(theme, style, themeControl, onCycleTheme));
             }
 
             if (onSelectView is not null || onCycleTheme is not null)
@@ -347,53 +396,107 @@ namespace TianWen.UI.Abstractions
 
             return Layout.Builder.HStack([.. children])
                 .RowH(HeaderHeight)
+                .CrossCenter()
                 .WithGap(4f)
                 .Bg(style.HeaderBg);
         }
 
-        /// <summary>Width of the theme cycler. Fixed, and sized for its longest label ("System").</summary>
-        private const float ThemeButtonWidth = 56f;
+        /// <summary>Width of the label-only control, sized for its longest label ("System").</summary>
+        private const float ThemeLabelWidth = 56f;
+
+        /// <summary>Width of the icon-plus-label control: a square icon cell, the gap, then the word.</summary>
+        private const float ThemeIconLabelWidth = 76f;
+
+        /// <summary>
+        /// Which mark stands for a state. Three marks cover four states because
+        /// <see cref="UiThemeState.Night"/> IS a dark scheme; the label is what separates the two, which is
+        /// why <see cref="ThemeControlStyle.IconOnly"/> carries the caveat it does.
+        /// </summary>
+        private static Layout.IconKind IconFor(UiThemeState theme) => theme switch
+        {
+            UiThemeState.Light => Layout.IconKind.ThemeLight,
+            UiThemeState.System => Layout.IconKind.ThemeSystem,
+            _ => Layout.IconKind.ThemeDark,
+        };
 
         /// <summary>
         /// The four-state theme control: one button that SHOWS the current state and advances on click.
         /// <para>
-        /// <b>A word rather than a pictogram, unlike the view segments beside it.</b> Two reasons, and the
-        /// second is the load-bearing one. A sun / crescent / half-disc set needs a fourth mark for
-        /// <see cref="UiThemeState.Night"/> that reads as distinct from Dark at 13 px, and the obvious one
-        /// (a red crescent) is a colour difference on a control the user is looking at precisely because
-        /// they are unsure which scheme is on. And a crescent is drawn by over-painting an offset disc in
-        /// the button's own background, which the shared icon painter cannot do: it is handed an ink
-        /// colour and no ground. So the states that would need icons are exactly the states an icon
-        /// cannot say here, while "Night" is unambiguous on both surfaces and needs no font that a
-        /// terminal might lack.
+        /// It shows the state it is IN rather than the one a click reaches, because with four states no
+        /// single mark can say "what happens next", and the reader's actual question is which scheme they
+        /// are looking at.
         /// </para>
         /// </summary>
         private static Layout.Node ThemeButton(
-            UiThemeState theme, HomeBoardStyle style, Action<InputModifier>? onCycleTheme) =>
-            Layout.Builder
-                .Text(theme.Label(), BaseFontSize * 0.85f, style.BodyText, TextAlign.Center, TextAlign.Center)
+            UiThemeState theme, HomeBoardStyle style, ThemeControlStyle presentation,
+            Action<InputModifier>? onCycleTheme)
+        {
+            var font = BaseFontSize * 0.85f;
+
+            Layout.Node Label(TextAlign hAlign) =>
+                Layout.Builder.Text(theme.Label(), font, style.BodyText, hAlign, TextAlign.Center);
+
+            var (content, width) = presentation switch
+            {
+                ThemeControlStyle.LabelOnly => (Label(TextAlign.Center), ThemeLabelWidth),
+                ThemeControlStyle.IconOnly => (
+                    Layout.Builder.Icon(IconFor(theme), ViewIconSize, style.BodyText), ViewButtonWidth),
+                // The icon takes a SQUARE cell and the label the remainder. Splitting the pill by eye
+                // instead squeezes the mark: these are drawn to a square, so a 13-unit icon in an 18-unit
+                // cell is drawn at 13 and the sun's rays lose their gap first.
+                _ => (Layout.Builder.HStack(
+                        Layout.Builder.Icon(IconFor(theme), ThemeIconSize, style.BodyText)
+                            .WFixed(ControlHeight).HStar(),
+                        Label(TextAlign.Near).WStar().HStar())
+                    .WithGap(2f), ThemeIconLabelWidth),
+            };
+
+            return content
                 // HFixed rather than RowH, for the reason spelt out in ViewButton.
-                .WFixed(ThemeButtonWidth)
-                .HFixed(HeaderHeight - 8f)
+                .WFixed(width)
+                .HFixed(ControlHeight)
                 .Radius(4f)
                 .Bg(style.ViewedCardBg)
                 // Named by the state it currently SHOWS, not the one a click reaches: that is what an
                 // inspector snapshot and a test both want to assert, and it matches the label.
                 .Clickable(new HitResult.ButtonHit($"HomeTheme:{theme}"), onCycleTheme);
+        }
 
         /// <summary>Selector order, and the single list both the buttons and the tests read.</summary>
         private static readonly ImmutableArray<HomeBoardView> ViewOptions =
             [HomeBoardView.Auto, HomeBoardView.Cards, HomeBoardView.Table];
 
         /// <summary>
-        /// Width of one selector segment. A square-ish cell now that the segments carry a pictogram rather
-        /// than a word, which is most of what the icons bought: three words cost 162 units of a header that
-        /// also has to hold the rig count, and the count is the thing the board exists to state.
+        /// Height of every control in the header bar: the bar less its padding on both edges. One constant,
+        /// because the requirement is that they share a top and a bottom, and three call sites computing the
+        /// same difference is how one of them ends up a unit off.
         /// </summary>
-        private const float ViewButtonWidth = 26f;
+        private const float ControlHeight = HeaderHeight - HeaderControlSlack * 2f;
 
-        /// <summary>Icon side within a segment. Leaves a couple of units of breathing room either side.</summary>
-        private const float ViewIconSize = 13f;
+        /// <summary>
+        /// Width of one selector segment. SQUARE, hence the same constant as the height: a pictogram button
+        /// wider than it is tall reads as a text button someone forgot to label, and the three sit side by
+        /// side where any inconsistency is obvious. Square is also most of what the icons bought: three
+        /// words cost 162 units of a header that also has to hold the rig count, which is the thing the
+        /// board exists to state.
+        /// </summary>
+        private const float ViewButtonWidth = ControlHeight;
+
+        /// <summary>
+        /// Mark size inside a shape segment, inset within the square button rather than filling it, so the
+        /// selected segment's fill reads as a button carrying a mark. DIR.Lib 7.20 draws an icon at the size
+        /// it DECLARES rather than stretching it to its cell, so this is the real drawn size and not merely
+        /// an intrinsic hint.
+        /// </summary>
+        private const float ViewIconSize = 14f;
+
+        /// <summary>
+        /// Mark size inside the theme pill, which is SMALLER than a segment's because it sits beside a word.
+        /// Measured rather than guessed: at 13 the crescent inks about 8.75 design units against the label's
+        /// 9.75 of cap height, so the mark reads as part of the same line. At the segment's 20 it stood 38%
+        /// taller than the word and looked vertically misaligned even though both were centred on the row.
+        /// </summary>
+        private const float ThemeIconSize = 13f;
 
         /// <summary>
         /// What each shape LOOKS like, which is the whole reason <see cref="Layout.Content.Icon"/> names a
@@ -431,7 +534,7 @@ namespace TianWen.UI.Abstractions
                 // header, which is only obvious once you look at an arranged rect. Same trap the card's
                 // width hit (see HomeTabLayoutTests' class remarks).
                 .WFixed(ViewButtonWidth)
-                .HFixed(HeaderHeight - 8f)
+                .HFixed(ControlHeight)
                 .Radius(4f)
                 .Clickable(new HitResult.ButtonHit($"HomeView:{option}"), onSelectView(option));
 

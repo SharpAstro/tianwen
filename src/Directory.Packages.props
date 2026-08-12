@@ -217,8 +217,25 @@
          The whole family moved with it (Console.Lib 4.21, SdlVulkan.Renderer 7.13 and WebGl.Renderer
          1.19 all pin DIR.Lib 7.18.*), so for the first time in several minors no member lags and the
          graph resolves ONE DIR.Lib by intent rather than by highest version. That retires the standing
-         smell noted above, until some member is next left behind. -->
-    <PackageVersion Include="DIR.Lib" Version="7.18.*" />
+         smell noted above, until some member is next left behind.
+         7.19 adds three theme marks to the same set (ThemeSystem, ThemeLight, ThemeDark), which is what
+         the Home board's theme control now draws. They arrive as a family for the reason the enum's own
+         doc gives: an app with a light/dark setting needs all three or none. Note the CONSTRUCTION, since
+         it is what makes them usable here at all. Each is built from scanline spans, so the crescent is
+         the spans an offset disc does not cover rather than that disc over-painted in the button's
+         background. The over-paint trick has to know the ground, and this board paints its control on a
+         Selection fill in four different palettes.
+         7.20 makes an icon draw at the size it DECLARES, centred and clamped by its rect, instead of
+         stretching to fill it. Size had been a measure-time hint only, which is meaningless once a node
+         carries explicit sizing, and every icon here does. 7.21 then normalises every kind to ink that
+         full square: the same declared size used to produce ink spanning 63% (the half-disc) to 100%
+         (the grid) of it, so a row of marks looked ragged however carefully it was centred.
+         7.21 also adds Layout.CrossAlign to a Stack, which this board now uses. A Stack placed every
+         child at the cross-axis START, so a Fixed-height control in a taller bar hugged the top and sat
+         half the slack high. The workaround was padding the bar and making every child Star-height, which
+         also inset the label horizontally as a side effect; .CrossCenter() states the intent and lets the
+         engine, which knows both extents, do the arithmetic. -->
+    <PackageVersion Include="DIR.Lib" Version="7.21.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -347,8 +364,13 @@
          onto the block-element and mathematical-operator ranges a terminal font is relied on to carry
          (the same well every border and tree marker here already draws from). So a view selector authored
          once renders on the GPU board and in TuiHomeTab, which is the whole point of naming an icon by
-         meaning rather than by drawing. -->
-    <PackageVersion Include="Console.Lib" Version="4.21.*" />
+         meaning rather than by drawing.
+         4.22 is the cell half of those three marks, mapping them to the geometric-shapes circles rather
+         than to the sun and moon of Miscellaneous Symbols, which a monospace face need not carry. So the
+         TUI Home header renders the same theme control with no code of its own.
+         4.23 follows DIR.Lib to 7.21, so the TUI arranges through the same engine and the shared Home
+         tree centres its header controls on both surfaces from one authoring pass. -->
+    <PackageVersion Include="Console.Lib" Version="4.23.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -458,8 +480,10 @@
          backend paints Layout.Content.Icon through the same PixelWidgetBase every other leaf goes
          through, and so this repo resolves one DIR.Lib rather than two. Verified on the CI path
          (-p:UseLocalDirLib=false) rather than a plain build, which self-enables the sibling switch and
-         resolves the project's own 7.18.0 instead of the published package. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.13.*" />
+         resolves the project's own 7.18.0 instead of the published package.
+         7.14 follows DIR.Lib to 7.19 with no renderer change, keeping the family on one DIR.Lib.
+         7.15 follows DIR.Lib to 7.21; the alignment and icon work is all in shared code. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.15.*" />
     <!-- The WebGL2 backend for the same DIR.Lib Renderer, consumed ONLY by TianWen.UI.Web (which sits
          outside TianWen.slnx). It lives here, next to its desktop counterpart, because it used to be
          pinned inline in that csproj instead: a sibling-family bump that swept this file could not see
@@ -476,8 +500,10 @@
          1.19 is the current pin and follows DIR.Lib to 7.18, so the web backend inherits
          Layout.Content.Icon from the shared painter with no code of its own. Taken in the same cut as
          SdlVulkan.Renderer 7.13, which is the arrangement this comment has been arguing for since 1.12
-         sat two minors behind: the family lands together or it does not land. -->
-    <PackageVersion Include="WebGl.Renderer" Version="1.19.*" />
+         sat two minors behind: the family lands together or it does not land.
+         1.20 follows DIR.Lib to 7.19 in the same cut as SdlVulkan.Renderer 7.14.
+         1.21 follows DIR.Lib to 7.21 in the same cut. -->
+    <PackageVersion Include="WebGl.Renderer" Version="1.21.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR. Both packages ship from the FC.SDK repo at one release line, so they move
