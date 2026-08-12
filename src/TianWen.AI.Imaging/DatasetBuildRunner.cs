@@ -69,6 +69,9 @@ public static class DatasetBuildRunner
         int PsfMissing,
         int PsfRemeasured);
 
+    /// <summary>Rendered PSF/noise report, written beside the store under <c>&lt;outDir&gt;/stats</c>.</summary>
+    public const string ReportFileName = "psf-noise-report.md";
+
     public static async Task<RunResult> RunAsync(
         DatasetBuildOptions options,
         ILogger? logger = null,
@@ -77,6 +80,14 @@ public static class DatasetBuildRunner
     {
         var outDir = options.OutputDir;
         Directory.CreateDirectory(outDir);
+
+        // 0. Report-only short-circuits BEFORE the archive scan, which is the whole point: the scan
+        //    is seek-bound over ~19k headers and is the only reason a re-render would need the
+        //    archive mounted at all.
+        if (options.ReportOnly)
+        {
+            return await RenderReportOnlyAsync(outDir, logger, progress, cancellationToken);
+        }
 
         // 1. Single scan of every archive root -> sessions + calibration groups from the same frames.
         var frames = new List<(FrameInfo Frame, string Root)>();
@@ -125,7 +136,7 @@ public static class DatasetBuildRunner
         // content was lost, unrecoverably: the field-radius profile is measured on the session
         // master, which lives in scratch that is wiped per session.
         var statsDir = Path.Combine(outDir, "stats");
-        var reportPath = Path.Combine(statsDir, "psf-noise-report.md");
+        var reportPath = Path.Combine(statsDir, ReportFileName);
         var psfStorePath = Path.Combine(statsDir, DatasetPsfStore.FileName);
         var psfBySession = await DatasetPsfStore.ReadAsync(psfStorePath, logger, cancellationToken);
 
@@ -328,6 +339,55 @@ public static class DatasetBuildRunner
         return new RunResult(
             sessions.Length, registered, failed, skippedNoDark, resumed, totalTiles, testSessions.Length,
             parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath, psfStorePath, psfMissing, psfRemeasured);
+    }
+
+    /// <summary>
+    /// Re-renders the report from what is already on disk (<see cref="DatasetBuildOptions.ReportOnly"/>):
+    /// the PSF store supplies the measurements, the tile manifest supplies the session set. Nothing
+    /// is scanned, registered, measured or written except the report itself.
+    /// </summary>
+    private static async Task<RunResult> RenderReportOnlyAsync(
+        string outDir,
+        ILogger? logger,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken)
+    {
+        var manifestPath = Path.Combine(outDir, DatasetTileExporter.ManifestFileName);
+        var splitPath = Path.Combine(outDir, DatasetSplitWriter.TestSessionsFileName);
+        var statsDir = Path.Combine(outDir, "stats");
+        var reportPath = Path.Combine(statsDir, ReportFileName);
+        var psfStorePath = Path.Combine(statsDir, DatasetPsfStore.FileName);
+        Directory.CreateDirectory(statsDir);
+
+        // The manifest IS the session set: a session's rows are appended in one block as the last
+        // step of its export, so being in the manifest means it is genuinely part of this dataset.
+        var exported = await DatasetTileExporter.ReadManifestCheckpointsAsync(manifestPath, cancellationToken);
+        var psfBySession = await DatasetPsfStore.ReadAsync(psfStorePath, logger, cancellationToken);
+        var sessionIds = new HashSet<string>(exported.Keys, StringComparer.Ordinal);
+        var totalTiles = exported.Values.Sum(c => c.TileCount);
+        var covered = psfBySession.Count(kv => sessionIds.Contains(kv.Key));
+        var psfMissing = exported.Count - covered;
+
+        await WriteReportAsync(reportPath, psfBySession, sessionIds, logger, cancellationToken);
+
+        if (psfMissing > 0)
+        {
+            // Same warning a normal run gives, and the same remedy: report-only cannot measure,
+            // because the field-radius profile needs the session master.
+            logger?.LogWarning(
+                "PSF/noise report is missing {Missing} session(s) that have tiles but no stored PSF record, so it describes {Covered} of {Total}. A report-only render cannot fix that; re-run with RegenPsfForExportedSessions (--regen-psf), which re-registers each one.",
+                psfMissing, covered, exported.Count);
+        }
+        progress?.Report(
+            $"[dataset] report-only: re-rendered from {covered}/{exported.Count} session record(s) " +
+            $"({totalTiles} tiles); no archive scan, nothing re-measured -> {reportPath}");
+
+        return new RunResult(
+            Sessions: exported.Count, Registered: 0, Failed: 0, SkippedNoDark: 0,
+            Resumed: exported.Count, TotalTiles: totalTiles, TestSessions: 0,
+            ParityChecked: false, ParityMaxDiff: 0.0,
+            ManifestPath: manifestPath, SplitPath: splitPath, ReportPath: reportPath,
+            PsfStorePath: psfStorePath, PsfMissing: psfMissing, PsfRemeasured: 0);
     }
 
     /// <summary>

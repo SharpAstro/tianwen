@@ -304,8 +304,65 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildTagFilterCommand() },
+            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildTagFilterCommand() },
         };
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset report</c> re-renders the PSF/noise report from what is already on disk.
+    ///
+    /// <para>A sibling command rather than a <c>build --report-only</c> flag, for one concrete
+    /// reason: <c>build</c> requires <c>--archive-root</c>, and a re-render must work with the
+    /// archive unmounted, since it never reads it. Threading an exemption through that required
+    /// option would either weaken the guard for real builds or replace its error message with a
+    /// hand-rolled one. This also drops fifteen build options that would all be meaningless here.</para>
+    /// </summary>
+    private static Command BuildReportCommand(IConsoleHost consoleHost)
+    {
+        var outOpt = new Option<string>("--out", "-o")
+        {
+            Description = "Dataset output root to re-render in place (the one a build wrote).",
+            Required = true,
+        };
+
+        var command = new Command("report",
+            "Re-render stats/psf-noise-report.md from stats/psf-sessions.jsonl. No archive scan, " +
+            "nothing re-measured, no tile touched -- for when the report's INPUTS changed but the " +
+            "measurements did not (a telescope alias, a rendering fix). Sessions come from the tile " +
+            "manifest. To re-MEASURE, that is 'build --regen-psf' (fills gaps) or '--force-psf' " +
+            "(replaces records).")
+        {
+            Options = { outOpt },
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var outDir = parseResult.GetValue(outOpt)!;
+            if (!Directory.Exists(outDir))
+            {
+                consoleHost.WriteError($"Dataset output root does not exist: {outDir}");
+                return 1;
+            }
+
+            var result = await DatasetBuildRunner.RunAsync(
+                // No archive roots, and that is the feature: a re-render reads the output directory
+                // only, so it works with the archive disk unmounted.
+                new DatasetBuildOptions { ArchiveRoots = [], OutputDir = outDir, ReportOnly = true },
+                progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
+                cancellationToken: ct);
+
+            consoleHost.WriteScrollable($"[dataset] report: {result.ReportPath}");
+            if (result.PsfMissing > 0)
+            {
+                consoleHost.WriteScrollable(
+                    $"[dataset] WARNING: {result.PsfMissing} session(s) have tiles but no PSF record, so the " +
+                    $"report does not cover them. A re-render cannot fix that (the profile is measured on the " +
+                    $"session master); use 'dataset build --regen-psf'.");
+            }
+            return 0;
+        });
+
+        return command;
     }
 
     /// <summary>

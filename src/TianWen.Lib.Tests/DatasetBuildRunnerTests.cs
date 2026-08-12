@@ -199,6 +199,61 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task Run_ReportOnly_ReRendersFromTheStore_WithNoArchiveAndNoWork()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+
+            var outDir = Path.Combine(_dir, "out");
+            var built = await DatasetBuildRunner.RunAsync(
+                new DatasetBuildOptions
+                {
+                    ArchiveRoots = [root],
+                    OutputDir = outDir,
+                    MinExposure = TimeSpan.FromSeconds(0.5),
+                    MaxExposure = TimeSpan.FromMinutes(5),
+                    MinSubsPerSession = 4,
+                    TileSize = 64,
+                    CellsPerSession = 20,
+                    SubsPerCell = 3,
+                },
+                cancellationToken: ct);
+            built.Registered.ShouldBe(1);
+            File.Exists(built.ReportPath).ShouldBeTrue();
+            var manifestBefore = File.ReadAllBytes(built.ManifestPath);
+
+            // Delete the archive outright: a re-render must read the OUTPUT directory only, which is
+            // what lets it run with the archive disk unmounted. If it still scanned, this would fail
+            // rather than merely being slow, which is the point of deleting instead of mocking.
+            Directory.Delete(root, recursive: true);
+            File.Delete(built.ReportPath);
+
+            var rendered = await DatasetBuildRunner.RunAsync(
+                new DatasetBuildOptions { ArchiveRoots = [], OutputDir = outDir, ReportOnly = true },
+                cancellationToken: ct);
+
+            File.Exists(rendered.ReportPath).ShouldBeTrue();
+            rendered.ReportPath.ShouldBe(built.ReportPath);
+            // Session set comes from the manifest, and nothing was registered, exported or measured.
+            rendered.Sessions.ShouldBe(1);
+            rendered.Registered.ShouldBe(0);
+            rendered.Failed.ShouldBe(0);
+            rendered.PsfRemeasured.ShouldBe(0);
+            rendered.PsfMissing.ShouldBe(0);
+            rendered.TotalTiles.ShouldBe(built.TotalTiles);
+            // The manifest is a checkpoint a re-render has no business touching.
+            File.ReadAllBytes(built.ManifestPath).ShouldBe(manifestBefore);
+
+            var md = await File.ReadAllTextAsync(rendered.ReportPath, ct);
+            md.ShouldContain("Field-radius PSF profile");
+        }
+
+        [Fact]
         public async Task Run_Resume_SkipsCheckpointedSessions_AndCompletesTheInterruptedOne()
         {
             var ct = TestContext.Current.CancellationToken;
