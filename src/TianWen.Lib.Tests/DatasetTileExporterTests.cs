@@ -45,7 +45,8 @@ namespace TianWen.Lib.Tests
             return frames;
         }
 
-        private async Task<SessionRegistrar.RegisteredSession> RegisterFixtureAsync(CancellationToken ct)
+        private async Task<SessionRegistrar.RegisteredSession> RegisterFixtureAsync(
+            CancellationToken ct, int minSubsForHalfMasters = int.MaxValue)
         {
             var lightsDir = Path.Combine(_dir, "LIGHT");
             var darksDir = Path.Combine(_dir, "DARK");
@@ -56,8 +57,11 @@ namespace TianWen.Lib.Tests
 
             var calibrator = new Calibrator(Dark: await MasterFrameBuilder.BuildDarkMasterAsync(ReadFrames(darksDir, "dark_*.fits"), ct));
             var session = new ImagingSession(lightsDir, "synth/rggb", "SynthBayer", "SynthRgb", "", [.. ReadFrames(lightsDir, "light_*.fits")]);
+            // int.MaxValue by default so the existing cases keep exporting master + subs only; the
+            // half-master pair is opted into per test rather than added to every expected tile count.
             var registered = await SessionRegistrar.RegisterAsync(
-                session, calibrator, Path.Combine(_dir, "scratch"), minSubs: 4, cancellationToken: ct);
+                session, calibrator, Path.Combine(_dir, "scratch"), minSubs: 4,
+                minSubsForHalfMasters: minSubsForHalfMasters, cancellationToken: ct);
             registered.ShouldNotBeNull();
             return registered;
         }
@@ -120,6 +124,75 @@ namespace TianWen.Lib.Tests
             }
 
             output.WriteLine($"cells={result.Cells} master={result.MasterTiles} sub={result.SubTiles}");
+        }
+
+        /// <summary>
+        /// A session that carries a half-master pair exports two more tiles per cell, on the SAME
+        /// cells as the master and the subs, and the manifest has to name which half each one is.
+        /// Both halves carry an empty <c>SourceFile</c> (they are integrations, not one file), so the
+        /// frame kind is the only thing distinguishing them: a consumer pairing halfA with halfB, and
+        /// the parity check resolving a tile back to its source, both key on it.
+        /// </summary>
+        [Fact]
+        public async Task Export_EmitsAHalfMasterTilePairPerCell_NamedByFrameKind()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var registered = await RegisterFixtureAsync(ct, minSubsForHalfMasters: 4);
+            registered.HalfMasterA.ShouldNotBeNull();
+            var outDir = Path.Combine(_dir, "out");
+
+            var result = await DatasetTileExporter.ExportAsync(
+                registered, outDir, tileSize: TileSize, cellsPerSession: 20, subsPerCell: SubsPerCell,
+                logger: new XunitLogger(output), cancellationToken: ct);
+
+            result.HalfMasterTiles.ShouldBe(result.Cells * 2);
+            result.Rows.Length.ShouldBe(result.MasterTiles + result.HalfMasterTiles + result.SubTiles);
+            var expectedSubsPerCell = Math.Min(SubsPerCell, registered.Subs.Length);
+            foreach (var cell in result.Rows.GroupBy(r => (r.CellX, r.CellY)))
+            {
+                cell.Count(r => r.Frame == DatasetTileExporter.FrameMaster).ShouldBe(1);
+                cell.Count(r => r.Frame == DatasetTileExporter.FrameHalfMasterA).ShouldBe(1);
+                cell.Count(r => r.Frame == DatasetTileExporter.FrameHalfMasterB).ShouldBe(1);
+                cell.Count(r => r.Frame == DatasetTileExporter.FrameSub).ShouldBe(expectedSubsPerCell);
+            }
+
+            // Distinct blobs, all present, and the two halves genuinely differ from each other and
+            // from the master: identical bytes would mean the same frame was tiled three times, which
+            // is the one failure this whole pair exists to avoid and which every count above would
+            // still pass.
+            var byFrame = new Dictionary<string, byte[]>();
+            foreach (var frame in new[]
+                {
+                    DatasetTileExporter.FrameMaster, DatasetTileExporter.FrameHalfMasterA,
+                    DatasetTileExporter.FrameHalfMasterB,
+                })
+            {
+                var row = result.Rows.First(r => r.Frame == frame);
+                row.SourceFile.ShouldBe("");
+                var blob = Path.Combine(outDir, row.Tile.Replace('/', Path.DirectorySeparatorChar));
+                File.Exists(blob).ShouldBeTrue($"tile blob missing: {row.Tile}");
+                byFrame[frame] = File.ReadAllBytes(blob);
+            }
+            // Same cell for all three (Rows is canonically sorted, so First() lands on the first cell
+            // for every kind), so a byte difference is a pixel difference and not a different tile.
+            var cellOfMaster = result.Rows.First(r => r.Frame == DatasetTileExporter.FrameMaster);
+            foreach (var frame in byFrame.Keys)
+            {
+                var row = result.Rows.First(r => r.Frame == frame);
+                (row.CellX, row.CellY).ShouldBe((cellOfMaster.CellX, cellOfMaster.CellY));
+            }
+            byFrame[DatasetTileExporter.FrameHalfMasterA]
+                .ShouldNotBe(byFrame[DatasetTileExporter.FrameHalfMasterB]);
+            byFrame[DatasetTileExporter.FrameHalfMasterA]
+                .ShouldNotBe(byFrame[DatasetTileExporter.FrameMaster]);
+
+            // The parity check must handle the new kinds; before this it keyed its source cache off
+            // SourceFile, which is "" for all three, so it compared a half-master's stored tile
+            // against the master's pixels.
+            var parity = await DatasetTileExporter.VerifyParityAsync(
+                registered, outDir, result.Rows, sampleCount: 12, cancellationToken: ct);
+            parity.Checked.ShouldBeGreaterThan(0);
+            parity.MaxAbsDiff.ShouldBe(0.0);
         }
 
         [Fact]
