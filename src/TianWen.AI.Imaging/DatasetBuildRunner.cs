@@ -81,6 +81,11 @@ public static class DatasetBuildRunner
         var outDir = options.OutputDir;
         Directory.CreateDirectory(outDir);
 
+        // Before anything reads or writes it. Report-only is included on purpose: it rewrites the
+        // rendered report from the store, so it is a writer too.
+        using var outputLock = AcquireRunLock(
+            Path.Combine(outDir, RunLockFileName), $"the output directory {outDir}", "--out");
+
         // 0. Report-only short-circuits BEFORE the archive scan, which is the whole point: the scan
         //    is seek-bound over ~19k headers and is the only reason a re-render would need the
         //    archive mounted at all.
@@ -149,6 +154,12 @@ public static class DatasetBuildRunner
         var scratchRoot = Path.Combine(
             string.IsNullOrWhiteSpace(options.ScratchRoot) ? outDir : options.ScratchRoot,
             "_scratch");
+        // A SECOND lock, because the output directory's does not imply this one: --scratch-root
+        // exists so scratch can be steered onto a fast disk, and two bakes with different output
+        // directories pointed at the same SSD share exactly the tree that gets wiped per session.
+        // Sibling path, never inside scratchRoot, so the held handle cannot block TryDelete.
+        using var scratchLock = AcquireRunLock(
+            scratchRoot + ".lock", $"the scratch root {scratchRoot}", "--scratch-root");
         var sessionIds = new HashSet<string>(sessions.Select(s => s.Id), StringComparer.Ordinal);
         var registered = 0;
         var failed = 0;
@@ -312,7 +323,7 @@ public static class DatasetBuildRunner
             }
             finally
             {
-                TryDelete(scratchRoot);
+                TryDelete(scratchRoot, logger);
             }
         }
 
@@ -320,7 +331,7 @@ public static class DatasetBuildRunner
         //    session ever measured into this output dir, not just this run's.
         await WriteReportAsync(reportPath, psfBySession, sessionIds, logger, cancellationToken);
 
-        TryDelete(scratchRoot);
+        TryDelete(scratchRoot, logger);
         if (psfMissing > 0)
         {
             // Actionable rather than merely apologetic: name the flag that fixes it and say what it
@@ -449,7 +460,20 @@ public static class DatasetBuildRunner
     private static int CalCount(IReadOnlyDictionary<FrameType, List<CalibrationResolver.CalGroup>> groups, FrameType type) =>
         groups.TryGetValue(type, out var list) ? list.Count : 0;
 
-    private static void TryDelete(string dir)
+    /// <summary>
+    /// Best-effort scratch hygiene, and it is <b>never allowed to throw</b>. This runs in the
+    /// per-session <c>finally</c> of an unattended multi-hour bake, so an exception escaping here
+    /// takes down every session still to come, after the work is already done.
+    ///
+    /// <para>Catching <see cref="IOException"/> alone was not enough, and the gap is easy to miss:
+    /// <see cref="UnauthorizedAccessException"/> is a <em>sibling</em> of it, not a subclass, and it
+    /// is what Windows reports for a file in the tree that is open or already pending delete; a
+    /// sharing violation surfaces as <see cref="IOException"/>, so the two most likely reasons a
+    /// scratch wipe fails were split across the caught and the uncaught case. Observed: a bake
+    /// finished a session's tiles, PSF record and report, then died on
+    /// <c>Access to the path 'warped_0135.fits' is denied</c>.</para>
+    /// </summary>
+    private static void TryDelete(string dir, ILogger? logger = null)
     {
         try
         {
@@ -458,9 +482,58 @@ public static class DatasetBuildRunner
                 Directory.Delete(dir, recursive: true);
             }
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best-effort scratch hygiene; a locked handle just leaves a temp dir behind.
+            logger?.LogWarning(ex, "Could not remove scratch {Dir}; leaving it behind.", dir);
+        }
+    }
+
+    /// <summary>
+    /// Filename of the exclusive run lock taken on an output directory. Sits inside it; the scratch
+    /// root's own lock deliberately does not (see <see cref="AcquireRunLock"/>).
+    /// </summary>
+    internal const string RunLockFileName = ".build.lock";
+
+    /// <summary>
+    /// Takes an exclusive lock held for the whole run, so a second build over the same directory
+    /// fails immediately with an explanation instead of corrupting the first.
+    ///
+    /// <para><b>Why this is worth a lock file.</b> Two builds sharing state do not merely race, they
+    /// destroy each other's work silently and in a way that reads like a bug in the pipeline: the
+    /// per-session scratch is wiped in a <c>finally</c>, so one run deletes the warped subs the other
+    /// is still tiling (<c>FileNotFoundException: warped_0113.fits</c>, thrown from the tile exporter,
+    /// where nothing about the real cause is visible), and both append to the one manifest and PSF
+    /// store. Diagnosing that from the artifacts afterwards is genuinely hard, because the surviving
+    /// outputs look complete: the run that won wrote a full manifest and a valid PSF record, and the
+    /// run that lost reported a failure pointing at a file it never touched.</para>
+    ///
+    /// <para><see cref="FileOptions.DeleteOnClose"/> so the lock cannot outlive the process even on a
+    /// hard kill (the kernel closes the handle), which matters for a job that is expected to be
+    /// stopped and resumed.</para>
+    /// </summary>
+    /// <param name="lockPath">Where to put the lock file. For a directory whose CONTENTS get deleted
+    /// the lock must live outside it, or the open handle blocks the very wipe it is protecting.</param>
+    /// <param name="subject">What is being locked, for the error message.</param>
+    /// <param name="option">CLI option that points the run elsewhere, for the error message.</param>
+    private static FileStream AcquireRunLock(string lockPath, string subject, string option)
+    {
+        var dir = Path.GetDirectoryName(lockPath);
+        if (!string.IsNullOrEmpty(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+        try
+        {
+            return new FileStream(lockPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None,
+                bufferSize: 1, FileOptions.DeleteOnClose);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidOperationException(
+                $"Another dataset build already holds {subject}. Two builds sharing it wipe each " +
+                $"other's per-session scratch and both append to the same manifest, so the run that " +
+                $"loses fails on a file it never wrote. Wait for the other run to finish, or point " +
+                $"this one elsewhere with {option}.", ex);
         }
     }
 }

@@ -198,6 +198,72 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// Two builds over one output directory must not both proceed. The failure they produce
+        /// otherwise is not a race that merely loses work, it is a wipe that reads like a pipeline
+        /// bug: the per-session scratch is deleted in a <c>finally</c>, so the run that finishes
+        /// first removes the warped subs the other is still tiling, and the loser dies on
+        /// <c>FileNotFoundException: warped_0113.fits</c> while the winner's manifest and PSF record
+        /// look perfectly complete. This cost a full 8-minute validation session and about an hour of
+        /// misdirected diagnosis, so the guard is pinned rather than trusted.
+        ///
+        /// <para>Also asserts the two things that make the lock safe to leave in place: it does NOT
+        /// survive the process (nothing to clean up by hand after a kill, since a stale lock file
+        /// that blocked every later run would be worse than the collision), and the scratch root's
+        /// own lock sits BESIDE the tree rather than inside it, or the held handle would block the
+        /// per-session wipe it exists to protect.</para>
+        /// </summary>
+        [Fact]
+        public async Task Run_RefusesToStartWhileAnotherBuildHoldsTheOutputDirectory()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+
+            var outDir = Path.Combine(_dir, "out");
+            Directory.CreateDirectory(outDir);
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            // Stand in for the other process by holding its lock exactly as it would.
+            var lockPath = Path.Combine(outDir, DatasetBuildRunner.RunLockFileName);
+            using (new FileStream(lockPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None))
+            {
+                var refused = await Should.ThrowAsync<InvalidOperationException>(
+                    () => DatasetBuildRunner.RunAsync(options, cancellationToken: ct));
+                // Refused before any work: the message has to name the way out, and the archive scan
+                // (seek-bound, minutes on a spindle) must not have run.
+                refused.Message.ShouldContain(outDir);
+                refused.Message.ShouldContain("--out");
+                Directory.Exists(Path.Combine(outDir, "tiles")).ShouldBeFalse();
+            }
+
+            // The file is deliberately left behind here: a lock is a live handle, never a tombstone,
+            // so a leftover path (a copied output directory, a share that kept the entry) must not
+            // refuse a run that nothing is actually holding.
+            File.Exists(lockPath).ShouldBeTrue();
+            var built = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            built.Registered.ShouldBe(1);
+            // Neither lock outlives the run, and the scratch tree is gone rather than blocked open.
+            File.Exists(lockPath).ShouldBeFalse();
+            var scratchRoot = Path.Combine(outDir, "_scratch");
+            Directory.Exists(scratchRoot).ShouldBeFalse();
+            File.Exists(scratchRoot + ".lock").ShouldBeFalse();
+        }
+
         [Fact]
         public async Task Run_ReportOnly_ReRendersFromTheStore_WithNoArchiveAndNoWork()
         {
