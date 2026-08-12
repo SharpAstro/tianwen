@@ -86,6 +86,54 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task RoundTrip_KeepsEachChannelsProfileSeparate_IncludingAnUnmeasurableOne()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var path = Path.Combine(_dir, DatasetPsfStore.FileName);
+
+            // Red wide, green narrow, blue unmeasurable: the real archive shape (green's profile is
+            // ~35% narrower than red's, and blue is the channel that runs out of stars first). A
+            // null in the middle of the array has to survive, or a session with one bad channel
+            // would shift the others' indices and silently report green's PSF as blue's.
+            var written = Record("2026-02-10|ASI533|HD 71526", "ZWO ASI533MC Pro / Samyang 135 f/2 ED @ 130mm", 2.9f, 0.004)
+                with
+            {
+                MasterProfiles =
+                [
+                    new PsfProfileFit.Result(2.9097, 7.65, 0.1908, 1.9104, 400),
+                    new PsfProfileFit.Result(1.9136, 7.10, 0.1053, 1.9981, 400),
+                    null,
+                ]
+            };
+
+            await DatasetPsfStore.AppendAsync(path, written, ct);
+            var back = (await DatasetPsfStore.ReadAsync(path, cancellationToken: ct))[written.SessionId];
+
+            back.MasterProfiles.ShouldNotBeNull();
+            back.MasterProfiles.Length.ShouldBe(3);
+            back.MasterProfiles[0].ShouldNotBeNull().Fwhm.ShouldBe(2.9097, 1e-6);
+            back.MasterProfiles[0].ShouldNotBeNull().MoffatBeta.ShouldBe(7.65, 1e-6);
+            back.MasterProfiles[1].ShouldNotBeNull().Fwhm.ShouldBe(1.9136, 1e-6);
+            back.MasterProfiles[1].ShouldNotBeNull().StarsStacked.ShouldBe(400);
+            back.MasterProfiles[2].ShouldBeNull();
+        }
+
+        [Fact]
+        public async Task ReadingARecordFromBeforeProfilesWereMeasured_LeavesThemAbsentRatherThanFailing()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var path = Path.Combine(_dir, DatasetPsfStore.FileName);
+
+            // Every one of the 50 records in the live store was written before the profile existed,
+            // so this is the ordinary read today, not an edge case. It must come back with no
+            // profiles rather than throwing, since --force-psf is what fills them in.
+            await DatasetPsfStore.AppendAsync(path, Record("s1", "train A", 3.0f, 0.009), ct);
+            var back = (await DatasetPsfStore.ReadAsync(path, cancellationToken: ct))["s1"];
+
+            (back.MasterProfiles is null || back.MasterProfiles.Length == 0).ShouldBeTrue();
+        }
+
+        [Fact]
         public async Task ReMeasuring_AppendsAndLastWins_WithoutErasingTheEarlierLine()
         {
             var ct = TestContext.Current.CancellationToken;

@@ -61,13 +61,28 @@ public static class DatasetPsfNoiseReport
     /// re-derived because re-deriving needs the session's frames, which a resumed run has not read.
     /// </param>
     /// <param name="Bins">Per-bin samples, indexed by bin; length is the report's radius-bin count.</param>
-    /// <param name="MasterProfile">
-    /// Measured PSF SHAPE of the session master (<see cref="PsfProfileFit"/>): the stacked-profile
-    /// FWHM and the Moffat exponent describing its wings. Null when the frame could not support a
-    /// measurement, and also on any record written before this was measured at all -- the store is
-    /// append-only and last-wins, so old sessions read back with null here until re-measured with
-    /// <c>--force-psf</c>. It is what the deconvolver's synthetic-PSF sweep should be calibrated
-    /// from: a width alone does not pin a profile, and the wings are what produce ringing.
+    /// <param name="MasterProfiles">
+    /// Measured PSF SHAPE of the session master (<see cref="PsfProfileFit"/>), <b>one entry per
+    /// colour channel</b>: the stacked-profile FWHM and the Moffat exponent describing its wings.
+    /// An entry is null where that channel could not support a measurement, and the whole array is
+    /// empty on any record written before this was measured at all -- the store is append-only and
+    /// last-wins, so old sessions read back empty here until re-measured with <c>--force-psf</c>.
+    /// It is what the deconvolver's synthetic-PSF sweep should be calibrated from: a width alone
+    /// does not pin a profile, and the wings are what produce ringing.
+    ///
+    /// <para><b>Per channel, because one channel is not the frame's PSF.</b> Measured over the 49
+    /// archive masters that support it, green's stacked profile is 35% narrower than red's at the
+    /// median (ratio 0.648, and narrower in 48 of 49), blue's 20% narrower (0.799, in 44 of 49),
+    /// and the Moffat exponent moves with it (p50 red 5.00, green 7.00, blue 4.50). Sampling one
+    /// channel therefore does not describe the master; it describes that channel. Red in particular
+    /// is the WIDEST channel in 48 of 49 masters, so the earlier channel-0-only measurement was
+    /// reporting the worst case as if it were the frame. Verified not to be a registration artifact:
+    /// the median centroid shift between channels is 0.064 px (max 0.339), far too small to widen a
+    /// ~2.9 px profile, and re-measuring with a common set of the same physical stars in every
+    /// channel reproduces the ratios (0.641 -> 0.648), so it is not a star-population effect either.
+    /// The size is train-dependent (green/red 0.637 Samyang, 0.668 SH61, 0.904 ZS61) and blue's
+    /// direction flips between trains (blue/red 0.738 SH61 but 1.279 ZS61), which is why this is
+    /// stored per channel per session rather than reduced to one archive-wide correction.</para>
     /// </param>
     public sealed record SessionPsf(
         string SessionId,
@@ -77,7 +92,7 @@ public static class DatasetPsfNoiseReport
         float[] SubEllipticity,
         double MasterNoiseRelative,
         RadiusSamples[] Bins,
-        PsfProfileFit.Result? MasterProfile = null);
+        PsfProfileFit.Result?[]? MasterProfiles = null);
 
     /// <summary>Per-optical-train sub-report. The field-radius PSF profile lives HERE, never
     /// aggregated across trains: a Newtonian's coma grows with field radius while a refractor's does
@@ -89,11 +104,11 @@ public static class DatasetPsfNoiseReport
     /// means <see cref="TelescopeAliases"/> merged differently-spelled headers, and the report says
     /// so: a merge that changes how many sessions back a profile has to be visible in the artifact,
     /// or the reader cannot tell a genuine 38-session train from an over-eager alias.</param>
-    /// <param name="ProfileFwhm">Stacked-profile FWHM across this train's sessions
-    /// (<see cref="PsfProfileFit"/>). Brightness-controlled, so unlike <paramref name="SubFwhm"/> it
-    /// does not carry the 25-30% swing that comes from which stars happened to be sampled.</param>
-    /// <param name="MoffatBeta">Moffat exponent across this train's sessions: LOWER means HEAVIER
-    /// wings. This is the number the deconvolver's synthetic-PSF sweep should span.</param>
+    /// <param name="ChannelProfiles">Per-channel stacked-profile summary across this train's
+    /// sessions, indexed by channel. Kept per channel rather than pooled because the channels differ
+    /// far too much to average: see <see cref="SessionPsf.MasterProfiles"/> for the measurement, and
+    /// note that pooling them would report a width no channel actually has while hiding that the
+    /// spread between them is train-dependent.</param>
     /// <param name="ProfileSessions">How many sessions carried a measurable profile; less than
     /// <paramref name="Sessions"/> means the rest predate the measurement and need
     /// <c>--force-psf</c>.</param>
@@ -108,9 +123,24 @@ public static class DatasetPsfNoiseReport
         ImmutableArray<RadiusBin> FieldRadiusProfile,
         Percentiles MasterNoiseRelative,
         ImmutableArray<string> RecordedAs,
-        Percentiles ProfileFwhm,
-        Percentiles MoffatBeta,
+        ImmutableArray<ChannelProfile> ChannelProfiles,
         int ProfileSessions);
+
+    /// <summary>One channel's stacked-profile summary across a train's sessions.</summary>
+    /// <param name="Channel">Channel index, in the master's own order (0 = red for the archive's
+    /// RGGB sensors).</param>
+    /// <param name="Fwhm">Stacked-profile FWHM (<see cref="PsfProfileFit"/>). Brightness-controlled,
+    /// so unlike the per-sub FWHM it does not carry the 25-30% swing that comes from which stars
+    /// happened to be sampled.</param>
+    /// <param name="MoffatBeta">Moffat exponent: LOWER means HEAVIER wings. This is the number the
+    /// deconvolver's synthetic-PSF sweep should span, per channel.</param>
+    /// <param name="Sessions">Sessions contributing a measurable profile on this channel. Lower than
+    /// its siblings where a channel is too star-poor to stack, which happens on blue first.</param>
+    public sealed record ChannelProfile(
+        int Channel,
+        Percentiles Fwhm,
+        Percentiles MoffatBeta,
+        int Sessions);
 
     /// <summary>The full report: an archive-wide population summary (the per-sub metrics + noise
     /// floor the denoiser sees across everything) plus a per-optical-train breakdown, each carrying
@@ -210,21 +240,39 @@ public static class DatasetPsfNoiseReport
             bins[b] = new RadiusSamples(binFwhm[b].ToArray(), binEcc[b].ToArray());
         }
 
-        // PSF SHAPE, measured once on the master from the stars already detected above. Separate
-        // from the per-bin FWHM samples because it answers a different question: those describe how
-        // the width varies across the field, this describes what the profile IS, which is what the
-        // deconvolver has to synthesise.
-        var masterProfile = PsfProfileFit.Measure(session.Master, channel: 0, stars);
-        if (masterProfile is { } fit)
+        // PSF SHAPE, measured on the master per COLOUR CHANNEL. Separate from the per-bin FWHM
+        // samples because it answers a different question: those describe how the width varies
+        // across the field, this describes what the profile IS, which is what the deconvolver has to
+        // synthesise. Per channel because the channels are not interchangeable here -- green's
+        // profile is ~35% narrower than red's across the archive (see SessionPsf.MasterProfiles),
+        // so measuring one and calling it the master's PSF is measuring the wrong thing.
+        //
+        // Each channel is detected on its OWN stars rather than reusing channel 0's. The centroids
+        // barely move between channels (median 0.064 px), so that is not the reason; the reason is
+        // that a star's brightness differs per channel, and PsfProfileFit's brightness band has to
+        // rank the stars it will actually stack. Detection dominates the cost here, so this is the
+        // one place the per-channel measurement is not free.
+        var (channelCount, _, _) = session.Master.Shape;
+        var masterProfiles = new PsfProfileFit.Result?[channelCount];
+        for (var c = 0; c < channelCount; c++)
         {
-            logger?.LogInformation(
-                "  [{Session}] PSF sampled {Stars} stars, profile FWHM {Fwhm:F3} px, Moffat beta {Beta:F2} (log-rms {MoffatRms:F3} vs gaussian {GaussRms:F3}, {Stacked} stars stacked) ({Train})",
-                session.Session.Id, stars.Count, fit.Fwhm, fit.MoffatBeta, fit.MoffatLogRms, fit.GaussianLogRms, fit.StarsStacked, label);
-        }
-        else
-        {
-            logger?.LogInformation("  [{Session}] PSF sampled {Stars} stars, profile shape not measurable ({Train})",
-                session.Session.Id, stars.Count, label);
+            var channelStars = c == 0
+                ? stars
+                : await session.Master.FindStarsAsync(
+                    channel: c, snrMin: snrMin, maxStars: maxStars, cancellationToken: cancellationToken);
+            masterProfiles[c] = PsfProfileFit.Measure(session.Master, c, channelStars);
+
+            if (masterProfiles[c] is { } fit)
+            {
+                logger?.LogInformation(
+                    "  [{Session}] ch{Channel} PSF sampled {Stars} stars, profile FWHM {Fwhm:F3} px, Moffat beta {Beta:F2} (log-rms {MoffatRms:F3} vs gaussian {GaussRms:F3}, {Stacked} stars stacked) ({Train})",
+                    session.Session.Id, c, channelStars.Count, fit.Fwhm, fit.MoffatBeta, fit.MoffatLogRms, fit.GaussianLogRms, fit.StarsStacked, label);
+            }
+            else
+            {
+                logger?.LogInformation("  [{Session}] ch{Channel} PSF sampled {Stars} stars, profile shape not measurable ({Train})",
+                    session.Session.Id, c, channelStars.Count, label);
+            }
         }
 
         return new SessionPsf(
@@ -235,7 +283,7 @@ public static class DatasetPsfNoiseReport
             SubEllipticity: subEcc,
             MasterNoiseRelative: RelativeBackgroundMad(session.Master),
             Bins: bins,
-            MasterProfile: masterProfile);
+            MasterProfiles: masterProfiles);
     }
 
     /// <summary>
@@ -303,10 +351,22 @@ public static class DatasetPsfNoiseReport
             acc.RecordedAs.Add(record.OpticalTrain);
 
             acc.Sessions++;
-            if (record.MasterProfile is { } profile)
+            for (var c = 0; c < (record.MasterProfiles?.Length ?? 0); c++)
             {
-                acc.ProfileFwhm.Add((float)profile.Fwhm);
-                acc.MoffatBeta.Add((float)profile.MoffatBeta);
+                if (record.MasterProfiles![c] is not { } profile)
+                {
+                    continue;
+                }
+                // Grown on demand: a record can carry more channels than an earlier one (mono today,
+                // colour tomorrow), and a channel that is measurable on one session but not another
+                // must not shift the others' samples by one slot.
+                while (acc.ChannelFwhm.Count <= c)
+                {
+                    acc.ChannelFwhm.Add(new List<float>());
+                    acc.ChannelBeta.Add(new List<float>());
+                }
+                acc.ChannelFwhm[c].Add((float)profile.Fwhm);
+                acc.ChannelBeta[c].Add((float)profile.MoffatBeta);
             }
             acc.Fwhm.AddRange(record.SubFwhm);
             acc.Hfd.AddRange(record.SubHfd);
@@ -346,6 +406,16 @@ public static class DatasetPsfNoiseReport
                         MedianEllipticity: Median(acc.BinEcc[b]),
                         Stars: acc.BinFwhm[b].Count));
                 }
+                var channels = ImmutableArray.CreateBuilder<ChannelProfile>(acc.ChannelFwhm.Count);
+                for (var c = 0; c < acc.ChannelFwhm.Count; c++)
+                {
+                    channels.Add(new ChannelProfile(
+                        Channel: c,
+                        Fwhm: PercentilesOf(acc.ChannelFwhm[c]),
+                        MoffatBeta: PercentilesOf(acc.ChannelBeta[c]),
+                        Sessions: acc.ChannelFwhm[c].Count));
+                }
+
                 trains.Add(new TrainReport(
                     OpticalTrain: acc.Label,
                     RecordedAs: [.. acc.RecordedAs],
@@ -355,9 +425,11 @@ public static class DatasetPsfNoiseReport
                     SubFwhm: PercentilesOf(acc.Fwhm),
                     SubHfd: PercentilesOf(acc.Hfd),
                     SubEllipticity: PercentilesOf(acc.Ecc),
-                    ProfileFwhm: PercentilesOf(acc.ProfileFwhm),
-                    MoffatBeta: PercentilesOf(acc.MoffatBeta),
-                    ProfileSessions: acc.ProfileFwhm.Count,
+                    ChannelProfiles: channels.MoveToImmutable(),
+                    // The count for the train as a whole is the best-covered channel: a session whose
+                    // blue is too star-poor to stack still HAS a measured profile, and reporting the
+                    // worst channel's count would understate coverage.
+                    ProfileSessions: acc.ChannelFwhm.Count == 0 ? 0 : acc.ChannelFwhm.Max(l => l.Count),
                     FieldRadiusProfile: profile.MoveToImmutable(),
                     MasterNoiseRelative: PercentilesOf(acc.Noise)));
 
@@ -399,8 +471,9 @@ public static class DatasetPsfNoiseReport
             public readonly List<double> Noise = new();
             /// <summary>One entry per session that carried a measurable master profile; shorter than
             /// <see cref="Sessions"/> for a train whose older records predate the measurement.</summary>
-            public readonly List<float> ProfileFwhm = new();
-            public readonly List<float> MoffatBeta = new();
+            /// <summary>Stacked-profile samples per channel; outer index is the channel.</summary>
+            public readonly List<List<float>> ChannelFwhm = new();
+            public readonly List<List<float>> ChannelBeta = new();
             public readonly List<float>[] BinFwhm;
             public readonly List<float>[] BinEcc;
 
@@ -471,10 +544,23 @@ public static class DatasetPsfNoiseReport
             if (train.ProfileSessions > 0)
             {
                 // The PSF SHAPE, which is what the deconvolver's synthetic sweep has to reproduce.
-                // Lower beta = heavier wings; a Gaussian is beta -> infinity.
+                // Lower beta = heavier wings; a Gaussian is beta -> infinity. Per channel because
+                // they differ far more than a reader would assume: see SessionPsf.MasterProfiles.
                 sb.AppendLine(string.Create(ci,
-                    $"- Master PSF profile ({train.ProfileSessions}/{train.Sessions} sessions): FWHM p50 {train.ProfileFwhm.P50:F3} px | " +
-                    $"Moffat beta p5/p50/p95 {train.MoffatBeta.P5:F2} / {train.MoffatBeta.P50:F2} / {train.MoffatBeta.P95:F2}"));
+                    $"- Master PSF profile ({train.ProfileSessions}/{train.Sessions} sessions), PER CHANNEL:"));
+                sb.AppendLine();
+                sb.AppendLine("| Channel | Sessions | FWHM p50 (px) | vs ch0 | Moffat beta p5 | p50 | p95 |");
+                sb.AppendLine("|---------|----------|---------------|--------|----------------|-----|-----|");
+                var reference = train.ChannelProfiles.Length > 0 ? train.ChannelProfiles[0].Fwhm.P50 : 0;
+                foreach (var channel in train.ChannelProfiles)
+                {
+                    var ratio = reference > 0
+                        ? string.Create(ci, $"{channel.Fwhm.P50 / reference:F3}")
+                        : "-";
+                    sb.AppendLine(string.Create(ci,
+                        $"| {channel.Channel} | {channel.Sessions} | {channel.Fwhm.P50:F3} | {ratio} | " +
+                        $"{channel.MoffatBeta.P5:F2} | {channel.MoffatBeta.P50:F2} | {channel.MoffatBeta.P95:F2} |"));
+                }
             }
             else if (train.Sessions > 0)
             {

@@ -106,11 +106,16 @@ on that carve-out:
 - Input = sharp master tile convolved with a synthetic PSF; target = the undegraded tile;
   **electron-domain noise is added AFTER the blur on every pair** (never optional, deconvolution
   is ill-posed and noise amplifies under inversion, so noise-free pairs train a brittle sharpener).
-  PSF family: Moffat (β 2.5–4.5) with FWHM swept over [1, 8] px, elongation/PA, coma term, optional
-  linear guiding-smear kernel, and **position-varying**: P0 measures the archive's FWHM/
-  ellipticity/PA distribution **binned by field radius** (`FindStarsAsync` centroids give star
-  positions; fast-lens corners genuinely differ from center), and per-tile degradation samples
-  aberrations from the measured field-position distribution instead of one stationary kernel.
+  PSF family: Moffat with elongation/PA, coma term, optional linear guiding-smear kernel, and
+  **position-varying**: P0 measures the archive's FWHM/ellipticity/PA distribution **binned by
+  field radius** (`FindStarsAsync` centroids give star positions; fast-lens corners genuinely
+  differ from center), and per-tile degradation samples aberrations from the measured
+  field-position distribution instead of one stationary kernel.
+  **The beta and FWHM ranges are now MEASURED, not assumed** -- see "The measured PSF profile"
+  below, which supersedes the beta 2.5-4.5 / FWHM [1, 8] px this line used to specify. Three
+  results change the sweep: beta runs ~2-12 and sits per train (7.95 Samyang, 2.05-2.70 ZS61);
+  beta and FWHM are correlated (r = 0.66) so they must not be sampled independently; and each
+  COLOUR CHANNEL needs its own PSF, since green is ~35% narrower than red archive-wide.
 - **Space-truth tier (experiment, above the own-masters baseline):** own masters are seeing-limited
   (FWHM ~2–3 px), so they teach only relative sharpening toward their own ceiling. Public HST/JWST
   FITS from MAST (public domain / CC-BY, degrading *public archive data with our own measured PSF
@@ -237,6 +242,57 @@ All 50: beta p5 2.70, p25 5.80, **p50 7.85**, p75 9.65, p95 23.65. Moffat beats 
   averages over field position and position angle, smearing elongation into the radial average; and
   this is measured on registered+integrated MASTERS -- the right target for master enhancement, but
   it includes resampling and seeing-variation blur rather than the per-sub PSF.
+- **The table above is CHANNEL 0 ONLY, which is red, and red is the widest channel in 48 of 49
+  masters.** See below; the sweep has to be per channel.
+
+#### The PSF is per CHANNEL, and the spread is larger than the spread between trains
+
+The table above was measured on channel 0 because the report sampled only channel 0. Re-measuring
+all three channels on all 50 masters (2026-08-12, raw results in
+`stats/psf-channel-survey-2026-08-12.csv`, 49 of 50 measurable -- Helix is too star-poor) shows the
+channel choice moves the answer more than the optical train does:
+
+| | FWHM p50 (px) | ratio to red | Moffat beta p50 |
+|---|---|---|---|
+| channel 0 (red) | 2.900 | 1.000 | 5.00 |
+| channel 1 (green) | 1.875 | **0.648** | 7.00 |
+| channel 2 (blue) | 2.314 | 0.799 | 4.50 |
+
+Green is narrower than red in **48 of 49** masters, blue in 44 of 49. So the single-channel table
+above was reporting the archive's WORST channel as if it were the frame's PSF.
+
+- **Not a registration or population artifact, and both were checked.** The median centroid shift
+  between channels is 0.064 px (max 0.339), far too small to widen a ~2.9 px profile, so it is not
+  lateral chromatic aberration or a misregistration. And re-running with a COMMON set of the same
+  physical stars in every channel (matched within 3 px) reproduces the ratios almost exactly
+  (green/red 0.641 own-stars vs 0.648 common), so it is not driven by each channel detecting a
+  different star population -- which was a real worry, since star counts differ by up to 3x per
+  channel on an emission target where nebulosity raises the background in red only.
+- **The size and even the DIRECTION are train-dependent**, which is why this is stored per channel
+  per session rather than reduced to one archive-wide correction:
+
+  | train | n | green/red | blue/red |
+  |---|---|---|---|
+  | ASI533MC Pro / Samyang 135 f/2 ED @ 130mm | 38 | 0.637 | 0.808 |
+  | SV605CC / SH61 EDPH @ 270mm | 9 | 0.668 | 0.738 |
+  | ASI585MC Pro / WO ZS61 @ 288mm | 2 | 0.904 | **1.279** |
+
+  Blue is the SH61's best channel and the ZS61's worst by a wide margin -- textbook for a short
+  refractor, where blue is the hardest end to correct.
+- **Cause is mixed, and it does not need settling to act on.** Green has 2x the CFA sampling of red
+  and blue, so its demosaiced plane is reconstructed from twice as many real samples and is expected
+  to be sharper for reasons that are not optical. But red and blue have IDENTICAL sampling, and they
+  differ by 20-28% in both directions depending on the train, so there is a genuine chromatic term
+  on top. The training tiles are 3-channel demosaiced data, so whichever mechanism dominates, the
+  per-channel PSF difference is real degradation the model sees.
+- **Consequences for the sweep (P2):** degrade each channel with its OWN PSF. Blurring all three
+  identically generates training data whose channel structure never occurs in this archive, and a
+  net trained on it would learn to sharpen green as hard as red. Sample the per-channel, per-train
+  distribution -- and keep the FWHM/beta correlation above, which holds within a channel too.
+- **Shipped:** `SessionPsf.MasterProfiles` is an array with one entry per channel (null where a
+  channel is unmeasurable, which happens on blue first), and the report renders a per-channel table
+  per train. Nothing had to be migrated: no store record had ever carried a profile, because the
+  measurement shipped after the last bake.
 - Masters are themselves seeing-blurred, so the net learns *relative* sharpening (standard for
   synthetically-bootstrapped deconv nets). Two mitigations: prefer the sharpest sessions as truth
   (median FWHM gate), and optionally use 2× Bayer-drizzle masters as a sharper truth tier.
