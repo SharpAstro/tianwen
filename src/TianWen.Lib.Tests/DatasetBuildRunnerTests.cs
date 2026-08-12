@@ -460,6 +460,100 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// A forced PSF re-measure must read the RETAINED master instead of re-registering the session.
+        /// This is the payoff for retention and the whole reason it exists: re-registering every
+        /// exported session costs a full re-read of the archive (measured at over seven hours on the
+        /// real one) for a measurement that never needed the subs, only the master they produced.
+        ///
+        /// <para>Asserted as a MATCHED PAIR, because a counter on its own proves nothing: force once
+        /// with the master present and once with it deleted, and the two runs must disagree. Without
+        /// the second half a counter that was simply always incremented would pass.</para>
+        ///
+        /// <para>The sub metrics are why the prior RECORD is needed as well as the FITS. They come from
+        /// the frame gate at registration time and exist nowhere on a master, so they are carried
+        /// through from the stored record verbatim, which is also what makes a gap-fill
+        /// (<c>--regen-psf</c>, no record by definition) unable to use this path.</para>
+        /// </summary>
+        [Fact]
+        public async Task Run_ForcedPsfRemeasure_ReadsTheRetainedMaster_InsteadOfReRegistering()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var root = Path.Combine(_dir, "remeasure-archive");
+            var m42 = Path.Combine(root, "M42", "LIGHT");
+            Directory.CreateDirectory(m42);
+            Directory.CreateDirectory(Path.Combine(root, "DARK"));
+            RgbBayerSyntheticFixture.WriteSyntheticLights(m42);
+            RgbBayerSyntheticFixture.WriteSyntheticDarks(Path.Combine(root, "DARK"));
+
+            var outDir = Path.Combine(_dir, "remeasure-out");
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [root],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(0.5),
+                MaxExposure = TimeSpan.FromMinutes(5),
+                MinSubsPerSession = 4,
+                TileSize = 64,
+                CellsPerSession = 20,
+                SubsPerCell = 3,
+            };
+
+            var first = await DatasetBuildRunner.RunAsync(options, cancellationToken: ct);
+            first.Registered.ShouldBe(1);
+            first.PsfRemeasuredFromMaster.ShouldBe(0, "nothing to re-measure on a first run");
+
+            var masters = Directory.GetFiles(Path.Combine(outDir, "session-masters"), "*.fits");
+            masters.Length.ShouldBe(1);
+            var before = await DatasetPsfStore.ReadAsync(first.PsfStorePath, null, ct);
+            before.Count.ShouldBe(1);
+            var priorRecord = before.Values.Single();
+
+            // Force a re-measure with the master on disk: it must take the cheap path.
+            var stampBefore = File.GetLastWriteTimeUtc(masters[0]);
+            var cheap = await DatasetBuildRunner.RunAsync(
+                options with { Resume = true, ForcePsfRemeasure = true }, cancellationToken: ct);
+
+            cheap.PsfRemeasured.ShouldBe(1);
+            cheap.PsfRemeasuredFromMaster.ShouldBe(1, "the retained master was there, so nothing needed re-registering");
+            cheap.Registered.ShouldBe(0, "a re-measure from a retained master registers nothing");
+            // Reading a master must not rewrite it.
+            File.GetLastWriteTimeUtc(masters[0]).ShouldBe(stampBefore);
+
+            // The record is refreshed, and the parts that cannot be re-derived from a master are
+            // carried through rather than lost or invented.
+            var after = await DatasetPsfStore.ReadAsync(cheap.PsfStorePath, null, ct);
+            var refreshed = after.Values.Single();
+            refreshed.SessionId.ShouldBe(priorRecord.SessionId);
+            refreshed.OpticalTrain.ShouldBe(priorRecord.OpticalTrain);
+            refreshed.MasterStrategy.ShouldBe(priorRecord.MasterStrategy, "the strategy is the master's, never re-guessed");
+            refreshed.SubFwhm.ShouldBe(priorRecord.SubFwhm, "sub metrics exist only in the record");
+            refreshed.SubHfd.ShouldBe(priorRecord.SubHfd);
+            refreshed.SubEllipticity.ShouldBe(priorRecord.SubEllipticity);
+            // Master-derived values are genuinely re-measured off the same pixels, so they reproduce.
+            refreshed.MasterNoiseRelative.ShouldBe(priorRecord.MasterNoiseRelative, tolerance: 1e-9);
+            refreshed.Bins.Length.ShouldBe(priorRecord.Bins.Length);
+
+            output.WriteLine(
+                $"cheap re-measure: remeasured={cheap.PsfRemeasured} fromMaster={cheap.PsfRemeasuredFromMaster} registered={cheap.Registered}");
+
+            // The other half of the pair: delete the master and force again. Same options, same
+            // archive, and now it MUST fall back to re-registering, which is what proves the counter
+            // above is discriminating rather than always set.
+            File.Delete(masters[0]);
+            var expensive = await DatasetBuildRunner.RunAsync(
+                options with { Resume = true, ForcePsfRemeasure = true }, cancellationToken: ct);
+
+            expensive.PsfRemeasured.ShouldBe(1);
+            expensive.PsfRemeasuredFromMaster.ShouldBe(0, "no retained master, so it had to re-register");
+            expensive.Registered.ShouldBe(1);
+            // Re-registering re-retains, so the next forced re-measure would be cheap again.
+            File.Exists(masters[0]).ShouldBeTrue();
+
+            output.WriteLine(
+                $"fallback re-measure: remeasured={expensive.PsfRemeasured} fromMaster={expensive.PsfRemeasuredFromMaster} registered={expensive.Registered}");
+        }
+
+        /// <summary>
         /// A resumed run must not narrow the PSF/noise report. It used to: the report was in-memory
         /// derived state rewritten at the end of every run, so resuming an archive where only one
         /// session needed work replaced a whole-archive report with a one-session one, and the rest
@@ -557,10 +651,13 @@ namespace TianWen.Lib.Tests
                 options with { Resume = true, ForcePsfRemeasure = true }, cancellationToken: ct);
             forced.PsfRemeasured.ShouldBe(1);
             forced.Resumed.ShouldBe(0);
-            // A PSF-only pass still counts as Registered, because it genuinely re-registers the
-            // session to rebuild the master the measurement needs; only the TILES are spared.
-            // PsfRemeasured is the field that distinguishes it from a full export.
-            forced.Registered.ShouldBe(1);
+            // A PSF-only pass used to count as Registered, because it re-registered the session purely
+            // to rebuild the master the measurement needs. It no longer has to: the master was retained
+            // at export, so the re-measure reads it and registers NOTHING. That is the point of
+            // retention, and on the real archive it is the difference between minutes and seven hours.
+            // Both counters are asserted, since PsfRemeasured alone cannot say which path ran.
+            forced.Registered.ShouldBe(0);
+            forced.PsfRemeasuredFromMaster.ShouldBe(1);
 
             // Tiles are untouched by a re-measure, and the tile count is still banked.
             Directory.GetFiles(tilesDir, "*.f16", SearchOption.AllDirectories).Length.ShouldBe(tilesAfterFirst);
