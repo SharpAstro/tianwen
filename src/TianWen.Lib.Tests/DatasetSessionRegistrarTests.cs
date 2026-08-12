@@ -61,6 +61,33 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The half-master floor is per master strategy, because the two answer different constraints:
+        /// a drizzled half needs per-Bayer-position R/B coverage (2x the strategy's own frame
+        /// minimum), while a rejection-integrated half needs enough frames for a real rejector, which
+        /// <c>StackingPipeline.BuildRejector</c> puts far lower. Measured over the current 50-session
+        /// dataset the difference is 26 sessions qualifying versus 48, so collapsing the two to one
+        /// number is not a rounding decision.
+        /// </summary>
+        [Fact]
+        public void MinSubsForHalfMasters_IsPerStrategy_AndEachFloorSplitsEvenly()
+        {
+            var drizzled = SessionRegistrar.MinSubsForHalfMasters(drizzled: true);
+            var rejected = SessionRegistrar.MinSubsForHalfMasters(drizzled: false);
+
+            // Drizzle's floor IS twice its own coverage minimum, not a number of its own.
+            drizzled.ShouldBe(2 * DrizzleStrategy.AutoSelectMinFrameCount);
+            // A rejected half only needs a real rejector, so its floor is well below drizzle's, and
+            // above the count at which BuildRejector gives up and returns null (no rejection at all,
+            // the very defect that makes an uncalibrated drizzle unacceptable).
+            rejected.ShouldBeLessThan(drizzled);
+            StackingPipeline.BuildRejector(rejected / 2).ShouldNotBeNull();
+            // Both split evenly, or one half is systematically deeper than the other and the pair is
+            // no longer two samples of the same noise level.
+            (drizzled % 2).ShouldBe(0);
+            (rejected % 2).ShouldBe(0);
+        }
+
+        /// <summary>
         /// The per-session drizzle gate, both halves of it. The stacker's own
         /// <see cref="DrizzleStrategy.Evaluate"/> covers sensor pattern, frame count and RAM; the
         /// extra condition here is a MATCHED DARK, and it is not the stacker's business.
@@ -124,9 +151,12 @@ namespace TianWen.Lib.Tests
             var session = WriteLightSession();
             var calibrator = await BuildDarkCalibratorAsync(ct);
 
+            // No override: an 8-light fixture integrates by rejection, so the floor that applies is
+            // the rejected one (40), and the pair must be absent rather than degenerate.
+            SessionRegistrar.MinSubsForHalfMasters(drizzled: false)
+                .ShouldBeGreaterThan(RgbBayerSyntheticFixture.LightCount);
             var withoutPair = await SessionRegistrar.RegisterAsync(
                 session, calibrator, Path.Combine(_dir, "scratch-nopair"), minSubs: 4,
-                minSubsForHalfMasters: RgbBayerSyntheticFixture.LightCount + 1,
                 logger: new XunitLogger(output), cancellationToken: ct);
             withoutPair.ShouldNotBeNull();
             withoutPair.HalfMasterA.ShouldBeNull();
