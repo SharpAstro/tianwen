@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -57,6 +58,138 @@ namespace TianWen.Lib.Tests
             RgbBayerSyntheticFixture.WriteSyntheticDarks(darksDir);
             var darkMaster = await MasterFrameBuilder.BuildDarkMasterAsync(ReadFrames(darksDir, "dark_*.fits"), ct);
             return new Calibrator(Dark: darkMaster);
+        }
+
+        /// <summary>
+        /// The per-session drizzle gate, both halves of it. The stacker's own
+        /// <see cref="DrizzleStrategy.Evaluate"/> covers sensor pattern, frame count and RAM; the
+        /// extra condition here is a MATCHED DARK, and it is not the stacker's business.
+        ///
+        /// <para>Why the dark is load-bearing: drizzle has no per-cell rejection, while the AHD path's
+        /// sigma-clip washes hot pixels out across the whole session. Dark subtraction removes a hot
+        /// pixel's offset, so a calibrated session is fine and an uncalibrated one would have
+        /// uncorrected hot pixels deposited straight into the master, which is a worse master than the
+        /// interpolated one it replaced. Falling back beats building a bad-pixel mask, because the mask
+        /// would only reconstruct what the dark already carries.</para>
+        /// </summary>
+        [Fact]
+        public async Task TryDrizzle_NeedsAMatchedDark_AndTheStrategysOwnGate()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var calibrator = await BuildDarkCalibratorAsync(ct);
+            var logger = new XunitLogger(output);
+            Directory.CreateDirectory(_dir);
+
+            IntegrationProbe Probe(int frameCount, SensorType sensor) => IntegrationProbe.Snapshot(
+                frameCount: frameCount, frameWidth: 512, frameHeight: 512, channelCount: 3,
+                canvasWidth: 520, canvasHeight: 520, stagingDir: _dir, sensorType: sensor);
+
+            var deep = Probe(DrizzleStrategy.AutoSelectMinFrameCount, SensorType.RGGB);
+            SessionRegistrar.TryDrizzle(deep, calibrator, logger, "deep+dark").ShouldBeTrue();
+
+            // No calibration at all, and calibration that resolved a bias/flat but no dark: both are
+            // the uncalibrated-hot-pixel case, and the second is the one that actually occurs (a
+            // session whose darks are the wrong gain or temperature).
+            SessionRegistrar.TryDrizzle(deep, null, logger, "deep+nocal").ShouldBeFalse();
+            SessionRegistrar.TryDrizzle(deep, new Calibrator(Bias: calibrator.Dark), logger, "deep+nodark")
+                .ShouldBeFalse();
+
+            // The strategy's own gate still applies with a dark present: too few frames to fill the
+            // per-Bayer-position R/B coverage, and a mono sensor has no CFA to drizzle at all.
+            SessionRegistrar.TryDrizzle(Probe(8, SensorType.RGGB), calibrator, logger, "shallow").ShouldBeFalse();
+            SessionRegistrar.TryDrizzle(Probe(DrizzleStrategy.AutoSelectMinFrameCount, SensorType.Monochrome),
+                calibrator, logger, "mono").ShouldBeFalse();
+        }
+
+        /// <summary>
+        /// The half-master pair: two integrations of DISJOINT halves of the same session, which is an
+        /// N2N pair at the noise level a real master has (~1.41x) rather than the 2.96x the deepest
+        /// sub pairing can reach. Gated on sub count, and the gate is the interesting half of the
+        /// behaviour: below it the pair must be absent rather than degenerate, because a "half" of two
+        /// frames is not a usable integration and a model trained on it would be learning a noise
+        /// level that no deployment ever presents.
+        ///
+        /// <para>What this does NOT cover, deliberately: that the split is INTERLEAVED rather than
+        /// first-half/second-half. The fixture's lights are near-identical by construction, so no
+        /// observable output can distinguish the two, and manufacturing a drifting fixture to pin two
+        /// lines of <c>i % 2</c> would test the fixture. The reason interleaving matters (seeing,
+        /// transparency and focus drift monotonically through a real session, so contiguous halves
+        /// disagree about the signal and an N2N pair teaches the model to average that away) is
+        /// recorded at the split itself.</para>
+        /// </summary>
+        [Fact]
+        public async Task Register_SplitsIntoAHalfMasterPair_OnlyWhenEnoughSubsRegistered()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var session = WriteLightSession();
+            var calibrator = await BuildDarkCalibratorAsync(ct);
+
+            var withoutPair = await SessionRegistrar.RegisterAsync(
+                session, calibrator, Path.Combine(_dir, "scratch-nopair"), minSubs: 4,
+                minSubsForHalfMasters: RgbBayerSyntheticFixture.LightCount + 1,
+                logger: new XunitLogger(output), cancellationToken: ct);
+            withoutPair.ShouldNotBeNull();
+            withoutPair.HalfMasterA.ShouldBeNull();
+            withoutPair.HalfMasterB.ShouldBeNull();
+
+            var result = await SessionRegistrar.RegisterAsync(
+                session, calibrator, Path.Combine(_dir, "scratch-pair"), minSubs: 4,
+                minSubsForHalfMasters: 4, logger: new XunitLogger(output), cancellationToken: ct);
+
+            result.ShouldNotBeNull();
+            var halfA = result.HalfMasterA.ShouldNotBeNull();
+            var halfB = result.HalfMasterB.ShouldNotBeNull();
+
+            // Same grid as the master and each other, or a tile cut at one cell would not be the same
+            // sky footprint in all three and the pair would not be a pair.
+            foreach (var half in new[] { halfA, halfB })
+            {
+                half.Width.ShouldBe(result.CanvasWidth);
+                half.Height.ShouldBe(result.CanvasHeight);
+                half.ChannelCount.ShouldBe(result.Master.ChannelCount);
+                float.IsFinite(half.MaxValue).ShouldBeTrue();
+            }
+
+            // Two independent integrations, not one image handed out twice.
+            ReferenceEquals(halfA, halfB).ShouldBeFalse();
+            var noiseA = NeighbourNoise(halfA);
+            var noiseB = NeighbourNoise(halfB);
+            var noiseMaster = NeighbourNoise(result.Master);
+            output.WriteLine($"noise: master={noiseMaster:E3} halfA={noiseA:E3} halfB={noiseB:E3} " +
+                $"(subs={result.RegisteredCount})");
+            // Half the frames, so measurably noisier than the full master. This is the property that
+            // makes the pair worth exporting at all, and it is also what would break if a half were
+            // silently integrating every sub instead of its own subset.
+            noiseA.ShouldBeGreaterThan(noiseMaster);
+            noiseB.ShouldBeGreaterThan(noiseMaster);
+        }
+
+        /// <summary>Mean absolute difference between horizontally adjacent finite samples over a
+        /// central box: a noise proxy that needs no sort and no knowledge of the stretch. Both frames
+        /// carry the same stars, so the comparison between them is unaffected by structure.</summary>
+        private static double NeighbourNoise(Image image)
+        {
+            var span = image.GetChannelSpan(0);
+            var w = image.Width;
+            var (x0, x1) = (image.Width / 4, image.Width * 3 / 4);
+            var (y0, y1) = (image.Height / 4, image.Height * 3 / 4);
+            var sum = 0.0;
+            var n = 0;
+            for (var y = y0; y < y1; y++)
+            {
+                for (var x = x0; x + 1 < x1; x++)
+                {
+                    var a = span[y * w + x];
+                    var b = span[y * w + x + 1];
+                    if (float.IsFinite(a) && float.IsFinite(b))
+                    {
+                        sum += Math.Abs(a - b);
+                        n++;
+                    }
+                }
+            }
+            n.ShouldBeGreaterThan(0);
+            return sum / n;
         }
 
         [Fact]

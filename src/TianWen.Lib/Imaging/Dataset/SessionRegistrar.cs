@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Threading;
@@ -44,6 +45,58 @@ namespace TianWen.Lib.Imaging.Dataset;
 /// </summary>
 public static class SessionRegistrar
 {
+    /// <summary>
+    /// Default for <c>minSubsForHalfMasters</c>: fewest registered subs a session needs before it is
+    /// split into a half-master pair. Each half has to be a usable integration in its own right, and
+    /// the drizzle R/B coverage floor (<see cref="DrizzleStrategy.AutoSelectMinFrameCount"/>) applies
+    /// to each half separately rather than to the session, so the session needs twice it.
+    ///
+    /// <para><b>This floor is derived from a DRIZZLE constraint and is the wrong bound for an AHD
+    /// half</b>, which is why the caller can override it. Measured over the archive: 25 of 61 session
+    /// directories reach 60 subs and only ~10 reach 120, so at this default the half-master pairs
+    /// (the whole point of which is teaching the model the noise level a real master has) would exist
+    /// for about ten sessions. An AHD half needs no per-Bayer-position coverage, and the halves exist
+    /// to carry a noise LEVEL rather than colour fidelity, so a lower floor is defensible on the
+    /// non-drizzled path. Left at the derived value until that is decided deliberately.</para>
+    /// </summary>
+    public const int MinSubsForHalfMasters = 2 * DrizzleStrategy.AutoSelectMinFrameCount;
+
+    /// <summary>
+    /// Whether this session's master should be Bayer-drizzled. Two independent conditions, and
+    /// the second is not part of the stacker's own gate:
+    /// <list type="number">
+    /// <item><see cref="DrizzleStrategy.Evaluate"/> must report <c>CanRun</c>: RGGB sensor,
+    /// enough matched frames for the per-Bayer-position coverage to fill R/B, and the flux +
+    /// weight planes inside the RAM budget. Its <c>Rationale</c> is logged when it refuses, so a
+    /// session that silently fell back can be explained after the fact.</item>
+    /// <item><b>A matched dark master must exist.</b> Drizzle has no per-cell rejection
+    /// (<see cref="IntegrationJob.BadPixelMask"/> exists for exactly this reason), whereas the
+    /// AHD path's sigma-clip washes hot pixels out across the whole session. Dark subtraction
+    /// removes a hot pixel's offset, so a calibrated session is fine; an UNCALIBRATED one relies
+    /// entirely on that rejection, and drizzling it would write uncorrected hot pixels into the
+    /// master. Falling back is strictly better than building a mask, because the mask would only
+    /// be reconstructing information the dark already carries.</item>
+    /// </list>
+    /// </summary>
+    internal static bool TryDrizzle(IntegrationProbe probe, Calibrator? calibrator, ILogger? logger, string sessionId)
+    {
+        if (calibrator?.Dark is null)
+        {
+            logger?.LogInformation(
+                "  [{Session}] not drizzling: no matched dark master, so sigma-clip rejection is " +
+                "the only thing removing hot pixels and drizzle has none", sessionId);
+            return false;
+        }
+
+        var fit = new DrizzleStrategy().Evaluate(probe, new ResourceBudget());
+        if (!fit.CanRun)
+        {
+            logger?.LogInformation("  [{Session}] not drizzling: {Rationale}", sessionId, fit.Rationale);
+            return false;
+        }
+        return true;
+    }
+
     /// <summary>Absolute floor of matched stars for a quad fit. Below this the affine
     /// solve is unstable; the sub is dropped rather than misregistered. Mirrors
     /// <c>StackingPipeline.MinStarsForMatch</c>.</summary>
@@ -100,6 +153,21 @@ public static class SessionRegistrar
     /// <param name="GatedCount">Subs that survived the quality gate (registration candidates).</param>
     /// <param name="RegisteredCount">Subs that registered successfully (== <see cref="Subs"/> length).</param>
     /// <param name="SkippedCount">Gated subs that failed to register (too few stars / no quad fit).</param>
+    /// <param name="MasterStrategy">Which integrator produced <paramref name="Master"/>.
+    /// <b>Callers that persist a master MUST stamp this into the FITS header and the tile
+    /// manifest.</b> Drizzle is gated per session (§ <see cref="TryDrizzle"/>), so a dataset
+    /// legitimately contains both kinds; a mixed population with nothing recording which is
+    /// which is the same silent confound as the channel-0 PSF sampling was, and it would make
+    /// any per-channel PSF statistic meaningless (AHD reconstructs green from closer
+    /// neighbours, so it measures sharper than red for reasons that are not optical).</param>
+    /// <param name="HalfMasterA">Integration of one half of <paramref name="Subs"/>, or
+    /// <c>null</c> when the session has too few subs to split. Together with
+    /// <paramref name="HalfMasterB"/> this is an <b>independent</b> N2N pair at close to the
+    /// noise level a real master has, which is the regime a denoiser is actually deployed in.
+    /// Measured: a single sub is 5.42x the master's background noise and the deepest pair the
+    /// 8-subs-per-cell tiles allow (4v4) is still 2.96x, so a model trained on tiles alone has
+    /// to extrapolate. Two half-masters land at ~1.41x (sqrt 2), which closes it.</param>
+    /// <param name="HalfMasterB">The complementary half. See <paramref name="HalfMasterA"/>.</param>
     public sealed record RegisteredSession(
         ImagingSession Session,
         Image Master,
@@ -110,7 +178,10 @@ public static class SessionRegistrar
         FrameInfo Reference,
         int GatedCount,
         int RegisteredCount,
-        int SkippedCount);
+        int SkippedCount,
+        IntegrationStrategyKind MasterStrategy = IntegrationStrategyKind.Float16Staged,
+        Image? HalfMasterA = null,
+        Image? HalfMasterB = null);
 
     /// <summary>
     /// Measures + gates a session's lights, registers the survivors to a common reference,
@@ -130,6 +201,11 @@ public static class SessionRegistrar
     /// <param name="qualityMaxRejectFraction">Keep-floor for the gate (purity over yield, 0.5
     /// for the dataset vs the stacker's 0.2).</param>
     /// <param name="minSubs">Minimum survivors required to build a session master.</param>
+    /// <param name="minSubsForHalfMasters">Registered subs required before the session is also split
+    /// into a half-master pair; below it <see cref="RegisteredSession.HalfMasterA"/> and
+    /// <see cref="RegisteredSession.HalfMasterB"/> stay null. See
+    /// <see cref="MinSubsForHalfMasters"/> for why the default is a drizzle-derived number and when
+    /// to pass something else.</param>
     /// <param name="debayerAlgorithm">Debayer used for both measurement and warping.</param>
     /// <param name="logger">Optional progress log.</param>
     public static async Task<RegisteredSession?> RegisterAsync(
@@ -139,6 +215,7 @@ public static class SessionRegistrar
         float qualityRejectSigma = 3f,
         float qualityMaxRejectFraction = 0.5f,
         int minSubs = 10,
+        int minSubsForHalfMasters = MinSubsForHalfMasters,
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
@@ -299,11 +376,19 @@ public static class SessionRegistrar
         Directory.CreateDirectory(sessionScratch);
 
         var subs = ImmutableArray.CreateBuilder<RegisteredSub>(matched.Count);
+        // Captured off the first raw load: the drizzle gate keys off it and there is no cheaper
+        // authoritative source here. Invariant within a session by construction (frames with a
+        // different sensor land in a different group).
+        var sensorType = SensorType.Unknown;
         for (var i = 0; i < matched.Count; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var (f, transform) = matched[i];
             var raw = await f.Frame.LoadFullAsync(cancellationToken);
+            if (i == 0)
+            {
+                sensorType = raw.ImageMeta.SensorType;
+            }
             var calibrated = calibrator?.Apply(raw) ?? raw;
             var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
             var shifted = transform * canvasShift;
@@ -326,35 +411,119 @@ public static class SessionRegistrar
         //    auto-detect differently and land the master and its own subs at different medians,
         //    breaking N2N pair comparability + sub-vs-master eval. A quality-gated session already
         //    has consistent sky levels, so per-frame normalisation buys the rejector little here.
-        var integrateScratch = Path.Combine(sessionScratch, "_integrate");
-        var job = new IntegrationJob(
-            WarpedFrames: WarpedProducer,
-            ExpectedFrameCount: subsList.Length,
-            Options: new IntegrationOptions(Rejector: StackingPipeline.BuildRejector(subsList.Length), ApplyNormalization: false),
-            StagingDir: integrateScratch,
-            StatsRect: statsRect,
-            FrameFootprints: footprints,
-            CanvasWidth: canvasW,
-            CanvasHeight: canvasH);
-        var result = await new Float16StagedStrategy().RunAsync(job, cancellationToken);
+        //    The STRATEGY is gated per session rather than fixed (see TryDrizzle): Bayer drizzle
+        //    when it can run, because it deposits every raw CFA sample into its own channel and
+        //    never lets a neighbour invent a colour value, which is exactly what a dataset meant
+        //    to serve as TRUTH needs. AHD + sigma-clip otherwise. Both kinds legitimately coexist,
+        //    hence RegisteredSession.MasterStrategy.
+        var probe = IntegrationProbe.Snapshot(
+            frameCount: subsList.Length,
+            frameWidth: refW,
+            frameHeight: refH,
+            channelCount: 3,
+            canvasWidth: canvasW,
+            canvasHeight: canvasH,
+            stagingDir: sessionScratch,
+            sensorType: sensorType);
+        var useDrizzle = TryDrizzle(probe, calibrator, logger, session.Id);
+
+        var all = Enumerable.Range(0, subsList.Length).ToImmutableArray();
+        var master = await IntegrateSubsetAsync(all, "_integrate");
         logger?.LogInformation(
-            "  [{Session}] master integrated ({Frames} frames, {Rej:P1} mean rejection)",
-            session.Id, result.FrameCount, result.MeanRejectionRate);
+            "  [{Session}] master integrated via {Strategy} ({Frames} frames)",
+            session.Id, useDrizzle ? nameof(IntegrationStrategyKind.BayerDrizzle) : nameof(IntegrationStrategyKind.Float16Staged),
+            subsList.Length);
+
+        // 7b. Half-master pair: two integrations over DISJOINT halves, so they share the scene and
+        //     nothing else. The split is INTERLEAVED, not the first-half/second-half it is natural
+        //     to reach for: seeing, transparency and focus drift monotonically through a session, so
+        //     contiguous halves differ systematically in PSF and sky level, and an N2N pair whose two
+        //     sides disagree about the signal teaches the model to average that disagreement away.
+        //     Interleaving spreads the drift evenly across both sides.
+        //
+        //     Both halves take the SAME strategy as the master (useDrizzle is shared), which is worth
+        //     protecting even though drizzling them costs a second and third pass over the session's
+        //     raw lights on the archive disk: the pair is what the model trains on and the master is
+        //     what it is deployed on, so a drizzled master with AHD halves would train it on a PSF and
+        //     colour character it never meets at inference. Cheapening the halves to AHD would buy
+        //     ~N raw loads per session and reintroduce exactly the demosaic artifact this gate exists
+        //     to remove.
+        Image? halfA = null;
+        Image? halfB = null;
+        if (subsList.Length >= minSubsForHalfMasters)
+        {
+            halfA = await IntegrateSubsetAsync(
+                all.Where(i => i % 2 == 0).ToImmutableArray(), "_half_a");
+            halfB = await IntegrateSubsetAsync(
+                all.Where(i => i % 2 == 1).ToImmutableArray(), "_half_b");
+            logger?.LogInformation(
+                "  [{Session}] half-master pair integrated ({A} + {B} frames)",
+                session.Id, (subsList.Length + 1) / 2, subsList.Length / 2);
+        }
+        else
+        {
+            logger?.LogInformation(
+                "  [{Session}] no half-master pair: {Frames} subs is under the {Min} needed to split",
+                session.Id, subsList.Length, minSubsForHalfMasters);
+        }
 
         return new RegisteredSession(
-            session, result.Master, subsList, canvasW, canvasH, statsRect,
-            reference.Frame, survivors.Length, matched.Count, skippedTooFewStars + skippedNoQuadFit);
+            session, master, subsList, canvasW, canvasH, statsRect,
+            reference.Frame, survivors.Length, matched.Count, skippedTooFewStars + skippedNoQuadFit,
+            useDrizzle ? IntegrationStrategyKind.BayerDrizzle : IntegrationStrategyKind.Float16Staged,
+            halfA, halfB);
 
-        async IAsyncEnumerable<Image> WarpedProducer([EnumeratorCancellation] CancellationToken token)
+        async Task<Image> IntegrateSubsetAsync(ImmutableArray<int> pick, string scratchName)
         {
-            foreach (var sub in subsList)
+            var scratch = Path.Combine(sessionScratch, scratchName);
+            var job = new IntegrationJob(
+                WarpedFrames: token => WarpedProducer(pick, token),
+                ExpectedFrameCount: pick.Length,
+                Options: new IntegrationOptions(Rejector: StackingPipeline.BuildRejector(pick.Length), ApplyNormalization: false),
+                StagingDir: scratch,
+                StatsRect: statsRect,
+                // Footprints are indexed in registration order, the same order subsList is built
+                // in, so the subset has to be taken in lockstep or every frame's coverage is
+                // attributed to the wrong frame.
+                FrameFootprints: [.. pick.Select(i => footprints[i])],
+                CanvasWidth: canvasW,
+                CanvasHeight: canvasH,
+                RawBayerFrames: useDrizzle ? token => RawBayerProducer(pick, token) : null,
+                DrizzleOptions: useDrizzle ? new DrizzleOptions() : null);
+            var run = useDrizzle
+                ? await new DrizzleStrategy().RunAsync(job, cancellationToken)
+                : await new Float16StagedStrategy().RunAsync(job, cancellationToken);
+            return run.Master;
+        }
+
+        async IAsyncEnumerable<Image> WarpedProducer(
+            ImmutableArray<int> pick, [EnumeratorCancellation] CancellationToken token)
+        {
+            foreach (var i in pick)
             {
                 token.ThrowIfCancellationRequested();
+                var sub = subsList[i];
                 if (!Image.TryReadFitsFile(sub.WarpedPath, out var img))
                 {
                     throw new IOException($"Failed to re-read warped scratch FITS: {sub.WarpedPath}");
                 }
                 yield return img;
+            }
+        }
+
+        // Drizzle forward-projects the RAW CFA itself, so it cannot consume the warped scratch
+        // FITS (those are debayered, which is the whole thing being avoided). That costs one extra
+        // load+calibrate pass over the session's lights; the registration work is not repeated
+        // because RegisteredSub already carries the composed source-to-canvas affine.
+        async IAsyncEnumerable<RawBayerFrame> RawBayerProducer(
+            ImmutableArray<int> pick, [EnumeratorCancellation] CancellationToken token)
+        {
+            foreach (var i in pick)
+            {
+                token.ThrowIfCancellationRequested();
+                var sub = subsList[i];
+                var raw = await sub.Source.LoadFullAsync(token);
+                yield return new RawBayerFrame(calibrator?.Apply(raw) ?? raw, sub.TransformToCanvas);
             }
         }
     }
