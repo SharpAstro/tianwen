@@ -193,34 +193,50 @@ on that carve-out:
 
 #### The measured PSF profile (what an own-BlurX has to model)
 
-Stacked azimuthally averaged profiles of 400 isolated, brightness-controlled stars per session
-master, background-subtracted and peak-normalised, fitted with alpha tied to the measured FWHM so
-the fit is about SHAPE:
+**Surveyed across all 50 session masters** (2026-08-12). Per master: stack the azimuthally averaged,
+background-subtracted, peak-normalised profiles of up to 400 isolated brightness-controlled stars,
+then fit a Moffat `(1 + (r/alpha)^2)^-beta` in LOG space with alpha tied to the measured FWHM so the
+fit is about SHAPE. Shipped as `PsfProfileFit`; every future bake records it per session.
 
-| session | FWHM px | best Moffat beta | Moffat log-rms | Gaussian log-rms | wing at r=2*FWHM |
-|---|---|---|---|---|---|
-| Rim Nebula | 3.773 | 10.40 | 0.204 | 0.866 | 39x Gaussian |
-| Lobster | 2.458 | 6.50 | 0.230 | 1.719 | 155x Gaussian |
-| HIP 85088 | 2.798 | 5.65 | 0.123 | 1.897 | 160x Gaussian |
+| optical train | n | beta p5 | beta p50 | beta p95 | FWHM p50 | Moffat / Gaussian log-rms |
+|---|---|---|---|---|---|---|
+| ASI533MC Pro / Samyang 135 f/2 ED @ 130mm | 38 | 4.70 | **7.95** | 23.65 | 2.940 | 0.131 / 1.197 |
+| SV605CC / SH61 EDPH @ 270mm | 9 | 3.00 | **6.85** | 24.95 | 3.226 | 0.266 / 1.614 |
+| ASI585MC Pro / WO ZS61 @ 288mm (0.8x reducer) | 2 | 2.70 | **2.70** | 2.70 | 3.128 | 0.058 / 6.327 |
+| ASI585MC Pro / WO ZS61 @ 360mm (flattener) | 1 | 2.05 | **2.05** | 2.05 | 2.950 | 0.070 / 10.712 |
+
+All 50: beta p5 2.70, p25 5.80, **p50 7.85**, p75 9.65, p95 23.65. Moffat beats Gaussian in **48 of
+50**. Wing flux at r = 2*FWHM relative to a same-FWHM Gaussian: p5 30x, **p50 98x**, p95 535x.
 
 - **Fit the PSF in LOG space.** An unweighted least-squares fit on a peak-normalised profile is
-  dominated by the core and effectively ignores the wings -- which are exactly what governs ringing
-  and halo in a deconvolution. Switching to log space flipped the verdict from "Gaussian wins" to
-  "Moffat wins" in **every** session, by a factor of 4 to 15 in rms.
-- **The wings are not Gaussian, by orders of magnitude.** At twice the FWHM the real profile carries
-  39x to 160x the flux a same-FWHM Gaussian predicts. A Gaussian PSF model is not an approximation
-  here, it is the wrong function.
-- **But beta is 5.6-10.4, NOT the 2.5-4.5 this plan assumes** (see the P0 degradation section).
-  Lower beta means HEAVIER wings, so the current sweep range would synthesise halos markedly more
-  extended than this archive actually shows, and train the network to remove a wing that is not
-  there. Re-centre the sweep near beta 6-7 and span roughly 5-11.
-- **Beta varies per session** (5.65 / 6.50 / 10.40), tracking FWHM: the sharpest session is the most
-  Gaussian. So beta belongs in the measured per-session record alongside FWHM, not as one constant.
-- Caveats to close before relying on these numbers: alpha was tied to the measured FWHM rather than
-  fitted freely; the stack averages over field position and position angle, which smears elongation
-  into the radial average and inflates the apparent wings somewhat; and this is measured on
-  registered+integrated MASTERS, which is the right target for master enhancement but includes
-  resampling and seeing-variation blur, not the per-sub PSF.
+  dominated by the core and effectively ignores the wings -- exactly what governs ringing and halo
+  in a deconvolution. On the first three masters, plain RMS reported "Gaussian fits better" for two
+  of them; in log space Moffat wins all three, by 4x to 15x. Same data, opposite conclusion, purely
+  from the error metric. This is the most transferable lesson in this section.
+- **A Gaussian PSF is the wrong function, not a rough one.** The median master carries ~98x the wing
+  flux a same-FWHM Gaussian predicts at twice the FWHM.
+- **beta is a PER-TRAIN property, and the spread is the finding.** The ZS61 sits at beta 2.05-2.70
+  with wings 535-994x Gaussian, while the Samyang sits at 7.95 -- genuinely different optics, not
+  scatter. Note the ZS61 also has by far the BEST Moffat fits in the survey (log-rms 0.058-0.070)
+  and by far the worst Gaussian ones (6.3-10.7): it is very nearly a textbook heavy-winged Moffat.
+  This independently vindicates keeping the 288mm and 360mm ZS61 configurations as separate trains.
+- **The plan's assumed beta 2.5-4.5 is calibrated to the three rarest sessions.** It is about right
+  for the ZS61 (3 of 50) and badly wrong for the Samyang and SH61, which are 47 of 50. Sweeping it
+  would synthesise halos far heavier than 94% of the archive shows and train the network to remove
+  a wing that is not there. **Sweep roughly beta 2-12, weighted toward 6-9**, or better, sample the
+  measured per-train distribution directly.
+- **beta correlates with FWHM: blurrier masters are MORE Gaussian** (Pearson r = 0.66 over all 50,
+  and 0.635 within the Samyang train alone, so it is not a between-train artifact; Samyang FWHM<2.9
+  gives beta median 6.45, FWHM>=2.9 gives 9.05). Physically sensible -- more seeing and tracking
+  blur, and more frames averaged, convolve toward a Gaussian and wash out the sharp-core/heavy-wing
+  structure. **So do NOT sample FWHM and beta independently in the sweep**: that generates
+  combinations (a 4 px FWHM with beta 2.7) this archive never produces.
+- Caveats: alpha is tied to the measured FWHM rather than fitted freely, so beta answers "how heavy
+  are the wings at this width"; the upper tail is grid-limited (2 sessions pinned at the beta=25
+  ceiling, and p95 23.65 should be read as "effectively Gaussian" rather than a number); the stack
+  averages over field position and position angle, smearing elongation into the radial average; and
+  this is measured on registered+integrated MASTERS -- the right target for master enhancement, but
+  it includes resampling and seeing-variation blur rather than the per-sub PSF.
 - Masters are themselves seeing-blurred, so the net learns *relative* sharpening (standard for
   synthetically-bootstrapped deconv nets). Two mitigations: prefer the sharpest sessions as truth
   (median FWHM gate), and optionally use 2× Bayer-drizzle masters as a sharper truth tier.
