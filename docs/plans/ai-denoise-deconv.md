@@ -471,8 +471,51 @@ reproducible. Per session:
   (`--force-psf` rewrites only the store). So the column survived the estimator change carrying
   quantized values for 45 of 50 sessions, looking authoritative while being wrong, and not as a
   uniform offset that could be scaled away. One fact, one writer: the store.
-- Budget: ~60 sessions × ~300 cells × ~9 tiles ≈ 160k tiles ≈ **50–80 GB**; one upload to a cloud
-  volume, regenerable from scratch by re-running the command.
+- **Frame vocabulary** (`DatasetTileExporter.Frame*`, the manifest's `Frame` column and the tile
+  filename suffix): `master`, `halfmaster_a`, `halfmaster_b`, `sub`. Named constants rather than
+  literals because four places must agree (filename, row, canonical sort, and the parity check's
+  source resolution), and the sort is by an explicit rank, not by the string; `halfmaster_a` sorts
+  *before* `master` lexicographically, so an ordinal compare would silently reorder the manifest.
+- Budget: ~60 sessions × ~300 cells × ~9 tiles (~11 where a half-master pair exists) ≈ 160k tiles
+  ≈ **50–80 GB**; one upload to a cloud volume, regenerable from scratch by re-running the command.
+
+**Master integration strategy is gated per session, and the dataset legitimately holds both kinds.**
+Bayer drizzle when it can run (`SessionRegistrar.TryDrizzle`), AHD + sigma-clip otherwise. Two
+independent conditions: the stacker's own `DrizzleStrategy.Evaluate` (RGGB, enough matched frames for
+per-Bayer-position R/B coverage, flux+weight planes inside the RAM budget) **and a matched dark
+master**, which is not the stacker's business. Drizzle has no per-cell rejection while the AHD path's
+sigma-clip washes hot pixels out across the session, and dark subtraction removes a hot pixel's
+offset; so an uncalibrated session would get uncorrected hot pixels deposited straight into the
+master, which is a worse master than the interpolated one. Falling back beats building a bad-pixel
+mask, which would only reconstruct what the dark already carries.
+
+- **Which one produced a master is recorded per SESSION** (`SessionPsf.MasterStrategy` in
+  `stats/psf-sessions.jsonl`), deliberately not per tile: same rule as the FWHM column above, one
+  fact one writer. **Any per-channel PSF statistic must group by it** or it is meaningless.
+- **Measured, same session both ways** (2025-05-20 Lobster Nebula, ASI533MC Pro, 236 subs, both
+  measured by `PsfProfileFit`): FWHM R 2.79 → 2.19 px, G 2.14 → 2.07, B 2.65 → 2.07; G/R 0.767 →
+  0.947; Moffat β 2.85 / 24.95 / 6.00 → 4.85 / 4.50 / 4.15. The strongest single number is the fit
+  residual: AHD **red** log-RMS 0.957 versus drizzle's 0.130, i.e. the Moffat model never described
+  the AHD red profile at all, so that channel's FWHM was never trustworthy. Drizzle does not merely
+  improve the measurement, it makes it possible. Consequence: the per-channel spread recorded in
+  §2.2 above is substantially a demosaic artifact, not optics.
+- **Eligibility is a minority of the archive**, which matters for how the trained model is scoped:
+  25 of 61 session directories reach the 60-frame drizzle floor, so the population stays mixed
+  whatever else changes.
+
+**Half-master pairs** (`RegisteredSession.HalfMasterA/B`, exported as two more tiles per cell): two
+integrations over **disjoint interleaved** halves of the session, sharing the scene and nothing else.
+This closes the gap the smoke runs exposed (§3a): a single sub is **5.42x** the master's background
+noise, the deepest pair 8-subs-per-cell allows (4v4) is still **2.96x**, and a half-master pair lands
+at ~**1.41x** (√2), which is the regime a denoiser is actually deployed in. The split is interleaved
+rather than first-half/second-half because seeing, transparency and focus drift monotonically through
+a session: contiguous halves differ systematically in PSF and sky level, and an N2N pair whose two
+sides disagree about the *signal* teaches the model to average that disagreement away. Depth is not
+on the row; a consumer conditions on `NoiseMad`, which measures the level per tile and cannot drift.
+**Open:** the floor is `2 × DrizzleStrategy.AutoSelectMinFrameCount` = 120 subs, a drizzle-derived
+number that only ~10 sessions reach. An AHD half needs no CFA coverage and the halves exist to carry
+a noise *level* rather than colour fidelity, so a lower floor on the non-drizzled path is defensible;
+`RegisterAsync(minSubsForHalfMasters:)` makes it a call-site decision rather than a code change.
 
 **Zero train/inference skew (non-negotiable):** the tile exporter calls the *same* code the
 inference path uses; `AiNafnetInputs` MTF pre-stretch (target median 0.25, auto-skip threshold
@@ -622,8 +665,13 @@ anyway, the synthetic truth is exact). The held-out split stays by session, unch
 - **Strength control comes free:** train full-strength models; `SharpenPipeline` already applies
   per-step `Blend` as a post-hoc `Image.Lerp` toward the source, that *is* the user-facing strength
   slider. NXT-style per-frequency knobs are explicitly deferred.
-- **Losses:** L1 (MAE) primary + MS-SSIM auxiliary; plus a **flux-preservation regulariser**
-  (per-tile mean/aperture-sum penalty); see §7. **Adversarial/GAN losses are deliberately
+- **Losses: L2 (MSE) primary, NOT L1.** The plan said L1 primary until 2026-08-12, when the smoke
+  run measured it as the single worst choice for faint stars (§3a). L1 converges to the conditional
+  MEDIAN, and for a star near the noise floor that median sits at the background, so an L1 denoiser
+  erases faint stars while scoring beautifully on PSNR (which the background it cleans perfectly
+  dominates). L2 converges to the conditional MEAN, which is unbiased and preserves faint flux in
+  expectation. Keep MS-SSIM auxiliary + the **flux-preservation regulariser** (per-tile
+  mean/aperture-sum penalty); see §7. **Adversarial/GAN losses are deliberately
   excluded**: they optimise for plausibility, which is hallucination pressure; directly opposed
   to the photometric-integrity gates. If perceptual quality ever needs a boost, prefer feature
   losses with the flux regulariser as a hard constraint.
@@ -653,6 +701,76 @@ anyway, the synthetic truth is exact). The held-out split stays by session, unch
     (layout, stretch constants, psf01 encoding), dataset manifest SHA-256, git commit, package pins,
     ONNX SHA-256, timestamp; asserted at load time in C# (NeuralGuider's gate-and-refuse pattern,
     minus the delete: refuse + log + fall back to SAS).
+
+### 3a. P1 smoke-run findings (2026-08-12, GTX 1070, eleven variants)
+
+Noise2Noise on the calgated P0 tiles: 8 sessions / 960 cells train, 2 held-out sessions / 240 cells
+eval, a 0.81 M-param U-Net, ~10 min per variant. Deliberately small, because the question was
+whether the DATA supports N2N, not whether a big net wins. Figures + checkpoints + scripts live in
+`D:\Astro-Dataset\n2n-smoke`. **The conclusions below are about the training setup and the metrics,
+and they carry over to the real NAFNet run unchanged.**
+
+**The winning configuration is `v8`: L2 + nearest-upsample decoder + noise conditioning over mixed
+1v1/2v2/4v4 pairing + a difference-of-Gaussians band loss restricted to 2-4 and 4-8 px (w=3).**
+Applied to a master it leaves 0.70x the master's background noise, keeps 99 % of the master's faint
+(SNR 8-15) stars visible with 0.62 of their amplitude, holds 0.840 structure correlation at 1-2 px,
+and fabricates the fewest spurious point sources of any variant tested.
+
+Ranked by what actually mattered:
+
+1. **Noise conditioning is the single biggest factor, and it is not optional.** Feed the tile's
+   measured background sigma as a 4th input plane and train across pairing depths so the model sees
+   several noise levels. Without it a model trained on single subs (5.42x the master's noise) applies
+   that same fixed strength to a master and the only thing left to remove is signal: faint-star
+   amplitude 0.07-0.10 and 30 % visibility, versus 0.75 and 100 % once conditioned. **The root cause
+   is the training noise distribution being a single POINT, not the level being wrong**: an ablation
+   that only switched 1v1 to 4v4 pairing (still one level, still 2x off the master) recovered most of
+   the gain on its own. Denoising strength must be an input, never a constant baked in at training time.
+2. **`ConvTranspose2d(k=2, s=2)` mottles; use nearest-upsample + 3x3 conv.** The textbook
+   checkerboard generator, and visible as ringing around stars. Worth 13 points of faint-star
+   visibility on its own, but that is not why it is here: it removed an artifact no metric was
+   tracking. Two independent wins that are easy to mistake for one.
+3. **A structure loss must skip the noise-dominated scales.** A DoG band loss over 1-2 / 2-4 / 4-8 px
+   made structure at 1-2 px WORSE, not better, and roughly halved faint-star retention. On this data
+   the 1-2 px band of a single sub carries 5.18x the master's RMS, so it is very nearly pure noise:
+   the term is unbiased in expectation (a squared penalty converges to the conditional mean even
+   against a noisy target) but its gradient is dominated by the target frame's own noise realisation.
+   Dropping just the 1-2 px band turns it from harmful into useful. Confirmed by isolating the band
+   rather than the weight: three bands at w=1 fabricates MORE than two bands at w=3.
+4. **The band loss only behaves once conditioning is present.** Added to an unconditioned model it
+   trades the faint end away to buy the bright end (replicated in two backgrounds). Added on top of
+   conditioning it improves noise removal AND fabrication together. Sequence the two accordingly.
+
+**Metric lessons, which cost more time than the training did:**
+
+- **PSNR actively misleads here.** Every failure in this run scored well on it; the best-PSNR variant
+  (38.03 dB) was among the worst at keeping stars. Never select or early-stop on it.
+- **"Star amplitude kept" and "faint stars visible" are different questions and can move in OPPOSITE
+  directions.** Visibility is amplitude relative to the residual noise, so a model that halves a star
+  while quartering the noise makes it easier to see while keeping less of its flux. Report both,
+  bucketed by the master's own SNR; a single overall figure hides the faint end where variants differ.
+- **Add a FABRICATION gate to §7, counting point sources that do NOT coincide with a master star.**
+  It is the only measure here that asks whether the model INVENTED signal rather than whether real
+  signal survived, and it reversed a verdict: the variant with the best bright-star fidelity turned
+  out to be inventing ~170 fake stars per tile against a 22 floor. Two traps: the threshold must use
+  a whole-tile MAD (a darkest-half MAD is a better noise estimator but too low a detection bar, and
+  compresses every model into 18-25 % real, destroying discrimination), and **the metric's direction
+  FLIPS with the input.** On a noisy sub, high means invention. On a master, where the input IS the
+  reference, a model that changes nothing scores the input's own floor and a LOW score means erasure.
+- **A residual-correlation check needs no clean reference:** correlate (input - output) against the
+  output over star-free pixels. Noise correlates with nothing, so 0 is a clean removal and positive
+  means structure went out with it. The only diagnostic here that would also work on a real image,
+  hence a candidate runtime quality gate.
+
+**Two known limits on these numbers.** The 1-2 px structure correlations are scored against an
+AHD-demosaiced master, so part of what they reward is reproducing the interpolator; they are
+provisional until the drizzle re-bake (§2.3, the masters are `Float16StagedStrategy`, NOT drizzled).
+And the deployment gap is not closed: the model can only be trained down to 4v4 (0.5x of a sub) while
+a master sits at 0.18x, because the tiles carry 8 subs per cell. Overstating sigma at inference is a
+free strength dial but saturates at 0.66x while costing a third of the faint signal, so **the root
+fix is HALF-MASTER PAIRS**: integrate subs 1..60 and 61..120 of a session separately for two
+independent half-masters at sigma ~0.24x, an N2N pair at the noise level the model actually meets.
+That belongs in the same registrar pass as the drizzle change so the archive is walked once.
 
 ### Infra
 
