@@ -251,6 +251,49 @@ public static class DatasetPsfNoiseReport
             subEcc[i] = metrics.MedianEllipticity;
         }
 
+        return await MeasureMasterAsync(
+            session.Session.Id, label, session.Master, session.CanvasWidth, session.CanvasHeight,
+            subFwhm, subHfd, subEcc, session.MasterStrategy.ToString(),
+            radiusBins, snrMin, maxStars, logger, cancellationToken);
+    }
+
+    /// <summary>
+    /// The measurement itself, over a master plus the per-sub metrics recorded when it was integrated.
+    /// Split out from <see cref="MeasureSessionAsync"/> so a re-measure can run from a RETAINED master
+    /// and the previous store record instead of re-registering, which is the difference between
+    /// minutes and re-reading every sub in the archive. That is the whole reason the build retains a
+    /// master per session.
+    ///
+    /// <para>Everything here is derived from <paramref name="master"/> except the three sub arrays,
+    /// which are carried through verbatim. Those came from the frame gate at registration time and
+    /// CANNOT be recovered from a master, which is why a re-measure needs the prior record as well as
+    /// the FITS, and why a session with tiles but no record still has to be re-registered.</para>
+    /// </summary>
+    /// <param name="opticalTrain">Already-described train label, taken as a string rather than
+    /// re-derived: a record read back from the store carries only the label, because its frames were
+    /// never re-read.</param>
+    /// <param name="masterStrategy">Which integrator actually produced <paramref name="master"/>, so a
+    /// re-measure must pass the STORED value through. A drizzled master relabelled as AHD would
+    /// silently corrupt the per-channel comparison this report exists to make, since the difference
+    /// between those two integrators is most of the apparent per-channel spread.</param>
+    public static async Task<SessionPsf> MeasureMasterAsync(
+        string sessionId,
+        string opticalTrain,
+        Image master,
+        int canvasWidth,
+        int canvasHeight,
+        float[] subFwhm,
+        float[] subHfd,
+        float[] subEllipticity,
+        string? masterStrategy,
+        int radiusBins = 5,
+        float snrMin = 5f,
+        int maxStars = 3000,
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
+    {
+        var label = opticalTrain;
+
         var binFwhm = new List<float>[radiusBins];
         var binEcc = new List<float>[radiusBins];
         var binFlux = new List<float>[radiusBins];
@@ -261,11 +304,11 @@ public static class DatasetPsfNoiseReport
             binFlux[b] = new List<float>();
         }
 
-        var stars = await session.Master.FindStarsAsync(
+        var stars = await master.FindStarsAsync(
             channel: 0, snrMin: snrMin, maxStars: maxStars, cancellationToken: cancellationToken);
-        var cx = session.CanvasWidth * 0.5;
-        var cy = session.CanvasHeight * 0.5;
-        var halfDiag = 0.5 * Math.Sqrt((double)session.CanvasWidth * session.CanvasWidth + (double)session.CanvasHeight * session.CanvasHeight);
+        var cx = canvasWidth * 0.5;
+        var cy = canvasHeight * 0.5;
+        var halfDiag = 0.5 * Math.Sqrt((double)canvasWidth * canvasWidth + (double)canvasHeight * canvasHeight);
         if (halfDiag > 0)
         {
             foreach (var star in stars)
@@ -299,39 +342,39 @@ public static class DatasetPsfNoiseReport
         // that a star's brightness differs per channel, and PsfProfileFit's brightness band has to
         // rank the stars it will actually stack. Detection dominates the cost here, so this is the
         // one place the per-channel measurement is not free.
-        var (channelCount, _, _) = session.Master.Shape;
+        var (channelCount, _, _) = master.Shape;
         var masterProfiles = new PsfProfileFit.Result?[channelCount];
         for (var c = 0; c < channelCount; c++)
         {
             var channelStars = c == 0
                 ? stars
-                : await session.Master.FindStarsAsync(
+                : await master.FindStarsAsync(
                     channel: c, snrMin: snrMin, maxStars: maxStars, cancellationToken: cancellationToken);
-            masterProfiles[c] = PsfProfileFit.Measure(session.Master, c, channelStars);
+            masterProfiles[c] = PsfProfileFit.Measure(master, c, channelStars);
 
             if (masterProfiles[c] is { } fit)
             {
                 logger?.LogInformation(
                     "  [{Session}] ch{Channel} PSF sampled {Stars} stars, profile FWHM {Fwhm:F3} px, Moffat beta {Beta:F2} (log-rms {MoffatRms:F3} vs gaussian {GaussRms:F3}, {Stacked} stars stacked) ({Train})",
-                    session.Session.Id, c, channelStars.Count, fit.Fwhm, fit.MoffatBeta, fit.MoffatLogRms, fit.GaussianLogRms, fit.StarsStacked, label);
+                    sessionId, c, channelStars.Count, fit.Fwhm, fit.MoffatBeta, fit.MoffatLogRms, fit.GaussianLogRms, fit.StarsStacked, label);
             }
             else
             {
                 logger?.LogInformation("  [{Session}] ch{Channel} PSF sampled {Stars} stars, profile shape not measurable ({Train})",
-                    session.Session.Id, c, channelStars.Count, label);
+                    sessionId, c, channelStars.Count, label);
             }
         }
 
         return new SessionPsf(
-            SessionId: session.Session.Id,
+            SessionId: sessionId,
             OpticalTrain: label,
             SubFwhm: subFwhm,
             SubHfd: subHfd,
-            SubEllipticity: subEcc,
-            MasterNoiseRelative: RelativeBackgroundMad(session.Master),
+            SubEllipticity: subEllipticity,
+            MasterNoiseRelative: RelativeBackgroundMad(master),
             Bins: bins,
             MasterProfiles: masterProfiles,
-            MasterStrategy: session.MasterStrategy.ToString());
+            MasterStrategy: masterStrategy);
     }
 
     /// <summary>

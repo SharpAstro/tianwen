@@ -67,7 +67,8 @@ public static class DatasetBuildRunner
         string ReportPath,
         string PsfStorePath,
         int PsfMissing,
-        int PsfRemeasured);
+        int PsfRemeasured,
+        int PsfRemeasuredFromMaster = 0);
 
     /// <summary>Rendered PSF/noise report, written beside the store under <c>&lt;outDir&gt;/stats</c>.</summary>
     public const string ReportFileName = "psf-noise-report.md";
@@ -167,6 +168,10 @@ public static class DatasetBuildRunner
         var resumed = 0;
         var psfMissing = 0;
         var psfRemeasured = 0;
+        // Of those, how many avoided re-registration by reading a retained master. Reported separately
+        // because the two cost wildly different amounts, and a run that quietly took the slow path for
+        // every session looks identical in the summary otherwise.
+        var psfRemeasuredFromMaster = 0;
         var mastersRetained = 0;
         var totalTiles = 0;
         var parityChecked = false;
@@ -208,6 +213,51 @@ public static class DatasetBuildRunner
                 // run under-report the tiles it still has.
                 psfOnly = true;
                 totalTiles += checkpoint.TileCount;
+
+                // THE CHEAP PATH, and the reason masters are retained at all. A forced re-measure only
+                // needs the master plus the per-sub metrics, and the metrics are already in the prior
+                // record, so with a retained master on disk there is nothing left to read from the
+                // archive: minutes instead of re-registering every exported session.
+                //
+                // Requires a PRIOR RECORD, which is what keeps the two intents apart. --force-psf has
+                // one by definition (that is what makes its record stale), so it takes this path. A
+                // --regen-psf gap-fill has none, so its sub metrics exist nowhere and it must
+                // re-register; that is a property of the data, not a limitation worth flagging.
+                if (options.RetainSessionMasters
+                    && psfBySession.TryGetValue(session.Id, out var priorPsf)
+                    && RetainedMasterStore.TryRead(outDir, session.Id, out var retainedMaster, logger))
+                {
+                    try
+                    {
+                        progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} re-measuring PSF from retained master ...");
+                        var (_, retainedWidth, retainedHeight) = retainedMaster.Shape;
+
+                        // Strategy and train label come from the record, never guessed: the retained
+                        // file IS whatever integrator produced it, and relabelling a drizzled master as
+                        // AHD would corrupt exactly the per-channel comparison this report exists for.
+                        var remeasured = await DatasetPsfNoiseReport.MeasureMasterAsync(
+                            session.Id, priorPsf.OpticalTrain, retainedMaster,
+                            retainedWidth, retainedHeight,
+                            priorPsf.SubFwhm, priorPsf.SubHfd, priorPsf.SubEllipticity,
+                            priorPsf.MasterStrategy,
+                            logger: logger, cancellationToken: cancellationToken);
+
+                        await DatasetPsfStore.AppendAsync(psfStorePath, remeasured, cancellationToken);
+                        psfBySession[session.Id] = remeasured;
+                        await WriteReportAsync(reportPath, psfBySession, sessionIds, logger, cancellationToken);
+                        psfRemeasured++;
+                        psfRemeasuredFromMaster++;
+                        continue;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        // Fall through to the full path rather than losing the session: a master that
+                        // decodes but cannot be measured is worth one expensive retry, and the run
+                        // already banked this session's tiles above.
+                        logger?.LogWarning(ex, "  [{Session}] re-measure from the retained master failed; re-registering instead", session.Id);
+                    }
+                }
+
                 progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} re-measuring PSF" +
                     (hasRecord ? " (forced, tiles kept)" : " (tiles kept)") + " ...");
             }
@@ -260,22 +310,12 @@ public static class DatasetBuildRunner
                 {
                     try
                     {
-                        var mastersDir = Path.Combine(outDir, "session-masters");
-                        Directory.CreateDirectory(mastersDir);
-                        var masterPath = Path.Combine(mastersDir, DatasetTileExporter.Sanitize(session.Id) + ".fits");
-                        if (File.Exists(masterPath))
+                        // Naming lives in RetainedMasterStore, which the re-measure path reads through:
+                        // a reader that recomputed the path here would be one rename away from silently
+                        // finding nothing and taking the expensive path, which reads as a slow run.
+                        if (RetainedMasterStore.Write(outDir, session.Id, reg.Master, logger))
                         {
-                            logger?.LogDebug("  [{Session}] session master already retained", session.Id);
-                        }
-                        else
-                        {
-                            // Write to a temp name and move, so a kill mid-write cannot leave a
-                            // truncated FITS that a later run would treat as already retained.
-                            var tempPath = masterPath + ".partial";
-                            reg.Master.WriteToFitsFile(tempPath);
-                            File.Move(tempPath, masterPath, overwrite: true);
                             mastersRetained++;
-                            logger?.LogDebug("  [{Session}] session master retained", session.Id);
                         }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
@@ -342,14 +382,15 @@ public static class DatasetBuildRunner
         }
         progress?.Report(
             $"[dataset] done: {registered}/{sessions.Length} sessions{(resumed > 0 ? $" (+{resumed} resumed)" : "")}" +
-            $"{(psfRemeasured > 0 ? $" ({psfRemeasured} PSF re-measured)" : "")} -> {totalTiles} tiles " +
+            $"{(psfRemeasured > 0 ? $" ({psfRemeasured} PSF re-measured, {psfRemeasuredFromMaster} from retained masters)" : "")} -> {totalTiles} tiles " +
             $"({failed} failed, {skippedNoDark} skipped-no-dark); " +
             $"PSF report covers {psfBySession.Count(kv => sessionIds.Contains(kv.Key))}/{sessions.Length}; " +
             $"{(options.RetainSessionMasters ? $"{mastersRetained} master(s) retained; " : "")}" +
             $"parity {(parityChecked ? parityMaxDiff == 0.0 ? "OK" : $"DIFF {parityMaxDiff}" : "n/a")}");
         return new RunResult(
             sessions.Length, registered, failed, skippedNoDark, resumed, totalTiles, testSessions.Length,
-            parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath, psfStorePath, psfMissing, psfRemeasured);
+            parityChecked, parityMaxDiff, manifestPath, splitPath, reportPath, psfStorePath, psfMissing, psfRemeasured,
+            psfRemeasuredFromMaster);
     }
 
     /// <summary>
