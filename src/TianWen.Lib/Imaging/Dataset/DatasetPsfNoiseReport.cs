@@ -40,10 +40,27 @@ public static class DatasetPsfNoiseReport
     /// 1 = corner) falls in <c>[RMin, RMax)</c>, over all session masters.</summary>
     public sealed record RadiusBin(double RMin, double RMax, double MedianFwhm, double MedianEllipticity, int Stars);
 
-    /// <summary>The raw per-bin star samples for ONE session, before any cross-session median.</summary>
+    /// <summary>
+    /// The raw per-star samples of one field-radius annulus for ONE session, before any cross-session
+    /// median. Kept raw rather than reduced so a brightness cut can be applied at analysis time.
+    /// </summary>
     /// <param name="Fwhm">Every sampled star's FWHM whose field radius fell in this bin.</param>
     /// <param name="Ellipticity">The same stars' ellipticities, index-aligned with <paramref name="Fwhm"/>.</param>
-    public sealed record RadiusSamples(float[] Fwhm, float[] Ellipticity);
+    /// <param name="Flux">Per-star flux, the brightness proxy a consumer bands on;
+    /// <see langword="null"/> on records written before it was stored.
+    /// <para><b>Without it the profile measures the wrong thing, which is not hypothetical.</b> A
+    /// master's outer annuli are vignetted, so their stars are fainter, and star width correlates
+    /// with measured flux; an uncontrolled median per annulus therefore reports each annulus's
+    /// BRIGHTNESS COMPOSITION rather than its PSF. Measured on a 24 mm session, the uncontrolled
+    /// profile fell from 3.03 px at the centre to 2.85 px at the corner, i.e. it claimed the corners
+    /// were SHARPER, which is backwards for any lens; banding the same stars by flux flattened it to
+    /// 3.20 to 3.42 px, matching a single unstacked raw frame of the same field (2.96 to 3.42 px,
+    /// with ellipticity rising 0.41 to 0.57 as a real lens does). The inverted trend had been carried
+    /// as an open question about the OPTICS ("the centre-to-corner fall is session-dependent") when it
+    /// was an artifact of this aggregation; its session-dependence is just how much vignetting and
+    /// coverage variation each session has. <see cref="PsfProfileFit"/> already controls brightness
+    /// for exactly this reason, via a peak band, and these bins did not.</para></param>
+    public sealed record RadiusSamples(float[] Fwhm, float[] Ellipticity, float[]? Flux = null);
 
     /// <summary>
     /// One session's contribution to the report, in the form that gets PERSISTED
@@ -142,7 +159,8 @@ public static class DatasetPsfNoiseReport
         ImmutableArray<string> RecordedAs,
         ImmutableArray<ChannelProfile> ChannelProfiles,
         int ProfileSessions,
-        ImmutableArray<StrategyCount> MasterStrategies);
+        ImmutableArray<StrategyCount> MasterStrategies,
+        int BandedSessions);
 
     /// <summary>How many of a train's sessions were mastered by one integrator
 /// (<see cref="SessionPsf.MasterStrategy"/>; <c>"(unrecorded)"</c> for records written before it was
@@ -235,10 +253,12 @@ public static class DatasetPsfNoiseReport
 
         var binFwhm = new List<float>[radiusBins];
         var binEcc = new List<float>[radiusBins];
+        var binFlux = new List<float>[radiusBins];
         for (var b = 0; b < radiusBins; b++)
         {
             binFwhm[b] = new List<float>();
             binEcc[b] = new List<float>();
+            binFlux[b] = new List<float>();
         }
 
         var stars = await session.Master.FindStarsAsync(
@@ -257,13 +277,14 @@ public static class DatasetPsfNoiseReport
                 if (bin < 0) bin = 0;
                 binFwhm[bin].Add(star.StarFWHM);
                 binEcc[bin].Add(star.Ellipticity);
+                binFlux[bin].Add(star.Flux);
             }
         }
 
         var bins = new RadiusSamples[radiusBins];
         for (var b = 0; b < radiusBins; b++)
         {
-            bins[b] = new RadiusSamples(binFwhm[b].ToArray(), binEcc[b].ToArray());
+            bins[b] = new RadiusSamples(binFwhm[b].ToArray(), binEcc[b].ToArray(), binFlux[b].ToArray());
         }
 
         // PSF SHAPE, measured on the master per COLOUR CHANNEL. Separate from the per-bin FWHM
@@ -402,12 +423,68 @@ public static class DatasetPsfNoiseReport
             acc.Ecc.AddRange(record.SubEllipticity);
             acc.Subs += record.SubFwhm.Length;
             acc.Noise.Add(record.MasterNoiseRelative);
+            // Brightness-banded PER SESSION, never across sessions: the band has to be a percentile of
+            // THIS session's own stars, because aperture, exposure and sky level differ between
+            // sessions and a shared absolute flux cut would keep the deep sessions' faint tail while
+            // discarding a shallow session entirely. See RadiusSamples.Flux for what the band is for;
+            // without it this profile reports each annulus's brightness composition and inverts.
+            var band = FluxBand(record.Bins);
             for (var b = 0; b < _radiusBins; b++)
             {
-                acc.BinFwhm[b].AddRange(record.Bins[b].Fwhm);
-                acc.BinEcc[b].AddRange(record.Bins[b].Ellipticity);
-                acc.StarsSampled += record.Bins[b].Fwhm.Length;
+                var samples = record.Bins[b];
+                var flux = samples.Flux;
+                for (var i = 0; i < samples.Fwhm.Length; i++)
+                {
+                    // A record written before Flux was stored has no band available. Those keep the
+                    // old (confounded) behaviour rather than being dropped, so an existing store still
+                    // renders; the rendered table says which sessions are banded.
+                    if (band is not null && flux is not null && i < flux.Length
+                        && (flux[i] < band.Value.Low || flux[i] > band.Value.High))
+                    {
+                        continue;
+                    }
+                    acc.BinFwhm[b].Add(samples.Fwhm[i]);
+                    if (i < samples.Ellipticity.Length)
+                    {
+                        acc.BinEcc[b].Add(samples.Ellipticity[i]);
+                    }
+                    acc.StarsSampled++;
+                }
             }
+            if (band is not null)
+            {
+                acc.BandedSessions++;
+            }
+        }
+
+        /// <summary>
+        /// The flux band for one session's field-radius stars: the 55th to 90th percentile over every
+        /// annulus together. <see langword="null"/> when the record predates stored flux, or has too
+        /// few stars for percentiles to mean anything.
+        ///
+        /// <para>The low end mirrors <see cref="PsfProfileFit"/>'s own band (its 55th percentile of
+        /// peak), which exists because whatever background survives subtraction is a larger fraction
+        /// of a fainter star's peak. The high end stops below the top decile rather than at the very
+        /// top, so a handful of near-saturated stars cannot dominate an annulus that happens to hold
+        /// one.</para>
+        /// </summary>
+        private static (float Low, float High)? FluxBand(RadiusSamples[] bins)
+        {
+            var all = new List<float>();
+            foreach (var bin in bins)
+            {
+                if (bin.Flux is null)
+                {
+                    return null;
+                }
+                all.AddRange(bin.Flux);
+            }
+            if (all.Count < 40)
+            {
+                return null;
+            }
+            all.Sort();
+            return (all[(int)(0.55 * (all.Count - 1))], all[(int)(0.90 * (all.Count - 1))]);
         }
 
         public Report Build()
@@ -461,7 +538,8 @@ public static class DatasetPsfNoiseReport
                     ProfileSessions: acc.ChannelFwhm.Count == 0 ? 0 : acc.ChannelFwhm.Max(l => l.Count),
                     FieldRadiusProfile: profile.MoveToImmutable(),
                     MasterNoiseRelative: PercentilesOf(acc.Noise),
-                    MasterStrategies: [.. acc.MasterStrategies.Select(kv => new StrategyCount(kv.Key, kv.Value))]));
+                    MasterStrategies: [.. acc.MasterStrategies.Select(kv => new StrategyCount(kv.Key, kv.Value))],
+                    BandedSessions: acc.BandedSessions));
 
                 allFwhm.AddRange(acc.Fwhm);
                 allHfd.AddRange(acc.Hfd);
@@ -509,6 +587,10 @@ public static class DatasetPsfNoiseReport
             /// <summary>Sessions per master integrator. Sorted so the rendered line is deterministic,
             /// like every other aggregate here.</summary>
             public readonly SortedDictionary<string, int> MasterStrategies = new(StringComparer.Ordinal);
+            /// <summary>Sessions whose field-radius stars were brightness-banded. Lower than
+            /// <see cref="Sessions"/> where records predate stored flux, and the rendered profile says
+            /// so, because a mixed table is the one thing this measurement must not do silently.</summary>
+            public int BandedSessions;
 
             public TrainAcc(string label, int radiusBins)
             {
@@ -613,6 +695,14 @@ public static class DatasetPsfNoiseReport
             {
                 sb.AppendLine("- Master PSF profile: not measured for this train (records predate it; re-run with --force-psf)");
             }
+            sb.AppendLine();
+            // The band is stated, because the same numbers mean something different without it: an
+            // unbanded profile reports each annulus's brightness composition and can invert (measured:
+            // 3.03 px centre to 2.85 px corner, i.e. corners apparently sharper, on a session whose
+            // single raw frames run 2.96 to 3.42 the correct way round).
+            sb.AppendLine(train.BandedSessions == train.Sessions
+                ? "- Field-radius stars are brightness-banded per session (55th-90th flux percentile)."
+                : string.Create(ci, $"- Field-radius stars brightness-banded for {train.BandedSessions}/{train.Sessions} sessions; the rest predate stored flux and are NOT comparable (re-run with --force-psf)."));
             sb.AppendLine();
             sb.AppendLine("| Radius (norm) | Median FWHM (px) | Median ellipticity | Stars |");
             sb.AppendLine("|---------------|------------------|--------------------|-------|");
