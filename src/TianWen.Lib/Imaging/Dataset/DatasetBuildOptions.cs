@@ -228,4 +228,26 @@ public sealed record DatasetBuildOptions
     /// design, so a re-measure adds a line and the earlier record stays readable for comparison.</para>
     /// </summary>
     public bool ForcePsfRemeasure { get; init; }
+
+    /// <summary>
+    /// Re-render the PSF/noise report from <see cref="DatasetPsfStore"/> and stop. No archive scan,
+    /// no registration, no export; nothing is measured and no tile is touched.
+    ///
+    /// <para><b>Why it has to skip discovery.</b> A normal run filters the report to the sessions
+    /// the current scan found, which is why it must walk every FITS header first -- ~19k of them on
+    /// a USB spindle, seek-bound and the dominant cost of a re-run. Report-only takes its session
+    /// set from the tile manifest instead: that is the record of what was actually exported into
+    /// this output directory, which is exactly what the report should describe, and reading it is
+    /// one sequential pass over a single file.</para>
+    ///
+    /// <para>It exists because the report is derived state with inputs that legitimately change
+    /// without the measurements changing -- a telescope alias (<see cref="TelescopeAliases"/>), a
+    /// rendering fix, a re-tuned bin count. Before this, correcting any of those cost a full
+    /// archive scan, so "just re-render the report" was true in principle and expensive in
+    /// practice.</para>
+    ///
+    /// <para>Sessions with tiles but no stored PSF record are reported as missing exactly as a
+    /// normal run reports them; report-only cannot fix that, because measuring needs the master.</para>
+    /// </summary>
+    public bool ReportOnly { get; init; }
 }

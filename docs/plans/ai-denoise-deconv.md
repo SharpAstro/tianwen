@@ -159,6 +159,15 @@ on that carve-out:
   flattener claiming 1x (360 x 0.8 = 288). A reducer changes exactly the off-axis aberration this
   profile exists to measure, so those stay separate trains and a name-only collapse would merge
   them.
+- **`tianwen dataset report --out <dir>` re-renders the report from `stats/psf-sessions.jsonl`**
+  with no archive scan, nothing re-measured and no tile touched (~seconds). It exists because the
+  report is derived state whose INPUTS change without the measurements changing: an alias, a
+  rendering fix, a re-tuned bin count. A normal run filters the report to what the current
+  discovery found, which is the only reason it walks ~19k FITS headers first; report-only takes its
+  session set from the tile manifest instead, which is the record of what was actually exported. A
+  sibling command rather than a `build` flag because `build` requires `--archive-root` and a
+  re-render must work with the archive unmounted. To re-MEASURE it is still `build --regen-psf`
+  (fills gaps) or `--force-psf` (replaces records), both of which re-register.
 - Masters are themselves seeing-blurred, so the net learns *relative* sharpening (standard for
   synthetically-bootstrapped deconv nets). Two mitigations: prefer the sharpest sessions as truth
   (median FWHM gate), and optionally use 2× Bayer-drizzle masters as a sharper truth tier.
