@@ -74,6 +74,52 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task Build_MeasuresTheProfileOnEveryChannel_AndSaysSoInTheMarkdown()
+        {
+            // Channel 0 alone is not the master's PSF. Across the 49 archive masters that support the
+            // measurement, green's stacked profile is 35% narrower than red's and red is the WIDEST
+            // channel in 48 of them, so measuring one channel reported the worst case as the frame's.
+            // This pins that every channel is measured and that the artifact shows them separately;
+            // the synthetic fixture is too uniform to reproduce the archive's spread, so the
+            // assertion is on the SHAPE of the output, not on a ratio.
+            // Driven through the accumulator with archive-shaped records rather than the synthetic
+            // fixture, which is far too star-poor to clear PsfProfileFit's 40-star floor on any
+            // channel (it measures nothing, so it could not tell a per-channel report from the old
+            // single-channel one). The numbers are the real HD 71526 master's.
+            var ct = TestContext.Current.CancellationToken;
+            const string label = "ZWO ASI533MC Pro / Samyang 135 f/2 ED @ 130mm";
+            var acc = new DatasetPsfNoiseReport.Accumulator(radiusBins: 1);
+            acc.Add(WithProfiles(label,
+                new PsfProfileFit.Result(2.9097, 7.65, 0.19, 1.91, 400),
+                new PsfProfileFit.Result(1.9136, 7.10, 0.11, 2.00, 400),
+                new PsfProfileFit.Result(2.3836, 4.85, 0.12, 2.75, 400)));
+
+            var report = acc.Build();
+            var train = report.Trains.ShouldHaveSingleItem();
+
+            train.ChannelProfiles.Length.ShouldBe(3);
+            for (var c = 0; c < 3; c++)
+            {
+                train.ChannelProfiles[c].Channel.ShouldBe(c);
+                train.ChannelProfiles[c].Sessions.ShouldBe(1);
+                train.ChannelProfiles[c].Fwhm.P50.ShouldBeGreaterThan(0.0);
+            }
+            // Green narrower than red is the archive's signature, and the whole reason this is per
+            // channel; a pooled number would sit between them and describe neither.
+            train.ChannelProfiles[1].Fwhm.P50.ShouldBeLessThan(train.ChannelProfiles[0].Fwhm.P50);
+
+            var mdPath = Path.Combine(_dir, "psf-noise-report-channels.md");
+            await DatasetPsfNoiseReport.WriteMarkdownAsync(report, mdPath, ct);
+            var md = await File.ReadAllTextAsync(mdPath, ct);
+            md.ShouldContain("PER CHANNEL");
+            md.ShouldContain("| Channel | Sessions | FWHM p50 (px) | vs ch0 |");
+            // The ratio column exists so the spread is readable without arithmetic, and channel 0 is
+            // its own reference, so it must read exactly 1.
+            md.ShouldContain("| 0 | 1 | ");
+            md.ShouldContain(" | 1.000 | ");
+        }
+
+        [Fact]
         public async Task Build_SeparatesFieldRadiusProfilePerOpticalTrain()
         {
             // Two optical trains (a refractor camera + a Newtonian) must each get their OWN
@@ -110,5 +156,19 @@ namespace TianWen.Lib.Tests
             md.ShouldContain("### ");
             md.ShouldContain("QHY294PROC / Newtonian @ 800mm");
         }
+
+        /// <summary>A minimal record carrying one profile per channel; the per-sub arrays are only
+        /// there because the report needs somewhere to take percentiles from.</summary>
+        private static DatasetPsfNoiseReport.SessionPsf WithProfiles(
+            string train, params PsfProfileFit.Result?[] profiles)
+            => new(
+                SessionId: "s-" + train.GetHashCode().ToString("x8"),
+                OpticalTrain: train,
+                SubFwhm: [2.9f],
+                SubHfd: [2.7f],
+                SubEllipticity: [0.5f],
+                MasterNoiseRelative: 0.004,
+                Bins: [new DatasetPsfNoiseReport.RadiusSamples([2.9f], [0.5f])],
+                MasterProfiles: profiles);
     }
 }
