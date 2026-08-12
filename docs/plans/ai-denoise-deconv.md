@@ -884,9 +884,50 @@ gate on exactly that:
 
 - **Training:** flux-preservation regulariser (aperture-sum penalty over detected-star apertures +
   per-tile mean preservation).
-- **Eval gates:** aperture-photometry delta < X% and centroid shift < Y px (thresholds set in P1
-  from the classical pipeline's own repeatability) on held-out subs; a release-blocking gate, not
-  a dashboard number.
+- **Eval gates:** aperture-photometry delta and centroid shift below the thresholds measured below,
+  on held-out subs; a release-blocking gate, not a dashboard number.
+
+#### Measured classical repeatability (2026-08-12)
+
+`PhotometricRepeatability.Compare` (pure, in `TianWen.Lib/Imaging/Dataset/`) matches stars between two
+frames of one field, removes the global dither, and reports flux and centroid scatter **banded by
+SNR**. Run it with the env-gated `PhotometricRepeatabilityProbe`
+(`TIANWEN_REPEATABILITY_SUBS`, semicolon-separated FITS).
+
+First measurement, 4 consecutive raw subs of `2025-03-20/24mm ASI585 30s 13o 252g` S1 (~4000 stars
+each, ~3650 matched per pair), from the two pairs with no dither:
+
+| SNR band | flux abs-delta p50 | flux abs-delta p95 | flux BIAS p50 | centroid p50 | centroid p95 |
+|---|---|---|---|---|---|
+| 100+ | 2.1-2.4% | 8.4-8.9% | 0.04 / -0.19% | 0.10 px | 0.53-0.59 px |
+| 50-100 | 4.6% | 14.7-16.2% | 0.04 / -0.06% | 0.13 px | 0.47-0.50 px |
+| 20-50 | 7.6-7.7% | 26-27% | 0.10 / -0.04% | 0.15 px | 0.42-0.43 px |
+
+**Read this as a CEILING, not as the target.** Sub-to-sub scatter contains two independent
+photon-noise realisations; the gate compares one sub against its own denoised output, where no new
+realisation exists, so a correct model must preserve flux far better than this. The table's use is
+that a model moving flux by more than the pipeline's own frame-to-frame scatter is unacceptable
+without further argument.
+
+**The sharp gate is BIAS, not scatter.** The pipeline's own signed median flux change is 0.03 to
+-0.04% overall and never exceeds 0.2% above SNR 20, i.e. indistinguishable from zero. A denoiser that
+introduces a systematic flux bias above a few tenths of a percent is therefore doing something the
+classical path demonstrably does not, and that is measurable on far fewer stars than a scatter
+comparison needs. Proposed gate: **|bias| < 0.5% per SNR band above 20, and abs-delta p95 no worse
+than the table above**.
+
+Three caveats, all of which make the numbers conservative rather than optimistic:
+
+- **Raw Bayer mosaics**, undebayered, so a star's centroid is pulled by CFA structure. Re-measure on
+  debayered or drizzled subs before treating the centroid column as final.
+- **The bright-end centroid p95 rises while its p50 falls** (0.097 p50 against 0.587 p95 at SNR 100+).
+  That shape is a minority of clipped cores, not a broken measurement: a saturated star's flat top
+  gives an unstable centroid, matching the "bright end scrambled by saturation" already recorded for
+  the Vela field. Exclude saturated stars from the gate, or the gate inherits a tail it cannot fix.
+- **The harness fits TRANSLATION only.** The one pair carrying a real dither (-0.04, -4.84 px)
+  reports ~0.9 px centroid shift roughly constant across every SNR band, which is the signature of
+  field rotation that a translation cannot absorb, not of noise. So either compare undithered pairs
+  or fit a full transform first; the two clean pairs above are the valid measurement.
 
 This gives TianWen a claim neither RC nor SAS makes: an enhancer that is *measured* science-safe on
 every release.
