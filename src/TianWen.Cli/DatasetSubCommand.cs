@@ -142,9 +142,12 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                           "that already exist. Tiles are left untouched. Unlike --regen-psf, which " +
                           "only fills gaps and is therefore cheap and idempotent, this is what an " +
                           "estimator change needs: the records that are wrong are exactly the ones " +
-                          "that already exist. Costs a full re-registration per session, so it is " +
-                          "never implied. The store is last-wins by session id, so the superseded " +
-                          "records stay in the file and remain readable for comparison.",
+                          "that already exist. Reads the RETAINED session master where one is on " +
+                          "disk, which is the normal case and costs minutes; it only falls back to " +
+                          "a full re-registration per session for masters that were never retained. " +
+                          "Still never implied. The store is last-wins by session id, so the " +
+                          "superseded records stay in the file and remain readable for comparison. " +
+                          "Use with --resume and the SAME roots and gates as the original run.",
         };
         var resumeOpt = new Option<bool>("--resume")
         {
