@@ -557,7 +557,6 @@ public partial class Image
 
         var minLuma = float.MaxValue;
         int bgX = marginX, bgY = marginY;
-        var lockObj = new object();
 
         // Build the list of row-strip Y values to scan
         var yStart = marginY;
@@ -565,7 +564,20 @@ public partial class Image
         var xStart = marginX;
         var xEnd = Width - squareSize - marginX;
 
-        Parallel.For(0, (yEnd - yStart + step - 1) / step, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, (yIdx) =>
+        // One slot per row-strip, written by exactly one iteration, so the parallel scan needs no
+        // synchronisation at all and the argmin is a serial pass over ~28 entries afterwards (a
+        // 4000 px frame at step 128). This replaced a `lock (new object())` around the reduction,
+        // which was both against the project's lock rule and NON-DETERMINISTIC: the guard is a
+        // strict `<`, so on an exact luma tie whichever thread arrived first won, and the chosen
+        // background patch therefore depended on scheduling. Ties are not exotic (a synthetic or
+        // uniform-background frame produces them by the thousand) and the patch feeds background
+        // neutralisation, so the gains moved run to run. The serial pass gives the lowest strip
+        // index the tie instead. Parallel.For's return is a full barrier, so the reads below are
+        // ordered after every write.
+        var stripCount = (yEnd - yStart + step - 1) / step;
+        var strips = new (float Luma, int X, int Y)[Math.Max(0, stripCount)];
+
+        Parallel.For(0, stripCount, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount * 4 }, (yIdx) =>
         {
             var y = yStart + yIdx * step;
             var localMinLuma = float.MaxValue;
@@ -582,19 +594,20 @@ public partial class Image
                 }
             }
 
-            if (localMinLuma < float.MaxValue)
-            {
-                lock (lockObj)
-                {
-                    if (localMinLuma < minLuma)
-                    {
-                        minLuma = localMinLuma;
-                        bgX = localBgX;
-                        bgY = localBgY;
-                    }
-                }
-            }
+            // A strip where nothing passed the luma floor keeps float.MaxValue and loses the
+            // argmin below, matching the old code's "skip the reduction entirely" branch.
+            strips[yIdx] = (localMinLuma, localBgX, localBgY);
         });
+
+        for (var i = 0; i < strips.Length; i++)
+        {
+            if (strips[i].Luma < minLuma)
+            {
+                minLuma = strips[i].Luma;
+                bgX = strips[i].X;
+                bgY = strips[i].Y;
+            }
+        }
 
         // Compute per-channel background, pedestal-subtracted.
         // For 1-channel Bayer images, the channel-0 median pools all four Bayer
