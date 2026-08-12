@@ -168,6 +168,28 @@ on that carve-out:
   sibling command rather than a `build` flag because `build` requires `--archive-root` and a
   re-render must work with the archive unmounted. To re-MEASURE it is still `build --regen-psf`
   (fills gaps) or `--force-psf` (replaces records), both of which re-register.
+- **OPEN, and it undermines the field-radius profile: measured FWHM FALLS toward the corner.** Every
+  train shows it (merged Samyang: 3.072 px at r<0.2 down to 2.710 px at r>0.8, over 184,694 stars),
+  which is backwards for a fast lens where coma should grow off-axis. Three candidate biases were
+  measured against the real `AnalyseStar` on synthetic stars of known width (harness in the
+  2026-08-12 session; true FWHM 4.00 px throughout):
+  - **Saturation, and it dominates.** A clipped core is flat-topped, so the half-max crossing moves
+    outward: clipping 21 px reads **6.154** and heavy clipping **10.837**, against 3.841 unclipped.
+    Vignetting makes the SAME star brighter at frame centre, so clipped cores are a
+    centre-weighted population, which inflates the inner bins specifically. This is the leading
+    explanation of the whole anomaly, and it means the profile currently measures where the stars
+    saturate rather than how the optics degrade.
+  - **Elongation, real but minor.** Because the crossing is taken on an AZIMUTHALLY AVERAGED profile,
+    an elongated star reads near its geometric-mean width, not its major axis. Across the archive's
+    own ellipticity range (0.465 centre to 0.536 corner) that is worth 3.586 -> 3.497 px, i.e. 0.089
+    px of the observed 0.362 px drop, about a quarter.
+  - **Low SNR: ruled out.** It biases FWHM slightly UP (3.841 -> 3.933 as SNR falls 595 -> 29), so
+    it works against the observed direction.
+  **Fix direction: exclude saturated stars from the PSF sample.** `ImageMeta.SensorFullScaleAdu`
+  already carries the sensor's true full-scale (from `MaxADU` or a FITS `SATURATE` card), so the
+  gate can be a real one rather than a guessed threshold. Until that lands, treat the field-radius
+  profile as unreliable and do NOT calibrate the P2 position-varying sweep from it: the sweep would
+  model corners as sharper than centres, which is the opposite of the optics.
 - Masters are themselves seeing-blurred, so the net learns *relative* sharpening (standard for
   synthetically-bootstrapped deconv nets). Two mitigations: prefer the sharpest sessions as truth
   (median FWHM gate), and optionally use 2× Bayer-drizzle masters as a sharper truth tier.
