@@ -15,6 +15,39 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 - [ ] Implement image undistortion using extracted distortion model
 - [x] `CatalogPlateSolver` can't solve drizzle outputs from the CLI (`tianwen solve <fits>`) -- root cause was **`ICelestialObjectDB.InitDBAsync` was never called from the CLI's solve path**. The `StackingPipeline` path works because `MasterPostProcessor.cs:114` explicitly awaits `InitDBAsync(waitForTycho2BulkLoad: true, ct)` before invoking the solver; the CLI's `solve` subcommand skipped it. Without init, the catalog query returned 0 stars and the solver bailed in ~50 ms with no useful diagnostic (the ctor accepted `ILogger? logger = null` and DI's non-generic `ILogger` resolution silently left it `null`, so internal `_logger?.LogDebug` lines never fired). Fix: (1) self-init inside `CatalogPlateSolver.SolveImageAsync` via the idempotent `_isInitialized` fast path so any caller works; (2) DI registration switched to a factory lambda in `AstrometryServiceCollectionExtensions.cs` that resolves `ILogger<CatalogPlateSolver>` and upcasts to the ctor's non-generic `ILogger`. Verified: SoL drizzle + drizzle_autocrop both solve cleanly via CLI (RA=11.196h Dec=-61.35°, 887/969 and 663/753 stars matched; ~580 ms cold including Tycho-2 bulk decode, ~70 ms warm).
 - [ ] `IncrementalSolver` polar-align fast path is *slower* than the full solve (~1.2 s vs ~0.85 s) -- `FindOffsetAndRotationWithRetryAsync` starts the quad-tolerance sweep at 0.0001 and burns ~50 `FindFit` iterations before reaching the converging range (~0.005-0.05). Fixes: bias the start tolerance higher (~0.005) for the polar-align caller, and/or cache the previous frame's resolved tolerance and start each refine at `prev x 0.5`. Perf-only; correctness + gauge stability already fixed (see `docs/known-limitations.md` "Near-pole plate-solve").
+- [ ] **The acceptance gate has a regime where it cannot pass, and very wide field walks into it.**
+  `CatalogPlateSolver.ApplyAcceptanceGate` accepts on `hits >= max(MinStarsForMatch, GateChanceSafetyFactor * expected)`,
+  where `CountTightMatches` computes `expected = sampled * (inFrame / (W*H)) * PI * tol^2` and
+  `hits` is bounded above by `sampled = min(GateSampleSize, detected)`. The score is bounded and the
+  threshold is not, so past some catalog surface density no solve can pass however perfect it is.
+  Solving `sampled >= 5 * sampled * rho * PI * tol^2` for the in-frame density `rho` (stars per px^2):
+  **`sampled` cancels**, so a bigger sample does not help, and the gate becomes unpassable at
+  `rho > 1 / (5 * PI * tol^2)` = **7.07e-3 catalog stars per px^2** at the current `tol` of 3 px.
+  Well before that hard wall a genuine solve is scoring only somewhat above chance and gets rejected
+  against the safety factor, so the usable margin runs out earlier than the wall suggests.
+  - **Why wide field specifically:** `rho` is an *area* density in pixels, so it scales as the square
+    of the plate scale. Against Tycho-2's all-sky mean (~2.5M stars over 41,253 sq deg, 4.68e-6 per
+    sq arcsec) the wall lands near **~39 arcsec/px**. The archive already shoots 24mm sessions
+    (`Eta Car 24mm LeHance`), which is ~32 arcsec/px on 3.76 um pixels and ~25 on 2.9 um, i.e. the
+    same order rather than a hypothetical extreme. And **the mean is the wrong number for this
+    archive**: eta Car, Vela, Carina and Omega Cen are galactic-plane fields where Tycho density runs
+    several times the all-sky mean, which moves the wall down into ordinary wide-field territory.
+  - **Binning makes it worse, not better.** The call site passes
+    `Math.Max(GateTolerancePx, GateTolerancePx * detectionScale)`, and the penalty is in `tol^2`, so
+    a binned detection pass quadruples the chance expectation at scale 2.
+  - **Not yet reproduced.** The arithmetic above is derived from the code, and the density figures are
+    catalog averages, not a measurement of a failing frame. Before changing anything, get a real
+    case: the gate already logs `Hits`, `Sampled`, `ExpectedChance` and `Threshold` on the rejection
+    path at Warning, so a wide-field solve that fails should be read straight out of the log rather
+    than argued about.
+  - **Fix direction (do not just widen the constant).** Raising `GateTolerancePx` moves the wall the
+    wrong way, since it enters squared on the chance side while only linearly helping true matches.
+    The gate's real discriminator is that genuine residuals are *tight and structured* while chance
+    ones reproduce the random-NN distribution, which is what the Vela investigation actually measured
+    (median 19.2 / MAD 6.9 against a predicted 19.5 / 7.0). So prefer either an angular tolerance
+    that tracks the plate scale, or comparing the observed residual distribution against the
+    random-NN prediction instead of counting inside a fixed pixel radius.
+
 - [ ] Rewrite the skipped `IncrementalSolverTests` for the quad-matching contract -- the old tests targeted the retired ROI-centroid path (`[Fact(Skip = ...)]`); the solver now quad-matches against a frozen seed via `StarReferenceTable.FindFit`.
 
 ## Astrometry / Comets (reported 2026-08-06)
