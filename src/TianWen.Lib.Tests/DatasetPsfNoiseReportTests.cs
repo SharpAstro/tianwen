@@ -1,5 +1,6 @@
 using Shouldly;
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
@@ -155,6 +156,79 @@ namespace TianWen.Lib.Tests
             var md = await File.ReadAllTextAsync(mdPath, ct);
             md.ShouldContain("### ");
             md.ShouldContain("QHY294PROC / Newtonian @ 800mm");
+        }
+
+        /// <summary>
+        /// The field-radius profile must be brightness-banded, or it reports each annulus's BRIGHTNESS
+        /// COMPOSITION rather than its PSF. This is the shape of a real master: outer annuli are
+        /// vignetted so their stars are fainter, star width correlates with measured flux, and the
+        /// uncontrolled median therefore claims the corners are SHARPER than the centre, which is
+        /// backwards for any lens.
+        ///
+        /// <para>Measured on a 24 mm session before the fix: 3.03 px at the centre falling to 2.85 px
+        /// at the corner, while single unstacked raw frames of the same field ran 2.96 to 3.42 px the
+        /// correct way round. The inverted result had been carried as an open question about the OPTICS
+        /// (a suspected spacing or field-curvature error) when it was this aggregation.</para>
+        ///
+        /// <para>The fixture below is deliberately extreme: every annulus holds the SAME two PSF
+        /// widths, so a correct measurement cannot show any radial trend at all, and only the
+        /// faint-star proportion varies with radius. An unbanded median reads the trend anyway.</para>
+        /// </summary>
+        [Fact]
+        public void FieldRadiusProfile_IsBrightnessBanded_SoVignettingCannotFakeARadialTrend()
+        {
+            // Per annulus: (bright stars, faint stars). Faint ones dominate the outer annuli, exactly
+            // as vignetting arranges. Bright stars are narrow, faint ones wide, at EVERY radius.
+            var mix = new[] { (40, 4), (34, 10), (26, 18), (14, 30), (6, 38) };
+            var bins = new DatasetPsfNoiseReport.RadiusSamples[mix.Length];
+            for (var b = 0; b < mix.Length; b++)
+            {
+                var (bright, faint) = mix[b];
+                var fwhm = new List<float>();
+                var ecc = new List<float>();
+                var flux = new List<float>();
+                for (var i = 0; i < bright; i++) { fwhm.Add(3.0f); ecc.Add(0.5f); flux.Add(10_000f); }
+                for (var i = 0; i < faint; i++) { fwhm.Add(4.0f); ecc.Add(0.5f); flux.Add(1_000f); }
+                bins[b] = new DatasetPsfNoiseReport.RadiusSamples([.. fwhm], [.. ecc], [.. flux]);
+            }
+            var record = new DatasetPsfNoiseReport.SessionPsf(
+                SessionId: "banded", OpticalTrain: "T", SubFwhm: [3f], SubHfd: [3f],
+                SubEllipticity: [0.5f], MasterNoiseRelative: 0.004, Bins: bins);
+
+            var acc = new DatasetPsfNoiseReport.Accumulator(radiusBins: mix.Length);
+            acc.Add(record);
+            var report = acc.Build();
+
+            var train = report.Trains.ShouldHaveSingleItem();
+            train.BandedSessions.ShouldBe(1);
+            var widths = train.FieldRadiusProfile.Select(b => b.MedianFwhm).ToArray();
+            // The band keeps the bright population at every radius, so the profile is flat. Without
+            // banding the last annulus reads 4.0 against the first's 3.0 -- a fabricated 33% "fall".
+            foreach (var w in widths)
+            {
+                w.ShouldBe(3.0, tolerance: 1e-6,
+                    $"annulus widths should all be the bright population's 3.0 px, got [{string.Join(", ", widths)}]");
+            }
+        }
+
+        /// <summary>A record from before flux was stored must still render, rather than being dropped
+        /// or silently mixed in as if it were banded. It keeps the old behaviour and the report says
+        /// how many sessions are comparable.</summary>
+        [Fact]
+        public void FieldRadiusProfile_WithoutStoredFlux_StillRenders_AndIsReportedAsUnbanded()
+        {
+            var record = new DatasetPsfNoiseReport.SessionPsf(
+                SessionId: "legacy", OpticalTrain: "T", SubFwhm: [3f], SubHfd: [3f],
+                SubEllipticity: [0.5f], MasterNoiseRelative: 0.004,
+                Bins: [new DatasetPsfNoiseReport.RadiusSamples([3.0f, 4.0f], [0.5f, 0.5f])]);
+
+            var acc = new DatasetPsfNoiseReport.Accumulator(radiusBins: 1);
+            acc.Add(record);
+            var report = acc.Build();
+
+            var train = report.Trains.ShouldHaveSingleItem();
+            train.BandedSessions.ShouldBe(0);
+            train.FieldRadiusProfile.ShouldHaveSingleItem().Stars.ShouldBe(2);
         }
 
         /// <summary>A minimal record carrying one profile per channel; the per-sub arrays are only
