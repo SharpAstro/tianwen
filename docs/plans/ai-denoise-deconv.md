@@ -674,6 +674,22 @@ anyway, the synthetic truth is exact). The held-out split stays by session, unch
   tensor cores start at compute 7.0, and GP104 runs fp16 at 1/64 rate, so local training is locked
   to fp32 at a measured 4.85 TFLOPS. With 8 GB against 256 px activations on a 29 M-param
   restoration net, batch sizes collapse as well. Rented GPU stays the plan for full runs.
+- **Sizing the local box, measured 2026-08-12 on the real tile shape.** Re-verified from a clean
+  install that `torch==2.13.0+cu126` still carries `sm_61` (arch list `sm_50 sm_60 sm_61 sm_70
+  sm_75 sm_80 sm_86 sm_90`), so the de-risk path above is live rather than assumed. **Install from
+  the cu126 index explicitly**: cu130 wheels exist for the same torch version and cannot target
+  Pascal at all, so a bare `pip install torch` is a real trap here. Measured: fp32 matmul **4.91
+  TFLOPS** (the plan's 4.85 reproduces), and a 4.33 M-param U-Net (base 48) on 256x256x3 tiles runs
+  **~40 tiles/s at every batch size tried** (4/8/16, so it is compute-bound, not loader-bound),
+  peaking at 5.25-6.69 GiB of the 8. That is **~0.95 h per epoch over the full 135,000 tiles**, which
+  is what makes a full local run a multi-week proposition and a subset smoke (2,000 tiles ~ 50 s per
+  epoch) entirely comfortable. Size local convergence proofs by tile COUNT, not epoch count.
+- **fp16 measured SLOWER than fp32 on this card: 4.35 against 4.91 TFLOPS.** So AMP is not merely
+  unavailable, it is a regression, and a training script that switches it on by default makes the
+  local de-risk run slower while helping the rented one. Gate AMP on the device, and note the
+  mechanism differs from the 1/64-rate claim above (torch does not appear to take GP104's native
+  fp16 path at all); the conclusion is the same either way, which is why the conclusion is what to
+  rely on.
 - **What the local GPU is for: de-risking the rented run before paying for it.** Two failures from
   the in-house ML pipeline whose discipline § 3 already adopts wholesale were both cheap to catch
   locally and expensive to catch remotely: one run lost at the export step because the legacy ONNX
