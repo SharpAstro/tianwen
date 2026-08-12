@@ -61,6 +61,14 @@ public static class DatasetPsfNoiseReport
     /// re-derived because re-deriving needs the session's frames, which a resumed run has not read.
     /// </param>
     /// <param name="Bins">Per-bin samples, indexed by bin; length is the report's radius-bin count.</param>
+    /// <param name="MasterProfile">
+    /// Measured PSF SHAPE of the session master (<see cref="PsfProfileFit"/>): the stacked-profile
+    /// FWHM and the Moffat exponent describing its wings. Null when the frame could not support a
+    /// measurement, and also on any record written before this was measured at all -- the store is
+    /// append-only and last-wins, so old sessions read back with null here until re-measured with
+    /// <c>--force-psf</c>. It is what the deconvolver's synthetic-PSF sweep should be calibrated
+    /// from: a width alone does not pin a profile, and the wings are what produce ringing.
+    /// </param>
     public sealed record SessionPsf(
         string SessionId,
         string OpticalTrain,
@@ -68,7 +76,8 @@ public static class DatasetPsfNoiseReport
         float[] SubHfd,
         float[] SubEllipticity,
         double MasterNoiseRelative,
-        RadiusSamples[] Bins);
+        RadiusSamples[] Bins,
+        PsfProfileFit.Result? MasterProfile = null);
 
     /// <summary>Per-optical-train sub-report. The field-radius PSF profile lives HERE, never
     /// aggregated across trains: a Newtonian's coma grows with field radius while a refractor's does
@@ -80,6 +89,14 @@ public static class DatasetPsfNoiseReport
     /// means <see cref="TelescopeAliases"/> merged differently-spelled headers, and the report says
     /// so: a merge that changes how many sessions back a profile has to be visible in the artifact,
     /// or the reader cannot tell a genuine 38-session train from an over-eager alias.</param>
+    /// <param name="ProfileFwhm">Stacked-profile FWHM across this train's sessions
+    /// (<see cref="PsfProfileFit"/>). Brightness-controlled, so unlike <paramref name="SubFwhm"/> it
+    /// does not carry the 25-30% swing that comes from which stars happened to be sampled.</param>
+    /// <param name="MoffatBeta">Moffat exponent across this train's sessions: LOWER means HEAVIER
+    /// wings. This is the number the deconvolver's synthetic-PSF sweep should span.</param>
+    /// <param name="ProfileSessions">How many sessions carried a measurable profile; less than
+    /// <paramref name="Sessions"/> means the rest predate the measurement and need
+    /// <c>--force-psf</c>.</param>
     public sealed record TrainReport(
         string OpticalTrain,
         int Sessions,
@@ -90,7 +107,10 @@ public static class DatasetPsfNoiseReport
         Percentiles SubEllipticity,
         ImmutableArray<RadiusBin> FieldRadiusProfile,
         Percentiles MasterNoiseRelative,
-        ImmutableArray<string> RecordedAs);
+        ImmutableArray<string> RecordedAs,
+        Percentiles ProfileFwhm,
+        Percentiles MoffatBeta,
+        int ProfileSessions);
 
     /// <summary>The full report: an archive-wide population summary (the per-sub metrics + noise
     /// floor the denoiser sees across everything) plus a per-optical-train breakdown, each carrying
@@ -190,7 +210,23 @@ public static class DatasetPsfNoiseReport
             bins[b] = new RadiusSamples(binFwhm[b].ToArray(), binEcc[b].ToArray());
         }
 
-        logger?.LogInformation("  [{Session}] PSF sampled {Stars} stars ({Train})", session.Session.Id, stars.Count, label);
+        // PSF SHAPE, measured once on the master from the stars already detected above. Separate
+        // from the per-bin FWHM samples because it answers a different question: those describe how
+        // the width varies across the field, this describes what the profile IS, which is what the
+        // deconvolver has to synthesise.
+        var masterProfile = PsfProfileFit.Measure(session.Master, channel: 0, stars);
+        if (masterProfile is { } fit)
+        {
+            logger?.LogInformation(
+                "  [{Session}] PSF sampled {Stars} stars, profile FWHM {Fwhm:F3} px, Moffat beta {Beta:F2} (log-rms {MoffatRms:F3} vs gaussian {GaussRms:F3}, {Stacked} stars stacked) ({Train})",
+                session.Session.Id, stars.Count, fit.Fwhm, fit.MoffatBeta, fit.MoffatLogRms, fit.GaussianLogRms, fit.StarsStacked, label);
+        }
+        else
+        {
+            logger?.LogInformation("  [{Session}] PSF sampled {Stars} stars, profile shape not measurable ({Train})",
+                session.Session.Id, stars.Count, label);
+        }
+
         return new SessionPsf(
             SessionId: session.Session.Id,
             OpticalTrain: label,
@@ -198,7 +234,8 @@ public static class DatasetPsfNoiseReport
             SubHfd: subHfd,
             SubEllipticity: subEcc,
             MasterNoiseRelative: RelativeBackgroundMad(session.Master),
-            Bins: bins);
+            Bins: bins,
+            MasterProfile: masterProfile);
     }
 
     /// <summary>
@@ -266,6 +303,11 @@ public static class DatasetPsfNoiseReport
             acc.RecordedAs.Add(record.OpticalTrain);
 
             acc.Sessions++;
+            if (record.MasterProfile is { } profile)
+            {
+                acc.ProfileFwhm.Add((float)profile.Fwhm);
+                acc.MoffatBeta.Add((float)profile.MoffatBeta);
+            }
             acc.Fwhm.AddRange(record.SubFwhm);
             acc.Hfd.AddRange(record.SubHfd);
             acc.Ecc.AddRange(record.SubEllipticity);
@@ -313,6 +355,9 @@ public static class DatasetPsfNoiseReport
                     SubFwhm: PercentilesOf(acc.Fwhm),
                     SubHfd: PercentilesOf(acc.Hfd),
                     SubEllipticity: PercentilesOf(acc.Ecc),
+                    ProfileFwhm: PercentilesOf(acc.ProfileFwhm),
+                    MoffatBeta: PercentilesOf(acc.MoffatBeta),
+                    ProfileSessions: acc.ProfileFwhm.Count,
                     FieldRadiusProfile: profile.MoveToImmutable(),
                     MasterNoiseRelative: PercentilesOf(acc.Noise)));
 
@@ -352,6 +397,10 @@ public static class DatasetPsfNoiseReport
             public readonly List<float> Hfd = new();
             public readonly List<float> Ecc = new();
             public readonly List<double> Noise = new();
+            /// <summary>One entry per session that carried a measurable master profile; shorter than
+            /// <see cref="Sessions"/> for a train whose older records predate the measurement.</summary>
+            public readonly List<float> ProfileFwhm = new();
+            public readonly List<float> MoffatBeta = new();
             public readonly List<float>[] BinFwhm;
             public readonly List<float>[] BinEcc;
 
@@ -419,6 +468,18 @@ public static class DatasetPsfNoiseReport
                 $"- Sessions: {train.Sessions} | Subs: {train.Subs} | Stars: {train.StarsSampled}"));
             sb.AppendLine(string.Create(ci,
                 $"- FWHM p50: {train.SubFwhm.P50:F3} px | Ellipticity p50: {train.SubEllipticity.P50:F3} | Noise p50: {train.MasterNoiseRelative.P50:F5}"));
+            if (train.ProfileSessions > 0)
+            {
+                // The PSF SHAPE, which is what the deconvolver's synthetic sweep has to reproduce.
+                // Lower beta = heavier wings; a Gaussian is beta -> infinity.
+                sb.AppendLine(string.Create(ci,
+                    $"- Master PSF profile ({train.ProfileSessions}/{train.Sessions} sessions): FWHM p50 {train.ProfileFwhm.P50:F3} px | " +
+                    $"Moffat beta p5/p50/p95 {train.MoffatBeta.P5:F2} / {train.MoffatBeta.P50:F2} / {train.MoffatBeta.P95:F2}"));
+            }
+            else if (train.Sessions > 0)
+            {
+                sb.AppendLine("- Master PSF profile: not measured for this train (records predate it; re-run with --force-psf)");
+            }
             sb.AppendLine();
             sb.AppendLine("| Radius (norm) | Median FWHM (px) | Median ellipticity | Stars |");
             sb.AppendLine("|---------------|------------------|--------------------|-------|");
