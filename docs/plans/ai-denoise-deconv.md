@@ -168,28 +168,59 @@ on that carve-out:
   sibling command rather than a `build` flag because `build` requires `--archive-root` and a
   re-render must work with the archive unmounted. To re-MEASURE it is still `build --regen-psf`
   (fills gaps) or `--force-psf` (replaces records), both of which re-register.
-- **OPEN, and it undermines the field-radius profile: measured FWHM FALLS toward the corner.** Every
-  train shows it (merged Samyang: 3.072 px at r<0.2 down to 2.710 px at r>0.8, over 184,694 stars),
-  which is backwards for a fast lens where coma should grow off-axis. Three candidate biases were
-  measured against the real `AnalyseStar` on synthetic stars of known width (harness in the
-  2026-08-12 session; true FWHM 4.00 px throughout):
-  - **Saturation, and it dominates.** A clipped core is flat-topped, so the half-max crossing moves
-    outward: clipping 21 px reads **6.154** and heavy clipping **10.837**, against 3.841 unclipped.
-    Vignetting makes the SAME star brighter at frame centre, so clipped cores are a
-    centre-weighted population, which inflates the inner bins specifically. This is the leading
-    explanation of the whole anomaly, and it means the profile currently measures where the stars
-    saturate rather than how the optics degrade.
-  - **Elongation, real but minor.** Because the crossing is taken on an AZIMUTHALLY AVERAGED profile,
-    an elongated star reads near its geometric-mean width, not its major axis. Across the archive's
-    own ellipticity range (0.465 centre to 0.536 corner) that is worth 3.586 -> 3.497 px, i.e. 0.089
-    px of the observed 0.362 px drop, about a quarter.
-  - **Low SNR: ruled out.** It biases FWHM slightly UP (3.841 -> 3.933 as SNR falls 595 -> 29), so
-    it works against the observed direction.
-  **Fix direction: exclude saturated stars from the PSF sample.** `ImageMeta.SensorFullScaleAdu`
-  already carries the sensor's true full-scale (from `MaxADU` or a FITS `SATURATE` card), so the
-  gate can be a real one rather than a guessed threshold. Until that lands, treat the field-radius
-  profile as unreliable and do NOT calibrate the P2 position-varying sweep from it: the sweep would
-  model corners as sharper than centres, which is the opposite of the optics.
+- **Measured FWHM depends strongly on how BRIGHT the star is, and that is the biggest single
+  contaminant of the PSF numbers.** On real masters, pooling all radii, the median FWHM across
+  peak-ADU deciles runs 2.613 -> 1.914 px (Lobster) and 2.909 -> 2.324 px (HIP 85088): faint stars
+  measure roughly 25-30% WIDER than bright ones of the same field. Direction reproduced
+  synthetically (3.841 -> 3.933 px as SNR falls 595 -> 29), and the mechanism is that the half-max
+  level is set relative to the star's own peak, so any residual background left after subtraction is
+  a larger FRACTION of a faint star's peak and pushes the crossing outward. **Anything fitting a PSF
+  from detected stars must control for brightness**, or it fits a magnitude distribution.
+- **Saturation was investigated and RULED OUT on this archive** (an earlier note here claimed it
+  dominated; that was wrong). The synthetic effect is real and large -- on a 4.00 px star, clipping
+  21 px reads 6.154 and heavy clipping 10.837 -- but the population is not there: only **0.1-0.2%**
+  of detected stars are core-clipped, and excluding them moves the per-bin medians by ~0.001 px.
+  The lesson is the one worth keeping: a large effect measured synthetically says nothing until the
+  affected FRACTION of the real population is counted.
+- **The centre-to-corner FWHM fall survives brightness control, and is session-dependent.** Holding
+  peak ADU inside the 40th-60th percentile band: Rim Nebula still falls 4.032 -> 3.115 px, HIP 85088
+  3.020 -> 2.731, but Lobster is flat (2.625 -> 2.514). Elongation explains part of it where
+  ellipticity rises (the crossing is taken on an AZIMUTHALLY AVERAGED profile, so an elongated star
+  reads near its geometric mean, worth ~0.089 px over the archive's 0.465 -> 0.536 range), but not
+  HIP 85088, whose ellipticity is flat (~0.52) while its FWHM still falls. So the aggregate profile
+  is mixing genuinely different per-session field behaviour, and a single archive-wide curve should
+  not be treated as one optical signature.
+
+#### The measured PSF profile (what an own-BlurX has to model)
+
+Stacked azimuthally averaged profiles of 400 isolated, brightness-controlled stars per session
+master, background-subtracted and peak-normalised, fitted with alpha tied to the measured FWHM so
+the fit is about SHAPE:
+
+| session | FWHM px | best Moffat beta | Moffat log-rms | Gaussian log-rms | wing at r=2*FWHM |
+|---|---|---|---|---|---|
+| Rim Nebula | 3.773 | 10.40 | 0.204 | 0.866 | 39x Gaussian |
+| Lobster | 2.458 | 6.50 | 0.230 | 1.719 | 155x Gaussian |
+| HIP 85088 | 2.798 | 5.65 | 0.123 | 1.897 | 160x Gaussian |
+
+- **Fit the PSF in LOG space.** An unweighted least-squares fit on a peak-normalised profile is
+  dominated by the core and effectively ignores the wings -- which are exactly what governs ringing
+  and halo in a deconvolution. Switching to log space flipped the verdict from "Gaussian wins" to
+  "Moffat wins" in **every** session, by a factor of 4 to 15 in rms.
+- **The wings are not Gaussian, by orders of magnitude.** At twice the FWHM the real profile carries
+  39x to 160x the flux a same-FWHM Gaussian predicts. A Gaussian PSF model is not an approximation
+  here, it is the wrong function.
+- **But beta is 5.6-10.4, NOT the 2.5-4.5 this plan assumes** (see the P0 degradation section).
+  Lower beta means HEAVIER wings, so the current sweep range would synthesise halos markedly more
+  extended than this archive actually shows, and train the network to remove a wing that is not
+  there. Re-centre the sweep near beta 6-7 and span roughly 5-11.
+- **Beta varies per session** (5.65 / 6.50 / 10.40), tracking FWHM: the sharpest session is the most
+  Gaussian. So beta belongs in the measured per-session record alongside FWHM, not as one constant.
+- Caveats to close before relying on these numbers: alpha was tied to the measured FWHM rather than
+  fitted freely; the stack averages over field position and position angle, which smears elongation
+  into the radial average and inflates the apparent wings somewhat; and this is measured on
+  registered+integrated MASTERS, which is the right target for master enhancement but includes
+  resampling and seeing-variation blur, not the per-sub PSF.
 - Masters are themselves seeing-blurred, so the net learns *relative* sharpening (standard for
   synthetically-bootstrapped deconv nets). Two mitigations: prefer the sharpest sessions as truth
   (median FWHM gate), and optionally use 2× Bayer-drizzle masters as a sharper truth tier.
