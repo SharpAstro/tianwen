@@ -588,6 +588,119 @@ namespace TianWen.Lib.Tests
                 .ShouldBe(1);
         }
 
+        /// <summary>
+        /// The three presentations, by the thing that separates them: whether the state's WORD is on screen,
+        /// and whether the control carries an icon leaf. The default has both, which is what makes Dark and
+        /// Night distinguishable while the marks still read as one family with the segments.
+        /// </summary>
+        [Theory]
+        [InlineData(ThemeControlStyle.IconAndLabel, true, true)]
+        [InlineData(ThemeControlStyle.IconOnly, false, true)]
+        [InlineData(ThemeControlStyle.LabelOnly, true, false)]
+        public void TheThemeControlPresentsItselfHowTheHostAsked(
+            ThemeControlStyle presentation, bool expectWord, bool expectIcon)
+        {
+            var tree = HomeBoardLayout.Build(
+                ImmutableArray.Create(Card("A")), HomeBoardStyle.Default, 200 * 8f, Now,
+                theme: UiThemeState.Night, onCycleTheme: _ => { }, themeControl: presentation);
+
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, 200, 56), CellMeasureContext.PixelAuthored);
+
+            Texts(arranged).Contains("Night").ShouldBe(expectWord);
+
+            arranged.Any(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Icon icon }
+                    && icon.Kind is Layout.IconKind.ThemeDark)
+                .ShouldBe(expectIcon);
+        }
+
+        /// <summary>
+        /// Three marks cover four states: Night IS a dark scheme, so it shares the crescent. Pinned because
+        /// it is the reason the default keeps the label, and a future fourth mark would have to argue with
+        /// this test rather than quietly change the meaning of the control.
+        /// </summary>
+        [Theory]
+        [InlineData(UiThemeState.System, Layout.IconKind.ThemeSystem)]
+        [InlineData(UiThemeState.Light, Layout.IconKind.ThemeLight)]
+        [InlineData(UiThemeState.Dark, Layout.IconKind.ThemeDark)]
+        [InlineData(UiThemeState.Night, Layout.IconKind.ThemeDark)]
+        public void EachThemeStateShowsItsMark(UiThemeState state, Layout.IconKind expected)
+        {
+            var tree = HomeBoardLayout.Build(
+                ImmutableArray.Create(Card("A")), HomeBoardStyle.Default, 200 * 8f, Now,
+                theme: state, onCycleTheme: _ => { });
+
+            var arranged = Layout.Engine.Arrange(
+                tree, new Rect<int>(0, 0, 200, 56), CellMeasureContext.PixelAuthored);
+
+            var marks = arranged
+                .Select(a => a.Node is Layout.Node.Leaf { Content: Layout.Content.Icon icon }
+                    ? icon.Kind
+                    : (Layout.IconKind?)null)
+                .Where(k => k is Layout.IconKind.ThemeSystem or Layout.IconKind.ThemeLight
+                    or Layout.IconKind.ThemeDark)
+                .ToArray();
+
+            marks.ShouldHaveSingleItem().ShouldBe(expected);
+        }
+
+        /// <summary>
+        /// Every header control is the same square-or-taller box, sharing one top and one bottom, centred on
+        /// the bar's own centre line.
+        /// <para>
+        /// None of that is automatic. A <c>Layout.Node.Stack</c> places children at the cross-axis START, so
+        /// a Fixed-height button in a taller bar hugs the top and sits half the difference ABOVE centre --
+        /// which is what it did, visibly, until the bar was padded and the children made Star-height. A test
+        /// is the only thing that notices when someone reintroduces a Fixed height here.
+        /// </para>
+        /// </summary>
+        [Fact]
+        public void EveryHeaderControlSharesOneTopAndBottom_CentredInTheBar()
+        {
+            // Rendered through the real tab at DPI 1, so an arranged pixel IS a design unit and the bar's
+            // 28 and its 4 of padding read as themselves.
+            using var renderer = new RgbaImageRenderer(2000, 800);
+            var tab = RenderTab(renderer, [Card("A")]);
+
+            var controls = tab.GetRegisteredRegions()
+                .Where(r => r.Result is HitResult.ButtonHit { Action: var action }
+                    && (action.StartsWith("HomeView:") || action.StartsWith("HomeTheme:")))
+                .ToArray();
+
+            controls.Length.ShouldBe(4, "three shape segments plus the theme control");
+
+            foreach (var c in controls)
+            {
+                c.Y.ShouldBe(controls[0].Y, 0.5f, "every control starts at the same top");
+                c.Height.ShouldBe(controls[0].Height, 0.5f, "every control is the same height");
+
+                // Centred: the gap above equals the gap below, within the bar.
+                var above = c.Y;
+                var below = HomeBoardLayout.HeaderHeight - (c.Y + c.Height);
+                below.ShouldBe(above, 0.5f, "the control is centred in the bar, not hugging its top");
+                above.ShouldBeGreaterThan(0f, "it stops short of the bar's edge, which is the separation");
+            }
+        }
+
+        /// <summary>The three shape segments are square, which is the shape a lone pictogram button takes.</summary>
+        [Fact]
+        public void TheShapeSegmentsAreSquare()
+        {
+            using var renderer = new RgbaImageRenderer(2000, 800);
+            var tab = RenderTab(renderer, [Card("A")]);
+
+            var segments = tab.GetRegisteredRegions()
+                .Where(r => r.Result is HitResult.ButtonHit { Action: var action }
+                    && action.StartsWith("HomeView:"))
+                .ToArray();
+
+            segments.Length.ShouldBe(3);
+            foreach (var seg in segments)
+            {
+                seg.Width.ShouldBe(seg.Height, 0.5f);
+            }
+        }
+
         [Fact]
         public void ABoardWithNoThemeCallbackDrawsNoThemeControl()
         {
