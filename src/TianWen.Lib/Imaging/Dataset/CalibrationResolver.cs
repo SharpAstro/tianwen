@@ -280,7 +280,57 @@ public static class CalibrationResolver
                 lightKey.Exposure.TotalSeconds, lightKey.TemperatureC?.ToString() ?? "no-temp");
             return null;
         }
-        return new Calibrator(Bias: null, Dark: dark, Flat: flat);
+        // DARK SCALING. Dark current accumulates linearly with time, so a dark whose exposure does
+        // not match the light's is corrected exactly by t_light / t_dark applied to its THERMAL
+        // component. This is not a refinement: on the reference archive 47 of 64 sessions were
+        // calibrated with a mismatched dark, 28 of them 60s lights against a 120s dark, and the
+        // sub-PSF residue in the stacked masters concentrated in precisely those sessions.
+        //
+        // Only the thermal part scales. A master dark built from RAW darks carries the sensor's
+        // electronic offset baked in, and that offset is a property of readout, not of exposure, so
+        // splitting it out needs a bias for the DARK's own camera and gain. The bias is used solely
+        // for that split and is never handed to the Calibrator as `Bias`, which would double-
+        // subtract the offset the raw dark already carries.
+        //
+        // Note the noise asymmetry: scaling by k multiplies the dark's read noise by k, so scaling
+        // DOWN (the 120s -> 60s case, k = 0.5) reduces injected noise while scaling up adds it.
+        // ExposureCompatible bounds k to [0.5, 2.0], capping the worst case at 2x.
+        var darkScale = 1f;
+        Image? darkBias = null;
+        if (darkGroup is not null && dark is not null)
+        {
+            var darkSeconds = darkGroup.Key.Exposure.TotalSeconds;
+            var lightSeconds = lightKey.Exposure.TotalSeconds;
+            if (darkSeconds > 0.0 && lightSeconds > 0.0 && Math.Abs(lightSeconds - darkSeconds) > 0.01)
+            {
+                var darkBiasGroup = BestDarkBias(calGroups.GetValueOrDefault(FrameType.Bias), darkGroup);
+                darkBias = darkBiasGroup is null
+                    ? null
+                    : await masterCache.GetOrBuildAsync(darkBiasGroup.Key, darkBiasGroup.Train, darkBiasGroup.Frames,
+                        darkBiasGroup.IsMaster, normalizedAduScale, cancellationToken: cancellationToken);
+
+                if (darkBias is not null)
+                {
+                    darkScale = (float)(lightSeconds / darkSeconds);
+                    logger?.LogInformation(
+                        "  [{Session}] dark scaled x{Scale:F3} ({DarkExp:F0}s dark -> {LightExp:F0}s lights) using bias {Bias}",
+                        session.Id, darkScale, darkSeconds, lightSeconds, darkBiasGroup!.Key.Slug());
+                }
+                else
+                {
+                    // Loud, because the alternative is the silent mis-subtraction this block exists
+                    // to end, and the fix (shoot a bias at that camera/gain) is cheap and actionable.
+                    logger?.LogWarning(
+                        "  [{Session}] dark is {DarkExp:F0}s but lights are {LightExp:F0}s and no compatible bias exists to " +
+                        "separate its offset from its thermal signal, so it is subtracted UNSCALED and dark current is " +
+                        "mis-removed by ~{Pct:F0}%. Shoot a bias library at the dark's camera/gain.",
+                        session.Id, darkSeconds, lightSeconds, Math.Abs(lightSeconds - darkSeconds) / darkSeconds * 100.0);
+                }
+            }
+        }
+
+        return new Calibrator(Bias: null, Dark: dark, Flat: flat, DarkScale: darkScale, DarkBias: darkBias)
+            .EnsureValid();
     }
 
     /// <summary>Penalty for a gain mismatch. Sized deliberately: BELOW a grossly-wrong
@@ -300,8 +350,11 @@ public static class CalibrationResolver
     private const double OffsetUnknownPenalty = 25.0;
 
     /// <summary>A light-dark must fall within this factor of the light's exposure to be a candidate.
-    /// Dark current + amp glow scale with exposure and this pipeline does NOT dark-scale, so a dark
-    /// far from the light's exposure is not a valid subtraction. Load-bearing: N.I.N.A. writes
+    /// The pipeline DOES dark-scale now (see the dark-scaling block in <see cref="ResolveAsync"/>),
+    /// so a mismatch inside this band is corrected rather than merely tolerated, but the band stays
+    /// for two reasons: scaling by k multiplies the dark's read noise by k, so an unbounded ratio
+    /// would trade a bias error for a noise one; and amp glow is not purely linear in exposure, so a
+    /// far-off dark stays a bad subtraction however well its mean is scaled. Load-bearing: N.I.N.A. writes
     /// <b>dark-flats</b> (short darks matched to the FLAT exposure, e.g. 4.6s/6.7s) with
     /// <c>IMAGETYP=DARK</c>, only their <c>DARKFLAT\</c> folder distinguishes them, so without this
     /// gate a 6.7s dark-flat out-scores the matched-exposure 60s light-dark once gain is weighted, and
@@ -413,6 +466,39 @@ public static class CalibrationResolver
     /// exposure-matched dark-flat where one is unambiguously identifiable is a refinement, and it
     /// buys single-digit ADU.</para>
     /// </summary>
+    /// <summary>
+    /// Best bias for splitting a DARK into its electronic offset and its thermal signal, so the
+    /// thermal part can be rescaled to the light's exposure. Matched to the dark, NOT to the light:
+    /// the offset being separated belongs to the frame carrying it.
+    ///
+    /// <para>Camera identity is required for the same reason a dark is (fixed pattern and amp glow
+    /// are unit-specific), and gain is weighted heavily because bias level tracks gain directly. A
+    /// temperature difference matters far less here than for a dark, since the offset is a readout
+    /// property rather than a thermal one, so it is scored but not gated.</para>
+    /// </summary>
+    internal static CalGroup? BestDarkBias(List<CalGroup>? biases, CalGroup darkGroup)
+    {
+        if (biases is null || darkGroup.Frames.Length == 0) return null;
+        var dark = darkGroup.Frames[0];
+        var darkKey = MasterGroupKey.FromFrame(dark);
+        var darkCamera = CalTrain.Camera(dark);
+        CalGroup? best = null;
+        var bestScore = double.PositiveInfinity;
+        foreach (var g in biases)
+        {
+            if (!Buildable(g) || !DimensionCompatible(g.Key, darkKey) || !g.Train.CameraCompatibleWith(darkCamera)) continue;
+            // Gain dominates: a bias at the wrong gain has the wrong pedestal, which would put the
+            // split in the wrong place and bias every scaled pixel. Temperature is a tiebreak.
+            var score = GainPenalty(g.Key, darkKey) * 10.0 + TempPenalty(g.Key, darkKey);
+            if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
+            {
+                best = g;
+                bestScore = score;
+            }
+        }
+        return best;
+    }
+
     internal static CalGroup? BestFlatPedestal(List<CalGroup>? biases, CalGroup flatGroup)
     {
         if (biases is null || flatGroup.Frames.Length == 0) return null;
