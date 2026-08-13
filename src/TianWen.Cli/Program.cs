@@ -21,6 +21,13 @@ System.Console.OutputEncoding = Encoding.UTF8;
 
 ConsoleExtensions.Enable();
 
+// FIRST line of every run, on stdout, before any logging exists. A long run is normally launched
+// detached with stdout redirected to a file, and this is the line that says which code produced
+// whatever it writes. It is deliberately not a log call: the console floor is Warning in Release,
+// so an Information line would be filtered exactly when it is needed, which is the trap that let a
+// bake run 100 minutes on a binary two commits stale.
+System.Console.WriteLine($"tianwen {TianWen.Lib.BuildInfo.Describe()}");
+
 var isTui = args.Length > 0 && string.Equals(args[0], "tui", StringComparison.OrdinalIgnoreCase);
 
 var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings { Args = args, DisableDefaults = true });
