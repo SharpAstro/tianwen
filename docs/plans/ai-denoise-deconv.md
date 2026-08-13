@@ -636,10 +636,28 @@ rather than first-half/second-half because seeing, transparency and focus drift 
 a session: contiguous halves differ systematically in PSF and sky level, and an N2N pair whose two
 sides disagree about the *signal* teaches the model to average that disagreement away. Depth is not
 on the row; a consumer conditions on `NoiseMad`, which measures the level per tile and cannot drift.
-**Open:** the floor is `2 × DrizzleStrategy.AutoSelectMinFrameCount` = 120 subs, a drizzle-derived
-number that only ~10 sessions reach. An AHD half needs no CFA coverage and the halves exist to carry
-a noise *level* rather than colour fidelity, so a lower floor on the non-drizzled path is defensible;
-`RegisterAsync(minSubsForHalfMasters:)` makes it a call-site decision rather than a code change.
+**Resolved:** the floor is now per strategy (`SessionRegistrar.MinSubsForHalfMasters(bool)`) --
+`2 × DrizzleStrategy.AutoSelectMinFrameCount` = 120 where R/B coverage has to be answered, and
+`2 × MinFramesPerRejectedHalfMaster` = 40 on the non-drizzled path, where the halves carry a noise
+*level* rather than colour fidelity. The darkscaled bake exports pairs for **45 of 67** sessions
+(13,500 cells), not the ~10 a single drizzle-derived floor would have reached.
+
+**Measured, 2026-08-13, on the darkscaled bake** (`n2n_depth.py`, 240 val cells). The figures above
+come from a per-tile darkest-half sigma, which counts scene structure as noise and so compresses
+every ratio; a **scene-free** ladder (`sigma(side − side)/√2`, where the scene cancels) reads, against
+a single sub: 1 sub 1.000x, 2-avg 0.748x, 4-avg **0.591x**, half-master **0.215x**, master 0.152x.
+Two things follow that the √2 arithmetic alone does not give:
+
+- **The trainable-to-deployed gap goes 3.9x → 1.41x**, and √2 is the floor: the master *is* the two
+  halves averaged, so no split of one session can train closer without splitting deeper.
+- **Sub-averaging hits a floor of its own** (4-avg reaches 0.591x where independence predicts 0.500x).
+  A half beats that floor because it is not a mean: it runs through the same *rejecting* integrator
+  the deployed master does, so hot pixels and cosmic rays that survive an 8-sub average are rejected.
+  The pair therefore matches the deployment path **in kind**, not only in depth, which is a stronger
+  reason to prefer it than the noise level.
+
+Do **not** test the pair's independence with `corr(A − master, B − master)`: the master is ~(A+B)/2,
+so those residuals are ±(A−B)/2 and it returns −0.99 by algebra regardless of the data.
 
 **Zero train/inference skew (non-negotiable):** the tile exporter calls the *same* code the
 inference path uses; `AiNafnetInputs` MTF pre-stretch (target median 0.25, auto-skip threshold
