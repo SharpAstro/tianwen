@@ -46,6 +46,56 @@ public static class BadPixelDetection
     private const float DefaultConvergenceFraction = 0.0001f;
 
     /// <summary>
+    /// Runaway guard for the noise-scale loop: an iteration that would flag
+    /// more than this fraction of the channel has put its threshold inside the
+    /// BULK of the distribution rather than in the defect tail, so its
+    /// median/MAD are degenerate and the previous iteration's estimate is kept.
+    ///
+    /// <para>This is not hypothetical. Traced on a real ASI533 master dark at
+    /// gain 252, sigma 1: iteration 0 flagged 330,021 px, which shifted the
+    /// sample median 780 -> 778 and HALVED the MAD 4.0 -> 2.0, dropping the
+    /// threshold and letting iteration 1 flag a further 1,522,096 -- 20.5% of
+    /// the frame, 59% of it pixels that fifteen independent Astro Pixel
+    /// Processor runs never once flagged. <see cref="DefaultConvergenceFraction"/>
+    /// cannot catch this: "stop once an iteration adds under 0.01%" only fires
+    /// after the run has finished consuming the distribution.</para>
+    ///
+    /// <para>1% is far above any plausible defect population (the measured
+    /// consensus defect set for that sensor is 0.203% of the frame) and far
+    /// below a runaway, so a sane threshold can never trip it.</para>
+    /// </summary>
+    public const float DefaultMaxMaskedFraction = 0.01f;
+
+    /// <summary>
+    /// Defect budget: the fraction of a channel that may plausibly be bad. The
+    /// threshold walks DOWN from the caller's sigma while the flagged count
+    /// stays within this, which is what makes the result comparable across
+    /// darks. Pass 0 to disable and use the caller's sigma verbatim.
+    ///
+    /// <para><b>Why sigma alone does not work.</b> It is not a portable unit
+    /// here. On a bias-dominated cooled-CMOS dark the MAD is quantized (values
+    /// of exactly 4.0 and 2.0 ADU were observed) and collapses to 0 often
+    /// enough that the non-zero-tail fallback below is the live path, so the
+    /// scale sigma multiplies differs between two darks from the SAME sensor at
+    /// different gain. Measured against a consensus defect set of 18,393 px,
+    /// a fixed sigma 8 recovers 32.95% of it on one dark and 74.77% on
+    /// another; walking down to a 0.3% budget recovers 85.99% and 88.69%
+    /// respectively, at unchanged contamination (~1.9% either way).</para>
+    /// </summary>
+    public const float DefaultTargetMaskedFraction = 0.003f;
+
+    /// <summary>Multiplicative step for the budget walk. 0.75 costs at most a
+    /// handful of extra passes between a typical sigma 8 and the floor while
+    /// landing close enough to the budget that a finer step buys nothing.</summary>
+    private const float SigmaStepDown = 0.75f;
+
+    /// <summary>Floor for the budget walk. A backstop only: the walk normally
+    /// stops because the next step would exceed the budget. It matters solely
+    /// for a pathological dark whose defect tail never reaches the budget at
+    /// any threshold, where continuing would eventually flag the whole frame.</summary>
+    private const float MinSigma = 0.25f;
+
+    /// <summary>
     /// Per-channel hot-pixel mask: <c>true</c> bit = pixel exceeds the
     /// converged threshold (median + sigma * 1.4826 * MAD), masked from
     /// downstream integration. One <see cref="BitMatrix"/> per channel keeps
@@ -90,7 +140,9 @@ public static class BadPixelDetection
         float sigmaThreshold,
         ILogger? logger = null,
         int maxIterations = DefaultMaxIterations,
-        float convergenceFraction = DefaultConvergenceFraction)
+        float convergenceFraction = DefaultConvergenceFraction,
+        float maxMaskedFraction = DefaultMaxMaskedFraction,
+        float targetMaskedFraction = DefaultTargetMaskedFraction)
     {
         if (sigmaThreshold <= 0f)
         {
@@ -101,7 +153,8 @@ public static class BadPixelDetection
         for (var c = 0; c < channelCount; c++)
         {
             masks[c] = BuildMaskForChannel(darkMaster.GetChannelArray(c), c,
-                sigmaThreshold, maxIterations, convergenceFraction, logger);
+                sigmaThreshold, maxIterations, convergenceFraction,
+                maxMaskedFraction, targetMaskedFraction, logger);
         }
         return masks;
     }
@@ -132,65 +185,88 @@ public static class BadPixelDetection
     }
 
     /// <summary>
-    /// Run the iterative kappa-sigma loop for one channel of the dark master.
-    /// Strided positions + values are captured once; each iteration filters
-    /// the sample to currently un-masked positions, recomputes median + MAD,
-    /// applies the new threshold to the FULL channel, and grows the mask.
+    /// Builds one channel's mask in two SEPARATE phases, which is the whole
+    /// point of the shape:
+    ///
+    /// <list type="number">
+    /// <item>Converge a noise scale (median + MAD) by iterative kappa-sigma
+    /// over the strided sample, guarded by <paramref name="maxMaskedFraction"/>.</item>
+    /// <item>Choose the final threshold by walking sigma DOWN from the caller's
+    /// value while the flagged count stays inside
+    /// <paramref name="targetMaskedFraction"/>, then mask once.</item>
+    /// </list>
+    ///
+    /// <para><b>Why they must be separate.</b> The original single loop grew
+    /// the mask AND re-derived the noise scale from the surviving sample on
+    /// every iteration. Since the mask only ever grows, the sample only ever
+    /// shrinks, so the estimate could only tighten and the threshold could only
+    /// fall -- positive feedback the moment the threshold reached the bulk of
+    /// the distribution. Estimating the scale ONCE, from a sample the final
+    /// threshold has not touched, removes that coupling structurally rather
+    /// than bounding it. The guard in phase 1 remains as a backstop for a
+    /// pathological dark.</para>
     /// </summary>
     private static BitMatrix BuildMaskForChannel(
         float[,] data, int channelIndex,
         float sigmaThreshold, int maxIterations, float convergenceFraction,
+        float maxMaskedFraction, float targetMaskedFraction,
         ILogger? logger)
     {
         var h = data.GetLength(0);
         var w = data.GetLength(1);
         var totalPx = (long)h * w;
         var convergenceFloor = (long)(totalPx * convergenceFraction);
+        var runawayCeiling = maxMaskedFraction > 0f
+            ? (long)(totalPx * maxMaskedFraction)
+            : long.MaxValue;
 
-        // Strided sample collected once; reused (with position-aware
-        // mask filtering) across iterations.
+        // Strided sample collected once; reused (with exclusion filtering)
+        // across the estimation iterations. Positions are no longer needed:
+        // phase 1 works purely on the sample, and the single full-channel pass
+        // happens in phase 2 once the threshold is settled.
         var sampleCount = ((h + StatStride - 1) / StatStride) * ((w + StatStride - 1) / StatStride);
         var sampleValues = new float[sampleCount];
-        var sampleY = new int[sampleCount];
-        var sampleX = new int[sampleCount];
         var idx = 0;
         for (var y = 0; y < h; y += StatStride)
         {
             for (var x = 0; x < w; x += StatStride)
             {
-                sampleValues[idx] = data[y, x];
-                sampleY[idx] = y;
-                sampleX[idx] = x;
-                idx++;
+                sampleValues[idx++] = data[y, x];
             }
         }
         var totalSample = idx;
 
-        var mask = new BitMatrix(h, w);
+        // One strided sample stands for this many real pixels, which is how a
+        // sample-side count is compared against the whole-frame guard and
+        // convergence floor without a full-channel pass per iteration.
+        var pixelsPerSample = totalSample > 0 ? totalPx / (double)totalSample : 1.0;
+
+        var excluded = new bool[totalSample];
         var workBuf = new float[totalSample];
-        long maskedTotal = 0;
-        var lastThreshold = 0f;
+        var acceptedMedian = 0f;
+        var acceptedMad = 0f;
+        var haveEstimate = false;
         var iterRan = 0;
 
+        // PHASE 1: converge a noise scale. Nothing here builds the mask.
         for (var iter = 0; iter < maxIterations; iter++)
         {
             iterRan = iter + 1;
 
-            // Filter the strided sample to positions NOT in the current
-            // mask. After iter 0 these are guaranteed non-hot (we just
-            // flagged the hot ones), so the median + MAD anchor to the
-            // inlier distribution.
+            // Filter the strided sample to positions not yet excluded. After
+            // iter 0 these are guaranteed non-hot (we just excluded the hot
+            // ones), so the median + MAD anchor to the inlier distribution.
             var liveCount = 0;
             for (var i = 0; i < totalSample; i++)
             {
-                if (!mask[sampleY[i], sampleX[i]])
+                if (!excluded[i])
                 {
                     workBuf[liveCount++] = sampleValues[i];
                 }
             }
-            // Degenerate: every strided sample has been masked. Stop --
-            // the channel's distribution is so contaminated that one more
-            // iteration would have no signal to anchor against.
+            // Degenerate: every strided sample has been excluded. Stop -- the
+            // channel's distribution is so contaminated that one more iteration
+            // would have no signal to anchor against.
             if (liveCount == 0)
             {
                 break;
@@ -243,46 +319,141 @@ public static class BadPixelDetection
             }
 
             var threshold = median + sigmaThreshold * GaussianFactor * mad;
-            lastThreshold = threshold;
 
-            // Walk the FULL channel; flag any un-masked pixel exceeding
-            // threshold. Mask grows monotonically -- a pixel marked in
-            // iter K stays marked through convergence even if a later
-            // iteration's threshold would un-mark it. This is correct:
-            // once we've identified a hot pixel using cleaner statistics,
-            // re-introducing it would contaminate the very loop that just
+            // Exclude, on the SAMPLE only. Exclusions grow monotonically: a
+            // sample excluded in iter K stays excluded, because it was
+            // identified with the cleanest statistics available at the time and
+            // re-admitting it would contaminate the very estimate that
             // excluded it.
-            long newlyMasked = 0;
-            for (var y = 0; y < h; y++)
+            long newlyExcluded = 0;
+            for (var i = 0; i < totalSample; i++)
             {
-                for (var x = 0; x < w; x++)
+                if (!excluded[i] && sampleValues[i] > threshold)
                 {
-                    if (!mask[y, x] && data[y, x] > threshold)
-                    {
-                        mask[y, x] = true;
-                        newlyMasked++;
-                    }
+                    excluded[i] = true;
+                    newlyExcluded++;
                 }
             }
-            maskedTotal += newlyMasked;
+            var estimatedFullFrame = (long)(newlyExcluded * pixelsPerSample);
 
             logger?.LogDebug(
-                "  hot-pixel ch={Ch} iter={Iter}: median={Med:F4} mad={Mad:F4} threshold={T:F4} added={Added} total={Total}",
-                channelIndex, iter, median, mad, threshold, newlyMasked, maskedTotal);
+                "  hot-pixel ch={Ch} iter={Iter}: median={Med:F4} mad={Mad:F4} threshold={T:F4} sample-excluded={Excluded} (~{Est} px)",
+                channelIndex, iter, median, mad, threshold, newlyExcluded, estimatedFullFrame);
 
-            // Convergence criterion: newly-added below the absolute floor,
-            // OR exactly zero (full convergence). Iter 0 always has
-            // newlyMasked > 0 in practice; subsequent iters tail off.
-            if (newlyMasked == 0 || newlyMasked < convergenceFloor)
+            // RUNAWAY GUARD. Iteration 0 is always accepted: its median + MAD
+            // come from the complete strided sample with nothing excluded, so
+            // it is the most trustworthy estimate available and there is
+            // nothing earlier to fall back to. From iteration 1 on, a pass that
+            // would flag more than the ceiling has put its threshold inside the
+            // bulk rather than the defect tail, which means its MAD has already
+            // collapsed; keep the previous estimate and stop.
+            if (iter > 0 && estimatedFullFrame > runawayCeiling)
+            {
+                logger?.LogWarning(
+                    "  hot-pixel ch={Ch} iter={Iter}: refining the noise scale would flag ~{Est} px (over the {Ceiling} px guard); keeping the iter-{Prev} estimate median={Med:F4} mad={Mad:F4}",
+                    channelIndex, iter, estimatedFullFrame, runawayCeiling, iter - 1, acceptedMedian, acceptedMad);
+                break;
+            }
+
+            acceptedMedian = median;
+            acceptedMad = mad;
+            haveEstimate = true;
+
+            // Convergence: newly-excluded below the absolute floor, or exactly
+            // zero (full convergence). Iter 0 always excludes something in
+            // practice; subsequent iters tail off.
+            if (newlyExcluded == 0 || estimatedFullFrame < convergenceFloor)
             {
                 break;
             }
         }
 
+        var mask = new BitMatrix(h, w);
+        if (!haveEstimate)
+        {
+            logger?.LogWarning(
+                "  hot-pixel ch={Ch}: no usable noise scale (uniform or fully contaminated channel); masking nothing",
+                channelIndex);
+            return mask;
+        }
+
+        // PHASE 2: choose the threshold against the defect budget, then mask
+        // once. The noise scale is now FIXED, so lowering sigma can only lower
+        // the threshold and can only raise the count -- monotone, with no path
+        // back into the estimate. That is what makes walking down safe here
+        // when it was catastrophic inside the old combined loop.
+        var chosenSigma = sigmaThreshold;
+        var chosenThreshold = acceptedMedian + chosenSigma * GaussianFactor * acceptedMad;
+        var chosenCount = CountAbove(data, chosenThreshold);
+
+        if (targetMaskedFraction > 0f)
+        {
+            var budget = (long)(totalPx * targetMaskedFraction);
+            if (chosenCount > budget)
+            {
+                // The caller's own sigma already exceeds the budget. Left alone
+                // deliberately: the budget exists to let the threshold descend
+                // safely, not to discard detections the caller asked for. A
+                // dark that does this is worth looking at.
+                logger?.LogWarning(
+                    "  hot-pixel ch={Ch}: sigma={Sigma:F2} already flags {Count} px, over the {Budget} px budget; not lowering further",
+                    channelIndex, chosenSigma, chosenCount, budget);
+            }
+            else
+            {
+                while (chosenSigma * SigmaStepDown >= MinSigma)
+                {
+                    var nextSigma = chosenSigma * SigmaStepDown;
+                    var nextThreshold = acceptedMedian + nextSigma * GaussianFactor * acceptedMad;
+                    var nextCount = CountAbove(data, nextThreshold);
+                    if (nextCount > budget)
+                    {
+                        break;
+                    }
+                    chosenSigma = nextSigma;
+                    chosenThreshold = nextThreshold;
+                    chosenCount = nextCount;
+                }
+            }
+        }
+
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                if (data[y, x] > chosenThreshold)
+                {
+                    mask[y, x] = true;
+                }
+            }
+        }
+
         logger?.LogInformation(
-            "  hot-pixel ch={Ch}: {Count} px in {Iters} iter(s) (final threshold={T:F4})",
-            channelIndex, maskedTotal, iterRan, lastThreshold);
+            "  hot-pixel ch={Ch}: {Count} px ({Pct:F3}% of channel) at sigma={Sigma:F2} threshold={T:F4} (median={Med:F4} mad={Mad:F4}, {Iters} estimation iter(s))",
+            channelIndex, chosenCount, chosenCount * 100.0 / totalPx, chosenSigma, chosenThreshold,
+            acceptedMedian, acceptedMad, iterRan);
 
         return mask;
+    }
+
+    /// <summary>Pixels strictly above <paramref name="threshold"/>. Kept separate
+    /// so the budget walk reads as "how many would this threshold flag" without
+    /// allocating or mutating a mask per candidate.</summary>
+    private static long CountAbove(float[,] data, float threshold)
+    {
+        var h = data.GetLength(0);
+        var w = data.GetLength(1);
+        long count = 0;
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                if (data[y, x] > threshold)
+                {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 }

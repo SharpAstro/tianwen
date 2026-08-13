@@ -73,14 +73,62 @@ hot pixels, so it cannot confirm cold pixels, RTS pixels or column defects at an
 
 - Current dark-derived mask: 7,562 px (0.084%)
 - Unanimous consensus core: 18,393 px (0.203%)
-- Their union: **19,895 px (0.220%)** - 6,060 are common to both
+- Their union: 19,895 px (0.220%) - 6,060 are common to both
 
-So the achievable gain is **2.4x**, not the 15-33x implied by comparing against APP's 253k. The
-earlier framing recorded in the pre-rebake checklist ("even sigma 2 is 15x short") measured our mask
-against a number that is mostly not defects.
+**Superseded by the fidelity sweep below.** The union framing assumed we could not regenerate the
+core ourselves and would have to borrow APP's maps at runtime. Measuring recall against the core
+showed otherwise, and the achievable number is better than the 2.4x this section implies.
 
-Whether 19,895 px is enough to clear the drizzled hot-pixel clusters is an open question and needs
-the A/B re-run; the sigma-8 mask alone took 52 clusters to 35.
+What this section does correct is the pre-rebake checklist's "even sigma 2 is 15x short", which
+measured our mask against APP's 253,249 - a number that is mostly not defects.
+
+## Regenerating the map ourselves: recall against the core
+
+Sweeping sigma and scoring against CORE (the 18,393 unanimous px) and NEVER (the 7,244,374 px no map
+ever flagged), on `master_dark_120s_-10C_g121_ZWOASI533MCPro`:
+
+| sigma | flagged | core recall | landed in NEVER |
+|---|---|---|---|
+| 8.0 (old default) | 7,562 | 32.95% | 1.86% |
+| 4.0 | 11,678 | 53.26% | 1.87% |
+| 2.0 | 16,570 | 74.73% | 1.93% |
+| 1.0 | 21,898 | 85.99% | 1.93% |
+| 0.5 | 106,053 | 97.38% | 7.90% |
+
+Contamination is FLAT until the cliff, so the pixels gained by lowering the threshold are ones APP
+flagged too. This is largely a THRESHOLD problem, not the population problem the raw counts
+suggested.
+
+**But a fixed sigma cannot be the answer.** On `..._g252_...` - same sensor, different gain - sigma 1
+flags 1,852,117 px (20.5% of the frame, 59.35% of it in NEVER). Tracing the detector shows a runaway
+in the kappa-sigma loop rather than anything about the parameter:
+
+```
+iter=0: median=780 mad=4.0 threshold=785.93 added=330,021
+iter=1: median=778 mad=2.0 threshold=780.97 added=1,522,096
+```
+
+Masking 330k pixels shifts the sample median down and HALVES the MAD, lowering the threshold, which
+masks 1.5M more. The mask only grows and the sample only shrinks, so the estimate can only tighten.
+The convergence test ("stop when an iteration adds under 0.01%") notices only after the run has
+finished consuming. The g121 dark escapes purely by accident: its MAD is 0, so the non-zero-tail
+fallback pins the scale at 4.0 where the estimate cannot move.
+
+## The fix, and what it recovers
+
+Estimate the noise scale ONCE (guarded), then walk sigma down against a defect budget. From the same
+caller sigma of 8:
+
+| dark | selects | flagged | core recall | contamination |
+|---|---|---|---|---|
+| g121 | sigma 0.80 | 21,898 (0.242%) | **85.99%** (was 32.95%) | 1.93% |
+| g252 | sigma 3.38 | 23,904 (0.264%) | **89.42%** (was 74.77%) | 1.93% |
+
+Both land near an 800 ADU threshold despite different gains, which is the consistency you would want
+from one physical sensor. Nothing borrows an APP map at runtime; they are only the yardstick.
+
+Whether this clears the drizzled clusters is still open and needs the A/B re-run; the old sigma-8
+mask took 52 clusters to 35.
 
 ## Two method notes worth keeping
 

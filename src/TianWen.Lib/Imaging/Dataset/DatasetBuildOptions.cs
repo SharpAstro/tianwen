@@ -63,6 +63,11 @@ public sealed record DatasetBuildOptions
     /// exactly at the hot pixels; and many hot pixels are non-linear or telegraph-noise unstable,
     /// so no scaling would remove them anyway. Drizzle then has no rejection of its own
     /// (<c>DrizzleStrategy</c> says so explicitly), which leaves the mask as the only defence.</para>
+    /// <para><b>A ceiling, not the threshold.</b> Sigma multiplies a quantized MAD and so is not
+    /// portable between darks: 8 recovered 32.95% of one ASI533's consensus defect set from its
+    /// gain-121 master dark and 74.77% from its gain-252 one. The detector walks this value DOWN to
+    /// a defect budget, which brings both to 86-89%, so raising it does not tighten the mask the
+    /// way it reads.</para>
     /// </summary>
     public float HotPixelSigma { get; init; } = 8f;
 
