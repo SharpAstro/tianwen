@@ -222,9 +222,14 @@ public static class SessionRegistrar
     /// rejection one, so a single number is wrong for one of them. Pass a value only to override
     /// deliberately.</param>
     /// <param name="debayerAlgorithm">Debayer used for both measurement and warping.</param>
-    /// <param name="hotPixelSigma">Sigma above the dark's own background at which a pixel is
-    /// masked out of drizzle deposition, matching <c>StackingOptions.HotPixelSigma</c>. Zero
-    /// disables. <b>This is not redundant with dark subtraction</b>, which is what
+    /// <param name="hotPixelSigma">STARTING CEILING for the sigma above the dark's own background
+    /// at which a pixel is masked out of drizzle deposition, matching
+    /// <c>StackingOptions.HotPixelSigma</c>. Zero disables. It is a ceiling rather than the
+    /// threshold because sigma is not portable between darks: it multiplies a quantized MAD, so the
+    /// same number recovered 32.95% of a sensor's consensus defect set on one master dark and
+    /// 74.77% on another from the SAME sensor at a different gain.
+    /// <see cref="BadPixelDetection.BuildMaskFromDark"/> therefore walks it down to a defect budget,
+    /// which brought both to 86-89%. <b>This is not redundant with dark subtraction</b>, which is what
     /// <see cref="TryDrizzle"/> originally assumed: <see cref="Calibrator.Apply"/> subtracts the
     /// dark UNSCALED, so a dark that differs in exposure or sensor temperature leaves a residual
     /// exactly where the hot pixels are, and many hot pixels are non-linear or telegraph-noise
@@ -468,9 +473,15 @@ public static class SessionRegistrar
         if (calibrator?.Dark is { } darkMaster && hotPixelSigma > 0f)
         {
             badPixelMask = BadPixelDetection.BuildMaskFromDark(darkMaster, hotPixelSigma, logger);
-            logger?.LogInformation("  [{Session}] hot-pixel mask: {Count} px flagged at sigma={Sigma:F1}",
+            // The sigma passed in is a STARTING CEILING, not the threshold that ends up being used
+            // (BadPixelDetection walks it down to the defect budget), so this line reports the
+            // resulting count and the fraction it represents. The per-channel line from the
+            // detector itself carries the sigma and threshold actually chosen.
+            var flagged = BadPixelDetection.CountMaskedPixels(badPixelMask, darkMaster.Width, darkMaster.Height);
+            logger?.LogInformation("  [{Session}] hot-pixel mask: {Count} px ({Pct:F3}% of frame), from sigma<={Sigma:F1}",
                 session.Id,
-                BadPixelDetection.CountMaskedPixels(badPixelMask, darkMaster.Width, darkMaster.Height),
+                flagged,
+                flagged * 100.0 / (darkMaster.Width * (double)darkMaster.Height * darkMaster.ChannelCount),
                 hotPixelSigma);
         }
 
