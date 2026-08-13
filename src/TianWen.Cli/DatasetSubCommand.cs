@@ -116,6 +116,20 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                           "--require-dark to skip a session left with none. Unknown temperature stays a " +
                           "wildcard. Omit for no limit (the right value depends on the sensor).",
         };
+        var hotPixelSigmaOpt = new Option<float>("--hot-pixel-sigma")
+        {
+            Description = "STARTING CEILING for the sigma above the master dark's own background at " +
+                          "which a pixel is masked out of drizzle deposition, matching the stacker's " +
+                          "flag of the same name. The detector walks it DOWN to a defect budget, so " +
+                          "raising it does not tighten the mask the way it reads; sigma multiplies a " +
+                          "quantized MAD and is not portable between darks of the same sensor at " +
+                          "different gains. Pass 0 to disable masking entirely, which is how to run " +
+                          "the mask-on vs mask-off control: comparing a bake against an EARLIER bake " +
+                          "cannot attribute a change to the mask, because every other commit in " +
+                          "between moved too. Only BayerDrizzle sessions can show a difference at all " +
+                          "(a rejection-integrated master already sigma-clips hot pixels). Default 8.",
+            DefaultValueFactory = _ => 8f,
+        };
         var softwareOpt = new Option<string>("--software")
         {
             Description = "Case-insensitive wildcard on SWCREATE; only LIGHTS authored by matching " +
@@ -174,7 +188,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             {
                 archiveRootOpt, outOpt,
                 minExposureOpt, maxExposureOpt, excludeInstrumeOpt, excludeObjectOpt, excludePathOpt, minSubsOpt,
-                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, scratchRootOpt,
+                tileSizeOpt, cellsOpt, subsPerCellOpt, testFractionOpt, requireDarkOpt, requireGainMatchOpt, maxDarkDeltaTOpt, hotPixelSigmaOpt, softwareOpt, discoverOnlyOpt, resumeOpt, regenPsfOpt, forcePsfOpt, scratchRootOpt,
             },
         };
         buildCommand.SetAction(async (parseResult, ct) =>
@@ -213,6 +227,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 RequireDarkCalibration = parseResult.GetValue(requireDarkOpt),
                 RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),
                 MaxDarkTemperatureDelta = parseResult.GetValue(maxDarkDeltaTOpt),
+                HotPixelSigma = parseResult.GetValue(hotPixelSigmaOpt),
                 SoftwareIncludePattern = parseResult.GetValue(softwareOpt)!,
                 ScratchRoot = parseResult.GetValue(scratchRootOpt)!,
                 Resume = parseResult.GetValue(resumeOpt),

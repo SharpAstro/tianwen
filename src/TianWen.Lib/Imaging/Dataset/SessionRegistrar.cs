@@ -230,11 +230,13 @@ public static class SessionRegistrar
     /// 74.77% on another from the SAME sensor at a different gain.
     /// <see cref="BadPixelDetection.BuildMaskFromDark"/> therefore walks it down to a defect budget,
     /// which brought both to 86-89%. <b>This is not redundant with dark subtraction</b>, which is what
-    /// <see cref="TryDrizzle"/> originally assumed: <see cref="Calibrator.Apply"/> subtracts the
-    /// dark UNSCALED, so a dark that differs in exposure or sensor temperature leaves a residual
-    /// exactly where the hot pixels are, and many hot pixels are non-linear or telegraph-noise
-    /// unstable so no scaling removes them either. That is why PixInsight's CosmeticCorrection
-    /// runs in addition to dark subtraction rather than instead of it.</param>
+    /// <see cref="TryDrizzle"/> originally assumed. <see cref="Calibrator"/> now rescales the dark's
+    /// thermal component to the light's EXPOSURE, but temperature is still uncompensated, and many
+    /// hot pixels are non-linear or telegraph-noise unstable so no scaling of any kind removes them.
+    /// On this archive the exposure half is close to inert regardless: every master dark's median
+    /// equals its master bias's median to the ADU, so the rescale only ever moves defective pixels,
+    /// which is precisely the population the mask exists for. That is why PixInsight's
+    /// CosmeticCorrection runs in addition to dark subtraction rather than instead of it.</param>
     /// <param name="logger">Optional progress log.</param>
     public static async Task<RegisteredSession?> RegisterAsync(
         ImagingSession session,
