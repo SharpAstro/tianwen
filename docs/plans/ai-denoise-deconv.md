@@ -47,6 +47,41 @@ reads as covering 0 of 64 sessions until a `--force-psf` pass re-measures them. 
 retained masters rather than re-registering from the archive, so it costs minutes, not the ~7h the
 original registration took.
 
+**Superseded on 2026-08-13 by `D:\Astro-Dataset\2025-2026-darkscaled`, which is the training set
+now**: **67/68 sessions, 207,900 tiles, 67 PSF records, 67 retained masters (7.1 GB), parity OK**, in
+4h41m (finished 21:27:23). The 68th is HIP 42861 (see below). The name is the change: `Calibrator`
+now rescales a dark's thermal component to the light's exposure, which six sessions exercised. Master
+strategy splits **47 BayerDrizzle / 20 Float16Staged**, so the split-before-averaging rule above still
+applies. Held-out split 7 sessions.
+
+### This is a good-enough bake, deliberately, and not the last one
+
+Stated so the caveats are not re-litigated as blockers. They were weighed and set aside on
+2026-08-13 in favour of moving the N2N model forward, on the reasoning that model performance is
+gated by metrics and training signal right now, not by calibration matching.
+
+- **It ran with none of `--max-dark-delta-t`, `--require-dark`, `--require-gain-match`** (confirmed
+  from the live process's command line, not inferred). Temperature therefore only weights the dark
+  score with no cutoff, so a badly-matched dark still wins whenever it is the only candidate, and
+  several sessions were included carrying logged `gain/offset mismatch` warnings. The previous
+  `calgated` set WAS temperature-gated, which is why it kept fewer sessions; this one trades that for
+  coverage.
+- **The temperature half of dark scaling is still uncompensated** (§ the pre-rebake checklist, item
+  2). Exposure is scaled; temperature is not. Dark current roughly doubles per 6 C.
+- **Its binary predates the skip and timing stores**, so `stats/skipped-sessions.jsonl` holds only
+  HIP 42861 and `stats/session-timings.jsonl` only one session. Both are populated properly by the
+  next bake.
+- **Session 65 (`Vela SNR P2a 240s L-Ultra`) had its PSF record written by a later binary.** A file
+  read from outside the process collided with the store append that closes a session and failed it;
+  a `--regen-psf` pass recovered it, tiles untouched. The PSF measurement code is identical across
+  the two binaries, so the record is comparable. Root cause and both fixes are in the commit
+  `68ccafaf` / `4bf290d9` pair: stores now share reads in both directions, and a store write can no
+  longer fail a session whose tiles are already on disk.
+
+What a future bake should carry, in the order it is worth doing: the timing + skip stores populated
+across all sessions (free, just a newer binary), then the temperature gate once someone decides the
+per-sensor tolerance, then the hot-pixel population work (#22).
+
 **That run's report header read 31 sessions / 3,433 subs against the manifest's 45 / 4,958, and this
 document used to call that "the documented resume behaviour ... not a discrepancy". It was a defect,
 and calling it documented behaviour is what let it survive.** The report was derived state held in
