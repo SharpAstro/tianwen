@@ -428,9 +428,30 @@ public static class DatasetBuildRunner
                 // than from this run's in-memory accumulator.
                 var psfStart = StageTimings.Start();
                 var psf = await DatasetPsfNoiseReport.MeasureSessionAsync(reg, logger: logger, cancellationToken: cancellationToken);
-                await DatasetPsfStore.AppendAsync(psfStorePath, psf, cancellationToken);
-                psfBySession[session.Id] = psf;
-                await WriteReportAsync(reportPath, psfBySession, sessionIds, logger, cancellationToken);
+                // Persisting the measurement must not be able to fail the SESSION. By the time we get
+                // here the tiles are written and their manifest rows are appended, so the session IS
+                // part of the dataset; letting an I/O fault fall to the per-session catch marked a
+                // complete session FAILED and left the run's counts reporting it as both registered
+                // and failed. It cost a real session 65 of 68 into a four-hour bake, when a reader
+                // outside the process collided with this append (see JsonLinesFile.AppendAsync).
+                //
+                // The measurement is not lost so much as deferred: it is recoverable by
+                // RegenPsfForExportedSessions, which re-registers only the sessions the report does
+                // not cover. Counting it into psfMissing is what makes that discoverable, because the
+                // end-of-run warning names both the shortfall and the flag that fixes it.
+                try
+                {
+                    await DatasetPsfStore.AppendAsync(psfStorePath, psf, cancellationToken);
+                    psfBySession[session.Id] = psf;
+                    await WriteReportAsync(reportPath, psfBySession, sessionIds, logger, cancellationToken);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    psfMissing++;
+                    logger?.LogWarning(ex,
+                        "  [{Session}] tiles are exported but its PSF record could not be persisted; the session STANDS and is recoverable with --regen-psf.",
+                        session.Id);
+                }
                 timings.Record(PsfStage, psfStart, items: 1,
                     pixels: (long)reg.CanvasWidth * reg.CanvasHeight * reg.Master.ChannelCount);
 

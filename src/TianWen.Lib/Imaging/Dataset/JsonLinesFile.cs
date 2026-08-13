@@ -42,7 +42,19 @@ namespace TianWen.Lib.Imaging.Dataset
             }
 
             // OpenOrCreate + ReadWrite (not FileMode.Append, which forbids the backward scan).
-            await using var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            //
+            // FileShare.Read, not None: a store is written by exactly one process (both the output
+            // directory and the scratch root are lock-guarded) but it is READ all the time, by report
+            // code and by anyone inspecting a running bake. FileShare.None made every one of those
+            // readers a hazard rather than merely a nuisance, and it cost a session: a four-hour bake
+            // was 65 sessions in when a `Get-Content` of psf-sessions.jsonl collided with the append
+            // that closes a session, which threw IOException, fell to the per-session catch and
+            // marked an otherwise complete session FAILED.
+            //
+            // Sharing reads is safe against TruncateTornTail's SetLength below: it only ever removes
+            // an already-incomplete final line, and every reader here skips unparseable lines anyway,
+            // so the worst a concurrent reader sees is the torn tail it was going to skip regardless.
+            await using var stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
             TruncateTornTail(stream);
             stream.Seek(0, SeekOrigin.End);
             await using var writer = new StreamWriter(stream);
