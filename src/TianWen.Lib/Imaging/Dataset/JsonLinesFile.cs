@@ -51,6 +51,13 @@ namespace TianWen.Lib.Imaging.Dataset
             // that closes a session, which threw IOException, fell to the per-session catch and
             // marked an otherwise complete session FAILED.
             //
+            // Sharing is MUTUAL, so this grant alone is not the whole fix and cannot be: it lets a
+            // reader in while the append holds the file, but a reader already holding it decides for
+            // itself whether a writer may join. ReadLastPerKeyAsync therefore opens
+            // FileShare.ReadWrite, which covers every reader inside this process. An OUTSIDE reader
+            // that does not share writes (`Get-Content` does not) still collides, which is why the
+            // caller must also survive the fault -- see the psf-store catch in DatasetBuildRunner.
+            //
             // Sharing reads is safe against TruncateTornTail's SetLength below: it only ever removes
             // an already-incomplete final line, and every reader here skips unparseable lines anyway,
             // so the worst a concurrent reader sees is the torn tail it was going to skip regardless.
@@ -115,7 +122,15 @@ namespace TianWen.Lib.Imaging.Dataset
             }
 
             var skipped = 0;
-            await foreach (var line in File.ReadLinesAsync(path, cancellationToken))
+            // FileShare.ReadWrite, and this half is as load-bearing as the writer's FileShare.Read:
+            // sharing is a MUTUAL grant, so a reader that permits only reads still locks out the
+            // appender. File.ReadLinesAsync cannot express the share mode (it opens read-shared), so
+            // the stream is built by hand. Without this, rendering the report mid-bake -- which this
+            // very run does after every session -- could fail the next session's append.
+            await using var stream = new FileStream(
+                path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize: 1 << 16, useAsync: true);
+            using var reader = new StreamReader(stream);
+            while (await reader.ReadLineAsync(cancellationToken) is { } line)
             {
                 if (string.IsNullOrWhiteSpace(line))
                 {

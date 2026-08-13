@@ -255,4 +255,78 @@ public class StageTimingsTests
         await DatasetTimingStore.RecordAsync(null, record, cancellationToken: TestContext.Current.CancellationToken);
         await DatasetTimingStore.RecordAsync("", record, cancellationToken: TestContext.Current.CancellationToken);
     }
+
+    /// <summary>
+    /// A store must stay writable while something is READING it. These files exist to be read -- by
+    /// the report renderer, and by anyone inspecting a bake in flight -- so an open reader has to be a
+    /// nuisance at worst, never a hazard.
+    ///
+    /// <para>It was a hazard: <c>JsonLinesFile.AppendAsync</c> opened with <c>FileShare.None</c>, so a
+    /// plain read of <c>psf-sessions.jsonl</c> from outside the process collided with the append that
+    /// closes a session, threw <see cref="IOException"/>, and marked an otherwise complete session
+    /// FAILED 65 of 68 sessions into a four-hour bake.</para>
+    ///
+    /// <para><b>Sharing is a MUTUAL grant, which is the part that is easy to get half right.</b> The
+    /// writer permitting reads is not sufficient on its own: a reader already holding the file decides
+    /// whether a writer may join, so a reader opened <c>FileShare.Read</c> locks the appender out even
+    /// against a fully permissive writer. Both directions are asserted here.</para>
+    /// </summary>
+    [Fact]
+    public async Task AStoreStaysWritableWhileAReaderHoldsItOpen()
+    {
+        var dir = Directory.CreateTempSubdirectory("tw-timingshare");
+        try
+        {
+            var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
+            DatasetTimingStore.SessionTiming Make(string id) =>
+                new(id, "cam", 1, 1, 1, 1, "x", 1.0, [new StageTimings.Stage(StageNames.Measure, 1, 1, 1)]);
+
+            await DatasetTimingStore.AppendAsync(path, Make("first"), TestContext.Current.CancellationToken);
+
+            // A reader that shares writes, which is what every reader inside this process now does.
+            // AppendAsync, not RecordAsync: the latter swallows IOException by design and would pass
+            // whether or not the sharing was right.
+            using (var reader = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                await DatasetTimingStore.AppendAsync(path, Make("second"), TestContext.Current.CancellationToken);
+            }
+
+            var read = await DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+            read.Keys.OrderBy(static k => k).ShouldBe(["first", "second"]);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// The other half of the mutual grant: OUR OWN reader must not lock out the appender. This is not
+    /// hypothetical for a bake -- it re-renders the report from the store after every session, so a
+    /// read-exclusive reader here would fail the very next session's append.
+    /// </summary>
+    [Fact]
+    public async Task OurOwnReaderDoesNotLockOutTheAppender()
+    {
+        var dir = Directory.CreateTempSubdirectory("tw-timingshare2");
+        try
+        {
+            var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
+            var record = new DatasetTimingStore.SessionTiming("a", "cam", 1, 1, 1, 1, "x", 1.0, []);
+            await DatasetTimingStore.AppendAsync(path, record, TestContext.Current.CancellationToken);
+
+            // Interleave for real: start the read, and append while its enumeration is still open.
+            var readTask = DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken);
+            await DatasetTimingStore.AppendAsync(
+                path, record with { SessionId = "b" }, TestContext.Current.CancellationToken);
+            (await readTask).ShouldNotBeEmpty();
+
+            (await DatasetTimingStore.ReadAsync(path, cancellationToken: TestContext.Current.CancellationToken))
+                .Count.ShouldBe(2);
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
 }
