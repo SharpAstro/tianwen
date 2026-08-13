@@ -659,6 +659,35 @@ Two things follow that the √2 arithmetic alone does not give:
 Do **not** test the pair's independence with `corr(A − master, B − master)`: the master is ~(A+B)/2,
 so those residuals are ±(A−B)/2 and it returns −0.99 by algebra regardless of the data.
 
+**Trained on, 2026-08-14, and the pair does not help** (`D:\Astro-Dataset\n2n-smoke\v10`, three
+seeds per arm, scored on a held-out session no gate touched). Added as a fourth sampling regime
+alongside 1v1/2v2/4v4 it leaves the noise/amplitude frontier where it was and makes fabrication
+*worse*. Two things had to be got right before that reading was trustworthy, and both had produced a
+confident wrong answer first:
+
+- **Compare at matched noise, never at matched step count.** A quarter of the half-pair run's steps
+  train on pairs whose target is nearly the input, which slows the trajectory, so at a fixed 4000
+  steps the config reads "keeps more amplitude, removes less noise" while being the same model family
+  stopped earlier in effect. Interpolated at matched noise, amplitude overlaps at every level both
+  arms reach (0.80x: 0.757 vs 0.779; 0.75x: 0.696 vs 0.733) while invented sources over the raw-sub
+  floor separate cleanly against the pair (0.75x: +5.1 in −2.4..10.2 vs **+21.4** in 17.2..25.6).
+- **One run per arm cannot see this.** The half-pair arm's fabrication reads 15.1 / 34.4 / 28.3 across
+  three seeds against the control's 33.4 / 33.6 / 32.6 -- a spread of 19 against 1.0 -- so a single
+  pair of runs measures the weight initialisation. The first attempt did, and reported a 6x win.
+
+The depth and in-kind arguments above still measure out; they simply do not cash out in training.
+Untested mechanism worth keeping: N2N *preserves* whatever the two views share, and two interleaved
+halves of one session share their unrejected fixed-pattern residue in a way two subs do not, which
+would produce exactly this excess of invented point sources.
+
+**What that experiment found instead: the stopping rule dominates the sampling regime.** Invention
+grows monotonically through training (+1 invented source per tile over the raw-sub floor at step 250,
++38 at step 4000) while the useful window sits at step 1100-1700 of 4000, so a fixed budget spends
+real faint stars to buy fabricated ones. Selecting on a mid-training fabrication probe instead, at
+equal or better residual noise in two of three seeds: **+22% faint-star amplitude and 46% fewer
+invented sources for 1.6% more noise.** §3a carries the gate's design and the three ways its
+thresholds went wrong.
+
 **Zero train/inference skew (non-negotiable):** the tile exporter calls the *same* code the
 inference path uses; `AiNafnetInputs` MTF pre-stretch (target median 0.25, auto-skip threshold
 0.125), `[0,1]` linear convention, `ChunkedInference`-compatible geometry. Python never
@@ -832,6 +861,27 @@ anyway, the synthetic truth is exact). The held-out split stays by session, unch
   master and its subs, so the loss never asks the model to invent the missing half).
 - **Optimisation:** AdamW, cosine schedule, grad-norm clip 1.0, early stop on held-out val, seeded
   end-to-end. Mirrors the Croman talk's recipe and prior in-house ML-pipeline experience.
+- **"Early stop on held-out val" has to name the metric, and it cannot be the loss.** Measured
+  2026-08-14 (§3a, `v10`): the loss falls monotonically while invented point sources climb from +1
+  per tile over the raw-sub floor at step 250 to +38 at step 4000, so *every* extra step improves the
+  objective and degrades the product. Stopping on the fabrication probe instead bought +22 % faint
+  amplitude and 46 % fewer invented sources at equal noise. Three thresholds went wrong on the way,
+  and all three failures are silent:
+  - **A threshold below the achievable range vetoes rather than selects.** `|resid corr| <= 0.20`
+    rejected 117 of 120 probes and was the sole reason 39 times, against a 5th percentile of 0.229;
+    the one pass landed at 0.199 by luck and nearly got reported as the gate working. Audit each
+    metric's distribution against its threshold before believing a pass rate.
+  - **A ratio objective can be maximised by doing nothing.** `faint_amp / noise` is exactly 1.0 for
+    the identity, which also passes every purity gate trivially (a model that changes nothing invents
+    nothing). Minimise noise subject to purity gates, and carry a minimum-denoising floor so an
+    identity cannot win by being the only passer -- it did, once, at 1.02x noise.
+  - **A metric that does not survive a change of session cannot gate at any setting.** Across two
+    held-out sessions the residual correlation moved 0.301 for one checkpoint (+0.223 to −0.078) while
+    the spread across six very different checkpoints on one session was 0.160. Faint amplitude
+    transfers ~6:1 and the fabrication count keeps its ordering; those two carry the decision, and
+    residual correlation is now reported and not gated. Its final indictment: the three best
+    checkpoints scored *worst* on it (0.294/0.343/0.443) while the fully-trained model with the
+    cleanest reading (0.146) invented 33.6 sources per tile.
 - **Discipline (proven in-house ML-pipeline patterns, adopted wholesale):**
   - `training/EXPERIMENTS.md`: every run logged, ablations base-vs-+change on the **pinned split**,
     negative verdicts recorded to stop re-litigation.
