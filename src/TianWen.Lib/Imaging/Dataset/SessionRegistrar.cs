@@ -237,6 +237,15 @@ public static class SessionRegistrar
     /// equals its master bias's median to the ADU, so the rescale only ever moves defective pixels,
     /// which is precisely the population the mask exists for. That is why PixInsight's
     /// CosmeticCorrection runs in addition to dark subtraction rather than instead of it.</param>
+    /// <param name="skipStorePath">Optional <see cref="DatasetSkipStore"/> path. Every way this
+    /// method drops a session without throwing appends a record there, so a bake-to-bake comparison
+    /// of WHICH sessions failed is a diff rather than a log grep. Null disables it.</param>
+    /// <param name="timings">Optional per-stage accounting (<see cref="StageTimings"/>). Populated
+    /// with <see cref="StageNames.Measure"/>, <see cref="StageNames.Register"/>,
+    /// <see cref="StageNames.Warp"/>, <see cref="StageNames.Integrate"/> and
+    /// <see cref="StageNames.Halves"/>, each carrying the item and pixel counts it processed so the
+    /// caller never has to infer a denominator. Null (the default) records nothing and costs nothing.
+    /// <b>Not shared across concurrent sessions</b>; see the type's remarks.</param>
     /// <param name="logger">Optional progress log.</param>
     public static async Task<RegisteredSession?> RegisterAsync(
         ImagingSession session,
@@ -249,18 +258,24 @@ public static class SessionRegistrar
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
         float hotPixelSigma = 8f,
         string? skipStorePath = null,
+        StageTimings? timings = null,
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
         // 1. Measure every light: calibrate -> debayer -> detect stars -> PSF metrics.
         //    The star list is retained on each AnalyzedFrame so nothing below re-detects.
+        var measureStart = StageTimings.Start();
         var analyzed = new List<SessionFrameAnalyzer.AnalyzedFrame>(session.Lights.Length);
+        var measuredPixels = 0L;
         foreach (var light in session.Lights)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            analyzed.Add(await SessionFrameAnalyzer.MeasureAsync(
-                light, calibrator, debayerAlgorithm, cancellationToken: cancellationToken));
+            var frame = await SessionFrameAnalyzer.MeasureAsync(
+                light, calibrator, debayerAlgorithm, cancellationToken: cancellationToken);
+            analyzed.Add(frame);
+            measuredPixels += (long)frame.Frame.Width * frame.Frame.Height;
         }
+        timings?.Record(StageNames.Measure, measureStart, analyzed.Count, measuredPixels);
 
         // 2. Session-relative quality gate (star-count-led; see SessionFrameAnalyzer doc).
         var gate = SessionFrameAnalyzer.ApplyGate(analyzed, qualityRejectSigma, qualityMaxRejectFraction);
@@ -317,6 +332,7 @@ public static class SessionRegistrar
             reference.Metrics.StarCount, reference.Metrics.MedianHfd, reference.Metrics.MedianEllipticity, bestScore);
 
         // 4. Register each survivor against the reference from the RETAINED star lists.
+        var registerStart = StageTimings.Start();
         using var referenceSorted = new SortedStarList(reference.Stars);
         var referenceQuads = await referenceSorted.FindQuadsAsync(maxStars: QuadStars, cancellationToken: cancellationToken);
         logger?.LogInformation("  [{Session}] reference quads={Quads} from {Stars} retained stars (top {Cap})",
@@ -384,6 +400,12 @@ public static class SessionRegistrar
             var refined = RegistrationRefiner.RefineRigid(lightSorted, referenceSorted, solution.Value).Refined;
             matched.Add((f, refined));
         }
+        // Items are the SURVIVORS, not the matches: the ones that failed still cost their quad-form
+        // and their trip up the tolerance ladder, so charging the stage only for its successes would
+        // make a session that fails everything look arbitrarily fast. No pixels: registration reads
+        // star centroids only, never a pixel, which is the whole reason it is a rounding error next
+        // to every other stage.
+        timings?.Record(StageNames.Register, registerStart, survivors.Length);
         var spread = RegistrationCensus.Measure(censusStars, censusQuads, censusHfd, censusEcc);
         var census = RegistrationCensus.Describe(spread);
         logger?.LogInformation(
@@ -456,6 +478,7 @@ public static class SessionRegistrar
         }
         Directory.CreateDirectory(sessionScratch);
 
+        var warpStart = StageTimings.Start();
         var subs = ImmutableArray.CreateBuilder<RegisteredSub>(matched.Count);
         // Captured off the first raw load: the drizzle gate keys off it and there is no cheaper
         // authoritative source here. Invariant within a session by construction (frames with a
@@ -479,6 +502,13 @@ public static class SessionRegistrar
             subs.Add(new RegisteredSub(f.Frame, warpedPath, shifted, f.Metrics));
         }
         var subsList = subs.MoveToImmutable();
+        // Charged in CANVAS pixels, not source pixels: the warp writes a canvas-sized scratch FITS per
+        // sub, and the canvas is larger than the frame by the session's whole dither excursion, so
+        // source pixels would flatter it by whatever the dithering happened to be. Kept as its own
+        // stage rather than folded into integrate, which is how the log reads it, because it is a
+        // second full pass over the raw lights on the ARCHIVE disk while the integration that follows
+        // reads scratch on a different one.
+        timings?.Record(StageNames.Warp, warpStart, subsList.Length, (long)subsList.Length * canvasW * canvasH);
 
         // 7. Integrate the session master from the scratch warped subs. Reuses the stacker's
         //    rejector selection + streaming float16-staged integrator (bounded RAM regardless
@@ -539,7 +569,9 @@ public static class SessionRegistrar
         }
 
         var all = Enumerable.Range(0, subsList.Length).ToImmutableArray();
+        var integrateStart = StageTimings.Start();
         var master = await IntegrateSubsetAsync(all, "_integrate");
+        timings?.Record(StageNames.Integrate, integrateStart, subsList.Length, (long)subsList.Length * canvasW * canvasH);
         logger?.LogInformation(
             "  [{Session}] master integrated via {Strategy} ({Frames} frames)",
             session.Id, useDrizzle ? nameof(IntegrationStrategyKind.BayerDrizzle) : nameof(IntegrationStrategyKind.Float16Staged),
@@ -566,10 +598,15 @@ public static class SessionRegistrar
         var halfMasterFloor = minSubsForHalfMasters ?? MinSubsForHalfMasters(useDrizzle);
         if (subsList.Length >= halfMasterFloor)
         {
+            // Both halves record into ONE stage, and between them they cover every sub exactly once,
+            // so the per-item cost is directly comparable with Integrate above rather than being half
+            // of it twice.
+            var halvesStart = StageTimings.Start();
             halfA = await IntegrateSubsetAsync(
                 all.Where(i => i % 2 == 0).ToImmutableArray(), "_half_a");
             halfB = await IntegrateSubsetAsync(
                 all.Where(i => i % 2 == 1).ToImmutableArray(), "_half_b");
+            timings?.Record(StageNames.Halves, halvesStart, subsList.Length, (long)subsList.Length * canvasW * canvasH);
             logger?.LogInformation(
                 "  [{Session}] half-master pair integrated ({A} + {B} frames)",
                 session.Id, (subsList.Length + 1) / 2, subsList.Length / 2);

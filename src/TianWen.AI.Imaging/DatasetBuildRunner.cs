@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -8,6 +10,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.AI.Imaging;
 
@@ -72,6 +75,20 @@ public static class DatasetBuildRunner
 
     /// <summary>Rendered PSF/noise report, written beside the store under <c>&lt;outDir&gt;/stats</c>.</summary>
     public const string ReportFileName = "psf-noise-report.md";
+
+    /// <summary>Tile export: cell selection, stretch, and the tile writes. Items = TILES, not subs.
+    /// The distinction is the reason <see cref="StageTimings.Stage.Items"/> is not called "frames":
+    /// normalising this stage per input frame makes a stage that creates ~41 files a second on a
+    /// spindle read as a compute stage running at 14 Mpx/s.</summary>
+    public const string ExportStage = "export";
+
+    /// <summary>PSF/noise measurement on the session master. Items = the master (1), so its per-item
+    /// figure is simply its own cost.</summary>
+    public const string PsfStage = "psf";
+
+    /// <summary>Writing the retained session master. Items = masters written (0 when retention is off
+    /// or the master was already on disk).</summary>
+    public const string RetainStage = "retain";
 
     public static async Task<RunResult> RunAsync(
         DatasetBuildOptions options,
@@ -153,6 +170,13 @@ public static class DatasetBuildRunner
         // meant grepping them by hand.
         var skipStorePath = Path.Combine(statsDir, DatasetSkipStore.FileName);
 
+        // Per-stage wall-clock accounting, one accumulator per session, persisted beside the other
+        // two stores. Before this there was no instrumentation at all and "where does a bake spend
+        // its time" was answered by parsing timestamps out of the Debug log and inferring the stage
+        // boundaries from message shapes, which cannot see a denominator and got one wrong.
+        var timingStorePath = Path.Combine(statsDir, DatasetTimingStore.FileName);
+        var sessionTimings = new List<ImmutableArray<StageTimings.Stage>>();
+
         // 3. Per-session pipeline. Scratch (warped subs) is wiped after each session so peak disk is
         //    bounded by the largest single session, not the whole archive; the masters cache
         //    (outDir/masters) is separate and preserved for build-once reuse.
@@ -184,6 +208,7 @@ public static class DatasetBuildRunner
         var parityChecked = false;
         var parityMaxDiff = 0.0;
         var idx = 0;
+        var loopStart = StageTimings.Start();
         foreach (var session in sessions)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -276,10 +301,18 @@ public static class DatasetBuildRunner
             // Fault-isolated per session: discovery validated only HEADERS, so a truncated /
             // unreadable file first explodes here (LoadFullAsync -> IOException), potentially hours
             // into an archive bake. Log + count + move on; cancellation still propagates.
+            var timings = new StageTimings();
+            var sessionStart = StageTimings.Start();
             try
             {
+                var calibrateStart = StageTimings.Start();
                 var calibrator = await CalibrationResolver.ResolveAsync(
                     session, calGroups, masterCache, options.RequireGainMatch, options.MaxDarkTemperatureDelta, logger, cancellationToken);
+                // Time only, no items: the masters cache means the first session to need a given
+                // master pays to build it and every later one pays a read, so a per-session item
+                // count would divide a shared cost by whichever session happened to come first. The
+                // wall time is still worth having, because it is where a cold masters cache shows up.
+                timings.Record(StageNames.Calibrate, calibrateStart);
 
                 // A training sample needs dark subtraction: an uncalibrated N2N pair shares the
                 // sensor's fixed-pattern dark signal (correlated between the two subs), so skip a
@@ -312,6 +345,7 @@ public static class DatasetBuildRunner
                     options.QualityRejectSigma, options.QualityMaxRejectFraction, options.MinSubsPerSession,
                     hotPixelSigma: options.HotPixelSigma,
                     skipStorePath: skipStorePath,
+                    timings: timings,
                     logger: logger, cancellationToken: cancellationToken);
                 if (reg is null)
                 {
@@ -331,6 +365,7 @@ public static class DatasetBuildRunner
                 // do (that path counts a failure and skips the measure).
                 if (options.RetainSessionMasters)
                 {
+                    var retainStart = StageTimings.Start();
                     try
                     {
                         // Naming lives in RetainedMasterStore, which the re-measure path reads through:
@@ -341,10 +376,19 @@ public static class DatasetBuildRunner
                             frameCount: reg.Subs.Length, strategy: reg.MasterStrategy, logger: logger))
                         {
                             mastersRetained++;
+                            timings.Record(RetainStage, retainStart, items: 1,
+                                pixels: (long)reg.CanvasWidth * reg.CanvasHeight * reg.Master.ChannelCount);
+                        }
+                        else
+                        {
+                            // Already on disk: the time is real (it still had to look) but no master
+                            // was written, so it must not be charged pixels it did not move.
+                            timings.Record(RetainStage, retainStart);
                         }
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
+                        timings.Record(RetainStage, retainStart);
                         logger?.LogWarning(ex, "  [{Session}] could not retain the session master; continuing", session.Id);
                     }
                 }
@@ -356,8 +400,15 @@ public static class DatasetBuildRunner
                 }
                 else
                 {
+                    var exportStart = StageTimings.Start();
                     var export = await DatasetTileExporter.ExportAsync(
                         reg, outDir, options.TileSize, options.CellsPerSession, options.SubsPerCell, logger, cancellationToken);
+                    // Items are TILES and pixels are TILE pixels, because that is what this stage
+                    // repeats over and writes. Normalising it per input frame is what made it look
+                    // like a compute stage: it fans a cell out to eleven tiles by default, and its
+                    // real cost is creating that many small files.
+                    timings.Record(ExportStage, exportStart, export.Rows.Length,
+                        (long)export.Rows.Length * options.TileSize * options.TileSize * reg.Master.ChannelCount);
                     totalTiles += export.Rows.Length;
 
                     // In-run zero-skew gate: verify the first exported session's stored tiles equal the C#
@@ -375,10 +426,31 @@ public static class DatasetBuildRunner
                 // makes a kill at any point cost only the in-flight session: the store holds every
                 // session measured so far, and the rendered report is rebuilt from the store rather
                 // than from this run's in-memory accumulator.
+                var psfStart = StageTimings.Start();
                 var psf = await DatasetPsfNoiseReport.MeasureSessionAsync(reg, logger: logger, cancellationToken: cancellationToken);
                 await DatasetPsfStore.AppendAsync(psfStorePath, psf, cancellationToken);
                 psfBySession[session.Id] = psf;
                 await WriteReportAsync(reportPath, psfBySession, sessionIds, logger, cancellationToken);
+                timings.Record(PsfStage, psfStart, items: 1,
+                    pixels: (long)reg.CanvasWidth * reg.CanvasHeight * reg.Master.ChannelCount);
+
+                // Recorded only for a session that got all the way here, so the store holds costs
+                // that are comparable to each other. A session that failed mid-pipeline has a
+                // meaningless total and would drag the roll-up toward whatever stage it died in.
+                var stages = timings.Snapshot();
+                sessionTimings.Add(stages);
+                var wall = Stopwatch.GetElapsedTime(sessionStart).TotalSeconds;
+                await DatasetTimingStore.RecordAsync(timingStorePath, new DatasetTimingStore.SessionTiming(
+                    SessionId: session.Id,
+                    Camera: session.Camera,
+                    Lights: session.Lights.Length,
+                    Registered: reg.Subs.Length,
+                    CanvasWidth: reg.CanvasWidth,
+                    CanvasHeight: reg.CanvasHeight,
+                    MasterStrategy: reg.MasterStrategy.ToString(),
+                    WallSeconds: wall,
+                    Stages: stages), logger, cancellationToken);
+                logger?.LogInformation("  [{Session}] timing: {Timing}", session.Id, StageTimings.Describe(stages));
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -390,6 +462,20 @@ public static class DatasetBuildRunner
             {
                 TryDelete(scratchRoot, logger);
             }
+        }
+
+        // Run-level roll-up: one table instead of a log-parsing exercise. Charged against the loop's
+        // OWN wall time rather than the sum of the stages, so the unaccounted row is visible; a
+        // growing gap there means the stage boundaries have drifted from where the time actually
+        // goes, which is the one thing a timing table has to be able to say about itself.
+        if (sessionTimings.Count > 0)
+        {
+            var rollup = StageTimings.Merge(sessionTimings);
+            var loopSeconds = Stopwatch.GetElapsedTime(loopStart).TotalSeconds;
+            logger?.LogInformation("Stage roll-up over {Sessions} session(s):\n{Table}",
+                sessionTimings.Count, StageTimings.DescribeTable(rollup, loopSeconds));
+            progress?.Report($"[dataset] stage roll-up ({sessionTimings.Count} sessions, {loopSeconds / 60.0:F1} min):\n"
+                + StageTimings.DescribeTable(rollup, loopSeconds));
         }
 
         // 4. PSF/noise distribution report, rebuilt from the checkpoint store so it covers every

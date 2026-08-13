@@ -1,9 +1,5 @@
 using Microsoft.Extensions.Logging;
-using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Text;
-using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -66,45 +62,11 @@ namespace TianWen.Lib.Imaging.Dataset
         /// (a torn tail from a killed run, healed on the next append) are skipped and counted in the
         /// log, never fatal; a missing file yields an empty map, so a first run degrades cleanly.
         /// </summary>
-        public static async Task<Dictionary<string, SkippedSession>> ReadAsync(
-            string path, ILogger? logger = null, CancellationToken cancellationToken = default)
-        {
-            var byId = new Dictionary<string, SkippedSession>(StringComparer.Ordinal);
-            if (!File.Exists(path))
-            {
-                return byId;
-            }
-
-            var skipped = 0;
-            await foreach (var line in File.ReadLinesAsync(path, cancellationToken))
-            {
-                if (string.IsNullOrWhiteSpace(line))
-                {
-                    continue;
-                }
-                SkippedSession? record;
-                // Same reasoning as DatasetPsfStore: there is no TryDeserialize, so tolerating a torn
-                // tail has to be exception-based.
-                try
-                {
-                    record = JsonSerializer.Deserialize(line, DatasetSkipJsonContext.Default.SkippedSession);
-                }
-                catch (JsonException)
-                {
-                    skipped++;
-                    continue;
-                }
-                if (record is not null)
-                {
-                    byId[record.SessionId] = record;
-                }
-            }
-            if (skipped > 0)
-            {
-                logger?.LogWarning("Skip store {Path}: skipped {Skipped} unparseable line(s) (torn tail from an interrupted run).", path, skipped);
-            }
-            return byId;
-        }
+        public static Task<Dictionary<string, SkippedSession>> ReadAsync(
+            string path, ILogger? logger = null, CancellationToken cancellationToken = default) =>
+            JsonLinesFile.ReadLastPerKeyAsync(
+                path, DatasetSkipJsonContext.Default.SkippedSession, static r => r.SessionId,
+                "skip store", logger, cancellationToken);
 
         /// <summary>
         /// Best-effort append used by every skip site: creates the stats directory, swallows an I/O
@@ -116,37 +78,15 @@ namespace TianWen.Lib.Imaging.Dataset
         /// is otherwise fine because a diagnostics line could not be written would trade one session
         /// for the remaining sixty-seven. The WARNING at the skip site is the fallback record.</para>
         /// </summary>
-        public static async Task RecordAsync(
-            string? path, SkippedSession record, ILogger? logger = null, CancellationToken cancellationToken = default)
-        {
-            if (path is not { Length: > 0 })
-            {
-                return;
-            }
-            try
-            {
-                if (Path.GetDirectoryName(path) is { Length: > 0 } dir)
-                {
-                    Directory.CreateDirectory(dir);
-                }
-                await AppendAsync(path, record, cancellationToken);
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                logger?.LogWarning(ex,
-                    "  [{Session}] could not append to the skip store {Path}; the WARNING above is the only record.",
-                    record.SessionId, path);
-            }
-        }
+        public static Task RecordAsync(
+            string? path, SkippedSession record, ILogger? logger = null, CancellationToken cancellationToken = default) =>
+            JsonLinesFile.RecordBestEffortAsync(
+                path, record, DatasetSkipJsonContext.Default.SkippedSession,
+                "skip store", logger, cancellationToken);
 
         /// <summary>Appends one dropped session's record.</summary>
-        public static Task AppendAsync(string path, SkippedSession record, CancellationToken cancellationToken = default)
-        {
-            var sb = new StringBuilder();
-            sb.Append(JsonSerializer.Serialize(record, DatasetSkipJsonContext.Default.SkippedSession));
-            sb.Append('\n');
-            return JsonLinesFile.AppendAsync(path, sb.ToString(), cancellationToken);
-        }
+        public static Task AppendAsync(string path, SkippedSession record, CancellationToken cancellationToken = default) =>
+            JsonLinesFile.AppendRecordAsync(path, record, DatasetSkipJsonContext.Default.SkippedSession, cancellationToken);
     }
 
     [JsonSerializable(typeof(DatasetSkipStore.SkippedSession))]

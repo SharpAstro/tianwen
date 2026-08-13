@@ -1,5 +1,10 @@
+using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -70,6 +75,107 @@ namespace TianWen.Lib.Imaging.Dataset
                 }
             }
             stream.SetLength(0); // no newline at all; the whole file is one torn line
+        }
+
+        /// <summary>
+        /// Reads a store into a key-keyed map, LAST record per key winning. Unparseable lines (a torn
+        /// tail from a killed run, healed on the next append) are skipped and counted in the log,
+        /// never fatal; a missing file yields an empty map, so a first run degrades cleanly.
+        ///
+        /// <para>The three dataset stores (PSF, skips, timings) differed only in their record type
+        /// and key selector, and each had its own copy of this loop plus its own subtly different
+        /// warning text. <paramref name="typeInfo"/> is passed in rather than resolved, so this stays
+        /// AOT-safe: every caller supplies its own source-generated context.</para>
+        /// </summary>
+        /// <param name="label">Store name for the torn-tail warning, e.g. "PSF store".</param>
+        public static async Task<Dictionary<string, T>> ReadLastPerKeyAsync<T>(
+            string path,
+            JsonTypeInfo<T> typeInfo,
+            Func<T, string> keySelector,
+            string label,
+            ILogger? logger = null,
+            CancellationToken cancellationToken = default)
+        {
+            var byKey = new Dictionary<string, T>(StringComparer.Ordinal);
+            if (!File.Exists(path))
+            {
+                return byKey;
+            }
+
+            var skipped = 0;
+            await foreach (var line in File.ReadLinesAsync(path, cancellationToken))
+            {
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    continue;
+                }
+                T? record;
+                // Resilience over untrusted tail bytes (killed mid-append): there is no
+                // TryDeserialize, so the torn-line skip has to be exception-based.
+                try
+                {
+                    record = JsonSerializer.Deserialize(line, typeInfo);
+                }
+                catch (JsonException)
+                {
+                    skipped++;
+                    continue;
+                }
+                if (record is not null)
+                {
+                    byKey[keySelector(record)] = record;
+                }
+            }
+            if (skipped > 0)
+            {
+                logger?.LogWarning("{Label} {Path}: skipped {Skipped} unparseable line(s) (torn tail from an interrupted run).",
+                    label, path, skipped);
+            }
+            return byKey;
+        }
+
+        /// <summary>Serialises one record and appends it as a single newline-terminated line, after
+        /// the work it records is complete, so the store never holds a half-finished entry.</summary>
+        public static Task AppendRecordAsync<T>(
+            string path, T record, JsonTypeInfo<T> typeInfo, CancellationToken cancellationToken = default)
+        {
+            var sb = new StringBuilder();
+            sb.Append(JsonSerializer.Serialize(record, typeInfo));
+            sb.Append('\n');
+            return AppendAsync(path, sb.ToString(), cancellationToken);
+        }
+
+        /// <summary>
+        /// <see cref="AppendRecordAsync"/> for diagnostic stores, where the append must never take
+        /// down the run that produced the record: a null or empty <paramref name="path"/> is a no-op
+        /// (a caller that did not ask for a store, the normal case in tests and the stacking CLI),
+        /// and an I/O or permission failure becomes a warning.
+        ///
+        /// <para>Deliberate: trading the remaining sixty-seven sessions of a bake for a failed
+        /// diagnostics append on a full disk is the worse outcome, and the log line at the call site
+        /// is the fallback record.</para>
+        /// </summary>
+        public static async Task RecordBestEffortAsync<T>(
+            string? path,
+            T record,
+            JsonTypeInfo<T> typeInfo,
+            string label,
+            ILogger? logger = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (path is not { Length: > 0 })
+            {
+                return;
+            }
+            try
+            {
+                await AppendRecordAsync(path, record, typeInfo, cancellationToken);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger?.LogWarning(ex, "Could not append to the {Label} {Path}; the log line at the call site is the only record.",
+                    label, path);
+            }
         }
 
         /// <summary>
