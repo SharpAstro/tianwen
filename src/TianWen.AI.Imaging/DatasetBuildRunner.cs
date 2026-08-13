@@ -314,7 +314,9 @@ public static class DatasetBuildRunner
                         // Naming lives in RetainedMasterStore, which the re-measure path reads through:
                         // a reader that recomputed the path here would be one rename away from silently
                         // finding nothing and taking the expensive path, which reads as a slow run.
-                        if (RetainedMasterStore.Write(outDir, session.Id, reg.Master, logger))
+                        if (RetainedMasterStore.Write(
+                            outDir, session.Id, reg.Master,
+                            frameCount: reg.Subs.Length, strategy: reg.MasterStrategy, logger: logger))
                         {
                             mastersRetained++;
                         }

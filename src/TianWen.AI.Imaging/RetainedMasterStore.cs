@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.AI.Imaging
 {
@@ -47,7 +49,13 @@ namespace TianWen.AI.Imaging
         /// </summary>
         /// <returns><see langword="true"/> if a file was written, <see langword="false"/> if one was
         /// already present.</returns>
-        public static bool Write(string outDir, string sessionId, Image master, ILogger? logger = null)
+        public static bool Write(
+            string outDir,
+            string sessionId,
+            Image master,
+            int frameCount = 0,
+            IntegrationStrategyKind? strategy = null,
+            ILogger? logger = null)
         {
             var path = PathFor(outDir, sessionId);
             if (File.Exists(path))
@@ -62,9 +70,33 @@ namespace TianWen.AI.Imaging
                 Directory.CreateDirectory(dir);
             }
 
+            // DECLARE OURSELVES. This used to be a bare WriteToFitsFile, which left the master
+            // carrying whatever the source subs said: SWCREATE = "N.I.N.A. ..." inherited from the
+            // lights, IMAGETYP = Light, and no STACK_N. By TianWen's own provenance rule
+            // (IntegrationFitsWriter.IsTianWenProduct: STACK_N > 0 OR a TianWen SWCREATE) a retained
+            // master was therefore indistinguishable from a raw light, which is exactly the case the
+            // scanner's re-ingestion skip exists to prevent. It was latent only because
+            // session-masters/ sits under the dataset output rather than under an archive root, and
+            // "latent because of where the file happens to live" is not a property worth relying on.
+            //
+            // Same two cards the integrator stamps, so one rule recognises both, plus the strategy
+            // because a retained master is specifically NOT reusable across a change of integrator.
+            var extras = new Dictionary<string, (object Value, string Comment)>
+            {
+                ["SWCREATE"] = (IntegrationFitsWriter.SoftwareCreator, "Software that created this master"),
+            };
+            if (frameCount > 0)
+            {
+                extras["STACK_N"] = (frameCount, "Number of frames combined into this master");
+            }
+            if (strategy is { } s)
+            {
+                extras["STRATEGY"] = (s.ToString(), "Integration strategy used (IntegrationStrategyKind)");
+            }
+
             // Write-then-move, so an interrupted write cannot be read back as complete.
             var temp = path + PartialSuffix;
-            master.WriteToFitsFile(temp);
+            master.WriteToFitsFile(temp, wcs: null, extras);
             File.Move(temp, path, overwrite: true);
             logger?.LogDebug("  [{Session}] session master retained", sessionId);
             return true;
