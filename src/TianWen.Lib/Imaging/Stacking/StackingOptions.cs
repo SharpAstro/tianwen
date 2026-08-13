@@ -32,8 +32,10 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <param name="SnrMin">FindStarsAsync SNR floor.</param>
 /// <param name="MinStars">FindStarsAsync retry floor -- forces a second
 /// pass at a lower detection level when the first returns fewer than this.</param>
-/// <param name="QuadStars">Top-K brightest stars used for quad fingerprints
-/// in <see cref="Registrator"/>'s match step.</param>
+/// <param name="QuadStars">Top-K brightest stars used for quad fingerprints.
+/// Defaults to <see cref="FrameRegistration.DefaultQuadStars"/>; see there for why 100 rather
+/// than the 500 this used to carry (a quad needs the same four stars in both frames, so only
+/// about p^4 of quads can match and p falls with depth).</param>
 /// <param name="DrizzleOptions">Knobs for <see cref="DrizzleStrategy"/> when
 /// <paramref name="ForcedStrategy"/> is <see cref="IntegrationStrategyKind.BayerDrizzle"/>.
 /// Null falls back to <see cref="Stacking.DrizzleOptions"/> defaults
@@ -111,7 +113,7 @@ public sealed record StackingOptions(
     DebayerAlgorithm StackDebayerAlg = DebayerAlgorithm.AHD,
     float SnrMin = 5f,
     int MinStars = 2000,
-    int QuadStars = 500,
+    int QuadStars = FrameRegistration.DefaultQuadStars,
     DrizzleOptions? DrizzleOptions = null,
     bool SplitByPierSide = false,
     float HotPixelSigma = 8.0f,

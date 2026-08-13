@@ -125,28 +125,13 @@ public static class SessionRegistrar
         return true;
     }
 
-    /// <summary>Absolute floor of matched stars for a quad fit. Below this the affine
-    /// solve is unstable; the sub is dropped rather than misregistered. Mirrors
-    /// <c>StackingPipeline.MinStarsForMatch</c>.</summary>
-    private const int MinStarsForMatch = 24;
+    /// <summary>Absolute floor of matched stars for a quad fit, and the cap on the brightest stars
+    /// that form the fingerprints. Both live in <see cref="FrameRegistration"/> now: they used to be
+    /// declared here AND in <c>StackingPipeline</c>, which is how the two ended up at 100 and 500
+    /// respectively with only a comment noting the divergence.</summary>
+    private const int MinStarsForMatch = FrameRegistration.MinStarsForMatch;
 
-    /// <summary>Cap on the brightest stars used to build quad fingerprints. Bright stars
-    /// reproduce across detection-threshold jitter between frames, so the top-K signature
-    /// stays stable.
-    /// <para>100, NOT the stacker's 500, and the difference is load-bearing rather than a
-    /// preference. A quad matches only when the same four stars form it in both frames, so with a
-    /// fraction p of the top-K detections real, at most about p^4 of quads can match. p falls with
-    /// depth: measured on Helix 2025-08-09, mono detections were 68% real at top-50, 59% at
-    /// top-100, 41% at top-200 and 32% over all 601. At 500 that tail dominates the fingerprint set
-    /// (p^4 near 1%, roughly 4 usable quads of 375, under the minimumCount of 6) and the session
-    /// registered 0 of 316 subs; at 100 it registered 314 of 314, with the match tolerances
-    /// tightening from mostly-0.5 to mostly-0.1/0.2. The stacker still uses 500 and has the same
-    /// exposure on a thin field, but changing it needs its own end-to-end validation.</para></summary>
-    private const int QuadStars = 100;
-
-    /// <summary>Quad-match tolerance ladder: try tight first, loosen on failure. Verbatim
-    /// from <c>StackingPipeline.QuadTolerances</c>.</summary>
-    private static readonly float[] QuadTolerances = [0.008f, 0.02f, 0.05f, 0.1f, 0.2f, 0.5f];
+    private const int QuadStars = FrameRegistration.DefaultQuadStars;
 
     /// <summary>One surviving light registered onto the session's union canvas.</summary>
     /// <param name="Source">The original raw light (header-only handle). Carries the FITS
@@ -237,6 +222,14 @@ public static class SessionRegistrar
     /// rejection one, so a single number is wrong for one of them. Pass a value only to override
     /// deliberately.</param>
     /// <param name="debayerAlgorithm">Debayer used for both measurement and warping.</param>
+    /// <param name="hotPixelSigma">Sigma above the dark's own background at which a pixel is
+    /// masked out of drizzle deposition, matching <c>StackingOptions.HotPixelSigma</c>. Zero
+    /// disables. <b>This is not redundant with dark subtraction</b>, which is what
+    /// <see cref="TryDrizzle"/> originally assumed: <see cref="Calibrator.Apply"/> subtracts the
+    /// dark UNSCALED, so a dark that differs in exposure or sensor temperature leaves a residual
+    /// exactly where the hot pixels are, and many hot pixels are non-linear or telegraph-noise
+    /// unstable so no scaling removes them either. That is why PixInsight's CosmeticCorrection
+    /// runs in addition to dark subtraction rather than instead of it.</param>
     /// <param name="logger">Optional progress log.</param>
     public static async Task<RegisteredSession?> RegisterAsync(
         ImagingSession session,
@@ -247,6 +240,7 @@ public static class SessionRegistrar
         int minSubs = 10,
         int? minSubsForHalfMasters = null,
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
+        float hotPixelSigma = 8f,
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
@@ -282,8 +276,7 @@ public static class SessionRegistrar
         var bestScore = float.NegativeInfinity;
         foreach (var f in survivors)
         {
-            var m = f.Metrics;
-            var score = m.StarCount / (MathF.Max(m.MedianHfd, 1f) * (1f + 4f * m.MedianEllipticity));
+            var score = FrameRegistration.ReferenceScore(f.Metrics);
             if (score > bestScore)
             {
                 bestScore = score;
@@ -326,7 +319,7 @@ public static class SessionRegistrar
             var lightQuads = await lightSorted.FindQuadsAsync(maxStars: QuadStars, cancellationToken: cancellationToken);
             minLightQuads = Math.Min(minLightQuads, lightQuads.Count);
             maxLightQuads = Math.Max(maxLightQuads, lightQuads.Count);
-            var (solution, quadTolerance, rmsResidualPx) = await TryMatchAsync(lightSorted, referenceSorted, QuadStars);
+            var (solution, quadTolerance, rmsResidualPx) = await FrameRegistration.TryMatchAsync(lightSorted, referenceSorted, QuadStars);
             if (solution is null)
             {
                 skippedNoQuadFit++;
@@ -337,7 +330,7 @@ public static class SessionRegistrar
                 logger?.LogDebug(
                     "  [{Session}] {File} stars={Stars} quads={Quads} vs reference quads={RefQuads} -> skip (no quad fit up to tolerance {MaxTol})",
                     session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, lightQuads.Count,
-                    referenceQuads.Count, QuadTolerances[^1]);
+                    referenceQuads.Count, FrameRegistration.QuadTolerances[^1]);
                 continue;
             }
             logger?.LogDebug(
@@ -457,6 +450,30 @@ public static class SessionRegistrar
             sensorType: sensorType);
         var useDrizzle = TryDrizzle(probe, calibrator, logger, session.Id);
 
+        // Hot-pixel mask, the thing this path was missing. StackingPipeline has built one since it
+        // hit this exact failure ("visible hot-pixel clusters survived into the master", its own
+        // comment at the equivalent site); the dataset path relied instead on TryDrizzle's
+        // matched-dark requirement and so wrote them into 45 of 64 drizzled masters. Measured on
+        // 2025-12-28 HIP 34710: nineteen clusters across R/G/B, every substantial one a ~36x25 px
+        // footprint whose shape is congruent with every other to 1.2-3.2 px after centring, which
+        // is the session's whole dither excursion. That congruence is the proof they are single
+        // fixed sensor defects: nothing position-dependent can paint the same shape everywhere,
+        // and the union canvas grew by exactly (+37, +27) for the same reason.
+        //
+        // Built unconditionally, like StackingPipeline's, rather than gated on useDrizzle: only
+        // the drizzle strategies read IntegrationJob.BadPixelMask (the staged path's sigma-clip
+        // handles outliers across N frames), so an unused mask costs tens of ms, while a mask
+        // gated on a strategy decision is precisely the bug the stacking side already had.
+        BitMatrix[]? badPixelMask = null;
+        if (calibrator?.Dark is { } darkMaster && hotPixelSigma > 0f)
+        {
+            badPixelMask = BadPixelDetection.BuildMaskFromDark(darkMaster, hotPixelSigma, logger);
+            logger?.LogInformation("  [{Session}] hot-pixel mask: {Count} px flagged at sigma={Sigma:F1}",
+                session.Id,
+                BadPixelDetection.CountMaskedPixels(badPixelMask, darkMaster.Width, darkMaster.Height),
+                hotPixelSigma);
+        }
+
         var all = Enumerable.Range(0, subsList.Length).ToImmutableArray();
         var master = await IntegrateSubsetAsync(all, "_integrate");
         logger?.LogInformation(
@@ -526,7 +543,8 @@ public static class SessionRegistrar
                 CanvasWidth: canvasW,
                 CanvasHeight: canvasH,
                 RawBayerFrames: useDrizzle ? token => RawBayerProducer(pick, token) : null,
-                DrizzleOptions: useDrizzle ? new DrizzleOptions() : null);
+                DrizzleOptions: useDrizzle ? new DrizzleOptions() : null,
+                BadPixelMask: badPixelMask);
             var run = useDrizzle
                 ? await new DrizzleStrategy().RunAsync(job, cancellationToken)
                 : await new Float16StagedStrategy().RunAsync(job, cancellationToken);
@@ -563,25 +581,6 @@ public static class SessionRegistrar
                 yield return new RawBayerFrame(calibrator?.Apply(raw) ?? raw, sub.TransformToCanvas);
             }
         }
-    }
-
-    /// <summary>Quad match across the tolerance ladder; tight first, loosen on failure.
-    /// Verbatim from <c>StackingPipeline.TryMatchAsync</c>; <c>FindFitAsync</c> memoises the
-    /// quad build per <paramref name="maxStars"/> key, so looser retries only re-run the match
-    /// pass, not the (expensive) quad construction.</summary>
-    private static async Task<(Matrix3x2? Solution, float QuadTolerance, float RmsResidualPx)> TryMatchAsync(
-        SortedStarList light, SortedStarList reference, int maxStars)
-    {
-        foreach (var tol in QuadTolerances)
-        {
-            var (solution, rmsPx) = await light.FindOffsetAndRotationWithRmsAsync(
-                reference, minimumCount: 6, quadTolerance: tol, maxStars: maxStars);
-            if (solution is not null)
-            {
-                return (solution, tol, rmsPx);
-            }
-        }
-        return (null, float.NaN, float.NaN);
     }
 
     /// <summary>Maps a portable session id (<c>relative/dir|CAMERA</c>) to a single

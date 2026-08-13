@@ -57,21 +57,11 @@ public sealed class StackingPipeline(
     Enhancement.SharpenPipeline? sharpenPipeline = null,
     IProgress<Enhancement.EnhanceProgress>? enhanceProgress = null)
 {
-    /// <summary>Ladder of quadTolerance values to try per frame, ascending.
-    /// First-match wins. The lower rungs (0.008, 0.02, 0.05) are tuned for the
-    /// all-stars quad path where fingerprints are dense and small drift only
-    /// nudges Dist1/ratios fractionally. The top-K path (see
-    /// <see cref="StackingOptions.QuadStars"/>) has 20x fewer quads and a
-    /// much sparser signature space, so cross-flip frames typically match
-    /// at qt=0.1-0.2. The 0.5 ceiling is the runaway guard: false-positive
-    /// cross-object pairs are still rejected by the affine validator +
-    /// RANSAC min-inlier=4 even at this tolerance.</summary>
-    private static readonly float[] QuadTolerances = [0.008f, 0.02f, 0.05f, 0.1f, 0.2f, 0.5f];
-
-    /// <summary>Min stars for a stable quad-invariant fit. Matches the
-    /// matcher's internal minStars/4=6 quad-correspondence floor with
-    /// headroom.</summary>
-    private const int MinStarsForMatch = 24;
+    /// <summary>The tolerance ladder and the matched-star floor both live in
+    /// <see cref="FrameRegistration"/> now. They used to be declared here AND in the dataset
+    /// builder's registrar, the latter documenting itself as a verbatim copy, which is exactly the
+    /// arrangement that let the two paths drift apart in both directions.</summary>
+    private const int MinStarsForMatch = FrameRegistration.MinStarsForMatch;
 
     /// <summary>
     /// Picks a pixel rejector for the integration step based on frame
@@ -493,15 +483,15 @@ public sealed class StackingPipeline(
             ct.ThrowIfCancellationRequested();
             var raw = await lf.LoadFullAsync(ct);
             var calibrated = calibrator.Apply(raw);
-            var debayered = await calibrated.DebayerAsync(options.CentroidDebayerAlg, cancellationToken: ct);
-            var stars = await debayered.FindStarsAsync(channel: 0, snrMin: options.SnrMin, minStars: options.MinStars, cancellationToken: ct);
-            var metrics = new FrameMetrics(
-                MedianHfd: stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median),
-                MedianFwhm: stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median),
-                MedianEllipticity: stars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median),
-                StarCount: stars.Count);
-            var score = stars.Count / (MathF.Max(metrics.MedianHfd, 1f) * (1f + 4f * metrics.MedianEllipticity));
-            frameCandidates.Add((lf, metrics, score));
+            // Shared detect site (FrameRegistration.DetectAsync): pre-debayer luminance, which this
+            // path used to reach by detecting on channel 0 of the VNG-debayered frame. That is the
+            // interpolated RED plane, and measured on a real session its top-K detections could not
+            // produce even 20 mutual matches between consecutive subs where the mono route
+            // reproduced at 92%.
+            var (stars, _) = await FrameRegistration.DetectAsync(
+                calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, ct);
+            var metrics = FrameRegistration.MetricsFrom(stars);
+            frameCandidates.Add((lf, metrics, FrameRegistration.ReferenceScore(metrics)));
         }
 
         // Reference selection: explicit ReferenceFrameHint wins (substring
@@ -563,8 +553,8 @@ public sealed class StackingPipeline(
         {
             logger.LogWarning("  [warn] couldn't reread ref FITS for WCS hint: {Path}", reference.Path);
         }
-        var referenceDebayered = await calibrator.Apply(referenceRaw).DebayerAsync(options.CentroidDebayerAlg, cancellationToken: ct);
-        var referenceStars = await referenceDebayered.FindStarsAsync(channel: 0, snrMin: options.SnrMin, minStars: options.MinStars, cancellationToken: ct);
+        var (referenceStars, referenceDebayered) = await FrameRegistration.DetectAsync(
+            calibrator.Apply(referenceRaw), options.CentroidDebayerAlg, options.SnrMin, options.MinStars, ct);
         var referenceSorted = new SortedStarList(referenceStars);
         var referenceQuads = await referenceSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
         // State the fingerprint set on SUCCESS, not only when registration collapses. Both counts
@@ -582,11 +572,7 @@ public sealed class StackingPipeline(
         // loop's star-detection path). Used by the post-registration
         // quality filter -- without it the reference would be a (0,0,0)
         // outlier and always survive even if it's actually the worst.
-        var referenceMetrics = new FrameMetrics(
-            MedianHfd: referenceStars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median),
-            MedianFwhm: referenceStars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median),
-            MedianEllipticity: referenceStars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median),
-            StarCount: referenceStars.Count);
+        var referenceMetrics = FrameRegistration.MetricsFrom(referenceStars);
 
         // Per-group staging dir. Cleaned up by the chosen strategy.
         var stagingDir = Path.Combine(outputDir, "_staging", slug);
@@ -618,7 +604,6 @@ public sealed class StackingPipeline(
             ct.ThrowIfCancellationRequested();
             var lightRaw = await lightInfo.LoadFullAsync(ct);
             var calibrated = calibrator.Apply(lightRaw);
-            var debayered = await calibrated.DebayerAsync(options.CentroidDebayerAlg, cancellationToken: ct);
             var name = Path.GetFileNameWithoutExtension(lightInfo.Path);
 
             Matrix3x2? transform;
@@ -630,7 +615,8 @@ public sealed class StackingPipeline(
             }
             else
             {
-                var stars = await debayered.FindStarsAsync(channel: 0, snrMin: options.SnrMin, minStars: options.MinStars, cancellationToken: ct);
+                var (stars, _) = await FrameRegistration.DetectAsync(
+                    calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, ct);
                 if (stars.Count < MinStarsForMatch)
                 {
                     transform = null;
@@ -643,7 +629,7 @@ public sealed class StackingPipeline(
                     var lightQuads = await lightSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
                     minLightQuads = Math.Min(minLightQuads, lightQuads.Count);
                     maxLightQuads = Math.Max(maxLightQuads, lightQuads.Count);
-                    var (solution, tolUsed, _) = await TryMatchAsync(lightSorted, referenceSorted, options.QuadStars);
+                    var (solution, tolUsed, _) = await FrameRegistration.TryMatchAsync(lightSorted, referenceSorted, options.QuadStars);
                     transform = solution;
                     if (transform is null)
                     {
@@ -677,10 +663,9 @@ public sealed class StackingPipeline(
                         // Stashed on the matched tuple so the post-loop
                         // quality filter has session-wide statistics without
                         // re-running star detection.
-                        var medHfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
-                        var medFwhm = stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median);
-                        var medEcc = stars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median);
-                        frameMetrics = new FrameMetrics(medHfd, medFwhm, medEcc, stars.Count);
+                        frameMetrics = FrameRegistration.MetricsFrom(stars);
+                        var (medHfd, medFwhm, medEcc) =
+                            (frameMetrics.MedianHfd, frameMetrics.MedianFwhm, frameMetrics.MedianEllipticity);
                         logger.LogInformation(
                             "  [{Name}] stars={Stars} quads={Quads} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
                             name, stars.Count, lightQuads.Count, medHfd, medFwhm, medEcc, tolUsed, refRotDeg, refScale, refTx, refTy, refRms, refMatched);
@@ -1088,20 +1073,6 @@ public sealed class StackingPipeline(
             logger.LogInformation("  built {File} ({Count} input frames)", Path.GetFileName(masterPath), list.Count);
         }
         return masters;
-    }
-
-    private static async Task<(Matrix3x2? Solution, float QuadTolerance, float RmsResidualPx)> TryMatchAsync(
-        SortedStarList light, SortedStarList reference, int maxStars)
-    {
-        foreach (var tol in QuadTolerances)
-        {
-            // FindFitAsync internally memoizes FindQuadsAsync (per maxStars
-            // key), so re-trying with a looser tolerance only re-runs the
-            // match pass, not the quad build.
-            var (solution, rmsPx) = await light.FindOffsetAndRotationWithRmsAsync(reference, minimumCount: 6, quadTolerance: tol, maxStars: maxStars);
-            if (solution is not null) return (solution, tol, rmsPx);
-        }
-        return (null, float.NaN, float.NaN);
     }
 
     /// <summary>Find the best master for a light group: exact key match

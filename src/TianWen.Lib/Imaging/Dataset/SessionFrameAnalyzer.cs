@@ -80,14 +80,12 @@ public static class SessionFrameAnalyzer
     {
         var raw = await frame.LoadFullAsync(cancellationToken);
         var calibrated = calibrator?.Apply(raw) ?? raw;
-        var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
-        var stars = await calibrated.FindStarsAsync(channel: 0, snrMin: snrMin, minStars: minStars, cancellationToken: cancellationToken);
-        var metrics = new FrameMetrics(
-            MedianHfd: stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median),
-            MedianFwhm: stars.MapReduceStarProperty(SampleKind.FWHM, AggregationMethod.Median),
-            MedianEllipticity: stars.MapReduceStarProperty(SampleKind.Ellipticity, AggregationMethod.Median),
-            StarCount: stars.Count);
-        return new AnalyzedFrame(frame, metrics, stars);
+        // The shared detect site. The debayer inside it is retained deliberately (DebayerAsync can
+        // rescale its input in place, so it participates in what detection sees) even though this
+        // caller does not consume the debayered frame.
+        var (stars, _) = await FrameRegistration.DetectAsync(
+            calibrated, debayerAlgorithm, snrMin, minStars, cancellationToken);
+        return new AnalyzedFrame(frame, FrameRegistration.MetricsFrom(stars), stars);
     }
 
     /// <summary>

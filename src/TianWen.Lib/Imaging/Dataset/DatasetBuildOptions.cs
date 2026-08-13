@@ -53,6 +53,19 @@ public sealed record DatasetBuildOptions
     /// (zero-star frames are still rejected). Default 3.</summary>
     public float QualityRejectSigma { get; init; } = 3f;
 
+    /// <summary>
+    /// Sigma above the master dark's own background at which a pixel is masked out of drizzle
+    /// deposition (<see cref="Calibration.BadPixelDetection.BuildMaskFromDark"/>), matching the
+    /// stacker's <c>--hot-pixel-sigma</c>. 0 disables. Default 8.
+    /// <para><b>Not redundant with dark subtraction</b>, which is the assumption that let hot
+    /// pixels into 45 of 64 drizzled masters. <see cref="Calibration.Calibrator.Apply"/> subtracts
+    /// the dark UNSCALED, so a dark differing in exposure or sensor temperature leaves a residual
+    /// exactly at the hot pixels; and many hot pixels are non-linear or telegraph-noise unstable,
+    /// so no scaling would remove them anyway. Drizzle then has no rejection of its own
+    /// (<c>DrizzleStrategy</c> says so explicitly), which leaves the mask as the only defence.</para>
+    /// </summary>
+    public float HotPixelSigma { get; init; } = 8f;
+
     /// <summary>Keep-floor for the quality gate: the maximum fraction of a session's frames the
     /// gate may reject before the severity-ranked floor engages. Higher than the stacker's 0.20
     /// because dataset building favours purity over yield (there are 20k+ subs to draw from, so
