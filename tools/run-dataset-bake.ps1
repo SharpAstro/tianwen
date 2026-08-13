@@ -73,13 +73,29 @@ try {
     }
 
     if (-not (Test-Path $exe)) { throw "no binary at $exe" }
-    $builtUtc = (Get-Item $exe).LastWriteTimeUtc
-    Write-Host "binary built $($builtUtc.ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss'))"
+    $item = Get-Item $exe
+    $builtUtc = $item.LastWriteTimeUtc
 
-    if ($builtUtc -lt $commitUtc) {
+    # The SDK's built-in source link appends the commit to AssemblyInformationalVersion, which
+    # surfaces as the exe's Win32 ProductVersion, so the binary's OWN commit is readable without
+    # running it. This is the real check; the timestamp comparison below only catches the case
+    # where there is no source-control info to compare.
+    $binarySha = ($item.VersionInfo.ProductVersion -split '\+')[-1]
+    Write-Host "binary built $($builtUtc.ToLocalTime().ToString('yyyy-MM-dd HH:mm:ss')) from $($binarySha.Substring(0, [Math]::Min(8, $binarySha.Length)))"
+
+    if ($binarySha -match '^[0-9a-f]{40}$') {
+        if ($binarySha -ne $sha) {
+            throw ("STALE BINARY: built from $($binarySha.Substring(0,8)) but HEAD is $shaShort. " +
+                   'Re-run without -SkipBuild. Refusing to launch.')
+        }
+    }
+    elseif ($builtUtc -lt $commitUtc) {
+        # No usable SHA (a source drop, or a tree that is not a git checkout), so fall back to
+        # times. Weaker: a touched file passes, and a matching mtime does not prove the binary was
+        # built FROM this commit. Good enough as a backstop, never as the primary check.
         throw ("STALE BINARY: built $($builtUtc.ToLocalTime().ToString('HH:mm:ss')) but HEAD " +
-               "$shaShort landed $($commitUtc.ToLocalTime().ToString('HH:mm:ss')). " +
-               'Re-run without -SkipBuild. Refusing to launch.')
+               "$shaShort landed $($commitUtc.ToLocalTime().ToString('HH:mm:ss')), and the binary " +
+               'carries no commit to compare. Re-run without -SkipBuild. Refusing to launch.')
     }
 
     New-Item -ItemType Directory -Force -Path $Out, $ScratchRoot | Out-Null
@@ -100,6 +116,7 @@ try {
 
     [ordered]@{
         commit       = $sha
+        binaryCommit = $binarySha
         commitUtc    = $commitUtc.ToString('o')
         binaryBuilt  = $builtUtc.ToString('o')
         dirtyFiles   = $dirty
