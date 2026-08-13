@@ -146,6 +146,13 @@ public static class DatasetBuildRunner
         var psfStorePath = Path.Combine(statsDir, DatasetPsfStore.FileName);
         var psfBySession = await DatasetPsfStore.ReadAsync(psfStorePath, logger, cancellationToken);
 
+        // The sessions that FAIL are kept in the source set on purpose, never excluded by path or
+        // object, because a change in which ones fail (or in their numbers) is how a detection or
+        // registration regression announces itself. That only works if a skip leaves something
+        // diffable behind: previously it left a WARNING in a console log, and comparing two bakes
+        // meant grepping them by hand.
+        var skipStorePath = Path.Combine(statsDir, DatasetSkipStore.FileName);
+
         // 3. Per-session pipeline. Scratch (warped subs) is wiped after each session so peak disk is
         //    bounded by the largest single session, not the whole archive; the masters cache
         //    (outDir/masters) is separate and preserved for build-once reuse.
@@ -283,6 +290,20 @@ public static class DatasetBuildRunner
                     skippedNoDark++;
                     logger?.LogWarning("  [{Session}] SKIPPED -- no master dark resolved (RequireDarkCalibration)", session.Id);
                     progress?.Report($"[dataset] ({idx}/{sessions.Length}) {session.Id} SKIPPED: no dark calibration");
+                    // No census: nothing has been measured yet, and measuring purely to describe a
+                    // session we are dropping for a calibration reason would cost a full pass over
+                    // its lights for no decision.
+                    await DatasetSkipStore.RecordAsync(skipStorePath, new DatasetSkipStore.SkippedSession(
+                        SessionId: session.Id,
+                        Reason: "no-master-dark",
+                        Survivors: session.Lights.Length,
+                        Registered: 0,
+                        SkippedTooFewStars: 0,
+                        SkippedNoQuadFit: 0,
+                        ReferenceFile: null,
+                        ReferenceStars: 0,
+                        ReferenceQuads: 0,
+                        Census: null), logger, cancellationToken);
                     continue;
                 }
 
@@ -290,6 +311,7 @@ public static class DatasetBuildRunner
                     session, calibrator, scratchRoot,
                     options.QualityRejectSigma, options.QualityMaxRejectFraction, options.MinSubsPerSession,
                     hotPixelSigma: options.HotPixelSigma,
+                    skipStorePath: skipStorePath,
                     logger: logger, cancellationToken: cancellationToken);
                 if (reg is null)
                 {

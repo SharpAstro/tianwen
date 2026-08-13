@@ -248,6 +248,7 @@ public static class SessionRegistrar
         int? minSubsForHalfMasters = null,
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
         float hotPixelSigma = 8f,
+        string? skipStorePath = null,
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
     {
@@ -269,8 +270,26 @@ public static class SessionRegistrar
             gate.KeepFloorTriggered ? ", floor" : "");
         if (gate.Kept.Length < minSubs)
         {
-            logger?.LogWarning("  [{Session}] {Kept} subs survived the gate (< {Min}) -- skipped",
-                session.Id, gate.Kept.Length, minSubs);
+            // Censused over everything MEASURED, not over the survivors, because at this point the
+            // question is what the gate threw out and why. No quads exist yet, so that half is empty.
+            var gateCensus = RegistrationCensus.Measure(
+                [.. analyzed.Select(static a => a.Metrics.StarCount)],
+                [],
+                [.. analyzed.Select(static a => a.Metrics.MedianHfd)],
+                [.. analyzed.Select(static a => a.Metrics.MedianEllipticity)]);
+            logger?.LogWarning("  [{Session}] {Kept} subs survived the gate (< {Min}) -- skipped. census {Census}",
+                session.Id, gate.Kept.Length, minSubs, RegistrationCensus.Describe(gateCensus));
+            await DatasetSkipStore.RecordAsync(skipStorePath, new DatasetSkipStore.SkippedSession(
+                SessionId: session.Id,
+                Reason: "gate-kept-below-min-subs",
+                Survivors: gate.Kept.Length,
+                Registered: 0,
+                SkippedTooFewStars: 0,
+                SkippedNoQuadFit: 0,
+                ReferenceFile: null,
+                ReferenceStars: 0,
+                ReferenceQuads: 0,
+                Census: gateCensus), logger, cancellationToken);
             return null;
         }
 
@@ -365,7 +384,8 @@ public static class SessionRegistrar
             var refined = RegistrationRefiner.RefineRigid(lightSorted, referenceSorted, solution.Value).Refined;
             matched.Add((f, refined));
         }
-        var census = RegistrationCensus.Describe(censusStars, censusQuads, censusHfd, censusEcc);
+        var spread = RegistrationCensus.Measure(censusStars, censusQuads, censusHfd, censusEcc);
+        var census = RegistrationCensus.Describe(spread);
         logger?.LogInformation(
             "  [{Session}] registered {Matched}/{Survivors} (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit); census {Census}",
             session.Id, matched.Count, survivors.Length, skippedTooFewStars + skippedNoQuadFit,
@@ -399,6 +419,17 @@ public static class SessionRegistrar
                 session.Id, Path.GetFileName(reference.Frame.Path),
                 referenceSorted.Count, referenceQuads.Count,
                 skippedTooFewStars, skippedNoQuadFit, census);
+            await DatasetSkipStore.RecordAsync(skipStorePath, new DatasetSkipStore.SkippedSession(
+                SessionId: session.Id,
+                Reason: "fewer-than-2-registered",
+                Survivors: survivors.Length,
+                Registered: matched.Count,
+                SkippedTooFewStars: skippedTooFewStars,
+                SkippedNoQuadFit: skippedNoQuadFit,
+                ReferenceFile: Path.GetFileName(reference.Frame.Path),
+                ReferenceStars: referenceSorted.Count,
+                ReferenceQuads: referenceQuads.Count,
+                Census: spread), logger, cancellationToken);
             return null;
         }
 
