@@ -58,11 +58,15 @@ public sealed record DatasetBuildOptions
     /// deposition (<see cref="Calibration.BadPixelDetection.BuildMaskFromDark"/>), matching the
     /// stacker's <c>--hot-pixel-sigma</c>. 0 disables. Default 8.
     /// <para><b>Not redundant with dark subtraction</b>, which is the assumption that let hot
-    /// pixels into 45 of 64 drizzled masters. <see cref="Calibration.Calibrator.Apply"/> subtracts
-    /// the dark UNSCALED, so a dark differing in exposure or sensor temperature leaves a residual
-    /// exactly at the hot pixels; and many hot pixels are non-linear or telegraph-noise unstable,
-    /// so no scaling would remove them anyway. Drizzle then has no rejection of its own
-    /// (<c>DrizzleStrategy</c> says so explicitly), which leaves the mask as the only defence.</para>
+    /// pixels into 45 of 64 drizzled masters. <see cref="Calibration.Calibrator"/> now rescales the
+    /// dark's thermal component to the light's EXPOSURE (<c>DarkScale</c>), but that closes only one
+    /// of three holes: temperature is still not compensated (dark current roughly doubles per 6 C),
+    /// and many hot pixels are non-linear or telegraph-noise unstable, so no scaling of any kind
+    /// removes them. Measured on this archive, exposure scaling moves almost nothing in the bulk
+    /// anyway: on all three sensors the master dark's median EQUALS the master bias's median to the
+    /// ADU, so there is no bulk thermal signal to rescale and the arithmetic only ever moves
+    /// defective pixels. Drizzle then has no rejection of its own (<c>DrizzleStrategy</c> says so
+    /// explicitly), which leaves the mask as the only defence.</para>
     /// <para><b>A ceiling, not the threshold.</b> Sigma multiplies a quantized MAD and so is not
     /// portable between darks: 8 recovered 32.95% of one ASI533's consensus defect set from its
     /// gain-121 master dark and 74.77% from its gain-252 one. The detector walks this value DOWN to
