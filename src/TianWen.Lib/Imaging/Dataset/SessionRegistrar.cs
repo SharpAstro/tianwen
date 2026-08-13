@@ -305,11 +305,22 @@ public static class SessionRegistrar
         var matched = new List<(SessionFrameAnalyzer.AnalyzedFrame Frame, Matrix3x2 Transform)>(survivors.Length);
         var skippedTooFewStars = 0;
         var skippedNoQuadFit = 0;
-        var minLightQuads = int.MaxValue;
-        var maxLightQuads = 0;
+        // Census inputs, in survivor order, which is capture order. The order is load-bearing: it is
+        // what lets the census report a TREND, and a session that degraded through the night has the
+        // same min/median/max as one that was uniformly poor while needing a different fix.
+        var censusStars = new List<int>(survivors.Length);
+        var censusQuads = new List<int>(survivors.Length);
+        var censusHfd = new List<float>(survivors.Length);
+        var censusEcc = new List<float>(survivors.Length);
         foreach (var f in survivors)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // Every survivor contributes, including the reference: it is one of the frames whose
+            // focus the census is describing, and excluding it would silently drop the sharpest
+            // sample from the spread.
+            censusStars.Add(f.Metrics.StarCount);
+            censusHfd.Add(f.Metrics.MedianHfd);
+            censusEcc.Add(f.Metrics.MedianEllipticity);
             if (ReferenceEquals(f, reference))
             {
                 matched.Add((f, Matrix3x2.Identity));
@@ -324,8 +335,7 @@ public static class SessionRegistrar
             }
             using var lightSorted = new SortedStarList(f.Stars);
             var lightQuads = await lightSorted.FindQuadsAsync(maxStars: QuadStars, cancellationToken: cancellationToken);
-            minLightQuads = Math.Min(minLightQuads, lightQuads.Count);
-            maxLightQuads = Math.Max(maxLightQuads, lightQuads.Count);
+            censusQuads.Add(lightQuads.Count);
             var (solution, quadTolerance, rmsResidualPx) = await FrameRegistration.TryMatchAsync(lightSorted, referenceSorted, QuadStars);
             if (solution is null)
             {
@@ -334,25 +344,32 @@ public static class SessionRegistrar
                 // separate a DETECTION problem (few quads on this sub) from a GEOMETRY one
                 // (plenty of quads on both sides that still do not correspond), and those two
                 // have opposite fixes.
+                // HFD and ellipticity are stated alongside the counts because they are what says
+                // WHY the counts look as they do, and they were already measured. Without them a
+                // reconstructed histogram can show that a session was not star-poor but still
+                // cannot show that its focus was drifting, which is the next question every time.
                 logger?.LogDebug(
-                    "  [{Session}] {File} stars={Stars} quads={Quads} vs reference quads={RefQuads} -> skip (no quad fit up to tolerance {MaxTol})",
+                    "  [{Session}] {File} stars={Stars} quads={Quads} hfd={Hfd:F2} ecc={Ecc:F3} vs reference quads={RefQuads} -> skip (no quad fit up to tolerance {MaxTol})",
                     session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, lightQuads.Count,
+                    f.Metrics.MedianHfd, f.Metrics.MedianEllipticity,
                     referenceQuads.Count, FrameRegistration.QuadTolerances[^1]);
                 continue;
             }
             logger?.LogDebug(
-                "  [{Session}] {File} stars={Stars} quads={Quads} -> matched at tolerance {Tol} (rms {Rms:F2} px)",
+                "  [{Session}] {File} stars={Stars} quads={Quads} hfd={Hfd:F2} ecc={Ecc:F3} -> matched at tolerance {Tol} (rms {Rms:F2} px)",
                 session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, lightQuads.Count,
+                f.Metrics.MedianHfd, f.Metrics.MedianEllipticity,
                 quadTolerance, rmsResidualPx);
             // Rigid (rotation + isotropic scale + translation) refinement on top of the bulk
             // quad fit -- closes the sub-pixel residual the fingerprint match averages away.
             var refined = RegistrationRefiner.RefineRigid(lightSorted, referenceSorted, solution.Value).Refined;
             matched.Add((f, refined));
         }
+        var census = RegistrationCensus.Describe(censusStars, censusQuads, censusHfd, censusEcc);
         logger?.LogInformation(
-            "  [{Session}] registered {Matched}/{Survivors} (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit)",
+            "  [{Session}] registered {Matched}/{Survivors} (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit); census {Census}",
             session.Id, matched.Count, survivors.Length, skippedTooFewStars + skippedNoQuadFit,
-            skippedTooFewStars, skippedNoQuadFit);
+            skippedTooFewStars, skippedNoQuadFit, census);
         if (matched.Count < 2)
         {
             // WARNING level, which is what a bake log actually shows, so it has to be
@@ -360,8 +377,8 @@ public static class SessionRegistrar
             // not be explained without re-running the session at Debug: it named neither the star
             // counts nor the quad counts, both of which were already computed right here.
             //
-            // Read the two together, because they separate the only two causes and those have
-            // opposite fixes. FEW quads everywhere is a detection problem. PLENTY of quads on both
+            // Read the CENSUS, because it separates the only two causes and those have opposite
+            // fixes. FEW quads everywhere is a detection problem. PLENTY of quads on both
             // sides that still do not correspond is a PURITY problem in the quad-forming set, and
             // that is what the Helix 2025-08-09 drop turned out to be: a quad matches only when
             // the same four stars form it in both frames, so with a fraction p of the top-K
@@ -373,12 +390,15 @@ public static class SessionRegistrar
             // routes through BilinearMono, and QuadStars is 100 rather than 500 to keep the
             // fingerprint set at the bright end where p is high: p = 0.59 at top-100 versus 0.32
             // over all 601 mono detections, which took the same session to 314/314.
+            //
+            // The census carries the per-frame spread, so the min/max quad range this message used
+            // to print separately is gone rather than duplicated: two renderings of the same numbers
+            // is how one of them ends up stale.
             logger?.LogWarning(
-                "  [{Session}] fewer than 2 registered subs -- skipped. survivors={Survivors}, reference {RefFile} stars={RefStars} quads={RefQuads}, other subs' quads {MinQuads}..{MaxQuads}, skipped {TooFew} too-few-stars + {NoFit} no-quad-fit",
-                session.Id, survivors.Length, Path.GetFileName(reference.Frame.Path),
+                "  [{Session}] fewer than 2 registered subs -- skipped. reference {RefFile} stars={RefStars} quads={RefQuads}, skipped {TooFew} too-few-stars + {NoFit} no-quad-fit. census {Census}",
+                session.Id, Path.GetFileName(reference.Frame.Path),
                 referenceSorted.Count, referenceQuads.Count,
-                minLightQuads == int.MaxValue ? 0 : minLightQuads, maxLightQuads,
-                skippedTooFewStars, skippedNoQuadFit);
+                skippedTooFewStars, skippedNoQuadFit, census);
             return null;
         }
 
