@@ -115,8 +115,17 @@ Two lessons, one of which is now enforced in code:
 - **A conclusion in this file is not evidence.** "Genuinely too star-poor" had no numbers beside it,
   which is exactly why it went unchallenged. Attach the measurement or mark it as a guess.
 
-Not yet fixed: the session still cannot register, because raising quad purity on a defocused session
-is the open work, not a logging change. Its 49 subs remain out of the training set.
+**Decision 2026-08-13: leave it skipped, deliberately.** The training set wants the best subs, and a
+session whose focus degraded through the night is not that, so recovering these 49 is worth nothing
+here even if the purity work would make them registerable. No fix planned.
+
+One consequence to keep in view, because it is a latent trap rather than a task: the exclusion today
+is **incidental**, a registration failure, not a quality judgement. Nothing in the pipeline says "this
+session was out of focus, keep it out". So if the quad-purity work ever lands (and it is wanted, for
+the Helix-class sessions that ARE sharp), this session would quietly start registering and its
+defocused subs would enter the training set on their own. At that point the exclusion has to become
+explicit, on the frame-quality gate's HFD, rather than surviving as a side effect of the matcher
+giving up.
 
 ## 1. Licensing constraint (load-bearing, read first)
 
