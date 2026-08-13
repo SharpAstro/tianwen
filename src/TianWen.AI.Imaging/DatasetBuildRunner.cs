@@ -90,6 +90,12 @@ public static class DatasetBuildRunner
     /// or the master was already on disk).</summary>
     public const string RetainStage = "retain";
 
+    /// <summary>Deciding, per session, whether a resume can reuse its tiles. Items = sessions
+    /// CONSIDERED, including the ones that then went on to full work, because the decision is paid for
+    /// either way. Run-level rather than per-session: a resumed session writes no timing record, so
+    /// charging this to sessions would make the commonest case the invisible one.</summary>
+    public const string ResumeCheckStage = "resume-check";
+
     public static async Task<RunResult> RunAsync(
         DatasetBuildOptions options,
         ILogger? logger = null,
@@ -209,6 +215,12 @@ public static class DatasetBuildRunner
         var parityMaxDiff = 0.0;
         var idx = 0;
         var loopStart = StageTimings.Start();
+        // Cross-session overhead, which belongs to the RUN rather than to any one session: a resumed
+        // session produces no timing record of its own, so without this its cost is invisible. The
+        // first run of this instrumentation is what surfaced the need -- a --regen-psf run reported
+        // 72.9% unaccounted, all of it the resume checks below, and that is exactly the reading the
+        // unaccounted line exists to make possible.
+        var overhead = new StageTimings();
         foreach (var session in sessions)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -216,8 +228,13 @@ public static class DatasetBuildRunner
 
             // Resume decides per ARTIFACT, not per session: tiles and the PSF record are checkpointed
             // separately, so a session can legitimately need one and not the other.
+            var resumeStart = StageTimings.Start();
             var checkpoint = priorTiles.GetValueOrDefault(session.Id);
             var tilesReusable = checkpoint is not null && TilesStillPresent(outDir, checkpoint, logger);
+            // Charged per session CONSIDERED, so the per-item figure is the cost of deciding one
+            // session's fate. It is not free: TilesStillPresent stats a sample of that session's tiles
+            // on the output disk, which measured ~1.4 s per session on a spindle.
+            overhead.Record(ResumeCheckStage, resumeStart, items: 1);
             var psfOnly = false;
             if (tilesReusable && checkpoint is not null)
             {
@@ -491,7 +508,9 @@ public static class DatasetBuildRunner
         // goes, which is the one thing a timing table has to be able to say about itself.
         if (sessionTimings.Count > 0)
         {
-            var rollup = StageTimings.Merge(sessionTimings);
+            // Run-level overhead folded in LAST so it sorts after the per-session stages, which is
+            // where a reader looks for it: the stages describe the work, this describes the loop.
+            var rollup = StageTimings.Merge([.. sessionTimings, overhead.Snapshot()]);
             var loopSeconds = Stopwatch.GetElapsedTime(loopStart).TotalSeconds;
             logger?.LogInformation("Stage roll-up over {Sessions} session(s):\n{Table}",
                 sessionTimings.Count, StageTimings.DescribeTable(rollup, loopSeconds));
