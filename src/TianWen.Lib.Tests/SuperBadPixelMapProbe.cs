@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -281,6 +282,71 @@ namespace TianWen.Lib.Tests
                                  $"   (>= K: {cumulative,6:N0}, {(oursTotal > 0 ? cumulative * 100.0 / oursTotal : 0),6:F2}%)");
                         }
                     }
+
+                    // HOW FAITHFULLY CAN WE REGENERATE THE MAP OURSELVES? Two reference sets fall
+                    // out of the survey and neither depends on our detector, so sweeping sigma
+                    // against them is an honest recall/contamination curve rather than a
+                    // self-consistency check:
+                    //
+                    //   CORE  = flagged by every distinct map, across five years and two epochs,
+                    //           and 395x enriched in our independent sigma-8 detections. Missing
+                    //           one of these is a false negative by any reading.
+                    //   NEVER = flagged by no map at all. Not proof of a good pixel, but a pixel
+                    //           fifteen independent APP runs never once objected to is the best
+                    //           available negative, and flagging it is the cost side of lowering
+                    //           sigma.
+                    //
+                    // What this CANNOT settle: the middle. A pixel in some maps but not all may be
+                    // a genuine defect APP missed at another gain, or run noise. So read recall as
+                    // real and contamination as an upper bound on harm, never the reverse.
+                    var coreSet = new bool[w * h];
+                    var coreCount = 0;
+                    var neverCount = 0;
+                    for (var i = 0; i < counts.Length; i++)
+                    {
+                        if (counts[i] >= accepted) { coreSet[i] = true; coreCount++; }
+                        else if (counts[i] == 0) { neverCount++; }
+                    }
+
+                    var sweep = (Environment.GetEnvironmentVariable("TIANWEN_BPM_SWEEP")
+                                 ?? "8;6;5;4;3;2.5;2;1.5;1")
+                        .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(s => float.Parse(s, CultureInfo.InvariantCulture))
+                        .ToArray();
+
+                    Line("");
+                    Line($"regeneration fidelity vs CORE ({coreCount:N0} px unanimous) " +
+                         $"and NEVER ({neverCount:N0} px in no map)");
+                    Line("  sigma |  flagged |  of CORE found |  recall | landed in NEVER | of flagged");
+                    foreach (var sigma in sweep)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        // Capture the detector's own per-iteration median / MAD / threshold. The
+                        // sweep showed the same nominal sigma behaving completely differently on
+                        // two darks from the SAME sensor at different gain, so the question is no
+                        // longer which sigma to pick but what scale sigma is being multiplied by.
+                        var trace = Environment.GetEnvironmentVariable("TIANWEN_BPM_TRACE") is { Length: > 0 }
+                            ? new CapturingLogger(Line, $"sigma {sigma:F2}")
+                            : null;
+                        var sweepMask = BadPixelDetection.BuildMaskFromDark(dark, sigma, trace);
+                        if (sweepMask is not { Length: > 0 }) { continue; }
+                        var sm = sweepMask[0];
+                        int flagged = 0, inCore = 0, inNever = 0;
+                        for (var y = 0; y < h; y++)
+                        {
+                            for (var x = 0; x < w; x++)
+                            {
+                                if (!sm[y, x]) { continue; }
+                                flagged++;
+                                var i = y * w + x;
+                                if (coreSet[i]) { inCore++; }
+                                else if (counts[i] == 0) { inNever++; }
+                            }
+                        }
+                        Line($"  {sigma,5:F1} | {flagged,8:N0} | {inCore,14:N0} | " +
+                             $"{(coreCount > 0 ? inCore * 100.0 / coreCount : 0),6:F2}% | " +
+                             $"{inNever,15:N0} | {(flagged > 0 ? inNever * 100.0 / flagged : 0),6:F2}%");
+                    }
                 }
             }
 
@@ -306,6 +372,24 @@ namespace TianWen.Lib.Tests
 
         private static string Rel(string root, string path)
             => Path.GetRelativePath(root, path);
+
+        /// <summary>Relays the detector's own Debug/Information lines into the report, so the
+        /// converged median / MAD / threshold can be read per sigma instead of inferred from the
+        /// flagged count.</summary>
+        private sealed class CapturingLogger(Action<string> sink, string prefix) : Microsoft.Extensions.Logging.ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                Microsoft.Extensions.Logging.LogLevel logLevel,
+                Microsoft.Extensions.Logging.EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+                => sink($"      [{prefix}] {formatter(state, exception)}");
+        }
 
         private async Task WriteReportAsync(CancellationToken ct)
         {
