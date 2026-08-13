@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Text.Json.Serialization;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -52,9 +53,16 @@ public sealed class StageTimings
     public readonly record struct Stage(string Name, double Seconds, long Items, long Pixels)
     {
         /// <summary>Mean cost of one item, or 0 when the stage recorded none.</summary>
+        /// <remarks><see cref="JsonIgnoreAttribute"/> because it is DERIVED. A get-only property is
+        /// serialized by default, which quietly persisted this beside the numbers it is computed from
+        /// -- the same "two stored renderings of one measurement" defect this type's own remarks warn
+        /// about, and it doubled the store's size to say nothing new. A consumer divides.</remarks>
+        [JsonIgnore]
         public double MillisecondsPerItem => Items > 0 ? Seconds * 1000.0 / Items : 0.0;
 
         /// <summary>Pixel throughput, or 0 when the stage recorded no pixels or took no time.</summary>
+        /// <remarks><inheritdoc cref="MillisecondsPerItem" path="/remarks/node()"/></remarks>
+        [JsonIgnore]
         public double MegapixelsPerSecond => Seconds > 0 && Pixels > 0 ? Pixels / 1e6 / Seconds : 0.0;
     }
 

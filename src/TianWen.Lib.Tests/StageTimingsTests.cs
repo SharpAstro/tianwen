@@ -301,6 +301,41 @@ public class StageTimingsTests
     }
 
     /// <summary>
+    /// Only the MEASUREMENTS are persisted; the derived figures are rendered on demand. A get-only
+    /// property is serialized by default, so the first version of this store shipped
+    /// <c>MillisecondsPerItem</c> and <c>MegapixelsPerSecond</c> onto disk beside the numbers they are
+    /// computed from -- doubling the file to say nothing new, and creating exactly the second stale
+    /// rendering the design set out to avoid. Asserting on the JSON is the only way to catch it, since
+    /// a round-trip passes either way.
+    /// </summary>
+    [Fact]
+    public async Task OnlyTheMeasurementsArePersistedNotTheFiguresDerivedFromThem()
+    {
+        var dir = Directory.CreateTempSubdirectory("tw-timingderived");
+        try
+        {
+            var path = Path.Combine(dir.FullName, DatasetTimingStore.FileName);
+            await DatasetTimingStore.AppendAsync(
+                path,
+                new DatasetTimingStore.SessionTiming("s", "cam", 1, 1, 1, 1, "x", 1.0,
+                    [new StageTimings.Stage(StageNames.Measure, 2.0, 4, 8_000_000)]),
+                TestContext.Current.CancellationToken);
+
+            var json = await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken);
+
+            json.ShouldContain("\"Seconds\":2");
+            json.ShouldContain("\"Items\":4");
+            json.ShouldContain("\"Pixels\":8000000");
+            json.ShouldNotContain("MillisecondsPerItem");
+            json.ShouldNotContain("MegapixelsPerSecond");
+        }
+        finally
+        {
+            dir.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
     /// The other half of the mutual grant: OUR OWN reader must not lock out the appender. This is not
     /// hypothetical for a bake -- it re-renders the report from the store after every session, so a
     /// read-exclusive reader here would fail the very next session's append.
