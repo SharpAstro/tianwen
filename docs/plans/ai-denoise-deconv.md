@@ -23,7 +23,8 @@ See § "Running it again" below before regenerating.
 **Superseded 2026-08-10/11 by the calibration-gated regenerate**, `D:\Astro-Dataset\2025-2026-calgated`:
 **50/58 sessions, 5,984 registered subs, 135,000 tiles** (post-pedestal-fix binary, dark matching gated
 on temperature; the 7 skips awaiting darks are listed in `darks-to-shoot.csv`; the 8th skip is HIP 42861,
-genuinely too star-poor to register). `stats/psf-sessions.jsonl` covers all 50, re-measured 2026-08-11
+**a quad-purity failure on a session whose focus degraded, NOT the "too star-poor" it was recorded as
+until 2026-08-13** -- see § "The HIP 42861 skip" below). `stats/psf-sessions.jsonl` covers all 50, re-measured 2026-08-11
 with the duplicate-detection fix. One known skew, accepted: 49 sessions' tile registrations predate that
 detection fix (they registered fine; the fix mainly rescued sessions that could not), only Helix was
 re-exported post-fix. A future full rebake unifies it; not urgent, since a registration either converged
@@ -81,6 +82,41 @@ Scope boundaries settled up front:
   construction. Until its eval gates pass, `IStarRemover` stays on RC/SAS, but a TianWen remover
   is required for the tier to run the full canonical program (the starless plate is the workhorse
   intermediate: `RemoveStarsStep`, `--split-plates`, star/starless dual stretch).
+
+### The HIP 42861 skip (a wrong diagnosis that survived three bakes)
+
+`2025-12-28/Segaull+Thors_Helmet | ZWO ASI533MC Pro | HIP 42861` is skipped in every bake: 49 subs
+survive the quality gate, one registers, 48 fail quad fit. It was recorded above as "genuinely too
+star-poor to register" and re-read as fact three times, including once as a *fresh* finding with an
+invented explanation (mis-grouped pointings). **It is not star-poor.** Reconstructed on 2026-08-13
+from the Debug file log, which had the per-frame numbers all along:
+
+| | min | median | max |
+|---|---|---|---|
+| stars per frame | 44 | 70 | 97 |
+| quads per frame | 26 | 46 | 72 |
+
+Reference frame: 89 stars, 58 quads, HFD 1.88 px. `0 too-few-stars` skips, so the `MinStarsForMatch`
+floor was never approached. Both sides therefore hold ~50 quads and **none of them correspond**, which
+is the quad-PURITY case the `SessionRegistrar` comment distinguishes (with a fraction `p` of the
+top-K detections real, only about `p^4` of quads can match), the same failure mode as the Helix
+2025-08-09 drop. The user's own account is that this session had focus problems, and the trend agrees:
+`corr(capture order, star count) = -0.38`, sliding from ~78 stars early to 44 by 04:52, then 97 on a
+frame taken after a 28-minute gap.
+
+Two lessons, one of which is now enforced in code:
+
+- **The skip message could not distinguish the two causes, so the first plausible story stuck.** It
+  named only the reference's star count and a min/max quad range. `RegistrationCensus` now renders
+  the full per-frame spread (stars with a fixed-edge histogram, quads, HFD, ellipticity, and the
+  star-count trend against capture order) into both the Information line and the Warning skip line,
+  so a bake log answers this without a Debug re-run. The per-frame Debug lines carry `hfd=`/`ecc=`
+  too, which is what says *why* the counts look as they do and was the one thing not recorded.
+- **A conclusion in this file is not evidence.** "Genuinely too star-poor" had no numbers beside it,
+  which is exactly why it went unchallenged. Attach the measurement or mark it as a guess.
+
+Not yet fixed: the session still cannot register, because raising quad purity on a defocused session
+is the open work, not a logging change. Its 49 subs remain out of the training set.
 
 ## 1. Licensing constraint (load-bearing, read first)
 
