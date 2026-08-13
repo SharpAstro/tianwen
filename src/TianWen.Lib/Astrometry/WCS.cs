@@ -1,6 +1,7 @@
 using nom.tam.fits;
 using System;
 using System.Globalization;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Astrometry;
 
@@ -378,8 +379,24 @@ public record struct WCS(double CenterRA, double CenterDec)
                     // For TOP-DOWN images (most hobby astro): Y is flipped vs FITS convention,
                     // so CROTA2 = 180 - ANGLE. For standard BOTTOM-UP: CROTA2 = ANGLE.
                     // FLIPPED mirrors the X axis, which also adds 180° offset.
-                    var rowOrder = header.GetStringValue("ROWORDER");
-                    var isTopDown = rowOrder is null or "TOP-DOWN";
+                    //
+                    // Parsed through RowOrder.FromFITSValue, the SAME parser Image.Fits.cs uses on
+                    // load, rather than the exact ordinal match this used to do
+                    // (`rowOrder is null or "TOP-DOWN"`). One header deserves one parser: the
+                    // ordinal form was case-sensitive and did not trim, so a file writing
+                    // 'Top-Down' read correctly as an IMAGE while falling to the bottom-up branch
+                    // here, and this branch is where that costs a full 180 degrees.
+                    //
+                    // An ABSENT card means TOP-DOWN, deliberately and not as a shrug. The FITS
+                    // standard is bottom-up, but essentially every amateur capture and processing
+                    // tool that writes this card writes TOP-DOWN (TianWen, N.I.N.A., SharpCap, APP,
+                    // ASTAP), so a file that omits it is far likelier to be one of theirs with the
+                    // card stripped than a genuinely bottom-up frame. The same default is chosen
+                    // independently by both readers in Image.Fits.cs; if it is ever revisited, it
+                    // must be revisited in all three, or an image and its own WCS hint disagree.
+                    var isTopDown =
+                        (RowOrder.FromFITSValue(header.GetStringValue("ROWORDER")) ?? Imaging.RowOrder.TopDown)
+                        == Imaging.RowOrder.TopDown;
                     var flippedStr = header.GetStringValue("FLIPPED");
                     var isFlipped = flippedStr is "T" or "True" or "true";
                     var effectiveCrota2 = (isTopDown != isFlipped) ? 180.0 - posAngle : posAngle;
