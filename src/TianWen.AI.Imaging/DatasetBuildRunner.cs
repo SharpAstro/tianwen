@@ -289,6 +289,7 @@ public static class DatasetBuildRunner
                 var reg = await SessionRegistrar.RegisterAsync(
                     session, calibrator, scratchRoot,
                     options.QualityRejectSigma, options.QualityMaxRejectFraction, options.MinSubsPerSession,
+                    hotPixelSigma: options.HotPixelSigma,
                     logger: logger, cancellationToken: cancellationToken);
                 if (reg is null)
                 {

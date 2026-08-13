@@ -73,8 +73,10 @@ internal sealed class StackSubCommand(
         };
         var quadStarsOpt = new Option<int>("--quad-stars")
         {
-            Description = "Top-K brightest stars used for quad fingerprints during registration.",
-            DefaultValueFactory = _ => 500,
+            Description = "Top-K brightest stars used for quad fingerprints during registration. " +
+                          "Lower keeps the fingerprint set at the bright end where detections " +
+                          "reproduce between frames, which is what a quad match needs.",
+            DefaultValueFactory = _ => FrameRegistration.DefaultQuadStars,
         };
         var formatOpt = new Option<ImageOutputFormat>("--output-format")
         {
