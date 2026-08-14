@@ -93,7 +93,7 @@ namespace TianWen.UI.Abstractions
         /// <see cref="SkyMapState.FloatsPerStar"/>, so it is by construction the same unit the cast
         /// truncates on and cannot drift from it.</para>
         /// </summary>
-        private static void EnsureWholeRecords(int length, string paramName)
+        internal static void EnsureWholeRecords(int length, string paramName)
         {
             var floatsPerRecord = Unsafe.SizeOf<StarRecord>() / sizeof(float);
             if (length % floatsPerRecord != 0)

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -131,9 +131,6 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     // magnitude-prefix -- so a deep zoom touches a handful of chunks instead of
     // streaming the whole catalog to the GPU (the unbounded version TDR'd the
     // Adreno X1-85, which froze the UI thread in the swapchain-recovery path).
-    private const int StarGridCols = 12;                  // RA slices  (2h / 30deg each)
-    private const int StarGridRows = 12;                  // Dec slices (15deg each)
-    private const int StarChunkCount = StarGridCols * StarGridRows;
     private StarChunk[] _starChunks = [];
 #if DEBUG
     // Slow-frame attribution: the star draw is GPU-side (instanced quads), so its cost never
@@ -196,17 +193,6 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     /// (and either install or get discarded as stale) before starting.
     /// </summary>
     private Task<StarBuildResult>? _starRebuildTask;
-
-    /// <summary>
-    /// One spatial chunk's slice of the contiguous star buffer: its instance range
-    /// (<see cref="Offset"/> + <see cref="Count"/> within the magnitude-sorted, chunk-grouped
-    /// buffer), the per-chunk magnitude -> prefix-count lookup (brightest-first, same 0.5-mag
-    /// bins as the old global table), and a bounding cone (axis unit vector + angular radius in
-    /// radians) used to cull the chunk against the view cone at draw time.
-    /// </summary>
-    private readonly record struct StarChunk(
-        uint Offset, uint Count, uint[] MagBins,
-        float ConeX, float ConeY, float ConeZ, float ConeRadiusRad);
 
     /// <summary>
     /// Output of an async star-buffer rebuild: a flat float[] of star vertices
@@ -353,7 +339,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             var tycCount = db.Tycho2StarCount;
             var verts = new float[tycCount * floatsPerStar];
             var written = SkyMapState.FillTycho2StarVertices(db, dtYr, verts);
-            var chunks = ChunkAndSortStars(verts.AsSpan(0, written * floatsPerStar), floatsPerStar);
+            var chunks = StarChunkIndex.Build(verts.AsSpan(0, written * floatsPerStar));
             System.Console.Error.WriteLine(
                 $"[VkSkyMapPipeline] async star build month-key {monthKey} (dtYr={dtYr:F3}): " +
                 $"{sw.Elapsed.TotalMilliseconds:N0} ms incl. decode wait ({written} stars)");
@@ -697,11 +683,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
                     continue;
                 }
 
-                // View-cone cull: skip when the two cones cannot intersect, i.e. the angular
-                // separation of their axes exceeds the sum of their radii.
-                var dot = vx * chunk.ConeX + vy * chunk.ConeY + vz * chunk.ConeZ;
-                var sep = MathF.Acos(Math.Clamp(dot, -1f, 1f));
-                if (sep > viewRadiusRad + chunk.ConeRadiusRad)
+                // View-cone cull: skip when the two cones provably cannot intersect.
+                if (!StarChunkIndex.IsVisible(chunk, vx, vy, vz, viewRadiusRad))
                 {
                     continue;
                 }
@@ -836,117 +819,6 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     // ────────────────────────────────────────────────── Geometry builders
 
     /// <summary>
-    /// Partitions the flat star vertex span into a coarse RA/Dec grid, reorders it in place so
-    /// each chunk's stars are contiguous, sorts each chunk brightest-first, and returns the
-    /// per-chunk layout (instance range + 0.5-mag prefix bins + bounding cone). The draw then
-    /// culls whole chunks by view cone and submits only each visible chunk's magnitude prefix,
-    /// bounding GPU work so a deep zoom can't stream the whole catalog and TDR the GPU.
-    /// </summary>
-    private static StarChunk[] ChunkAndSortStars(Span<float> verts, int floatsPerStar)
-    {
-        var count = verts.Length / floatsPerStar;
-        var chunks = new StarChunk[StarChunkCount];
-        if (count == 0)
-        {
-            return chunks; // every chunk Count == 0 -> all culled at draw
-        }
-
-        const float raCellDeg = 360f / StarGridCols;
-        const float decCellDeg = 180f / StarGridRows;
-        const float rad2deg = 180f / MathF.PI;
-
-        // 1. Assign each star to a chunk (RA column x Dec row) from its unit vector.
-        var chunkOf = new int[count];
-        var counts = new int[StarChunkCount];
-        for (var i = 0; i < count; i++)
-        {
-            var b = i * floatsPerStar;
-            float x = verts[b], y = verts[b + 1], z = verts[b + 2];
-            var decDeg = MathF.Asin(Math.Clamp(z, -1f, 1f)) * rad2deg;            // [-90, 90]
-            var raDeg = MathF.Atan2(y, x) * rad2deg;                              // (-180, 180]
-            if (raDeg < 0f)
-            {
-                raDeg += 360f;                                                    // [0, 360)
-            }
-            var col = Math.Clamp((int)(raDeg / raCellDeg), 0, StarGridCols - 1);
-            var row = Math.Clamp((int)((decDeg + 90f) / decCellDeg), 0, StarGridRows - 1);
-            var c = row * StarGridCols + col;
-            chunkOf[i] = c;
-            counts[c]++;
-        }
-
-        // 2. Prefix offsets: the instance index where each chunk begins in the grouped buffer.
-        var offsets = new int[StarChunkCount];
-        for (int c = 0, running = 0; c < StarChunkCount; c++)
-        {
-            offsets[c] = running;
-            running += counts[c];
-        }
-
-        // 3. Stable scatter into a chunk-grouped copy, then write it back over the input span.
-        var grouped = new float[count * floatsPerStar];
-        var cursor = (int[])offsets.Clone();
-        for (var i = 0; i < count; i++)
-        {
-            var dst = cursor[chunkOf[i]]++ * floatsPerStar;
-            verts.Slice(i * floatsPerStar, floatsPerStar).CopyTo(grouped.AsSpan(dst, floatsPerStar));
-        }
-        grouped.AsSpan().CopyTo(verts);
-
-        // 4. Per chunk: sort by magnitude, then compute prefix bins + bounding cone.
-        for (var c = 0; c < StarChunkCount; c++)
-        {
-            var n = counts[c];
-            if (n == 0)
-            {
-                chunks[c] = new StarChunk(0, 0, [], 0f, 0f, 1f, 0f);
-                continue;
-            }
-            var sub = verts.Slice(offsets[c] * floatsPerStar, n * floatsPerStar);
-            StarMagnitudeIndex.SortBrightestFirst(sub);
-            var bins = StarMagnitudeIndex.ComputeBins(sub);
-            var (cx, cy, cz, radRad) = ComputeChunkCone(sub, floatsPerStar);
-            chunks[c] = new StarChunk((uint)offsets[c], (uint)n, bins, cx, cy, cz, radRad);
-        }
-        return chunks;
-    }
-
-    /// <summary>
-    /// Bounding cone for a chunk's stars: axis = the normalized mean of the member unit vectors,
-    /// radius = the maximum angular distance (radians) from that axis to any member. Drives the
-    /// rotation-invariant view-cone cull in <see cref="Draw"/> (correct in equatorial + horizon).
-    /// </summary>
-    private static (float X, float Y, float Z, float RadiusRad) ComputeChunkCone(
-        ReadOnlySpan<float> span, int floatsPerStar)
-    {
-        var n = span.Length / floatsPerStar;
-        double sx = 0, sy = 0, sz = 0;
-        for (var i = 0; i < n; i++)
-        {
-            var b = i * floatsPerStar;
-            sx += span[b]; sy += span[b + 1]; sz += span[b + 2];
-        }
-        var len = Math.Sqrt(sx * sx + sy * sy + sz * sz);
-        if (len < 1e-9)
-        {
-            return (0f, 0f, 1f, MathF.PI); // antipodal cancellation -> whole-sky cone, never culled
-        }
-        float ax = (float)(sx / len), ay = (float)(sy / len), az = (float)(sz / len);
-
-        var minDot = 1f;
-        for (var i = 0; i < n; i++)
-        {
-            var b = i * floatsPerStar;
-            var dot = ax * span[b] + ay * span[b + 1] + az * span[b + 2];
-            if (dot < minDot)
-            {
-                minDot = dot;
-            }
-        }
-        return (ax, ay, az, MathF.Acos(Math.Clamp(minDot, -1f, 1f)));
-    }
-
-    /// <summary>
     /// Instant seed star buffer: just the ~1000 HIP stars referenced by the constellation
     /// figures (<see cref="ConstellationFigures.AllFigureStarHipNumbers"/>), so the figures sit
     /// on visible dots the moment the tab opens. Bounding to that set is what makes the seed
@@ -962,7 +834,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
         var floats = SkyMapGpuGeometry.BuildFigureStarInstances(db);
         _starCount = (uint)(floats.Count / SkyMapState.FloatsPerStar);
         var floatsSpan = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(floats);
-        _starChunks = ChunkAndSortStars(floatsSpan, SkyMapState.FloatsPerStar);
+        _starChunks = StarChunkIndex.Build(floatsSpan);
         (_starBuffer, _starMemory) = _ctx.CreatePersistentVertexBuffer(floatsSpan);
     }
 

@@ -324,10 +324,10 @@ namespace TianWen.UI.Web.SkyMap
         private GpuBufferHandle _stars;
         private int _starCount;
 
-        // Magnitude -> instance-count prefix tables for the two star buffers, both of which are kept
-        // sorted brightest-first so the draw can cull to a prefix. See the star draw in Draw.
-        private uint[] _starMagBins = [];
-        private uint[] _tycho2MagBins = [];
+        // Both star buffers are grouped by sky region, brightest-first within each region, so the draw
+        // submits only the regions the view can see and only their magnitude prefix. See the star draw.
+        private StarChunk[] _starChunks = [];
+        private StarChunk[] _tycho2Chunks = [];
 
         // The full ~2.5M-star Tycho-2 field, lazily fetched + decoded on first atlas-open (the
         // ~30 MB catalog is stripped from the WASM bundle, so the browser host fetches it as a
@@ -340,7 +340,7 @@ namespace TianWen.UI.Web.SkyMap
         private bool _tycho2Applied;
         private float[]? _pendingTycho2Verts;
         private int _pendingTycho2Count;
-        private uint[] _pendingTycho2MagBins = [];
+        private StarChunk[] _pendingTycho2Chunks = [];
         private GpuBufferHandle _figures;
         private int _figureVertexCount;
         private GpuBufferHandle _boundaries;
@@ -407,8 +407,7 @@ namespace TianWen.UI.Web.SkyMap
             // and the full field cull identically instead of the switch between them changing which
             // stars a given zoom shows.
             var starSpan = CollectionsMarshal.AsSpan(stars);
-            StarMagnitudeIndex.SortBrightestFirst(starSpan);
-            _starMagBins = StarMagnitudeIndex.ComputeBins(starSpan);
+            _starChunks = StarChunkIndex.Build(starSpan);
             _stars = _renderer.CreateBuffer(starSpan);
 
             var figures = SkyMapGpuGeometry.BuildConstellationFigureLines(db);
@@ -444,14 +443,12 @@ namespace TianWen.UI.Web.SkyMap
         /// </summary>
         public void SubmitTycho2Stars(float[] verts, int starCount)
         {
-            // Sort + index HERE, not in ApplyPendingTycho2: this is the off-render-loop entry point
-            // (the host's fetch task), while the apply step runs on the render thread and has to stay
-            // cheap. Sorting brightest-first is what makes the magnitude cull in Draw a prefix count.
+            // Group + sort + index HERE, not in ApplyPendingTycho2: this is the off-render-loop entry
+            // point (the host's fetch task), while the apply step runs on the render thread and has to
+            // stay cheap. This is what makes the cull in Draw a pair of array lookups.
             if (starCount > 0)
             {
-                var span = verts.AsSpan(0, starCount * SkyMapState.FloatsPerStar);
-                StarMagnitudeIndex.SortBrightestFirst(span);
-                _pendingTycho2MagBins = StarMagnitudeIndex.ComputeBins(span);
+                _pendingTycho2Chunks = StarChunkIndex.Build(verts.AsSpan(0, starCount * SkyMapState.FloatsPerStar));
             }
 
             _pendingTycho2Verts = verts;
@@ -477,12 +474,18 @@ namespace TianWen.UI.Web.SkyMap
 
             _tycho2Stars = _renderer.CreateBuffer(verts.AsSpan(0, _pendingTycho2Count * SkyMapState.FloatsPerStar));
             _tycho2StarCount = _pendingTycho2Count;
-            _tycho2MagBins = _pendingTycho2MagBins;
-            _pendingTycho2MagBins = [];
+            _tycho2Chunks = _pendingTycho2Chunks;
+            _pendingTycho2Chunks = [];
             _tycho2Applied = true;
+
+            uint atDefault = 0;
+            foreach (var chunk in _tycho2Chunks)
+            {
+                atDefault += StarMagnitudeIndex.VisibleCount(chunk.MagBins, 8.5f);
+            }
             Console.WriteLine(
-                $"[tianwen-web] sky geometry: upgraded to Tycho-2 ({_tycho2StarCount} stars, "
-                + $"{StarMagnitudeIndex.VisibleCount(_tycho2MagBins, 8.5f)} of them at V<=8.5)");
+                $"[tianwen-web] sky geometry: upgraded to Tycho-2 ({_tycho2StarCount} stars in "
+                + $"{StarChunkIndex.ChunkCount} chunks, {atDefault} of them at V<=8.5)");
         }
 
         /// <summary>Uploads the shared 112-byte view block to both pipelines (each has its own
@@ -625,34 +628,50 @@ namespace TianWen.UI.Web.SkyMap
             // otherwise the HR bright-star seed (the bundle bootstrap). Never both - additive blend
             // would double every star the two share, so this is a switch, not an overlay.
             //
-            // MAGNITUDE CULL. Both buffers are sorted brightest-first, so the stars at or above the
-            // view's effective limit are a PREFIX and drawing them is just a smaller instance count.
-            // Without it every frame submitted all ~2.5M Tycho-2 instances (~15M vertices) whatever
-            // the view showed, which is what pinned the GPU process at 59% during a drag and dropped
-            // 944 of 1287 frames. The desktop pipeline has culled this way for a while -- there the
+            // TWO-AXIS CULL, matching the desktop pipeline. The buffer is grouped by sky region and
+            // sorted brightest-first within each region, so a frame submits only the regions the view
+            // cone can reach and only their magnitude prefix. Without it every frame submitted all
+            // ~2.5M Tycho-2 instances (~15M vertices) whatever the view showed, which pinned the GPU
+            // process at 59% during a drag and dropped 944 of 1287 frames; on the desktop the same
             // unbounded form did not merely drop frames, it TDR'd an Adreno X1-85.
             //
-            // Unlike Vulkan this is ONE prefix over the whole buffer rather than a per-chunk prefix
-            // over the spatially-culled chunks: WebGL2 has no base-instance, so a chunked draw would
-            // need an instance offset the renderer cannot express today. The magnitude prefix is the
-            // large win and needs no such support; the spatial cone cull is the remaining refinement.
+            // Both axes are load-bearing and neither covers the other: magnitude bounds a WIDE field
+            // (~3% of the catalog at 60 degrees) but stops bounding anything as the limit climbs with
+            // zoom (81% at V<=12), while the cone is what makes a deep zoom cheap and does nothing at
+            // full sky. The per-chunk draw needs WebGl.Renderer 1.24's firstInstance, because WebGL2
+            // has no base-instance draw argument.
             var magLimit = state.EffectiveMagnitudeLimit;
-            if (_tycho2Applied && _tycho2StarCount > 0)
+            var (chunks, buffer) = _tycho2Applied && _tycho2StarCount > 0
+                ? (_tycho2Chunks, _tycho2Stars)
+                : (_starChunks, _stars);
+            if (chunks.Length > 0)
             {
-                var visible = (int)StarMagnitudeIndex.VisibleCount(_tycho2MagBins, magLimit);
-                if (visible > 0)
+                // View cone in J2000: axis = the look-at direction, radius = the FULL field of view,
+                // generous enough to cover the viewport diagonal at any aspect so chunks never pop in
+                // and out at the screen edges.
+                var (vx, vy, vz) = SkyMapState.RaDecToUnitVec(state.CenterRA, state.CenterDec);
+                var viewRadiusRad = (float)double.DegreesToRadians(Math.Min(180.0, state.FieldOfViewDeg));
+
+                var pipelineBound = false;
+                foreach (var chunk in chunks)
                 {
-                    _renderer.UsePipeline(_starPipeline);
-                    _renderer.DrawInstanced(_cornerQuad, 6, _tycho2Stars, visible);
-                }
-            }
-            else if (_starCount > 0)
-            {
-                var visible = (int)StarMagnitudeIndex.VisibleCount(_starMagBins, magLimit);
-                if (visible > 0)
-                {
-                    _renderer.UsePipeline(_starPipeline);
-                    _renderer.DrawInstanced(_cornerQuad, 6, _stars, visible);
+                    if (chunk.Count == 0 || !StarChunkIndex.IsVisible(chunk, vx, vy, vz, viewRadiusRad))
+                    {
+                        continue;
+                    }
+
+                    var visible = (int)StarMagnitudeIndex.VisibleCount(chunk.MagBins, magLimit);
+                    if (visible == 0)
+                    {
+                        continue;
+                    }
+
+                    if (!pipelineBound)
+                    {
+                        _renderer.UsePipeline(_starPipeline);
+                        pipelineBound = true;
+                    }
+                    _renderer.DrawInstanced(_cornerQuad, 6, buffer, visible, (int)chunk.Offset);
                 }
             }
         }

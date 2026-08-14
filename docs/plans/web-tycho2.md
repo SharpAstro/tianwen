@@ -125,10 +125,18 @@ measured problem P1 surfaces.
    culled this way for a while -- there the unbounded form did not merely drop frames, it **TDR'd an
    Adreno X1-85**. That is the whole reason this is shared rather than reimplemented.
 
-   **Still open: the spatial cone cull at deep zoom.** The table above shows why -- past V~11 the
-   magnitude prefix stops bounding anything, and a 1-degree field still submits 80% of the catalog.
-   Vulkan solves it by drawing per spatial chunk with a `firstInstance` offset; WebGL2 has no
-   base-instance, so this needs an instance-offset draw in WebGl.Renderer first.
+7. **Spatial cone cull. SHIPPED**, in the same cut, because the table above shows the magnitude prefix
+   alone is not enough: past V~11 it stops bounding anything, so a 1-degree field would still submit
+   80% of the catalog for a patch of sky holding almost none of it. `StarChunkIndex` (Abstractions,
+   shared with Vulkan) groups the buffer into a 12x12 RA/Dec grid, sorts + indexes within each chunk,
+   and gives each a bounding cone; the draw submits only the chunks whose cone can meet the view cone,
+   and only their prefix. The two axes are complementary -- magnitude for a wide field, the cone for a
+   deep zoom -- and neither substitutes for the other.
+
+   This needed **WebGl.Renderer 1.24**: a per-chunk draw is an instance sub-range, and WebGL2 has no
+   base-instance draw argument (desktop GL 4.2 does). `DrawInstanced` now takes a `firstInstance` that
+   the JS side turns into a per-instance attribute byte offset -- equivalent for a divisor-1 attribute
+   and free, since the draw re-binds those attributes anyway.
 
 ## P2: parallel decode (measurement-gated)
 
