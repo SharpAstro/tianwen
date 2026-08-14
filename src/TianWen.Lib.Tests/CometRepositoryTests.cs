@@ -299,4 +299,55 @@ public class CometRepositoryTests(ITestOutputHelper output)
         elements.PerihelionJdTt.ShouldBe(2457340.741, tolerance: 0.001);
         elements.IsElementSetStale(2461258.5).ShouldBeTrue();
     }
+
+    /// <summary>
+    /// The bulk <see cref="CometEphemeris.EarthState"/> overload has to resolve through the SAME
+    /// apparition-aware lookup as the per-instant one. It exists so a catalogue-wide sweep evaluates
+    /// Earth once instead of ~1,800 times, and the tempting way to get that -- iterate
+    /// <see cref="ICometRepository.All"/> and call <see cref="CometEphemeris"/> directly at the call
+    /// site -- would quietly sweep the STALE element set, because the upgrade is applied inside
+    /// <see cref="ICometRepository.TryGet"/>. For 10P in 2026 that is 9.3 degrees of sky, and nothing
+    /// would look broken: every marker would simply be in the wrong place.
+    ///
+    /// <para>So this pins both halves. The overloads must agree exactly (same lookup, same
+    /// arithmetic), AND the answer must have moved once the upgrade landed -- without the second
+    /// assertion the first would still pass for a bulk overload that had bypassed the upgrade
+    /// entirely, since then both would be consistently stale.</para>
+    /// </summary>
+    [Fact]
+    public async Task TheBulkOverloadResolvesThroughTheCurrentApparitionToo()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var when = new DateTimeOffset(2026, 8, 6, 0, 0, 0, TimeSpan.Zero);
+        var external = CreateExternal(new FakeTimeProviderWrapper(when));
+        var repo = await LoadedWithStaleCometAsync(external, new FakeHorizons(RefreshedComet()), ct);
+        var index = StaleComet().CatalogIndex.ShouldNotBeNull();
+
+        CometEphemeris.TryGetEarthState(when, out var earth).ShouldBeTrue();
+        repo.TryGetPosition(index, earth, out var staleRa, out var staleDec, out _).ShouldBeTrue();
+
+        repo.RequestCurrentApparition(index);
+        (await WaitForAsync(() => repo.TryGet(index, out var e) && e.EpochJdTt > 2461000)).ShouldBeTrue();
+
+        repo.TryGetPosition(index, earth, out var bulkRa, out var bulkDec, out var bulkMag).ShouldBeTrue();
+        repo.TryGetPosition(index, when, out var perInstantRa, out var perInstantDec, out var perInstantMag).ShouldBeTrue();
+
+        bulkRa.ShouldBe(perInstantRa);
+        bulkDec.ShouldBe(perInstantDec);
+        bulkMag.ShouldBe(perInstantMag);
+
+        // MEASURED at 9.3 degrees (see CometEphemerisTests, which decomposes it as a pure timing error
+        // from the two-body period); bounded well below that so a restated JPL solution cannot fail it.
+        SeparationDeg(staleRa, staleDec, bulkRa, bulkDec).ShouldBeGreaterThan(5.0);
+    }
+
+    private static double SeparationDeg(double ra1Hours, double dec1Deg, double ra2Hours, double dec2Deg)
+    {
+        const double d2r = Math.PI / 180.0;
+        var d1 = dec1Deg * d2r;
+        var d2 = dec2Deg * d2r;
+        var dRa = (ra1Hours - ra2Hours) * 15.0 * d2r;
+        var cosSep = Math.Sin(d1) * Math.Sin(d2) + Math.Cos(d1) * Math.Cos(d2) * Math.Cos(dRa);
+        return Math.Acos(Math.Clamp(cosSep, -1.0, 1.0)) / d2r;
+    }
 }

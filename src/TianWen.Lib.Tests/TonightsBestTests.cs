@@ -122,7 +122,16 @@ public class TonightsBestTests
             return false;
         }
 
+        // Both overloads answer from the same fixed table -- the stub is time-independent, so the
+        // scheduler's hoisted EarthState changes nothing it can observe. That is what makes the
+        // existing scheduler assertions below a valid check on the hoist: they must not move.
         public bool TryGetPosition(CatalogIndex index, DateTimeOffset time, out double raJ2000Hours, out double decJ2000Deg, out double magnitude)
+            => TryGetFixedPosition(index, out raJ2000Hours, out decJ2000Deg, out magnitude);
+
+        public bool TryGetPosition(CatalogIndex index, in CometEphemeris.EarthState earth, out double raJ2000Hours, out double decJ2000Deg, out double magnitude)
+            => TryGetFixedPosition(index, out raJ2000Hours, out decJ2000Deg, out magnitude);
+
+        private bool TryGetFixedPosition(CatalogIndex index, out double raJ2000Hours, out double decJ2000Deg, out double magnitude)
         {
             foreach (var c in comets)
             {

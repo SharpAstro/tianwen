@@ -37,7 +37,8 @@ public static class CometEphemeris
     /// Kepler solves it accompanies, so computing it per comet -- as the <see cref="DateTimeOffset"/>
     /// overloads necessarily do -- makes Earth almost the entire cost of the sweep rather than a
     /// rounding error: the sky map's marker rebuild over the real 1,630-candidate SBDB set measures
-    /// 37.2 ms that way and 2.2 ms with this, and 91 ms/frame in the browser build. A caller looping
+    /// 29 ms that way and 1.6 ms with this (fastest of 25 runs, native arm64), and 91 ms/frame in the
+    /// browser build, which is where it was found. A caller looping
     /// over comets should take this once and pass it in; a caller asking about one comet at one time
     /// should keep using the <see cref="DateTimeOffset"/> overload, which is exactly that plus
     /// this.</para>

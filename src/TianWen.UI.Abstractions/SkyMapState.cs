@@ -452,9 +452,9 @@ namespace TianWen.UI.Abstractions
             // alone, and the Earth half is a ~3,500-term VSOP87a series against the few dozen
             // transcendentals of the two Kepler solves it feeds -- so resolving it per comet (which is
             // what the DateTimeOffset overload of TryGetEquatorialJ2000WithMagnitude must do) made
-            // Earth essentially the whole cost of this loop: MEASURED at 37.2 ms per sweep over the
-            // real 1,630-candidate SBDB set, against 2.2 ms hoisted. Also gives the staleness check its
-            // jdTt: staleness is per element set, but the instant it is judged against is not.
+            // Earth essentially the whole cost of this loop: MEASURED at 29 ms per sweep over the real
+            // 1,630-candidate SBDB set against 1.6 ms hoisted (fastest of 25 runs, native arm64). Also
+            // gives the staleness check its jdTt: staleness is per element set, the instant is not.
             if (!CometEphemeris.TryGetEarthState(viewingTime, out var earth))
             {
                 _cometCacheCount = 0;

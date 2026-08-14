@@ -52,7 +52,15 @@ internal sealed class StubCometRepository(params CometElements[] comets) : ICome
     /// </summary>
     public Dictionary<CatalogIndex, (double RaHours, double DecDeg, double VMag)> Positions { get; } = [];
 
+    // Both overloads answer from the same fixed table: this stub is time-independent by design (see
+    // Positions above), so the bulk form's pre-resolved EarthState has nothing to contribute here.
     public bool TryGetPosition(CatalogIndex index, DateTimeOffset time, out double raJ2000Hours, out double decJ2000Deg, out double magnitude)
+        => TryGetFixedPosition(index, out raJ2000Hours, out decJ2000Deg, out magnitude);
+
+    public bool TryGetPosition(CatalogIndex index, in CometEphemeris.EarthState earth, out double raJ2000Hours, out double decJ2000Deg, out double magnitude)
+        => TryGetFixedPosition(index, out raJ2000Hours, out decJ2000Deg, out magnitude);
+
+    private bool TryGetFixedPosition(CatalogIndex index, out double raJ2000Hours, out double decJ2000Deg, out double magnitude)
     {
         if (Positions.TryGetValue(index, out var p))
         {
