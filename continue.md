@@ -116,7 +116,7 @@ session list at the time of writing.
 
 | # | Item | Notes |
 |---|---|---|
-| 20 | Carry `BadPixelDetection` into the dataset path | **In progress.** Drizzled hot pixels sit in 45 of the training masters. Links to #32 below: shared unrejected residue is the leading hypothesis for why half-master pairs fabricate. |
+| 20 | ~~Carry `BadPixelDetection` into the dataset path~~ | **DONE.** The wiring was already there; the gap was that `HotPixelMaskProbe` asserted nothing (it wrote two masters and said "diff them"). Now a real A/B: both runs must stay on BayerDrizzle (an AHD fallback never consults the mask, so the probe would pass by proving nothing), at least one changed cluster, changed fraction < 2%, and the extreme-outlier count cannot rise. Measured on 2025-12-28 Segaull (ASI533MC g121, 90 subs): **2119 px changed, 0.0077% of frame, 617 clusters, outliers 162618 to 161334.** The 45 already-baked masters still carry the defect; clearing them is #23's re-bake. |
 | 21 | Collapse the dataset registrar onto the stacking core | They parallel each other and have drifted both ways before. |
 | 22 | Derive the bad-pixel map from registration, not from the dark | |
 | 23 | Pre-rebake checklist | Fix everything below before burning another ~4.5 h bake. |
