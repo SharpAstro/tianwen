@@ -848,6 +848,34 @@ Conclusion for the schedule: keep the long run plus the gate, and do not spend f
 schedule tuning. Same shape as the half-master result -- the mechanical argument (65% of peak LR, or a
 half-master's 0.215x depth) measured out correctly and still did not cash out in training.
 
+**Denoising at deployment depth is still not worth it, and the suspected measurement leak was not the
+reason (task #30, `n2n_halfscore.py`).** Scoring a denoised half-master against the MASTER is
+circular, because the master is the integration of all subs and A is half of them, so `corr(A, master)`
+carries A's own noise realisation correlated with itself. Rescored against the other half, whose noise
+is independent by construction (`SessionRegistrar`, `i % 2`), on 120 held-out cells:
+
+| | vs the other half (clean) | vs the master (leaks) |
+|---|---|---|
+| raw half A, 1-2px structure corr | 0.985 | 0.996 |
+| raw half A, faint amplitude | 0.989 | 0.987 |
+
+**The leak is real and small**, 0.011 of correlation, and the verdict does not move. Against the clean
+reference every model spends far more signal than it buys quiet: 30.7% / 31.7% / 31.3% of faint-star
+amplitude to remove 19.5% / 20.0% / 26.0% of the noise, and the best of any variant tried spends 21.4%
+to remove 17.9%. So the earlier conclusion stands on a measurement that can no longer be blamed for it.
+
+Two metric lessons from the same run, both about depth rather than about models:
+
+- **Structure correlation cannot rank anything at this depth.** It spans 0.005 across every row
+  including the raw half. It discriminated at sub depth and is saturated here, so a "best correlation"
+  winner at half-master depth is reading noise.
+- **The fabrication count flips direction a THIRD time.** The truth mask is the master at 8 MAD, but a
+  half-master's own detection bar is 5 of ITS larger MAD, which lands below the mask's threshold in
+  absolute terms -- so the raw half's 76.7 spurious/tile floor is mostly real faint stars the mask
+  omits, not invention, and models score BELOW that floor by erasing them. Already on record as
+  flipping between a noisy sub (high = invention) and a master (low = erasure); depth is the third
+  axis, and the metric needs its truth mask re-derived per depth before it means anything there.
+
 **Zero train/inference skew (non-negotiable):** the tile exporter calls the *same* code the
 inference path uses; `AiNafnetInputs` MTF pre-stretch (target median 0.25, auto-skip threshold
 0.125), `[0,1]` linear convention, `ChunkedInference`-compatible geometry. Python never
