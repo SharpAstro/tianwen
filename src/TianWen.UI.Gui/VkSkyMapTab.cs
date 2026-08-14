@@ -319,7 +319,20 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // Quantize the centre to FOV/8 cells. The RA step widens by 1/cos(dec) (clamped) so
         // cells stay roughly square on the sky; near the pole RA quantization is meaningless
         // anyway -- the gather sweeps the full 24h there.
-        var quantStepDeg = fov / 8.0;
+        //
+        // The step comes from the BUCKETED fov above, never the raw one, for the same reason as in
+        // SkyMapTab.BuildOverlayKey (its hand-maintained CPU mirror, which had the identical bug):
+        // the raw value rescales the grid continuously, so a zoom moves the rounded centre on every
+        // tick even when the centre is perfectly still, and the FOV bucketing right above it buys
+        // nothing. Measured on the CPU path over a 60->30 degree pinch with a fixed centre: 69
+        // gathers from the raw fov against 8 from the bucketed one.
+        //
+        // It shows up differently here, which is why it survived longer on this path: the walk runs
+        // on a background task and the render thread keeps drawing the last-good list, so instead of
+        // stalling frames a zoom just re-gathered a 60-170ms catalog walk continuously without ever
+        // settling -- exactly the "slow gather -> the view had already moved -> cache miss -> slow
+        // gather" loop the async design above was introduced to escape.
+        var quantStepDeg = quantFov / 8.0;
         var quantDec = Math.Round(centreDec / quantStepDeg) * quantStepDeg;
         var cosDec = Math.Max(Math.Abs(Math.Cos(quantDec * Math.PI / 180.0)), 0.05);
         var quantStepRaHours = quantStepDeg / 15.0 / cosDec;

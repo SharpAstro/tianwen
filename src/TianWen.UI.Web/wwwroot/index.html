@@ -110,6 +110,10 @@
                 // the canvas at the exact target (there is no DOM for these). Return "null" when absent.
                 getPlannerSearchRect: function () { return ref.invokeMethodAsync('GetPlannerSearchRectJson'); },
                 getPlannerSuggestionRect: function (i) { return ref.invokeMethodAsync('GetPlannerSuggestionRectJson', i); },
+                // Repaint accounting -> {frames, coalesced, gathers}. Lets a test assert the two perf
+                // properties of a continuous gesture (frames coalesce onto vsync; the overlay cache does
+                // not re-gather per event) without reading a Chrome trace by hand.
+                getRenderStats: function () { return ref.invokeMethodAsync('GetRenderStatsJson'); },
             };
         };
     </script>

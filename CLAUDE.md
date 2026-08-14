@@ -1830,6 +1830,55 @@ reaches and only their prefix. No per-frame CPU pass, no re-upload.
   visible" — which reads as a broken cull if you assert against it. A test asserting the cull is tight
   needs a view wider than the star spacing it is culling.
 
+### A quantized cache key must not derive its grid from a continuous input
+
+The object-overlay candidate cache exists twice — `SkyMapTab.BuildOverlayKey` (CPU/browser) and
+`VkSkyMapTab`'s `OverlayGatherKey` (desktop GPU), hand-maintained mirrors — and **both** quantized the
+view centre into `FOV/8` cells using the **raw** FOV while separately bucketing the FOV itself into ~10%
+steps. So during a zoom the grid rescaled continuously and the rounded centre moved on **every event**
+even with the centre held perfectly still: the "quantization" quantized nothing, and the FOV bucketing
+right beside it bought nothing. Take the step from the **bucketed** value.
+
+- **Measured, CPU path, a 60→30 degree pinch with a fixed centre: 69 gathers against 8.** A pure pan of
+  1.4h of RA costs 3. That asymmetry is the tell — the cache was designed for pan, tested by panning,
+  and a *zoom* is what broke it.
+- **It presented completely differently on each path, which is why one is easy to miss.** The browser
+  gathers inline, so it stalled frames (touchmove p95 91 ms, max 246 ms, 91% of the main thread's busy
+  time inside move handling). The desktop gathers on a background task and keeps drawing the last-good
+  list, so it showed as no jank at all — just a 60-170ms catalog walk re-running forever without
+  settling, which is precisely the "slow gather → the view had already moved → cache miss → slow gather"
+  loop that async design was introduced to escape.
+- **Assert the gather COUNT, never the output.** A stale-keyed rebuild draws the byte-identical frame,
+  so nothing observable — pixels included — separates a cache that holds from one that misses per event.
+  Hence `SkyMapTab.PrimOverlayGathers`, the same reasoning as `SkyMapState.PlanetCacheRebuilds`.
+- **A bound like `gathers <= 12` passes on `gathers == 0`.** `ShowObjectOverlay` is **off by default**,
+  so the first version of the E2E turned nothing on, measured nothing, and passed with the fix reverted.
+  Any such test needs `gathers > 0` beside the bound, and must be seen to FAIL with the fix removed.
+
+### The web host paints per event, so continuous gestures must coalesce onto rAF
+
+There is no render loop in the browser build: every input handler ends in a synchronous full repaint
+(`Planner.RenderFrame`). For a one-shot event that is right — painting immediately is the lowest latency
+available. For a **continuous** gesture it is waste: a drag or a trackpad pinch delivers several events
+between two vsyncs and each paints a frame the next overwrites before the compositor sees it. Measured in
+a touch trace: **1096 of 1535 move-driven repaints (71%) superseded inside their own 16.67 ms window**,
+275 windows carrying four each.
+
+- `RequestRenderCoalesced()` (marks dirty, schedules one repaint via `wwwroot/raf-pump.js`) is for
+  `OnPointerMove` / `OnWheel` / `OnPinch` only. Everything else keeps calling `RenderFrame()` directly.
+- **The pending flag lives on the .NET side**, so an already-dirty frame costs nothing — not even an
+  interop crossing. Steady state is two crossings per *painted* frame regardless of event rate.
+- **A trackpad pinch is `ctrl`+`wheel`, a different path from the touchscreen pinch** (Blazor's
+  `@onwheel` binding vs the canvas touch bridge), so it is not covered by anything done to the bridge.
+  It is also the densest gesture the app sees.
+- **Clear the flag BEFORE painting** in the rAF callback, and clear it on the schedule-failure path: a
+  latched flag is a permanently frozen canvas. Absent the module the call falls back to painting
+  synchronously — never to skipping.
+- **A burst test must dispatch its events inside ONE JS task** (`CanvasGestures.TrackpadPinchAsync`
+  with `burst: true`), or the browser paints between them and the assertion becomes timing-dependent.
+  The paced variant (`burst: false`) is the opposite tool: it is what lets per-repaint work like the
+  gather above be measured at all, since a burst collapses it to a single repaint and hides it.
+
 ### Sky Map / FITS Viewer GLSL (pre-baked SPIR-V, no runtime shaderc)
 
 TianWen.UI.Shared's Vulkan shaders (`VkFitsImagePipeline`, `VkSkyMapPipeline`) are authored as GLSL

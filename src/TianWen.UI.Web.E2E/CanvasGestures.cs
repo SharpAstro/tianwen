@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Playwright;
 
 namespace TianWen.UI.Web.E2E;
@@ -55,5 +56,70 @@ internal static class CanvasGestures
             ["type"] = "touchEnd",
             ["touchPoints"] = Array.Empty<object>(), // release all fingers
         });
+    }
+
+    /// <summary>
+    /// A TRACKPAD pinch, which is a different input path from <see cref="PinchAsync"/> and was the
+    /// densest gesture in a real browser trace: a browser reports it as a stream of <c>wheel</c> events
+    /// with <c>ctrlKey</c> set (there is no pinch event and no touch event), so it arrives through
+    /// Blazor's <c>@onwheel</c> binding rather than the canvas touch bridge.
+    ///
+    /// <para><paramref name="burst"/> selects WHICH property this exercises, and the two are mutually
+    /// exclusive by construction:</para>
+    /// <list type="bullet">
+    /// <item><b>true</b> - every event is dispatched inside ONE JS task, so the browser cannot paint
+    /// between them. This is the frame-coalescing case: a correct app paints once.</item>
+    /// <item><b>false</b> - one event per animation frame, so each one paints. This is the case that can
+    /// see per-repaint work such as the overlay candidate gather; a burst would collapse it to one
+    /// repaint and hide exactly what is being measured.</item>
+    /// </list>
+    ///
+    /// <para>Dispatched in-page rather than through <c>page.Mouse.WheelAsync</c> because that is a
+    /// round-trip per event, which inserts a paint opportunity between them and makes the burst case
+    /// timing-dependent instead of deterministic.</para>
+    /// </summary>
+    /// <param name="deltaPerEvent">Wheel deltaY per event; negative zooms IN. Small values keep the
+    /// total zoom (and so the number of FOV buckets crossed) low.</param>
+    public static async Task TrackpadPinchAsync(
+        IPage page, ILocator target, int events, double deltaPerEvent, bool burst)
+    {
+        var box = await target.BoundingBoxAsync()
+            ?? throw new InvalidOperationException("Pinch target has no bounding box (not visible).");
+        var cx = box.X + (box.Width / 2);
+        var cy = box.Y + (box.Height / 2);
+
+        // The event is dispatched ON the located element (ILocator.EvaluateAsync binds it as the first
+        // argument), so there is no elementFromPoint lookup to get wrong. Values are formatted into the
+        // script rather than passed as an argument object: Playwright's argument serialization did not
+        // bind an anonymous type's members here, which surfaced as clientX arriving non-finite.
+        static string Script(int n, double delta, double cx, double cy)
+        {
+            var ci = CultureInfo.InvariantCulture;
+            return $$"""
+                (el) => {
+                  for (let i = 0; i < {{n.ToString(ci)}}; i++) {
+                    el.dispatchEvent(new WheelEvent('wheel', {
+                      deltaY: {{delta.ToString("R", ci)}}, deltaMode: 0, ctrlKey: true,
+                      clientX: {{cx.ToString("R", ci)}}, clientY: {{cy.ToString("R", ci)}},
+                      bubbles: true, cancelable: true,
+                    }));
+                  }
+                }
+                """;
+        }
+
+        if (burst)
+        {
+            await target.EvaluateAsync(Script(events, deltaPerEvent, cx, cy));
+            return;
+        }
+
+        var one = Script(1, deltaPerEvent, cx, cy);
+        for (var i = 0; i < events; i++)
+        {
+            await target.EvaluateAsync(one);
+            // One animation frame between events, so each one is painted rather than coalesced away.
+            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+        }
     }
 }
