@@ -199,11 +199,25 @@ lands; **P2 -> P3** then adds the atlas. P2 gates P3 across the NuGet release bo
   `_framework/blazor.webassembly#[.{fingerprint}].js` - or the published page 404s (only
   fingerprinted asset names exist in `_framework`). The dev server tolerates plain names, so this
   only bites on publish. Mirrors Chess.Web.
-- **JPL SBDB has no CORS headers** - browser-side comet fetch is impossible, permanently. The
-  repository degrades gracefully (DSO-only). Fix = **bake comets in CI**: the Pages workflow curls
-  the same SBDB query on the runner, ships `comets.json` as a static asset, and the app seeds it
-  into `CometRepository`'s cache path in MEMFS (the repo's own TTL/stale logic then applies;
-  weekly redeploys keep it fresh). Zero Lib changes.
+- **JPL has no CORS headers, from EITHER comet host** - browser-side fetch is impossible,
+  permanently. The repository degrades gracefully (DSO-only). Fix = **bake comets in CI**:
+  `tools/bake-comets` runs on the runner before publish and writes both assets into `wwwroot`, which
+  `Program.cs` points `AddAstrometry` at as plain same-origin URLs.
+  - `comets-sbdb.json` - the bulk query response, verbatim, so `SbdbCometSource` parses it unchanged.
+  - `comets-apparitions.json` - the per-object **Horizons** current-apparition overlay. This was
+    missed for a long time, because it is a *different JPL host* reached from a *different* class:
+    the deployed atlas kept retrying it forever, since only a SUCCESSFUL fetch was recorded and the
+    single-flight key cleared on failure. Measured on the live site: **45 requests, 50 s of
+    cumulative request time, in one four-minute session, all for comet 5D**. The asset carries
+    `NoRemoteRefresh`, which switches the per-object fetch off rather than merely feeding it.
+  - **Incremental, seeded from the deployed site**: entries carry their own `FetchedUtc` and are
+    re-resolved on a per-comet TTL tiered by peak-ish magnitude (daily <=12, weekly <=15, monthly
+    <=18, once beyond). ~30 requests on a day that deploys, against 518 stale comets in total. The
+    tiers are a *relevance* budget, not physics - elements decay with time, not with brightness.
+  - **`NoRemoteRefresh` is a policy, not a completeness claim**, which is what lets the bake be
+    partial: an unbaked comet keeps its bulk record and stays flagged approximate.
+  - The backstop for hosts with no seed (the dev server below, an offline desktop, a JPL outage) is
+    a per-comet retry cooldown in `CometRepository` - the actual bug, and platform-independent.
 - **Caching layers**: browser HTTP cache already covers the payload (fingerprinted assets); the
   site + planner-session persistence SHIPPED via localStorage (see the interaction round below);
   the comets cache stays MEMFS pending the CI bake; a decoded-DB snapshot (generalize the
@@ -343,9 +357,12 @@ read-only `SdfGlyphDiskCache` mode (the single-threaded-WASM-friendly variant).
   catalog designation (x2 canonical forms) + sorts - measured 7.4 s INTERPRETED on :5099 (fine
   under AOT). It builds in the background task after first paint (search commit works without
   it) and rebuilds with comet designations once comets load.
-- **Local dev comets**: `wwwroot/comets-sbdb.json` is CI-baked and gitignored, so :5099 404s it
-  by default (comet-less dev session). Bake it locally with the same curl as pages.yml when
-  comets are needed in dev; the dev server serves the source wwwroot directly, no rebuild.
+- **Local dev comets**: `wwwroot/comets-sbdb.json` and `comets-apparitions.json` are CI-baked and
+  gitignored, so :5099 404s both by default (comet-less dev session). Bake them locally with
+  `dotnet run --project tools/bake-comets/BakeComets.csproj -- --out src/TianWen.UI.Web/wwwroot`;
+  the dev server serves the source wwwroot directly, no rebuild. **Nothing detects the host** - dev
+  and Pages differ only in whether the assets are there, so a dev session degrades along exactly the
+  path a seed-less host takes rather than down a branch that production never exercises.
 
 ## Selectable text + fullscreen round (2026-07-20, fifth session)
 

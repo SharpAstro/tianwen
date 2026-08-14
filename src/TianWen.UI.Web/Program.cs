@@ -26,6 +26,18 @@ builder.Services.AddSingleton<IExternal, BrowserExternal>();
 // (comets-sbdb.json, curled in CI) and the comet source fetches that instead - the response
 // shape, parser, and cache layers are all unchanged. On a dev server without the baked file the
 // fetch 404s and the repository degrades to a DSO-only session exactly like the CORS failure did.
-builder.Services.AddAstrometry(cometQueryUri: new Uri(new Uri(builder.HostEnvironment.BaseAddress), "comets-sbdb.json"));
+//
+// The SAME is true of JPL Horizons, which serves the per-object current-apparition refinement from a
+// different host and likewise sends no CORS headers. Baking only the bulk set left every stale comet
+// drawn on the atlas retrying a request that could never succeed (measured: 45 attempts, 50 s of
+// request time in one four-minute session). comets-apparitions.json is that overlay, resolved in CI,
+// and it declares itself sealed so the per-object fetch is not attempted here at all.
+//
+// Both are plain same-origin URLs relative to the app base, so NOTHING here asks whether it is running
+// on Pages: the dev server 404s both and degrades along exactly the path a seed-less host takes.
+var baseAddress = new Uri(builder.HostEnvironment.BaseAddress);
+builder.Services.AddAstrometry(
+    cometQueryUri: new Uri(baseAddress, "comets-sbdb.json"),
+    apparitionSeedUri: new Uri(baseAddress, "comets-apparitions.json"));
 
 await builder.Build().RunAsync();

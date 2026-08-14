@@ -86,18 +86,30 @@ jobs:
       - name: Install wasm-tools workload
         run: dotnet workload install wasm-tools
 
-      # Bake the comet snapshot BEFORE publish so it rides the static-web-assets pipeline.
-      # Same query string as SbdbCometSource.DefaultQueryUrl - keep them in sync.
-      - name: Bake comets-sbdb.json (JPL SBDB has no CORS headers)
+      # Bake the comet assets BEFORE publish so they ride the static-web-assets pipeline.
+      #
+      # JPL sends no CORS headers from EITHER host it serves comets from, so BOTH have to be baked:
+      # the bulk SBDB query (comets-sbdb.json) and the per-object Horizons current-apparition overlay
+      # (comets-apparitions.json). Baking only the first is what left the deployed atlas retrying a
+      # request that could never succeed -- 45 attempts and 50 s of request time for a single comet in
+      # one four-minute session. The overlay is written sealed, so the browser does not try at all.
+      #
+      # This runs our own code rather than curl+jq because both halves need it: staleness is
+      # CometElements.IsElementSetStale and the Horizons reply needs HorizonsCometSource's parser. It
+      # also takes the SBDB query string from SbdbCometSource.DefaultQueryUrl instead of restating it
+      # here, which is one fewer pair of things that have to agree.
+      #
+      # --seed is the CURRENTLY DEPLOYED overlay, which makes the published site its own incremental
+      # state: only entries past their per-comet TTL are re-resolved (~30 requests on a day that
+      # deploys, against ~520 for a full bake). A 404 on the first ever run is a cold bake, which the
+      # cap turns into "as much as fits, the rest next run" rather than a stall.
+      - name: Bake comet assets (JPL sends no CORS headers, for SBDB or Horizons)
         run: |
           set -euo pipefail
-          curl -sf --retry 3 --retry-delay 10 \
-            'https://ssd-api.jpl.nasa.gov/sbdb_query.api?sb-kind=c&fields=prefix,pdes,name,M1,K1,e,q,i,om,w,tp,epoch' \
-            -o src/TianWen.UI.Web/wwwroot/comets-sbdb.json
-          # Shape check: the parser needs fields+data; a JPL error page must fail the build,
-          # not deploy as a corrupt asset the app then chokes on.
-          jq -e '.fields and .data and (.count | tonumber > 0)' src/TianWen.UI.Web/wwwroot/comets-sbdb.json > /dev/null
-          echo "baked $(jq -r '.count' src/TianWen.UI.Web/wwwroot/comets-sbdb.json) comets"
+          dotnet run --project tools/bake-comets/BakeComets.csproj -c Release --nologo -- \
+            --out src/TianWen.UI.Web/wwwroot \
+            --seed https://sharpastro.github.io/tianwen/comets-apparitions.json \
+            --max-fetches 120
 
       # Stage the full Tycho-2 catalog as a same-origin static asset. Lightweight strips the ~30 MB
       # tyc2.bin.lz from the WASM bundle (keeps the bundle small); the atlas fetches it on first

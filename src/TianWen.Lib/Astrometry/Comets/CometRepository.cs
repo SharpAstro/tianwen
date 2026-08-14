@@ -23,7 +23,24 @@ internal sealed record ApparitionEntry(DateTimeOffset FetchedUtc, CometElements 
 
 /// <summary>The Horizons per-object overlay cache: current-apparition elements for the comets someone
 /// has actually looked at.</summary>
-internal sealed record ApparitionCacheFile(ApparitionEntry[] Entries);
+internal sealed record ApparitionCacheFile(ApparitionEntry[] Entries)
+{
+    /// <summary>
+    /// When true, the repository must not attempt a per-object Horizons fetch: whatever
+    /// <see cref="Entries"/> carries is the whole overlay this host will ever have. Set only by the
+    /// publish-time bake, for a host that cannot reach JPL at all (a browser -- Horizons sends no
+    /// CORS headers), never by the local write-back.
+    ///
+    /// <para><b>It is a policy, NOT a completeness claim, and the difference is load-bearing.</b> If it
+    /// meant "every comet that needed upgrading is in here" it would have to be tied to the bulk
+    /// snapshot it was baked against (a hash guard, as <c>SimbadMergeSnapshot</c> carries), and a comet
+    /// missing from it would be a correctness bug. Meaning only "do not ask", a comet that was never
+    /// baked simply keeps its bulk record and stays flagged approximate -- which is what the host did
+    /// anyway, minus a request that could only ever fail. That is what lets the bake cover the comets
+    /// worth covering instead of having to be exhaustive.</para>
+    /// </summary>
+    public bool NoRemoteRefresh { get; init; }
+}
 
 /// <summary>
 /// Default <see cref="ICometRepository"/>: SBDB elements cached to <c>AppData/SmallBodies/comets.json</c>
@@ -44,8 +61,26 @@ internal sealed class CometRepository : ICometRepository
     // while matching the bulk cadence, so the two caches expire on the same rhythm.
     private static readonly TimeSpan ApparitionTtl = TimeSpan.FromDays(7);
 
+    /// <summary>
+    /// How long a comet whose Horizons fetch FAILED is left alone before it is tried again.
+    ///
+    /// <para>Without this, a permanently-unreachable endpoint is retried at whatever rate the request
+    /// settles: the single-flight key clears in the <c>finally</c> and only SUCCESS writes an entry, so
+    /// nothing remembers that the last attempt failed. Measured on the browser build, where Horizons
+    /// can never answer (no CORS headers): <b>45 attempts and 50 s of cumulative request time in one
+    /// four-minute session, all for the same comet</b>. An offline desktop and a JPL outage take the
+    /// identical path.</para>
+    ///
+    /// <para>An hour is far below the <see cref="ApparitionTtl"/> this feeds and the upgrade is a
+    /// background nicety nobody is waiting on -- the marker is already drawn from the bulk record and
+    /// labelled approximate -- so delaying a recovery from a genuinely transient failure by up to an
+    /// hour costs nothing observable.</para>
+    /// </summary>
+    private static readonly TimeSpan ApparitionRetryCooldown = TimeSpan.FromHours(1);
+
     private readonly ISbdbCometSource _source;
     private readonly IHorizonsCometSource _horizons;
+    private readonly IApparitionSeedSource _seed;
     private readonly IExternal _external;
     private readonly ITimeProvider _timeProvider;
     private readonly ILogger<CometRepository> _logger;
@@ -60,14 +95,24 @@ internal sealed class CometRepository : ICometRepository
     private volatile ImmutableDictionary<CatalogIndex, ApparitionEntry> _apparitions = ImmutableDictionary<CatalogIndex, ApparitionEntry>.Empty;
 
     // Single-flight per comet. A key present means a fetch is in the air; it is removed when that fetch
-    // settles, so a failure is retried on a later request rather than being latched forever.
+    // settles, so a failure is retried on a later request rather than being latched forever -- bounded
+    // by ApparitionRetryCooldown below, which is what stops "later" meaning "immediately, forever".
     private readonly ConcurrentDictionary<CatalogIndex, byte> _apparitionInFlight = new();
-    private bool _apparitionsLoaded;
 
-    public CometRepository(ISbdbCometSource source, IHorizonsCometSource horizons, IExternal external, ITimeProvider timeProvider, ILogger<CometRepository> logger)
+    // When each comet's last Horizons attempt failed, so the retry can be spaced out. Written from the
+    // fetch continuation (a thread-pool thread) and read from the render/poll path, hence concurrent.
+    private readonly ConcurrentDictionary<CatalogIndex, DateTimeOffset> _apparitionFailedAtUtc = new();
+
+    // Set from a seed that declares itself sealed; latched for the process, never cleared.
+    private volatile bool _noRemoteRefresh;
+    private bool _apparitionsLoaded;
+    private readonly SemaphoreSlim _apparitionLoadGate = new(1, 1);
+
+    public CometRepository(ISbdbCometSource source, IHorizonsCometSource horizons, IApparitionSeedSource seed, IExternal external, ITimeProvider timeProvider, ILogger<CometRepository> logger)
     {
         _source = source;
         _horizons = horizons;
+        _seed = seed;
         _external = external;
         _timeProvider = timeProvider;
         _logger = logger;
@@ -128,6 +173,12 @@ internal sealed class CometRepository : ICometRepository
 
     public async Task RefreshAsync(bool forceRefetch = false, CancellationToken cancellationToken = default)
     {
+        // Before the bulk set, so the overlay (and the seal it may carry) is in place by the time any
+        // consumer resolves a position. Doing it lazily inside the fetch task -- where it used to be its
+        // only caller -- meant the first drawn marker fired a request BEFORE learning it must not.
+        // Its own gate, so this is safe to await while holding _loadGate below.
+        await LoadApparitionCacheAsync(cancellationToken);
+
         await _loadGate.WaitAsync(cancellationToken);
         try
         {
@@ -194,11 +245,25 @@ internal sealed class CometRepository : ICometRepository
             return;
         }
 
+        // A sealed seed says this host cannot reach Horizons at all, so there is nothing to ask.
+        if (_noRemoteRefresh)
+        {
+            return;
+        }
+
         // Nothing to gain: the bulk record is already stated within this apparition, which is the
         // common case (a freshly discovered comet, or one whose solution epoch is recent). Only a set
         // that is a revolution or more old produces the phase error worth a network round-trip for.
         now.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
         if (!baseElements.IsElementSetStale(tt1 + tt2))
+        {
+            return;
+        }
+
+        // The last attempt failed and is still cooling off (see ApparitionRetryCooldown). This is what
+        // an UNSEALED host that cannot reach Horizons falls back on -- a dev server serving the app
+        // without the CI-baked seed, an offline desktop, a JPL outage.
+        if (_apparitionFailedAtUtc.TryGetValue(index, out var failedAt) && now - failedAt < ApparitionRetryCooldown)
         {
             return;
         }
@@ -210,12 +275,26 @@ internal sealed class CometRepository : ICometRepository
 
         _ = Task.Run(async () =>
         {
+            // Anything that did NOT settle the question counts as a failure for backoff purposes,
+            // including the null return (Horizons answered with no usable element record, which repeats
+            // deterministically for that comet). Defaulting to false and setting it only on the paths
+            // that genuinely resolved means a new early return backs off rather than silently spinning.
+            var resolved = false;
             try
             {
                 await LoadApparitionCacheAsync(CancellationToken.None);
+
+                // The seed may have arrived with the load above and sealed this host.
+                if (_noRemoteRefresh)
+                {
+                    resolved = true; // not a failure: there is nothing to back off from
+                    return;
+                }
+
                 if (_apparitions.TryGetValue(index, out var fromDisk) && _timeProvider.GetUtcNow() - fromDisk.FetchedUtc <= ApparitionTtl)
                 {
-                    return; // the disk cache already had it
+                    resolved = true; // the disk cache already had it
+                    return;
                 }
 
                 var refined = await _horizons.TryFetchCurrentApparitionAsync(baseElements, _timeProvider.GetUtcNow(), CancellationToken.None);
@@ -226,6 +305,8 @@ internal sealed class CometRepository : ICometRepository
 
                 var entry = new ApparitionEntry(_timeProvider.GetUtcNow(), elements);
                 _apparitions = _apparitions.SetItem(index, entry);
+                _apparitionFailedAtUtc.TryRemove(index, out _);
+                resolved = true;
                 _logger.LogInformation(
                     "Upgraded {Comet} to current-apparition elements (epoch {Epoch:F1}); its bulk record was {Revolutions:F1} revolutions old",
                     elements.DisplayName, elements.EpochJdTt, baseElements.RevolutionsSinceEpoch(tt1 + tt2));
@@ -240,6 +321,11 @@ internal sealed class CometRepository : ICometRepository
             }
             finally
             {
+                if (!resolved)
+                {
+                    _apparitionFailedAtUtc[index] = _timeProvider.GetUtcNow();
+                }
+
                 _apparitionInFlight.TryRemove(index, out _);
             }
         });
@@ -248,6 +334,13 @@ internal sealed class CometRepository : ICometRepository
     private string ApparitionCachePath
         => Path.Combine(_external.CreateSubDirectoryInAppDataFolder("SmallBodies").FullName, "apparitions.json");
 
+    /// <summary>
+    /// Populates the apparition overlay once, from the publish-time seed and then the local cache.
+    ///
+    /// <para>Order matters: the seed is the baked snapshot, the local cache is only ever written by a
+    /// fetch that succeeded on THIS machine, so where both carry a comet the local entry is the fresher
+    /// one and layers on top.</para>
+    /// </summary>
     private async Task LoadApparitionCacheAsync(CancellationToken cancellationToken)
     {
         if (Volatile.Read(ref _apparitionsLoaded))
@@ -255,10 +348,46 @@ internal sealed class CometRepository : ICometRepository
             return;
         }
 
-        var cached = await _external.TryReadJsonAsync(ApparitionCachePath, SbdbJsonContext.Default.ApparitionCacheFile, _logger, cancellationToken);
-        if (cached?.Entries is { Length: > 0 } entries)
+        // Gated because the fire-and-forget fetch path can reach this concurrently with the load, and
+        // two builders taken from the same base would drop whichever upgrade committed in between.
+        await _apparitionLoadGate.WaitAsync(cancellationToken);
+        try
         {
+            if (Volatile.Read(ref _apparitionsLoaded))
+            {
+                return;
+            }
+
             var builder = _apparitions.ToBuilder();
+
+            if (await _seed.TryFetchAsync(cancellationToken) is { } seed)
+            {
+                Merge(builder, seed.Entries);
+                if (seed.NoRemoteRefresh)
+                {
+                    _noRemoteRefresh = true;
+                    _logger.LogInformation(
+                        "Comet apparition overlay is a sealed publish-time snapshot ({Count} entries); per-object Horizons refresh is disabled on this host",
+                        seed.Entries.Length);
+                }
+            }
+
+            var cached = await _external.TryReadJsonAsync(ApparitionCachePath, SbdbJsonContext.Default.ApparitionCacheFile, _logger, cancellationToken);
+            if (cached?.Entries is { } entries)
+            {
+                Merge(builder, entries);
+            }
+
+            _apparitions = builder.ToImmutable();
+            Volatile.Write(ref _apparitionsLoaded, true);
+        }
+        finally
+        {
+            _apparitionLoadGate.Release();
+        }
+
+        static void Merge(ImmutableDictionary<CatalogIndex, ApparitionEntry>.Builder builder, ApparitionEntry[] entries)
+        {
             foreach (var entry in entries)
             {
                 if (entry.Elements.CatalogIndex is { } index)
@@ -266,10 +395,7 @@ internal sealed class CometRepository : ICometRepository
                     builder[index] = entry;
                 }
             }
-            _apparitions = builder.ToImmutable();
         }
-
-        Volatile.Write(ref _apparitionsLoaded, true);
     }
 
     private Task PersistApparitionsAsync(CancellationToken cancellationToken)
