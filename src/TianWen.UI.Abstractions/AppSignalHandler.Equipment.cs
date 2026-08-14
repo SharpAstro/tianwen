@@ -126,13 +126,20 @@ namespace TianWen.UI.Abstractions
                 await updatedSite.SaveAsync(external, cts.Token);
             };
 
+            // Cancel ends the edit exactly the way commit does, by POSTING the signal. This path once
+            // cleared the focus pointer by hand and so skipped SDL StopTextInput, leaving the IME /
+            // on-screen keyboard up with nothing to type into; deactivating the three inputs first was
+            // what made the posted signal a no-op (the bus is DEFERRED, and the old handler was gated on
+            // the input still being active), which is how the direct assignment came to look necessary.
+            //
+            // Both halves of that are now structurally impossible: TextInputFocus owns the transition and
+            // gates on its OWN record rather than the field's flag, and appState.ActiveTextInput is
+            // read-only, so the shortcut this comment warns about will not compile. Only one field can be
+            // focused at a time, so the signal covers whichever of the three it is.
             Action cancelSite = () =>
             {
                 eqState.IsEditingSite = false;
-                eqState.LatitudeInput.Deactivate();
-                eqState.LongitudeInput.Deactivate();
-                eqState.ElevationInput.Deactivate();
-                appState.ActiveTextInput = null;
+                bus.Post(new DeactivateTextInputSignal());
             };
 
             eqState.LatitudeInput.OnCommit = _ => saveSite();

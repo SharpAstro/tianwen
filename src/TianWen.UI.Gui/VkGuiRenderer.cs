@@ -131,8 +131,51 @@ namespace TianWen.UI.Gui
             }
         }
 
+        // Held as the concrete widget base, not as the IPixelWidget the interface exposes, because the
+        // cursor query lives on the base: DIR.Lib's IPixelWidget carries HitTest, click dispatch and
+        // text-input discovery, but not HitTestCursor. Every tab derives from PixelWidgetBase, so this
+        // costs nothing beyond the extra field.
+        private PixelWidgetBase<VulkanContext>? _activeTab;
+
         /// <summary>The currently active tab as an <see cref="IPixelWidget"/> for tab-specific hit testing.</summary>
-        public IPixelWidget? ActiveTab { get; private set; }
+        public IPixelWidget? ActiveTab => _activeTab;
+
+        /// <summary>
+        /// What the pointer should look like at this point, asked of the regions painted last frame:
+        /// the active tab's first, then this chrome's, and null when nothing under the pointer had a
+        /// view (which is NOT the same as "the arrow" -- that is the host's default to choose).
+        /// <para>
+        /// Answered here rather than in the host because the composition is this renderer's own
+        /// knowledge: the active tab paints over the chrome, so it gets asked first. A host that
+        /// reconstructed that order would be keeping a second copy of it.
+        /// </para>
+        /// </summary>
+        public CursorKind? CursorAt(float x, float y) => _activeTab?.HitTestCursor(x, y) ?? HitTestCursor(x, y);
+
+        /// <summary>
+        /// Every text field painted in the frame just drawn, across the chrome AND the active tab.
+        /// <para>
+        /// Answered here for exactly the reason <see cref="CursorAt"/> is: what a frame is composed of is
+        /// this renderer's own knowledge. Feeding it to <see cref="TextInputFocus.BlurIfUnpainted"/> is what
+        /// stops a field keeping the keyboard after it leaves the screen -- scrolled out of a culled list,
+        /// or on a tab the user has switched away from.
+        /// </para>
+        /// <para>
+        /// <b>Both halves are load-bearing.</b> Asking only the active tab would blur a chrome field every
+        /// single frame; asking only the chrome would blur every tab field. That failure looks identical to
+        /// the bug this fixes, which is why the composition is stated in one place rather than at the call.
+        /// </para>
+        /// </summary>
+        public IReadOnlyCollection<TextInputState> PaintedTextInputs()
+        {
+            var painted = new HashSet<TextInputState>(GetRegisteredTextInputs());
+            if (_activeTab is { } tab)
+            {
+                painted.UnionWith(tab.GetRegisteredTextInputs());
+            }
+
+            return painted;
+        }
 
         /// <inheritdoc/>
         public EquipmentTabState EquipmentState => _equipmentTab.State;
@@ -337,7 +380,7 @@ namespace TianWen.UI.Gui
             _notificationsTab.FrameCount++;
             _homeTab.FrameCount++;
 
-            ActiveTab = appState.ActiveTab switch
+            _activeTab = appState.ActiveTab switch
             {
                 GuiTab.Planner => _plannerTab,
                 GuiTab.Equipment => _equipmentTab,

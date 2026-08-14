@@ -148,9 +148,9 @@ namespace TianWen.UI.Abstractions
         /// (1px dividers between) with the mount status docked to the bottom (full width). The engine lays
         /// the columns + rows out (no <c>px = i * panelW</c> column cursor, no <c>y += rowH</c> row cursor,
         /// no <c>maxY</c> reservation -- Dock.Bottom gives the columns the area above the mount strip and the
-        /// panel clips overflow). The focuser-goto text input is a keyed <see cref="Layout.Content.Fill"/>
-        /// leaf painted through <see cref="_otaPanelFills"/>; the capture progress bar is a declarative
-        /// <see cref="Layout.Builder.Progress"/> node.
+        /// panel clips overflow). The focuser-goto field is a <see cref="Layout.Content.TextInput"/> leaf and
+        /// the capture progress bar a <see cref="Layout.Builder.Progress"/> node, so both are declarations
+        /// rather than draw callbacks.
         /// </summary>
         private void RenderPreviewOTAPanels(LiveSessionState state, RectF32 rect,
             float fontSize, float pad, float rowH, ITimeProvider timeProvider)
@@ -191,11 +191,9 @@ namespace TianWen.UI.Abstractions
                 ? Layout.Builder.Dock(columnsRow, Layout.Builder.Bottom(BuildPreviewMountSection(state), mountHDesign))
                 : columnsRow;
 
-            Renderer.PushClip(new RectInt(
-                new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
-                new PointInt((int)rect.X, (int)rect.Y)));
+            PushClip(rect.X, rect.Y, rect.Width, rect.Height);
             RenderLayout(tree, rect, drawFill: DispatchOtaPanelFill);
-            Renderer.PopClip();
+            PopClip();
         }
 
         /// <summary>
@@ -208,7 +206,6 @@ namespace TianWen.UI.Abstractions
         {
             var fontPath = FontPath;
             var tel = state.PreviewOTATelemetry[i];
-            var smallFs = fontSize * 0.85f;
             var rows = new List<Layout.Node>();
 
             // Camera name (dim if not connected)
@@ -277,10 +274,9 @@ namespace TianWen.UI.Abstractions
                         return Task.CompletedTask;
                     };
 
-                    var gotoKey = $"focGoto:{capturedI}";
-                    _otaPanelFills[gotoKey] = r => RenderTextInput(input, r, fontPath, smallFs);
                     rows.Add(Layout.Builder.HStack(
-                            Layout.Builder.Fill(key: gotoKey).Stretch(),
+                            // One field per OTA, created as the rig reports its focusers.
+                            Layout.Builder.TextInput(input, BaseFontSize * 0.85f).Stretch(),
                             Layout.Builder.Spacer().WFixed(4f).HStar(),
                             Layout.Builder.Text("Go", BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
                                 .WFixed(32f).HStar().Bg(jogBg)
@@ -320,7 +316,6 @@ namespace TianWen.UI.Abstractions
         private Layout.Node BuildPreviewCaptureControls(LiveSessionState state, int otaIndex,
             float fontSize, ITimeProvider timeProvider)
         {
-            var smallFs = fontSize * 0.85f;
             var rows = new List<Layout.Node>();
             var isCapturing = otaIndex < state.PreviewCapturing.Length && state.PreviewCapturing[otaIndex];
 

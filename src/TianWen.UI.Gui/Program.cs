@@ -149,29 +149,28 @@ var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts
     SetClipboardText = text => SetClipboardText(text)
 };
 
-// Signal subscriptions: text input activation/deactivation via SDL
-bus.Subscribe<ActivateTextInputSignal>(sig =>
+// The platform's text-input lifecycle, bound ONCE to the focus owner's transition event. This is the only
+// place in the app that knows SDL text input exists: every other path moves focus through TextInputFocus and
+// gets the Start/Stop for free, so a field can no longer stop taking input while the IME stays up (which is
+// what a hand-assigned focus pointer used to produce).
+appState.TextInputFocus.FocusChanged += (_, next) =>
 {
-    if (appState.ActiveTextInput is { } prev && prev != sig.Input)
+    if (next is null)
     {
-        prev.Deactivate();
-    }
-    sig.Input.Activate();
-    appState.ActiveTextInput = sig.Input;
-    StartTextInput(sdlWindow.Handle);
-    appState.NeedsRedraw = true;
-});
-
-bus.Subscribe<DeactivateTextInputSignal>(_ =>
-{
-    if (appState.ActiveTextInput is { IsActive: true } active)
-    {
-        active.Deactivate();
-        appState.ActiveTextInput = null;
         StopTextInput(sdlWindow.Handle);
-        appState.NeedsRedraw = true;
     }
-});
+    else
+    {
+        StartTextInput(sdlWindow.Handle);
+    }
+
+    appState.NeedsRedraw = true;
+};
+
+// The app's entry points to that transition stay signals, so focus changes keep their place in the deferred
+// bus ordering alongside everything else a frame does.
+bus.Subscribe<ActivateTextInputSignal>(sig => appState.TextInputFocus.Focus(sig.Input));
+bus.Subscribe<DeactivateTextInputSignal>(_ => appState.TextInputFocus.Blur());
 // Open an external URL in the OS default browser (planner details -> Wikipedia link). Host-level +
 // desktop-only on purpose: UseShellExecute routes a URL through the shell (ShellExecute on Windows,
 // xdg-open/open on Linux/macOS), which the WASM-shared abstraction layer cannot do. Best-effort.
@@ -272,14 +271,15 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     // position). Presses route left-button only, as before; everything else flows through.
     OnPointerInput = evt =>
     {
-        // Hand cursor over a hyperlink (planner details -> Wikipedia). Non-dispatching HitTest against
-        // the last frame's regions (active tab, then chrome) so hover never fires a click handler. Cheap
-        // and idempotent -- SetSystemCursor no-ops when the cursor is unchanged, so this is safe per move.
+        // The pointer's appearance comes from the regions painted last frame (active tab first, then the
+        // chrome), never from a predicate here: each region states its own kind, so a hyperlink asks for
+        // the hand and a text field for the I-beam without this host knowing either exists. The previous
+        // form could only ever answer "link?", which is why every text field in the GUI showed an arrow.
+        // Non-dispatching, so hover never fires a click handler; cheap and idempotent, since
+        // SetSystemCursor no-ops when the cursor is already active.
         if (evt is InputEvent.MouseMove(var mx, var my))
         {
-            var overLink = guiRenderer.ActiveTab?.HitTest(mx, my) is HitResult.LinkHit
-                || guiRenderer.HitTest(mx, my) is HitResult.LinkHit;
-            sdlWindow.SetSystemCursor(overLink ? SystemCursor.Pointer : SystemCursor.Default);
+            sdlWindow.SetSystemCursor((guiRenderer.CursorAt(mx, my) ?? CursorKind.Default).ToSystemCursor);
         }
 
         return evt switch
@@ -383,6 +383,16 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         var renderStart = System.Diagnostics.Stopwatch.GetTimestamp();
         guiRenderer.Render(appState, plannerState, viewerState, timeProvider);
         var renderElapsed = System.Diagnostics.Stopwatch.GetElapsedTime(renderStart);
+
+        // A field that stopped being drawn must not keep the keyboard: scroll one out of a culled list or
+        // switch tabs away from it, and typing would go on editing a box nobody can see. Asked AFTER the
+        // paint, of everything the frame actually painted -- doing it before, or of one surface when the
+        // frame draws two, would blur a field that is on screen, which looks exactly like the bug it fixes.
+        // Only reached on a frame that rendered (CheckNeedsRedraw gates this callback).
+        if (appState.TextInputFocus.BlurIfUnpainted(guiRenderer.PaintedTextInputs()))
+        {
+            appState.NeedsRedraw = true;
+        }
 
         // Only log frames that take meaningfully long, and rate-limit to once per
         // ~250ms so we don't drown SEQ during sustained slowness. The threshold is

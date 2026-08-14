@@ -70,11 +70,9 @@ namespace TianWen.UI.Abstractions
                 ? Layout.Builder.Dock(columnsRow, Layout.Builder.Bottom(BuildRunningMountSection(state, session), mountHDesign))
                 : columnsRow;
 
-            Renderer.PushClip(new RectInt(
-                new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
-                new PointInt((int)rect.X, (int)rect.Y)));
+            PushClip(rect.X, rect.Y, rect.Width, rect.Height);
             RenderLayout(tree, rect, drawFill: DispatchOtaPanelFill);
-            Renderer.PopClip();
+            PopClip();
         }
 
         /// <summary>

@@ -535,12 +535,11 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            // Zoom: inside the image viewport (image-area pane rect from the single layout pass)
+            // Zoom: inside the image viewport (image-area pane rect from the single layout pass).
+            // RectF32.Contains is half-open on both axes, which is the same test this spelled out.
             var area = _layout.ImageArea;
-            var inImageViewport = mouseX >= area.X && mouseX < area.X + area.Width
-                               && mouseY >= area.Y && mouseY < area.Y + area.Height;
 
-            if (inImageViewport)
+            if (area.Contains(mouseX, mouseY))
             {
                 // Cursor-anchored zoom via the shared controller: seed the display transform from state,
                 // run the zoom, write the result back. A clamped no-op (already at the floor) changes

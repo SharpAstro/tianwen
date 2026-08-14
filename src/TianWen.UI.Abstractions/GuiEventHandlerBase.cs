@@ -323,9 +323,11 @@ namespace TianWen.UI.Abstractions
         private void DeactivateTextInput()
             => _chrome.Bus?.Post(new DeactivateTextInputSignal());
 
-        // The key machinery lives in the host-agnostic TextInputInteraction (shared with the
-        // web host); this supplies the desktop-flavoured context (signal-based focus release,
-        // SDL clipboard delegates, GuiAppState redraw flag).
+        // The key machinery lives in the host-agnostic DIR.Lib TextInputInteraction (shared with the web
+        // host); this supplies the desktop-flavoured context (SDL clipboard delegates, GuiAppState redraw
+        // flag). Focus is no longer a pair of callbacks: the interaction moves it through the same
+        // TextInputFocus owner every other path uses, so Tab and Escape cannot leave the app disagreeing
+        // with the platform about which field is live.
         private bool HandleTextInputKey(TextInputState activeInput, InputKey key, InputModifier modifiers)
         {
             // The active search interaction (planner autocomplete or sky-map F3) when the active input is
@@ -336,14 +338,13 @@ namespace TianWen.UI.Abstractions
                 : activeInput == _chrome.SkyMapState.Search.SearchInput ? _chrome.SkyMapState.Search.Interaction
                 : null;
 
-            return TextInputInteraction.HandleKey(activeInput, key, modifiers,
+            return TextInputInteraction.HandleKey(key, modifiers,
                 new TextInputInteraction.KeyContext(
                     Tracker: _tracker,
-                    Deactivate: DeactivateTextInput,
-                    SetActive: next => _appState.ActiveTextInput = next,
+                    Focus: _appState.TextInputFocus,
                     RequestRedraw: () => _appState.NeedsRedraw = true,
                     ActiveSearch: activeSearch,
-                    ActiveTab: _chrome.ActiveTab,
+                    TabFields: () => _chrome.ActiveTab?.GetRegisteredTextInputs() ?? [],
                     GetClipboardText: GetClipboardText,
                     SetClipboardText: SetClipboardText));
         }

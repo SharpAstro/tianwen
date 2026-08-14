@@ -106,7 +106,7 @@ namespace TianWen.UI.Abstractions
                 var enabled = IsToolbarButtonEnabled(action, document);
                 var active = IsToolbarButtonActive(action, document, state);
 
-                var hovered = enabled && !state.ToolbarDropdown.IsOpen && mouseX >= x && mouseX < x + btnW && mouseY >= btnY && mouseY < btnY + btnH;
+                var hovered = enabled && !state.OverlayOwnsPointer && mouseX >= x && mouseX < x + btnW && mouseY >= btnY && mouseY < btnY + btnH;
 
                 if (!enabled)
                 {

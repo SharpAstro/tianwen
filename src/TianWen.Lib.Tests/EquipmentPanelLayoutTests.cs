@@ -187,14 +187,26 @@ namespace TianWen.Lib.Tests
             TextLeaves(row).ShouldContain("    Filters (3) [+]");
         }
 
+        /// <summary>
+        /// The row carries the field itself, not a keyed hole for one. It used to emit a
+        /// <see cref="Layout.Content.Fill"/> that the caller had to match with a dictionary entry and a
+        /// painter lambda; the field is now in the tree, so "is there a field in this row" is answerable
+        /// from the row -- which is exactly what a mistyped key used to make unanswerable.
+        /// </summary>
         [Fact]
-        public void LabeledInputRow_HasLabelAndFill()
+        public void LabeledInputRow_CarriesTheLabelAndTheFieldItself()
         {
+            var input = new TextInputState { Placeholder = "-33.8" };
+
             var row = FormRowLayout.LabeledInputRow(
-                "  Lat:", 50f, 24f, 6f, 12f, new RGBAColor32(0x80, 0x80, 0x80, 0xff));
+                "  Lat:", 50f, 24f, 6f, 12f, new RGBAColor32(0x80, 0x80, 0x80, 0xff), input);
+
             TextLeaves(row).ShouldContain("  Lat:");
-            var fills = Flatten(row).OfType<Layout.Node.Leaf>().Where(l => l.Content is Layout.Content.Fill).ToList();
-            fills.ShouldHaveSingleItem();
+            var fields = Flatten(row).OfType<Layout.Node.Leaf>()
+                .Select(l => l.Content).OfType<Layout.Content.TextInput>().ToList();
+            fields.ShouldHaveSingleItem().State.ShouldBeSameAs(input);
+            Flatten(row).OfType<Layout.Node.Leaf>().Any(l => l.Content is Layout.Content.Fill)
+                .ShouldBeFalse("the escape hatch is gone, not merely unused");
         }
 
         [Fact]

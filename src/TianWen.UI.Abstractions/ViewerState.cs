@@ -170,6 +170,20 @@ public sealed class ViewerState
     /// </summary>
     public DropdownMenuState ToolbarDropdown { get; } = new();
 
+    /// <summary>
+    /// True while an overlay owns the pointer, so chrome underneath must not react to hover. Clicks
+    /// need no equivalent: paint order IS hit-test z-order, so the overlay's own regions already win.
+    /// Hover is the exception because it is decided at PAINT time from mouse-vs-rect, before the
+    /// overlay above has registered anything.
+    /// <para>
+    /// Stated ONCE because the alternative is a term per overlay per consumer, which is how the
+    /// cursor predicate this codebase just retired went wrong: the toolbar, the histogram button and
+    /// the file-list rows each carried their own copy of "...but not while the dropdown is open", so a
+    /// second overlay would have had to find all three. Add an overlay here, not at the call sites.
+    /// </para>
+    /// </summary>
+    public bool OverlayOwnsPointer => ToolbarDropdown.IsOpen;
+
     /// <summary>Index into <see cref="StretchParameters.Presets"/> for the selected stretch preset.</summary>
     public int StretchPresetIndex { get; set; } = 0; // (0.1, -5.0) default
 

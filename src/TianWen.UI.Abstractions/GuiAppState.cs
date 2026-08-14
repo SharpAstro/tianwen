@@ -107,8 +107,26 @@ public class GuiAppState
     /// sets this too, timestamped via the caller's time provider).</summary>
     public string? StatusMessage { get; set; }
 
-    /// <summary>The currently focused text input across all tabs. Single source of truth.</summary>
-    public TextInputState? ActiveTextInput { get; set; }
+    /// <summary>
+    /// Owns which text field has the keyboard, across every tab and the chrome.
+    /// <para>
+    /// This used to be a settable <c>TextInputState?</c> and the settability was the bug: the host's
+    /// activate/deactivate handlers are the only things that also drive SDL <c>StartTextInput</c> /
+    /// <c>StopTextInput</c>, so any code assigning the pointer directly left the app taking no input while
+    /// the IME stayed up. Moving the transition behind <see cref="TextInputFocus"/> makes that unreachable
+    /// rather than merely fixed: the host binds <see cref="TextInputFocus.FocusChanged"/> once, and nothing
+    /// else needs to know the platform calls exist.
+    /// </para>
+    /// <para>
+    /// Read <see cref="TextInputFocus.Current"/> for "which field is focused". Change it only through
+    /// <see cref="ActivateTextInputSignal"/> / <see cref="DeactivateTextInputSignal"/>, which stay the app's
+    /// entry points so the deferred bus keeps ordering the change with everything else in the frame.
+    /// </para>
+    /// </summary>
+    public TextInputFocus TextInputFocus { get; } = new TextInputFocus();
+
+    /// <summary>The currently focused text field, or null. A read-only view of <see cref="TextInputFocus"/>.</summary>
+    public TextInputState? ActiveTextInput => TextInputFocus.Current;
 
     /// <summary>
     /// True when the user has requested exit but background tasks (session Finalise) are still running.

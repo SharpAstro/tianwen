@@ -519,20 +519,19 @@ namespace TianWen.UI.Abstractions
                 var subExp = proposal.SubExposure ?? TimeSpan.FromSeconds(defaultExpSec);
                 var expStr = SessionContent.FormatExposure(subExp);
 
-                // Exposure value cell: keyed Fill -> text + double-click region, or the inline editor.
+                // Exposure value cell. The two states are now two different NODES rather than one Fill that
+                // branches inside its painter: editing is a TextInput leaf, display stays a Fill because it
+                // is genuinely bespoke -- it stashes its arranged rect for the double-click-to-edit region,
+                // which no leaf models.
                 var expKey = $"exp:{i}";
                 _obsFills[expKey] = r =>
                 {
-                    if (State.EditingExposureIndex == capturedI)
-                    {
-                        RenderTextInput(State.ExposureInput, r, fontPath, BaseFontSize * 0.9f * dpiScale);
-                    }
-                    else
-                    {
-                        DrawText(expStr, fontPath, r.X, r.Y, r.Width, r.Height, BaseFontSize * 0.9f * dpiScale, BodyText, TextAlign.Center, TextAlign.Center);
-                        _exposureValueRegions.Add((r, capturedI));
-                    }
+                    DrawText(expStr, fontPath, r.X, r.Y, r.Width, r.Height, BaseFontSize * 0.9f * dpiScale, BodyText, TextAlign.Center, TextAlign.Center);
+                    _exposureValueRegions.Add((r, capturedI));
                 };
+                var expCell = State.EditingExposureIndex == capturedI
+                    ? Layout.Builder.TextInput(State.ExposureInput, BaseFontSize * 0.9f)
+                    : Layout.Builder.Fill(key: expKey);
 
                 Layout.Node ExpButton(string glyph, string hit, Action<InputModifier> onClick) =>
                     Layout.Builder.Text(glyph, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
@@ -548,7 +547,7 @@ namespace TianWen.UI.Abstractions
                             plannerState.Proposals = plannerState.Proposals.SetItem(capturedI, p with { SubExposure = SessionTabState.StepExposure(cur, false) });
                             State.NeedsRedraw = true;
                         }),
-                    Layout.Builder.Fill(key: expKey).Stretch(),
+                    expCell.Stretch(),
                     ExpButton("+", $"Inc:Exp:{i}",
                         _ =>
                         {
@@ -593,12 +592,10 @@ namespace TianWen.UI.Abstractions
                 rows.Add(Layout.Builder.Spacer().RowH(BaseSeparatorW).Bg(SeparatorColor));
             }
 
-            Renderer.PushClip(new RectInt(
-                new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
-                new PointInt((int)rect.X, (int)rect.Y)));
+            PushClip(rect.X, rect.Y, rect.Width, rect.Height);
             RenderLayout(Layout.Builder.VStack([.. rows]), rect,
                 drawFill: (fill, r) => { if (fill.Key is { } k && _obsFills.TryGetValue(k, out var painter)) painter(r); });
-            Renderer.PopClip();
+            PopClip();
         }
 
         // -----------------------------------------------------------------------
@@ -708,11 +705,9 @@ namespace TianWen.UI.Abstractions
 
             // Scissor partially-visible top/bottom rows to the panel edge (the proper clip the old header
             // "Math.Max(cursor, rect.Y)" hack stood in for; section headers now scroll naturally).
-            Renderer.PushClip(new RectInt(
-                new PointInt((int)(rect.X + rect.Width), (int)bottom),
-                new PointInt((int)rect.X, (int)top)));
+            PushClip(rect.X, top, rect.Width, bottom - top);
             PaintLayout(visible.ToImmutable());
-            Renderer.PopClip();
+            PopClip();
         }
     }
 }
