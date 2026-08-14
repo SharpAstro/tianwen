@@ -676,9 +676,42 @@ confident wrong answer first:
   pair of runs measures the weight initialisation. The first attempt did, and reported a 6x win.
 
 The depth and in-kind arguments above still measure out; they simply do not cash out in training.
-Untested mechanism worth keeping: N2N *preserves* whatever the two views share, and two interleaved
-halves of one session share their unrejected fixed-pattern residue in a way two subs do not, which
-would produce exactly this excess of invented point sources.
+
+**The shared-residue mechanism was tested (2026-08-15, `n2n_speckle.py`) and is NOT established.**
+It was the leading explanation: N2N preserves whatever the two views share, and two interleaved
+halves might share unrejected fixed-pattern residue in a way two subs do not, which would produce
+exactly this excess of invented sources. Testing it needs no model -- just whether the halves' non-
+stellar point detections coincide more than chance, at matched detection density (top-N per tile, so
+the far quieter half does not simply yield more detections) with the null measured by pairing each
+image against a DIFFERENT cell's partner.
+
+The first answer looked emphatic: a half pair shares 58.5% of its top-40 non-star maxima against a
+0.8% chance rate, **70.8x**, against a sub pair's 4.2x, with a 4-sub average at 12.4x -- a monotone
+ladder in integration depth, exactly as predicted. It is almost entirely an artifact:
+
+| master-star mask | half pair | sub pair | 4-sub avg |
+|---|---|---|---|
+| 8 MAD | 70.8x | 4.2x | 12.4x |
+| 5 MAD | 40.4x | 2.8x | 5.7x |
+| 3 MAD | 13.3x | 2.6x | 4.7x |
+| 2 MAD | **8.3x** | 3.0x | 5.0x |
+
+**A half-master is deep enough to detect real faint stars that a truth mask cut at 8 MAD does not
+contain**, both halves see the same ones, and that alone produces coincidence growing with
+integration depth -- the mechanism's signature, from stars. Deepening the mask collapses the half
+pair's excess by 88% while barely moving the sub pair's. A residual 8.3x against 3.0x survives at 2
+MAD (where the mask already covers 49% of pixels, so it cannot be pushed much further) but this
+design cannot attribute that to non-stellar residue rather than to stars still below the mask.
+
+So the shared-residue story drops from "leading explanation" to "open, weakly supported". The
+half-master negative itself is unaffected -- it rests on the frontier comparison, not on any
+mechanism.
+
+**This is the second time in one session that the master-at-8-MAD truth mask has faked a result at
+half-master depth** (the first being the 76.7 spurious/tile floor in the #30 rescore, which is mostly
+real faint stars for the same reason). Treat the mask as calibrated for SUB depth only: anything
+measured against it on a half or a master needs its threshold re-derived, or swept until the answer
+stops moving.
 
 **What that experiment found instead: the stopping rule dominates the sampling regime.** Invention
 grows monotonically through training (+1 invented source per tile over the raw-sub floor at step 250,
