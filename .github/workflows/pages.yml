@@ -31,6 +31,14 @@ on:
       - 'src/TianWen.UI.Web/**'
       - 'src/TianWen.UI.Abstractions/**'
       - 'src/TianWen.Lib/**'
+      # The dependency pins decide WHICH WebGl.Renderer / DIR.Lib the deployed app is built from, so a
+      # sibling bump changes the shipped site without touching a single path above. That is not
+      # hypothetical: the bump to WebGl.Renderer 1.25 existed to remove ~5.6% of the browser's
+      # main-thread time (a discarded pointermove crossing per touch move) and, listing only source
+      # directories, this workflow did not run for it. The fix was merged and not deployed, which is
+      # the worst of both: green CI, unchanged site, and nothing saying so.
+      - 'src/Directory.Packages.props'
+      - 'src/Directory.Build.props'
       - '.github/workflows/pages.yml'
   schedule:
     # Weekly redeploy to re-bake the comet assets: orbit solutions update on new observation
