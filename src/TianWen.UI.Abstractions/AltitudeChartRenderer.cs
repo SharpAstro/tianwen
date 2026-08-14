@@ -157,9 +157,8 @@ public static class AltitudeChartRenderer
         var plotY = areaY + yMarginTop;
         var plotW = w - xMargin * 2;
 
-        // --- Time range ---
-        var tStart = (state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1)) - TimeSpan.FromMinutes(15);
-        var tEnd   = (state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1)) + TimeSpan.FromMinutes(15);
+        // --- Time range (the early return above guarantees a real window here) ---
+        var (tStart, tEnd) = TimeAxis(state);
         var tRange = (tEnd - tStart).TotalHours;
 
         // --- Coordinate helpers ---
@@ -581,7 +580,47 @@ public static class AltitudeChartRenderer
     }
 
     /// <summary>
+    /// The chart's time axis: civil dusk to civil dawn where those are known, else the astro-dark
+    /// window widened by an hour either side, plus a 15-minute margin at each end.
+    /// <para>
+    /// <b>Returns a ZERO-LENGTH range when the night window has not been computed yet</b>, which is the
+    /// whole reason this exists as one function. <see cref="PlannerState.AstroDark"/> and
+    /// <see cref="PlannerState.AstroTwilight"/> are non-nullable and so default to
+    /// <see cref="DateTimeOffset.MinValue"/>; subtracting an hour from that UNDERFLOWS and throws
+    /// <see cref="ArgumentOutOfRangeException"/> from the <c>DateTime</c> operator. That is not
+    /// hypothetical -- it crashed the web planner on a pointer move during startup, because the pointer
+    /// can reach the chart before the first sweep has resolved a window.
+    /// </para>
+    /// <para>
+    /// The guard had been written SEVEN times at call sites (<see cref="Render"/>, the weather band,
+    /// both GUI hosts, the TUI planner, the session timeline) and the expression itself three times,
+    /// while the two public layout helpers that actually perform the arithmetic carried neither. So
+    /// every new caller had to know; the interaction helpers driving slider hit-testing and dragging
+    /// did not, and those are exactly the ones a pointer reaches first. It belongs HERE, where the
+    /// hazard is, not in the callers.
+    /// </para>
+    /// <para>
+    /// A zero-length range is chosen over a fabricated fallback window because downstream code already
+    /// copes with it and a made-up axis would silently draw a plausible, wrong chart:
+    /// <see cref="PlannerSliderInteraction.GetHitBands"/> reports no bands when the range is not
+    /// positive, and <see cref="XToTime"/> clamps its fraction, so it returns the range start.
+    /// </para>
+    /// </summary>
+    private static (DateTimeOffset TStart, DateTimeOffset TEnd) TimeAxis(PlannerState state)
+    {
+        if (state.AstroDark == default)
+        {
+            return (default, default);
+        }
+
+        var tStart = (state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1)) - TimeSpan.FromMinutes(15);
+        var tEnd = (state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1)) + TimeSpan.FromMinutes(15);
+        return (tStart, tEnd);
+    }
+
+    /// <summary>
     /// Returns the chart's time-to-pixel layout parameters for external hit testing (slider drag).
+    /// The time range is zero-length until a night window exists -- see <see cref="TimeAxis"/>.
     /// </summary>
     public static (DateTimeOffset TStart, DateTimeOffset TEnd, float PlotX, float PlotW) GetChartTimeLayout(
         PlannerState state, int areaX, int areaW)
@@ -589,8 +628,7 @@ public static class AltitudeChartRenderer
         var xMargin = Math.Max(48, areaW / 14);
         var plotX = areaX + xMargin;
         var plotW = areaW - xMargin * 2;
-        var tStart = (state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1)) - TimeSpan.FromMinutes(15);
-        var tEnd = (state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1)) + TimeSpan.FromMinutes(15);
+        var (tStart, tEnd) = TimeAxis(state);
         return (tStart, tEnd, plotX, plotW);
     }
 
@@ -608,8 +646,7 @@ public static class AltitudeChartRenderer
         var plotY = areaY + yMarginTop;
         var plotW = areaW - xMargin * 2;
 
-        var tStart = (state.CivilSet ?? state.AstroDark - TimeSpan.FromHours(1)) - TimeSpan.FromMinutes(15);
-        var tEnd = (state.CivilRise ?? state.AstroTwilight + TimeSpan.FromHours(1)) + TimeSpan.FromMinutes(15);
+        var (tStart, tEnd) = TimeAxis(state);
         return (tStart, tEnd, plotX, plotY, plotW, plotH);
     }
 
