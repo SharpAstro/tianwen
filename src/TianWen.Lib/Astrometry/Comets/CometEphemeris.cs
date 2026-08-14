@@ -28,6 +28,45 @@ public static class CometEphemeris
     private const double Mu = GaussK * GaussK;
 
     /// <summary>
+    /// Everything in a comet reduction that depends on the INSTANT alone and not on the comet: Earth's
+    /// heliocentric ecliptic position (AU, the VSOP87 dynamical frame the elements are referred to) and
+    /// the TT Julian date it was computed for.
+    ///
+    /// <para>Hoisted into its own type so a sweep over many comets AT ONE TIME evaluates it once. The
+    /// VSOP87a Earth series is ~3,500 cosine terms against the few dozen transcendentals of the two
+    /// Kepler solves it accompanies, so computing it per comet -- as the <see cref="DateTimeOffset"/>
+    /// overloads necessarily do -- makes Earth almost the entire cost of the sweep rather than a
+    /// rounding error: the sky map's marker rebuild over the real 1,630-candidate SBDB set measures
+    /// 37.2 ms that way and 2.2 ms with this, and 91 ms/frame in the browser build. A caller looping
+    /// over comets should take this once and pass it in; a caller asking about one comet at one time
+    /// should keep using the <see cref="DateTimeOffset"/> overload, which is exactly that plus
+    /// this.</para>
+    /// </summary>
+    /// <param name="JdTt">TT Julian date of the instant.</param>
+    public readonly record struct EarthState(double JdTt, double X, double Y, double Z);
+
+    /// <summary>
+    /// Resolves the per-instant state a comet reduction needs (see <see cref="EarthState"/>). Returns
+    /// false if the Earth ephemeris is unavailable at <paramref name="time"/>.
+    /// </summary>
+    public static bool TryGetEarthState(DateTimeOffset time, out EarthState earth)
+    {
+        time.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
+        // Julian millennia from J2000, kept in the split (tt1, tt2) form for precision.
+        var et = (tt1 - Constants.J2000BASE + tt2) / 365250.0;
+
+        Span<double> position = stackalloc double[3];
+        if (!VSOP87a.GetBody(CatalogIndex.Earth, et, position))
+        {
+            earth = default;
+            return false;
+        }
+
+        earth = new EarthState(tt1 + tt2, position[0], position[1], position[2]);
+        return true;
+    }
+
+    /// <summary>
     /// Computes the comet's geocentric J2000 equatorial position and the helio-/geocentric distances
     /// at <paramref name="time"/>. Returns false only if the underlying Earth ephemeris is unavailable
     /// or the Kepler solve fails to converge (returned outputs are then NaN).
@@ -44,16 +83,31 @@ public static class CometEphemeris
         out double heliocentricDistanceAu,
         out double geocentricDistanceAu)
     {
-        time.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
-        var jdTt = tt1 + tt2;
-        var et = (tt1 - Constants.J2000BASE + tt2) / 365250.0;
-
-        Span<double> earth = stackalloc double[3];
-        if (!VSOP87a.GetBody(CatalogIndex.Earth, et, earth))
+        if (!TryGetEarthState(time, out var earth))
         {
             raJ2000Hours = decJ2000Deg = heliocentricDistanceAu = geocentricDistanceAu = double.NaN;
             return false;
         }
+
+        return TryGetEquatorialJ2000(elements, earth, out raJ2000Hours, out decJ2000Deg,
+            out heliocentricDistanceAu, out geocentricDistanceAu);
+    }
+
+    /// <summary>
+    /// The instant-hoisted form of <see cref="TryGetEquatorialJ2000(in CometElements, DateTimeOffset,
+    /// out double, out double, out double, out double)"/>: identical arithmetic, with the shared
+    /// per-instant <see cref="EarthState"/> supplied by the caller instead of recomputed. Use this when
+    /// reducing many comets at one time.
+    /// </summary>
+    public static bool TryGetEquatorialJ2000(
+        in CometElements elements,
+        in EarthState earth,
+        out double raJ2000Hours,
+        out double decJ2000Deg,
+        out double heliocentricDistanceAu,
+        out double geocentricDistanceAu)
+    {
+        var jdTt = earth.JdTt;
 
         Span<double> helio = stackalloc double[3];
         if (!TryHeliocentricEcliptic(elements, jdTt, helio, out heliocentricDistanceAu))
@@ -64,9 +118,9 @@ public static class CometEphemeris
 
         // Geocentric ecliptic vector. VSOP87's dynamical ecliptic differs from the ecliptic-J2000 the
         // elements use by a fixed-frame bias of order 0.05" -- negligible against our arcminute target.
-        var gx = helio[0] - earth[0];
-        var gy = helio[1] - earth[1];
-        var gz = helio[2] - earth[2];
+        var gx = helio[0] - earth.X;
+        var gy = helio[1] - earth.Y;
+        var gz = helio[2] - earth.Z;
         geocentricDistanceAu = Math.Sqrt(gx * gx + gy * gy + gz * gz);
 
         // Light-time: light seen now left the comet delta/c days ago. Earth stays at time t.
@@ -78,9 +132,9 @@ public static class CometEphemeris
         }
 
         Span<double> geo = stackalloc double[3];
-        geo[0] = helio[0] - earth[0];
-        geo[1] = helio[1] - earth[1];
-        geo[2] = helio[2] - earth[2];
+        geo[0] = helio[0] - earth.X;
+        geo[1] = helio[1] - earth.Y;
+        geo[2] = helio[2] - earth.Z;
         geocentricDistanceAu = Math.Sqrt(geo[0] * geo[0] + geo[1] * geo[1] + geo[2] * geo[2]);
 
         // Ecliptic-J2000 -> equatorial-J2000 (same rotation the planet path applies).
@@ -115,6 +169,28 @@ public static class CometEphemeris
         out double magnitude)
     {
         if (TryGetEquatorialJ2000(elements, time, out raJ2000Hours, out decJ2000Deg, out var r, out var delta))
+        {
+            magnitude = PredictTotalMagnitude(elements, r, delta);
+            return true;
+        }
+
+        magnitude = double.NaN;
+        return false;
+    }
+
+    /// <summary>
+    /// The instant-hoisted form of <see cref="TryGetEquatorialJ2000WithMagnitude(in CometElements,
+    /// DateTimeOffset, out double, out double, out double)"/>, for sweeping many comets at one time.
+    /// See <see cref="EarthState"/>.
+    /// </summary>
+    public static bool TryGetEquatorialJ2000WithMagnitude(
+        in CometElements elements,
+        in EarthState earth,
+        out double raJ2000Hours,
+        out double decJ2000Deg,
+        out double magnitude)
+    {
+        if (TryGetEquatorialJ2000(elements, earth, out raJ2000Hours, out decJ2000Deg, out var r, out var delta))
         {
             magnitude = PredictTotalMagnitude(elements, r, delta);
             return true;
