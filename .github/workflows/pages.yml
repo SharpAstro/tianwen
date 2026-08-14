@@ -15,11 +15,11 @@ name: pages
 #    sweep - the interpreted build is unshippable. ubuntu-x64 runs the mainstream AOT
 #    toolchain, so no WasmDedup=false / extra interpret-excludes beyond the csproj's
 #    P/Invoke-dense vendor SDKs (those crash the WIN-ARM64 cross-compiler; see the csproj).
-#  - comets-sbdb.json bake: JPL's SBDB API sends no CORS headers, so the app can never
-#    fetch it from a browser origin. The runner curls the exact query the desktop uses and
-#    ships the response as a same-origin static asset; AddAstrometry(cometQueryUri: ...)
-#    points the UNCHANGED source/parser/cache stack at it. Weekly schedule keeps it fresh
-#    (the app-side cache TTL is also 7 days).
+#  - Comet asset bake: JPL sends no CORS headers from EITHER host it serves comets from, so
+#    the app can never fetch them from a browser origin and BOTH are baked here as same-origin
+#    static assets; AddAstrometry(cometQueryUri:, apparitionSeedUri:) points the UNCHANGED
+#    source/parser/cache stack at them. See the step itself for what it does and why it is
+#    incremental - it is the one place that should describe it.
 #
 # NOTE: Pages must be enabled once with build type "workflow" (Settings -> Pages ->
 # Source: "GitHub Actions", or `gh api -X POST repos/{owner}/{repo}/pages -f build_type=workflow`).
@@ -33,8 +33,10 @@ on:
       - 'src/TianWen.Lib/**'
       - '.github/workflows/pages.yml'
   schedule:
-    # Weekly redeploy purely to re-bake comets-sbdb.json (orbit solutions update on
-    # new observation arcs; the cache TTL is 7 days). Mondays 03:17 UTC.
+    # Weekly redeploy to re-bake the comet assets: orbit solutions update on new observation
+    # arcs (the app-side SBDB cache TTL is also 7 days), and the apparition overlay's per-run
+    # fetch cap means a cold start drains its backlog over several runs rather than one.
+    # Mondays 03:17 UTC.
     - cron: '17 3 * * 1'
   workflow_dispatch:
 
