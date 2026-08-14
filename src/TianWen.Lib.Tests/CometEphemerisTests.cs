@@ -1,4 +1,5 @@
 ﻿using System;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.Comets;
 using Shouldly;
@@ -227,6 +228,63 @@ public class CometEphemerisTests
         noPhotometry.HasMagnitudeModel.ShouldBeFalse();
 
         CometEphemeris.PredictTotalMagnitude(noPhotometry, 1.5, 0.6).ShouldBe(double.NaN);
+    }
+
+    /// <summary>
+    /// The hoisted <see cref="CometEphemeris.EarthState"/> overloads must be the SAME arithmetic as the
+    /// <see cref="DateTimeOffset"/> ones, not merely close: they exist purely so a sweep over ~1,600
+    /// comets at one instant evaluates the ~3,500-term VSOP87a Earth series once instead of 1,600
+    /// times, and the moment that refactor is allowed to move a position it stops being free and every
+    /// Horizons bound pinned above is measuring a different code path from the one the sky map runs.
+    /// So this asserts EXACT equality, with no tolerance -- the two paths perform identical operations
+    /// in identical order and any difference at all means one of them diverged.
+    /// </summary>
+    [Fact]
+    public void GivenTheHoistedEarthStateThenItReducesIdenticallyToThePerCallOverload()
+    {
+        var time = DateTimeOffset.Parse("2026-08-06T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal);
+        CometEphemeris.TryGetEarthState(time, out var earth).ShouldBeTrue();
+
+        // One elliptic, one near-parabolic, one propagated far past its epoch: all three Stumpff
+        // branches and both the converging and the drifting regime.
+        foreach (var elements in new[] { PonsBrooks, TsuchinshanAtlas, TempelTwo })
+        {
+            var name = elements.DisplayName;
+
+            CometEphemeris.TryGetEquatorialJ2000(elements, time, out var raPerCall, out var decPerCall, out var rPerCall, out var deltaPerCall)
+                .ShouldBeTrue(name);
+            CometEphemeris.TryGetEquatorialJ2000(elements, earth, out var raHoisted, out var decHoisted, out var rHoisted, out var deltaHoisted)
+                .ShouldBeTrue(name);
+
+            raHoisted.ShouldBe(raPerCall, name);
+            decHoisted.ShouldBe(decPerCall, name);
+            rHoisted.ShouldBe(rPerCall, name);
+            deltaHoisted.ShouldBe(deltaPerCall, name);
+
+            CometEphemeris.TryGetEquatorialJ2000WithMagnitude(elements, time, out _, out _, out var magPerCall)
+                .ShouldBeTrue(name);
+            CometEphemeris.TryGetEquatorialJ2000WithMagnitude(elements, earth, out _, out _, out var magHoisted)
+                .ShouldBeTrue(name);
+            magHoisted.ShouldBe(magPerCall, name);
+        }
+    }
+
+    /// <summary>
+    /// The hoisted state carries the instant it was resolved for, so a caller that needs the TT Julian
+    /// date (the sky map judges element-set staleness against it) takes it from here rather than
+    /// running its own second conversion of the same <see cref="DateTimeOffset"/>.
+    /// </summary>
+    [Fact]
+    public void GivenAnEarthStateThenItCarriesTheTtJulianDateOfThatInstant()
+    {
+        var time = DateTimeOffset.Parse("2026-08-06T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal);
+        CometEphemeris.TryGetEarthState(time, out var earth).ShouldBeTrue();
+
+        time.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
+        earth.JdTt.ShouldBe(tt1 + tt2);
+
+        // And it really is a heliocentric position, not a zeroed default: Earth sits ~1 AU from the Sun.
+        Math.Sqrt(earth.X * earth.X + earth.Y * earth.Y + earth.Z * earth.Z).ShouldBe(1.0, tolerance: 0.02);
     }
 
     private static CometDesignation Parse(string s)

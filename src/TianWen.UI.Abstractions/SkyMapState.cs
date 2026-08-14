@@ -280,21 +280,44 @@ namespace TianWen.UI.Abstractions
             return _cachedSunAltitudeDeg;
         }
 
-        // Planet positions at the current viewingTime. Keyed on the exact
-        // DateTimeOffset: SkyMapTab feeds viewingTime from _cachedLiveTime which
-        // is quantized to 1 s (or jumps in bulk when the planner date shifts),
-        // so bit equality is sufficient for the 59 out of 60 frames per second
-        // that carry an identical viewingTime. Planets move at most ~0.5"/s
-        // (the Moon; planets much slower), so even at 1 deg FOV the per-frame
-        // drift is deeply sub-pixel; 1 s refresh is already over-accurate.
+        /// <summary>
+        /// How stale a cached ephemeris may be before it is recomputed. Planets move at most ~0.5"/s
+        /// (the Moon; the planets much slower) and comets are the same order even on a close approach,
+        /// so at the tightest FOV this map offers a 1 s refresh is still sub-pixel -- already
+        /// over-accurate for a marker.
+        /// </summary>
+        /// <remarks>
+        /// This is a TOLERANCE, and deliberately not the exact-equality key it replaced. That key was
+        /// correct only while the producer happened to quantize: <c>SkyMapTab</c> fed a viewingTime
+        /// taken from a 1 s clock cache, so bit equality hit on 59 of every 60 frames. It then began
+        /// INTERPOLATING between those syncs -- rightly, because a once-a-second step moved the alt-az
+        /// roll reference and the whole horizon view matrix in visible 1 Hz jumps -- and every frame
+        /// started carrying a distinct <see cref="DateTimeOffset"/>. Both caches below then missed
+        /// 100% of the time, silently, with nothing at either site to say so: the comet sweep alone
+        /// measured 91 ms per frame in the browser build (~1,600 candidates x a ~3,500-term VSOP87a
+        /// Earth series each), landing on every single pointer move. A cache key must state the
+        /// staleness the cache can tolerate; it must not encode an assumption about how finely its
+        /// caller happens to round, which the caller can invalidate without ever touching this file.
+        /// </remarks>
+        private static readonly TimeSpan EphemerisCacheRefreshInterval = TimeSpan.FromSeconds(1);
+
+        // Planet positions at the current viewingTime, refreshed on the tolerance above (the planner
+        // date shifting, or a time scrub, jumps far past it and so recomputes at once).
         private DateTimeOffset _planetCacheTime = DateTimeOffset.MinValue;
         private readonly (CatalogIndex Index, double RA, double Dec)[] _planetCache
             = new (CatalogIndex, double, double)[SkyMapRenderer.PlanetIndices.Length];
         private int _planetCacheCount;
 
         /// <summary>
-        /// Planet J2000 RA/Dec positions at <paramref name="viewingTime"/>, cached
-        /// until viewingTime changes. Entries for bodies whose VSOP87a reduction
+        /// How many times <see cref="GetPlanetPositionsCached"/> has actually evaluated VSOP87a. A test
+        /// seam: a hit and a miss return identical positions, so only a counter can show the cache is
+        /// working, which is exactly how it came to miss on every frame unnoticed.
+        /// </summary>
+        internal int PlanetCacheRebuilds { get; private set; }
+
+        /// <summary>
+        /// Planet J2000 RA/Dec positions at <paramref name="viewingTime"/>, cached for
+        /// <see cref="EphemerisCacheRefreshInterval"/>. Entries for bodies whose VSOP87a reduction
         /// fails are omitted from the returned span.
         /// </summary>
         /// <remarks>
@@ -305,11 +328,12 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public ReadOnlySpan<(CatalogIndex Index, double RA, double Dec)> GetPlanetPositionsCached(DateTimeOffset viewingTime)
         {
-            if (viewingTime == _planetCacheTime)
+            if ((viewingTime - _planetCacheTime).Duration() < EphemerisCacheRefreshInterval)
             {
                 return _planetCache.AsSpan(0, _planetCacheCount);
             }
 
+            PlanetCacheRebuilds++;
             var count = 0;
             foreach (var idx in SkyMapRenderer.PlanetIndices)
             {
@@ -355,10 +379,10 @@ namespace TianWen.UI.Abstractions
         private int _cometCandidatesAllLength = -1;
         private CometElements[] _cometCandidates = [];
 
-        // Per-viewingTime marker cache (positions + magnitudes for the candidate set), keyed on the exact
-        // viewingTime + repository identity, mirroring the planet cache. Zoom-independent: it holds every
-        // candidate with a finite magnitude, and each consumer (draw / click / info panel) applies its own
-        // magnitude limit -- so zooming never invalidates it.
+        // Per-viewingTime marker cache (positions + magnitudes for the candidate set), keyed on
+        // EphemerisCacheRefreshInterval + repository identity, mirroring the planet cache.
+        // Zoom-independent: it holds every candidate with a finite magnitude, and each consumer
+        // (draw / click / info panel) applies its own magnitude limit -- so zooming never invalidates it.
         private DateTimeOffset _cometCacheTime = DateTimeOffset.MinValue;
         private ICometRepository? _cometCacheRepo;
         private CometMarker[] _cometCache = [];
@@ -392,6 +416,14 @@ namespace TianWen.UI.Abstractions
         public static bool ShouldDrawCometMarker(bool cometLayerOn, bool isPinned, double vmag, double magnitudeLimit)
             => isPinned || (cometLayerOn && !(vmag > magnitudeLimit));
 
+        /// <summary>
+        /// How many times <see cref="GetCometPositionsCached"/> has actually swept the candidate set.
+        /// The counterpart of <see cref="PlanetCacheRebuilds"/>, and the more load-bearing of the two:
+        /// this sweep is ~1,600 comets, so a miss costs about two orders of magnitude more than the
+        /// planet one.
+        /// </summary>
+        internal int CometCacheRebuilds { get; private set; }
+
         public ReadOnlySpan<CometMarker> GetCometPositionsCached(ICometRepository? comets, DateTimeOffset viewingTime)
         {
             if (comets is null)
@@ -401,19 +433,34 @@ namespace TianWen.UI.Abstractions
 
             RebuildCometCandidatesIfNeeded(comets);
 
-            if (viewingTime == _cometCacheTime && ReferenceEquals(comets, _cometCacheRepo))
+            if ((viewingTime - _cometCacheTime).Duration() < EphemerisCacheRefreshInterval
+                && ReferenceEquals(comets, _cometCacheRepo))
             {
                 return _cometCache.AsSpan(0, _cometCacheCount);
             }
 
+            CometCacheRebuilds++;
             if (_cometCache.Length < _cometCandidates.Length)
             {
                 _cometCache = new CometMarker[_cometCandidates.Length];
             }
 
-            // One conversion for the whole rebuild: staleness is per element set but the instant is not.
-            viewingTime.ToSOFAUtcJdTT(out _, out _, out var tt1, out var tt2);
-            var jdTt = tt1 + tt2;
+            _cometCacheTime = viewingTime;
+            _cometCacheRepo = comets;
+
+            // ONE Earth ephemeris + time conversion for the whole sweep. Both depend on the instant
+            // alone, and the Earth half is a ~3,500-term VSOP87a series against the few dozen
+            // transcendentals of the two Kepler solves it feeds -- so resolving it per comet (which is
+            // what the DateTimeOffset overload of TryGetEquatorialJ2000WithMagnitude must do) made
+            // Earth essentially the whole cost of this loop: MEASURED at 37.2 ms per sweep over the
+            // real 1,630-candidate SBDB set, against 2.2 ms hoisted. Also gives the staleness check its
+            // jdTt: staleness is per element set, but the instant it is judged against is not.
+            if (!CometEphemeris.TryGetEarthState(viewingTime, out var earth))
+            {
+                _cometCacheCount = 0;
+                return default;
+            }
+            var jdTt = earth.JdTt;
 
             var count = 0;
             foreach (var el in _cometCandidates)
@@ -422,7 +469,7 @@ namespace TianWen.UI.Abstractions
                 {
                     continue;
                 }
-                if (!CometEphemeris.TryGetEquatorialJ2000WithMagnitude(el, viewingTime, out var ra, out var dec, out var mag)
+                if (!CometEphemeris.TryGetEquatorialJ2000WithMagnitude(el, earth, out var ra, out var dec, out var mag)
                     || double.IsNaN(mag))
                 {
                     continue;
@@ -435,8 +482,6 @@ namespace TianWen.UI.Abstractions
                     PositionUncertain: el.IsElementSetStale(jdTt));
             }
             _cometCacheCount = count;
-            _cometCacheTime = viewingTime;
-            _cometCacheRepo = comets;
             return _cometCache.AsSpan(0, count);
         }
 
