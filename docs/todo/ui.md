@@ -77,6 +77,26 @@ state through the terminal is a small addition that follows an existing pattern:
   (`{tab icon} {tab} - {profile} · {phase} - {target}`, `TianWen.UI.Gui/Program.cs`); the TUI
   currently writes `\U0001F52D {profile} — {tab}` with the phase folded into the tab name.
 
+
+## An overlay's keyboard routing lives nowhere near the overlay (found + fixed 2026-08-14)
+
+- [x] **An open overlay now claims the keyboard by being PAINTED, and the host asks once: DONE.**
+  `DropdownMenuState.HandleKeyDown` always knew how to handle arrows / Enter / Escape, but only ran if a
+  host added a case for it in its own `HandleInput` switch, in a different file from both the widget and
+  its declaration. There were four dropdowns; three had that case and the Live Session mode pill did not,
+  which is why it had no keyboard highlight at all. Nothing reported it: the menu opened, drew and took
+  mouse clicks, so the only symptom was arrow keys doing nothing.
+
+  `RenderDropdownMenu` sets `Ui.KeyboardClaimant` as it draws (`IKeyboardClaimant`, on the per-window
+  `WindowUiSettings`), and each host asks once before its own routing. **Four per-widget routing cases
+  became zero.** Paint order is z-order, so the topmost overlay claims last and wins with no host
+  arbitrating; a claimant no longer displayed returns false, so a stale claim needs no clearing (which is
+  what makes this simpler than `CaretRect`, where a per-frame reset would be wrong because `PaintLayout`
+  runs twice a frame).
+
+  Same shape `Layout.Builder.TextInput` retired for text fields: the declaration IS the registration.
+  A new overlay is keyboard-navigable by existing.
+
 ## FITS Viewer
 
 - [ ] Rename HDR button/label to "Compress Highlights"

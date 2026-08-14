@@ -168,7 +168,7 @@ public sealed class ViewerState
     /// <see cref="ImageRendererBase{TSurface}.Render"/> so its clickables win
     /// hit-test z-order (paint order = z-order).
     /// </summary>
-    public DropdownMenuState ToolbarDropdown { get; } = new();
+    public DropdownMenuState<string> ToolbarDropdown { get; } = new();
 
     /// <summary>
     /// True while an overlay owns the pointer, so chrome underneath must not react to hover. Clicks

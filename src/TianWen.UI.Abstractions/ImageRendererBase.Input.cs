@@ -57,10 +57,12 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            // Dropdowns get first crack at keyboard so Escape/Enter/Arrows route
-            // to the open overlay before falling through to global shortcuts
-            // (e.g. Escape would otherwise quit via RequestExitSignal).
-            if (state.ToolbarDropdown.HandleKeyDown(key))
+            // An open overlay gets first crack at the keyboard, so Escape/Enter/Arrows reach it before
+            // falling through to global shortcuts (Escape would otherwise quit via RequestExitSignal).
+            // Asked of whatever CLAIMED the keyboard by painting, not of one named dropdown: this viewer is
+            // its own host when it runs standalone (tianwen-fits), so a second overlay added here would
+            // otherwise need its own line, which is the omission this whole mechanism removes.
+            if (Ui.KeyboardClaimant?.HandleKeyDown(key) == true)
             {
                 state.NeedsRedraw = true;
                 return true;

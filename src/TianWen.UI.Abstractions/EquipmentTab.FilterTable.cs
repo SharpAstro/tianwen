@@ -104,27 +104,33 @@ namespace TianWen.UI.Abstractions
                         {
                             var existingCustom = capturedF < filters.Count ? filters[capturedF].CustomName : null;
                             var a = anchor[0];
+                            // The "Custom…" row is now simply the last entry, carrying its own action rather
+                            // than three parameters and an index-past-the-end special case.
+                            var names = EquipmentActions.CommonFilterNames
+                                .Select(DropdownItem.Text)
+                                .ToImmutableArray()
+                                .Add(DropdownItem<string>.Action(
+                                    existingCustom is { Length: > 0 } ? $"Custom: {existingCustom}" : "Custom...",
+                                    () =>
+                                    {
+                                        State.CustomFilterSlotIndex = capturedF;
+                                        var preservedName = capturedF < filters.Count && filters[capturedF].CustomName is { } cn ? cn : "";
+                                        State.CustomFilterNameInput.Text = preservedName;
+                                        State.CustomFilterNameInput.CursorPos = preservedName.Length;
+                                        PostSignal(new ActivateTextInputSignal(State.CustomFilterNameInput));
+                                    }));
+
                             State.FilterNameDropdown.Open(
                                 a.X, a.Y + a.Height, a.Width,
-                                EquipmentActions.CommonFilterNames,
-                                (idx, name) =>
+                                names,
+                                item =>
                                 {
                                     if (capturedF < filters.Count)
                                     {
-                                        filters[capturedF] = new InstalledFilter(name, filters[capturedF].Position);
+                                        filters[capturedF] = new InstalledFilter(item.Value, filters[capturedF].Position);
                                         State.FiltersDirty = true;
                                     }
-                                },
-                                hasCustomEntry: true,
-                                onCustom: () =>
-                                {
-                                    State.CustomFilterSlotIndex = capturedF;
-                                    var preservedName = capturedF < filters.Count && filters[capturedF].CustomName is { } cn ? cn : "";
-                                    State.CustomFilterNameInput.Text = preservedName;
-                                    State.CustomFilterNameInput.CursorPos = preservedName.Length;
-                                    PostSignal(new ActivateTextInputSignal(State.CustomFilterNameInput));
-                                },
-                                customEntryLabel: existingCustom is { Length: > 0 } ? $"Custom: {existingCustom}" : null);
+                                });
                         });
                 }
 

@@ -288,7 +288,7 @@
          consumed before the release rather than after, because validating a library API at its real call
          sites is what stops a wrong one being frozen in a package, and it caught both of those
          shapes. -->
-    <PackageVersion Include="DIR.Lib" Version="7.28.*" />
+    <PackageVersion Include="DIR.Lib" Version="7.29.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -428,7 +428,7 @@
          field, the caret is the terminal's real one, and an over-long value scrolls instead of
          ellipsizing. CellLayout.TextInputs(arranged) feeds TextInputInteraction's TabFields, so the
          TUI shares Tab cycling too. -->
-    <PackageVersion Include="Console.Lib" Version="4.24.*" />
+    <PackageVersion Include="Console.Lib" Version="4.25.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -562,7 +562,7 @@
     <!-- 7.19 follows DIR.Lib to 7.28: describe_layout reports a text field, what it holds and
          whether it has the keyboard. "Which box is focused" is where every text-input bug starts
          and was unanswerable from a layout dump. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.19.*" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.20.*" />
     <!-- The WebGL2 backend for the same DIR.Lib Renderer, consumed ONLY by TianWen.UI.Web (which sits
          outside TianWen.slnx). It lives here, next to its desktop counterpart, because it used to be
          pinned inline in that csproj instead: a sibling-family bump that swept this file could not see
@@ -591,7 +591,7 @@
          shape that cost SdlVulkan.Renderer its DrawTriangles override one release earlier, which is the
          second time this family has paid for the same mistake. 1.22 also resets the clip stack at the
          frame boundary and pins DIR.Lib as a FLOOR (ApplyClip does not exist before 7.27). -->
-    <PackageVersion Include="WebGl.Renderer" Version="1.22.*" />
+    <PackageVersion Include="WebGl.Renderer" Version="1.23.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR. Both packages ship from the FC.SDK repo at one release line, so they move
