@@ -784,6 +784,44 @@ does not care how extreme the extremes are, and moved far less between the two p
 unstably (one checkpoint moves four places between sessions), but more cells will NOT fix the
 transfer failure, because the shift is systematic rather than sampling noise.
 
+**Resolved 2026-08-14 (v15): the non-transfer is real, benign, and benign BY LUCK, so the fix is a
+guardrail rather than a new formula.** Three runs of the winning config with `--gate-observe`, which
+probes the val session the gate does not select on and prints it on the same schedule (observation
+costs no held-out-ness; spending it requires SELECTING on a measurement). Selections reproduced the
+earlier ones exactly (steps 1600 / 1100 / 1700, same scores), so the extra probe perturbs nothing.
+
+- **A relative stopping rule does not work either, and fails in the gate's own way.** Firing on
+  `log_ratio` when it first exceeds its early-training baseline by a margin, no margin is both stable
+  and useful: 0.02-0.08 agree to within one probe interval but two of three seeds fire at step 300 at
+  0.88-0.95x noise, while 0.30 reaches the useful range (0.74 / 0.77 / 0.67x, matching the absolute
+  gate) with the two sessions 500-1600 steps apart. The mechanism is that the baseline's SIGN varies
+  by seed (-0.026, -0.009, +0.037), and a negative baseline puts the bar near zero, which the
+  trajectory crosses the moment the model denoises at all. **The arbitrariness moved from a
+  hand-tuned constant into the first few probes rather than going away.**
+- **The fabrication bar never binds on the second session: 0 rejections out of 19 gate-passing steps
+  across three runs.** Every rejection was the NOISE bar. On the unprobed session these models read
+  -0.6 to -2.2 over its floor where they read +3.2 to +5.9 on the probed one, i.e. they are
+  comfortably purer there. So `spurious_over_floor`'s non-transfer, real as a measurement, changes
+  none of the gate's decisions -- the shift is one-signed and the probed session is the STRICTER of
+  the two.
+- **That safety is an accident of the val ordering**, which `choose()` fixes with a seeded shuffle.
+  Had the two sessions come out in the other order, the same constants would have been systematically
+  permissive and nothing would have said so. This is the actual defect, and it is why
+  `--gate-observe` is now the default at ~7% throughput (45.6 against 48.6 tiles/s): it makes
+  "the probed session is the stricter one" a checkable line in the log instead of an implicit
+  assumption.
+- **Do NOT also gate on the observed session.** Requiring `noise <= 0.82` on both refuses one seed
+  outright and drops another to step 400, because noise itself shifts +0.07 to +0.09 between sessions
+  (0.76 to 0.83, 0.72 to 0.81, 0.67 to 0.76). One absolute noise figure demanded on two sessions is a
+  silent tightening by the session shift, not a portability fix. Note the corollary: `noise`
+  **passes** the transfer test (model differences exceed the session shift) and its absolute value
+  still moves by more than the bar's useful margin, so "transfers" licenses ranking, never a shared
+  constant.
+
+So the gate keeps its job, which it does correctly: ordering steps within one run on one session,
+reproducibly. What it never was is a portable purity certificate, and the guardrail against reading it
+as one is the second trajectory printed beside the first.
+
 **Zero train/inference skew (non-negotiable):** the tile exporter calls the *same* code the
 inference path uses; `AiNafnetInputs` MTF pre-stretch (target median 0.25, auto-skip threshold
 0.125), `[0,1]` linear convention, `ChunkedInference`-compatible geometry. Python never
