@@ -1,6 +1,7 @@
 # Controls upstreaming: promote generic controls to DIR.Lib
 
-**Status: U1 + U2 + U3 + U4 + U5 SHIPPED (2026-07-23); U6 deferred.** Follow-on to
+**Status: COMPLETE. U1-U5 SHIPPED 2026-07-23; U6 SHIPPED 2026-08-14** with the
+[automatic-text-input](automatic-text-input.md) wave (see U6 for why it rode that one). Follow-on to
 [interaction-primitives.md](interaction-primitives.md); taxonomy + inventory in
 [../architecture/widgets-and-controls.md](../architecture/widgets-and-controls.md).
 
@@ -150,7 +151,27 @@ becoming shims (shims would perpetuate the split U2 exists to remove). Blast rad
 - Web note: the `CanvasTextOverlay` binds to `TextInputState` (which the base still owns as `Input`) and
   already serves both searches -- unchanged by this refactor.
 
-## U6 -- `TextInputInteraction` -> DIR.Lib (DEFERRED, decision 2026-07-23)
+## U6 -- `TextInputInteraction` -> DIR.Lib **(DONE + SHIPPED 2026-08-14)**
+
+Shipped as part of the [automatic-text-input](automatic-text-input.md) wave rather than on its own
+minor, because P2's focus owner and this key router are the same concern over the same call sites --
+exactly what the deferral note below predicted. Three changes the promotion forced, none of them in the
+original sketch:
+
+- The `IPixelWidget? ActiveTab` seam became `Func<IReadOnlyList<TextInputState>>? TabFields`. That
+  interface was the one thing keeping a "host-agnostic" class from working on a terminal; the TUI now
+  answers it from `CellLayout.TextInputs(arranged)` and shares Tab cycling instead of hand-rolling it.
+- `HandleKey` lost its `activeInput` parameter and reads `ctx.Focus.Current`, so the focused field
+  cannot be named two ways.
+- The `Deactivate` / `SetActive` host callbacks are gone: focus moves through `TextInputFocus`, whose
+  `FocusChanged` the host binds once to the platform's text-input lifecycle.
+
+It also gained the tests it never had -- 15 of them. Living inside one consumer's UI project is what had
+made it untestable: the machinery it needs (a widget with registered fields, a focus owner, a task
+tracker) was only ever assembled by the running app, so Tab cycling and commit dispatch were verified by
+using the GUI.
+
+### The original deferral (2026-07-23)
 
 After U2, `TextInputInteraction` has NO TianWen-domain deps left (the `PlannerState`/`SkyMapSearchState`
 special-cases become the single `SearchInteraction? ActiveSearch` seam), so it becomes a clean DIR.Lib

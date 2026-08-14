@@ -80,7 +80,7 @@ namespace TianWen.UI.Abstractions
                 var (bx, by, bw, bh) = GetHistogramLogButtonRect(state);
                 var mouseX = state.MouseScreenPosition.X;
                 var mouseY = state.MouseScreenPosition.Y;
-                var hovered = !state.ToolbarDropdown.IsOpen && mouseX >= bx && mouseX < bx + bw && mouseY >= by && mouseY < by + bh;
+                var hovered = !state.OverlayOwnsPointer && mouseX >= bx && mouseX < bx + bw && mouseY >= by && mouseY < by + bh;
 
                 if (state.HistogramLogScale)
                 {

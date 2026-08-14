@@ -99,18 +99,24 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Builds a horizontal labeled-input row: [label fixed-labelW | Fill *].
-        /// The Fill is the escape hatch for the caller's RenderTextInput call. Pass <paramref name="fillKey"/>
-        /// when several such rows share one <c>RenderLayout</c> (a single-tree panel), so the one
-        /// <c>drawFill</c> dispatcher can route each input by key.
+        /// Builds a horizontal labeled-input row: <c>[label fixed-labelW | field *]</c>.
+        /// <para>
+        /// The field is a <see cref="Layout.Content.TextInput"/> leaf, so declaring the row is the whole
+        /// declaration: the painter draws it, registers its click region, its focus and its I-beam, and puts
+        /// it in Tab order. It used to emit a keyed <see cref="Layout.Content.Fill"/> that the caller had to
+        /// match with a dictionary entry and a painter lambda -- three places a compiler could not keep in
+        /// agreement, where a mistyped key produced a silently blank field rather than an error.
+        /// </para>
         /// </summary>
+        /// <param name="inputFontSize">Field text size, when it differs from the label's (most panels draw
+        /// the value a little smaller than its label). Defaults to <paramref name="fontSize"/>.</param>
         public static Layout.Node LabeledInputRow(
             string label, float labelW, float rowH, float padding, float fontSize,
-            RGBAColor32 textColor, RGBAColor32? bg = null, string? fillKey = null)
+            RGBAColor32 textColor, TextInputState input, RGBAColor32? bg = null, float? inputFontSize = null)
         {
             var labelLeaf = Layout.Builder.Text(label, fontSize, textColor).WFixed(labelW).HStar();
-            var fillLeaf = Layout.Builder.Fill(key: fillKey).Stretch();
-            var row = Layout.Builder.HStack(labelLeaf, fillLeaf).WStar().HFixed(rowH);
+            var fieldLeaf = Layout.Builder.TextInput(input, inputFontSize ?? fontSize).Stretch();
+            var row = Layout.Builder.HStack(labelLeaf, fieldLeaf).WStar().HFixed(rowH);
             return bg is { } b ? row.Bg(b) : row;
         }
 

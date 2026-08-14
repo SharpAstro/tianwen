@@ -117,6 +117,26 @@ internal abstract class TuiTabBase : ITuiTab
 
         Arranged = Layout.Engine.Arrange(BuildLayout(), content, MeasureContext);
         CellLayout.Paint(terminal, Arranged, PlaceAndPaint);
+
+        // The caret is STICKY terminal state, so the frame that stops drawing a focused field has to say
+        // so or it stays parked where the field used to be. A field that IS focused parks it itself while
+        // being painted, so only the absence needs handling here -- and it belongs here rather than in a
+        // tab, because a tab that forgot would leave a caret blinking over someone else's text.
+        var caretOwned = false;
+        foreach (var an in Arranged)
+        {
+            if (an.Node is Layout.Node.Leaf { Content: Layout.Content.TextInput { State.IsActive: true } })
+            {
+                caretOwned = true;
+                break;
+            }
+        }
+
+        if (!caretOwned)
+        {
+            terminal.HideCaret();
+        }
+
         RegisterClickableRegions();
     }
 

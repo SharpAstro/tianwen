@@ -325,10 +325,12 @@ namespace TianWen.UI.Abstractions
             RenderLayout(headerContent,
                 new RectF32(headerRect.X + padding, headerRect.Y, contentW - padding * 2f, headerRect.Height));
 
-            // Search input below header (within the search strip, with 2px top gap)
-            RenderTextInput(state.SearchInput,
-                (int)(rect.X + padding), (int)(searchStripRect.Y + 2),
-                (int)(contentW - padding * 2f), searchH, fontPath, fontSize * 0.9f);
+            // Search field below the header (within the search strip, with 2px top gap). Declared rather
+            // than hand-placed: this was the last direct RenderTextInput call in the app, kept on the
+            // integer signature because it had no arranged rect of its own. It has one now.
+            RenderLayout(
+                Layout.Builder.TextInput(state.SearchInput, BaseFontSize * 0.9f),
+                new RectF32(rect.X + padding, searchStripRect.Y + 2, contentW - padding * 2f, searchH));
 
             var pinnedCount = state.PinnedCount;
             var drawnSeparator = false;
@@ -548,14 +550,19 @@ namespace TianWen.UI.Abstractions
                     i == 0 ? nameHref : null);
 
                 // Desktop realization of the same link: register the name as a LinkHit region. The host
-                // owns what a link does -- the SDL/Vulkan chrome opens the OS browser on click and shows a
-                // pointer cursor on hover; on the web the DOM <a> sits on top and intercepts the click, so
-                // this canvas region never dispatches there (no double open). No per-region OnClick: the
-                // host's central dispatch maps LinkHit uniformly, so every link behaves the same.
+                // owns what a link does -- the SDL/Vulkan chrome opens the OS browser on click; on the web
+                // the DOM <a> sits on top and intercepts the click, so this canvas region never dispatches
+                // there (no double open). No per-region OnClick: the host's central dispatch maps LinkHit
+                // uniformly, so every link behaves the same.
+                //
+                // The hand cursor is DECLARED here rather than derived by the host. A host that answers
+                // "is this a link?" with its own predicate is keeping a second copy of what the region
+                // list already knows, and every overlay drawn later silently invalidates it (see
+                // DIR.Lib's CursorKind remarks); stating it beside the click binds the two together.
                 if (i == 0 && nameHref is { } href)
                 {
                     RegisterClickable(rect.X + padding, y, rect.Width - padding * 2f, lineH,
-                        new HitResult.LinkHit(href));
+                        new HitResult.LinkHit(href), cursor: CursorKind.Pointer);
                 }
             }
         }

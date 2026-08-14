@@ -83,10 +83,9 @@ namespace TianWen.UI.Abstractions
                 var fileName = state.ImageFileNames[fileIndex];
 
                 var isSelected = fileIndex == state.SelectedFileIndex;
-                // Suppress hover highlight while a dropdown overlay is open: the pointer is captured
-                // by the dropdown, so the list underneath must not react to it. Selection (the loaded
-                // file) is NOT gated -- it should stay highlighted regardless.
-                var isHovered = !state.ToolbarDropdown.IsOpen && rowRect.Contains(mouseX, mouseY);
+                // Selection (the loaded file) is deliberately NOT gated on the overlay -- it should stay
+                // highlighted regardless; only hover is, and why is stated on OverlayOwnsPointer.
+                var isHovered = !state.OverlayOwnsPointer && rowRect.Contains(mouseX, mouseY);
 
                 if (isSelected)
                 {

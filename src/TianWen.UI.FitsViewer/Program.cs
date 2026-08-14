@@ -229,22 +229,24 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
         imageRenderer.Render(controller.Source, state);
 
-        // Cursor feedback: show the horizontal-resize cursor when hovering or
-        // actively dragging the file-list resize handle, default otherwise.
-        // SetSystemCursor is a cached no-op when the cursor is already active,
-        // so calling it every frame is cheap.
-        var (mx, _) = state.MouseScreenPosition;
-        var listW = imageRenderer.ScaledFileListWidth;
-        var handleSlop = 6f * imageRenderer.DpiScale;
-        // Don't show the resize cursor while a dropdown overlay is open -- it's capturing the pointer,
-        // and the dropdown can overlap the file-list resize-handle X.
-        var overHandle = state.ShowFileList
-            && !state.ToolbarDropdown.IsOpen
-            && mx >= listW - handleSlop
-            && mx <= listW + handleSlop;
-        sdlWindow.SetSystemCursor(state.IsResizingFileList || overHandle
-            ? SDL3.SDL.SystemCursor.EWResize
-            : SDL3.SDL.SystemCursor.Default);
+        // Cursor feedback, asked of the regions painted last frame rather than computed from geometry.
+        // What this replaces: an X-band test around the file-list edge, plus a "not while a dropdown is
+        // open" term because the dropdown draws over that band. That is one term per overlay, and every
+        // overlay added later silently invalidated it (see DIR.Lib's CursorKind remarks) -- the region
+        // list already knows what is on top, so both terms are gone. A region that states its own kind
+        // wins (a text field carries the I-beam itself); the Split's divider states none, since
+        // Layout.Builder.Split has no cursor parameter yet, so its hit maps here. An open dropdown's
+        // full-viewport backdrop is registered above everything, so it answers the hit and the handle
+        // underneath correctly stops claiming the pointer.
+        //
+        // The drag is the one genuine state term: once the grab starts the cursor stays the resize
+        // cursor wherever the pointer travels, which no region under it can express.
+        var (mx, my) = state.MouseScreenPosition;
+        var cursor = state.IsResizingFileList
+            ? CursorKind.ResizeEW
+            : imageRenderer.HitTestCursor(mx, my)
+                ?? (imageRenderer.HitTest(mx, my) is ResizeHandleHit ? CursorKind.ResizeEW : CursorKind.Default);
+        sdlWindow.SetSystemCursor(cursor.ToSystemCursor);
     },
 
     OnPostFrame = () =>

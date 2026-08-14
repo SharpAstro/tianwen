@@ -20,7 +20,8 @@ internal sealed class TuiEquipmentTab(
     ViewContexts contexts,
     EquipmentContent equipmentContent,
     IConsoleHost consoleHost,
-    SignalBus? bus = null) : TuiTabBase
+    SignalBus? bus = null,
+    BackgroundTaskTracker? tasks = null) : TuiTabBase
 {
     /// <summary>Interaction mode state machine.</summary>
     private enum Mode { Browse, Assignment, InlineEdit }
@@ -32,8 +33,15 @@ internal sealed class TuiEquipmentTab(
 
     private Mode _mode = Mode.Browse;
 
-    /// <summary>Tracks which field is active during site editing: 0=lat, 1=lon, 2=elev.</summary>
-    private int _editFieldIndex;
+    /// <summary>
+    /// Which site field has the keyboard. Shared with the rest of the app rather than tracked here,
+    /// because there is one keyboard: this used to be an <c>_editFieldIndex</c> int, a third answer to a
+    /// question the app already had a single owner for.
+    /// </summary>
+    private TextInputFocus SiteFocus => appState.TextInputFocus;
+
+    /// <summary>Tracks the async site-save so a failure is reported rather than dropped.</summary>
+    private readonly BackgroundTaskTracker _tasks = tasks ?? new BackgroundTaskTracker();
 
     /// <summary>OTA index pending deletion confirmation (-1 = none).</summary>
     private int _pendingDeleteOtaIndex = -1;
@@ -94,8 +102,74 @@ internal sealed class TuiEquipmentTab(
             Layout.Builder.HStack(
                 Layout.Builder.Fill(key: ProfilesKey).ColW(24),
                 Layout.Builder.Fill(key: SettingsKey).Stretch()).Stretch(),
-            Layout.Builder.Fill(key: SiteKey).RowH(1),
+            BuildSiteRow(),
             Layout.Builder.Fill(key: StatusKey).RowH(1));
+
+    /// <summary>
+    /// The site row: three labelled fields while editing, a summary bar otherwise.
+    /// <para>
+    /// The editing form is three <see cref="Layout.Content.TextInput"/> leaves -- the SAME leaf the GUI
+    /// declares -- so each field draws itself, carries its own hit region, joins Tab order, and parks the
+    /// terminal's real caret. It was a composed STRING plus a caret COLUMN derived by hand from the indent,
+    /// every earlier field's rendered length, its separator, and the edited field's own label prefix: five
+    /// terms that had to be re-derived whenever the row's shape changed, describing a position the arranged
+    /// rect already knows. That arithmetic is what a shared leaf exists to delete.
+    /// </para>
+    /// <para>
+    /// Not editing, it stays a <c>TextBar</c>: a label plus a right-aligned hint, which no leaf models and
+    /// which the <see cref="Layout.Content.Fill"/> escape hatch is the right tool for.
+    /// </para>
+    /// </summary>
+    private Layout.Node BuildSiteRow()
+        => eqState.IsEditingSite
+            ? SiteEditRow(eqState.LatitudeInput, eqState.LongitudeInput, eqState.ElevationInput)
+            : Layout.Builder.Fill(key: SiteKey).RowH(1);
+
+    /// <summary>
+    /// The editing row's shape, as a static so it can be arranged and painted in a test without standing up
+    /// a whole tab. Three labelled fields plus the key hints.
+    /// </summary>
+    internal static Layout.Node SiteEditRow(TextInputState lat, TextInputState lon, TextInputState elev)
+    {
+        // The focused field reads in the selected pen so it stands out from its two neighbours -- the cell
+        // surface's answer to the GUI's focused border, and the reason the row needs no brackets around the
+        // active value any more.
+        // .WStar().HStar() on the pair is load-bearing: a container's default width is Auto, and an Auto
+        // container measures a Star child to its INTRINSIC size -- which for an empty field is nothing. Without
+        // it the three fields each collapse to their label and the row paints no values at all.
+        Layout.Node Field(string label, TextInputState input) =>
+            Layout.Builder.HStack(
+                    TuiRowPalette.Dim.Cell($" {label}: ", label.Length + 3),
+                    Layout.Builder.TextInput(input, TuiRowPalette.CellFontSize,
+                            colors: input.IsActive ? SiteFieldFocused : SiteFieldIdle)
+                        .WStar().HStar())
+                .WStar().HStar();
+
+        return Layout.Builder.HStack(
+                Field(FieldLabels[0], lat),
+                Field(FieldLabels[1], lon),
+                Field(FieldLabels[2], elev),
+                TuiRowPalette.Dim.Cell("Tab:next  Enter:save  Esc:cancel", 32, TextAlign.Far))
+            .RowH(1);
+    }
+
+    /// <summary>
+    /// Field palettes for the cell surface. A terminal cannot spare a row and a column for the GUI's 1px
+    /// border, so focus has to be carried by the background alone -- these are the two ends of that.
+    /// </summary>
+    private static readonly TextInputColors SiteFieldIdle = new TextInputColors
+    {
+        Background = SgrColor.Black.ToRgba(),
+        Text = SgrColor.White.ToRgba(),
+        Placeholder = SgrColor.BrightBlack.ToRgba(),
+    };
+
+    private static readonly TextInputColors SiteFieldFocused = new TextInputColors
+    {
+        BackgroundActive = SgrColor.Blue.ToRgba(),
+        Text = SgrColor.BrightWhite.ToRgba(),
+        Selection = SgrColor.BrightBlack.ToRgba(),
+    };
 
     protected override void PaintHost(string key, Rect<int> rect, bool geometryChanged)
     {
@@ -121,23 +195,6 @@ internal sealed class TuiEquipmentTab(
 
     private static readonly string[] FieldLabels = ["Lat", "Lon", "Elev"];
 
-    /// <summary>Between two site fields on the composed row.</summary>
-    private const string FieldSeparator = "  ";
-
-    /// <summary>Leading indent of the site row, matching the other bars.</summary>
-    private const string RowIndent = " ";
-
-    /// <summary>Opens the edited field's value. Its length is part of the caret arithmetic, so it is a
-    /// constant rather than a literal spelled twice.</summary>
-    private const string EditOpen = ": [";
-
-    private TextInputState ActiveEditField => _editFieldIndex switch
-    {
-        0 => eqState.LatitudeInput,
-        1 => eqState.LongitudeInput,
-        _ => eqState.ElevationInput
-    };
-
     protected override void RenderContent()
     {
         if (!IsReady)
@@ -155,10 +212,6 @@ internal sealed class TuiEquipmentTab(
         // Left panel: profile picker
         BuildProfileList();
 
-        // Null on every path but site editing, and passed to the bar unconditionally below: the caret is
-        // sticky terminal state, so the frame that stops editing has to say so or it stays parked.
-        int? siteCaretColumn = null;
-
         if (appState.ActiveProfile is { Data: { } data })
         {
             // Right panel: settings list or device picker
@@ -171,18 +224,9 @@ internal sealed class TuiEquipmentTab(
                 BuildSettingsList(data);
             }
 
-            // Site bar
-            if (eqState.IsEditingSite)
-            {
-                var (row, caretColumn) = ComposeSiteRow(
-                    [eqState.LatitudeInput.Text, eqState.LongitudeInput.Text, eqState.ElevationInput.Text],
-                    _editFieldIndex,
-                    ActiveEditField.CursorPos);
-                _siteBar.Text(row);
-                siteCaretColumn = caretColumn;
-                _siteBar.RightText("Tab:next  Enter:save  Esc:cancel");
-            }
-            else
+            // Site bar. Only the summary form is a bar now: while editing, the row IS the layout tree
+            // (BuildSiteRow), fields and caret included.
+            if (!eqState.IsEditingSite)
             {
                 var siteLabel = equipmentContent.GetSiteLabel(data) ?? "not configured";
                 _siteBar.Text($" Site: {siteLabel}");
@@ -195,8 +239,6 @@ internal sealed class TuiEquipmentTab(
             _siteBar.Text(" Site: \u2014");
             _siteBar.RightText("");
         }
-
-        _siteBar.Caret(siteCaretColumn, CaretStyle.BlinkingBar);
 
         // Status bar varies by mode
         var statusText = _mode switch
@@ -669,50 +711,6 @@ internal sealed class TuiEquipmentTab(
         return null;
     }
 
-    /// <summary>
-    /// One field of the site row, bracketed while it is the one being edited. The edited field carries no
-    /// cursor of its own: the terminal's REAL caret marks the insertion point (see
-    /// <see cref="ComposeSiteRow"/>), which is why this can be plain text.
-    /// </summary>
-    private static string FormatField(int index, string value, int editIndex)
-        => index == editIndex
-            ? $"{FieldLabels[index]}{EditOpen}{value}]"
-            : $"{FieldLabels[index]}: {(value.Length > 0 ? value : "...")}";
-
-    /// <summary>
-    /// The site row — <c>Lat: [..]  Lon: [..]  Elev: [..]</c> — and the column the caret occupies within
-    /// it. The offset is computed here rather than inside <see cref="FormatField"/> because it is an offset
-    /// into the JOINED string: the indent, then every earlier field and its separator, then the edited
-    /// field's own <c>Lat: [</c> prefix, then the cursor's position in the value. A caret at the end of the
-    /// value lands on the closing bracket's cell, which is exactly where a thin bar belongs — between the
-    /// last character and the <c>]</c>.
-    /// <para>
-    /// Whether that column survives the row's truncation is <see cref="TextBar"/>'s decision, not ours: it
-    /// owns the ellipsis, so it owns the clipping.
-    /// </para>
-    /// </summary>
-    internal static (string Text, int CaretColumn) ComposeSiteRow(string[] values, int editIndex, int cursorPos)
-    {
-        editIndex = Math.Clamp(editIndex, 0, values.Length - 1);
-
-        var parts = new string[values.Length];
-        var caretColumn = RowIndent.Length;
-
-        for (var i = 0; i < values.Length; i++)
-        {
-            parts[i] = FormatField(i, values[i], editIndex);
-            if (i < editIndex)
-            {
-                caretColumn += parts[i].Length + FieldSeparator.Length;
-            }
-        }
-
-        caretColumn += FieldLabels[editIndex].Length + EditOpen.Length
-            + Math.Clamp(cursorPos, 0, values[editIndex].Length);
-
-        return ($"{RowIndent}{string.Join(FieldSeparator, parts)}", caretColumn);
-    }
-
     private void RefreshProfiles()
     {
         // Fire-and-forget profile load: results arrive via callback
@@ -1019,7 +1017,6 @@ internal sealed class TuiEquipmentTab(
                 }
 
             case InputKey.E:
-                _editFieldIndex = 0;
                 if (appState.ActiveProfile?.Data is { } pd)
                 {
                     var site = EquipmentActions.GetSiteFromProfile(pd);
@@ -1037,6 +1034,9 @@ internal sealed class TuiEquipmentTab(
                     }
                 }
                 eqState.IsEditingSite = true;
+                // Focus lands on the first field through the owner, so Tab cycles from a known
+                // start and the caret is parked by the painter rather than by this handler.
+                SiteFocus.Focus(eqState.LatitudeInput);
                 NeedsRedraw = true;
                 return false;
 
@@ -1319,41 +1319,32 @@ internal sealed class TuiEquipmentTab(
         return -1;
     }
 
+    /// <summary>
+    /// Site-edit keys, routed through the SAME <see cref="TextInputInteraction"/> the GUI and the web host
+    /// use. This was a fourth hand-rolled copy of that routing (its own Tab cycling over an
+    /// <c>_editFieldIndex</c>, its own commit/cancel dispatch, its own fire-and-forget of the commit task),
+    /// which is exactly the duplication the promotion of that class to DIR.Lib exists to end. Tab order now
+    /// comes from the arranged tree, so it follows the fields' visual order with nothing to maintain, and
+    /// the commit is TRACKED rather than discarded -- a failing save used to vanish silently.
+    /// </summary>
     private bool HandleSiteEditInput(InputKey key, InputModifier modifiers)
     {
-        // Tab cycles fields
-        if (key == InputKey.Tab)
+        var ctx = new TextInputInteraction.KeyContext(
+            Tracker: _tasks,
+            Focus: SiteFocus,
+            RequestRedraw: () => NeedsRedraw = true,
+            TabFields: () => CellLayout.TextInputs(Arranged));
+
+        if (TextInputInteraction.HandleKey(key, modifiers, ctx))
         {
-            _editFieldIndex = (_editFieldIndex + 1) % 3;
-            NeedsRedraw = true;
             return false;
         }
 
-        var field = ActiveEditField;
-
-        // Delegate to TextInputState via the upstream key routing
-        if (key.ToTextInputKey(modifiers) is { } textKey)
+        // Printable character input (uses upstream InputKeyCharMapping). A terminal delivers the character
+        // on the key event itself, where the SDL host gets a separate TextInput event for it.
+        if (SiteFocus.Current is { } field && key.ToChar(modifiers) is { } ch)
         {
-            field.HandleKey(textKey);
-            NeedsRedraw = true;
-
-            if (field.IsCommitted)
-            {
-                field.IsCommitted = false;
-                _ = field.OnCommit?.Invoke(field.Text);
-            }
-            else if (field.IsCancelled)
-            {
-                field.IsCancelled = false;
-                field.OnCancel?.Invoke();
-            }
-            return false;
-        }
-
-        // Printable character input (uses upstream InputKeyCharMapping)
-        if (key.ToChar(modifiers) is { } ch)
-        {
-            field.InsertText(ch.ToString());
+            TextInputInteraction.HandleText(field, ch.ToString());
             NeedsRedraw = true;
         }
 

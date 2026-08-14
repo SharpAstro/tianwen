@@ -2,7 +2,16 @@
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
     <!-- Allow floating versions (e.g. "3.0.*", "2.30.*") so sibling-tracked
-         packages auto-pick up new CI publishes without manual bumps here. -->
+         packages auto-pick up new CI publishes without manual bumps here.
+         The cost of that convenience, learned the hard way on 2026-08-14: a float makes a SIBLING'S
+         transitive floor our problem, with no commit of ours involved. SdlVulkan.Renderer republished a
+         patch of its own pinned line (7.15.2351) whose dependency reads DIR.Lib >= 7.22.2191; the 7.15.*
+         float took it, and restore failed NU1605 (downgrade-as-error) against our then-current 7.21.*
+         DIR.Lib, across every UI project. main had been green on its last run two days earlier and would
+         have failed if re-run. So a red PR whose restore error names a package the branch never touched
+         is a cue to check whether main would still pass TODAY, not to hunt through your own diff. Fix by
+         raising OUR floor; pinning the sibling back to an older patch only defers the same failure to its
+         next republish. -->
     <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
     <!-- Single source of truth for the SharpAstro Codecs family float prefix. Every
          member (Tiff/Exif/Png/Color.Icc/Jpeg/Jpeg.IccInjector/Jpeg.GainMap/Jxr/Exr +
@@ -235,14 +244,51 @@
          half the slack high. The workaround was padding the bar and making every child Star-height, which
          also inset the label horizontally as a side effect; .CrossCenter() states the intent and lets the
          engine, which knows both extents, do the arithmetic.
-         7.22 is a FLOOR bump, not an adoption: nothing here calls its new cursor API yet. SdlVulkan.Renderer
-         7.15 republished a patch (7.15.2351) that requires DIR.Lib >= 7.22.2191, and because our pins float
-         on the patch segment, restore picked that patch up against a 7.21.* DIR.Lib and failed NU1605 as an
-         error. No commit caused it, which is why main was green on its last run and would fail if re-run:
-         a floating pin makes any consumer's transitive floor OUR problem the moment they publish. Raise the
-         floor to keep the graph on ONE DIR.Lib rather than pinning SdlVulkan.Renderer back to an older
-         patch, which would only defer the same failure to the next republish. -->
-    <PackageVersion Include="DIR.Lib" Version="7.22.*" />
+         7.22 makes the CURSOR a property of a region (CursorKind + ClickableRegion.Cursor +
+         RegisterCursor/HitTestCursor), which retires the two host predicates this repo had. Both were the
+         failure the enum's own doc describes: the FITS viewer answered "resize handle?" with an X-band
+         test PLUS a "not while a dropdown is open" term (one term per overlay, and every overlay added
+         later silently invalidated it), and the GUI answered "link?" with a hit test that could say
+         nothing else, so a text field never showed an I-beam. The region list already knows what is under
+         the pointer, so asking it removes the class rather than the instance. RenderTextInput now carries
+         CursorKind.Text itself, which is where the GUI's I-beams came from for free.
+         7.23 adds IconKind.CaretUp/CaretDown, which the Live Session mode pill now draws instead of
+         baking a down-triangle character into its label: a symbol character in a Text run is .notdef on
+         any surface whose
+         face lacks it, and an icon states its MEANING (the rule the Home board's marks already followed).
+         7.24 splits padding per axis (PaddingY, null = "same as Padding"), which is what lets that pill
+         pad ten units either side of the label and nothing above or below: a fixed-height bar padded
+         symmetrically leaves a content box too short for the mark, and an icon (square by the smaller
+         side) collapses to a stub while the text beside it goes on looking correct.
+         7.25 makes RgbaImageRenderer honour PushClip/PopClip. It matters here because the layout tests
+         render headlessly through that backend: a clip the app applied was ignored offline, so a control
+         that trims to its bounds drew over the whole picture and the disagreement read as a widget bug.
+         It also adds PixelWidgetBase.PushClip(x, y, w, h), the x/y/w/h form of the RectInt call whose
+         corners go in the opposite order; the five sites here spelled that inversion out by hand.
+         7.26 adds Renderer.DrawTriangles with a scanline default, so a mark that is not rectangles,
+         ellipses or text no longer has to reach past the abstract renderer to a backend with a triangle
+         pipeline. Nothing here called one; the carets above are what it now draws.
+         7.27 makes clips NEST and NARROW: a push inside a push draws in the intersection, and a pop
+         restores the enclosing clip rather than the whole surface. Nothing here nests today, so the five
+         sites are unaffected either way; the reason to take it is the direction of the change, since
+         under the old single-level contract the rest of an outer panel painted UNCLIPPED after an inner
+         pop. The region bookkeeping moved into the base, so PushClip/PopClip are no longer virtual and a
+         backend implements ApplyClip/ClearClip instead. That is a floor for the whole family rather than
+         a preference: SdlVulkan.Renderer 7.18 and WebGl.Renderer 1.22 exist to follow it.
+         7.28 makes a TEXT FIELD a declaration: Layout.Builder.TextInput(state, fontSize) is the whole
+         thing, because the painter draws it, registers its TextInputHit over the arranged rect, states
+         CursorKind.Text and so puts it in Tab order, none of which it can forget. That retired 11
+         keyed-Fill-plus-painter-lambda call sites here, whose real cost was the IDENTITY: a magic
+         string shared between a tree and a dictionary that nothing checks, so a typo was a silently
+         blank field. It also brings TextInputFocus, which is why GuiAppState.ActiveTextInput is now
+         read-only: the host binds FocusChanged ONCE to SDL Start/StopTextInput, so the desync that
+         left the IME up with nothing to type into is unreachable rather than merely fixed. BREAKING
+         for the key router (KeyContext's IPixelWidget became a TabFields callback, which is what lets
+         the TUI share it; HandleKey reads the focused field from the owner), all of which this repo
+         consumed before the release rather than after, because validating a library API at its real call
+         sites is what stops a wrong one being frozen in a package, and it caught both of those
+         shapes. -->
+    <PackageVersion Include="DIR.Lib" Version="7.28.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -377,7 +423,12 @@
          TUI Home header renders the same theme control with no code of its own.
          4.23 follows DIR.Lib to 7.21, so the TUI arranges through the same engine and the shared Home
          tree centres its header controls on both surfaces from one authoring pass. -->
-    <PackageVersion Include="Console.Lib" Version="4.23.*" />
+    <!-- 4.24 paints DIR.Lib 7.28's TextInput leaf on a character grid, which is what let the TUI's
+         hand-rolled site-row caret arithmetic be deleted rather than reimplemented: the fill IS the
+         field, the caret is the terminal's real one, and an over-long value scrolls instead of
+         ellipsizing. CellLayout.TextInputs(arranged) feeds TextInputInteraction's TabFields, so the
+         TUI shares Tab cycling too. -->
+    <PackageVersion Include="Console.Lib" Version="4.24.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
@@ -489,8 +540,29 @@
          (-p:UseLocalDirLib=false) rather than a plain build, which self-enables the sibling switch and
          resolves the project's own 7.18.0 instead of the published package.
          7.14 follows DIR.Lib to 7.19 with no renderer change, keeping the family on one DIR.Lib.
-         7.15 follows DIR.Lib to 7.21; the alignment and icon work is all in shared code. -->
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.15.*" />
+         7.15 follows DIR.Lib to 7.21; the alignment and icon work is all in shared code.
+         7.16 is the SDL half of DIR.Lib 7.22's cursor work: CursorKind.ToSystemCursor, on the same seam
+         as ToInputKey/ToInputModifier, and the only place in the stack that has to know SDL calls the
+         hand cursor Pointer. Both hosts here now map through it rather than naming SDL cursors directly.
+         7.16 also lets the inspector synthesize double and triple clicks (a clicks count on click /
+         clickLabel, delivering the WHOLE run rather than just its last press, because SDL reports a
+         double as two button-downs and an app is entitled to act on both). Any control with a
+         double-click affordance was undrivable unattended before it.
+         7.17 follows DIR.Lib to 7.26 and OVERRIDES its new DrawTriangles. Worth reading as a hazard
+         rather than a feature: VkRenderer already had a method of that name and shape, so the base's
+         arrival silently turned an override into a hide. That compiles and draws identically through a
+         VkRenderer reference, but held as Renderer<TSurface>, which is exactly how a backend-neutral
+         widget holds it, every triangle would have taken the software path. 7.17 also gives the
+         inspector's scroll a modifier, so Ctrl+wheel zoom and Shift+wheel are drivable at all.
+         7.18 follows DIR.Lib 7.27's nesting clip stack: the scissor calls move from the retired
+         PushClip/PopClip overrides onto ApplyClip/ClearClip, which take one absolute, already-intersected
+         rect, and the renderer resets the stack at its frame boundary (a Vulkan command buffer's scissor
+         does not survive one, so a widget that threw mid-frame could otherwise leave every later frame
+         clipped to a rect nobody can name). -->
+    <!-- 7.19 follows DIR.Lib to 7.28: describe_layout reports a text field, what it holds and
+         whether it has the keyboard. "Which box is focused" is where every text-input bug starts
+         and was unanswerable from a layout dump. -->
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.19.*" />
     <!-- The WebGL2 backend for the same DIR.Lib Renderer, consumed ONLY by TianWen.UI.Web (which sits
          outside TianWen.slnx). It lives here, next to its desktop counterpart, because it used to be
          pinned inline in that csproj instead: a sibling-family bump that swept this file could not see
@@ -509,8 +581,17 @@
          SdlVulkan.Renderer 7.13, which is the arrangement this comment has been arguing for since 1.12
          sat two minors behind: the family lands together or it does not land.
          1.20 follows DIR.Lib to 7.19 in the same cut as SdlVulkan.Renderer 7.14.
-         1.21 follows DIR.Lib to 7.21 in the same cut. -->
-    <PackageVersion Include="WebGl.Renderer" Version="1.21.*" />
+         1.21 follows DIR.Lib to 7.21 in the same cut.
+         1.22 is NOT a lockstep rebuild: it is the WebGL half of DIR.Lib 7.27's nesting clip stack, and
+         it had to exist before this repo could take 7.27 at all. The backend was still overriding
+         PushClip/PopClip, which 7.27 made non-virtual. Note how that fails, because it is quiet: the
+         source stops compiling (the good case), while a PUBLISHED binary overriding a method the base
+         no longer declares virtual either refuses to load or becomes a method that never runs, and the
+         symptom is content escaping its panel rather than an exception naming the cause. Exactly the
+         shape that cost SdlVulkan.Renderer its DrawTriangles override one release earlier, which is the
+         second time this family has paid for the same mistake. 1.22 also resets the clip stack at the
+         frame boundary and pins DIR.Lib as a FLOOR (ApplyClip does not exist before 7.27). -->
+    <PackageVersion Include="WebGl.Renderer" Version="1.22.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR. Both packages ship from the FC.SDK repo at one release line, so they move

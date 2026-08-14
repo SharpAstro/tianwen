@@ -346,6 +346,12 @@ screenshot-poll-and-OCR**. Three pieces compose:
      (e.g. a `TextInputState`/`ProfileData`) is skipped (not JSON-postable). Posting `StartSession` runs the
      whole `RunAsync` with no clicking; posting `StartFlats` drives a flat run regardless of the visible mode.
    - **Clickable regions** (`GetRegions`, `describe_ui`): click-by-label for any action without a dedicated signal.
+     `click` / `click_label` take a **clicks count** (`SdlVulkan.Renderer.Inspector` 7.16+), so a double-click
+     affordance is drivable at all; the whole run is delivered, not just its last press, because SDL reports a
+     double as TWO button-downs (counted 1 then 2) and an app is entitled to act on both -- sending only the
+     count-2 press would drive a sequence no real mouse can produce. `scroll` takes a **modifier** (7.17+); it
+     used to hard-code None, which left Ctrl+wheel zoom and Shift+wheel undrivable, and an app reading the
+     modifier off global keyboard state (nothing but a real key press moves that) saw no synthesized input at all.
    - **Arranged layout tree** (`GetLayout`, `describe_layout`, `SdlVulkan.Renderer.Inspector` 6.9+): the FULL
      `DIR.Lib.Layout` tree the chrome + active tab painted this frame; every node with its `depth` (pre-order,
      so the flat list reconstructs the nesting), `kind` (Stack/Dock/Grid/Overlay/Split/Leaf), rect, `axis`,
@@ -1878,8 +1884,36 @@ construction; no second hit-rect arithmetic that can drift). The full engine + D
   `PlannerTab.BuildFrameLayout` (landscape = left-list dock, portrait = chart / collapsible compact
   details / list stack), pinned by `PlannerTabLayoutTests` (arranged rects + an offline `RgbaImageRenderer`
   pixel render at phone + desktop resolutions, the chess `PixelGameDisplayLayoutTests` pattern).
+- **A mark is an `Icon`, never a symbol character in a `Text` run.** `Layout.Content.Icon` names a
+  MEANING and each surface constructs what it can draw (the GPU fills rows of rectangles, `CellLayout`
+  picks a block element), whereas a `▾` in a label asks whichever face the host resolved to have
+  that glyph and draws .notdef where it does not. `IconKind.CaretUp/CaretDown` (DIR.Lib 7.23) are the
+  drop-chip marks -- filled, not chevrons, because at the ten-or-fewer pixels a chip affords a stroked
+  mark is two hairlines and the hole between them disappears first. Consumer: the Live Session mode pill.
+- **`.PadX(u)` / `.Pad(across, down)` for a FIXED-height bar** (DIR.Lib 7.24; `PaddingY` null = "same as
+  `Padding`", so every existing tree is unchanged). A bar with no vertical room to give away, padded
+  symmetrically, loses its icon first: text overflows its rect and goes on looking correct, while an icon
+  -- square by its smaller side -- collapses to a stub. That asymmetry is why the failure hides.
+- **`PushClip(x, y, w, h)` / `PopClip()` on the widget base** (DIR.Lib 7.25), never `Renderer.PushClip`
+  with a hand-built `RectInt`: that struct takes `(LowerRight, UpperLeft)`, the opposite order to every
+  other rect a widget states, and the five sites here each spelled the inversion out. **Clips NEST and
+  NARROW** (DIR.Lib 7.27): a push inside a push draws in the INTERSECTION, and a pop restores the
+  enclosing clip rather than the whole surface, so an inner widget states only its own bounds and cannot
+  escape its parent's. It was single-level until then (a second push replaced the first, and any pop
+  opened all the way up), which is why nothing here nests today -- the five sites are one level each,
+  and behave identically under both models. Worth knowing the direction of the change if you find one
+  that does nest: under the old contract the rest of an outer panel painted UNCLIPPED after an inner
+  pop, so 7.27 can only fix such a case, never break it. `Renderer.ClipDepth` is assertable if a widget
+  wants to prove it left the renderer as it found it.
+- **`Renderer.DrawTriangles`** (DIR.Lib 7.26) means a mark that is not rectangles, ellipses or text no
+  longer has to reach past the abstract renderer to a backend with a triangle pipeline; the base has a
+  scanline default and `VkRenderer` overrides it with one draw call. Nothing here calls it directly.
 - Engine geometry is headless-testable (stub `Layout.IMeasureContext`); `EquipmentPanelLayoutTests` /
   `SessionConfigLayoutTests` pin arranged rects. Shipped DIR.Lib 6.0 / Console.Lib 3.3 / SdlVulkan.Renderer 6.7.
+  **The offline `RgbaImageRenderer` honours clipping since DIR.Lib 7.25**, so a headless render finally
+  agrees with the app about what was drawn; before that a clip the app applied was ignored and a control
+  trimming to its bounds drew over the whole picture, which reads as a widget bug rather than a missing
+  backend feature.
 
 **TUI list and tree rows are trees too, never formatted strings** (Console.Lib 4.10). A
 `ScrollableList<T>` item implements `IRowLayout.BuildRow(in RowContext)` and a `TreeView` node
@@ -1914,6 +1948,125 @@ writes the state from `ScrollableList.HitTestRow` on mouse-up. Adding a capabili
 `RowContext`**, never an overload: the shape this replaced grew one rung per capability
 (`(width, mode)` -> `(.., isSelected)` -> `(.., selectedColumn, columnCount)`) and every rung let an
 implementation silently opt out of the newest information by overriding an older one.
+
+### The Pointer's Appearance Is a Property of a Region, Never a Host Predicate
+
+`CursorKind` + `ClickableRegion.Cursor` + `RegisterCursor` / `HitTestCursor` (DIR.Lib 7.22), mapped to SDL
+by `CursorKind.ToSystemCursor` (SdlVulkan.Renderer 7.16) -- the one place in the stack that knows SDL calls
+the hand cursor `Pointer`. Both hosts here previously answered the question themselves, and each was wrong
+in the way the enum's own doc predicts:
+
+- **The FITS viewer** tested an X-band around the file-list edge **plus** a `!ToolbarDropdown.IsOpen` term,
+  because the dropdown draws over that band. That is one term per overlay, and every overlay added later
+  silently invalidates it -- the predicate keeps saying "resize handle" while something else is on top.
+- **The GUI** hit-tested for `LinkHit` and could answer nothing else, so every text field in the app showed
+  an arrow. `RenderTextInput` now registers `CursorKind.Text` itself, which is where the I-beams came from.
+
+**Declare the cursor beside the click** (`RegisterClickable(..., cursor:)` / `.Clickable(hit, onClick, cursor)`
+/ `.WithCursor(kind)`), on the same reasoning that binds a click to the rect its content was painted in. A
+region that states nothing is **transparent** to the query, so a row inherits its card's and a panel declares
+it once; `null` means "nobody had a view", **not** Default, so a plain button cannot stamp the arrow over a
+host that wanted a crosshair.
+
+- **The host asks, and picks its own default**: `guiRenderer.CursorAt(x, y) ?? CursorKind.Default`.
+  `CursorAt` lives on `VkGuiRenderer` because the composition (active tab paints over chrome, so it is asked
+  first) is the renderer's own knowledge; a host reconstructing that order would keep a second copy of it.
+- **`HitTestCursor` is on `PixelWidgetBase`, not on `IPixelWidget`**, so a caller holding the interface
+  cannot ask. `IGuiChrome.ActiveTab` is `IPixelWidget?` by contract, hence the concretely-typed `_activeTab`
+  field behind it. Upstream gap, not a local preference.
+- **A drag is the one legitimate host-side term**: once the file-list grab starts the cursor stays `ResizeEW`
+  wherever the pointer travels, which no region under it can express.
+- **`Layout.Builder.Split` has no `dividerCursor` yet**, so the viewer's resize handle states no cursor and
+  its `ResizeHandleHit` is mapped by the host as a fallback. This still beats geometry: an open dropdown
+  registers a full-viewport backdrop above everything, so it answers the hit and the handle correctly stops
+  claiming the pointer.
+- **Buttons deliberately keep the arrow.** `CursorKind.Pointer` documents "a link, a button", but this app's
+  convention is hand-on-links-only; adopting it per-button would be a UX change, not an adoption.
+
+**The same lesson, one level down: HOVER needs a z-order answer too, and it is `ViewerState.OverlayOwnsPointer`.**
+Clicks never need one (paint order IS hit-test z-order, so an overlay's regions already win), but hover is
+decided at PAINT time from mouse-vs-rect, *before* the overlay above has registered anything. The viewer
+toolbar, the histogram LOG button and the file-list rows each carried their own `!state.ToolbarDropdown.IsOpen`
+term, so a second overlay would have had to find all three. **Add an overlay to that one property, never to a
+call site.** The per-element hover rects themselves stay by design (the `docs/plans/layout-driven-ui.md`
+DoD tolerates interactive controls whose look needs their own arranged rect); it is the z-order term that
+must not be duplicated.
+
+### A Text Field Is a Declaration: `Layout.Builder.TextInput`
+
+**Declaring a field is sufficient.** `Layout.Builder.TextInput(state, fontSize)` is the whole thing:
+`PixelWidgetBase.PaintLayout` draws it via `TextInputRenderer`, registers a `HitResult.TextInputHit` over the
+arranged rect and states `CursorKind.Text`, and Console.Lib's `CellLayout` paints the SAME leaf on a
+terminal. Click-to-focus, blur-on-outside-click, Tab cycling (whose order derives from region paint order, so
+it is the visual order automatically) and the I-beam all follow from that one registration.
+
+- **This replaced a keyed `Fill` plus a painter dictionary entry plus a `drawFill` dispatcher**, across 11
+  call sites. The cost was never the closure, it was the IDENTITY: a magic string shared between a tree and a
+  dictionary that nothing checks, so a mistyped key produced a silently blank field rather than an error, and
+  the lambda re-stated the font and size the tree already knew. `Fill` still exists for genuinely bespoke
+  content -- `SessionTab`'s exposure cell keeps one for its DISPLAY state, which stashes its arranged rect for
+  a double-click region no leaf models, while its EDIT state is a `TextInput` leaf. Two states, two nodes.
+- **The leaf's `fontSize` is in DESIGN units**, not the DPI-scaled value the old direct `RenderTextInput` call
+  took: the painter crosses `ctx.FontScale` like every text run, so passing a pre-scaled size applies DPI
+  twice. Every migrated call site had to drop a `* dpiScale`.
+- **Intrinsic width comes from the placeholder (or an explicit `widthSample`), never the live text** -- a box
+  that resizes while you type is a bug. It is a fallback anyway: a field almost always takes its width from
+  its row.
+- **`TextInputRenderer` no-ops without a font**, matching the layout text helpers. A headless
+  `RgbaImageRenderer` render is how the layout tests check what was drawn, and a tree with a LABEL rendered
+  while the same tree with a FIELD threw.
+- **On a cell surface three things differ, each because the surface can only say one of them**: the fill IS
+  the field (a one-row box cannot also carry a border, so focus is the background alone), the caret is the
+  terminal's REAL one via `ITerminalViewport.SetCaret` (a painted block can be neither thin nor blinking),
+  and an over-long value SCROLLS rather than ellipsizing (an ellipsis in an editable field hides the text
+  being edited, and the caret would have no real cell to land on). The caret is STICKY, so `TuiTabBase.Render`
+  hides it on any frame that painted no focused field.
+
+### Focus Is Global, and That Is Fine: `TextInputFocus`
+
+There is one keyboard, so something must name the one field receiving it -- WinForms has the same singleton
+in `Form.ActiveControl`. `GuiAppState.ActiveTextInput` was not wrong for being global; it was wrong for being
+**settable**, because the pointer and its platform side effects are separable.
+
+`DIR.Lib.TextInputFocus` owns the transition (`Focus` / `Blur` / `BlurIfFocused` / `BlurIfUnpainted`, plus a
+`FocusChanged` event). **The host binds `FocusChanged` ONCE** -- SDL `StartTextInput`/`StopTextInput` in the
+GUI, showing/hiding the `CanvasTextOverlay` on web -- and nothing else knows those calls exist.
+`GuiAppState.ActiveTextInput` is now a read-only forward to `Current`, so the shortcut below will not compile.
+
+- **The bug it makes unreachable:** the Equipment site-edit *cancel* path cleared the pointer by hand and so
+  skipped `StopTextInput`, leaving the IME up with nothing to type into. Its shape is the lesson -- it
+  deactivated the three fields FIRST, and since the bus is **deferred** and the old handler was gated on the
+  field still being active, posting the signal would have been a no-op, so the direct assignment looked
+  *necessary*. `Blur()` now gates on the OWNER's record, not the field's `IsActive` flag (the same fact stored
+  twice), so a blur always completes whatever a caller did to the field first.
+- **`Focus` is idempotent.** A declarative UI asks on every frame; re-activating each time would reset the
+  caret under the user's fingers and, with seed text, discard what they typed.
+- **The app's entry points stay `ActivateTextInputSignal` / `DeactivateTextInputSignal`**, so focus changes
+  keep their place in the deferred bus ordering. They just route to the owner now.
+- **`BlurIfUnpainted(painted)` is called after each frame**, because a field that stops being drawn otherwise
+  keeps the keyboard (scroll it out of a culled list, switch tabs). **The caller supplies what was painted**:
+  `VkGuiRenderer.PaintedTextInputs()` unions the chrome's fields with the active tab's, for the same reason
+  `CursorAt` lives there -- only the host knows what its frame is composed of. Asking one surface when the
+  frame draws two blurs a field that is on screen, which looks exactly like the bug it fixes.
+
+### `TextInputInteraction` Is Host-Agnostic, Which Means No `IPixelWidget` In It
+
+The per-keystroke routing lives in **DIR.Lib** (promoted from `TianWen.UI.Abstractions`; it is U6 of
+`docs/plans/controls-upstreaming.md`) and serves the GUI, the web host and the TUI.
+
+- **`KeyContext.TabFields` is a `Func<IReadOnlyList<TextInputState>>`, not an `IPixelWidget`.** That interface
+  was the one thing keeping a host-agnostic class from working on a terminal; a pixel host answers
+  `() => tab.GetRegisteredTextInputs()`, a cell host `() => CellLayout.TextInputs(Arranged)`. A callback
+  rather than a list because it is consulted only on Tab.
+- **`HandleKey` reads the focused field from `ctx.Focus.Current`**, never a parameter beside it. Two ways to
+  name it is one too many: a caller passing a field the owner disagrees with would move focus off a
+  *different* field on the next Tab, silently.
+- It **swallows every key while a field is focused**, deliberately -- that is what makes a field a field:
+  while you type into one, a letter is a letter and not the shortcut that letter is bound to.
+- The TUI site row used to hand-roll all of this (its own `_editFieldIndex` Tab cycling, its own commit
+  dispatch, a fire-and-forget of the commit task) plus a caret COLUMN derived from the indent, every earlier
+  field's rendered length, its separator and the label prefix. All of it is gone; `TuiSiteRowTests` now
+  arranges and PAINTS the row and asserts what the caret actually sits on.
 
 ### Per-Window Widget State: `DpiScale` / `FontPath` / `EmojiFontPath` are properties, not parameters
 

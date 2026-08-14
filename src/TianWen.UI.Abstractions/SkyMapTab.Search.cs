@@ -182,11 +182,11 @@ namespace TianWen.UI.Abstractions
             var resultsDesignH = SearchPanelHeight - headerHDesign - bodyPad * 2f - inputHDesign - inputGap;
             var visibleRows = Math.Max(0, (int)(resultsDesignH / SearchRowHeight));
 
-            // Body: search input (keyed Fill = the interactive text-input control) + results list, padded.
+            // Body: search field (a TextInput leaf, so it draws + focuses itself) + results list, padded.
             // MUST be .Stretch() -- an Auto-width/height VStack collapses to intrinsic (the input + rows
             // starve to their text width instead of filling the panel).
             var body = Layout.Builder.VStack(
-                    Layout.Builder.Fill(key: "searchInput").RowH(inputHDesign),
+                    Layout.Builder.TextInput(State.Search.SearchInput, 14f).RowH(inputHDesign),
                     Layout.Builder.Spacer().RowH(inputGap),
                     BuildSearchResults(
                         State.Search.Interaction?.Results ?? [],
@@ -197,14 +197,7 @@ namespace TianWen.UI.Abstractions
             var panel = Layout.Builder.VStack(titleBar, body).Bg(SearchPanelBg);
             var framed = Layout.Builder.VStack(panel.Stretch()).Bg(SearchPanelBorder).Pad(1f);
 
-            RenderLayout(framed, new RectF32(px - 1, py - 1, pw + 2, ph + 2), dpiScale: dpiScale,
-                drawFill: (fill, r) =>
-                {
-                    if (fill.Key == "searchInput")
-                    {
-                        RenderTextInput(State.Search.SearchInput, r, fontPath, fontSize);
-                    }
-                });
+            RenderLayout(framed, new RectF32(px - 1, py - 1, pw + 2, ph + 2), dpiScale: dpiScale);
 
             // db + site are passed to keep the hot path closure-free; right now they
             // are only needed for click-to-select on the map, not inside the modal.

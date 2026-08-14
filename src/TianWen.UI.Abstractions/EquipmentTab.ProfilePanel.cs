@@ -79,11 +79,9 @@ namespace TianWen.UI.Abstractions
 
             // Clip overflow to the panel so a tall profile can't overdraw the neighbouring device list /
             // bottom bar (this replaces the old "draw the Add OTA button only if it fits" cursor check).
-            Renderer.PushClip(new RectInt(
-                new PointInt((int)(rect.X + rect.Width), (int)(rect.Y + rect.Height)),
-                new PointInt((int)rect.X, (int)rect.Y)));
+            PushClip(rect.X, rect.Y, rect.Width, rect.Height);
             RenderLayout(tree, rect, drawFill: DispatchProfilePanelFill);
-            Renderer.PopClip();
+            PopClip();
         }
 
         /// <summary>
@@ -298,9 +296,6 @@ namespace TianWen.UI.Abstractions
         /// <summary>Site latitude/longitude/elevation block: edit fields, a display row, or a "set site" button.</summary>
         private Layout.Node BuildSite(ProfileData pd)
         {
-            var dpiScale = DpiScale;
-            var fontPath = FontPath;
-            var fontSize = BaseFontSize * dpiScale;
             var site = EquipmentActions.GetSiteFromProfile(pd);
 
             if (State.IsEditingSite)
@@ -308,11 +303,13 @@ namespace TianWen.UI.Abstractions
                 float fieldH = BaseItemHeight * 1.2f;
                 const float labelW = 50f;
 
-                Layout.Node InputRow(string label, string key, TextInputState input)
-                {
-                    _profilePanelFills[key] = r => RenderTextInput(input, r, fontPath, fontSize * 0.9f);
-                    return FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText, fillKey: key);
-                }
+                // The field IS the row's declaration now: no fill key, no painter entry, no dispatcher hop.
+                // Note the font size is in DESIGN units here, not the DPI-scaled `fontSize` the old direct
+                // RenderTextInput call needed -- the painter crosses the measure context's scale, so passing
+                // a pre-scaled value would apply DPI twice.
+                Layout.Node InputRow(string label, TextInputState input)
+                    => FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText,
+                        input, inputFontSize: BaseFontSize * 0.9f);
 
                 var isMountWins = pd.SiteTieBreaker == SiteTieBreaker.Mount;
                 Layout.Node TieBtn(string label, bool active, SiteTieBreaker tb, string hit) =>
@@ -336,9 +333,9 @@ namespace TianWen.UI.Abstractions
                     .RowH(BaseButtonHeight);
 
                 return Layout.Builder.VStack(
-                        InputRow("  Lat:", "siteLat", State.LatitudeInput),
-                        InputRow("  Lon:", "siteLon", State.LongitudeInput),
-                        InputRow("  Elev:", "siteElev", State.ElevationInput),
+                        InputRow("  Lat:", State.LatitudeInput),
+                        InputRow("  Lon:", State.LongitudeInput),
+                        InputRow("  Elev:", State.ElevationInput),
                         tieRow,
                         saveRow)
                     .WithGap(2f).WStar();
@@ -372,8 +369,6 @@ namespace TianWen.UI.Abstractions
         private Layout.Node BuildGuideFocalLength(ProfileData pd, float innerW)
         {
             var dpiScale = DpiScale;
-            var fontPath = FontPath;
-            var fontSize = BaseFontSize * dpiScale;
             var labelWDesign = innerW * 0.35f / dpiScale;
             float fieldH = BaseItemHeight * 0.9f;
 
@@ -384,9 +379,8 @@ namespace TianWen.UI.Abstractions
                 State.GuiderFocalLengthInput.CursorPos = State.GuiderFocalLengthInput.Text.Length;
             }
 
-            _profilePanelFills["guideFl"] =
-                r => RenderTextInput(State.GuiderFocalLengthInput, r, fontPath, fontSize * 0.9f);
-            return FormRowLayout.LabeledInputRow("Guide FL (mm):", labelWDesign, fieldH, 0f, BaseFontSize * 0.85f, DimText, fillKey: "guideFl");
+            return FormRowLayout.LabeledInputRow("Guide FL (mm):", labelWDesign, fieldH, 0f, BaseFontSize * 0.85f,
+                DimText, State.GuiderFocalLengthInput, inputFontSize: BaseFontSize * 0.9f);
         }
 
         /// <summary>OTA section header with the Remove / Edit buttons.</summary>
@@ -593,15 +587,12 @@ namespace TianWen.UI.Abstractions
         {
             var dpiScale = DpiScale;
             var fontPath = FontPath;
-            var fontSize = BaseFontSize * dpiScale;
             float fieldH = BaseItemHeight * 1.1f;
             const float labelW = 80f;
 
-            Layout.Node InputRow(string label, string key, TextInputState input)
-            {
-                _profilePanelFills[key] = r => RenderTextInput(input, r, fontPath, fontSize * 0.9f);
-                return FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText, fillKey: key);
-            }
+            Layout.Node InputRow(string label, TextInputState input)
+                => FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText,
+                    input, inputFontSize: BaseFontSize * 0.9f);
 
             var capturedIdx = otaIndex;
             var designLabel = $"  Design: {ota.OpticalDesign}";
@@ -623,9 +614,9 @@ namespace TianWen.UI.Abstractions
                 .RowH(BaseButtonHeight);
 
             return Layout.Builder.VStack(
-                    InputRow("  Name:", "otaName", State.OtaNameInput),
-                    InputRow("  FL (mm):", "otaFl", State.FocalLengthInput),
-                    InputRow("  Aper (mm):", "otaAper", State.ApertureInput),
+                    InputRow("  Name:", State.OtaNameInput),
+                    InputRow("  FL (mm):", State.FocalLengthInput),
+                    InputRow("  Aper (mm):", State.ApertureInput),
                     designRow)
                 .WithGap(2f).WStar();
         }

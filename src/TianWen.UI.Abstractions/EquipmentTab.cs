@@ -336,19 +336,16 @@ namespace TianWen.UI.Abstractions
         private void RenderProfileCreation(
             RectF32 rect)
         {
-            var dpiScale = DpiScale;
-            var fontPath = FontPath;
-
-            // The creation form is ONE arranged tree: header + label + name input (keyed Fill) +
-            // Create button stack from the top of the Dock fill (padded VStack), with a hint status
-            // bar docked to the bottom. The input's arranged rect drives RenderTextInput; the button
-            // is a Clickable Text node. No field cursor -- only the host rect is constructed.
+            // The creation form is ONE arranged tree: header + label + name field + Create button stack
+            // from the top of the Dock fill (padded VStack), with a hint status bar docked to the bottom.
+            // The field is a TextInput leaf and the button a Clickable Text node, so the form IS the tree --
+            // there is nothing left for a draw callback to do.
             var content = Layout.Builder.VStack(
                     Layout.Builder.Text("New Equipment Profile", BaseFontSize * 1.2f, HeaderText).RowH(BaseHeaderHeight),
                     Layout.Builder.Spacer().RowH(BasePadding),
                     Layout.Builder.Text("Profile name:", BaseFontSize, BodyText).RowH(BaseItemHeight),
                     Layout.Builder.HStack(
-                            Layout.Builder.Fill(key: "profileNameInput").WStar(1f, 0f, 360f).HStar(),
+                            Layout.Builder.TextInput(State.ProfileNameInput, BaseFontSize).WStar(1f, 0f, 360f).HStar(),
                             Layout.Builder.Spacer().WStar())
                         .RowH(BaseItemHeight * 1.4f),
                     Layout.Builder.Spacer().RowH(BasePadding),
@@ -374,13 +371,7 @@ namespace TianWen.UI.Abstractions
                         .Bg(BottomBarBg).Pad(BasePadding),
                     BaseBottomBarHeight));
 
-            RenderLayout(tree, rect, drawFill: (fill, r) =>
-            {
-                if (fill.Key == "profileNameInput")
-                {
-                    RenderTextInput(State.ProfileNameInput, r, fontPath, BaseFontSize * dpiScale);
-                }
-            });
+            RenderLayout(tree, rect);
         }
 
         // -----------------------------------------------------------------------

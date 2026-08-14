@@ -45,15 +45,31 @@ namespace TianWen.UI.Abstractions
                         : inFlats
                             ? GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Warn, 0.6f)      // the panel is on
                             : GuiTheme.Mix(GuiTheme.Palette.PanelBg, GuiTheme.Palette.Accent, 0.65f);  // plain preview
-                var pillLabel = inPolar ? "POLAR \u25BE" : inPlanetary ? "PLANETARY \u25BE" : inFlats ? "FLATS \u25BE" : "PREVIEW \u25BE";
+                var pillLabel = inPolar ? "POLAR" : inPlanetary ? "PLANETARY" : inFlats ? "FLATS" : "PREVIEW";
                 var pillX = rect.X + pad;
                 var pillY = rect.Y + pad;
-                // Click-to-open: anchor the dropdown directly under the pill. The pill is a single
-                // draw==hit leaf -- background, label, and click region all bind to one node's rect
-                // (rendered via the layout engine) so the hit target can never drift from the paint.
+                // Click-to-open: anchor the dropdown directly under the pill. Background, label, caret and
+                // click region all bind to ONE node's rect (the HStack, rendered via the layout engine), so
+                // the hit target still cannot drift from the paint even though the pill now has two pieces.
+                //
+                // The caret is an ICON, not a character in the label. It used to be a U+25BE baked into the
+                // string, which asks whichever face the host resolved to have that glyph and draws .notdef
+                // where it does not; Layout.IconKind names the MEANING and each surface constructs the mark
+                // it can draw (the GPU board fills rows of rectangles, the TUI picks a block element).
+                //
+                // PadX, not Pad: the pill is a FIXED-height bar, so there is no vertical room to give away.
+                // Padded symmetrically the content box loses the caret first -- text overflows its rect and
+                // goes on looking correct, while an icon, square by its smaller side, collapses to a stub.
+                var labelSize = fontSize * 0.9f / dpiScale;
+                var caretSize = labelSize * 0.8f;
                 var dropdown = state.ModeDropdown;
-                var modeLeaf = Layout.Builder.Text(pillLabel, fontSize * 0.9f / dpiScale, AbortText, TextAlign.Center, TextAlign.Center)
-                    .Stretch().Bg(modePillColor)
+                var modeLeaf = Layout.Builder.HStack(
+                        Layout.Builder.Text(pillLabel, labelSize, AbortText, TextAlign.Center, TextAlign.Center)
+                            .WStar().HStar(),
+                        Layout.Builder.Icon(Layout.IconKind.CaretDown, caretSize, AbortText)
+                            .WFixed(caretSize).HFixed(caretSize))
+                    .WithGap(caretSize * 0.5f).PadX(caretSize * 0.75f).CrossCenter()
+                    .Bg(modePillColor)
                     .Clickable(new HitResult.ButtonHit("ModePill"), _ =>
                     {
                         if (dropdown.IsOpen)

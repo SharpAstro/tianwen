@@ -82,13 +82,12 @@ namespace TianWen.UI.Abstractions
             // Safety: tint the Cooler Off button red when the cooler is on, and route the click to the
             // confirmation strip instead of immediate cooler-off (condensation/thermal-shock concern).
             var coolerUnsafe = latest is { } l && l.CoolerOn;
-            var setpointFillKey = $"coolerSetpoint:{key}";
-            _profilePanelFills[setpointFillKey] =
-                r => RenderTextInput(setpointInput, r, fontPath, fontSize * 0.85f);
 
             rows.Add(Layout.Builder.HStack(
                     Layout.Builder.Text("    Setpoint:", BaseFontSize * 0.85f, DimText).WFixed(80f).HStar(),
-                    Layout.Builder.Fill(key: setpointFillKey).WFixed(70f).HStar(),
+                    // One field per connected camera, appearing as hardware does -- an ordinary leaf in a
+                    // per-frame tree, which is why it needs no declaration anywhere.
+                    Layout.Builder.TextInput(setpointInput, BaseFontSize * 0.85f).WFixed(70f).HStar(),
                     Layout.Builder.Text("Cool to Setpoint", BaseFontSize * 0.78f, BodyText, TextAlign.Center, TextAlign.Center)
                         .WFixed(110f).HStar().Bg(CreateButton)
                         .Clickable(new HitResult.ButtonHit($"CoolTo_{key}"), _ =>

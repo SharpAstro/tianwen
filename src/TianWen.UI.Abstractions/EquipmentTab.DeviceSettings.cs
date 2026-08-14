@@ -43,18 +43,16 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Builds the expandable settings pane for a device as one section node. Iterates
         /// <see cref="DeviceSettingDescriptor"/>s and dispatches on <see cref="DeviceSettingKind"/> to
-        /// the appropriate control. String-editor inputs are keyed <c>Fill</c> leaves painted through
-        /// <see cref="_profilePanelFills"/> from the single panel RenderLayout.
+        /// the appropriate control. A string editor is a <see cref="Layout.Content.TextInput"/> leaf, so
+        /// it draws and focuses itself from the tree.
         /// </summary>
         private Layout.Node BuildDeviceSettings(
             GuiAppState appState, ProfileData pd, Uri savedDeviceUri,
             ImmutableArray<DeviceSettingDescriptor> settings, string sectionLabel)
         {
             var dpiScale = DpiScale;
-            var fontPath = FontPath;
             var deviceKey = savedDeviceUri.GetLeftPart(UriPartial.Path);
             var isExpanded = State.ExpandedDeviceSettingsUri == deviceKey;
-            var fontSize = BaseFontSize * dpiScale;
             float rowH = BaseItemHeight * 0.9f;   // design units
 
             // Toggle header
@@ -118,10 +116,7 @@ namespace TianWen.UI.Abstractions
 
                     case DeviceSettingKind.StringEditor when State.EditingStringSettingKey == desc.Key:
                         if (desc.Placeholder is { } placeholder) State.StringSettingInput.Placeholder = placeholder;
-                        var editFillKey = $"setting:{desc.Key}";
-                        _profilePanelFills[editFillKey] =
-                            r => RenderTextInput(State.StringSettingInput, r, fontPath, fontSize * 0.85f);
-                        control = Layout.Builder.Fill(key: editFillKey);
+                        control = Layout.Builder.TextInput(State.StringSettingInput, BaseFontSize * 0.85f);
                         break;
 
                     case DeviceSettingKind.StringEditor:
