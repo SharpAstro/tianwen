@@ -8,6 +8,7 @@ using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -27,6 +28,14 @@ namespace TianWen.Lib.Tests
     /// <para>Set <c>TIANWEN_BPM_LIGHTS</c> to the session's lights folder and
     /// <c>TIANWEN_BPM_DARK</c> to a master dark FITS. Optional: <c>TIANWEN_BPM_OUT</c> (output dir,
     /// default a temp dir), <c>TIANWEN_BPM_MAXLIGHTS</c> (cap the frame count for a quick run).</para>
+    ///
+    /// <para><b>Measured 2026-08-15</b> on 2025-12-28 Segaull+Thors_Helmet (ZWO ASI533MC Pro, g121,
+    /// 60s) against <c>master_dark_120s_-10C_g121_ZWOASI533MCPro.fits</c>, capped at 100 lights of
+    /// which 90 registered, both runs BayerDrizzle. The mask changed <b>2119 px, 0.0077% of the
+    /// frame</b>, in 617 clusters spread across all three channels, and the extreme-outlier count
+    /// fell 162618 -> 161334. So it is surgical and it moves in the right direction, which is what
+    /// the assertions below pin. Point it at a dark for the RIGHT gain: sigma is not portable
+    /// between darks, and a mismatched one changes what gets flagged rather than failing loudly.</para>
     /// </summary>
     public sealed class HotPixelMaskProbe(ITestOutputHelper output)
     {
@@ -78,6 +87,7 @@ namespace TianWen.Lib.Tests
             // Two runs differing ONLY in hotPixelSigma. Everything else -- frames, calibration,
             // gate, reference pick, strategy -- is identical, so any difference in the masters is
             // attributable to the mask and nothing else.
+            var masters = new Dictionary<string, Image>();
             foreach (var (sigma, label) in new[] { (0f, "nomask"), (8f, "masked") })
             {
                 var scratch = Path.Combine(outDir, $"scratch_{label}");
@@ -88,12 +98,159 @@ namespace TianWen.Lib.Tests
                     cancellationToken: ct);
                 reg.ShouldNotBeNull($"{label}: session failed to register");
 
+                // Without this the whole probe is vacuous. Only the drizzle strategies read
+                // IntegrationJob.BadPixelMask; the staged path's sigma-clip washes hot pixels out
+                // across frames on its own, so an AHD fallback would show no difference and the
+                // test would "pass" by proving nothing. A capped TIANWEN_BPM_MAXLIGHTS below
+                // DrizzleStrategy.AutoSelectMinFrameCount matched frames is the way that happens.
+                reg.MasterStrategy.ShouldBe(IntegrationStrategyKind.BayerDrizzle,
+                    $"{label}: fell back off drizzle, so the mask is never consulted and this " +
+                    $"comparison cannot say anything. Raise {MaxVar} or drop it.");
+
                 var path = Path.Combine(outDir, $"master_{label}.fits");
                 reg.Master.WriteToFitsFile(path);
+                masters[label] = reg.Master;
                 output.WriteLine($"{label}: strategy={reg.MasterStrategy} subs={reg.Subs.Length} -> {path}");
             }
 
-            output.WriteLine($"wrote both masters to {outDir}; diff them for hot-pixel clusters");
+            var nomask = masters["nomask"];
+            var masked = masters["masked"];
+            masked.Width.ShouldBe(nomask.Width, "canvas differs, so a pixelwise diff is meaningless");
+            masked.Height.ShouldBe(nomask.Height);
+            masked.ChannelCount.ShouldBe(nomask.ChannelCount);
+
+            var w = nomask.Width;
+            var h = nomask.Height;
+            var totalFlagged = 0;
+            var totalClusters = 0;
+            var brightBefore = 0;
+            var brightAfter = 0;
+
+            for (var c = 0; c < nomask.ChannelCount; c++)
+            {
+                var (flagged, clusters, before, after) = CompareChannel(nomask, masked, c, w, h);
+                output.WriteLine($"  ch{c}: {flagged} px changed in {clusters} cluster(s); " +
+                                 $"bright outliers {before} -> {after}");
+                totalFlagged += flagged;
+                totalClusters += clusters;
+                brightBefore += before;
+                brightAfter += after;
+            }
+
+            var fraction = totalFlagged / (double)(w * (long)h * nomask.ChannelCount);
+            output.WriteLine($"total: {totalFlagged} px ({fraction * 100:F4}% of frame) in " +
+                             $"{totalClusters} clusters; bright outliers {brightBefore} -> {brightAfter}");
+
+            // The mask must actually DO something on a session known to carry drizzled hot pixels.
+            totalClusters.ShouldBeGreaterThan(0,
+                "the masked and unmasked masters are identical, so the mask reached nothing");
+
+            // ...and it must be surgical. A mask that rewrote a large part of the frame would be
+            // removing signal, which is the failure mode that matters more than missing a defect.
+            fraction.ShouldBeLessThan(0.02,
+                $"the mask changed {fraction * 100:F2}% of the frame, which is a blunt instrument, " +
+                "not a hot-pixel fix");
+
+            // The direction has to be right: masking removes bright non-stellar residue, so the
+            // count of extreme positive outliers can only fall. Stars are identical in both runs
+            // and cancel out of the comparison.
+            brightAfter.ShouldBeLessThanOrEqualTo(brightBefore,
+                "masking INCREASED the extreme-outlier count, which inverts the whole premise");
+
+            output.WriteLine($"both masters in {outDir}");
+        }
+
+        /// <summary>
+        /// Per-channel diff of the two masters. Returns the changed-pixel count, how many connected
+        /// clusters those form, and the extreme-outlier count before and after.
+        ///
+        /// <para>Thresholds are derived from the MASKED master's own robust scale rather than from
+        /// an absolute number, because a drizzled master's units depend on the session. The changed
+        /// bar is deliberately well above the noise: drizzle deposition is not bit-identical between
+        /// two runs even where no pixel was masked, so a bar at a few MAD would count the whole
+        /// frame as changed and the surgical-ness assertion would be meaningless.</para>
+        /// </summary>
+        private static (int Flagged, int Clusters, int BrightBefore, int BrightAfter) CompareChannel(
+            Image nomask, Image masked, int channel, int w, int h)
+        {
+            var a = nomask.GetChannelSpan(channel);
+            var b = masked.GetChannelSpan(channel);
+
+            var sorted = new float[w * h];
+            b.CopyTo(sorted);
+            Array.Sort(sorted);
+            var median = sorted[sorted.Length / 2];
+            for (var i = 0; i < sorted.Length; i++)
+            {
+                sorted[i] = Math.Abs(sorted[i] - median);
+            }
+            Array.Sort(sorted);
+            var mad = sorted[sorted.Length / 2] + float.Epsilon;
+
+            var changedBar = 8f * mad;
+            var brightBar = median + 20f * mad;
+
+            var changed = new bool[w * h];
+            var flagged = 0;
+            var brightBefore = 0;
+            var brightAfter = 0;
+            for (var i = 0; i < changed.Length; i++)
+            {
+                if (a[i] - b[i] > changedBar)
+                {
+                    changed[i] = true;
+                    flagged++;
+                }
+                if (a[i] > brightBar)
+                {
+                    brightBefore++;
+                }
+                if (b[i] > brightBar)
+                {
+                    brightAfter++;
+                }
+            }
+
+            return (flagged, CountClusters(changed, w, h), brightBefore, brightAfter);
+        }
+
+        /// <summary>4-connected component count over a boolean mask, iterative so a frame-sized
+        /// blob cannot blow the stack.</summary>
+        private static int CountClusters(bool[] mask, int w, int h)
+        {
+            var seen = new bool[mask.Length];
+            var stack = new Stack<int>();
+            var clusters = 0;
+            for (var start = 0; start < mask.Length; start++)
+            {
+                if (!mask[start] || seen[start])
+                {
+                    continue;
+                }
+                clusters++;
+                stack.Push(start);
+                seen[start] = true;
+                while (stack.Count > 0)
+                {
+                    var p = stack.Pop();
+                    var x = p % w;
+                    var y = p / w;
+                    if (x > 0) { Visit(p - 1); }
+                    if (x < w - 1) { Visit(p + 1); }
+                    if (y > 0) { Visit(p - w); }
+                    if (y < h - 1) { Visit(p + w); }
+                }
+
+                void Visit(int q)
+                {
+                    if (mask[q] && !seen[q])
+                    {
+                        seen[q] = true;
+                        stack.Push(q);
+                    }
+                }
+            }
+            return clusters;
         }
     }
 }
