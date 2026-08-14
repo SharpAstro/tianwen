@@ -710,20 +710,28 @@ re-run underneath them. Three seeds per arm, same seeds as the control so the ar
   faintest quarter of pixels (by a sigma-8 low-pass) recovers **87% of the true sub-to-half movement
   in band1 and 62% in band2**, against 72% and 31% unmasked. The naive estimator would have been
   decoration; this is the same darkest-half trick the scalar path already uses, applied per band.
-- **Band conditioning is a TRADE, not a win, and is not adopted.** It invents less: 14.7 spurious
-  sources per tile against the scalar arm's 21.1 on a raw-sub floor of 20.1, three seeds each with no
-  overlap between the groups, and the fraction of detections landing on a real star rises from 71% to
-  76-77%. The cleanest single pair is exact: two checkpoints both at 0.78x noise and both at 0.71
-  faint amplitude, 20.5 invented against 15.3. The group noise difference (0.747 vs 0.773) explains at
-  most 0.5 of that 6.4 gap, read off the within-group noise-to-fabrication slope. Against that, it
-  **converges far more slowly** and never reaches below ~0.80x noise in 4000 steps where the scalar arm
-  reaches 0.60-0.65x, and on the gate's own session it keeps 0.060 LESS amplitude at matched noise.
-  Likely cause of both: the three planes are nearly redundant, since level dominates shape.
+- **Band conditioning is WORSE, and is rejected.** It **converges far more slowly** and never reaches
+  below ~0.80x noise in 4000 steps where the scalar arm reaches 0.60-0.65x, and on the gate session it
+  keeps 0.060 LESS amplitude at matched noise. On the held-out report session it is equal-or-worse at
+  every comparable point: the matched pair (0.84x / 0.71 amp scalar against 0.82x / 0.71 amp band)
+  reads 17.5 invented sources against 18.3, group means 17.97 against 17.23 with the ranges
+  overlapping, and the band arm has no run at all below 0.80x. Likely cause: the three planes are
+  nearly redundant, because level dominates shape.
+- **It first appeared to be a large fabrication WIN (14.7 against 21.1), and that was my measurement
+  error.** `n2n_metrics.py` defaults its `--cache` to the older calgated bake, not the darkscaled one
+  the models trained on, and I omitted the flag; every earlier scoring run in the series passed it.
+  So the numbers were cross-bake. Nothing was contaminated (neither of that cache's val sessions
+  appears in the trainer's train OR val split, so it was still genuinely held out) but a bake
+  difference is known to move fabrication more than a config change does, which is exactly what it
+  did here. **A default that points at a sibling dataset is worse than a required argument**, and the
+  tell was available for free: the raw-sub floor printed 20.1 where every previous run printed 21.2.
+  Check the floor against the previous run before reading any fabrication comparison.
 
-**The reason it is a trade and not a verdict is the selection metric, and finding that out cost the
-gate its portability claim.** The two sessions disagree on the SIGN of the fabrication difference at
-matched noise, so the same transfer test that retired residual correlation was pointed at the metric
-that replaced it. Over seven checkpoints on two held-out sessions:
+**The gate still lost its portability claim, on evidence that does not depend on that mistake.** The
+motivation for re-examining it was a sign disagreement between sessions, which turned out to be the
+bake confound above. But the transfer test itself ran on the correct cache throughout, comparing two
+sessions of the SAME bake, and the non-transfer is real there: over seven checkpoints on those two
+held-out sessions,
 
 | metric | worst session-to-session delta | spread across models on one session | verdict |
 |---|---|---|---|
@@ -737,14 +745,44 @@ So the fabrication gate's `<= 6.0` is **session-calibrated, not a universal puri
 weights sit 3.3 over the floor on one session and 1.0 under it on another. Subtracting the raw-sub
 floor per session was supposed to normalise exactly this and does not, because the shift is
 systematic and one-signed (every model moves +4.3 to +8.1 in the same direction) rather than an
-offset the floor tracks. What survives is the DIRECTION of model-to-model differences, which held on
-all three sessions measured. Read the gate as ordering steps within one run on one session, which is
-its actual job, and never as a portable statement about a checkpoint's purity. **This is the blocker
-on adopting band conditioning**, not a caveat beside it: the metric carrying its only advantage
-cannot currently be compared across sessions, and the fix belongs before the next config change. Two
-sample-size hints for that fix: the 64-cell gate slice ranks models unstably (one checkpoint moves
-four places between sessions) while the 120-cell report separated the two arms with zero overlap, and
-probing more than one val session per run would surface the shift instead of hiding it.
+offset the floor tracks. Read the gate as ordering steps within one run on one session, which is its
+actual job, and never as a portable statement about a checkpoint's purity.
+
+**No reformulation fixes it, and the current form is already the best available** (`n2n_gatenorm.py`,
+which dumps per-tile counts and evaluates candidates offline; the per-tile method is `_spurious`'s own
+so the gate and the study cannot disagree about what was counted). Scored over the seven
+gate-selected checkpoints, with merit = (spread across models on one session) / (worst
+session-to-session delta), where above 1 means a threshold can exist:
+
+| candidate | merit | rank rho between sessions |
+|---|---|---|
+| `mean_diff` (what the gate uses) | **0.60** | +0.536 |
+| `ratio` = mean(m)/mean(f) | 0.56 | +0.536 |
+| `diff_over_sd` | 0.56 | +0.536 |
+| `paired_med` = median(m-f) | 0.53 | +0.436 |
+| `sign_frac` = fraction of tiles worse than the raw sub | 0.52 | +0.429 |
+| `log_ratio` = mean(log((m+1)/(f+1))) | 0.43 | **+0.857** |
+
+Nothing clears 1.0, so the "find a better formula" branch is closed. The reason is that every model
+reads positive on one session and negative on the other in EVERY candidate, which is not a scale or
+offset a formula could absorb: the models genuinely invent more than the raw sub on one session and
+less on the other. But `log_ratio` separates the two properties cleanly, worst on threshold and best
+on ordering by a wide margin, and **ordering survives any monotone session shift**. So the remedy is
+not a better threshold but a RELATIVE stopping rule on `log_ratio` (stop where it first exceeds its
+own early-training baseline by a margin), which needs only the property that survives.
+
+**Two traps in measuring this, both of which produced a confident wrong answer first.** Merit's
+numerator is the spread across whatever models are passed in, so it is trivially inflated by adding
+obvious failures: including the nine step-4000 `_final.pt` weights lifted every candidate above 1.0
+and `mean_diff` to 1.47, purely because those fabricate enormously (numerator up 7.7x against the
+session delta's 3.1x). That measures whether the metric can tell a disaster from a plausible model,
+which is not where a threshold goes wrong. **Evaluate a selection metric over the population it
+actually has to separate**, and treat a merit that improved when you added known-bad models as an
+artifact of the list. Rank correlation is the more robust half of the output for the same reason: it
+does not care how extreme the extremes are, and moved far less between the two populations
+(`mean_diff` 0.54 to 0.92, `log_ratio` 0.86 to 0.95). Second trap: the 64-cell slice ranks models
+unstably (one checkpoint moves four places between sessions), but more cells will NOT fix the
+transfer failure, because the shift is systematic rather than sampling noise.
 
 **Zero train/inference skew (non-negotiable):** the tile exporter calls the *same* code the
 inference path uses; `AiNafnetInputs` MTF pre-stretch (target median 0.25, auto-skip threshold

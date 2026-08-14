@@ -67,21 +67,35 @@ one shape and deployment has another, and sub-averaging only ever closed the LEV
 Re-run with three band-sigma planes replacing the scalar, half pairs are still null on every metric
 at matched noise, and two of three runs never passed the gate at all.
 
-**Band conditioning itself is a TRADE and is not adopted.** It invents less (14.7 spurious/tile
-against scalar's 21.1 on a 20.1 floor, three seeds each, no overlap; the exact-noise pair reads 20.5
-against 15.3 at the same 0.78x noise and the same 0.71 faint amplitude) but converges far more
-slowly, never reaching below ~0.80x noise in 4000 steps where scalar reaches 0.60-0.65x. The
-difference is invisible in a rendered comparison, which is worth knowing before chasing it further.
+**Band conditioning itself is WORSE and is rejected.** It converges far more slowly and never reaches
+below ~0.80x noise in 4000 steps where scalar reaches 0.60-0.65x; it keeps 0.060 less amplitude at
+matched noise on the gate session; and on the held-out report session it is equal-or-worse at every
+comparable point (matched pair 17.5 invented against 18.3, group ranges overlapping, no band run
+below 0.80x).
 
-3. **I transfer-tested the gate I retired and not the one that replaced it.** `spurious_over_floor`
+3. **`n2n_metrics.py` defaults `--cache` to the OLD calgated bake, and I omitted the flag.** So the
+   first v14 scoring was cross-bake, which is what produced an apparent 30% fabrication win for band
+   conditioning (14.7 against 21.1) that does not exist on the bake the models trained on. Nothing
+   was contaminated: neither of that cache's val sessions is in the trainer's train or val split.
+   But a bake difference moves fabrication more than a config change does. **The tell was free and I
+   ignored it** -- the raw-sub floor printed 20.1 where v10, v12 and v13 all printed 21.2. Always
+   pass `--cache`, and check the floor against the previous run before reading any fabrication
+   comparison. Only today's run had the bug; every earlier one passed the flag.
+4. **I transfer-tested the gate I retired and not the one that replaced it.** `spurious_over_floor`
    fails the same test `resid_corr` did: worst session-to-session delta **8.094** against a **4.875**
-   spread across models on one session. So `<= 6.0` is session-calibrated, not a universal purity
-   bar; the same weights sit 3.3 over the floor on one session and 1.0 UNDER it on another.
-   Subtracting the raw-sub floor per session was supposed to normalise this and does not, because the
-   shift is systematic and one-signed. Only the DIRECTION of model-to-model differences transfers.
-   **When you retire a gate, transfer-test its successor**: the successor inherits the job, not the
-   evidence. This is task #33 and it blocks adopting band conditioning, since the metric carrying its
-   only advantage cannot currently be compared across sessions.
+   spread across models on one session, and that test used the correct cache throughout, comparing
+   two sessions of the SAME bake. So `<= 6.0` is session-calibrated, not a universal purity bar.
+   Subtracting the raw-sub floor was supposed to normalise this and does not, because the shift is
+   systematic and one-signed. **When you retire a gate, transfer-test its successor**: the successor
+   inherits the job, not the evidence.
+
+`n2n_gatenorm.py` then closed the "find a better formula" branch: six candidates, none clearing
+merit 1.0, and the current `mean_diff` the best of them at 0.60. But `log_ratio` is worst on
+threshold (0.43) and best on ordering (rho +0.857), and ordering survives any monotone session
+shift -- so the fix is a RELATIVE stopping rule on `log_ratio` rather than a better absolute bar.
+**Watch merit's population dependence**: adding the nine step-4000 checkpoints lifted every
+candidate above 1.0 (mean_diff to 1.47) purely by widening the numerator with known-bad models, and
+that flattering number answers an easier question than the gate faces.
 
 ## Repo state
 
