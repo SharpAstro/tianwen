@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build-time tool: bake the two comet assets the browser build serves same-origin, because JPL
+    sends no CORS headers from EITHER host it serves them from.
+
+      comets-sbdb.json         the bulk SBDB query response, verbatim (SbdbCometSource parses it
+                               unchanged, so this is a mirror and not a format of our own)
+      comets-apparitions.json  the per-object Horizons current-apparition overlay, resolved here
+                               and marked NoRemoteRefresh so the browser does not attempt it
+
+    Incremental: seeded from the currently deployed overlay, it re-resolves only the entries whose
+    per-comet TTL has expired, so a deploy costs ~30 Horizons requests rather than ~520.
+
+    Not part of the solution; not packed; not shipped. See tools/bake-comets/README.md and the
+    "Bake comet assets" step in .github/workflows/pages.yml. Sibling of precompute-simbad-merge.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>BakeComets</AssemblyName>
+    <RootNamespace>BakeComets</RootNamespace>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -9,3 +9,4 @@
 [assembly: InternalsVisibleTo("TianWen.UI.Shared")]
 [assembly: InternalsVisibleTo("PrecomputeHdHipCross")]
 [assembly: InternalsVisibleTo("PrecomputeSimbadMerge")]
+[assembly: InternalsVisibleTo("BakeComets")]

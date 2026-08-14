@@ -20,8 +20,16 @@ public static class AstrometryServiceCollectionExtensions
     /// its CI deploy bakes the query result as a same-origin static asset and points this at it.
     /// Null (default) = the live JPL API.
     /// </param>
+    /// <param name="apparitionSeedUri">
+    /// Points at a publish-time snapshot of the per-object current-apparition overlay. Same reason as
+    /// <paramref name="cometQueryUri"/> and a second endpoint, because JPL serves the two from different
+    /// hosts: the bulk set comes from the SBDB query API, the per-object refinement from Horizons, and
+    /// NEITHER sends CORS headers. Baking only the first left the browser retrying the second forever.
+    /// A snapshot that declares itself sealed also switches the per-object fetch off entirely.
+    /// Null (default) = no seed, so the overlay is built live from Horizons as before.
+    /// </param>
     /// <returns></returns>
-    public static IServiceCollection AddAstrometry(this IServiceCollection services, Uri? cometQueryUri = null) => services
+    public static IServiceCollection AddAstrometry(this IServiceCollection services, Uri? cometQueryUri = null, Uri? apparitionSeedUri = null) => services
         // Factory lambda so the typed ILogger<CatalogPlateSolver> gets resolved and
         // upcast to the non-generic ILogger ctor parameter. The shorter
         // AddSingleton<IPlateSolver, CatalogPlateSolver>() form leaves DI unable to
@@ -46,5 +54,9 @@ public static class AstrometryServiceCollectionExtensions
         // revolution or more old -- which is the case that puts a marker degrees off (10P: 9.3).
         .AddSingleton<IHorizonsCometSource>(sp => new HorizonsCometSource(
             sp.GetRequiredService<ILogger<HorizonsCometSource>>()))
+        // The publish-time overlay snapshot, when the host has one. A null URI is the desktop
+        // configuration: no seed, so the source reports a miss and the live path above is used.
+        .AddSingleton<IApparitionSeedSource>(sp => new ApparitionSeedSource(
+            apparitionSeedUri, sp.GetRequiredService<ILogger<ApparitionSeedSource>>()))
         .AddSingleton<ICometRepository, CometRepository>();
 }

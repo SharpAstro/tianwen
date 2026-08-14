@@ -29,8 +29,10 @@ src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
 # Lavapipe min-repro zip (built artifact for upstream bug filing)
 LavapipeMinRepro.zip
 __pycache__/
-# CI-baked comet snapshot (pages.yml curls JPL SBDB into wwwroot on the runner)
+# CI-baked comet assets (pages.yml runs tools/bake-comets into wwwroot on the runner): the bulk SBDB
+# query response, and the per-object Horizons current-apparition overlay seeded from the live site
 src/TianWen.UI.Web/wwwroot/comets-sbdb.json
+src/TianWen.UI.Web/wwwroot/comets-apparitions.json
 # CI-staged Tycho-2 catalog (pages.yml copies the LFS .lz into wwwroot on the runner; the atlas
 # fetches it at runtime - it must never be committed into the source tree's wwwroot)
 src/TianWen.UI.Web/wwwroot/tyc2.bin.lz

@@ -641,6 +641,32 @@ Full design + phasing: [`docs/plans/comet-ephemeris.md`](docs/plans/comet-epheme
   stale fallback, `FetchedUtc` envelope, `ITimeProvider`-driven). Position + magnitude at any time are
   then **pure local computation, offline**. `ICometRepository.TryGetPosition` / `TryGet`. DI in
   `AddAstrometry`. AOT-safe via `SbdbJsonContext` + `CometDesignationJsonConverter`.
+- **A failed per-object Horizons fetch MUST be remembered, and `ApparitionRetryCooldown` is what does
+  it.** `RequestCurrentApparition` is called per drawn marker per frame, and its single-flight key is
+  released in the `finally` while only SUCCESS writes an entry -- so before the cooldown nothing recorded
+  that the last attempt failed, and an endpoint that can never answer was retried at whatever rate the
+  request settled. Measured on the deployed web build: **45 requests and 50 s of cumulative request time
+  in one four-minute session, all for comet 5D**. An offline desktop and a JPL outage take the same path.
+  The comment "calling it per drawn marker per frame is free" (`SkyMapTab`) is true only once a fetch
+  *can* succeed.
+- **JPL sends no CORS headers from EITHER comet host, so the browser bakes BOTH.** SBDB (bulk) was baked
+  long ago; **Horizons (the per-object apparition refinement) is a different host reached from a
+  different class**, and was missed -- which is what the retry storm above actually was.
+  `tools/bake-comets` writes `comets-sbdb.json` (verbatim query response) **and**
+  `comets-apparitions.json` (the overlay, resolved on the runner) into `wwwroot`;
+  `AddAstrometry(cometQueryUri:, apparitionSeedUri:)` takes both as plain same-origin URLs.
+  **Nothing detects the host** -- a dev server 404s both and degrades along the identical path, which is
+  the point: a host check would make dev diverge from production exactly where the bug lived.
+  - **`ApparitionCacheFile.NoRemoteRefresh` is a POLICY ("do not ask"), not a completeness claim.** As a
+    completeness claim it would need a hash guard tying it to the bulk snapshot (the
+    `SimbadMergeSnapshot` pattern) and a missing comet would be a correctness bug; as policy, an unbaked
+    comet just keeps its bulk record and stays flagged approximate. That is what lets the bake be
+    partial, which it must be: **518 of 4,071 comets are stale enough to warrant an upgrade.**
+  - **The bake is incremental and seeds from the LIVE SITE**, so the published assets are their own CI
+    state (no `actions/cache` to be evicted between infrequent deploys). Per-comet TTL tiered on
+    peak-ish magnitude `M1 + K1*log10(q)` -- the planner's own gate, not a new threshold: daily <=12,
+    weekly <=15, monthly <=18, once beyond. ~30 requests per deploying day. **The tiers are a relevance
+    budget, not physics** -- osculating elements decay with time, not with brightness.
 - **Invariant -- comets are NOT in `ICelestialObjectDB`** (which is immutable after init). Every
   consumer augments at its own layer from `ICometRepository`: the sky-map F3 search merges comet keys
   into its index (`SkyMapSearchActions.BuildSearchIndex` + `SkyMapSearchState.CometEntries`); the
