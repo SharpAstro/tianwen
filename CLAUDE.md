@@ -1792,11 +1792,17 @@ frame and draw any reticle/rings on top after `Render` returns. **`LiveFramePrev
 must be non-empty + channel-sized** -- the renderer's `ComputePostStretchBackground` indexes `[0]`
 unconditionally (an empty array crashed the GUI; pinned by `LiveFramePreviewSourceTests`).
 
-### The star field is ALWAYS drawn as a magnitude prefix, never as the whole buffer
+### The star field is culled on TWO axes, and both are load-bearing
 
-`StarMagnitudeIndex` (`TianWen.UI.Abstractions`) is the one implementation: sort a star buffer
-brightest-first at build time, index it into a 0.5-mag prefix table, and let the draw be a smaller
-instance count at `SkyMapState.EffectiveMagnitudeLimit`. No per-frame CPU pass, no re-upload.
+`StarMagnitudeIndex` + `StarChunkIndex` (`TianWen.UI.Abstractions`) are the one implementation, shared
+by `VkSkyMapPipeline` and `WebGlSkyMapPipeline`: group the buffer by sky region, sort brightest-first
+within each region and index it into a 0.5-mag prefix table, then draw only the regions the view cone
+reaches and only their prefix. No per-frame CPU pass, no re-upload.
+
+- **Neither axis covers the other.** Magnitude bounds a WIDE field (~3% of Tycho-2 at 60 degrees) and
+  stops bounding anything as the effective limit climbs with zoom (81% at V<=12); the cone bounds a
+  deep zoom and does nothing at full sky. Shipping only the magnitude half leaves a one-degree field
+  submitting ~2M instances for a patch of sky that holds almost none of them.
 
 - **Submitting the whole ~2.5M-star Tycho-2 buffer every frame is not merely slow.** On the desktop
   the unbounded form **TDR'd an Adreno X1-85**, which is why `VkSkyMapPipeline` has culled for a
@@ -1814,11 +1820,15 @@ instance count at `SkyMapState.EffectiveMagnitudeLimit`. No per-frame CPU pass, 
   array and no scatter buffer. The obvious index-sort-then-scatter form costs ~70 MB of transient
   arrays at exactly the moment the user is waiting for the atlas, which on single-threaded WASM is
   not free. `VisibleCount` is the only per-frame member and is an array index plus a clamp.
-- **Vulkan culls per spatial chunk, WebGL over the whole buffer**, and that asymmetry is a WebGL2
-  limitation, not a preference: there is no base-instance, so a chunked draw needs an instance-offset
-  API `WebGl.Renderer` does not have yet. Consequence: a deep zoom on web still submits most of the
-  catalog (see the table). The cone cull is the remaining refinement, tracked in
-  [docs/plans/web-tycho2.md](docs/plans/web-tycho2.md).
+- **A per-chunk draw needs an instance offset, and WebGL2 has no base-instance draw argument** (that is
+  desktop GL 4.2; WebGL2 never picked it up). Vulkan passes `firstInstance` to `vkCmdDraw`; the WebGL
+  backend expresses it by pointing the per-instance attributes at `firstInstance * iStride` before the
+  draw, added as `DrawInstanced(..., firstInstance)` in **WebGl.Renderer 1.24**. Equivalent for a
+  divisor-1 attribute, and free, because the draw re-binds those attributes anyway.
+- **The cone radius spans ~8 degrees on a 30x15-degree cell, on top of the distance to the nearest
+  chunk axis.** So a cull threshold narrower than the grid it culls correctly answers "nothing is
+  visible" — which reads as a broken cull if you assert against it. A test asserting the cull is tight
+  needs a view wider than the star spacing it is culling.
 
 ### Sky Map / FITS Viewer GLSL (pre-baked SPIR-V, no runtime shaderc)
 
