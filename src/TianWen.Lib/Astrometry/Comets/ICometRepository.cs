@@ -25,6 +25,21 @@ public interface ICometRepository
     /// </summary>
     bool TryGetPosition(CatalogIndex index, DateTimeOffset time, out double raJ2000Hours, out double decJ2000Deg, out double magnitude);
 
+    /// <summary>
+    /// The bulk form of <see cref="TryGetPosition(CatalogIndex, DateTimeOffset, out double, out double,
+    /// out double)"/>: the same resolution, current-apparition upgrade included, against an
+    /// <see cref="CometEphemeris.EarthState"/> the caller has already resolved. Use it when sweeping
+    /// many comets at ONE instant -- the <see cref="DateTimeOffset"/> form necessarily re-solves the
+    /// ~3,500-term VSOP87a Earth series per comet, which over a catalogue-wide sweep is almost the
+    /// entire cost (measured at 29 ms against 1.6 ms over 1,630 candidates).
+    ///
+    /// <para>It is a member of this interface rather than something a caller composes from
+    /// <see cref="TryGet"/> plus <see cref="CometEphemeris"/> for the reason stated on
+    /// <see cref="TryGet"/>: resolving a comet's elements is where the apparition upgrade is applied,
+    /// and a bulk caller that reached around it would silently sweep the stale element set.</para>
+    /// </summary>
+    bool TryGetPosition(CatalogIndex index, in CometEphemeris.EarthState earth, out double raJ2000Hours, out double decJ2000Deg, out double magnitude);
+
     /// <summary>Loads the comet set once (from fresh cache, else a network fetch). Idempotent + concurrency-safe.</summary>
     Task EnsureLoadedAsync(CancellationToken cancellationToken = default);
 

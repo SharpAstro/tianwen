@@ -92,9 +92,24 @@ internal sealed class CometRepository : ICometRepository
 
     public bool TryGetPosition(CatalogIndex index, DateTimeOffset time, out double raJ2000Hours, out double decJ2000Deg, out double magnitude)
     {
+        // Resolving Earth first and then delegating keeps ONE reduction here: the two overloads differ
+        // only in who pays for the per-instant state.
+        if (CometEphemeris.TryGetEarthState(time, out var earth))
+        {
+            return TryGetPosition(index, earth, out raJ2000Hours, out decJ2000Deg, out magnitude);
+        }
+
+        raJ2000Hours = decJ2000Deg = magnitude = double.NaN;
+        return false;
+    }
+
+    public bool TryGetPosition(CatalogIndex index, in CometEphemeris.EarthState earth, out double raJ2000Hours, out double decJ2000Deg, out double magnitude)
+    {
+        // TryGet, not _byIndex: that is where the current-apparition upgrade is applied, and it is the
+        // whole reason this overload lives on the repository instead of at the sweeping call site.
         if (TryGet(index, out var elements))
         {
-            return CometEphemeris.TryGetEquatorialJ2000WithMagnitude(elements, time, out raJ2000Hours, out decJ2000Deg, out magnitude);
+            return CometEphemeris.TryGetEquatorialJ2000WithMagnitude(elements, earth, out raJ2000Hours, out decJ2000Deg, out magnitude);
         }
 
         raJ2000Hours = decJ2000Deg = magnitude = double.NaN;
