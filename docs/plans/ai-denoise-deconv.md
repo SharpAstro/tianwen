@@ -688,6 +688,64 @@ equal or better residual noise in two of three seeds: **+22% faint-star amplitud
 invented sources for 1.6% more noise.** §3a carries the gate's design and the three ways its
 thresholds went wrong.
 
+**Retested 2026-08-14 under per-band conditioning, and the pair still does not help, so the negative
+is now unconditional.** The retest existed because the first one had a live escape: a scalar sigma
+plane cannot express noise SHAPE, so adding half pairs hands the model two genuinely different noise
+distributions labelled by one number, and the negative might have been the label rather than the
+data. Measured scene-free over 160 val cells, the ratio of 1-2px band power to 0-1px band power reads
+**0.601 / 0.596 / 0.589 for 1-sub, 2-avg and 4-avg against 0.320 for a half-master**: one shape across
+every regime v8 trains on, and a different one at deployment depth. So sub-averaging only ever closed
+the LEVEL half of the deployment gap and left the shape untouched. Three conditioning planes
+(difference-of-Gaussian sigmas at 0-1 / 1-2 / 2-4 px) replaced the one scalar, and half pairs were
+re-run underneath them. Three seeds per arm, same seeds as the control so the arms stay paired.
+
+- **Half pairs: null again.** Interpolated at matched noise, amplitude, invention and residual
+  correlation all overlap at every level both arms reach. On the report session the two checkpoints
+  that land at the same 0.73x noise sit at 14.6 and 15.0 invented sources per tile. And **two of the
+  three half-pair runs never passed the gate at all**, failing only its noise floor: they never got
+  quieter than 0.88x against a 0.82x bar.
+- **The conditioning planes must be estimated from ONE image, which is not what the measurement
+  above measures.** Band-passing removes only the smooth scene, so nebulosity and star wings sit
+  squarely in the 1-4px bands and a plain band MAD reads scene as noise. Taking the MAD over only the
+  faintest quarter of pixels (by a sigma-8 low-pass) recovers **87% of the true sub-to-half movement
+  in band1 and 62% in band2**, against 72% and 31% unmasked. The naive estimator would have been
+  decoration; this is the same darkest-half trick the scalar path already uses, applied per band.
+- **Band conditioning is a TRADE, not a win, and is not adopted.** It invents less: 14.7 spurious
+  sources per tile against the scalar arm's 21.1 on a raw-sub floor of 20.1, three seeds each with no
+  overlap between the groups, and the fraction of detections landing on a real star rises from 71% to
+  76-77%. The cleanest single pair is exact: two checkpoints both at 0.78x noise and both at 0.71
+  faint amplitude, 20.5 invented against 15.3. The group noise difference (0.747 vs 0.773) explains at
+  most 0.5 of that 6.4 gap, read off the within-group noise-to-fabrication slope. Against that, it
+  **converges far more slowly** and never reaches below ~0.80x noise in 4000 steps where the scalar arm
+  reaches 0.60-0.65x, and on the gate's own session it keeps 0.060 LESS amplitude at matched noise.
+  Likely cause of both: the three planes are nearly redundant, since level dominates shape.
+
+**The reason it is a trade and not a verdict is the selection metric, and finding that out cost the
+gate its portability claim.** The two sessions disagree on the SIGN of the fabrication difference at
+matched noise, so the same transfer test that retired residual correlation was pointed at the metric
+that replaced it. Over seven checkpoints on two held-out sessions:
+
+| metric | worst session-to-session delta | spread across models on one session | verdict |
+|---|---|---|---|
+| `noise` | 0.111 | 0.151 | transfers |
+| `faint_amp` | 0.116 | 0.138 | transfers |
+| `faint_detect` | 0.005 | 0.007 | transfers |
+| `resid_corr` | 0.310 | 0.207 | does not |
+| `spurious_over_floor` | **8.094** | **4.875** | **does not** |
+
+So the fabrication gate's `<= 6.0` is **session-calibrated, not a universal purity bar**: the same
+weights sit 3.3 over the floor on one session and 1.0 under it on another. Subtracting the raw-sub
+floor per session was supposed to normalise exactly this and does not, because the shift is
+systematic and one-signed (every model moves +4.3 to +8.1 in the same direction) rather than an
+offset the floor tracks. What survives is the DIRECTION of model-to-model differences, which held on
+all three sessions measured. Read the gate as ordering steps within one run on one session, which is
+its actual job, and never as a portable statement about a checkpoint's purity. **This is the blocker
+on adopting band conditioning**, not a caveat beside it: the metric carrying its only advantage
+cannot currently be compared across sessions, and the fix belongs before the next config change. Two
+sample-size hints for that fix: the 64-cell gate slice ranks models unstably (one checkpoint moves
+four places between sessions) while the 120-cell report separated the two arms with zero overlap, and
+probing more than one val session per run would surface the shift instead of hiding it.
+
 **Zero train/inference skew (non-negotiable):** the tile exporter calls the *same* code the
 inference path uses; `AiNafnetInputs` MTF pre-stretch (target median 0.25, auto-skip threshold
 0.125), `[0,1]` linear convention, `ChunkedInference`-compatible geometry. Python never

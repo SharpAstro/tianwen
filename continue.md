@@ -54,6 +54,35 @@ replicated 3/3 seeds, two of three strictly dominating at equal or better noise.
 The gate's current shape: `spurious over floor <= 6`, `faint amp >= 0.60`, `noise <= 0.82`, then
 minimise noise among passers. Residual correlation reported, not gated.
 
+### Then v14 (same day): band conditioning, and a third retraction
+
+Full record: **`D:\Astro-Dataset\n2n-smoke\v14\README.md`**. Six runs, 3 seeds x 2 arms, with the
+v13 runs serving as the control arm (same seeds, same config, already scored).
+
+**The half-pair negative is now UNCONDITIONAL.** It had a live escape: a scalar sigma plane cannot
+express noise SHAPE, so adding half pairs labels two genuinely different distributions with one
+number. The shape gap is real and large (band1/band0 power measured scene-free: 0.601 / 0.596 /
+0.589 for 1-sub / 2-avg / 4-avg against **0.320** for a half-master, so every training regime shares
+one shape and deployment has another, and sub-averaging only ever closed the LEVEL half of the gap).
+Re-run with three band-sigma planes replacing the scalar, half pairs are still null on every metric
+at matched noise, and two of three runs never passed the gate at all.
+
+**Band conditioning itself is a TRADE and is not adopted.** It invents less (14.7 spurious/tile
+against scalar's 21.1 on a 20.1 floor, three seeds each, no overlap; the exact-noise pair reads 20.5
+against 15.3 at the same 0.78x noise and the same 0.71 faint amplitude) but converges far more
+slowly, never reaching below ~0.80x noise in 4000 steps where scalar reaches 0.60-0.65x. The
+difference is invisible in a rendered comparison, which is worth knowing before chasing it further.
+
+3. **I transfer-tested the gate I retired and not the one that replaced it.** `spurious_over_floor`
+   fails the same test `resid_corr` did: worst session-to-session delta **8.094** against a **4.875**
+   spread across models on one session. So `<= 6.0` is session-calibrated, not a universal purity
+   bar; the same weights sit 3.3 over the floor on one session and 1.0 UNDER it on another.
+   Subtracting the raw-sub floor per session was supposed to normalise this and does not, because the
+   shift is systematic and one-signed. Only the DIRECTION of model-to-model differences transfers.
+   **When you retire a gate, transfer-test its successor**: the successor inherits the job, not the
+   evidence. This is task #33 and it blocks adopting band conditioning, since the metric carrying its
+   only advantage cannot currently be compared across sessions.
+
 ## Repo state
 
 - Branch **`feat/detection-purity-probe`**, 22 commits ahead of `origin/main`, now pushed with an
@@ -87,7 +116,8 @@ session list at the time of writing.
 
 | # | Item | Notes |
 |---|---|---|
-| 31 | Retrain on a genuinely SHORTER schedule | The gate selects step 1100-1700 of 4000 every time, so half the budget makes the model worse. Truncating a long run is not the same as training a short one; try a schedule whose LR actually decays inside the useful window. Three seeds, paired against the v13 selections already scored. |
+| 33 | Recalibrate or replace the fabrication gate's threshold | **Do this first.** It does not transfer between sessions (delta 8.1 vs a 4.9 across-model spread), so every purity verdict in the series is session-local. Options: probe 2+ val sessions and gate on the worse; express the bar as a quantile of the session's own raw-sub distribution rather than a difference from its median; raise the cell count (64 cells rank models unstably, 120 separated two 3-seed arms cleanly); gate on a ratio. Evidence in `v14/transfer-v14.log`. |
+| 31 | Retrain on a genuinely SHORTER schedule | The gate selects step 1100-1700 of 4000 every time (2000-2600 under band conditioning), so half the budget makes the model worse. Truncating a long run is not the same as training a short one; try a schedule whose LR actually decays inside the useful window. Three seeds, paired against the v13 selections already scored. Blocked in spirit by #33, since the gate is what picks the step. |
 | 32 | Test the shared-residue mechanism for half-pair fabrication | N2N preserves what the two views SHARE. Check whether the sources the half-pair model invents sit where BOTH halves carry a coincident local maximum. Note `corr(A − master, B − master)` is algebraically forced to −0.99 and cannot be used. |
 | 30 | Score the denoised half against B, not the master | The master CONTAINS A, so amplitude-kept starts at 0.99 and can only be spent. B's noise is independent, inflating every model's error by the same constant and leaving the ranking clean. |
 | - | Extend the metric suite (user's item 3, not started) | The transfer test suggests the first addition should be a per-SESSION breakdown rather than another metric: two sessions already disagree by more than most models do. Also split every per-channel and 1-2 px figure on `MasterStrategy` (47 of 67 masters are BayerDrizzle; averaging them with AHD sessions throws away what the re-bake bought). |
@@ -102,6 +132,7 @@ N2N records     D:\Astro-Dataset\n2n-smoke\
   v8            the chosen config before this series
   v9            RETRACTED (unseeded torch); measurements stand, comparisons do not
   v10           the seeded verdict: v10-v13, 15 runs, README has the whole arc
+  v14           band conditioning + the half-pair retest; the gate's transfer failure is here
 Training cache  C:\tianwen-scratch\n2n-ds                 (1200 cells, 11 slots incl. half pairs)
 Scratch         C:\tianwen-scratch                        (NVMe; D: is USB HDD at 37 MB/s)
 
@@ -109,7 +140,8 @@ Re-render the dataset report (no archive scan, works with D: unmounted):
   tianwen dataset report --out D:\Astro-Dataset\2025-2026-darkscaled
 ```
 
-The N2N scripts live in `D:\Astro-Dataset\n2n-smoke\v10\scripts`. The reusable half is
+The N2N scripts live in `D:\Astro-Dataset\n2n-smoke\v14\scripts` (the newest copy; `v10\scripts` is
+the pre-band-conditioning snapshot). The reusable half is
 `n2n_frontier.py` (compare configs at matched noise, not matched step count), `n2n_gateaudit.py`
 (which gate is binding, and what relaxing it surfaces), `n2n_gatetransfer.py` (does a metric survive
 a change of session) and `n2n_compare_figure.py` (labelled comparison, panels captioned in-image).
