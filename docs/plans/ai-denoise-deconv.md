@@ -822,6 +822,32 @@ So the gate keeps its job, which it does correctly: ordering steps within one ru
 reproducibly. What it never was is a portable purity certificate, and the guardrail against reading it
 as one is the second trajectory printed beside the first.
 
+**A genuinely shorter schedule is NOT better than truncating a long one (v16, 2026-08-14), and the
+premise behind expecting it was wrong.** The gate picks step 1100-1700 of 4000 every time, which had
+been read as "half the budget makes the model worse". The mechanism looked compelling:
+`CosineAnnealingLR(T_max=steps)` means a 4000-step run AT step 1600 is still at ~65% of peak LR, so
+the kept checkpoint comes from the middle of a hot schedule, where a 1600-step run would be fully
+annealed. Three seeds at 1600 and at 2400 steps, config otherwise identical, 1600 chosen as the
+median of the long runs' selections (once for all seeds; matching each seed's own pick would be
+tuning on the answer):
+
+- **At matched noise the frontier does not move.** Amplitude and invention both OVERLAP against the
+  4000-step control at every level either short arm reaches, for both lengths. The annealed run is
+  the same curve stopped earlier, not a better one.
+- **The extra steps buy FRONTIER RANGE, which is what a gate needs.** Lowest noise actually reached:
+  4000 steps 0.58-0.65x, 2400 steps 0.67-0.81x, 1600 steps 0.76-0.85x. So the long run offers the
+  gate a menu the short runs cannot, and one short run (`s1600` seed 0) never got under the 0.82x bar
+  at all and produced no usable checkpoint. The mid-run selection is where the optimum on the frontier
+  sits; it is not evidence the later steps were wasted work.
+- **The final-step block is the trap here, and it is dramatic enough to fool a skim:** invented
+  sources read +35.6 for the control against +1.3 for the 1600-step arm. That compares step 4000 with
+  step 1600. It is the matched-step error the frontier tool exists to prevent, in the one place the
+  numbers are lopsided enough to look like a headline.
+
+Conclusion for the schedule: keep the long run plus the gate, and do not spend further effort on
+schedule tuning. Same shape as the half-master result -- the mechanical argument (65% of peak LR, or a
+half-master's 0.215x depth) measured out correctly and still did not cash out in training.
+
 **Zero train/inference skew (non-negotiable):** the tile exporter calls the *same* code the
 inference path uses; `AiNafnetInputs` MTF pre-stretch (target median 0.25, auto-skip threshold
 0.125), `[0,1]` linear convention, `ChunkedInference`-compatible geometry. Python never
