@@ -287,8 +287,55 @@
          the TUI share it; HandleKey reads the focused field from the owner), all of which this repo
          consumed before the release rather than after, because validating a library API at its real call
          sites is what stops a wrong one being frozen in a package, and it caught both of those
-         shapes. -->
-    <PackageVersion Include="DIR.Lib" Version="7.29.*" />
+         shapes.
+         7.29 was taken without this prose moving; it says so now, and it is the one in this range that
+         closes a limitation recorded on OUR side. A text field draws through the FALLBACK CHAIN: the
+         layout painter splits text LEAVES into coverage runs, but a field's content is not a leaf, so
+         TextInputRenderer takes the resolver and measures the caret through the same chain. That is
+         exactly the "a blank field is font coverage, not input" failure noted here, where DejaVu carries
+         no CJK and a field holding correct characters rendered EMPTY, indistinguishable from one that
+         never received the keystrokes. 7.29 also adds IME composition to TextInputState (a field handling
+         only committed text cannot accept CJK at all, since every keystroke before the commit is
+         composition), and introduces WindowUiSettings: DPI scale, fonts and the fallback chain live once
+         per WINDOW and are SHARED BY REFERENCE via ShareUiContext, rather than each widget holding a copy
+         kept in agreement by an overridden setter naming every child, which is precisely the propagation
+         this repo does by hand in VkGuiRenderer today.
+         7.30 moves TextInputFocus onto that same per-window context (get-only, created there). Additive,
+         and the argument is the one this repo already accepted when it stopped letting
+         GuiAppState.ActiveTextInput be assigned: there is one keyboard, so focus is the same KIND of
+         per-window fact as the DPI scale, and a window whose fields sit in more than one widget otherwise
+         hand-threads ONE TextInputFocus through each constructor or they each believe they hold it. That
+         failure is silent: two carets blink, one is dead, Tab cycles the wrong list, nothing throws.
+         7.32 is the one worth adopting next: a widget is hit only on a frame it DREW. WindowUiSettings.
+         FrameId is bumped once per frame by the host and stamped by BeginFrame, and every read (hit test,
+         dispatch, cursor, Tab order, the inspector's region capture) declines a set that is not this
+         frame's. Registering as you paint already made a widget un-hittable WHERE it is not drawn; it said
+         nothing about WHEN, so a host that simply stops calling a widget's render leaves the last frame's
+         regions standing and a control no longer on screen goes on taking clicks AND running their
+         handlers. That is the same class as BlurIfUnpainted here, which solves the keyboard half by having
+         the host pass in what it painted; FrameId solves the click half without the host enumerating
+         anything. Costs nothing until adopted: a host that does not count frames leaves the id at 0, every
+         stamp at 0, and every comparison matching as before, which is why this bump changes no behaviour.
+         8.0 is BREAKING in exactly one place and it is a place nothing here reaches: TabBar becomes
+         TabBar&lt;TSurface&gt; : PixelWidgetBase&lt;TSurface&gt;, taking its renderer at construction and
+         reading the window's font / fallback / DPI off the shared context, so TabBar.Scale and the
+         font+fallback ctor arguments are gone and Render drops its renderer parameter. TianWen draws its
+         own sidebar chrome and its TuiTabBar is an unrelated class of its own; Console.Lib,
+         SdlVulkan.Renderer and WebGl.Renderer reference DIR.Lib's TabBar zero times each, which is what
+         makes this major safe to take ahead of them. They still DECLARE 7.29.2321, so the graph unifies
+         DIR.Lib upward to 8.0 by version rather than by intent, the standing smell noted elsewhere in this
+         file. WebGl.Renderer closes its half in the next cut (it is being released anyway); Console.Lib
+         and SdlVulkan.Renderer follow on their next release, and neither has anything to port.
+         The additive half of 8.0 is ClickableRegionTracker.Regions / PixelWidgetBase.RegisteredRegions (a
+         widget reads back its own regions without the per-call copy GetRegisteredRegions makes) and
+         PixelWidgetBase.DrewThisFrame, which is how a host resolving input by GEOMETRY rather than by
+         region (a wheel over a panel's column, a resize gutter, a swallow that stops a chrome click
+         starting a drag on the content under it) asks whether the widget was drawn at all. This repo has
+         several such predicates.
+         NOTE for the next editor of this block: an XML comment cannot contain a double hyphen, and MSBuild
+         does not say so. It reports NU1015 "PackageReference items do not have a version specified" for
+         every project instead, because the malformed comment swallows the ItemGroup below it. -->
+    <PackageVersion Include="DIR.Lib" Version="8.0.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -590,8 +637,23 @@
          symptom is content escaping its panel rather than an exception naming the cause. Exactly the
          shape that cost SdlVulkan.Renderer its DrawTriangles override one release earlier, which is the
          second time this family has paid for the same mistake. 1.22 also resets the clip stack at the
-         frame boundary and pins DIR.Lib as a FLOOR (ApplyClip does not exist before 7.27). -->
-    <PackageVersion Include="WebGl.Renderer" Version="1.24.*" />
+         frame boundary and pins DIR.Lib as a FLOOR (ApplyClip does not exist before 7.27).
+         1.25 is what the web build's remaining gesture cost was: a finger reached this app TWICE, once
+         as the touch events webgl-canvas.js bridges and once as the pointer stream, which fires for
+         touch as well. WebGlCanvas.HandlePointerMoveAsync already discarded the second, so behaviour was
+         right, but it discarded it only AFTER Blazor had serialized a full PointerEventArgs and crossed
+         into .NET, which is the entire cost of an event that was never going to be used: measured in a
+         Chrome trace of a real touch session at 812 dispatches, 0.657 s, ~0.81 ms each, every one thrown
+         away, about 5.6% of the main thread's busy time. The canvas now stops a touch-sourced
+         pointermove at the target, which works because Blazor DELEGATES (one listener per event type on
+         document) and uses the capture phase only for its non-bubbling set, which pointermove is not in.
+         Pinned by an E2E here (CanvasRenderCostTests), asserted at that exact boundary: a document-level
+         listener must see mouse and pen but not touch. Mouse and pen keep the pointer stream because
+         they have no bridge; it IS their input.
+         1.25 also carries the DIR.Lib 8.0 follow, so the ONE consumer that pins 8.0 no longer unifies
+         this backend upward by version. Nothing to port: 8.0's only break is TabBar becoming a widget
+         and this backend references it zero times. -->
+    <PackageVersion Include="WebGl.Renderer" Version="1.25.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
     <!-- Canon DSLR. Both packages ship from the FC.SDK repo at one release line, so they move

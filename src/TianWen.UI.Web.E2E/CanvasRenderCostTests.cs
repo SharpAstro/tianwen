@@ -85,6 +85,50 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
     }
 
     /// <summary>
+    /// A finger reaches the app TWICE: once as the touch events webgl-canvas.js bridges, and once as the
+    /// pointer stream, which fires for touch as well. <c>WebGlCanvas.HandlePointerMoveAsync</c> discards
+    /// the second, but only AFTER Blazor has serialized a full <c>PointerEventArgs</c> and crossed into
+    /// .NET, which is the entire cost of an event that was never going to be used: 812 dispatches and
+    /// 0.657 s in the traced session, every one thrown away.
+    ///
+    /// <para>The canvas now stops a touch-sourced pointermove at the target. This asserts the mechanism
+    /// at the exact boundary that matters: Blazor DELEGATES, registering one listener per event type on
+    /// <c>document</c>, and uses the capture phase only for its non-bubbling set (focus / blur /
+    /// mouseenter / pointerenter), which pointermove is not in. So a document-level bubble listener sees
+    /// precisely what Blazor's dispatcher would see.</para>
+    ///
+    /// <para>Mouse and pen must still get through: they have no bridge, so the pointer stream IS their
+    /// input, and blanket-stopping it would delete mouse dragging entirely.</para>
+    /// </summary>
+    [Fact]
+    public async Task ATouchPointerMoveIsStoppedBeforeBlazorButMouseAndPenGetThrough()
+    {
+        var page = await WarmSkyAtlasAsync();
+        var canvas = page.Locator("#planner");
+
+        var reached = await canvas.EvaluateAsync<string>("""
+            (el) => {
+              const seen = [];
+              const spy = (e) => seen.push(e.pointerType);
+              // Same target and phase as Blazor's own delegated listener.
+              document.addEventListener('pointermove', spy);
+              try {
+                for (const t of ['touch', 'mouse', 'pen']) {
+                  el.dispatchEvent(new PointerEvent('pointermove', {
+                    pointerType: t, bubbles: true, cancelable: true, clientX: 10, clientY: 10,
+                  }));
+                }
+              } finally {
+                document.removeEventListener('pointermove', spy);
+              }
+              return seen.join(',');
+            }
+            """);
+
+        Assert.Equal("mouse,pen", reached);
+    }
+
+    /// <summary>
     /// A dense gesture must not paint per event. The burst puts every wheel event in one JS task, so the
     /// browser has no chance to paint between them: a coalescing app paints once for the whole run, and
     /// one that does not paints 40 frames of which 39 are never seen.
