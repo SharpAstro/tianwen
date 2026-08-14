@@ -72,6 +72,14 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         public bool HandleInput(InputEvent evt) => evt switch
         {
+            // An open overlay owns the keyboard, and says so by having been PAINTED. Asked here, once, so
+            // that no widget owning a dropdown has to remember a routing case of its own. That step is
+            // exactly what was missing for the Live Session mode pill, and its absence showed only as the
+            // arrow keys doing nothing: the menu still opened, drew and took clicks. A claimant no longer on
+            // screen declines, so this falls straight through.
+            InputEvent.KeyDown(var claimKey, _) when _chrome.Ui.KeyboardClaimant?.HandleKeyDown(claimKey) == true
+                => Redraw(),
+
             InputEvent.KeyDown(var key, var modifiers) => HandleKeyDown(key, modifiers),
             InputEvent.MouseDown(var px, var py, _, var mods, var clicks) => HandleMouseDown(px, py, mods, (byte)clicks),
             InputEvent.MouseMove(var px, var py) => HandleMouseMove(px, py),
@@ -81,6 +89,13 @@ namespace TianWen.UI.Abstractions
             InputEvent.Pinch or InputEvent.PinchEnd => _chrome.ActiveTab?.HandleInput(evt) ?? false,
             _ => false
         };
+
+        /// <summary>Marks the frame dirty and reports the event as consumed.</summary>
+        private bool Redraw()
+        {
+            _appState.NeedsRedraw = true;
+            return true;
+        }
 
         // ===================================================================
         // Event routing: generic, no tab-specific logic

@@ -411,6 +411,16 @@ namespace TianWen.UI.Abstractions
 
         protected void ResolveFontPath()
         {
+            // Only when nothing has given us one. A STANDALONE host (tianwen-fits) is the whole app and has
+            // no chrome to inherit from, so it must resolve a face itself. EMBEDDED in a window that already
+            // has one, keep it: this viewer sits inside that window and should not label itself in a
+            // different face, and it certainly must not overwrite the window's font for everyone else
+            // sharing those settings.
+            if (!string.IsNullOrEmpty(FontPath))
+            {
+                return;
+            }
+
             var resolved = FontResolver.ResolveSystemFont();
             if (resolved.Length > 0)
             {

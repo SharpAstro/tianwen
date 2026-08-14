@@ -128,11 +128,11 @@ public class EquipmentTabState
     }
 
     // Filter name dropdown
-    public DropdownMenuState FilterNameDropdown { get; } = new();
+    public DropdownMenuState<string> FilterNameDropdown { get; } = new();
 
     // Profile-switcher dropdown, opened from the profile panel header. Lists AllProfiles plus
     // discovered "tianwen-server" rigs (docs/plans/remote-profile.md).
-    public DropdownMenuState ProfileDropdown { get; } = new();
+    public DropdownMenuState<string> ProfileDropdown { get; } = new();
 
     /// <summary>
     /// When non-null, the profile-switch-refused dialog is up showing this explanation (from

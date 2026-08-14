@@ -370,7 +370,7 @@ namespace TianWen.UI.Abstractions
         /// active posts <c>CancelPolarAlignmentSignal</c>. Hidden during sessions
         /// (the pill becomes the read-only phase indicator).
         /// </summary>
-        public DropdownMenuState ModeDropdown { get; } = new();
+        public DropdownMenuState<LiveSessionMode> ModeDropdown { get; } = new();
 
         /// <summary>Needs redraw flag, set from thread-pool callbacks and consumed
         /// by the render loop. Backed by <see cref="Interlocked.Exchange(ref int, int)"/>

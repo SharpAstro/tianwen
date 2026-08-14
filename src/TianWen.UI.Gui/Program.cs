@@ -301,6 +301,19 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnTextInput = text => handlers.HandleInput(new InputEvent.TextInput(text)),
 
+    // The IME's in-progress composition. This goes STRAIGHT to the focused field rather than through
+    // handlers.HandleInput, because it is not input to be interpreted: nothing may bind it, consume it, or
+    // treat it as a shortcut. It is the input method telling us what to draw until it commits, and the
+    // committed characters then arrive through OnTextInput above like any other text.
+    OnTextEditing = (text, cursor, length) =>
+    {
+        if (appState.TextInputFocus.Current is { } field)
+        {
+            field.SetComposition(text, cursor, length);
+            appState.NeedsRedraw = true;
+        }
+    },
+
     CheckNeedsRedraw = () =>
     {
         // Recompute targets when site/date changes (shared logic in AppSignalHandler)
@@ -392,6 +405,16 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
         if (appState.TextInputFocus.BlurIfUnpainted(guiRenderer.PaintedTextInputs()))
         {
             appState.NeedsRedraw = true;
+        }
+
+        // Tell the platform where the caret is, so an input method puts its candidate window beside the text
+        // rather than over it. SDL does not track our caret and has no other way to find out, so without this
+        // a CJK IME has nothing to anchor to. Sent after the paint, from the rect the caret was actually drawn
+        // at (the BlurIfUnpainted above guarantees a focused field was painted this frame), and only while a
+        // field is focused -- there is no area to report otherwise, and text input is stopped anyway.
+        if (appState.TextInputFocus.Current is not null && guiRenderer.FocusedCaretRect is { Width: > 0 } caret)
+        {
+            sdlWindow.SetTextInputArea(caret.UpperLeft.X, caret.UpperLeft.Y, (int)caret.Width, (int)caret.Height, 0);
         }
 
         // Only log frames that take meaningfully long, and rate-limit to once per

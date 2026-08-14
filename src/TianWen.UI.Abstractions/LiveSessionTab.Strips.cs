@@ -77,18 +77,26 @@ namespace TianWen.UI.Abstractions
                             dropdown.Close();
                             return;
                         }
+                        // Polar align is gated on real preconditions (a connected mount, a guide camera).
+                        // Stating that HERE, as a disabled entry carrying its reason, is what stopped the
+                        // row from being clickable-but-inert: the check used to run after the selection and
+                        // write its reason into the polar panel -- a panel you only reach by making the
+                        // selection that just failed, so the click simply looked dead.
+                        var (polarOk, polarWhy) = EvaluatePolarPreconditions(state);
+                        var modes = ImmutableArray.Create(
+                            new DropdownItem<LiveSessionMode>("Preview", LiveSessionMode.Preview),
+                            DropdownItem<LiveSessionMode>.When(polarOk, "Polar Align", LiveSessionMode.PolarAlign, polarWhy),
+                            new DropdownItem<LiveSessionMode>("Planetary", LiveSessionMode.Planetary),
+                            new DropdownItem<LiveSessionMode>("Flats", LiveSessionMode.Flats));
+
                         dropdown.Open(
                             pillX, pillY + pillH, pillW,
-                            ImmutableArray.Create("Preview", "Polar Align", "Planetary", "Flats"),
-                            (idx, _) =>
+                            modes,
+                            item =>
                             {
-                                var target = idx switch
-                                {
-                                    1 => LiveSessionMode.PolarAlign,
-                                    2 => LiveSessionMode.Planetary,
-                                    3 => LiveSessionMode.Flats,
-                                    _ => LiveSessionMode.Preview,
-                                };
+                                // The entry IS the mode: no index-to-enum switch to keep in step with the
+                                // label order.
+                                var target = item.Value;
                                 if (target == state.Mode)
                                 {
                                     return;
@@ -136,25 +144,20 @@ namespace TianWen.UI.Abstractions
                                 {
                                     case LiveSessionMode.PolarAlign:
                                     {
-                                        var (polarEnabled, polarReason) = EvaluatePolarPreconditions(state);
-                                        if (polarEnabled)
+                                        // No precondition re-check: the entry could not have been chosen
+                                        // unless it was enabled, and re-testing here would be a second
+                                        // verdict free to disagree with the one the user was shown.
+                                        // Switch into PolarAlign setup (PolarPhase.Idle); the panel's
+                                        // Start button fires StartPolarAlignmentSignal after the user
+                                        // reviews the config. Auto-enable the WCS grid so meridians
+                                        // appear once the first probe frame solves.
+                                        if (PreviewView is not null)
                                         {
-                                            // Switch into PolarAlign setup (PolarPhase.Idle); the panel's
-                                            // Start button fires StartPolarAlignmentSignal after the user
-                                            // reviews the config. Auto-enable the WCS grid so meridians
-                                            // appear once the first probe frame solves.
-                                            if (PreviewView is not null)
-                                            {
-                                                _previewState.ShowGrid = true;
-                                            }
-                                            state.Mode = LiveSessionMode.PolarAlign;
-                                            state.PolarPhase = PolarAlignmentPhase.Idle;
-                                            state.PolarStatusMessage = "Configure and click Start";
+                                            _previewState.ShowGrid = true;
                                         }
-                                        else
-                                        {
-                                            state.PolarStatusMessage = polarReason;
-                                        }
+                                        state.Mode = LiveSessionMode.PolarAlign;
+                                        state.PolarPhase = PolarAlignmentPhase.Idle;
+                                        state.PolarStatusMessage = "Configure and click Start";
                                         break;
                                     }
                                     case LiveSessionMode.Planetary:

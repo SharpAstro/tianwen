@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using DIR.Lib;
@@ -381,15 +382,17 @@ namespace TianWen.UI.Abstractions
                     width = labelWidth;
                 }
             }
+            // These entries ARE their labels, and the callers still think in indices, so the value carried
+            // is the label and the index comes from the array. Open seeds the highlight with the current
+            // selection directly -- it used to be assigned straight afterwards to undo Open resetting it.
+            var items = labels.Select(DropdownItem.Text).ToImmutableArray();
             state.ToolbarDropdown.Open(
                 bounds.X,
                 bounds.Y + bounds.Height,
                 width,
-                labels,
-                onSelect);
-            // Mark the current selection so the menu shows the active item on open
-            // (RenderDropdownMenu highlights HighlightIndex; Open resets it to -1).
-            state.ToolbarDropdown.HighlightIndex = selectedIndex;
+                items,
+                item => onSelect(items.IndexOf(item), item.Value),
+                highlightIndex: selectedIndex);
             state.NeedsRedraw = true;
         }
 

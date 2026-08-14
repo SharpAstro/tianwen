@@ -104,29 +104,27 @@ namespace TianWen.UI.Abstractions
             var rigLabels = LanPeer.ResolveLabels(rigs);
             var bound = State.BoundRigs;
 
-            var items = ImmutableArray.CreateBuilder<string>();
-            var actions = new List<Action>();
+            // Each row carries its own action, so there is no second list indexed by position: adding a
+            // row cannot get out of step with what choosing it does.
+            var items = ImmutableArray.CreateBuilder<DropdownItem<string>>();
 
             // "This computer" first, and only while a rig is on screen -- offering it otherwise would be
             // a no-op row on the overwhelmingly common local-only path.
             if (State.RemoteContextActive)
             {
-                items.Add("← This computer");
-                actions.Add(() => PostSignal(new SelectLocalContextSignal()));
+                items.Add(DropdownItem<string>.Action("← This computer", () => PostSignal(new SelectLocalContextSignal())));
             }
 
             foreach (var p in profiles)
             {
-                items.Add(p.DisplayName);
                 var profileId = p.ProfileId;
-                actions.Add(() => PostSignal(new SwitchProfileSignal(profileId)));
+                items.Add(DropdownItem<string>.Action(p.DisplayName, () => PostSignal(new SwitchProfileSignal(profileId))));
             }
 
             for (var i = 0; i < rigs.Count; i++)
             {
                 var label = rigLabels[i];
-                items.Add($"{label} (remote)");
-                actions.Add(() => PostSignal(new SelectRemoteRigSignal(label)));
+                items.Add(DropdownItem<string>.Action($"{label} (remote)", () => PostSignal(new SelectRemoteRigSignal(label))));
             }
 
             // Bound rigs discovery has not seen this run. Matched on node id, so a rig that is announcing
@@ -138,15 +136,11 @@ namespace TianWen.UI.Abstractions
                     continue;
                 }
 
-                items.Add($"{binding.Alias} (offline)");
                 var alias = binding.Alias;
-                actions.Add(() => PostSignal(new SelectRemoteRigSignal(alias)));
+                items.Add(DropdownItem<string>.Action($"{alias} (offline)", () => PostSignal(new SelectRemoteRigSignal(alias))));
             }
 
-            State.ProfileDropdown.Open(x, y, width, items.ToImmutable(), (idx, _) =>
-            {
-                if (idx >= 0 && idx < actions.Count) actions[idx]();
-            });
+            State.ProfileDropdown.Open(x, y, width, items.ToImmutable());
         }
 
         /// <summary>

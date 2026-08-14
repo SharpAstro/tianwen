@@ -32,82 +32,20 @@ namespace TianWen.UI.Gui
         private readonly VkImageRenderer _guiderViewer;
         private readonly VkImageRenderer _previewViewer;
         private readonly VkPlanetaryTab _planetaryTab;
+
         private ScheduledObservationTree? _cachedSchedule;
         private Target? _cachedActiveTarget;
         private uint _width;
         private uint _height;
 
-        /// <summary>
-        /// DPI scale factor, set by the host from the SDL window's DisplayScale (startup + resize).
-        /// Overrides the <see cref="PixelWidgetBase{T}.DpiScale"/> setter to propagate the new scale to
-        /// every child widget this chrome hosts, so tab layout + input math all read one owner -- no
-        /// per-Render parameter threading.
-        /// </summary>
-        public override float DpiScale
-        {
-            get => base.DpiScale;
-            set
-            {
-                base.DpiScale = value;
-                _plannerTab.DpiScale = value;
-                _equipmentTab.DpiScale = value;
-                _sessionTab.DpiScale = value;
-                _skyMapTab.DpiScale = value;
-                _liveSessionTab.DpiScale = value;
-                _guiderTab.DpiScale = value;
-                _notificationsTab.DpiScale = value;
-                _homeTab.DpiScale = value;
-                _guiderViewer.DpiScale = value;
-                _previewViewer.DpiScale = value;
-                _planetaryTab.DpiScale = value;
-            }
-        }
+        // No DpiScale / FontPath / EmojiFontPath / FontFallback overrides here any more. Every widget this
+        // chrome composes -- the eight tabs AND the three embedded viewers -- reads this chrome's
+        // PixelWidgetBase.Ui, so the host's one assignment is theirs too. The four propagation blocks that
+        // used to sit here each named all eight tabs, and the viewers were then hand-fed the DPI they could
+        // not be excluded from: display scale is a property of the WINDOW, and these all draw into one.
 
-        /// <summary>
-        /// The window's primary text font, resolved once by this chrome (<see cref="ResolveFontPath"/>).
-        /// Overrides the <see cref="PixelWidgetBase{T}.FontPath"/> setter to push the font to the seven plain
-        /// child tabs, so their layout + text math all read one owner -- no per-Render fontPath argument.
-        /// The two embedded image viewers and the planetary tab are <see cref="VkImageRenderer"/>s that
-        /// self-resolve their own font in their ctor, so they are deliberately not pushed here (unchanged).
-        /// </summary>
-        public override string FontPath
-        {
-            get => base.FontPath;
-            set
-            {
-                base.FontPath = value;
-                _plannerTab.FontPath = value;
-                _equipmentTab.FontPath = value;
-                _sessionTab.FontPath = value;
-                _skyMapTab.FontPath = value;
-                _liveSessionTab.FontPath = value;
-                _guiderTab.FontPath = value;
-                _notificationsTab.FontPath = value;
-                _homeTab.FontPath = value;
-            }
-        }
 
-        /// <summary>
-        /// Optional emoji/symbol fallback font, propagated to the same seven tabs as <see cref="FontPath"/>.
-        /// Only the Planner + Equipment tabs consume it today (planet/weather glyphs on the altitude chart);
-        /// the others ignore it harmlessly.
-        /// </summary>
-        public override string? EmojiFontPath
-        {
-            get => base.EmojiFontPath;
-            set
-            {
-                base.EmojiFontPath = value;
-                _plannerTab.EmojiFontPath = value;
-                _equipmentTab.EmojiFontPath = value;
-                _sessionTab.EmojiFontPath = value;
-                _skyMapTab.EmojiFontPath = value;
-                _liveSessionTab.EmojiFontPath = value;
-                _guiderTab.EmojiFontPath = value;
-                _notificationsTab.EmojiFontPath = value;
-                _homeTab.EmojiFontPath = value;
-            }
-        }
+
 
         /// <summary>Exposes the planner tab for external scroll control.</summary>
         public VkPlannerTab PlannerTab => _plannerTab;
@@ -175,6 +113,30 @@ namespace TianWen.UI.Gui
             }
 
             return painted;
+        }
+
+        /// <summary>
+        /// Where the focused field's caret was painted this frame, across chrome AND the active tab, or
+        /// <c>default</c> if no active field was drawn. The host hands this to
+        /// <c>SdlVulkanWindow.SetTextInputArea</c> so an input method can place its candidate window beside
+        /// the caret instead of over the text being typed.
+        /// <para>
+        /// It lives here for the same reason <see cref="CursorAt"/> does: which surfaces compose a frame is
+        /// this renderer's own knowledge, and a host asking just one of them would miss a field on the other.
+        /// The tab is asked first, mirroring paint order.
+        /// </para>
+        /// </summary>
+        public RectInt FocusedCaretRect
+        {
+            get
+            {
+                if (_activeTab is { } tab && tab.CaretRect is { Width: > 0 } fromTab)
+                {
+                    return fromTab;
+                }
+
+                return CaretRect;
+            }
         }
 
         /// <inheritdoc/>
@@ -344,6 +306,17 @@ namespace TianWen.UI.Gui
             _planetaryTab = new VkPlanetaryTab(renderer, width, height) { Bus = bus };
             // The planetary tab IS also the Live Session planetary-mode view (one instance, one ViewerState).
             _liveSessionTab.PlanetaryView = _planetaryTab;
+            // One assignment, after every child exists and before the first per-window value is resolved
+            // below: from here on they READ this chrome's settings instead of holding copies, so DPI, font,
+            // emoji face and fallback chain all reach them without being pushed -- and so will anything
+            // added later. The embedded viewers are included: they self-resolve a font only when nothing
+            // gave them one (the standalone tianwen-fits case), and they share this window's display scale
+            // because that is what a window HAS. Adopting these settings discards the face they resolved
+            // during their own construction, which is the intent -- a viewer inside this chrome should
+            // label itself in the chrome's face.
+            ShareUiContext(_plannerTab, _equipmentTab, _sessionTab, _skyMapTab,
+                           _liveSessionTab, _guiderTab, _notificationsTab, _homeTab,
+                           _guiderViewer, _previewViewer, _planetaryTab);
             ResolveFontPath();
         }
 
@@ -1058,6 +1031,39 @@ namespace TianWen.UI.Gui
                     FontPath = resolved;
                 }
             }
+
+            BuildFontFallback();
+        }
+
+        /// <summary>
+        /// The per-script fallback chain. Without one, ANY codepoint the primary face lacks renders as
+        /// nothing at all -- which is what made the search box look broken for Chinese input: the IME
+        /// committed correctly and the field held the right characters, but DejaVu Sans has no CJK cmap
+        /// entry, so there was nothing to draw and the field simply stayed blank.
+        /// </summary>
+        /// <remarks>
+        /// The per-OS script faces come from <see cref="FontResolver.ResolveSystemScriptFonts"/>, so this
+        /// app carries no font-name knowledge of its own -- every DIR.Lib consumer that draws user-supplied
+        /// text needs the same list, and each working it out separately would get a different, quietly
+        /// incomplete answer. Nothing is bundled for CJK on purpose: a Noto CJK face is ~17 MB each, a full
+        /// set is ~68 MB on every one of six AOT publishes, and binary releases here are already manual
+        /// specifically to stay inside the 1 GB/month LFS budget. Anyone who can TYPE Chinese has a Chinese
+        /// face installed.
+        /// </remarks>
+        private void BuildFontFallback()
+        {
+            if (string.IsNullOrEmpty(FontPath))
+            {
+                return;
+            }
+
+            // The emoji face rides the emoji ROLE, not the script list, so it is consulted ahead of the CJK
+            // faces: several of those incidentally carry the odd pictograph, and drawing one out of a
+            // multi-megabyte face when a dedicated colour font is present is both wrong and heavier.
+            FontFallback = FontFallbackResolver.FromRoles(
+                FontPath,
+                emojiFontPath: string.IsNullOrEmpty(EmojiFontPath) ? null : EmojiFontPath,
+                scriptFontPaths: FontResolver.ResolveSystemScriptFonts());
         }
     }
 }

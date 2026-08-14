@@ -84,8 +84,8 @@ namespace TianWen.UI.Abstractions
 
         public override bool HandleInput(InputEvent evt) => evt switch
         {
-            InputEvent.KeyDown(var key, _) when State.FilterNameDropdown.HandleKeyDown(key) => true,
-            InputEvent.KeyDown(var key, _) when State.ProfileDropdown.HandleKeyDown(key) => true,
+            // (The two dropdowns' key routing is gone: an open menu claims the keyboard when it paints, and
+            // the host asks once. See WindowUiSettings.KeyboardClaimant.)
             // ESC dismisses any active selection/confirmation before bubbling to quit
             InputEvent.KeyDown(InputKey.Escape, _) => DismissActiveState(),
             // An open, overflowing filter-name dropdown claims the wheel first (no-op when closed / fits /
