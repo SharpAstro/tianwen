@@ -106,9 +106,29 @@ measured problem P1 surfaces.
    **split by magnitude**: HR for the brightest (better color/photometry) + tyc2 for mag > HR-limit.
    Pick (b) if HR's colors look better on the bright end; else (a) is simpler. Upload as a second
    persistent instance buffer + a second `DrawInstanced`, or rebuild the one buffer.
-6. **Zoom-aware mag limit.** 2.5M stars at full-sky zoom is visual mush + overdraw; gate the drawn
-   magnitude limit on zoom (the sky map already has a zoom-aware mag limit for markers) so only the
-   appropriate density draws per view.
+6. **Zoom-aware mag limit. SHIPPED** (it was missed on the first cut, and the deployed atlas paid for
+   it: a trace of a real drag showed the GPU process 59% busy and **944 of 1287 frames dropped**,
+   because every frame submitted all ~2.5M instances -- ~15M vertices -- whatever the view showed).
+   Both star buffers are sorted brightest-first at build time and indexed into a 0.5-mag prefix
+   table, so the draw at `SkyMapState.EffectiveMagnitudeLimit` is a smaller instance count and
+   nothing else: no per-frame CPU pass, no re-upload. Measured on the real catalog
+   (`StarMagnitudeIndexTests`, 2,557,481 stars):
+
+   | Limit | Instances | Share |
+   |---|---:|---:|
+   | V<=6 (zoomed out) | 5,043 | 0.20% |
+   | V<=8.5 (default 60 deg FOV) | 78,422 | 3.07% |
+   | V<=10 | 359,375 | 14.05% |
+   | V<=12 (deep zoom) | 2,084,175 | 81.49% |
+
+   The arithmetic is `StarMagnitudeIndex` in Abstractions, shared with `VkSkyMapPipeline`, which has
+   culled this way for a while -- there the unbounded form did not merely drop frames, it **TDR'd an
+   Adreno X1-85**. That is the whole reason this is shared rather than reimplemented.
+
+   **Still open: the spatial cone cull at deep zoom.** The table above shows why -- past V~11 the
+   magnitude prefix stops bounding anything, and a 1-degree field still submits 80% of the catalog.
+   Vulkan solves it by drawing per spatial chunk with a `firstInstance` offset; WebGL2 has no
+   base-instance, so this needs an instance-offset draw in WebGl.Renderer first.
 
 ## P2: parallel decode (measurement-gated)
 
