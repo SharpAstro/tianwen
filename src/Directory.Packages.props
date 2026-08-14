@@ -234,8 +234,15 @@
          child at the cross-axis START, so a Fixed-height control in a taller bar hugged the top and sat
          half the slack high. The workaround was padding the bar and making every child Star-height, which
          also inset the label horizontally as a side effect; .CrossCenter() states the intent and lets the
-         engine, which knows both extents, do the arithmetic. -->
-    <PackageVersion Include="DIR.Lib" Version="7.21.*" />
+         engine, which knows both extents, do the arithmetic.
+         7.22 is a FLOOR bump, not an adoption: nothing here calls its new cursor API yet. SdlVulkan.Renderer
+         7.15 republished a patch (7.15.2351) that requires DIR.Lib >= 7.22.2191, and because our pins float
+         on the patch segment, restore picked that patch up against a 7.21.* DIR.Lib and failed NU1605 as an
+         error. No commit caused it, which is why main was green on its last run and would fail if re-run:
+         a floating pin makes any consumer's transitive floor OUR problem the moment they publish. Raise the
+         floor to keep the graph on ONE DIR.Lib rather than pinning SdlVulkan.Renderer back to an older
+         patch, which would only defer the same failure to the next republish. -->
+    <PackageVersion Include="DIR.Lib" Version="7.22.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
