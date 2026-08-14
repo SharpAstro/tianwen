@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
@@ -28,6 +28,24 @@ namespace TianWen.UI.Abstractions
         private readonly List<OverlayItem> _primOverlayItems = [];
         private bool _primOverlayHasKey;
         private PrimOverlayKey _primOverlayKey;
+
+        /// <summary>
+        /// How many times the candidate gather has actually run, the counterpart of
+        /// <see cref="SkyMapState.PlanetCacheRebuilds"/> and load-bearing for the same reason: the cost
+        /// of this cache is invisible from its output (a stale-keyed rebuild draws the identical frame,
+        /// just slower), so only a count can tell a cache that holds from one that misses every event.
+        /// Bumped by <see cref="BuildOverlayKeyForTest"/>'s production path, not by the test seam.
+        /// </summary>
+        internal int PrimOverlayGathers { get; private set; }
+
+        /// <summary>
+        /// The cache key for a given view, for tests that need to count key changes across a gesture
+        /// without driving a whole render (which needs a renderer, a font and a populated catalog).
+        /// Returns an opaque value -- only its equality across successive calls is meaningful.
+        /// </summary>
+        internal object BuildOverlayKeyForTest(
+            RectF32 contentRect, double fov, float cxView, float cyView, double ppr, PlannerState plannerState)
+            => BuildOverlayKey(contentRect, fov, cxView, cyView, ppr, showAllOverlays: true, showDark: false, plannerState);
 
         private readonly record struct PrimOverlayKey(
             double QuantRa, double QuantDec, double QuantFov,
@@ -74,6 +92,7 @@ namespace TianWen.UI.Abstractions
             var key = BuildOverlayKey(contentRect, fov, cxView, cyView, ppr, showAllOverlays, showDark, plannerState);
             if (!_primOverlayHasKey || !_primOverlayKey.Equals(key))
             {
+                PrimOverlayGathers++;
                 OverlayEngine.GatherSkyMapOverlayCandidates(
                     State.CurrentViewMatrix, fov, contentRect, dpiScale, db, pinned, _primOverlayCandidates);
 
@@ -239,7 +258,16 @@ namespace TianWen.UI.Abstractions
                     // Quantize the centre to FOV/8 cells (RA step widens by 1/cos(dec) so cells stay
                     // roughly square) -- matches the gather's scan margin so the cached set stays valid
                     // while the centre drifts inside a cell.
-                    var stepDeg = fov / 8.0;
+                    //
+                    // The step comes from the BUCKETED fov, never the raw one. Deriving it from the raw
+                    // value rescales the grid continuously, so during a zoom the rounded centre moves on
+                    // every event even when the centre is perfectly still -- the cache then misses per
+                    // tick and re-gathers the whole candidate set, which is the opposite of what the
+                    // quantFov bucketing above is for. Measured over a 60->30 degree pinch with a fixed
+                    // centre: 69 gathers from the raw fov against 8 from the bucketed one. It made a
+                    // pinch the most expensive gesture in the app (touchmove p95 91 ms, max 246 ms)
+                    // while a pan of 1.4h of RA cost 3 gathers.
+                    var stepDeg = quantFov / 8.0;
                     quantDec = Math.Round(centreDec / stepDeg) * stepDeg;
                     var cosDec = Math.Max(Math.Abs(Math.Cos(quantDec * Math.PI / 180.0)), 0.05);
                     var stepRaH = stepDeg / 15.0 / cosDec;
