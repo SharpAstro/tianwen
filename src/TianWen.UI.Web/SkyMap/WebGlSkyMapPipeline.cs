@@ -324,6 +324,11 @@ namespace TianWen.UI.Web.SkyMap
         private GpuBufferHandle _stars;
         private int _starCount;
 
+        // Magnitude -> instance-count prefix tables for the two star buffers, both of which are kept
+        // sorted brightest-first so the draw can cull to a prefix. See the star draw in Draw.
+        private uint[] _starMagBins = [];
+        private uint[] _tycho2MagBins = [];
+
         // The full ~2.5M-star Tycho-2 field, lazily fetched + decoded on first atlas-open (the
         // ~30 MB catalog is stripped from the WASM bundle, so the browser host fetches it as a
         // static asset and hands the built instance buffer to SubmitTycho2Stars). Until it lands
@@ -335,6 +340,7 @@ namespace TianWen.UI.Web.SkyMap
         private bool _tycho2Applied;
         private float[]? _pendingTycho2Verts;
         private int _pendingTycho2Count;
+        private uint[] _pendingTycho2MagBins = [];
         private GpuBufferHandle _figures;
         private int _figureVertexCount;
         private GpuBufferHandle _boundaries;
@@ -397,7 +403,13 @@ namespace TianWen.UI.Web.SkyMap
             // Lightweight build has no Tycho-2, and HR needs no HIP cross-identity resolution).
             var stars = SkyMapGpuGeometry.BuildHrStarInstances(db);
             _starCount = stars.Count / SkyMapState.FloatsPerStar;
-            _stars = _renderer.CreateBuffer(CollectionsMarshal.AsSpan(stars));
+            // Sorted + indexed before upload, on the same terms as the Tycho-2 buffer, so the seed
+            // and the full field cull identically instead of the switch between them changing which
+            // stars a given zoom shows.
+            var starSpan = CollectionsMarshal.AsSpan(stars);
+            StarMagnitudeIndex.SortBrightestFirst(starSpan);
+            _starMagBins = StarMagnitudeIndex.ComputeBins(starSpan);
+            _stars = _renderer.CreateBuffer(starSpan);
 
             var figures = SkyMapGpuGeometry.BuildConstellationFigureLines(db);
             _figureVertexCount = figures.Count / 3;
@@ -432,6 +444,16 @@ namespace TianWen.UI.Web.SkyMap
         /// </summary>
         public void SubmitTycho2Stars(float[] verts, int starCount)
         {
+            // Sort + index HERE, not in ApplyPendingTycho2: this is the off-render-loop entry point
+            // (the host's fetch task), while the apply step runs on the render thread and has to stay
+            // cheap. Sorting brightest-first is what makes the magnitude cull in Draw a prefix count.
+            if (starCount > 0)
+            {
+                var span = verts.AsSpan(0, starCount * SkyMapState.FloatsPerStar);
+                StarMagnitudeIndex.SortBrightestFirst(span);
+                _pendingTycho2MagBins = StarMagnitudeIndex.ComputeBins(span);
+            }
+
             _pendingTycho2Verts = verts;
             _pendingTycho2Count = starCount;
         }
@@ -455,8 +477,12 @@ namespace TianWen.UI.Web.SkyMap
 
             _tycho2Stars = _renderer.CreateBuffer(verts.AsSpan(0, _pendingTycho2Count * SkyMapState.FloatsPerStar));
             _tycho2StarCount = _pendingTycho2Count;
+            _tycho2MagBins = _pendingTycho2MagBins;
+            _pendingTycho2MagBins = [];
             _tycho2Applied = true;
-            Console.WriteLine($"[tianwen-web] sky geometry: upgraded to Tycho-2 ({_tycho2StarCount} stars)");
+            Console.WriteLine(
+                $"[tianwen-web] sky geometry: upgraded to Tycho-2 ({_tycho2StarCount} stars, "
+                + $"{StarMagnitudeIndex.VisibleCount(_tycho2MagBins, 8.5f)} of them at V<=8.5)");
         }
 
         /// <summary>Uploads the shared 112-byte view block to both pipelines (each has its own
@@ -598,15 +624,36 @@ namespace TianWen.UI.Web.SkyMap
             // Star field on top: the full Tycho-2 catalog once it has been fetched + swapped in,
             // otherwise the HR bright-star seed (the bundle bootstrap). Never both - additive blend
             // would double every star the two share, so this is a switch, not an overlay.
+            //
+            // MAGNITUDE CULL. Both buffers are sorted brightest-first, so the stars at or above the
+            // view's effective limit are a PREFIX and drawing them is just a smaller instance count.
+            // Without it every frame submitted all ~2.5M Tycho-2 instances (~15M vertices) whatever
+            // the view showed, which is what pinned the GPU process at 59% during a drag and dropped
+            // 944 of 1287 frames. The desktop pipeline has culled this way for a while -- there the
+            // unbounded form did not merely drop frames, it TDR'd an Adreno X1-85.
+            //
+            // Unlike Vulkan this is ONE prefix over the whole buffer rather than a per-chunk prefix
+            // over the spatially-culled chunks: WebGL2 has no base-instance, so a chunked draw would
+            // need an instance offset the renderer cannot express today. The magnitude prefix is the
+            // large win and needs no such support; the spatial cone cull is the remaining refinement.
+            var magLimit = state.EffectiveMagnitudeLimit;
             if (_tycho2Applied && _tycho2StarCount > 0)
             {
-                _renderer.UsePipeline(_starPipeline);
-                _renderer.DrawInstanced(_cornerQuad, 6, _tycho2Stars, _tycho2StarCount);
+                var visible = (int)StarMagnitudeIndex.VisibleCount(_tycho2MagBins, magLimit);
+                if (visible > 0)
+                {
+                    _renderer.UsePipeline(_starPipeline);
+                    _renderer.DrawInstanced(_cornerQuad, 6, _tycho2Stars, visible);
+                }
             }
             else if (_starCount > 0)
             {
-                _renderer.UsePipeline(_starPipeline);
-                _renderer.DrawInstanced(_cornerQuad, 6, _stars, _starCount);
+                var visible = (int)StarMagnitudeIndex.VisibleCount(_starMagBins, magLimit);
+                if (visible > 0)
+                {
+                    _renderer.UsePipeline(_starPipeline);
+                    _renderer.DrawInstanced(_cornerQuad, 6, _stars, visible);
+                }
             }
         }
     }

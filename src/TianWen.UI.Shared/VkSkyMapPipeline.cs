@@ -707,7 +707,7 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
                 }
 
                 // Magnitude cull: only this chunk's brightest-first prefix at the current limit.
-                var n = GetVisibleStarCount(chunk.MagBins, effMag);
+                var n = StarMagnitudeIndex.VisibleCount(chunk.MagBins, effMag);
                 if (n == 0)
                 {
                     continue;
@@ -836,37 +836,6 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
     // ────────────────────────────────────────────────── Geometry builders
 
     /// <summary>
-    /// Sorts the flat star float array by the magnitude field (index 3 of each 5-float record).
-    /// Uses Array.Sort on a temporary index array to avoid copying 20-byte records.
-    /// </summary>
-    private static void SortStarsByMagnitude(Span<float> span, int floatsPerStar)
-    {
-        var count = span.Length / floatsPerStar;
-        if (count <= 1) return;
-
-        // Build index + magnitude arrays for sorting
-        var indices = new int[count];
-        var mags = new float[count];
-        for (var i = 0; i < count; i++)
-        {
-            indices[i] = i;
-            mags[i] = span[i * floatsPerStar + 3]; // vMag field
-        }
-
-        Array.Sort(mags, indices);
-
-        // Reorder the float data according to sorted indices
-        var sorted = new float[span.Length];
-        for (var i = 0; i < count; i++)
-        {
-            var srcOff = indices[i] * floatsPerStar;
-            var dstOff = i * floatsPerStar;
-            span.Slice(srcOff, floatsPerStar).CopyTo(sorted.AsSpan(dstOff, floatsPerStar));
-        }
-        sorted.AsSpan().CopyTo(span);
-    }
-
-    /// <summary>
     /// Partitions the flat star vertex span into a coarse RA/Dec grid, reorders it in place so
     /// each chunk's stars are contiguous, sorts each chunk brightest-first, and returns the
     /// per-chunk layout (instance range + 0.5-mag prefix bins + bounding cone). The draw then
@@ -934,8 +903,8 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
                 continue;
             }
             var sub = verts.Slice(offsets[c] * floatsPerStar, n * floatsPerStar);
-            SortStarsByMagnitude(sub, floatsPerStar);
-            var bins = ComputeMagBins(sub, floatsPerStar);
+            StarMagnitudeIndex.SortBrightestFirst(sub);
+            var bins = StarMagnitudeIndex.ComputeBins(sub);
             var (cx, cy, cz, radRad) = ComputeChunkCone(sub, floatsPerStar);
             chunks[c] = new StarChunk((uint)offsets[c], (uint)n, bins, cx, cy, cz, radRad);
         }
@@ -975,44 +944,6 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             }
         }
         return (ax, ay, az, MathF.Acos(Math.Clamp(minDot, -1f, 1f)));
-    }
-
-    /// <summary>
-    /// Computes the magnitude → instance-count lookup table from a brightest-first sorted star
-    /// vertex span. 30 bins covering V 0..15 in 0.5-mag steps. Pure function so the async rebuild
-    /// can compute each chunk's table on a background thread.
-    /// </summary>
-    private static uint[] ComputeMagBins(ReadOnlySpan<float> sortedSpan, int floatsPerStar)
-    {
-        const int bins = 30;
-        var magBins = new uint[bins];
-        var count = (uint)(sortedSpan.Length / floatsPerStar);
-
-        uint idx = 0;
-        for (var bin = 0; bin < bins; bin++)
-        {
-            var magThreshold = (bin + 1) * 0.5f;
-            while (idx < count && sortedSpan[(int)(idx * floatsPerStar + 3)] <= magThreshold)
-            {
-                idx++;
-            }
-            magBins[bin] = idx;
-        }
-        return magBins;
-    }
-
-    /// <summary>
-    /// Number of star instances to draw from a chunk for the given magnitude limit. Stars are
-    /// sorted brightest-first within the chunk, so this is just the prefix count from its bins.
-    /// </summary>
-    private static uint GetVisibleStarCount(uint[] magBins, float magLimit)
-    {
-        if (magBins.Length == 0)
-        {
-            return 0;
-        }
-        var bin = Math.Clamp((int)(magLimit * 2) - 1, 0, magBins.Length - 1);
-        return magBins[bin];
     }
 
     /// <summary>
