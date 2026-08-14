@@ -1,6 +1,6 @@
 ---
 name: release-tianwen
-description: Cut a TianWen binary release. Triggers a workflow_dispatch run of `.github/workflows/dotnet.yml` on `main`, which builds AOT publishes for all six RIDs (win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64) and creates a GitHub Release tagged `v4.2.<run_number>` with .tar.gz assets for tianwen-cli, tianwen-fits, tianwen-gui, and tianwen-server. Use when the user asks to release, ship, publish, or cut a TianWen release. NOT for sibling NuGet libraries -- use `/release-lib` for those.
+description: Cut a TianWen binary release. Triggers a workflow_dispatch run of `.github/workflows/dotnet.yml` on `main`, which builds AOT publishes for all six RIDs (win-x64, win-arm64, linux-x64, linux-arm64, osx-arm64, osx-x64) and creates a GitHub Release tagged `v<VersionMajorMinor>.<run_number>` with .tar.gz assets for tianwen-cli, tianwen-fits, tianwen-gui, and tianwen-server. Use when the user asks to release, ship, publish, or cut a TianWen release. NOT for sibling NuGet libraries -- use `/release-lib` for those.
 ---
 
 Usage: `/release-tianwen` (no arguments).
@@ -40,13 +40,20 @@ reports the resulting GitHub Release URL.
      If `origin/main..HEAD` > 0, user needs to push first (and re-run after
      CI passes -- otherwise release contains untested code).
 
-3. **Show the user what will happen.** Include the current `VERSION_PREFIX`
-   from `.github/workflows/dotnet.yml` and the next run number:
+3. **Show the user what will happen.** The version is NOT written in the
+   workflow any more -- since the 2026-08-09 conversion it derives from the
+   single `<VersionMajorMinor>` in `src/Directory.Build.props`, which CI reads
+   back into `VERSION_PREFIX`. Read it from there:
+   ```bash
+   grep -o '<VersionMajorMinor>[^<]*' src/Directory.Build.props | sed 's/.*>//'
+   ```
+   Then get the next run number:
    ```bash
    gh api "repos/SharpAstro/tianwen/actions/workflows/25402710/runs?per_page=1" \
      -q '.workflow_runs[0].run_number'
    ```
-   The release tag will be `v4.2.<that_number + 1>`.
+   The release tag will be `v<VersionMajorMinor>.<that_number + 1>`
+   (e.g. VersionMajorMinor 6.1 + run 1226 -> `v6.1.1226`).
 
 4. **Trigger the workflow.** Dispatch on main:
    ```bash
@@ -74,7 +81,7 @@ reports the resulting GitHub Release URL.
 
 7. **On success**: fetch the release URL and report it.
    ```bash
-   gh release view v4.2.<run_number> --json url --jq .url
+   gh release view v<VersionMajorMinor>.<run_number> --json url --jq .url
    ```
    Paste the URL into the chat.
 
@@ -103,7 +110,7 @@ reports the resulting GitHub Release URL.
 - `publish-nuget` runs on every push to main (gated on tests), independent
   of binary releases. The library can ship to NuGet without a binary
   release and vice versa.
-- Run number progression: as of 2026-04-26 the latest `run_number` is 627.
+- Run number progression: as of 2026-08-14 the latest `run_number` is 1226.
   Each push to main + each workflow_dispatch increments it.
 
 ## When NOT to use this skill
