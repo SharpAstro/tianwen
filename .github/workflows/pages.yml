@@ -106,7 +106,9 @@ jobs:
       - name: Bake comet assets (JPL sends no CORS headers, for SBDB or Horizons)
         run: |
           set -euo pipefail
-          dotnet run --project tools/bake-comets/BakeComets.csproj -c Release --nologo -- \
+          # No --nologo here: dotnet run forwards it PAST the -- separator to the app, whose parser
+          # rightly rejects an unknown argument (exit 2). DOTNET_NOLOGO is set in env: anyway.
+          dotnet run --project tools/bake-comets/BakeComets.csproj -c Release -- \
             --out src/TianWen.UI.Web/wwwroot \
             --seed https://sharpastro.github.io/tianwen/comets-apparitions.json \
             --max-fetches 120
