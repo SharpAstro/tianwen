@@ -130,6 +130,36 @@ from one physical sensor. Nothing borrows an APP map at runtime; they are only t
 Whether this clears the drizzled clusters is still open and needs the A/B re-run; the old sigma-8
 mask took 52 clusters to 35.
 
+### The A/B ran, 2026-08-15, and answers half of that
+
+`HotPixelMaskProbe` used to write two masters and say "diff them", asserting nothing. It now asserts,
+and the load-bearing assertion is that BOTH runs report `BayerDrizzle`: only the drizzle strategies
+read `IntegrationJob.BadPixelMask`, so an AHD fallback (which a too-small `TIANWEN_BPM_MAXLIGHTS`
+causes, below the 60 matched frames drizzle needs) shows no difference and the probe would pass by
+proving nothing.
+
+On 2025-12-28 Segaull+Thors_Helmet, ASI533MC Pro g121 60s against the 120s/-10C/g121 master dark,
+100 lights capped and 90 registered, both runs drizzle: **2119 px changed (0.0077% of frame) in 617
+clusters across all three channels, extreme outliers 162618 -> 161334.** So the mask is surgical and
+correctly signed.
+
+**That is not the same measurement as the 52 -> 35 above, and does not supersede it.** This counts
+clusters in the DIFFERENCE between the two masters; the 52 -> 35 counts hot-pixel clusters REMAINING
+in the master. A mask can change many pixels and still leave the visible clusters standing. The
+residual-cluster question therefore stays open, and the way to close it is to count clusters in the
+2026-08-15 re-bake's master for this session against the same session in `2025-2026-darkscaled`,
+which is known to carry them.
+
+### Note on how this document got re-derived
+
+The APP survey was re-run on 2026-08-15 while clearing the pre-rebake gate list, because the
+checklist still asserted "even sigma 2 is 15x short" and that had to be resolved before burning
+hours. The re-run reproduced this document's numbers exactly (28 files, 15 distinct after dropping
+12 content duplicates, K=15 core 18,393 px, K=1 union 19.935%) -- which is a useful independent
+confirmation and was also avoidable: the conclusion was already written down here, four sections up.
+**Grep the stats directory before re-running a survey.** The checklist was the stale artifact, not
+the measurement.
+
 ## Two method notes worth keeping
 
 **Row order was settled empirically, not assumed.** APP only began writing `ROWORDER` around
