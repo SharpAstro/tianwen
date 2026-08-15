@@ -29,6 +29,32 @@ namespace TianWen.UI.Abstractions
         private bool _primOverlayHasKey;
         private PrimOverlayKey _primOverlayKey;
 
+        // Whether the view is still moving, compared on the RAW field of view and centre. Not on the
+        // quantized cache key: a smooth zoom crosses a 10% FOV bucket only every ~9 frames, so a
+        // key-based test reads a gesture as a series of unrelated discrete changes and fires on
+        // almost none of its frames.
+        private double _primLastFov = double.NaN;
+        private double _primLastCentreRa = double.NaN;
+        private double _primLastCentreDec = double.NaN;
+
+        /// <summary>
+        /// True when labels were suppressed because the view moved on this frame, so the host owes a
+        /// repaint once the motion stops.
+        ///
+        /// <para><b>Labels are the overlay's dominant cost and the one part a moving view cannot
+        /// use.</b> Measured over a 40-frame dense zoom in the browser: placement plus text was
+        /// 3,275 ms against 1,253 for the gather, 605 for the markers and 306 for the projection --
+        /// about half of every frame, spent on text sliding past too fast to read. Markers keep
+        /// drawing throughout, so the sky itself never goes blank.</para>
+        ///
+        /// <para>The host must DEBOUNCE this, not answer it with an immediate frame. The browser has
+        /// no render loop, so a repaint requested straight away simply runs the suppression again and
+        /// asks once more; measured that way a 40-event gesture painted 159 frames instead of 40 and
+        /// spent more total time than it saved, even though each frame was 2.5x cheaper. One repaint
+        /// after the motion stops is the whole requirement.</para>
+        /// </summary>
+        internal bool OverlayLabelsPending { get; private set; }
+
         /// <summary>
         /// How many times the candidate gather has actually run, the counterpart of
         /// <see cref="SkyMapState.PlanetCacheRebuilds"/> and load-bearing for the same reason: the cost
@@ -45,6 +71,24 @@ namespace TianWen.UI.Abstractions
         /// callback, so a slow frame and a slow gather are the same sample until they are timed apart.
         /// </summary>
         internal double PrimOverlayGatherMs { get; private set; }
+
+        /// <summary>
+        /// Cumulative wall time in the per-frame overlay phases: projecting the cached candidates,
+        /// rasterising their markers, and placing plus drawing the labels.
+        ///
+        /// <para>Split out because the totals are misleading in the direction that costs work. The
+        /// gather is the eye-catching number -- 14 to 55 ms whenever it runs -- but on a dense zoom it
+        /// runs about four times while these three are paid on all forty frames, so a fix aimed at the
+        /// gather can be measured, correct, and worth almost nothing. That is exactly the wrong turn
+        /// these were added to prevent.</para>
+        /// </summary>
+        internal double PrimOverlayProjectMs { get; private set; }
+
+        /// <inheritdoc cref="PrimOverlayProjectMs"/>
+        internal double PrimOverlayMarkerMs { get; private set; }
+
+        /// <inheritdoc cref="PrimOverlayProjectMs"/>
+        internal double PrimOverlayLabelMs { get; private set; }
 
         /// <summary>
         /// The cache key for a given view, for tests that need to count key changes across a gesture
@@ -81,6 +125,7 @@ namespace TianWen.UI.Abstractions
             var fontPath = FontPath;
             if (contentRect.Width <= 0 || contentRect.Height <= 0)
             {
+                OverlayLabelsPending = false;
                 return;
             }
 
@@ -92,6 +137,7 @@ namespace TianWen.UI.Abstractions
             {
                 _primOverlayCandidates.Clear();
                 _primOverlayHasKey = false;
+                OverlayLabelsPending = false;
                 return;
             }
 
@@ -100,6 +146,18 @@ namespace TianWen.UI.Abstractions
             var cyView = contentRect.Y + contentRect.Height * 0.5f;
             var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, fov);
 
+            // The FIRST frame has no previous sample and therefore no motion. Deriving that from the
+            // NaN seeds instead (NaN != anything) made the first render report "moved" and suppress
+            // its labels -- invisible on a host that debounces a repaint, permanent on one that does
+            // not paint again by itself, which is how the offline renderer sees it.
+            var hasPreviousView = !double.IsNaN(_primLastFov);
+            var viewMoved = hasPreviousView
+                && (fov != _primLastFov
+                    || State.CenterRA != _primLastCentreRa
+                    || State.CenterDec != _primLastCentreDec);
+            _primLastFov = fov;
+            _primLastCentreRa = State.CenterRA;
+            _primLastCentreDec = State.CenterDec;
             var key = BuildOverlayKey(contentRect, fov, cxView, cyView, ppr, showAllOverlays, showDark, plannerState);
             if (!_primOverlayHasKey || !_primOverlayKey.Equals(key))
             {
@@ -123,6 +181,7 @@ namespace TianWen.UI.Abstractions
 
             if (_primOverlayCandidates.Count == 0)
             {
+                OverlayLabelsPending = false;
                 return;
             }
 
@@ -144,20 +203,33 @@ namespace TianWen.UI.Abstractions
             // and so is ~100 px whatever the shape's size, while the projection extends its margin
             // by the shape's actual on-screen semi-major axis. A large nebula centred just off the
             // viewport got a label but no marker.
+            var projectStart = System.Diagnostics.Stopwatch.GetTimestamp();
             OverlayEngine.ProjectSkyMapCandidatesInto(_primOverlayCandidates, State, contentRect, dpiScale, _primOverlayItems);
+            PrimOverlayProjectMs += System.Diagnostics.Stopwatch.GetElapsedTime(projectStart).TotalMilliseconds;
             if (_primOverlayItems.Count == 0)
+            {
+                OverlayLabelsPending = false;
+                return;
+            }
+
+            var markerStart = System.Diagnostics.Stopwatch.GetTimestamp();
+            DrawOverlayMarkers(_primOverlayCandidates, _primOverlayItems, PrimOverlayGathers,
+                arcminToPixels, ppr, cxView, cyView, dpiScale, fovAlpha, dimBelowHorizon, site);
+            PrimOverlayMarkerMs += System.Diagnostics.Stopwatch.GetElapsedTime(markerStart).TotalMilliseconds;
+
+            // Pass 2: labels via the shared best-effort placement (stable slots) + DrawText, over the
+            // items projected once above -- skipped entirely while the view is moving, which is where
+            // roughly half of a gesture's frame time was going.
+            OverlayLabelsPending = viewMoved;
+            if (OverlayLabelsPending)
             {
                 return;
             }
 
-            DrawOverlayMarkers(_primOverlayCandidates, _primOverlayItems, PrimOverlayGathers,
-                arcminToPixels, ppr, cxView, cyView, dpiScale, fovAlpha, dimBelowHorizon, site);
-
-            // Pass 2: labels via the shared best-effort placement (stable slots) + DrawText, over the
-            // items projected once above.
             var labelSize = baseFontSize * dpiScale * 0.85f;
             var lineH = labelSize * 1.2f;
             var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
+            var labelStart = System.Diagnostics.Stopwatch.GetTimestamp();
             OverlayEngine.PlaceLabelsBestEffort(_primOverlayItems, labelSize, 4f, measureText,
                 (item, lx, ly) =>
                 {
@@ -196,6 +268,7 @@ namespace TianWen.UI.Abstractions
                             _ => PostSignal(new SkyMapClickSelectSignal(objX, objY, InputModifier.None)));
                     }
                 });
+            PrimOverlayLabelMs += System.Diagnostics.Stopwatch.GetElapsedTime(labelStart).TotalMilliseconds;
         }
 
         /// <summary>

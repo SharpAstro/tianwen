@@ -27,7 +27,8 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
     private static bool Enabled => Environment.GetEnvironmentVariable("TIANWEN_WEB_PROBE") == "1";
 
     private readonly record struct Stats(
-        int Frames, int Gathers, double RenderMs, double GatherMs, int Uploads);
+        int Frames, int Gathers, double RenderMs, double GatherMs, int Uploads,
+        double ProjectMs, double MarkerMs, double LabelMs);
 
     private static async Task<Stats> ReadAsync(IPage page)
     {
@@ -41,7 +42,19 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
             r.GetProperty("gatherMs").GetDouble(),
             // Absent on any build predating the instanced overlay; -1 is the "old artifact" signal
             // RequireInstancedOverlayAsync turns into a failure.
-            r.TryGetProperty("uploads", out var u) ? u.GetInt32() : -1);
+            r.TryGetProperty("uploads", out var u) ? u.GetInt32() : -1,
+            Phase(r, "projectMs"), Phase(r, "markerMs"), Phase(r, "labelMs"));
+    }
+
+    /// <summary>A per-phase timer, or 0 on a build that predates it (so an old artifact still reads).</summary>
+    private static double Phase(JsonElement r, string name)
+        => r.TryGetProperty(name, out var v) ? v.GetDouble() : 0.0;
+
+    private static Stats Sub(Stats a, Stats b)
+    {
+        return new Stats(a.Frames - b.Frames, a.Gathers - b.Gathers, a.RenderMs - b.RenderMs,
+            a.GatherMs - b.GatherMs, a.Uploads - b.Uploads,
+            a.ProjectMs - b.ProjectMs, a.MarkerMs - b.MarkerMs, a.LabelMs - b.LabelMs);
     }
 
     /// <summary>
@@ -160,8 +173,7 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
             {
                 await CanvasGestures.WheelZoomAsync(page, canvas, events: 1, deltaPerEvent, burst: false);
                 var c = await ReadAsync(page);
-                var d = new Stats(c.Frames - p0.Frames, c.Gathers - p0.Gathers,
-                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads);
+                var d = Sub(c, p0);
                 p0 = c;
                 var fov = await FovAsync(page);
                 rows.Add((fov, d));
@@ -227,7 +239,8 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
                 await CanvasGestures.TrackpadPinchAsync(page, canvas, events: 1, deltaPerEvent: -1.5, burst: false);
                 var c = await ReadAsync(page);
                 acc.Add(new Stats(c.Frames - p0.Frames, c.Gathers - p0.Gathers,
-                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads));
+                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads,
+                    c.ProjectMs - p0.ProjectMs, c.MarkerMs - p0.MarkerMs, c.LabelMs - p0.LabelMs));
                 p0 = c;
             }
             return acc;
@@ -246,7 +259,8 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
                 await CanvasGestures.TrackpadPinchAsync(page, canvas, events: 1, deltaPerEvent: +1.5, burst: false);
                 var c = await ReadAsync(page);
                 offRows.Add(new Stats(c.Frames - p0.Frames, c.Gathers - p0.Gathers,
-                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads));
+                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads,
+                    c.ProjectMs - p0.ProjectMs, c.MarkerMs - p0.MarkerMs, c.LabelMs - p0.LabelMs));
                 p0 = c;
             }
         }
@@ -269,7 +283,8 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
                 await CanvasGestures.TrackpadPinchAsync(page, canvas, events: 1, deltaPerEvent: +8.0, burst: false);
                 var c = await ReadAsync(page);
                 wide.Add(new Stats(c.Frames - p0.Frames, c.Gathers - p0.Gathers,
-                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads));
+                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads,
+                    c.ProjectMs - p0.ProjectMs, c.MarkerMs - p0.MarkerMs, c.LabelMs - p0.LabelMs));
                 p0 = c;
             }
         }
@@ -369,8 +384,7 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
             var fovBefore = await FovAsync(page);
             await CanvasGestures.WheelZoomAsync(page, canvas, events: 1, deltaPerEvent: +120.0, burst: false);
             var cur = await ReadAsync(page);
-            var d = new Stats(cur.Frames - prev.Frames, cur.Gathers - prev.Gathers,
-                cur.RenderMs - prev.RenderMs, cur.GatherMs - prev.GatherMs, cur.Uploads - prev.Uploads);
+            var d = Sub(cur, prev);
             prev = cur;
             rows.Add((fovBefore, d));
             output.WriteLine($"{i,4} {fovBefore,8:F1} {d.Gathers,8} {d.Uploads,8} {d.RenderMs,9:F1} {d.GatherMs,9:F1}");
@@ -393,5 +407,69 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
                     ? $"  |  {noGather.Count} without a gather: {noGather.Average(r => r.S.RenderMs):F1} ms mean"
                     : ""));
         }
+    }
+
+    /// <summary>
+    /// The cost of a DENSE zoom, which is the gesture the coarse sweep above cannot measure: with a
+    /// large per-event delta the field of view clamps at 180 within a few steps, so 24 of 30 steps
+    /// move nothing and cross no FOV bucket. A real wheel or trackpad delivers ~1.5 units per event,
+    /// crossing a bucket every few frames -- and a gather is 14-55 ms in the browser, so that is a
+    /// dropped frame per bucket for the length of the gesture.
+    ///
+    /// <para>Both routes are driven because they are different code paths: a trackpad two-finger
+    /// pinch arrives as ctrl+wheel through the Blazor wheel binding, a mouse wheel as a plain one.
+    /// The overlay is also driven ON and off, because the difference between them IS the overlay's
+    /// share -- the base frame (star field, lines, chrome) is over half the 60 fps budget on its own,
+    /// so a total with no baseline beside it cannot say what the overlay costs.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task DenseZoomCost(bool ctrlPinch, bool overlayOn)
+    {
+        Assert.SkipUnless(Enabled, "set TIANWEN_WEB_PROBE=1 to run this measurement");
+
+        var page = await fixture.NewPageAsync();
+        await page.GotoAsync(fixture.BaseUrl + "?e2e=1", new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await Expect(page.Locator("[data-view=planner]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
+        await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
+        await page.Locator("[data-view=sky]").ClickAsync();
+        await Expect(page.Locator("[data-view=sky]")).ToHaveClassAsync(ActiveClass, new() { Timeout = BootTimeout });
+
+        var canvas = page.Locator("#planner");
+        await canvas.ClickAsync();
+        if (overlayOn)
+        {
+            await ToggleAsync(page, canvas, "o");
+        }
+
+        const int events = 40;
+        const double delta = -1.5;
+        var before = await ReadAsync(page);
+        var fov0 = await FovAsync(page);
+        if (ctrlPinch)
+        {
+            await CanvasGestures.TrackpadPinchAsync(page, canvas, events, delta, burst: false);
+        }
+        else
+        {
+            await CanvasGestures.WheelZoomAsync(page, canvas, events, delta, burst: false);
+        }
+        await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+        var after = await ReadAsync(page);
+        var fov1 = await FovAsync(page);
+
+        var frames = after.Frames - before.Frames;
+        var render = after.RenderMs - before.RenderMs;
+        output.WriteLine($"=== {(ctrlPinch ? "trackpad pinch (ctrl+wheel)" : "plain wheel")}, "
+            + $"[O] {(overlayOn ? "ON" : "off")}: {events} events, fov {fov0:F1} -> {fov1:F1} ===");
+        var d = Sub(after, before);
+        output.WriteLine($"  {d.Gathers} gathers, {d.Uploads} uploads, {frames} frames, "
+            + $"{render:F0} ms render ({render / Math.Max(1, frames):F1} ms/frame)");
+        output.WriteLine($"  phases: gather {d.GatherMs:F0} | project {d.ProjectMs:F0} | markers {d.MarkerMs:F0} "
+            + $"| labels {d.LabelMs:F0} ms  (overlay {d.GatherMs + d.ProjectMs + d.MarkerMs + d.LabelMs:F0} of "
+            + $"{render:F0} ms = {100 * (d.GatherMs + d.ProjectMs + d.MarkerMs + d.LabelMs) / Math.Max(1, render):F0}%)");
     }
 }
