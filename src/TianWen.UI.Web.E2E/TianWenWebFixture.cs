@@ -48,7 +48,12 @@ public sealed class TianWenWebFixture : IAsyncLifetime
         _playwright = await Playwright.CreateAsync();
         Browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
         {
-            Headless = true,
+            // TIANWEN_E2E_HEADED=1 drives a VISIBLE browser, which is the only way to exercise the
+            // real GPU: headless Chromium falls back to SwiftShader, so a WebGL defect that depends
+            // on the actual driver (this box is win-arm64 / Adreno via ANGLE) renders perfectly
+            // headless and is invisible to every headless assertion. Off by default -- a visible
+            // window steals focus and cannot run unattended.
+            Headless = Environment.GetEnvironmentVariable("TIANWEN_E2E_HEADED") != "1",
             Channel = string.IsNullOrWhiteSpace(channel) ? null : channel,
         });
     }
