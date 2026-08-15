@@ -249,6 +249,47 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void BestFlatPedestal_AnExposureMatchedDarkFlat_StillBeatsABias_WhenItsTemperatureIsOff()
+        {
+            // The case a per-degree constant weight got backwards. Dark current doubles per ~6 C, so
+            // a 1 C-off dark-flat still mis-removes only ~12% of the thermal term, against the 100%
+            // a temperature-PERFECT bias leaves standing. Preferring the bias here would trade an
+            // eighth of the error for all of it.
+            var bias = Group(FrameType.Bias, 0, -5);
+            var slightlyWarmDarkFlat = Group(FrameType.DarkFlat, 1, -4);
+            var flat = Group(FrameType.Flat, 1, -5);
+
+            CalibrationResolver.BestFlatPedestal([bias], [slightlyWarmDarkFlat], null, flat).ShouldBe(slightlyWarmDarkFlat);
+        }
+
+        [Fact]
+        public void BestFlatPedestal_AWildlyWarmDarkFlat_LosesToABias_AtTheBreakEven()
+        {
+            // The preference is not unconditional, and this is where it inverts: 12 C is two
+            // doublings, so the dark-flat subtracts ~4x the thermal signal the flat actually
+            // accumulated and leaves 3x t_flat of over-subtraction, against the bias's 1x of
+            // under-subtraction. Break-even sits at one doubling (~6 C).
+            var bias = Group(FrameType.Bias, 0, -5);
+            var wildlyWarmDarkFlat = Group(FrameType.DarkFlat, 1, 7);
+            var flat = Group(FrameType.Flat, 1, -5);
+
+            CalibrationResolver.BestFlatPedestal([bias], [wildlyWarmDarkFlat], null, flat).ShouldBe(bias);
+        }
+
+        [Fact]
+        public void BestFlatPedestal_AMislabeledLongDarkFlat_IsRefusedByTheSameGateAsADark()
+        {
+            // The gate reads exposure, never the label, in BOTH directions. The archive proves
+            // labels are unreliable (its dark-flats say DARK), so a 300s set that calls itself
+            // DARKFLAT is a light-dark and is refused exactly as one -- no pedestal rather than
+            // that amp glow, even with nothing else in the pool.
+            var lightDarkInDisguise = Group(FrameType.DarkFlat, 300, -5);
+            var flat = Group(FrameType.Flat, 1, -5);
+
+            CalibrationResolver.BestFlatPedestal(null, [lightDarkInDisguise], null, flat).ShouldBeNull();
+        }
+
+        [Fact]
         public void BestDark_RejectsDarkFromADifferentCamera_EvenWhenSensorGainTempExposureMatch()
         {
             // Two IMX533 bodies share dimensions + Bayer + gain + temp, but a dark is the CAMERA's own
