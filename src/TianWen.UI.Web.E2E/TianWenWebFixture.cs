@@ -10,6 +10,14 @@ namespace TianWen.UI.Web.E2E;
 /// launches one headless browser that every test opens a fresh, isolated context on. Mirrors
 /// chess's ChessWebFixture.
 ///
+/// <b>The auto-started server has served STALE content, twice.</b> Both times the build was green
+/// and the output timestamps were fresh, and it produced a false PASS (a measurement of code that
+/// predated the change) and later a false FAIL (a CSS rule that was in the file and in
+/// <c>bin/Release</c> but not in what the page loaded). When a result is surprising in either
+/// direction, start a dev server yourself, fetch the asset and confirm the change is IN it
+/// (<c>curl .../css/app.css</c>, or probe a <c>.wasm</c> for a new symbol), then point
+/// <c>TIANWEN_WEB_BASEURL</c> at that server. A verified server is the only trustworthy baseline.
+///
 /// Server: set <c>TIANWEN_WEB_BASEURL</c> to reuse a dev server you already have running (fast local
 /// iteration: the interpreted WASM cold-boot is slow, so reusing a warm server matters here);
 /// otherwise the fixture starts <c>dotnet run --project TianWen.UI.Web</c> itself and tears it down

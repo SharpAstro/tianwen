@@ -538,6 +538,13 @@ namespace TianWen.UI.Web.SkyMap
                 return;
             }
 
+            // Timed because it is the FIRST atlas frame and it is entirely synchronous: the HR seed,
+            // the figures, the boundaries, every grid scale and the ecliptic are all built here, on
+            // the one WASM thread, inside a paint. If this turns out to be seconds rather than
+            // milliseconds it needs the same build-up overlay the Tycho-2 phases have, which is a
+            // different fix (the overlay would have to paint a frame BEFORE this one).
+            var geometrySw = System.Diagnostics.Stopwatch.StartNew();
+
             // Unit quad corners as two triangles (per-vertex stream of the instanced star draw).
             _cornerQuad = _renderer.CreateBuffer([-1f, -1f, 1f, -1f, 1f, 1f, -1f, -1f, 1f, 1f, -1f, 1f]);
 
@@ -574,6 +581,8 @@ namespace TianWen.UI.Web.SkyMap
                 $"[tianwen-web] sky geometry: {_starCount} HR stars, {_figureVertexCount / 2} figure segments, "
                 + $"{_boundaryVertexCount / 2} boundary segments, buffers star={_stars.Id} corner={_cornerQuad.Id}");
             _geometryBuilt = true;
+            Console.WriteLine($"[tianwen-web] sky geometry built in {geometrySw.ElapsedMilliseconds} ms "
+                + $"({_starCount} HR stars, {_figureVertexCount + _boundaryVertexCount} figure/boundary vertices)");
         }
 
         /// <summary>

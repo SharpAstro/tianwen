@@ -57,6 +57,14 @@
     </div>
 
     <div class="canvas-host">
+        @* The atlas keeps building AFTER the catalog chip clears: the star field is fetched,
+           decompressed and flattened in phases that are synchronous stalls on the single WASM
+           thread. Without this the app looks finished and then freezes, which reads as a hang
+           rather than as loading. pointer-events:none so it can never swallow a click. *@
+        @if (_atlasBusy)
+        {
+            <div class="atlas-loading" data-atlas-loading aria-live="polite">@_atlasBusyText</div>
+        }
         @* WebGlCanvas (1.2) owns the hi-dpi plumbing: backing-buffer sizing, resize/dpr watching,
            backing-space input mapping, pointer capture (drags survive leaving the canvas), and
            focus - the JS helpers this host used to carry. *@
@@ -104,6 +112,25 @@
     string _status = "Loading…";
     (float X, float Y) _mouse;
     bool _ready;
+
+    // The atlas is still assembling itself: shown as an overlay, and canvas navigation is dropped
+    // while it is set. Dropping matters more than it looks -- the heavy phases are synchronous on
+    // the one WASM thread, so the BROWSER queues every pointer/wheel event that arrives during a
+    // stall and delivers the whole burst the moment it ends. Handling them then applies a second's
+    // worth of accumulated pan and zoom in one frame, which is how a stall turns into a jump.
+    bool _atlasBusy;
+    string _atlasBusyText = "";
+
+    // Canvas navigation is ignored while the atlas builds. Deliberately NOT applied to the DOM
+    // toolbar: Lat/Lon/Recompute stay usable, and they do not touch the half-built star field.
+    bool CanvasInputBlocked => _atlasBusy;
+
+    void SetAtlasBusy(bool busy, string text = "")
+    {
+        _atlasBusy = busy;
+        _atlasBusyText = text;
+        StateHasChanged();
+    }
     bool _busy;
     // Which canvas text field has the keyboard. The same owner the desktop uses, so the two hosts differ
     // only in what they BIND to its transition: SDL Start/StopTextInput there, showing and hiding the
@@ -866,25 +893,32 @@
         {
             // This "background" task runs inline until its first await; yield so the HR atlas
             // paints before the heavy work below (mirrors LoadCometsInBackgroundAsync).
+            SetAtlasBusy(true, "Loading star catalog...");
             await Task.Delay(30);
 
             // Warm path: the raw decompressed catalog cached from a prior visit skips BOTH the
             // ~30 MB fetch and the lzip decompress. It feeds the SAME DB path as the cold decode
             // (records + spatial index), so click-to-identify works identically on a cached load.
             var cachedRaw = await TryReadTycho2CacheAsync();
-            if (cachedRaw is { Length: > 0 } && Db.TryLoadTycho2BulkFromDecoded(cachedRaw))
+            if (cachedRaw is { Length: > 0 })
             {
-                FlattenAndSubmitTycho2("IndexedDB cache");
-                return;
+                await AtlasPhaseAsync("Building star field...");
+                if (Db.TryLoadTycho2BulkFromDecoded(cachedRaw))
+                {
+                    FlattenAndSubmitTycho2("IndexedDB cache");
+                    return;
+                }
             }
 
             // Cold path: fetch the compressed catalog, decompress, wire the DB + spatial index,
             // flatten to the GPU, then cache the raw decompressed bytes for next time.
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            await AtlasPhaseAsync("Downloading star catalog (30 MB)...");
             var lz = await Http.GetByteArrayAsync("tyc2.bin.lz");
             Console.WriteLine($"[tianwen-web] tyc2 fetch: {lz.Length / (1024 * 1024)} MB in {sw.ElapsedMilliseconds} ms");
 
             sw.Restart();
+            await AtlasPhaseAsync("Decompressing star catalog...");
             var raw = SharpAstro.Lzip.LzipDecoder.Decompress(lz);
             if (!Db.TryLoadTycho2BulkFromDecoded(raw))
             {
@@ -893,6 +927,7 @@
             }
             Console.WriteLine($"[tianwen-web] tyc2 decompress: {raw.Length / (1024 * 1024)} MB in {sw.ElapsedMilliseconds} ms");
 
+            await AtlasPhaseAsync("Building star field...");
             FlattenAndSubmitTycho2("decode");
             _ = SaveTycho2ToCacheAsync(raw); // persist the raw buffer (fire-and-forget; non-fatal)
         }
@@ -900,6 +935,23 @@
         {
             Console.WriteLine($"[tianwen-web] Tycho-2 catalog unavailable (HR-only atlas): {ex.Message}");
         }
+        finally
+        {
+            // In the finally so a 404 (a dev server with no baked catalog) cannot leave the app
+            // permanently overlaid and unnavigable.
+            SetAtlasBusy(false);
+            RenderFrame();
+        }
+    }
+
+    // Names the phase and gives the browser a frame to actually paint it before the next stall.
+    // The await is load-bearing, not cosmetic: every phase below runs synchronously on the one WASM
+    // thread, so a label set without yielding first is only ever rendered once the work it describes
+    // has already finished.
+    async Task AtlasPhaseAsync(string text)
+    {
+        SetAtlasBusy(true, text);
+        await Task.Delay(30);
     }
 
     // Flattens the loaded Tycho-2 records to 5-float star instances (shared desktop builder, dt=0)
@@ -1481,6 +1533,7 @@
 
     void OnPointerDown(CanvasPointerEventArgs e)
     {
+        if (CanvasInputBlocked) return;
         if (ActiveTab is not { } tab || e.Original.Button != 0) return;
         _pointerGestureActive = true; // a pause inside a drag is not the end of it (see ScheduleLabelSettle)
         var mods = ToModifiers(e.Original);
@@ -1525,6 +1578,7 @@
 
     void OnPointerMove(CanvasPointerEventArgs e)
     {
+        if (CanvasInputBlocked) return;
         if (ActiveTab is not { } tab) return;
         _mouse = (e.X, e.Y);
         // An active divider drag consumes the move (shared state machine with the desktop
@@ -1540,7 +1594,11 @@
 
     void OnPointerUp(CanvasPointerEventArgs e)
     {
+        // The release CLEARS the gesture flag before anything can return: a press that began before
+        // the atlas landed would otherwise end while input is blocked and leave the flag stuck on, so
+        // the labels would stay suppressed until the 700 ms backstop caught every later frame.
         _pointerGestureActive = false;
+        if (CanvasInputBlocked) return;
         if (ActiveTab is not { } tab) return;
         tab.HandleInput(new InputEvent.MouseUp(e.X, e.Y));
         if (_view == View.Planner)
@@ -1573,6 +1631,7 @@
 
     void OnWheel(CanvasWheelEventArgs e)
     {
+        if (CanvasInputBlocked) return;
         if (ActiveTab is not { } tab) return;
         var pixels = WheelPixels(e);
 
@@ -1603,6 +1662,7 @@
     // so the existing drag-pan handles it for free.
     void OnPinch(CanvasPinchEventArgs e)
     {
+        if (CanvasInputBlocked) return;
         if (ActiveTab is not { } tab) return;
         _pointerGestureActive = true; // fingers still down; the pinch END is what settles the labels
         tab.HandleInput(new InputEvent.Pinch((float)e.Scale, e.X, e.Y) { Source = PinchSource.Touchscreen });
@@ -1611,7 +1671,9 @@
 
     void OnPinchEnd()
     {
+        // Cleared before any early-out, for the same reason as OnPointerUp above.
         _pointerGestureActive = false;
+        if (CanvasInputBlocked) return;
         if (ActiveTab is not { } tab) return;
         tab.HandleInput(new InputEvent.PinchEnd());
         // Driving the map with two fingers is as clear a claim on it as a click, and touch cannot take
