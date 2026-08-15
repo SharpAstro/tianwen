@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Stat;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -254,28 +255,63 @@ public sealed class StackingPipeline(
         sw.Restart();
         var biasMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Bias), MasterFrameBuilder.BuildBiasMasterAsync, mastersDir, ct);
         var darkMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.Dark), MasterFrameBuilder.BuildDarkMasterAsync, mastersDir, ct);
+        // A dark-flat master is built exactly like a dark (median, pedestal retained); its job is
+        // to be the flat's pedestal below. It deliberately keeps its bias in, so subtracting it
+        // whole removes offset + the thermal signal the flat accumulated in one step (the DSS
+        // model reaches the same flat algebraically via bias-subtracted stages).
+        var darkFlatMasters = await BuildMastersAsync(byType.GetValueOrDefault(FrameType.DarkFlat), MasterFrameBuilder.BuildDarkMasterAsync, mastersDir, ct);
 
-        // Flats are built AFTER bias so each can have its own pedestal removed before it is
-        // normalised (a raw flat is offset + signal, and normalising that divides the offset in, so
-        // the master under-corrects by offset/(offset+signal): about 2% on a real ASI533 frame).
-        // The "_bs" suffix is load-bearing, not cosmetic. This cache trusts any file it finds, so
+        // Flats are built AFTER bias + dark-flats so each can have its own pedestal removed before
+        // it is normalised (a raw flat is offset + signal, and normalising that divides the offset
+        // in, so the master under-corrects by offset/(offset+signal): about 2% on a real ASI533
+        // frame). The suffix is load-bearing, not cosmetic. This cache trusts any file it finds, so
         // without a new name every existing masters/ directory would keep serving the uncalibrated
-        // flat it cached before this existed.
+        // flat it cached before this existed; and the suffix encodes the pedestal-candidate KINDS
+        // ("_bs" bias-only keeps every existing cache valid, "_dfs" dark-flats only, "_ps" both) so
+        // dark-flats appearing in an archive cannot silently leave a bias-pedestalled flat in
+        // service. Within one kind-landscape the match is deterministic; to force a refresh,
+        // delete outputDir/masters (unchanged contract).
         var flatFrames = byType.GetValueOrDefault(FrameType.Flat);
+        // Darks at a flat-like exposure are dark-flats whatever their label (N.I.N.A. writes
+        // flat-matched sets as IMAGETYP=DARK), so they join the pedestal pool behind the same
+        // hard ratio gate the resolver uses; a real light-dark never passes it. Computed against
+        // the DISTINCT flat exposures so the suffix below can treat them as the dark-flat kind.
+        var flatExposures = (flatFrames ?? []).Select(f => MasterGroupKey.FromFrame(f).Exposure).Distinct().ToList();
+        var pedestalDarkMasters = darkMasters
+            .Where(m => flatExposures.Any(fe => CalibrationResolver.FlatPedestalExposureCompatible(m.Key.Exposure, fe)))
+            .ToList();
         var flatMasters = await BuildMastersAsync(
             flatFrames,
             async (list, token) =>
             {
                 // Matched against the FLAT's own key, not a light's: the offset being removed is
-                // the one this flat was recorded with. MatchMaster's exposure term is a constant
-                // across bias candidates (they are all ~0 s), so temperature decides, as it should.
-                var (pedestal, pedestalKey) = MatchMaster(biasMasters, MasterGroupKey.FromFrame(list[0]));
+                // the one this flat was recorded with. One candidate pool of biases, dark-flats
+                // AND exposure-gated darks, because MatchMaster's exposure term is the physics of
+                // the choice: the pedestal error a candidate leaves behind is the thermal signal
+                // over |t_cand - t_flat|, so an exposure-matched dark-flat (gap ~0) beats a bias
+                // (gap = t_flat), while a lone mismatched dark-flat loses to a good bias instead
+                // of injecting thermal + glow the flat never accumulated. Across an all-bias pool
+                // the term is a constant (~0 s exposures), so temperature decides, as it always
+                // did. The gated darks are re-gated against THIS group's exposure (the pool gate
+                // above used any flat group's).
+                var flatKey = MasterGroupKey.FromFrame(list[0]);
+                var candidates = new List<(MasterGroupKey Key, Image Master)>(biasMasters.Count + darkFlatMasters.Count + pedestalDarkMasters.Count);
+                candidates.AddRange(biasMasters);
+                candidates.AddRange(darkFlatMasters);
+                candidates.AddRange(pedestalDarkMasters.Where(m => CalibrationResolver.FlatPedestalExposureCompatible(m.Key.Exposure, flatKey.Exposure)));
+                var (pedestal, pedestalKey) = MatchMaster(candidates, flatKey);
                 logger.LogInformation("  flat pedestal: {Pedestal}", pedestalKey?.Slug() ?? "NONE");
                 return await MasterFrameBuilder.BuildFlatMasterAsync(list, pedestal, token);
             },
-            mastersDir, ct, pathSuffix: biasMasters.Count > 0 ? "_bs" : "");
-        logger.LogInformation("[masters] {Bias} bias, {Dark} dark, {Flat} flat ready in {ElapsedMs} ms",
-            biasMasters.Count, darkMasters.Count, flatMasters.Count, sw.ElapsedMilliseconds);
+            mastersDir, ct, pathSuffix: (biasMasters.Count > 0, darkFlatMasters.Count > 0 || pedestalDarkMasters.Count > 0) switch
+            {
+                (true, true) => "_ps",
+                (true, false) => "_bs",
+                (false, true) => "_dfs",
+                _ => "",
+            });
+        logger.LogInformation("[masters] {Bias} bias, {Dark} dark, {DarkFlat} dark-flat, {Flat} flat ready in {ElapsedMs} ms",
+            biasMasters.Count, darkMasters.Count, darkFlatMasters.Count, flatMasters.Count, sw.ElapsedMilliseconds);
         hostTracker.Log(logger, "masters");
 
         // -----------------------------------------------------------------
