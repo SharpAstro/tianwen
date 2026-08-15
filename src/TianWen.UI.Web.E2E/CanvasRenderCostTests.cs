@@ -35,7 +35,8 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
     private const float BootTimeout = 120_000;
     private static readonly Regex ActiveClass = new(@"\bactive\b");
 
-    private readonly record struct RenderStats(int Frames, int Coalesced, int Gathers, bool Overlay, int Uploads);
+    private readonly record struct RenderStats(
+        int Frames, int Coalesced, int Gathers, bool Overlay, int Uploads, double LabelMs);
 
     private static async Task<RenderStats> GetStatsAsync(IPage page)
     {
@@ -47,7 +48,11 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
             r.GetProperty("coalesced").GetInt32(),
             r.GetProperty("gathers").GetInt32(),
             r.GetProperty("overlay").GetBoolean(),
-            r.GetProperty("uploads").GetInt32());
+            r.GetProperty("uploads").GetInt32(),
+            // Only ever advances on a frame that actually DREW labels, which is what makes it the
+            // observable for "did the labels come back" -- the pixels cannot say, since a frame with
+            // labels and a frame without are both correct renders of their own moment.
+            r.GetProperty("labelMs").GetDouble());
     }
 
     /// <summary>
@@ -265,5 +270,103 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
             + $"gathers +{afterPan.Gathers - before.Gathers} over {painted} painted frames");
         Assert.True(afterZoom.Uploads > afterPan.Uploads,
             "a zoom must re-upload the instance buffer; it changes the scale every marker is sized by");
+    }
+
+    /// <summary>
+    /// Labels must not blink back mid-drag. They are hidden while the view moves (about half a gesture's
+    /// frame time, spent on text sliding past too fast to read) and drawn again once it stops -- and a
+    /// pure DELAY cannot tell a pause from an end. Measured over a real touch session: 3.7% of the gaps
+    /// between moves WITHIN one gesture were longer than the 120 ms debounce (33 of them), so the labels
+    /// came back mid-drag and the next move hid them again. That is the reported flicker, and shortening
+    /// the delay makes it worse (5.5% of gaps clear 60 ms).
+    ///
+    /// <para>So a pointer gesture states when it is over rather than being timed: the press holds the
+    /// settle off, and the RELEASE brings the labels back by itself -- the release frame paints a view
+    /// that has not moved since the last one, so nothing is suppressed.</para>
+    /// </summary>
+    [Fact]
+    public async Task APauseInTheMiddleOfADragDoesNotFlashTheLabelsBack()
+    {
+        var page = await WarmSkyAtlasAsync();
+        var canvas = page.Locator("#planner");
+        var box = await canvas.BoundingBoxAsync() ?? throw new InvalidOperationException("canvas not visible");
+        var cx = box.X + (box.Width / 2);
+        var cy = box.Y + (box.Height / 2);
+
+        await EnsureObjectOverlayOnAsync(page, canvas);
+        try
+        {
+            await page.Mouse.MoveAsync((float)cx, (float)cy);
+            await page.Mouse.DownAsync();
+            for (var i = 1; i <= 6; i++)
+            {
+                await page.Mouse.MoveAsync((float)(cx + (i * 12)), (float)cy);
+            }
+            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+            var moving = await GetStatsAsync(page);
+
+            // Hold still, fingers/button still DOWN, well past the 120 ms settle. A human pausing to
+            // look at where they have dragged to is the everyday version of this.
+            await Task.Delay(500);
+            var paused = await GetStatsAsync(page);
+
+            await page.Mouse.UpAsync();
+            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+            await Task.Delay(300);
+            var released = await GetStatsAsync(page);
+
+            Assert.True(paused.LabelMs - moving.LabelMs < 0.01,
+                $"the labels were redrawn during a 500 ms pause inside a drag (+{paused.LabelMs - moving.LabelMs:F1} ms "
+                + "of label work): the next move hides them again, which is the flicker");
+            Assert.True(released.LabelMs - paused.LabelMs > 0,
+                "the labels never came back after the drag ended, so the suppression is permanent");
+        }
+        finally
+        {
+            await SetObjectOverlayAsync(page, canvas, on: false);
+        }
+    }
+
+    /// <summary>
+    /// An idle map must paint NOTHING. There is no render loop here, so a frame while nobody is touching
+    /// it can only come from the app asking for one -- and the label-settle repaint is exactly such a
+    /// request, scheduled by any frame that suppressed its labels for a moving view.
+    ///
+    /// <para><b>The failure mode is a self-feeding loop, not a wasted frame.</b> Motion is decided by
+    /// comparing the view centre against the previous frame's, and in ALT-AZ mode the equatorial centre
+    /// drifts with the live clock -- so a settle repaint arriving 120 ms later legitimately sees a moved
+    /// view, suppresses its labels again, and schedules another. The map then repaints for ever at ~8 fps
+    /// with the labels never landing, which is what a "flicker after the movement stops" looks like.</para>
+    ///
+    /// <para>Asserted over a window many times the settle delay, so one late repaint passes and a
+    /// standing loop cannot.</para>
+    /// </summary>
+    [Fact]
+    public async Task AnIdleMapPaintsNothingOnceTheLabelsHaveSettled()
+    {
+        var page = await WarmSkyAtlasAsync();
+        var canvas = page.Locator("#planner");
+
+        await EnsureObjectOverlayOnAsync(page, canvas);
+        try
+        {
+            // Move the view, so the labels are suppressed and a settle repaint is genuinely owed.
+            await CanvasGestures.WheelZoomAsync(page, canvas, events: 6, deltaPerEvent: -1.5, burst: false);
+
+            // Well past the 120 ms settle: anything after this point is unrequested.
+            await Task.Delay(800);
+            var settled = await GetStatsAsync(page);
+            await Task.Delay(2000);
+            var idle = await GetStatsAsync(page);
+
+            var painted = idle.Frames - settled.Frames;
+            Assert.True(painted <= 1,
+                $"the map painted {painted} frames over 2 s while nobody touched it: the label-settle "
+                + "repaint is re-arming itself, so the labels never land and the map never goes quiet");
+        }
+        finally
+        {
+            await SetObjectOverlayAsync(page, canvas, on: false);
+        }
     }
 }

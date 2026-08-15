@@ -325,6 +325,7 @@
     // Toolbar 📍: re-fetch the current position on demand (prompting if needed) and recompute.
     async Task RelocateAsync()
     {
+        RestoreCanvasFocus(); // the button click took the keyboard; give it straight back
         if (_busy) return;
         if (await TryGeolocateAsync(waitForPrompt: true))
         {
@@ -533,6 +534,31 @@
     }
 
     void DeactivateTextInput() => _focus.Blur();
+
+    // Hands the keyboard back to the canvas. The canvas IS the app -- [O], [D], F3, the arrows and every
+    // other shortcut are canvas keys -- but they ride DOM focus, and the canvas takes focus exactly ONCE
+    // (AutoFocus, at startup) with nothing anywhere to give it back. So the shortcuts die silently the
+    // first time focus leaves, while the map goes on panning and zooming perfectly, because pointer
+    // events need no focus: it reads as "[O] is broken", not as "the page cannot hear me".
+    //
+    // Both ways out are ordinary. Any chrome button (a view chip, Locate, Recompute) takes focus on
+    // click and keeps it. And TOUCH can never restore it, even by driving the map: the touch bridge
+    // calls preventDefault() on touchstart -- which is what stops the page scrolling under the fingers
+    // -- and that suppresses the browser's own focus-on-press along with it. A finger-driven session
+    // therefore has no way back at all, which is how this was reported.
+    //
+    // Deliberately a no-op while a canvas text field is focused: the floating <input> legitimately owns
+    // the keyboard then, and stealing it back would break typing and the IME with it. The lat/lon number
+    // fields are real DOM inputs and are never touched here for the same reason -- they are not buttons,
+    // so nothing calls this after clicking into them.
+    void RestoreCanvasFocus()
+    {
+        if (_focus.Current is not null || _canvas is null)
+        {
+            return;
+        }
+        _tracker.Run(() => _canvas.FocusAsync().AsTask(), "Focus canvas");
+    }
 
     // The active view's widget as the concrete pixel-widget base, for the region-rect scan
     // (GetRegisteredRegions is not on the IPixelWidget interface).
@@ -934,6 +960,7 @@
 
     async Task RecomputeAsync()
     {
+        RestoreCanvasFocus(); // the button click took the keyboard; give it straight back
         if (_busy || _webGl is null) return;
         _busy = true;
         try
@@ -962,17 +989,31 @@
     // and more total work than doing nothing.
     int _labelSettleGeneration;
 
+    // True between a press and its release (mouse, one-finger touch pan, or a pinch). A DELAY cannot
+    // tell a pause from an end, which is what made the labels flicker: measured over a real touch
+    // session, 3.7% of the gaps BETWEEN moves of a single gesture were longer than the 120 ms debounce
+    // -- 33 of them -- so the labels blinked back on mid-drag and were hidden again by the next move.
+    // Shortening the delay makes that worse (5.5% of gaps clear 60 ms) and lengthening it makes the
+    // real settle late. A pointer gesture knows when it is over, so it says so instead of being timed.
+    bool _pointerGestureActive;
+
     void ScheduleLabelSettle()
     {
         var generation = ++_labelSettleGeneration;
-        _ = SettleLabelsAsync(generation);
+        // Mid-gesture this is only a BACKSTOP, not the settle: the release repaints with labels itself
+        // (the view has not moved since the last frame, so nothing is suppressed). It exists because a
+        // gesture can end without a release reaching us -- a pointercancel the app never sees -- and
+        // without it the labels would then stay hidden until the next gesture ended. Set well past the
+        // longest observed within-gesture pause (397 ms) so a genuine pause never trips it.
+        var delayMs = _pointerGestureActive ? 700 : 120;
+        _ = SettleLabelsAsync(generation, delayMs);
     }
 
-    async Task SettleLabelsAsync(int generation)
+    async Task SettleLabelsAsync(int generation, int delayMs)
     {
         // Longer than a frame, shorter than a deliberate pause: a gesture's own events arrive far
-        // faster than this, so mid-gesture requests all supersede each other.
-        await Task.Delay(120);
+        // faster than this (median 8.3 ms, p90 26.5 ms), so mid-gesture requests supersede each other.
+        await Task.Delay(delayMs);
         if (generation != _labelSettleGeneration || _skyTab is null)
         {
             return; // superseded by a later frame of the same gesture
@@ -1125,6 +1166,9 @@
     async Task ToggleFullscreenAsync()
     {
         if (_canvas is { } c) await c.ToggleFullscreenAsync();
+        // After the transition, not before: entering fullscreen moves focus to the fullscreen element
+        // itself, so a restore beforehand would be undone by the very call it precedes.
+        RestoreCanvasFocus();
     }
 
     // Active view's widget for generic input routing (both are PixelWidgetBase<WebGlContext>).
@@ -1304,6 +1348,10 @@
 
     void SwitchView(View view)
     {
+        // The chip click just moved DOM focus onto that button, so hand it back (see
+        // RestoreCanvasFocus) -- BEFORE the early-out, so re-clicking the chip of the view you are
+        // already on is not the one path that leaves the map deaf to the keyboard.
+        RestoreCanvasFocus();
         if (_view == view) return;
         // Build the target from the app ROOT (Nav.BaseUri), NEVER from the current URI, and always
         // stamp an EXPLICIT "?view=" - "?view=planner" as well as "?view=sky" (symmetric + shareable).
@@ -1434,6 +1482,7 @@
     void OnPointerDown(CanvasPointerEventArgs e)
     {
         if (ActiveTab is not { } tab || e.Original.Button != 0) return;
+        _pointerGestureActive = true; // a pause inside a drag is not the end of it (see ScheduleLabelSettle)
         var mods = ToModifiers(e.Original);
         // Desktop order (GuiEventHandlerBase): hit-test the registered clickable regions FIRST
         // (planet/comet labels, reticles, planner rows), then feed the result to the shared
@@ -1462,6 +1511,11 @@
         // desktop order - a slider grab keeps the focused input).
         DeactivateTextInput();
 
+        // A press on the map claims the keyboard for it. This also covers a ONE-FINGER touch pan, which
+        // the JS bridge routes through these same pointer callbacks (see RestoreCanvasFocus for why
+        // touch cannot do it for itself).
+        RestoreCanvasFocus();
+
         if (hit is null)
         {
             tab.HandleInput(new InputEvent.MouseDown(e.X, e.Y, Modifiers: mods, ClickCount: (int)e.Original.Detail));
@@ -1486,6 +1540,7 @@
 
     void OnPointerUp(CanvasPointerEventArgs e)
     {
+        _pointerGestureActive = false;
         if (ActiveTab is not { } tab) return;
         tab.HandleInput(new InputEvent.MouseUp(e.X, e.Y));
         if (_view == View.Planner)
@@ -1549,14 +1604,20 @@
     void OnPinch(CanvasPinchEventArgs e)
     {
         if (ActiveTab is not { } tab) return;
+        _pointerGestureActive = true; // fingers still down; the pinch END is what settles the labels
         tab.HandleInput(new InputEvent.Pinch((float)e.Scale, e.X, e.Y) { Source = PinchSource.Touchscreen });
         RequestRenderCoalesced(); // touchscreen pinch: same density as the trackpad one
     }
 
     void OnPinchEnd()
     {
+        _pointerGestureActive = false;
         if (ActiveTab is not { } tab) return;
         tab.HandleInput(new InputEvent.PinchEnd());
+        // Driving the map with two fingers is as clear a claim on it as a click, and touch cannot take
+        // focus by itself (RestoreCanvasFocus explains why). Done on END, not on every pinch step: a
+        // pinch delivers a move per touchmove and a focus call per frame would be pure interop traffic.
+        RestoreCanvasFocus();
         RenderFrame();
     }
 
