@@ -98,13 +98,9 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     private readonly List<OverlayItem> _overlayItems = [];
     private readonly List<(OverlayItem Item, float X, float Y)> _overlayPlacedLabels = [];
 
-    // Per-frame instance buffer for the overlay ellipse pipeline -- 11 floats per
-    // instance (see OverlayEllipseVertexSource for layout: vec3 unit vector, vec2
-    // arcmin size, float PA-from-north, float thickness, vec4 rgba). Reused across
-    // frames to stay allocation-free during active pan. Only Ellipse / Circle
-    // markers go in here; Cross markers (stars, low count at wide FOV) still use
-    // the per-call DrawCross path.
-    private const int OverlayEllipseFloatsPerInstance = 11;
+    // Per-frame instance buffer for the overlay ellipse pipeline, filled by the shared
+    // OverlayEllipseInstances.Build (the browser pipeline fills its own buffer from the same
+    // builder). Reused across frames to stay allocation-free during active pan.
     private readonly List<float> _overlayEllipseInstances = new(1024);
 
     /// <summary>FOV threshold at which the scan bounds become view-matrix independent
@@ -434,94 +430,18 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // computes screen-space PA via a finite-difference, so we don't do any CPU
         // projection or atan2 screen-angle math here. Cross markers are drawn on the
         // per-item CPU path below (rectangle primitive, few stars at wide FOV).
-        _overlayEllipseInstances.Clear();
-        var pinnedHaloR = pinnedHaloColor.RedF;
-        var pinnedHaloG = pinnedHaloColor.GreenF;
-        var pinnedHaloB = pinnedHaloColor.BlueF;
-        var pinnedHaloA = pinnedHaloColor.AlphaF;
-
-        // The shader scales arcmin -> px using the UBO's pixelsPerRadian, so any
-        // marker whose size was defined in screen pixels (circles, pinned halos) has
-        // to be converted to arcmin here using the current ppr. The round-trip is
-        // exact since CPU and GPU share the same derivation.
+        //
+        // The geometry lives in OverlayEllipseInstances so the browser's WebGL pipeline fills its
+        // buffer from the same rules; it used to be written out here and nowhere else, which made
+        // the port a transcription. The halo COLOUR stays a caller argument because the two
+        // surfaces genuinely differ: the desktop tints it with the active theme's accent, while the
+        // browser has no theme switcher and uses the engine's fixed landmark colour.
         var ppr = SkyMapProjection.PixelsPerRadian(contentRect.Height, fov);
         var arcminToPx = (float)(ppr * Math.PI / (180.0 * 60.0));
-        var pxToArcmin = 1f / arcminToPx;
-
-        foreach (var cand in _overlayCandidates)
-        {
-            var (r, g, b) = cand.Color;
-            var alpha = dimBelowHorizon && !site.IsAboveHorizon(cand.RA, cand.Dec) ? 0.35f : 1.0f;
-            if (!cand.IsPinned) alpha *= fovAlpha;
-
-            // Pinned halo (emitted first so it's behind the marker), sized from the shared
-            // OverlayEngine.PinnedHalo* geometry the CPU overlay path also uses. An ELLIPSE marker
-            // gets an ellipse halo: one uniform scale on both semi-axes plus the marker's own PA, so
-            // the halo keeps the object's shape. Emitting equal axes (which this did, from the major
-            // axis alone) puts a wide circular halo around an edge-on galaxy.
-            if (cand.IsPinned)
-            {
-                var haloFloorPx = OverlayEngine.PinnedHaloMinSemiMajorPx * dpiScale;
-                if (cand.Marker is OverlayCandidateMarker.Ellipse he)
-                {
-                    var haloScale = OverlayEngine.EllipseLegibilityScale(
-                        he.SemiMajArcmin * arcminToPx, haloFloorPx, OverlayEngine.PinnedHaloScale);
-                    // Same 1 px / 0.5 px floors as the marker below, so a catalog shape with a zero
-                    // minor axis still traces a visible ring rather than a degenerate line.
-                    var haloMajArcmin = MathF.Max(he.SemiMajArcmin * haloScale, pxToArcmin);
-                    var haloMinArcmin = MathF.Max(he.SemiMinArcmin * haloScale, 0.5f * pxToArcmin);
-                    var haloPaRad = Half.IsNaN(he.PositionAngle)
-                        ? 0f
-                        : (float)((double)he.PositionAngle * Math.PI / 180.0);
-                    AppendEllipseInstance(cand.UnitVec,
-                        haloMajArcmin, haloMinArcmin, haloPaRad, OverlayEngine.PinnedHaloStrokePx,
-                        pinnedHaloR, pinnedHaloG, pinnedHaloB, pinnedHaloA);
-                }
-                else
-                {
-                    var haloPx = cand.Marker is OverlayCandidateMarker.Circle hc
-                        ? MathF.Max(hc.RadiusPxAtDpi1 * dpiScale * OverlayEngine.PinnedHaloScale, haloFloorPx)
-                        : haloFloorPx;
-                    var haloArcmin = haloPx * pxToArcmin;
-                    AppendEllipseInstance(cand.UnitVec,
-                        haloArcmin, haloArcmin, 0f, OverlayEngine.PinnedHaloStrokePx,
-                        pinnedHaloR, pinnedHaloG, pinnedHaloB, pinnedHaloA);
-                }
-            }
-
-            float mainR, mainG, mainB, mainA;
-            if (cand.IsPinned)
-            {
-                mainR = 1f; mainG = 0x70 / 255f; mainB = 0x30 / 255f; mainA = alpha;
-            }
-            else
-            {
-                mainR = r; mainG = g; mainB = b; mainA = alpha;
-            }
-
-            switch (cand.Marker)
-            {
-                case OverlayCandidateMarker.Ellipse e:
-                    // 1 px / 0.5 px floors keep tiny galaxies legible at wide FOV.
-                    var semiMajArcmin = MathF.Max(e.SemiMajArcmin, pxToArcmin);
-                    var semiMinArcmin = MathF.Max(e.SemiMinArcmin, 0.5f * pxToArcmin);
-                    var paFromNorthRad = Half.IsNaN(e.PositionAngle)
-                        ? 0f
-                        : (float)((double)e.PositionAngle * Math.PI / 180.0);
-                    AppendEllipseInstance(cand.UnitVec,
-                        semiMajArcmin, semiMinArcmin, paFromNorthRad, 1.5f,
-                        mainR, mainG, mainB, mainA);
-                    break;
-                case OverlayCandidateMarker.Circle c:
-                    var circleArcmin = c.RadiusPxAtDpi1 * dpiScale * pxToArcmin;
-                    AppendEllipseInstance(cand.UnitVec,
-                        circleArcmin, circleArcmin, 0f, 1.5f,
-                        mainR, mainG, mainB, mainA);
-                    break;
-                    // Cross: handled below via the _overlayItems loop, where we have the
-                    // CPU-projected screen coords needed by DrawCross.
-            }
-        }
+        OverlayEllipseInstances.Build(
+            _overlayCandidates, _overlayEllipseInstances,
+            arcminToPx, dpiScale, fovAlpha, dimBelowHorizon, site,
+            OverlayEngine.PinnedMarkerColor, pinnedHaloColor);
 
         // Crosses (stars): per-item CPU path. Uses _overlayItems (only candidates that
         // passed CPU projection + off-screen cull), so off-screen stars don't draw.
@@ -530,8 +450,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             if (item.Marker.Kind != OverlayMarkerKind.Cross) continue;
 
             var (r, g, b) = item.Color;
-            var alpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
-            if (!item.IsPinned) alpha *= fovAlpha;
+            var alpha = OverlayEngine.MarkerAlpha(
+                item.IsPinned, item.RA, item.Dec, dimBelowHorizon, site, fovAlpha);
 
             var crossColor = item.IsPinned
                 ? TianWen.UI.Abstractions.GuiTheme.Palette.Accent.WithAlpha((byte)(alpha * 255))
@@ -549,7 +469,7 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             var instByteOffset = ctx.WriteVertices(span);
             if (instByteOffset != uint.MaxValue)
             {
-                var instanceCount = (uint)(_overlayEllipseInstances.Count / OverlayEllipseFloatsPerInstance);
+                var instanceCount = (uint)(_overlayEllipseInstances.Count / OverlayEllipseInstances.FloatsPerInstance);
                 pipeline.DrawOverlayEllipses(
                     renderer.CurrentCommandBuffer,
                     contentRect.X, contentRect.Y, contentRect.Width, contentRect.Height,
@@ -578,8 +498,8 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         foreach (var (item, lx, ly) in _overlayPlacedLabels)
         {
             var (r, g, b) = item.IsPinned ? (1f, 0.44f, 0.19f) : item.Color;
-            var labelAlpha = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec) ? 0.35f : 1.0f;
-            if (!item.IsPinned) labelAlpha *= fovAlpha;
+            var labelAlpha = OverlayEngine.MarkerAlpha(
+                item.IsPinned, item.RA, item.Dec, dimBelowHorizon, site, fovAlpha);
             var maxLineW = 0f;
             for (var li = 0; li < item.LabelLines.Count; li++)
             {
@@ -1224,29 +1144,6 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             floats.Add(corners[i].X); floats.Add(corners[i].Y); floats.Add(corners[i].Z);
             floats.Add(corners[next].X); floats.Add(corners[next].Y); floats.Add(corners[next].Z);
         }
-    }
-
-    /// <summary>
-    /// Appends one DSO overlay ellipse instance to <see cref="_overlayEllipseInstances"/>.
-    /// Layout must match <c>OverlayEllipseVertexSource</c>'s vertex input (11 floats,
-    /// stride 44 bytes: unit vector, size arcmin, PA from north, thickness, rgba).
-    /// </summary>
-    private void AppendEllipseInstance(
-        Vector3 unitVec,
-        float semiMajArcmin, float semiMinArcmin, float paFromNorthRad, float thickness,
-        float r, float g, float b, float a)
-    {
-        _overlayEllipseInstances.Add(unitVec.X);
-        _overlayEllipseInstances.Add(unitVec.Y);
-        _overlayEllipseInstances.Add(unitVec.Z);
-        _overlayEllipseInstances.Add(semiMajArcmin);
-        _overlayEllipseInstances.Add(semiMinArcmin);
-        _overlayEllipseInstances.Add(paFromNorthRad);
-        _overlayEllipseInstances.Add(thickness);
-        _overlayEllipseInstances.Add(r);
-        _overlayEllipseInstances.Add(g);
-        _overlayEllipseInstances.Add(b);
-        _overlayEllipseInstances.Add(a);
     }
 
     private static (Vortice.Vulkan.VkBuffer Buffer, uint ByteOffset, uint VertexCount) WriteToRingBuffer(

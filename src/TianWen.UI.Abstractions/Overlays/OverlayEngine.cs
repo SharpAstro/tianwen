@@ -5,6 +5,7 @@ using System.Numerics;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.Abstractions.Overlays;
@@ -271,6 +272,31 @@ public static class OverlayEngine
     /// <see cref="RGBAColor32.Alpha"/> for the wide-FOV fade rather than restating the RGB.
     /// </summary>
     public static readonly RGBAColor32 PinnedHaloColor = new(0xFF, 0x60, 0x20, 0x50);
+
+    /// <summary>
+    /// A pinned target's own marker colour (the ring inside <see cref="PinnedHaloColor"/>). Alpha is
+    /// a placeholder: every caller substitutes the horizon / wide-FOV fade it resolved. Here for the
+    /// same reason the halo colour is -- it was written out as three literals on the CPU path and
+    /// again as three float divisions on the GPU one.
+    /// </summary>
+    public static readonly RGBAColor32 PinnedMarkerColor = new(0xFF, 0x70, 0x30, 0xFF);
+
+    /// <summary>
+    /// The alpha an overlay marker or label draws at: 0.35 when it is below the horizon and the
+    /// caller dims those, times <paramref name="fovAlpha"/> unless it is pinned.
+    /// </summary>
+    /// <remarks>
+    /// A pinned target is exempt from the wide-FOV fade but NOT from horizon dimming, which is the
+    /// half that kept getting restated slightly differently: the rule appears once per marker kind
+    /// per surface (ellipse instances, crosses, labels; desktop and browser), and a landmark that
+    /// fades with zoom on one of them stops being a landmark.
+    /// </remarks>
+    public static float MarkerAlpha(
+        bool isPinned, double ra, double dec, bool dimBelowHorizon, SiteContext site, float fovAlpha)
+    {
+        var alpha = dimBelowHorizon && !site.IsAboveHorizon(ra, dec) ? 0.35f : 1f;
+        return isPinned ? alpha : alpha * fovAlpha;
+    }
 
     /// <summary>
     /// Uniform scale factor that grows a projected ellipse to a legibility floor on its

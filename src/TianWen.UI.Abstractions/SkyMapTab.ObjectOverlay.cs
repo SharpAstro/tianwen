@@ -13,10 +13,10 @@ namespace TianWen.UI.Abstractions
     /// always-on pinned planner-target landmarks) for renderers WITHOUT a GPU instanced-ellipse
     /// pipeline -- i.e. the browser sky map. It shares the candidate gather / projection / label
     /// placement with the desktop GPU path (all in <see cref="Overlays.OverlayEngine"/>); only the
-    /// final rasterisation differs -- ellipses/crosses/circles are traced with the surface-agnostic
-    /// <c>DrawLine</c>/<c>DrawCircle</c>/<c>DrawText</c> primitives here, versus the instanced GPU
-    /// draw in <c>VkSkyMapTab.RenderObjectOverlay</c>. The two are hand-maintained mirrors, exactly
-    /// like <see cref="TryDrawShapeMarker"/> mirrors the GPU selection ellipse.
+    /// final rasterisation differs, and it is a virtual seam (<see cref="DrawOverlayMarkers"/>)
+    /// rather than a parallel method -- ellipses/crosses/circles trace with the surface-agnostic
+    /// <c>DrawLine</c>/<c>DrawCircle</c> primitives by default, while a surface with an instanced
+    /// overlay pipeline overrides it and submits one draw.
     /// </summary>
     public partial class SkyMapTab<TSurface>
     {
@@ -150,27 +150,93 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            // Pass 1: markers.
-            foreach (var item in _primOverlayItems)
+            DrawOverlayMarkers(_primOverlayCandidates, _primOverlayItems, PrimOverlayGathers,
+                arcminToPixels, ppr, cxView, cyView, dpiScale, fovAlpha, dimBelowHorizon, site);
+
+            // Pass 2: labels via the shared best-effort placement (stable slots) + DrawText, over the
+            // items projected once above.
+            var labelSize = baseFontSize * dpiScale * 0.85f;
+            var lineH = labelSize * 1.2f;
+            var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
+            OverlayEngine.PlaceLabelsBestEffort(_primOverlayItems, labelSize, 4f, measureText,
+                (item, lx, ly) =>
+                {
+                    var a = OverlayEngine.MarkerAlpha(
+                        item.IsPinned, item.RA, item.Dec, dimBelowHorizon, site, fovAlpha);
+                    var (r, g, b) = item.Color;
+                    var col = item.IsPinned
+                        ? new RGBAColor32(0xFF, 0x90, 0x50, (byte)(a * 255f))
+                        : RGBAColor32.FromFloat(r, g, b, a);
+                    var maxLineW = 0f;
+                    for (var i = 0; i < item.LabelLines.Count; i++)
+                    {
+                        DrawText(item.LabelLines[i].AsSpan(), fontPath,
+                            lx, ly + i * lineH, 220f, lineH,
+                            labelSize, col, TextAlign.Near, TextAlign.Near);
+                        var w = measureText(item.LabelLines[i], labelSize);
+                        if (w > maxLineW) { maxLineW = w; }
+                    }
+
+                    // Make the LABEL itself clickable -> selects the same object its marker would (desktop
+                    // parity: VkSkyMapTab.RenderObjectOverlay registers the identical bridge on the GPU path;
+                    // the shared base already does it for planet/comet labels). Object selection is a
+                    // GEOMETRIC nearest-object search at the click point, and the label is drawn OFFSET from
+                    // the marker, so without a bridge a label click lands too far from the marker's screen
+                    // position to hit -- "clicking the label doesn't select" (web-only, since only the CPU
+                    // primitive path lacked it). Re-synthesize the click at the object's own screen position
+                    // so the existing resolver (SkyMapClickSelectSignal -> SelectObjectByClick) runs
+                    // unchanged. Skip nearly-faded labels so there are no phantom hit targets.
+                    if (a > 0.15f && maxLineW > 0f && item.LabelLines.Count > 0)
+                    {
+                        var labelH = item.LabelLines.Count * lineH;
+                        var objX = item.ScreenX;
+                        var objY = item.ScreenY;
+                        RegisterClickable(lx, ly, maxLineW, labelH,
+                            new HitResult.ButtonHit($"SkyMapObjectLabel:{item.LabelLines[0]}"),
+                            _ => PostSignal(new SkyMapClickSelectSignal(objX, objY, InputModifier.None)));
+                    }
+                });
+        }
+
+        /// <summary>
+        /// Rasterises the overlay markers for one frame. The default traces each one with the
+        /// surface-agnostic line primitives; a surface with an instanced overlay pipeline overrides
+        /// this and submits a single draw instead. Everything around it -- the cached gather, the one
+        /// projection, label placement -- is shared either way, which is the point of putting the seam
+        /// here rather than at <see cref="RenderObjectOverlayPrimitive"/>: only the rasterisation ever
+        /// differed between the two, and having them as whole parallel methods is what let the pinned
+        /// halo drift into an ellipse on one and a circle on the other.
+        /// </summary>
+        /// <param name="candidates">The cached, view-independent candidate list.</param>
+        /// <param name="items">The same candidates projected for this frame; a marker reads its
+        /// screen position here and its geometry from <paramref name="candidates"/> via
+        /// <see cref="OverlayItem.CandidateIndex"/>.</param>
+        /// <param name="candidateVersion">Bumped whenever <paramref name="candidates"/> was
+        /// re-gathered. An override that caches a GPU buffer needs it: the candidate COUNT is not a
+        /// version, so a re-gather that happens to return the same number of objects would otherwise
+        /// keep drawing the previous set.</param>
+        protected virtual void DrawOverlayMarkers(
+            IReadOnlyList<OverlayCandidate> candidates, IReadOnlyList<OverlayItem> items,
+            int candidateVersion,
+            float arcminToPixels, double ppr, float cxView, float cyView,
+            float dpiScale, float fovAlpha, bool dimBelowHorizon, SiteContext site)
+        {
+            foreach (var item in items)
             {
-                if ((uint)item.CandidateIndex >= (uint)_primOverlayCandidates.Count)
+                if ((uint)item.CandidateIndex >= (uint)candidates.Count)
                 {
                     continue;
                 }
-                var cand = _primOverlayCandidates[item.CandidateIndex];
+                var cand = candidates[item.CandidateIndex];
                 var sx = item.ScreenX;
                 var sy = item.ScreenY;
 
-                var below = dimBelowHorizon && !site.IsAboveHorizon(cand.RA, cand.Dec);
-                var alpha = below ? 0.35f : 1f;
-                if (!cand.IsPinned)
-                {
-                    alpha *= fovAlpha;
-                }
+                var alpha = OverlayEngine.MarkerAlpha(
+                    cand.IsPinned, cand.RA, cand.Dec, dimBelowHorizon, site, fovAlpha);
 
                 var (cr, cg, cb) = cand.Color;
                 var color = cand.IsPinned
-                    ? new RGBAColor32(0xFF, 0x70, 0x30, (byte)(alpha * 255f))
+                    ? OverlayEngine.PinnedMarkerColor with { Alpha = (byte)(alpha * 255f) }
                     : RGBAColor32.FromFloat(cr, cg, cb, alpha);
 
                 // Pinned halo behind the marker (geometry shared with the GPU path via
@@ -212,54 +278,6 @@ namespace TianWen.UI.Abstractions
                         break;
                 }
             }
-
-            // Pass 2: labels via the shared best-effort placement (stable slots) + DrawText, over the
-            // items projected once above.
-            var labelSize = baseFontSize * dpiScale * 0.85f;
-            var lineH = labelSize * 1.2f;
-            var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
-            OverlayEngine.PlaceLabelsBestEffort(_primOverlayItems, labelSize, 4f, measureText,
-                (item, lx, ly) =>
-                {
-                    var below = dimBelowHorizon && !site.IsAboveHorizon(item.RA, item.Dec);
-                    var a = below ? 0.35f : 1f;
-                    if (!item.IsPinned)
-                    {
-                        a *= fovAlpha;
-                    }
-                    var (r, g, b) = item.Color;
-                    var col = item.IsPinned
-                        ? new RGBAColor32(0xFF, 0x90, 0x50, (byte)(a * 255f))
-                        : RGBAColor32.FromFloat(r, g, b, a);
-                    var maxLineW = 0f;
-                    for (var i = 0; i < item.LabelLines.Count; i++)
-                    {
-                        DrawText(item.LabelLines[i].AsSpan(), fontPath,
-                            lx, ly + i * lineH, 220f, lineH,
-                            labelSize, col, TextAlign.Near, TextAlign.Near);
-                        var w = measureText(item.LabelLines[i], labelSize);
-                        if (w > maxLineW) { maxLineW = w; }
-                    }
-
-                    // Make the LABEL itself clickable -> selects the same object its marker would (desktop
-                    // parity: VkSkyMapTab.RenderObjectOverlay registers the identical bridge on the GPU path;
-                    // the shared base already does it for planet/comet labels). Object selection is a
-                    // GEOMETRIC nearest-object search at the click point, and the label is drawn OFFSET from
-                    // the marker, so without a bridge a label click lands too far from the marker's screen
-                    // position to hit -- "clicking the label doesn't select" (web-only, since only the CPU
-                    // primitive path lacked it). Re-synthesize the click at the object's own screen position
-                    // so the existing resolver (SkyMapClickSelectSignal -> SelectObjectByClick) runs
-                    // unchanged. Skip nearly-faded labels so there are no phantom hit targets.
-                    if (a > 0.15f && maxLineW > 0f && item.LabelLines.Count > 0)
-                    {
-                        var labelH = item.LabelLines.Count * lineH;
-                        var objX = item.ScreenX;
-                        var objY = item.ScreenY;
-                        RegisterClickable(lx, ly, maxLineW, labelH,
-                            new HitResult.ButtonHit($"SkyMapObjectLabel:{item.LabelLines[0]}"),
-                            _ => PostSignal(new SkyMapClickSelectSignal(objX, objY, InputModifier.None)));
-                    }
-                });
         }
 
         private PrimOverlayKey BuildOverlayKey(
@@ -282,8 +300,15 @@ namespace TianWen.UI.Abstractions
             //
             // Worth it because the wide gather is the expensive one: a full-sky sweep measured at 121 ms
             // in the browser, and zooming out from 90 to 180 degrees crosses ~7 of the 10% buckets. With
-            // dark nebulae ON that gate cost a gather on EVERY step of a zoom-out (30 against 3), which
-            // is to say the users who most wanted the overlay were the ones getting none of the fix.
+            // dark nebulae ON that gate kept costing a gather per bucket above the threshold: measured on
+            // the deployed build over a 60-to-180 degree zoom-out, 6 gathers and 632 ms of gathering
+            // against 3 and 193 ms with them off -- so the users who most wanted the overlay were the
+            // ones getting none of the fix. The fixed build costs 3 either way.
+            //
+            // Measure this from a FRESH page. The attribution probe runs three sweeps in sequence and the
+            // third inherits wherever the second left the zoom (0.5 degrees), so nearly all of its steps
+            // are legitimately below the threshold; read that way it reports 30 gathers and attributes
+            // them here, which is how this was first written down as "30 against 3".
             if (wideFov)
             {
                 quantFov = double.PositiveInfinity;

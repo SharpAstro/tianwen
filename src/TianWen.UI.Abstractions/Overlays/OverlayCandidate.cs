@@ -61,7 +61,8 @@ public readonly record struct OverlayCandidate
     /// exact test for the current frame. That split is what lets the FOV drop out of the cache
     /// key above <see cref="OverlayEngine.WideFovDeg"/> even with dark nebulae switched on --
     /// before it, a wide zoom re-ran the full-sky walk for every 10% FOV bucket it crossed
-    /// (measured: 30 gathers over a zoom-out against 3 with them switched off).</para>
+    /// (measured on the deployed build over a 60-to-180 degree zoom-out: 6 gathers and 632 ms of
+    /// gathering, against 3 and 193 ms with them switched off).</para>
     /// </summary>
     public required float ScreenSizeFilterArcmin { get; init; }
 }

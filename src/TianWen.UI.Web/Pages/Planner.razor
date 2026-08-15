@@ -1314,6 +1314,10 @@
     //               gesture must produce some; zero means every event painted its own frame again.
     //   gathers   - object-overlay candidate gathers. Bounded per FOV bucket / pan cell, so a gesture
     //               must NOT produce one per event (see SkyMapOverlayCacheKeyTests).
+    //   uploads   - overlay instance-buffer re-uploads. Bounded by the same reasoning as gathers but
+    //               on a DIFFERENT axis: the gather is cached across a pan AND a wide zoom, while the
+    //               instances additionally depend on the arcmin-to-pixel scale, so a zoom is expected
+    //               to re-upload and a pan is expected not to.
     //   overlay   - whether the [O] catalog overlay is on. Reported because it is OFF by default and
     //               the gather is skipped entirely when it is off: without this a test asserting
     //               "gathers stay bounded" passes on zero, i.e. passes while measuring nothing. The
@@ -1325,7 +1329,8 @@
             + ",\"gathers\":" + (_skyTab?.PrimOverlayGathers ?? 0).ToString(CultureInfo.InvariantCulture)
             + ",\"overlay\":" + ((_skyTab?.State.ShowObjectOverlay ?? false) ? "true" : "false")
             + ",\"renderMs\":" + _renderMs.ToString("F1", CultureInfo.InvariantCulture)
-            + ",\"gatherMs\":" + (_skyTab?.PrimOverlayGatherMs ?? 0).ToString("F1", CultureInfo.InvariantCulture) + "}";
+            + ",\"gatherMs\":" + (_skyTab?.PrimOverlayGatherMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"uploads\":" + (_skyTab?.OverlayInstanceUploads ?? 0).ToString(CultureInfo.InvariantCulture) + "}";
 
     [JSInvokable]
     public string GetPlannerSearchRectJson()

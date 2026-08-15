@@ -154,7 +154,8 @@ namespace TianWen.Lib.Tests
         /// <para><b>Both toggle states, and the [D]-on one is the regression.</b> The dark-nebula
         /// on-screen-size test was the last FOV-dependent thing in the gather, so the first version of
         /// this optimisation had to give up whenever [D] was on -- measured against the deployed build,
-        /// a zoom-out then cost a gather on EVERY step (30 against 3), which handed the worst case to
+        /// a zoom-out then cost a gather per FOV bucket ABOVE the threshold too (6 against 3 over a
+        /// 60-to-180 degree sweep, and 632 ms of gathering against 193), which handed the worst case to
         /// the users who had asked for the most overlay. The gather now admits a superset valid across
         /// the whole wide range and the projection applies the exact test per frame, so the answer no
         /// longer depends on the toggle.</para>
