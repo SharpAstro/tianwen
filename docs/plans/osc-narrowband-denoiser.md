@@ -170,6 +170,58 @@ deconvolver that ignores it will be wrong about red on every fast rig.
 master). Records carry `RadiusSampling = "common-stars"`; all 67 sessions re-measured via
 `--force-psf` from retained masters in about 6 minutes, tiles untouched.
 
+### 1f. N1 landed, and the pool is 100 percent narrowband with nothing broadband in it
+
+`D:\Astro-Dataset\2025-2026-organized`, baked 2026-08-15 in 231 min: 51 of 52 sessions, 5,908
+registered subs, 159,300 tiles, 0 failed, 0 skipped-no-dark, parity OK, 7 test sessions pinned.
+
+**The filter is now read from headers for every session, and the answer is total:**
+
+| Filter | Sessions |
+|---|---|
+| Optolong L-Ultimate 3nm | 40 |
+| Optolong L-Quad Enhance | 11 |
+| broadband | **0** |
+
+Against 48 of 67 labelled by the old side-table join. Section 0's finding is no longer a sample,
+it is the whole pool: **there is no broadband session in the training set at all.**
+
+**The pool got smaller and cleaner, 68 sessions to 51.** The 17 that fell away are the ones the
+old bake could not label, because they are the groups the reorganisation has not reached (the
+parked ASI585 set, the mono ASI1600MM sets, group D and beyond). They are now absent rather than
+present-and-unlabelled, which answers the second open question below by dissolving it. Given 1b,
+a smaller pool is not on its face a loss.
+
+**Two facts that change the shape of N5.** The filter split is severely unbalanced per train:
+SV605CC is 10 quad-band against 4 3 nm, but ASI533 is 36 3 nm against **one** quad-band. So keying
+`FieldRadiusProfiles` by (train, filter) creates a single-session cell, and N5 has to say what that
+cell does (fall back to the train profile, or be withheld) rather than just changing the key. And
+the master integrator is MIXED *within* each filter (3 nm: 33 BayerDrizzle / 7 Float16Staged), so
+the grouping error the report already warns about for `MasterStrategy` is not resolved by adding
+the filter.
+
+**Red's inversion reproduced on independently organized data**, both trains, which is worth
+recording because 1c closed on the old bake: ch0 falls centre to corner (2.815 to 2.235 px on
+SV605CC, 2.762 to 2.399 on ASI533) while ch1 and ch2 rise together over the same bins.
+
+**The one skip is HIP 42861 / 2025-12-28**, `fewer-than-2-registered`, 48 of 49 subs failing quad
+fit against a healthy census (67 median stars, HFD 1.89, ecc 0.46). Known, and now a fixture in
+`stats/skipped-sessions.jsonl` rather than a rediscovery.
+
+**What this run could NOT answer, which is the more useful result.** The dark-flat pedestal path
+(`c1079f4b`, `ad08d4fc`) fired here for the first time, because the reorganisation files
+calibration on `(date, gain, offset, exposure)` and so separates the dark-flats that used to hide
+inside folders named `DARK`. Whether any flat actually took a dark-flat pedestal is **not
+recoverable from any artifact**: not the master header, not `psf-sessions.jsonl`, not
+`session-timings.jsonl`, not `tiles-manifest.jsonl`. A behaviour change shipped and cannot be
+observed. Task #39, and the same class as the timing store that persisted the figures it existed
+to derive (`8ff20d36`).
+
+Two smaller defects found in the report itself, both in #39: the noise-floor summary table
+formats at three decimals over values of ~4e-5 and so prints `0.000` across every percentile, and
+`FILTCLAS` is written as the literal `'Unknown'` on every master while `FILTER` carries the real
+name.
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.
@@ -194,23 +246,28 @@ Ordered by value per unit of work, not by dependency.
 
 | Phase | Deliverable | Cost | Why now |
 |---|---|---|---|
-| **N1** | **Re-bake from `D:\Astro-Organized`.** This is the whole fix, and it is a ROOT PATH, not code. The organized archive's 6,438 lights already carry `FILTER = 'Optolong L-Ultimate 3nm'` / `'Optolong L-Quad Enhance'` in their headers, are filed `lights/<camera>/<filter>/<target>/`, and have their calibration keyed `<CAMERA>/<TYPE>/<date>-g<gain>-o<offset>-t<temp>[-e<exp>]` with flats under `flats/<camera>/<filter>/<date>`. `Image.Fits` already READS `FILTER`+`FILTCLAS` (with the blank-guard fix) and already WRITES both, so a master built from tagged lights carries the filter forward with no change at all. | ~4.5 h, no code | Everything below depends on the dataset knowing its filter, and the work to make that true was already done and then not used. |
+| ~~**N1**~~ | ~~**Re-bake from `D:\Astro-Organized`.**~~ **DONE 2026-08-15**, see 1f. `D:\Astro-Dataset\2025-2026-organized`, 51/52 sessions, 159,300 tiles, 231 min. Every session carries its filter from the header. | 3.9 h, no code | Everything below depended on the dataset knowing its filter, and the work to make that true was already done and then not used. |
 | **N2** | **PSF conditioning in the trainer.** Feed measured per-plane PSF width as a conditioning input, exactly as noise sigma already is. Re-run the 60-session arm against v15's frontier. | ~1 h GPU | The v8 lesson one axis over: the failure was a single-point training distribution, and the fix was making the varying quantity an INPUT rather than narrowing the data. If it works it explains 1b instead of working around it, and keeps all sessions. Task #36, reframed. |
 | **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
 | **N4** | **Ship a checkpoint behind a strength dial.** `n2n_v17c_s0_final.pt` at 0.80x is already a defensible operating point (+2.0 relative, -19 absolute). Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed. | medium | A model exists and is not deployed. Independent of N1-N3. |
-| **N5** | **Key `FieldRadiusProfiles` by (train, filter)** once N1 has made the filter available from headers. Task #19, reduced to a grouping-key change. | small | After N1 this is a few lines. Before N1 it needed a side-table that should never have been contemplated. |
+| **N5** | **Key `FieldRadiusProfiles` by (train, filter).** N1 has made the filter available from headers, so the key change itself is a few lines. It is NOT only a key change: per 1f the split is 36-to-1 on the ASI533, so the design decision is what a one-session cell does (fall back to the train profile, or be withheld as unsupported), and that has to be stated rather than emerge. Task #19. | small | Before N1 it needed a side-table that should never have been contemplated. |
 | **N6** | **Mono narrowband support.** Deferred until good mono data exists; the archive's 2 ASI1600MM sets are assessed as poor and must NOT be used as a baseline. Task #37. |  | The user intends to shoot true narrowband, where per-filter focus removes 1c's root cause at acquisition. |
 | **N7** | Red centre-vs-corner star cutouts, if the optical reading ever needs pixel-level confirmation rather than statistical. | small | Optional. The four falsified hypotheses plus train- and filter-dependence already carry it. |
 
 ### Open questions worth stating
 
-- **Is the v17 regression a filter effect after all?** The pool is 39 3 nm against 9 quad-band, and
+- **Is the v17 regression a filter effect after all?** The pool is 40 3 nm against 11 quad-band, and
   those are physically different passbands with different channel content. v15's 8 sessions may have
-  been filter-homogeneous where the 60 are not. N1 makes this answerable in one query and it should be
-  checked BEFORE N2 spends GPU time on the PSF hypothesis.
-- **What are the 19 unlabelled sessions?** Mostly the parked ASI585 group (its ADU scale is unresolved
-  per [filter-inference.md](filter-inference.md) section 8) plus the 2 mono sets. If they are a
-  meaningful share of training cells they are unmodelled heterogeneity.
+  been filter-homogeneous where the 60 are not. **Still open, and still the thing to check BEFORE N2
+  spends GPU time on the PSF hypothesis.** N1 was supposed to make this one query and it does not
+  quite: the v15 and v17 arms were baked from `2025-2026-darkscaled`, whose session ids carry no
+  filter and whose relative paths are the `D:\Astro-Pics` ones, so answering it means mapping the old
+  arm membership onto the new ids by (camera, object, date) first. That is a join over 68 names, not a
+  query, and it should be written down as a mapping file rather than done by eye.
+- ~~**What are the 19 unlabelled sessions?**~~ **Dissolved by 1f.** They are the groups the
+  reorganisation has not reached, and the organized bake simply does not contain them: the pool went
+  68 sessions to 51, all labelled. The heterogeneity question they posed is now a question about
+  whether losing 17 sessions costs anything, which 1b suggests it does not.
 - **Does PSF conditioning subsume filter conditioning?** A 3 nm frame's red plane is soft because of
   focus, and the conditioning input is the measured width, so possibly the filter never needs to be an
   input at all, only a grouping key for analysis. N2 answers this.
@@ -240,4 +297,12 @@ Ordered by value per unit of work, not by dependency.
 - PSF analysis, scratchpad: `psf_radial.py` (re-implements the C# aggregation so a check does not
   depend on the report renderer), `psf_perobject.py`, `psf_homogeneous.py`.
 - Pre-fix PSF store, for before/after: `D:\Astro-Dataset\n2n-smoke\psf-banding-before\`.
+- **The N1 dataset: `D:\Astro-Dataset\2025-2026-organized`** (tiles, masters, session-masters,
+  `tiles-manifest.jsonl`, `test-sessions.txt`, and `stats/` holding `psf-noise-report.md`,
+  `psf-sessions.jsonl`, `session-timings.jsonl`, `skipped-sessions.jsonl`). The previous
+  `2025-2026-darkscaled` bake is what v15/v17 trained on and is NOT interchangeable with it:
+  different session ids, different pool, no filter.
+- Folder-vs-header survey: `tools/astro-archive-folder-vs-object.py`, which reads the bake's own
+  scan summary rather than walking `D:`, so sizing the task #38 mosaic-panel question costs no disk
+  I/O against a running bake.
 - Filter verdicts: `D:\Astro-Organized\_provenance\group-{a,b,c}-locked.csv`, with per-session basis.
