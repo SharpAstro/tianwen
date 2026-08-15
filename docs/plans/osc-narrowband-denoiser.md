@@ -222,6 +222,49 @@ formats at three decimals over values of ~4e-5 and so prints `0.000` across ever
 `FILTCLAS` is written as the literal `'Unknown'` on every master while `FILTER` carries the real
 name.
 
+### 1g. The filter hypothesis is refuted, and the arms differ by a CAMERA instead
+
+`n2n_arm_filter_map.py` joins the v15 and v17 arm membership onto the organized bake and, where
+that cannot reach, onto the 58 measured verdicts in `_provenance`. Output:
+`D:\Astro-Dataset\n2n-smoke\arm-filter-mapping.csv`, one row per (arm, session) with its resolution
+basis. Arms recovered from the training caches: v15 is `C:\tianwen-scratch\n2n-ds` (8 train), v17 is
+`n2n-big` (60 train), and both pin the SAME 2 val sessions, so they are comparable by construction.
+
+| Arm | Resolved | 3 nm | Quad | Homogeneity | Worst case |
+|---|---|---|---|---|---|
+| v15 train (8) | 8 of 8 | 6 | 2 | **75%** | exact, nothing unresolved |
+| v17 train (60) | 48 of 60 | 39 | 9 | **81%** | 65% if all 12 unresolved were quad |
+
+**The hypothesis needed v15 homogeneous and v17 mixed. It is the other way round.** v15 is the less
+homogeneous arm of the two on the best estimate, and it is the arm with no uncertainty at all. The
+worst case only reaches 65% by assuming all 12 unresolved sessions are quad-band, which their own
+names contradict (`L-Ultra`, `OIII+Ha`, `LeHance`); if they are narrowband the figure is 85%.
+
+**What the mapping found instead, which is a better hypothesis than either filter or PSF:**
+
+| Arm | ASI533MC Pro | SV605CC | **ASI585MC Pro** |
+|---|---|---|---|
+| v15 train (8) | 5 | 3 | **0** |
+| v17 train (60) | 41 | 11 | **8** |
+
+**v17 trains on a camera v15 never saw, and it is the one body whose ADU scale is documented as
+unresolved** ([filter-inference.md](filter-inference.md) section 8 parks the ASI585 group for
+exactly that reason: "this body's ADU scale is unresolved, so its sky rate cannot be trusted"). All
+8 are also unresolved for filter here, because they are in no organized bake and were never
+measured. That matters more than it sounds: the denoiser is **conditioned on noise sigma**, sigma
+comes from the normalised pixel scale, and an unresolved ADU scale means those tiles carry a
+MISLABELLED conditioning input rather than merely a noisy one. 13% of the pool teaching the
+conditioning axis the wrong thing is a specific mechanism for a worse frontier, where "more
+heterogeneous data" was only ever a description of one.
+
+It is also the cheapest thing left to test: drop 8 sessions, retrain, no code change. **Do that
+before N2 spends GPU time on PSF conditioning**, because if it explains the regression then N2 is
+answering a question that was not being asked.
+
+Two caveats to hold. The ASI585 confound and the PSF-heterogeneity hypothesis are not exclusive,
+and dropping the 8 also shrinks the pool 60 to 52, so the arm needs a size-matched control to avoid
+re-running 1b's own confound in a new costume.
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.
@@ -247,7 +290,8 @@ Ordered by value per unit of work, not by dependency.
 | Phase | Deliverable | Cost | Why now |
 |---|---|---|---|
 | ~~**N1**~~ | ~~**Re-bake from `D:\Astro-Organized`.**~~ **DONE 2026-08-15**, see 1f. `D:\Astro-Dataset\2025-2026-organized`, 51/52 sessions, 159,300 tiles, 231 min. Every session carries its filter from the header. | 3.9 h, no code | Everything below depended on the dataset knowing its filter, and the work to make that true was already done and then not used. |
-| **N2** | **PSF conditioning in the trainer.** Feed measured per-plane PSF width as a conditioning input, exactly as noise sigma already is. Re-run the 60-session arm against v15's frontier. | ~1 h GPU | The v8 lesson one axis over: the failure was a single-point training distribution, and the fix was making the varying quantity an INPUT rather than narrowing the data. If it works it explains 1b instead of working around it, and keeps all sessions. Task #36, reframed. |
+| **N2a** | **Retrain v17 without the 8 ASI585 sessions, plus a size-matched control.** No code change: drop them from the cache build. Per 1g they are the one body with an unresolved ADU scale, so their noise-sigma conditioning is mislabelled rather than merely varied, and v15's arm contains none of them. The control matters because dropping them also shrinks 60 to 52, which is 1b's own confound again. | ~1 h GPU, no code | The cheapest remaining explanation for 1b, and it is a MECHANISM rather than a description. Do this BEFORE N2b. |
+| **N2b** | **PSF conditioning in the trainer.** Feed measured per-plane PSF width as a conditioning input, exactly as noise sigma already is. Re-run the 60-session arm against v15's frontier. | ~1 h GPU | The v8 lesson one axis over: the failure was a single-point training distribution, and the fix was making the varying quantity an INPUT rather than narrowing the data. If it works it explains 1b instead of working around it, and keeps all sessions. Task #36. Gated on N2a, which may make it unnecessary. |
 | **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
 | **N4** | **Ship a checkpoint behind a strength dial.** `n2n_v17c_s0_final.pt` at 0.80x is already a defensible operating point (+2.0 relative, -19 absolute). Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed. | medium | A model exists and is not deployed. Independent of N1-N3. |
 | **N5** | **Key `FieldRadiusProfiles` by (train, filter).** N1 has made the filter available from headers, so the key change itself is a few lines. It is NOT only a key change: per 1f the split is 36-to-1 on the ASI533, so the design decision is what a one-session cell does (fall back to the train profile, or be withheld as unsupported), and that has to be stated rather than emerge. Task #19. | small | Before N1 it needed a side-table that should never have been contemplated. |
@@ -256,14 +300,9 @@ Ordered by value per unit of work, not by dependency.
 
 ### Open questions worth stating
 
-- **Is the v17 regression a filter effect after all?** The pool is 40 3 nm against 11 quad-band, and
-  those are physically different passbands with different channel content. v15's 8 sessions may have
-  been filter-homogeneous where the 60 are not. **Still open, and still the thing to check BEFORE N2
-  spends GPU time on the PSF hypothesis.** N1 was supposed to make this one query and it does not
-  quite: the v15 and v17 arms were baked from `2025-2026-darkscaled`, whose session ids carry no
-  filter and whose relative paths are the `D:\Astro-Pics` ones, so answering it means mapping the old
-  arm membership onto the new ids by (camera, object, date) first. That is a join over 68 names, not a
-  query, and it should be written down as a mapping file rather than done by eye.
+- ~~**Is the v17 regression a filter effect after all?**~~ **ANSWERED: no, and see 1g.** The mapping
+  is built (`D:\Astro-Dataset\n2n-smoke\arm-filter-mapping.csv`). v17's pool is MORE
+  filter-homogeneous than v15's, not less, which is the opposite of what the hypothesis needed.
 - ~~**What are the 19 unlabelled sessions?**~~ **Dissolved by 1f.** They are the groups the
   reorganisation has not reached, and the organized bake simply does not contain them: the pool went
   68 sessions to 51, all labelled. The heterogeneity question they posed is now a question about
@@ -305,4 +344,10 @@ Ordered by value per unit of work, not by dependency.
 - Folder-vs-header survey: `tools/astro-archive-folder-vs-object.py`, which reads the bake's own
   scan summary rather than walking `D:`, so sizing the task #38 mosaic-panel question costs no disk
   I/O against a running bake.
+- **Arm-to-filter mapping: `D:\Astro-Dataset\n2n-smoke\arm-filter-mapping.csv`**, built by
+  `n2n-smoke/scripts/n2n_arm_filter_map.py`. One row per (arm, session) carrying the resolved
+  filter, its source (organized bake or measured verdict) and its join basis, so a later reader can
+  see which attributions are exact and which are not. **The arms live in the training caches, not in
+  the run records**: v13/first-8 is `C:\tianwen-scratch\n2n\meta.json`, v15 is `n2n-ds`, v17 is
+  `n2n-big`; each holds `train_sessions` + `val_sessions` by name.
 - Filter verdicts: `D:\Astro-Organized\_provenance\group-{a,b,c}-locked.csv`, with per-session basis.
