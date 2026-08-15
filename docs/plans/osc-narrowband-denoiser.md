@@ -235,10 +235,12 @@ basis. Arms recovered from the training caches: v15 is `C:\tianwen-scratch\n2n-d
 | v15 train (8) | 8 of 8 | 6 | 2 | **75%** | exact, nothing unresolved |
 | v17 train (60) | 48 of 60 | 39 | 9 | **81%** | 65% if all 12 unresolved were quad |
 
-**The hypothesis needed v15 homogeneous and v17 mixed. It is the other way round.** v15 is the less
-homogeneous arm of the two on the best estimate, and it is the arm with no uncertainty at all. The
-worst case only reaches 65% by assuming all 12 unresolved sessions are quad-band, which their own
-names contradict (`L-Ultra`, `OIII+Ha`, `LeHance`); if they are narrowband the figure is 85%.
+**The hypothesis needed v15 homogeneous and v17 mixed, and the arms are not distinguishable on this
+axis at all.** Do NOT read the 75-versus-81 as a reversal: v15's figure rests on 2 quad-band
+sessions out of 8, whose 95% interval spans roughly 3% to 65% and so covers v17's mix comfortably.
+The direction is sampling noise. What survives is only the negative: **there is no evidence of a
+filter difference between the arms**, so the filter cannot carry 1b, and one more sub-hypothesis is
+closed rather than a new one opened.
 
 **What the mapping found instead, which is a better hypothesis than either filter or PSF:**
 
@@ -300,9 +302,10 @@ Ordered by value per unit of work, not by dependency.
 
 ### Open questions worth stating
 
-- ~~**Is the v17 regression a filter effect after all?**~~ **ANSWERED: no, and see 1g.** The mapping
-  is built (`D:\Astro-Dataset\n2n-smoke\arm-filter-mapping.csv`). v17's pool is MORE
-  filter-homogeneous than v15's, not less, which is the opposite of what the hypothesis needed.
+- ~~**Is the v17 regression a filter effect after all?**~~ **CLOSED, see 1g.** The mapping is built
+  (`D:\Astro-Dataset\n2n-smoke\arm-filter-mapping.csv`) and the arms are not distinguishable by
+  filter mix, so the filter cannot carry 1b. That is a negative result, not a reversal: v15's 8
+  sessions are too few to rank against v17's 48.
 - ~~**What are the 19 unlabelled sessions?**~~ **Dissolved by 1f.** They are the groups the
   reorganisation has not reached, and the organized bake simply does not contain them: the pool went
   68 sessions to 51, all labelled. The heterogeneity question they posed is now a question about
