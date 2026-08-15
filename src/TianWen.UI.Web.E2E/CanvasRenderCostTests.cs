@@ -35,7 +35,7 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
     private const float BootTimeout = 120_000;
     private static readonly Regex ActiveClass = new(@"\bactive\b");
 
-    private readonly record struct RenderStats(int Frames, int Coalesced, int Gathers, bool Overlay);
+    private readonly record struct RenderStats(int Frames, int Coalesced, int Gathers, bool Overlay, int Uploads);
 
     private static async Task<RenderStats> GetStatsAsync(IPage page)
     {
@@ -46,7 +46,8 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
             r.GetProperty("frames").GetInt32(),
             r.GetProperty("coalesced").GetInt32(),
             r.GetProperty("gathers").GetInt32(),
-            r.GetProperty("overlay").GetBoolean());
+            r.GetProperty("overlay").GetBoolean(),
+            r.GetProperty("uploads").GetInt32());
     }
 
     /// <summary>
@@ -201,5 +202,68 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
         Assert.True(gathers <= 12,
             $"overlay re-gathered {gathers} times over {painted} painted frames - the cache key is "
             + "missing per event, which is the raw-FOV grid-step regression");
+    }
+
+    /// <summary>
+    /// The overlay's GPU instance buffer across a PAN. The candidate gather is already cached across a
+    /// pan; the instances additionally depend on the arcmin-to-pixel scale and the wide-FOV fade, which
+    /// a pan does not move either -- so a drag must upload nothing, and the buffer is ~311 KB at a wide
+    /// zoom.
+    ///
+    /// <para>Stated as "no more uploads than gathers" rather than "zero", because a re-gather is a
+    /// legitimate reason to re-upload: the assertion is that the pan itself is not one. That also keeps
+    /// it valid at any field of view, where a flat zero would only hold above the wide threshold.</para>
+    ///
+    /// <para>Like the gather counter beside it, this cannot be observed from the output: a stale-keyed
+    /// re-upload draws the byte-identical frame, just after a needless megabyte of interop.</para>
+    /// </summary>
+    [Fact]
+    public async Task APanDoesNotReUploadTheOverlayInstanceBuffer()
+    {
+        var page = await WarmSkyAtlasAsync();
+        var canvas = page.Locator("#planner");
+        await EnsureObjectOverlayOnAsync(page, canvas);
+
+        RenderStats before, afterPan, afterZoom;
+        try
+        {
+            // One upload has to have happened before the pan, or "it did not upload" is vacuous.
+            await CanvasGestures.WheelZoomAsync(page, canvas, events: 2, deltaPerEvent: 1.5, burst: false);
+            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+            before = await GetStatsAsync(page);
+            Assert.True(before.Uploads > 0,
+                "no instance buffer was ever uploaded; the pan assertion below would measure nothing");
+
+            var box = await canvas.BoundingBoxAsync() ?? throw new InvalidOperationException("no canvas box");
+            var y = box.Y + (box.Height / 2);
+            await page.Mouse.MoveAsync(box.X + (box.Width * 0.6f), y);
+            await page.Mouse.DownAsync();
+            for (var i = 1; i <= 20; i++)
+            {
+                await page.Mouse.MoveAsync(box.X + (box.Width * 0.6f) - (i * 6), y);
+                await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+            }
+            await page.Mouse.UpAsync();
+            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+            afterPan = await GetStatsAsync(page);
+
+            // A zoom, by contrast, MUST re-upload: it changes the scale every marker is sized by. Without
+            // this half the test would also pass on a buffer that is never uploaded again at all.
+            await CanvasGestures.WheelZoomAsync(page, canvas, events: 6, deltaPerEvent: 1.5, burst: false);
+            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+            afterZoom = await GetStatsAsync(page);
+        }
+        finally
+        {
+            await SetObjectOverlayAsync(page, canvas, on: false);
+        }
+
+        var painted = afterPan.Frames - before.Frames;
+        Assert.True(painted > 0, "the pan painted nothing, so it measured nothing");
+        Assert.True(afterPan.Uploads - before.Uploads <= afterPan.Gathers - before.Gathers,
+            $"a pan re-uploaded the instance buffer without re-gathering; uploads +{afterPan.Uploads - before.Uploads}, "
+            + $"gathers +{afterPan.Gathers - before.Gathers} over {painted} painted frames");
+        Assert.True(afterZoom.Uploads > afterPan.Uploads,
+            "a zoom must re-upload the instance buffer; it changes the scale every marker is sized by");
     }
 }

@@ -18,8 +18,9 @@ namespace TianWen.Lib.Tests
     ///
     /// <para><b>Why the split exists.</b> The test is view-dependent, and it was the last view-dependent
     /// thing left inside the CACHED phase -- which meant a wide zoom with [D] on re-ran the full-sky walk
-    /// for every 10% FOV bucket it crossed. Measured against the deployed build: 30 gathers over a
-    /// zoom-out with dark nebulae on, against 3 with them off.</para>
+    /// for every 10% FOV bucket it crossed. Measured against the deployed build over a 60-to-180
+    /// degree zoom-out: 6 gathers with dark nebulae on and 632 ms spent gathering, against 3 and
+    /// 193 ms with them off; the fixed build costs 3 either way.</para>
     ///
     /// <para><b>Why the gather does not simply drop the filter.</b> That was the first attempt and it is
     /// far too expensive: only 190 of 4,827 shaped dark nebulae survive at 180 degrees, so removing it

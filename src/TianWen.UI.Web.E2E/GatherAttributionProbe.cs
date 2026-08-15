@@ -48,6 +48,32 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
         return doc.RootElement.GetProperty("fovDeg").GetDouble();
     }
 
+    /// <summary>
+    /// Zooms back to <paramref name="targetFov"/> before a sweep starts.
+    ///
+    /// <para><b>Sweeps do not start where the previous one started.</b> Each leaves the zoom wherever
+    /// it ended -- the second sweep here bottoms out around 0.5 degrees -- so a following zoom-out
+    /// spends nearly all its steps BELOW the 90 degree wide threshold, where a gather per 10% FOV
+    /// bucket is correct behaviour. Read without this, the third sweep reported 30 gathers and they
+    /// were attributed to its [D] toggle; measured from a common start the real figure is 6 against 3.
+    /// A leg that silently measures a different field of view than the one it is compared against is
+    /// worse than no measurement, because it looks like one.</para>
+    /// </summary>
+    private static async Task ResetFovAsync(IPage page, ILocator canvas, double targetFov)
+    {
+        for (var i = 0; i < 60; i++)
+        {
+            var fov = await FovAsync(page);
+            if (Math.Abs(fov - targetFov) / targetFov < 0.08)
+            {
+                return;
+            }
+            await CanvasGestures.WheelZoomAsync(page, canvas, events: 1,
+                deltaPerEvent: fov < targetFov ? +120.0 : -120.0, burst: false);
+        }
+        Assert.Fail($"could not return the sky map to {targetFov} deg; the sweeps would not be comparable");
+    }
+
     /// <summary>Presses a sky-map toggle key and lets the resulting repaint land.</summary>
     private static async Task ToggleAsync(IPage page, ILocator canvas, string key)
     {
@@ -98,6 +124,9 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
         // past 90 degrees; if it is the per-frame draw, they do not.
         async Task SweepAsync(string label, int steps, double deltaPerEvent)
         {
+            // Every sweep starts from the app's default field of view, so their gather counts are
+            // comparable with each other (see ResetFovAsync).
+            await ResetFovAsync(page, canvas, targetFov: 60.0);
             output.WriteLine($"=== {label} ===");
             output.WriteLine($"{"step",4} {"fov",8} {"frames",7} {"gathers",8} {"renderMs",9} {"gatherMs",9}");
             var rows = new List<(double Fov, Stats S)>(steps);

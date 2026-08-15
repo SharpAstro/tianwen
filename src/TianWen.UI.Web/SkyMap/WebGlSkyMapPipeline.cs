@@ -4,6 +4,7 @@ using DIR.Lib;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.UI.Abstractions;
+using TianWen.UI.Abstractions.Overlays;
 using WebGl.Renderer;
 
 namespace TianWen.UI.Web.SkyMap
@@ -213,6 +214,122 @@ namespace TianWen.UI.Web.SkyMap
             }
             """;
 
+        // Overlay ellipse: instanced quads for the [O]/[D] DSO markers, transcribed from
+        // Shaders/skymap_overlay.vert|frag. The instance stream is the shared
+        // OverlayEllipseInstances layout, so the browser and the desktop feed identical bytes to
+        // identical arithmetic; the only delta is the flipped NDC Y that every shader here carries.
+        //
+        // What it replaces on this surface is not one draw call per marker but one POLYLINE per
+        // marker: the CPU path tessellated each ellipse into 8-32 stroke segments and pushed 36
+        // floats per segment. At a full-sky zoom that measured 7,072 ellipse + circle markers,
+        // 46,986 segments and about 6.8 MB of vertex data built and marshalled EVERY repaint --
+        // and the browser has no render loop, so every repaint is an input event.
+        private static readonly string OverlayVertexSource = $$"""
+            #version 300 es
+            precision highp float;
+            precision highp int;
+
+            layout(location = 0) in vec2  aCorner;       // per-vertex unit quad, [-1, 1]
+            layout(location = 1) in vec3  aUnitVec;      // per-instance J2000 unit vec
+            layout(location = 2) in vec2  aSizeArcmin;   // per-instance semi-axes (arcmin)
+            layout(location = 3) in float aPaFromNorth;  // per-instance PA from north (rad)
+            layout(location = 4) in float aThickness;    // per-instance stroke (px)
+            layout(location = 5) in vec4  aColor;        // per-instance color
+
+            {{UboGlsl}}
+
+            out vec2  vLocal;
+            out vec2  vSize;
+            out float vThickness;
+            out vec4  vColor;
+
+            {{ProjectionGlsl}}
+
+            void main() {
+                vec3 camPos = (viewMatrix * vec4(aUnitVec, 1.0)).xyz;
+                vec3 proj = stereoProject(camPos);
+                if (proj.z <= -0.99) {
+                    // Anti-hemisphere: emit a degenerate vertex so the whole instance is culled.
+                    gl_Position = vec4(0.0, 0.0, 0.0, 0.0);
+                    vLocal = vec2(0.0);
+                    vSize = vec2(1.0);
+                    vThickness = 0.0;
+                    vColor = vec4(0.0);
+                    return;
+                }
+                vec2 center = proj.xy;
+
+                // Local north tangent from the unit vector alone. The clamped cosDec avoids the
+                // pole singularity where cosDec -> 0 would blow up the division.
+                float cosDec = sqrt(max(1e-6, 1.0 - aUnitVec.z * aUnitVec.z));
+                vec3 nTangent = vec3(-aUnitVec.z * aUnitVec.x / cosDec,
+                                     -aUnitVec.z * aUnitVec.y / cosDec,
+                                      cosDec);
+
+                // Project a tip one arcmin north and measure the screen-space angle to it.
+                float stepRad = 2.908882e-4; // 1 arcmin in radians
+                vec3 tipUnit = normalize(aUnitVec + nTangent * stepRad);
+                vec3 tipProj = stereoProject((viewMatrix * vec4(tipUnit, 1.0)).xyz);
+                vec2 north2d = tipProj.xy - center;
+                // Measured in SCREEN space (Y down), exactly as the Vulkan source does -- the GL
+                // NDC flip belongs at the gl_Position write and nowhere else. Flipping earlier
+                // would mirror every position angle.
+                float screenNorthAngle = atan(north2d.y, north2d.x);
+                float totalAngle = screenNorthAngle - aPaFromNorth;
+
+                float arcminToPx = pixelsPerRadian * 0.00029088820866;  // pi / (180 * 60)
+                vec2 sizePx = aSizeArcmin * arcminToPx;
+
+                // Pad the quad for the ring SDF antialias, then rotate + expand.
+                float pad = max(aThickness * 0.75 + 1.0, 1.5);
+                vec2 local = aCorner * (sizePx + vec2(pad));
+                float cs = cos(totalAngle);
+                float sn = sin(totalAngle);
+                vec2 rotated = vec2(local.x * cs - local.y * sn,
+                                    local.x * sn + local.y * cs);
+                vec2 screenPos = center + rotated;
+
+                gl_Position = vec4(
+                    (screenPos.x - viewportCenter.x) / (viewportSize.x * 0.5),
+                    -(screenPos.y - viewportCenter.y) / (viewportSize.y * 0.5),
+                    0.0, 1.0);
+
+                vLocal = local;
+                vSize = sizePx;
+                vThickness = aThickness;
+                vColor = aColor;
+            }
+            """;
+
+        private const string OverlayFragmentSource = """
+            #version 300 es
+            precision highp float;
+            precision highp int;
+
+            in vec2  vLocal;
+            in vec2  vSize;
+            in float vThickness;
+            in vec4  vColor;
+
+            out vec4 FragColor;
+
+            void main() {
+                // Axis-aligned ellipse SDF: (x/a)^2 + (y/b)^2 = 1 on the boundary, scaled by the
+                // mean semi-axis to approximate a pixel distance from the ring.
+                vec2 s = max(vSize, vec2(0.5));
+                vec2 n = vLocal / s;
+                float normDist = sqrt(dot(n, n));
+                float avgR = (s.x + s.y) * 0.5;
+                float pixelDist = abs(normDist - 1.0) * avgR;
+
+                float halfT = max(vThickness * 0.5, 0.5);
+                float alpha = 1.0 - smoothstep(halfT, halfT + 1.0, pixelDist);
+                if (alpha < 0.01) discard;
+
+                FragColor = vec4(vColor.rgb * alpha, vColor.a * alpha);
+            }
+            """;
+
         // Horizon ground shading: an attributeless full-screen pass (gl_VertexID generates the
         // quad; no vertex data consumed) whose FS inverse-stereographic-projects each pixel and
         // tints below-horizon directions with depth-scaled alpha - the port of the Vulkan
@@ -318,6 +435,13 @@ namespace TianWen.UI.Web.SkyMap
         private readonly PipelineHandle _starPipeline;
         private readonly PipelineHandle _linePipeline;
         private readonly PipelineHandle _horizonFillPipeline;
+        private readonly PipelineHandle _overlayPipeline;
+
+        // The overlay instance buffer, re-uploaded only when the overlay's own inputs move (see
+        // SubmitOverlayInstances). A pan changes none of them, so a drag uploads nothing.
+        private GpuBufferHandle _overlayInstances;
+        private bool _overlayBufferCreated;
+        private int _overlayInstanceCount;
 
         private bool _geometryBuilt;
         private GpuBufferHandle _cornerQuad;
@@ -382,6 +506,24 @@ namespace TianWen.UI.Web.SkyMap
             _horizonFillPipeline = renderer.RegisterPipeline(new CustomPipelineDescriptor(
                 HorizonFillVertexSource, HorizonFillFragmentSource,
                 Attribs: [],
+                UniformBlockName: "SkyMapUBO"));
+            // Per-instance widths 3+2+1+1+4 = OverlayEllipseInstances.FloatsPerInstance, in
+            // declaration order -- the descriptor interleaves same-divisor attributes into one
+            // buffer, which is exactly how the shared builder writes them. AlphaOver matches the
+            // Vulkan pipeline's non-additive state (SrcAlpha/OneMinusSrcAlpha colour,
+            // One/OneMinusSrcAlpha alpha), so a marker composites the same on both surfaces.
+            _overlayPipeline = renderer.RegisterPipeline(new CustomPipelineDescriptor(
+                OverlayVertexSource, OverlayFragmentSource,
+                Attribs:
+                [
+                    new VertexAttrib(0, 2),
+                    new VertexAttrib(1, 3, PerInstance: true),
+                    new VertexAttrib(2, 2, PerInstance: true),
+                    new VertexAttrib(3, 1, PerInstance: true),
+                    new VertexAttrib(4, 1, PerInstance: true),
+                    new VertexAttrib(5, 4, PerInstance: true),
+                ],
+                Blend: PipelineBlend.AlphaOver,
                 UniformBlockName: "SkyMapUBO"));
         }
 
@@ -498,6 +640,7 @@ namespace TianWen.UI.Web.SkyMap
             _renderer.SetUniformBlock(_starPipeline, block);
             _renderer.SetUniformBlock(_linePipeline, block);
             _renderer.SetUniformBlock(_horizonFillPipeline, block);
+            _renderer.SetUniformBlock(_overlayPipeline, block);
 
             // Horizon + meridian + Alt/Az geometry depends on (LST, latitude). LST moves ~15
             // arcsec/s of RA; a 30-second bucket keeps the lines visually glued to real time
@@ -674,6 +817,50 @@ namespace TianWen.UI.Web.SkyMap
                     _renderer.DrawInstanced(_cornerQuad, 6, buffer, visible, (int)chunk.Offset);
                 }
             }
+        }
+
+        /// <summary>
+        /// Replaces the overlay instance buffer. The caller decides WHEN, because it owns the inputs
+        /// the instances are a function of (the cached candidate list, the arcmin-to-pixel scale, the
+        /// wide-FOV fade and the horizon dimming) and none of them move during a pan. That matters
+        /// because <c>UpdateBuffer</c> is a full <c>bufferData</c> reallocation: at a full-sky zoom
+        /// this stream is ~7,000 instances, about 311 KB. It is still an order of magnitude less than
+        /// the ~6.8 MB of stroke vertices the CPU path rebuilt per repaint, which is why uploading it
+        /// on every FOV change is a good trade and uploading it on every pan event would not be.
+        /// </summary>
+        public void SubmitOverlayInstances(ReadOnlySpan<float> instances)
+        {
+            _overlayInstanceCount = instances.Length / OverlayEllipseInstances.FloatsPerInstance;
+            if (_overlayInstanceCount == 0)
+            {
+                return;
+            }
+
+            if (_overlayBufferCreated)
+            {
+                _renderer.UpdateBuffer(_overlayInstances, instances);
+            }
+            else
+            {
+                _overlayInstances = _renderer.CreateBuffer(instances);
+                _overlayBufferCreated = true;
+            }
+        }
+
+        /// <summary>
+        /// One instanced draw for every ellipse + circle overlay marker last submitted. Records after
+        /// the star field so markers sit on top of it; the caller draws crosses and labels afterwards
+        /// with the ordinary primitives, and the renderer rebinds its fixed pipeline for those.
+        /// </summary>
+        public void DrawOverlay()
+        {
+            if (!_geometryBuilt || !_overlayBufferCreated || _overlayInstanceCount == 0)
+            {
+                return;
+            }
+
+            _renderer.UsePipeline(_overlayPipeline);
+            _renderer.DrawInstanced(_cornerQuad, 6, _overlayInstances, _overlayInstanceCount);
         }
     }
 }
