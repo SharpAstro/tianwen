@@ -33,7 +33,8 @@ namespace TianWen.Lib.Tests
             => new SkyMapTab<RgbaImage>(new RgbaImageRenderer((int)Width, (int)Height)) { Bus = new SignalBus() };
 
         /// <summary>Keys the tab's overlay cache for the current view, as a render would.</summary>
-        private static object KeyFor(SkyMapTab<RgbaImage> tab, double centreRa, double centreDec, double fov)
+        private static object KeyFor(
+            SkyMapTab<RgbaImage> tab, double centreRa, double centreDec, double fov, bool showDark = false)
         {
             tab.State.CenterRA = centreRa;
             tab.State.CenterDec = centreDec;
@@ -44,7 +45,7 @@ namespace TianWen.Lib.Tests
             var cx = rect.X + rect.Width * 0.5f;
             var cy = rect.Y + rect.Height * 0.5f;
             var ppr = SkyMapProjection.PixelsPerRadian(rect.Height, fov);
-            return tab.BuildOverlayKeyForTest(rect, fov, cx, cy, ppr, new PlannerState());
+            return tab.BuildOverlayKeyForTest(rect, fov, cx, cy, ppr, new PlannerState(), showDark);
         }
 
         /// <summary>Gathers a gesture would cost: one per key change, plus the first.</summary>
@@ -145,24 +146,34 @@ namespace TianWen.Lib.Tests
         /// <summary>
         /// Past the wide-FOV threshold the gather cannot depend on the field of view either, so
         /// ZOOMING there must not re-gather. The scan already sweeps the whole sphere, and both
-        /// magnitude cutoffs are flat above 5 degrees (8.0 extended, 1.0 stellar), so the only FOV
-        /// dependence left is the dark-nebula on-screen-size filter, which is off here.
+        /// magnitude cutoffs are flat above 5 degrees (8.0 extended, 1.0 stellar).
         ///
         /// <para>This is the expensive gather: a full-sky sweep measured at 121 ms in the browser, and
         /// a 90-to-180-degree zoom-out crossed about eleven of the 10% FOV buckets before this.</para>
+        ///
+        /// <para><b>Both toggle states, and the [D]-on one is the regression.</b> The dark-nebula
+        /// on-screen-size test was the last FOV-dependent thing in the gather, so the first version of
+        /// this optimisation had to give up whenever [D] was on -- measured against the deployed build,
+        /// a zoom-out then cost a gather on EVERY step (30 against 3), which handed the worst case to
+        /// the users who had asked for the most overlay. The gather now admits a superset valid across
+        /// the whole wide range and the projection applies the exact test per frame, so the answer no
+        /// longer depends on the toggle.</para>
         /// </summary>
-        [Fact]
-        public void AWideFovZoomDoesNotReGatherWhenDarkNebulaeAreOff()
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void AWideFovZoomDoesNotReGather(bool showDark)
         {
             var tab = BuildTab();
             var keys = new List<object>();
             for (var fov = 90.0; fov <= 180.0; fov += 5.0)
             {
-                keys.Add(KeyFor(tab, centreRa: 6.5, centreDec: 20.0, fov));
+                keys.Add(KeyFor(tab, centreRa: 6.5, centreDec: 20.0, fov, showDark));
             }
 
             var gathers = GathersOver(keys);
-            output.WriteLine($"zoom 90->180 deg over {keys.Count} steps, dark nebulae off: {gathers} gathers");
+            output.WriteLine($"zoom 90->180 deg over {keys.Count} steps, dark nebulae "
+                + (showDark ? "ON" : "off") + $": {gathers} gathers");
             gathers.ShouldBe(1);
         }
 

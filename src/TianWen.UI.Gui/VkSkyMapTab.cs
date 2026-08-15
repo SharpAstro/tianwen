@@ -108,8 +108,11 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
     private readonly List<float> _overlayEllipseInstances = new(1024);
 
     /// <summary>FOV threshold at which the scan bounds become view-matrix independent
-    /// (full-sky sweep). Keep in sync with the branch in <c>GatherSkyMapOverlayCandidates</c>.</summary>
-    private const double WideFovThresholdDeg = 90.0;
+    /// (full-sky sweep). Forwards to the engine's own constant rather than restating it: this
+    /// and the CPU tab's copy were both literal 90s that had to agree with the branch inside
+    /// GatherSkyMapOverlayCandidates, which is the arrangement a "keep in sync" comment asks
+    /// for and cannot enforce.</summary>
+    private const double WideFovThresholdDeg = OverlayEngine.WideFovDeg;
 
     // Sticky "collision vs best-effort" label placement mode. The two modes
     // disagree about dropped labels and slot overrides, so flipping between
@@ -310,6 +313,15 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         // instead of once per wheel tick. The magnitude cutoffs the gather derives from FOV
         // drift by at most ~10% before a re-gather picks them up -- visually indistinguishable.
         var quantFov = Math.Pow(1.1, Math.Round(Math.Log(Math.Max(fov, 0.1)) / Math.Log(1.1)));
+
+        // Past the wide threshold the FOV drops out of the key as well as the centre, because the
+        // gathered set genuinely cannot depend on it: the scan is already the whole sphere, both
+        // magnitude cutoffs are flat above 5 degrees, and the dark-nebula on-screen-size test now
+        // lives in the per-frame projection rather than the gather. Mirrors SkyMapTab.BuildOverlayKey.
+        if (wideFov)
+        {
+            quantFov = double.PositiveInfinity;
+        }
 
         var centreX = contentRect.X + contentRect.Width * 0.5f;
         var centreY = contentRect.Y + contentRect.Height * 0.5f;

@@ -82,9 +82,24 @@ internal static class CanvasGestures
     /// total zoom (and so the number of FOV buckets crossed) low.</param>
     public static async Task TrackpadPinchAsync(
         IPage page, ILocator target, int events, double deltaPerEvent, bool burst)
+        => await WheelAsync(page, target, events, deltaPerEvent, burst, ctrlKey: true);
+
+    /// <summary>
+    /// A PLAIN wheel, which is what a mouse wheel and a two-finger trackpad scroll deliver, and what
+    /// zooms the sky map. Distinct from <see cref="TrackpadPinchAsync"/> (ctrl+wheel) because the two
+    /// reach the app by different routes and only one of them is a pinch; a real session's trace shows
+    /// plain wheels, so a measurement driven by ctrl+wheel would be measuring the other gesture.
+    /// </summary>
+    /// <param name="deltaPerEvent">Wheel deltaY per event; positive zooms OUT on the sky map.</param>
+    public static async Task WheelZoomAsync(
+        IPage page, ILocator target, int events, double deltaPerEvent, bool burst)
+        => await WheelAsync(page, target, events, deltaPerEvent, burst, ctrlKey: false);
+
+    private static async Task WheelAsync(
+        IPage page, ILocator target, int events, double deltaPerEvent, bool burst, bool ctrlKey)
     {
         var box = await target.BoundingBoxAsync()
-            ?? throw new InvalidOperationException("Pinch target has no bounding box (not visible).");
+            ?? throw new InvalidOperationException("Wheel target has no bounding box (not visible).");
         var cx = box.X + (box.Width / 2);
         var cy = box.Y + (box.Height / 2);
 
@@ -92,14 +107,14 @@ internal static class CanvasGestures
         // argument), so there is no elementFromPoint lookup to get wrong. Values are formatted into the
         // script rather than passed as an argument object: Playwright's argument serialization did not
         // bind an anonymous type's members here, which surfaced as clientX arriving non-finite.
-        static string Script(int n, double delta, double cx, double cy)
+        static string Script(int n, double delta, double cx, double cy, bool ctrlKey)
         {
             var ci = CultureInfo.InvariantCulture;
             return $$"""
                 (el) => {
                   for (let i = 0; i < {{n.ToString(ci)}}; i++) {
                     el.dispatchEvent(new WheelEvent('wheel', {
-                      deltaY: {{delta.ToString("R", ci)}}, deltaMode: 0, ctrlKey: true,
+                      deltaY: {{delta.ToString("R", ci)}}, deltaMode: 0, ctrlKey: {{(ctrlKey ? "true" : "false")}},
                       clientX: {{cx.ToString("R", ci)}}, clientY: {{cy.ToString("R", ci)}},
                       bubbles: true, cancelable: true,
                     }));
@@ -110,11 +125,11 @@ internal static class CanvasGestures
 
         if (burst)
         {
-            await target.EvaluateAsync(Script(events, deltaPerEvent, cx, cy));
+            await target.EvaluateAsync(Script(events, deltaPerEvent, cx, cy, ctrlKey));
             return;
         }
 
-        var one = Script(1, deltaPerEvent, cx, cy);
+        var one = Script(1, deltaPerEvent, cx, cy, ctrlKey);
         for (var i = 0; i < events; i++)
         {
             await target.EvaluateAsync(one);
