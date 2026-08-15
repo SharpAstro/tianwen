@@ -143,12 +143,40 @@ On 2025-12-28 Segaull+Thors_Helmet, ASI533MC Pro g121 60s against the 120s/-10C/
 clusters across all three channels, extreme outliers 162618 -> 161334.** So the mask is surgical and
 correctly signed.
 
-**That is not the same measurement as the 52 -> 35 above, and does not supersede it.** This counts
-clusters in the DIFFERENCE between the two masters; the 52 -> 35 counts hot-pixel clusters REMAINING
-in the master. A mask can change many pixels and still leave the visible clusters standing. The
-residual-cluster question therefore stays open, and the way to close it is to count clusters in the
-2026-08-15 re-bake's master for this session against the same session in `2025-2026-darkscaled`,
-which is known to carry them.
+**That is not the same measurement as the 52 -> 35 above.** This counts clusters in the DIFFERENCE
+between the two masters; the 52 -> 35 counts hot-pixel clusters REMAINING in the master. A mask can
+change many pixels and still leave the visible clusters standing.
+
+### Resolved: the clusters do clear
+
+Cropping both masters at the largest changes and rendering them side by side under one shared
+stretch (`bpm_figure.py`, figure at `C:\tianwen-scratch\bpm-probe\hotpix-before-after.png`), every
+cluster present without the mask is absent with it. Not reduced -- absent.
+
+Each cluster is also a SINGLE COLOUR, which is the physical confirmation that these are what we
+think: a defect occupies one photosite, so it lands in one CFA channel, and drizzle then scatters it
+along the dither path. That is why they appear as ~36x25 px blobs congruent with the session's dither
+excursion rather than as dots, and why the union canvas grew by (+37, +27) for the same reason.
+
+Whole-frame isolated peaks above 30 MAD go 12,468 -> 12,247. Most of those are real stars and are
+untouched, which is the other half of the result: the mask removed 221 of them and left the rest.
+
+### Two ways this measurement went silently wrong first
+
+Both produced a plausible number rather than an error, which is why they are worth recording:
+
+- **NaN.** A drizzled master carries NaN in zero-weight cells and across the union-canvas margin
+  (27,359 px here). `np.median` over that returns NaN, every threshold becomes NaN, and `> NaN` is
+  false everywhere, so the figure reported "0 px changed, nothing to show" -- indistinguishable from
+  a genuine null. It took checking `max |diff|` and getting `nan` back to see it. Note the same trap
+  in C#: `Array.Sort` places NaN FIRST, ahead of negative infinity, so a median read at `length/2`
+  of a raw drizzled channel is displaced by the NaN fraction. `HotPixelMaskProbe` now filters to
+  finite samples before taking either statistic.
+- **Statistic mismatch.** Thresholding the LUMINANCE finds nothing: a single-channel defect is
+  divided by three when the channels are averaged while the luminance MAD only falls by about
+  sqrt(3), so an 8-MAD defect lands near 4.6 MAD and never crosses. Threshold PER CHANNEL against
+  that channel's own MAD, which is what the C# probe does. Matched that way, Python reads 2107 px /
+  607 clusters against C#'s 2119 / 617, the residual gap being exactly the NaN-displaced median.
 
 ### Note on how this document got re-derived
 

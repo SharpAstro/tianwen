@@ -176,16 +176,35 @@ namespace TianWen.Lib.Tests
             var a = nomask.GetChannelSpan(channel);
             var b = masked.GetChannelSpan(channel);
 
-            var sorted = new float[w * h];
-            b.CopyTo(sorted);
-            Array.Sort(sorted);
-            var median = sorted[sorted.Length / 2];
-            for (var i = 0; i < sorted.Length; i++)
+            // FINITE SAMPLES ONLY. A drizzled master carries NaN wherever a cell got no weight and
+            // across the union-canvas margin -- 27,359 px on the measured session. .NET sorts NaN
+            // FIRST, ahead of negative infinity, so a median read at length/2 of the raw array is
+            // displaced by the NaN fraction and lands below the true median. The bias hits both
+            // arms equally so it does not change this probe's verdict, but it makes the reported
+            // threshold wrong, and a statistic that silently means a different percentile than its
+            // name says is worth more than the two lines it costs to fix.
+            var finite = new float[w * h];
+            var n = 0;
+            for (var i = 0; i < b.Length; i++)
             {
-                sorted[i] = Math.Abs(sorted[i] - median);
+                if (float.IsFinite(b[i]))
+                {
+                    finite[n++] = b[i];
+                }
             }
-            Array.Sort(sorted);
-            var mad = sorted[sorted.Length / 2] + float.Epsilon;
+            if (n == 0)
+            {
+                return (0, 0, 0, 0);
+            }
+            var samples = finite.AsSpan(0, n);
+            samples.Sort();
+            var median = samples[n / 2];
+            for (var i = 0; i < n; i++)
+            {
+                samples[i] = Math.Abs(samples[i] - median);
+            }
+            samples.Sort();
+            var mad = samples[n / 2] + float.Epsilon;
 
             var changedBar = 8f * mad;
             var brightBar = median + 20f * mad;
@@ -196,6 +215,9 @@ namespace TianWen.Lib.Tests
             var brightAfter = 0;
             for (var i = 0; i < changed.Length; i++)
             {
+                // Every comparison below is false when either operand is NaN, which is the wanted
+                // behaviour: an uncovered cell is neither a change nor a bright outlier. Relying on
+                // that is fine, but it is deliberate rather than accidental, hence this note.
                 if (a[i] - b[i] > changedBar)
                 {
                     changed[i] = true;
