@@ -504,14 +504,60 @@ public static class CalibrationResolver
         return best;
     }
 
-    /// <summary>A dark may serve as a flat's pedestal only within this exposure ratio of the flat.
-    /// It exists to rescue the archive's MISLABELED dark-flats (N.I.N.A. writes the 4.6 s / 6.7 s
-    /// flat-matched sets as IMAGETYP=DARK) while keeping a real light-dark (60-300 s) from ever
-    /// being subtracted from a ~1 s flat, which would inject minutes of thermal + amp glow the
-    /// flat never accumulated. At 4x and typical flat exposures the residual thermal gap is a few
-    /// seconds' worth, negligible on a cooled sensor, while the shortest light-dark in the
-    /// archive sits an order of magnitude beyond the gate.</summary>
+    /// <summary>A frame that carries thermal signal may serve as a flat's pedestal only within this
+    /// exposure ratio of the flat. The gate is applied by EXPOSURE and never by label, in both
+    /// directions: it rescues the archive's mislabeled dark-flats (N.I.N.A. writes the 4.6 s / 6.7 s
+    /// flat-matched sets as IMAGETYP=DARK) and it equally refuses a 300 s set that merely calls
+    /// itself DARKFLAT. A frame shot at the flat's exposure IS a dark-flat whatever its header says,
+    /// and a light-dark is never one.
+    ///
+    /// <para>Being out of gate means NO pedestal rather than a distant one, and that is the right
+    /// trade even with nothing else available. The cost of no pedestal is a uniform offset left in
+    /// the flat, and a flat is normalised, so a uniform term only compresses its dynamic range: on
+    /// the pinned test case an 788 ADU offset moves a true 0.800 corner falloff to 0.804, a 0.5%
+    /// vignetting error. The cost of a long dark is its AMP GLOW, a spatial pattern that divides
+    /// into every light through the flat and cannot be normalised away. 0.5% beats that.</para></summary>
     internal const double FlatPedestalMaxExposureRatio = 4.0;
+
+    /// <summary>Dark current roughly doubles every this many degrees C on a CMOS sensor. It is the
+    /// conversion that lets a temperature mismatch be compared against an exposure mismatch at all,
+    /// by expressing both in the same currency (see <see cref="FlatPedestalThermalError"/>).</summary>
+    internal const double DarkCurrentDoublingC = 6.0;
+
+    /// <summary>A vestigial per-degree weight that can only ever separate candidates whose thermal
+    /// error is already identical -- in practice two biases, which all carry the same t_flat. Small
+    /// enough that it can never outrank a real difference in thermal error.</summary>
+    private const double FlatPedestalTempTiebreak = 0.01;
+
+    /// <summary>The error a pedestal candidate leaves in the flat, expressed in SECONDS of the
+    /// flat's own thermal signal at the flat's own temperature. This IS the ranking, because it is
+    /// the whole physics of the choice: every candidate removes the offset, so what separates them
+    /// is how much of the flat's thermal term survives, or how much foreign thermal signal is
+    /// injected in its place.
+    ///
+    /// <para>A bias has no exposure and so scores exactly t_flat: it removes the offset and leaves
+    /// the entire thermal term standing. An exposure- and temperature-matched dark-flat scores 0.
+    /// What this buys over weighting temperature as a flat per-degree constant is the ORDER in the
+    /// mismatched cases, which is where the preference actually has to hold: a dark-flat 1 C off
+    /// still scores ~0.12 t_flat, an eighth of the bias's error, and must win. A constant per-degree
+    /// weight made that 1 C outrank the entire thermal term on a 1 s flat and handed those sessions
+    /// back to the bias.</para>
+    ///
+    /// <para>An unknown temperature on either side is read as matching rather than penalised. A
+    /// frame shot at the flat's exposure was almost certainly shot beside it, and manufacturing a
+    /// penalty for a missing header would push exactly those sessions onto a bias that is
+    /// measurably worse.</para></summary>
+    internal static double FlatPedestalThermalError(MasterGroupKey candidate, MasterGroupKey flat)
+    {
+        var candidateSeconds = candidate.Exposure.TotalSeconds;
+        var flatSeconds = flat.Exposure.TotalSeconds;
+        if (candidateSeconds <= 0.0) return flatSeconds;
+
+        var scale = candidate.TemperatureC is { } candidateTemp && flat.TemperatureC is { } flatTemp
+            ? Math.Pow(2.0, (candidateTemp - flatTemp) / DarkCurrentDoublingC)
+            : 1.0;
+        return Math.Abs(candidateSeconds * scale - flatSeconds);
+    }
 
     internal static CalGroup? BestFlatPedestal(List<CalGroup>? biases, List<CalGroup>? darkFlats, List<CalGroup>? darks, CalGroup flatGroup)
     {
@@ -521,18 +567,22 @@ public static class CalibrationResolver
         var flatCamera = CalTrain.Camera(flat);
         CalGroup? best = null;
         var bestScore = double.PositiveInfinity;
-        // One pool of biases, dark-flats AND exposure-gated darks, with exposure distance as a
-        // score term, because the exposure gap IS the physics of the choice: the pedestal error a
-        // candidate leaves behind is the thermal signal accumulated over |t_candidate - t_flat|.
-        // So an exposure-matched dark-flat (offset + the flat's own thermal, gap ~0) beats a bias
-        // (offset only, gap = t_flat), while a lone mismatched dark-flat (a 30 s set against a
-        // 1 s flat) loses to a good bias rather than injecting 29 s of thermal + amp glow the
-        // flat never accumulated. Every bias carries the same t_flat exposure gap, so within an
-        // all-bias pool the ordering is exactly what it was before dark-flats joined
-        // (temperature, then gain). Darks additionally pass the hard ratio gate above: a dark at
-        // the flat's exposure IS a dark-flat whatever its label, and a light-dark is never one.
+        // ONE pool of biases, dark-flats and darks, ranked by the error each would leave behind
+        // (FlatPedestalThermalError). The preference falls out of the ranking rather than being
+        // asserted by a tier: a dark-flat that matches the flat's exposure scores ~0 against every
+        // bias's t_flat, so it wins, and it keeps winning while its temperature mismatch costs less
+        // than the whole thermal term the bias would leave. A mismatched dark-flat loses to a good
+        // bias rather than injecting thermal signal the flat never accumulated.
+        //
+        // Every bias carries the same t_flat, so within an all-bias pool the ordering is exactly
+        // what it was before dark-flats joined (temperature, then gain) via the tiebreak term.
+        //
+        // The exposure gate applies to anything carrying thermal signal, by exposure and never by
+        // label, so a mislabeled dark-flat is rescued and a mislabeled light-dark is refused
+        // symmetrically. A light-dark is therefore never scaled down onto a flat: it is not a
+        // candidate at all, and the bias takes it.
         Consider(biases, exposureGate: false);
-        Consider(darkFlats, exposureGate: false);
+        Consider(darkFlats, exposureGate: true);
         Consider(darks, exposureGate: true);
         return best;
 
@@ -543,8 +593,9 @@ public static class CalibrationResolver
             {
                 if (!Buildable(g) || !DimensionCompatible(g.Key, flatKey) || !g.Train.CameraCompatibleWith(flatCamera)) continue;
                 if (exposureGate && !FlatPedestalExposureCompatible(g.Key.Exposure, flatKey.Exposure)) continue;
-                var score = TempPenalty(g.Key, flatKey) * 10.0 + GainPenalty(g.Key, flatKey)
-                    + Math.Abs((g.Key.Exposure - flatKey.Exposure).TotalSeconds);
+                var score = FlatPedestalThermalError(g.Key, flatKey)
+                    + TempPenalty(g.Key, flatKey) * FlatPedestalTempTiebreak
+                    + GainPenalty(g.Key, flatKey);
                 if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
                 {
                     bestScore = score;
