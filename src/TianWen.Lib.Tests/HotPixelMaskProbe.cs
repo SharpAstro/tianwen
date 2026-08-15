@@ -166,9 +166,17 @@ namespace TianWen.Lib.Tests
         ///
         /// <para>Thresholds are derived from the MASKED master's own robust scale rather than from
         /// an absolute number, because a drizzled master's units depend on the session. The changed
-        /// bar is deliberately well above the noise: drizzle deposition is not bit-identical between
-        /// two runs even where no pixel was masked, so a bar at a few MAD would count the whole
-        /// frame as changed and the surgical-ness assertion would be meaningless.</para>
+        /// bar is deliberately well above the noise, because masking a pixel perturbs far more than
+        /// that pixel. Drizzle normalises by accumulated weight, so removing ~22k input pixels moves
+        /// the flux/weight ratio of every output cell any of them landed in across all the dithered
+        /// frames -- 2.9M cells at some magnitude here. A bar at a few MAD would count all of those
+        /// and the surgical-ness assertion would be meaningless.</para>
+        ///
+        /// <para>An earlier version of this comment blamed that spread on drizzle not being
+        /// bit-identical run to run. It is bit-identical: two full 5-hour bakes on different commits
+        /// produced pixel-identical masters (max |diff| 0.0 over 27.7M finite px, NaN masks equal).
+        /// The pipeline is deterministic to the bit, so every difference measured here is mask
+        /// consequence and nothing else.</para>
         /// </summary>
         private static (int Flagged, int Clusters, int BrightBefore, int BrightAfter) CompareChannel(
             Image nomask, Image masked, int channel, int w, int h)
