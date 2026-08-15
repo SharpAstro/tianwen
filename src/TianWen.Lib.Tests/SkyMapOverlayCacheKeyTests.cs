@@ -143,6 +143,30 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// Past the wide-FOV threshold the gather cannot depend on the field of view either, so
+        /// ZOOMING there must not re-gather. The scan already sweeps the whole sphere, and both
+        /// magnitude cutoffs are flat above 5 degrees (8.0 extended, 1.0 stellar), so the only FOV
+        /// dependence left is the dark-nebula on-screen-size filter, which is off here.
+        ///
+        /// <para>This is the expensive gather: a full-sky sweep measured at 121 ms in the browser, and
+        /// a 90-to-180-degree zoom-out crossed about eleven of the 10% FOV buckets before this.</para>
+        /// </summary>
+        [Fact]
+        public void AWideFovZoomDoesNotReGatherWhenDarkNebulaeAreOff()
+        {
+            var tab = BuildTab();
+            var keys = new List<object>();
+            for (var fov = 90.0; fov <= 180.0; fov += 5.0)
+            {
+                keys.Add(KeyFor(tab, centreRa: 6.5, centreDec: 20.0, fov));
+            }
+
+            var gathers = GathersOver(keys);
+            output.WriteLine($"zoom 90->180 deg over {keys.Count} steps, dark nebulae off: {gathers} gathers");
+            gathers.ShouldBe(1);
+        }
+
+        /// <summary>
         /// Past the wide-FOV threshold the gather sweeps the whole sphere, so the centre drops out of
         /// the key entirely and a pan at that zoom must be free.
         /// </summary>
