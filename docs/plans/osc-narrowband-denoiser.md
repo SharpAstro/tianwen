@@ -49,6 +49,31 @@ Cost of the switch: the organized set is 6,438 lights against the 8,290 the unta
 it covers groups A/B/C only and excludes the parked ASI585 group, the two poor mono sets, and the
 unmeasured remainder. Those are precisely the sessions that cannot be characterised anyway.
 
+**Point the bake at the three SUBTREES, never at the organized root.** Measured, because rooting at
+`D:\Astro-Organized` discovers ZERO sessions while reporting a healthy-looking scan:
+
+```
+--archive-root "D:\Astro-Organized\lights" "D:\Astro-Organized\calibration" "D:\Astro-Organized\flats"
+```
+
+Two independent reasons, and both are silent:
+
+- **`lights` is in `SessionDiscovery.FrameDirNames`**, and a frame-type directory sitting directly
+  under an archive root is by definition a shared calibration library rather than a session, so the
+  entire tree is path-excluded. The counter says `6438 excluded-path`, which reads like a filter the
+  operator asked for rather than a structural refusal.
+- **`targets/` is a junction farm**, a second navigation view whose `<target>/<filter>/<date>` leaves
+  are Junctions into `lights/...`. .NET enumeration follows them, so every light is scanned twice
+  (6,438 x 2 + 3,002 calibration + 14 provenance = the 15,892 the log reported against 9,454 files
+  actually on disk) and one copy is then dropped as a duplicate. `find` does not follow junctions by
+  default, which is why a shell count disagrees with the scanner and looks like the scanner is wrong.
+
+Rooted correctly the same archive gives **52 sessions / 6,437 lights, zero exclusions, zero
+duplicates**, and the session key carries the filter
+(`...|ZWO ASI533MC Pro|HD 71272|Optolong L-Ultimate 3nm`), which is task #19 resolved by data rather
+than by code. Multi-target nights split correctly too (2026-01-23 becomes HD 71272 / RCW 27 /
+Vela SNR).
+
 ## 1. What was established this session
 
 ### 1a. Invention is ZERO. The fabrication metric was measuring its own threshold.
