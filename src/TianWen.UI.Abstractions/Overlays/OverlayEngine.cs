@@ -854,6 +854,29 @@ public static class OverlayEngine
                     // target of a type the overlay doesn't normally draw (e.g. a Star Forming Region /
                     // molecular cloud, which is not an "extended" type) would be dropped here and
                     // never render, even though the user explicitly pinned it.
+                    // CHEAP GATES FIRST. Everything below this point is only reachable by an object
+                    // that will actually be kept, or that might be pinned. The two questions here cost
+                    // a field read and a comparison; the cross-index closure below is, by this file's
+                    // own account, the single most expensive question asked per candidate, and it used
+                    // to be asked of EVERY object in every scanned cell with the magnitude test coming
+                    // last. That is backwards precisely where it hurts most: past 90 degrees the walk
+                    // sweeps the whole sphere (65,160 cells, the entire DSO catalog) while the cutoff
+                    // is at its tightest -- GetExtendedMagCutoff returns 8.0, "Messier-class only" --
+                    // so nearly every object paid for a cross-index lookup and was then dropped on
+                    // magnitude.
+                    var effectiveMagCutoffEarly = isStar ? starMagCutoff : magCutoff;
+                    var magPasses = Half.IsNaN(obj.V_Mag) || (double)obj.V_Mag <= effectiveMagCutoffEarly;
+                    var typePasses = isExtended || isStar;
+
+                    // A pinned target bypasses both gates, so it can only be skipped here when there
+                    // are no pins at all. With pins present the object still has to go the long way,
+                    // because recognising one needs the cross-refs; the pinned set is tiny, so this
+                    // costs nothing on the common path and stays exactly as correct on the rare one.
+                    if (!(magPasses && typePasses) && pinnedCatalogIndices is null)
+                    {
+                        continue;
+                    }
+
                     // ONE cross-index closure per object. The pinned check and the duplicate check
                     // below both need it, and it is the single most expensive question asked per
                     // candidate, so asking it twice doubled the cost of the whole walk.
@@ -926,13 +949,9 @@ public static class OverlayEngine
                     // survives the filters AND renders as the orange landmark.
                     var isPinned = isPinnedEarly;
 
-                    if (!isPinned)
+                    if (!isPinned && !magPasses)
                     {
-                        var effectiveMagCutoff = isStar ? starMagCutoff : magCutoff;
-                        if (!Half.IsNaN(obj.V_Mag) && (double)obj.V_Mag > effectiveMagCutoff)
-                        {
-                            continue;
-                        }
+                        continue;
                     }
 
                     // Note: no per-candidate projection / off-screen cull here anymore.

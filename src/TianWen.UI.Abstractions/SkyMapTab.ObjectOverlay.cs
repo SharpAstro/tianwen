@@ -39,6 +39,14 @@ namespace TianWen.UI.Abstractions
         internal int PrimOverlayGathers { get; private set; }
 
         /// <summary>
+        /// Cumulative wall time inside the candidate gather. Paired with
+        /// <see cref="PrimOverlayGathers"/> it separates "how often" from "how expensive", which a
+        /// frame-duration trace cannot: the browser runs the gather INSIDE the animation-frame
+        /// callback, so a slow frame and a slow gather are the same sample until they are timed apart.
+        /// </summary>
+        internal double PrimOverlayGatherMs { get; private set; }
+
+        /// <summary>
         /// The cache key for a given view, for tests that need to count key changes across a gesture
         /// without driving a whole render (which needs a renderer, a font and a populated catalog).
         /// Returns an opaque value -- only its equality across successive calls is meaningful.
@@ -93,8 +101,10 @@ namespace TianWen.UI.Abstractions
             if (!_primOverlayHasKey || !_primOverlayKey.Equals(key))
             {
                 PrimOverlayGathers++;
+                var gatherStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 OverlayEngine.GatherSkyMapOverlayCandidates(
                     State.CurrentViewMatrix, fov, contentRect, dpiScale, db, pinned, _primOverlayCandidates);
+                PrimOverlayGatherMs += System.Diagnostics.Stopwatch.GetElapsedTime(gatherStart).TotalMilliseconds;
 
                 // Per-layer visibility (same rule as VkSkyMapTab): dark nebulae follow [D], every other
                 // catalog object follows [O]; pinned targets bypass both so they stay visible.
@@ -248,6 +258,23 @@ namespace TianWen.UI.Abstractions
             var quantFov = Math.Pow(1.1, Math.Round(Math.Log(Math.Max(fov, 0.1)) / Math.Log(1.1)));
 
             var wideFov = fov >= PrimOverlayWideFovDeg;
+
+            // Above the wide threshold the gather cannot depend on the field of view AT ALL, so the FOV
+            // drops out of the key exactly as the centre already has. Three facts make that exact rather
+            // than approximate: the scan sweeps the whole sphere past 90 degrees, and BOTH magnitude
+            // cutoffs are already flat by then (GetExtendedMagCutoff and GetStarMagCutoff both switch
+            // for the last time at 5 degrees, to 8.0 and 1.0). The one remaining FOV dependence is the
+            // dark-nebula on-screen-size filter, which only exists when [D] is on, so this is gated on
+            // it rather than approximated.
+            //
+            // Worth it because the wide gather is the expensive one: a full-sky sweep measured at 121 ms
+            // in the browser, and zooming out from 90 to 180 degrees crosses ~7 of the 10% buckets, so
+            // it used to run about eleven times for one gesture.
+            if (wideFov && !showDark)
+            {
+                quantFov = double.PositiveInfinity;
+            }
+
             double quantRa = 0.0, quantDec = 0.0;
             if (!wideFov)
             {

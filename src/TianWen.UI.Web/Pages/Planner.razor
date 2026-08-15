@@ -142,6 +142,7 @@
     // than only from a browser trace. Read by the E2E hook.
     int _rafCoalesced;
     int _renderFrames;
+    double _renderMs;
 
     // Sensible default dark-ish mid-northern site; geolocation / manual entry override it.
     double _lat = 47.5;
@@ -1001,40 +1002,51 @@
     {
         if (_webGl is null || _tab is null) return;
         _renderFrames++;
-        // Web has no per-frame loop; every event ends in a RenderFrame, so this is the bus pump
-        // (delivers the auto-posted SavePlannerSessionSignal after pin/slider mutations) and the
-        // completion reaper for the tracked async saves.
-        _bus.ProcessPending(_tracker);
-        _tracker.ProcessCompletions(Logger);
-        _webGl.Clear(Background);
-        var content = new RectF32(0f, 0f, _metrics.BackingWidth, _metrics.BackingHeight);
-        if (_view == View.SkyMap && _skyTab is not null)
+        var frameStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
         {
-            // First atlas paint: kick the lazy Tycho-2 fetch (once). Triggering here - rather than
-            // in ApplyViewFromLocation - guarantees the pipeline exists (a deep-link resolves the
-            // view before the renderer/tabs are created), and it naturally covers chip switches +
-            // browser back/forward too.
-            if (!_tycho2Requested)
+            // Web has no per-frame loop; every event ends in a RenderFrame, so this is the bus pump
+            // (delivers the auto-posted SavePlannerSessionSignal after pin/slider mutations) and the
+            // completion reaper for the tracked async saves.
+            _bus.ProcessPending(_tracker);
+            _tracker.ProcessCompletions(Logger);
+            _webGl.Clear(Background);
+            var content = new RectF32(0f, 0f, _metrics.BackingWidth, _metrics.BackingHeight);
+            if (_view == View.SkyMap && _skyTab is not null)
             {
-                _tycho2Requested = true;
-                _ = EnsureTycho2AtlasAsync();
+                // First atlas paint: kick the lazy Tycho-2 fetch (once). Triggering here - rather than
+                // in ApplyViewFromLocation - guarantees the pipeline exists (a deep-link resolves the
+                // view before the renderer/tabs are created), and it naturally covers chip switches +
+                // browser back/forward too.
+                if (!_tycho2Requested)
+                {
+                    _tycho2Requested = true;
+                    _ = EnsureTycho2AtlasAsync();
+                }
+                // DPI + font each have one owner: the widget's DpiScale / FontPath properties (the browser's
+                // devicePixelRatio + resolved font, re-set per frame since the JS resize observer updates
+                // _metrics / _fontPath out of band). The web host has no emoji font.
+                _skyTab.DpiScale = (float)_metrics.DevicePixelRatio;
+                _skyTab.FontPath = _fontPath;
+                _skyTab.Render(_state, content, Time);
             }
-            // DPI + font each have one owner: the widget's DpiScale / FontPath properties (the browser's
-            // devicePixelRatio + resolved font, re-set per frame since the JS resize observer updates
-            // _metrics / _fontPath out of band). The web host has no emoji font.
-            _skyTab.DpiScale = (float)_metrics.DevicePixelRatio;
-            _skyTab.FontPath = _fontPath;
-            _skyTab.Render(_state, content, Time);
+            else
+            {
+                _tab.DpiScale = (float)_metrics.DevicePixelRatio;
+                _tab.FontPath = _fontPath;
+                _tab.Render(_state, content, Time, _mouse);
+            }
+            _webGl.Present();
+            SyncOverlayRect(); // regions were re-registered by the Render above
+            SyncSelectableTextLayer();
         }
-        else
+        finally
         {
-            _tab.DpiScale = (float)_metrics.DevicePixelRatio;
-            _tab.FontPath = _fontPath;
-            _tab.Render(_state, content, Time, _mouse);
+            // Measured here rather than read off a trace: the browser runs the whole paint inside the
+            // animation-frame callback, so a trace cannot separate "the frame was slow" from "the
+            // candidate gather inside it was slow". Paired with the tab's own gather timer it can.
+            _renderMs += System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds;
         }
-        _webGl.Present();
-        SyncOverlayRect(); // regions were re-registered by the Render above
-        SyncSelectableTextLayer();
     }
 
     // ── Selectable-text DOM layer ─────────────────────────────────────────────
@@ -1311,7 +1323,9 @@
         => "{\"frames\":" + _renderFrames.ToString(CultureInfo.InvariantCulture)
             + ",\"coalesced\":" + _rafCoalesced.ToString(CultureInfo.InvariantCulture)
             + ",\"gathers\":" + (_skyTab?.PrimOverlayGathers ?? 0).ToString(CultureInfo.InvariantCulture)
-            + ",\"overlay\":" + ((_skyTab?.State.ShowObjectOverlay ?? false) ? "true" : "false") + "}";
+            + ",\"overlay\":" + ((_skyTab?.State.ShowObjectOverlay ?? false) ? "true" : "false")
+            + ",\"renderMs\":" + _renderMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"gatherMs\":" + (_skyTab?.PrimOverlayGatherMs ?? 0).ToString("F1", CultureInfo.InvariantCulture) + "}";
 
     [JSInvokable]
     public string GetPlannerSearchRectJson()
