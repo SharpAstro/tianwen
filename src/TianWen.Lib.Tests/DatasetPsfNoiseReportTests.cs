@@ -318,6 +318,122 @@ namespace TianWen.Lib.Tests
         private static DatasetPsfNoiseReport.RadiusSamples Samples(float fwhm)
             => new([fwhm], [0.5f]);
 
+        [Fact]
+        public void TheReferenceChannelIsGreen_OnAThreeChannelMaster()
+        {
+            // Green carries twice the CFA sampling, so it detects the most stars and yields the
+            // largest matched set. Fixed rather than per-session: the profile pools sessions of one
+            // train, and a varying reference would band them on different physical quantities.
+            DatasetPsfNoiseReport.ReferenceChannel(3).ShouldBe(1);
+            DatasetPsfNoiseReport.ReferenceChannel(1).ShouldBe(0);
+        }
+
+        [Fact]
+        public void AStarMissingFromOneChannel_IsNotSampledInAnyOfThem()
+        {
+            // The point of the common set: a star that only one channel detected cannot contribute
+            // its width to that channel's annulus, because then the channels would be describing
+            // different populations and their radial trends would not be comparable.
+            var red = new List<ImagedStar>();
+            var green = new List<ImagedStar>();
+            var blue = new List<ImagedStar>();
+            for (var i = 0; i < 50; i++)
+            {
+                var x = 100f + i * 7f;
+                var y = 100f + i * 3f;
+                red.Add(Star(x, y, fwhm: 3.0f, flux: 0.02f));
+                // Sub-pixel disagreement between channels is real (median 0.064 px) and must still match.
+                green.Add(Star(x + 0.05f, y - 0.04f, fwhm: 2.0f, flux: 0.01f));
+                blue.Add(Star(x - 0.03f, y + 0.06f, fwhm: 2.2f, flux: 0.008f));
+            }
+            // Present in red and green only, and far from every other star so nothing else claims it.
+            red.Add(Star(900f, 900f, fwhm: 9.9f, flux: 0.02f));
+            green.Add(Star(900f, 900f, fwhm: 9.9f, flux: 0.01f));
+
+            var matched = DatasetPsfNoiseReport.MatchStarsAcrossChannels(
+                [StarsOf(red), StarsOf(green), StarsOf(blue)],
+                DatasetPsfNoiseReport.ReferenceChannel(3));
+
+            matched.ShouldNotBeNull();
+            matched.X.Length.ShouldBe(50);
+            matched.Fwhm[0].ShouldNotContain(9.9f);
+            matched.Fwhm[1].ShouldNotContain(9.9f);
+            // The reference channel's flux is what travels, so the band is one physical criterion.
+            matched.ReferenceFlux.ShouldAllBe(f => f == 0.01f);
+        }
+
+        [Fact]
+        public void EveryChannelsAnnulusHoldsTheSameStars_AndTheSameFluxToBandOn()
+        {
+            // This is the property that fixes the inversion. The downstream band is a percentile of
+            // Flux applied index-wise to Fwhm, so identical flux arrays plus identical bin
+            // membership mean the band keeps the SAME physical stars in all three channels. With a
+            // per-channel percentile it kept a different brightness in each, and since measured FWHM
+            // swings 25-30% with brightness, each channel's radial trend followed its own selection.
+            var red = new List<ImagedStar>();
+            var green = new List<ImagedStar>();
+            var blue = new List<ImagedStar>();
+            for (var i = 0; i < 60; i++)
+            {
+                // Spread across the field so more than one annulus is populated.
+                var x = 20f + i * 30f;
+                var y = 20f + i * 20f;
+                red.Add(Star(x, y, fwhm: 3.0f + i * 0.01f, flux: 0.02f + i * 0.001f));
+                green.Add(Star(x, y, fwhm: 2.0f + i * 0.01f, flux: 0.01f + i * 0.001f));
+                blue.Add(Star(x, y, fwhm: 2.2f + i * 0.01f, flux: 0.008f + i * 0.001f));
+            }
+
+            var matched = DatasetPsfNoiseReport.MatchStarsAcrossChannels(
+                [StarsOf(red), StarsOf(green), StarsOf(blue)], referenceChannel: 1);
+            matched.ShouldNotBeNull();
+
+            var bins = DatasetPsfNoiseReport.BinCommonStarsByFieldRadius(
+                matched, cx: 960, cy: 640, halfDiag: 1153, radiusBins: 5);
+
+            bins.Length.ShouldBe(3);
+            for (var b = 0; b < 5; b++)
+            {
+                var reference = bins[0][b];
+                foreach (var channel in bins)
+                {
+                    channel[b].Fwhm.Length.ShouldBe(reference.Fwhm.Length);
+                    channel[b].Ellipticity.Length.ShouldBe(reference.Fwhm.Length);
+                    channel[b].Flux!.Length.ShouldBe(reference.Fwhm.Length);
+                    channel[b].Flux.ShouldBe(reference.Flux);
+                }
+            }
+            bins[0].Sum(s => s.Fwhm.Length).ShouldBe(matched.X.Length, "every matched star lands in exactly one annulus");
+        }
+
+        [Fact]
+        public void AHandfulOfMatchedStars_StillBins_BecauseTheStarFloorBelongsToTheBand()
+        {
+            // The matcher deliberately has no star-count floor. Deciding a session is too thin to
+            // say anything is the band's job (FluxBand needs 40 for percentiles and folds a smaller
+            // session in unbanded), and duplicating that floor here would drop the session from the
+            // profile altogether -- worse than the unbanded fold it used to get.
+            var red = new List<ImagedStar>();
+            var green = new List<ImagedStar>();
+            for (var i = 0; i < 10; i++)
+            {
+                red.Add(Star(50f + i * 11f, 50f + i * 13f, fwhm: 3.0f, flux: 0.02f));
+                green.Add(Star(50f + i * 11f, 50f + i * 13f, fwhm: 2.0f, flux: 0.01f));
+            }
+
+            var matched = DatasetPsfNoiseReport.MatchStarsAcrossChannels(
+                [StarsOf(red), StarsOf(green)], referenceChannel: 0);
+
+            matched.ShouldNotBeNull();
+            matched.X.Length.ShouldBe(10);
+        }
+
+        private static ImagedStar Star(float x, float y, float fwhm, float flux)
+            => new(HFD: fwhm * 0.9f, StarFWHM: fwhm, SNR: 20f, Flux: flux,
+                XCentroid: x, YCentroid: y, Ellipticity: 0.5f);
+
+        private static StarList StarsOf(IEnumerable<ImagedStar> stars)
+            => new(new System.Collections.Concurrent.ConcurrentBag<ImagedStar>(stars));
+
         /// <summary>A minimal record carrying one profile per channel; the per-sub arrays are only
         /// there because the report needs somewhere to take percentiles from.</summary>
         private static DatasetPsfNoiseReport.SessionPsf WithProfiles(
