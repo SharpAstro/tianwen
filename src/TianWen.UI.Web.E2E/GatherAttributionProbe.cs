@@ -26,7 +26,8 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
 
     private static bool Enabled => Environment.GetEnvironmentVariable("TIANWEN_WEB_PROBE") == "1";
 
-    private readonly record struct Stats(int Frames, int Gathers, double RenderMs, double GatherMs);
+    private readonly record struct Stats(
+        int Frames, int Gathers, double RenderMs, double GatherMs, int Uploads);
 
     private static async Task<Stats> ReadAsync(IPage page)
     {
@@ -37,7 +38,31 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
             r.GetProperty("frames").GetInt32(),
             r.GetProperty("gathers").GetInt32(),
             r.GetProperty("renderMs").GetDouble(),
-            r.GetProperty("gatherMs").GetDouble());
+            r.GetProperty("gatherMs").GetDouble(),
+            // Absent on any build predating the instanced overlay; -1 is the "old artifact" signal
+            // RequireInstancedOverlayAsync turns into a failure.
+            r.TryGetProperty("uploads", out var u) ? u.GetInt32() : -1);
+    }
+
+    /// <summary>
+    /// Fails unless the app under test actually contains the instanced overlay.
+    ///
+    /// <para><b>This is the guard the deployed-site measurements needed and did not have.</b> A local
+    /// dev server served a STALE build for an entire measurement session: the build was green, the
+    /// timestamps were fresh, the page rendered, the tests passed -- and the numbers came from code
+    /// that predated the change. It was caught only because the "fixed" and "unfixed" runs agreed
+    /// exactly, which they cannot. The same trap is worse against a deployed site, where the artifact
+    /// is whatever the last successful Pages deploy published and a merge is not a deploy.</para>
+    ///
+    /// <para>The check is a capability the old build cannot fake: <c>uploads</c> only exists in the
+    /// render-stats payload once the instanced path is present.</para>
+    /// </summary>
+    private static async Task RequireInstancedOverlayAsync(IPage page, string baseUrl)
+    {
+        var stats = await ReadAsync(page);
+        Assert.SkipWhen(stats.Uploads < 0,
+            $"{baseUrl} is serving a build with no instanced overlay (no 'uploads' in getRenderStats) -- "
+            + "measuring it would attribute the OLD renderer's cost to the new one");
     }
 
     /// <summary>Current sky-map field of view, so a per-step cost can be placed on the zoom axis.</summary>
@@ -136,7 +161,7 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
                 await CanvasGestures.WheelZoomAsync(page, canvas, events: 1, deltaPerEvent, burst: false);
                 var c = await ReadAsync(page);
                 var d = new Stats(c.Frames - p0.Frames, c.Gathers - p0.Gathers,
-                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs);
+                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads);
                 p0 = c;
                 var fov = await FovAsync(page);
                 rows.Add((fov, d));
@@ -202,7 +227,7 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
                 await CanvasGestures.TrackpadPinchAsync(page, canvas, events: 1, deltaPerEvent: -1.5, burst: false);
                 var c = await ReadAsync(page);
                 acc.Add(new Stats(c.Frames - p0.Frames, c.Gathers - p0.Gathers,
-                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs));
+                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads));
                 p0 = c;
             }
             return acc;
@@ -221,7 +246,7 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
                 await CanvasGestures.TrackpadPinchAsync(page, canvas, events: 1, deltaPerEvent: +1.5, burst: false);
                 var c = await ReadAsync(page);
                 offRows.Add(new Stats(c.Frames - p0.Frames, c.Gathers - p0.Gathers,
-                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs));
+                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads));
                 p0 = c;
             }
         }
@@ -244,7 +269,7 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
                 await CanvasGestures.TrackpadPinchAsync(page, canvas, events: 1, deltaPerEvent: +8.0, burst: false);
                 var c = await ReadAsync(page);
                 wide.Add(new Stats(c.Frames - p0.Frames, c.Gathers - p0.Gathers,
-                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs));
+                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs, c.Uploads - p0.Uploads));
                 p0 = c;
             }
         }
@@ -283,6 +308,90 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
             var f = Math.Max(set.Sum(r => r.Frames), 1);
             output.WriteLine($"steps {name,-17}: {set.Count,3} steps, {set.Sum(r => r.RenderMs),8:F1} ms "
                 + $"over {f} frames ({set.Sum(r => r.RenderMs) / f:F1} ms/frame)");
+        }
+    }
+
+    /// <summary>
+    /// The wide-FOV overlay cost on ONE artifact, as a table on the zoom axis. Point
+    /// <c>TIANWEN_WEB_BASEURL</c> at the published site to measure what users actually run:
+    ///
+    /// <code>
+    /// TIANWEN_WEB_BASEURL=https://sharpastro.github.io/tianwen/ TIANWEN_WEB_PROBE=1     ///   dotnet test TianWen.UI.Web.E2E --filter FullyQualifiedName~WideOverlayZoomCost
+    /// </code>
+    ///
+    /// <para><b>Why the deployed site and not a dev server.</b> The published build is mono AOT; a dev
+    /// server is interpreted, and interpreted WASM does not preserve ratios BETWEEN code paths --
+    /// measured 29x inflation on primitive drawing against 8x on the catalog walk. So a dev-server A/B
+    /// of "CPU polylines against an instanced draw" reports an upper bound on the win (it measured
+    /// 842 ms against 246 ms per wide frame), and only the deployed artifact says what the change is
+    /// worth in practice. It is a MEASUREMENT, not an assertion: there is no threshold here, because a
+    /// number that varies with the runner's GPU cannot be a gate.</para>
+    ///
+    /// <para>Each run starts from a fresh page, so the field of view begins at the app default and the
+    /// legs are comparable; see <see cref="ResetFovAsync"/> for what happens when they are not.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WideOverlayZoomCost(bool showDark)
+    {
+        Assert.SkipUnless(Enabled, "set TIANWEN_WEB_PROBE=1 to run this measurement");
+
+        // A FRESH page, not the shared warm one: this needs the app's default field of view as the
+        // starting point, and the warm page carries whatever the previous test left.
+        var page = await fixture.NewPageAsync();
+        await page.GotoAsync(fixture.BaseUrl + "?e2e=1", new PageGotoOptions { WaitUntil = WaitUntilState.DOMContentLoaded });
+        await Expect(page.Locator("[data-view=planner]")).ToBeVisibleAsync(new() { Timeout = BootTimeout });
+        await Expect(page.Locator(".catalog-loading")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
+        await page.Locator("[data-view=sky]").ClickAsync();
+        await Expect(page.Locator("[data-view=sky]")).ToHaveClassAsync(ActiveClass, new() { Timeout = BootTimeout });
+
+        var canvas = page.Locator("#planner");
+        await RequireInstancedOverlayAsync(page, fixture.BaseUrl);
+
+        // The overlay is OFF by default and the whole path is skipped when it is, so without this the
+        // sweep would measure an empty overlay and report a flattering number for nothing.
+        await canvas.ClickAsync();
+        await ToggleAsync(page, canvas, "o");
+        if (showDark)
+        {
+            await ToggleAsync(page, canvas, "d");
+        }
+
+        output.WriteLine($"=== {fixture.BaseUrl}  [O] on, [D] {(showDark ? "on" : "off")} ===");
+        output.WriteLine($"{"step",4} {"fov",8} {"gathers",8} {"uploads",8} {"renderMs",9} {"gatherMs",9}");
+
+        var rows = new List<(double Fov, Stats S)>();
+        var prev = await ReadAsync(page);
+        var startFov = await FovAsync(page);
+        for (var i = 0; i < 30; i++)
+        {
+            var fovBefore = await FovAsync(page);
+            await CanvasGestures.WheelZoomAsync(page, canvas, events: 1, deltaPerEvent: +120.0, burst: false);
+            var cur = await ReadAsync(page);
+            var d = new Stats(cur.Frames - prev.Frames, cur.Gathers - prev.Gathers,
+                cur.RenderMs - prev.RenderMs, cur.GatherMs - prev.GatherMs, cur.Uploads - prev.Uploads);
+            prev = cur;
+            rows.Add((fovBefore, d));
+            output.WriteLine($"{i,4} {fovBefore,8:F1} {d.Gathers,8} {d.Uploads,8} {d.RenderMs,9:F1} {d.GatherMs,9:F1}");
+        }
+
+        // Split on the wide threshold: below it a re-gather per FOV bucket is correct, so only the
+        // steps above it say what the cached wide path costs per frame.
+        var wide = rows.Where(r => r.Fov >= 90.0).ToList();
+        var narrow = rows.Where(r => r.Fov < 90.0).ToList();
+        output.WriteLine($"  start fov {startFov:F1}, {rows.Sum(r => r.S.Gathers)} gathers, "
+            + $"{rows.Sum(r => r.S.Uploads)} uploads, {rows.Sum(r => r.S.RenderMs):F0} ms rendering, "
+            + $"{rows.Sum(r => r.S.GatherMs):F0} ms gathering");
+        foreach (var (name, set) in new[] { ("fov >= 90", wide), ("fov <  90", narrow) })
+        {
+            if (set.Count == 0) continue;
+            var noGather = set.Where(r => r.S.Gathers == 0).ToList();
+            output.WriteLine($"  {name}: {set.Count,3} steps, {set.Average(r => r.S.RenderMs),7:F1} ms mean, "
+                + $"worst {set.Max(r => r.S.RenderMs):F1} ms"
+                + (noGather.Count > 0
+                    ? $"  |  {noGather.Count} without a gather: {noGather.Average(r => r.S.RenderMs):F1} ms mean"
+                    : ""));
         }
     }
 }
