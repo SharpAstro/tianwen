@@ -176,6 +176,79 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void BestFlatPedestal_OnlyDarkFlatsExist_IsUsed_ClosingTheNoneGap()
+        {
+            // The gap this closes: a session shot with dark-flats and no bias library (the standard
+            // CMOS capture workflow) used to get "flat pedestal: NONE" and the ~2% vignetting
+            // under-correction the MasterFrameBuilder tests quantify.
+            var darkFlat = Group(FrameType.DarkFlat, 1.09, -5);
+            var flat = Group(FrameType.Flat, 1.09, -5);
+
+            CalibrationResolver.BestFlatPedestal(null, [darkFlat], null, flat).ShouldBe(darkFlat);
+        }
+
+        [Fact]
+        public void BestFlatPedestal_AnExposureMatchedDarkFlat_BeatsABias()
+        {
+            // The exposure term is the physics of the choice: a matched dark-flat also removes the
+            // thermal signal the flat accumulated over its exposure, which a bias cannot (the DSS
+            // model's Flat column: master dark-flat subtracted, bias only as the fallback).
+            var bias = Group(FrameType.Bias, 0, -5);
+            var darkFlat = Group(FrameType.DarkFlat, 10, -5);
+            var flat = Group(FrameType.Flat, 10, -5);
+
+            CalibrationResolver.BestFlatPedestal([bias], [darkFlat], null, flat).ShouldBe(darkFlat);
+        }
+
+        [Fact]
+        public void BestFlatPedestal_AMismatchedDarkFlat_LosesToABias()
+        {
+            // A 30s dark-flat against a 1s flat would subtract 29s of thermal + amp glow the flat
+            // never accumulated; the bias's own exposure gap is only the flat's 1s.
+            var bias = Group(FrameType.Bias, 0, -5);
+            var wrongDarkFlat = Group(FrameType.DarkFlat, 30, -5);
+            var flat = Group(FrameType.Flat, 1, -5);
+
+            CalibrationResolver.BestFlatPedestal([bias], [wrongDarkFlat], null, flat).ShouldBe(bias);
+        }
+
+        [Fact]
+        public void BestFlatPedestal_WithinBiases_TemperatureStillDecides()
+        {
+            // Every bias carries the same exposure gap (~t_flat), so the pooled exposure term must
+            // not disturb the original all-bias ordering: temperature, then gain, as before.
+            var warm = Group(FrameType.Bias, 0, 5);
+            var matched = Group(FrameType.Bias, 0, -5);
+            var flat = Group(FrameType.Flat, 1, -5);
+
+            CalibrationResolver.BestFlatPedestal([warm, matched], null, null, flat).ShouldBe(matched);
+        }
+
+        [Fact]
+        public void BestFlatPedestal_AMislabeledShortDark_IsAcceptedAsTheDarkFlatItIs()
+        {
+            // The archive's flat-matched sets are written IMAGETYP=DARK by N.I.N.A. (the 4.6s/6.7s
+            // "darks"), so DARK groups join the pool behind the exposure-ratio gate: a dark at the
+            // flat's exposure IS a dark-flat whatever its label.
+            var mislabeled = Group(FrameType.Dark, 6.68, -5);
+            var flat = Group(FrameType.Flat, 6.68, -5);
+
+            CalibrationResolver.BestFlatPedestal(null, null, [mislabeled], flat).ShouldBe(mislabeled);
+        }
+
+        [Fact]
+        public void BestFlatPedestal_ARealLightDark_NeverBecomesAPedestal_EvenWhenNothingElseExists()
+        {
+            // Outside the ratio gate the answer is NONE, not the least-bad dark: subtracting a 60s
+            // dark from a 1s flat injects 59s of thermal + amp glow, worse than the ~2%
+            // under-correction of no pedestal at all.
+            var lightDark = Group(FrameType.Dark, 60, -5);
+            var flat = Group(FrameType.Flat, 1, -5);
+
+            CalibrationResolver.BestFlatPedestal(null, null, [lightDark], flat).ShouldBeNull();
+        }
+
+        [Fact]
         public void BestDark_RejectsDarkFromADifferentCamera_EvenWhenSensorGainTempExposureMatch()
         {
             // Two IMX533 bodies share dimensions + Bayer + gain + temp, but a dark is the CAMERA's own

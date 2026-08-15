@@ -259,10 +259,15 @@ public static class CalibrationResolver
 
         // The flat's own pedestal. A raw flat is offset + signal, and normalising that to mean=1
         // divides the offset in, so the master under-corrects by offset/(offset+signal): about 2%
-        // on the reference archive. Only a RAW flat group needs it: a foreign master flat arrives
+        // on the reference archive. Candidates are biases AND dark-flats (the DSS calibration
+        // model's Flat column: master dark-flat subtracted from the flats, bias as the fallback);
+        // an exposure-matched dark-flat also removes the thermal signal the flat accumulated,
+        // which a bias cannot. Only a RAW flat group needs it: a foreign master flat arrives
         // already calibrated by whatever produced it.
         var flatPedestalGroup = flatGroup is { IsMaster: false }
-            ? BestFlatPedestal(calGroups.GetValueOrDefault(FrameType.Bias), flatGroup)
+            ? BestFlatPedestal(calGroups.GetValueOrDefault(FrameType.Bias),
+                calGroups.GetValueOrDefault(FrameType.DarkFlat),
+                calGroups.GetValueOrDefault(FrameType.Dark), flatGroup)
             : null;
 
         var dark = darkGroup is null ? null : await masterCache.GetOrBuildAsync(darkGroup.Key, darkGroup.Train, darkGroup.Frames, darkGroup.IsMaster, normalizedAduScale, cancellationToken: cancellationToken);
@@ -499,25 +504,63 @@ public static class CalibrationResolver
         return best;
     }
 
-    internal static CalGroup? BestFlatPedestal(List<CalGroup>? biases, CalGroup flatGroup)
+    /// <summary>A dark may serve as a flat's pedestal only within this exposure ratio of the flat.
+    /// It exists to rescue the archive's MISLABELED dark-flats (N.I.N.A. writes the 4.6 s / 6.7 s
+    /// flat-matched sets as IMAGETYP=DARK) while keeping a real light-dark (60-300 s) from ever
+    /// being subtracted from a ~1 s flat, which would inject minutes of thermal + amp glow the
+    /// flat never accumulated. At 4x and typical flat exposures the residual thermal gap is a few
+    /// seconds' worth, negligible on a cooled sensor, while the shortest light-dark in the
+    /// archive sits an order of magnitude beyond the gate.</summary>
+    internal const double FlatPedestalMaxExposureRatio = 4.0;
+
+    internal static CalGroup? BestFlatPedestal(List<CalGroup>? biases, List<CalGroup>? darkFlats, List<CalGroup>? darks, CalGroup flatGroup)
     {
-        if (biases is null || flatGroup.Frames.Length == 0) return null;
+        if ((biases is null && darkFlats is null && darks is null) || flatGroup.Frames.Length == 0) return null;
         var flat = flatGroup.Frames[0];
         var flatKey = MasterGroupKey.FromFrame(flat);
         var flatCamera = CalTrain.Camera(flat);
         CalGroup? best = null;
         var bestScore = double.PositiveInfinity;
-        foreach (var g in biases)
+        // One pool of biases, dark-flats AND exposure-gated darks, with exposure distance as a
+        // score term, because the exposure gap IS the physics of the choice: the pedestal error a
+        // candidate leaves behind is the thermal signal accumulated over |t_candidate - t_flat|.
+        // So an exposure-matched dark-flat (offset + the flat's own thermal, gap ~0) beats a bias
+        // (offset only, gap = t_flat), while a lone mismatched dark-flat (a 30 s set against a
+        // 1 s flat) loses to a good bias rather than injecting 29 s of thermal + amp glow the
+        // flat never accumulated. Every bias carries the same t_flat exposure gap, so within an
+        // all-bias pool the ordering is exactly what it was before dark-flats joined
+        // (temperature, then gain). Darks additionally pass the hard ratio gate above: a dark at
+        // the flat's exposure IS a dark-flat whatever its label, and a light-dark is never one.
+        Consider(biases, exposureGate: false);
+        Consider(darkFlats, exposureGate: false);
+        Consider(darks, exposureGate: true);
+        return best;
+
+        void Consider(List<CalGroup>? candidates, bool exposureGate)
         {
-            if (!Buildable(g) || !DimensionCompatible(g.Key, flatKey) || !g.Train.CameraCompatibleWith(flatCamera)) continue;
-            var score = TempPenalty(g.Key, flatKey) * 10.0 + GainPenalty(g.Key, flatKey);
-            if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
+            if (candidates is null) return;
+            foreach (var g in candidates)
             {
-                bestScore = score;
-                best = g;
+                if (!Buildable(g) || !DimensionCompatible(g.Key, flatKey) || !g.Train.CameraCompatibleWith(flatCamera)) continue;
+                if (exposureGate && !FlatPedestalExposureCompatible(g.Key.Exposure, flatKey.Exposure)) continue;
+                var score = TempPenalty(g.Key, flatKey) * 10.0 + GainPenalty(g.Key, flatKey)
+                    + Math.Abs((g.Key.Exposure - flatKey.Exposure).TotalSeconds);
+                if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
+                {
+                    bestScore = score;
+                    best = g;
+                }
             }
         }
-        return best;
+    }
+
+    internal static bool FlatPedestalExposureCompatible(TimeSpan candidate, TimeSpan flat)
+    {
+        var c = candidate.TotalSeconds;
+        var f = flat.TotalSeconds;
+        if (c <= 0 || f <= 0) return c <= f; // a zero-length candidate is bias-like: always safe
+        var ratio = c > f ? c / f : f / c;
+        return ratio <= FlatPedestalMaxExposureRatio;
     }
 
     private static bool Buildable(CalGroup g) => g.Frames.Length >= (g.IsMaster ? 1 : 2);
