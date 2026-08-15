@@ -37,6 +37,9 @@ public sealed class CanvasKeyboardFocusTests(TianWenWebFixture fixture)
         var page = await fixture.WarmPageAsync();
         await page.Locator("[data-view=sky]").ClickAsync();
         await Expect(page.Locator("[data-view=sky]")).ToHaveClassAsync(ActiveClass, new() { Timeout = BootTimeout });
+        // The Tycho-2 atlas load deliberately ignores canvas input while it runs, so a gesture driven
+        // during it is dropped and proves nothing about focus.
+        await Expect(page.Locator("[data-atlas-loading]")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
         return (page, page.Locator("#planner"));
     }
 
