@@ -50,6 +50,20 @@ public readonly record struct OverlayCandidate
     public required float LabelPriority { get; init; }
 
     public required int LabelSlotHint { get; init; }
+
+    /// <summary>
+    /// Angular major axis in arcminutes for an object whose visibility depends on how big it
+    /// lands on screen (dark nebulae), or <see cref="float.NaN"/> when no such test applies.
+    ///
+    /// <para>It is here because the test is VIEW-dependent while this record is deliberately
+    /// view-independent: the gather admits a superset using the widest FOV its cache key can be
+    /// reused across, and <see cref="OverlayEngine.ProjectSkyMapCandidatesInto"/> applies the
+    /// exact test for the current frame. That split is what lets the FOV drop out of the cache
+    /// key above <see cref="OverlayEngine.WideFovDeg"/> even with dark nebulae switched on --
+    /// before it, a wide zoom re-ran the full-sky walk for every 10% FOV bucket it crossed
+    /// (measured: 30 gathers over a zoom-out against 3 with them switched off).</para>
+    /// </summary>
+    public required float ScreenSizeFilterArcmin { get; init; }
 }
 
 /// <summary>Marker payload that still requires the current view matrix (for screen PA)

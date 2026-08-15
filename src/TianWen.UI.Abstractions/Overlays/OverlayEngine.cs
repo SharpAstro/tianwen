@@ -645,6 +645,25 @@ public static class OverlayEngine
     }
 
     /// <summary>
+    /// Field of view at or above which the candidate walk sweeps the WHOLE sphere, so the
+    /// gathered set stops depending on where the view is pointed.
+    ///
+    /// <para>One constant rather than the three literal 90s it replaced, because the cache keys
+    /// that drop the centre (and now the FOV) above this threshold are only correct if they use
+    /// the same number the scan switches on. Two of the three lived in hand-maintained mirrors of
+    /// each other, which is exactly the pair that silently drifts.</para>
+    /// </summary>
+    public const double WideFovDeg = 90.0;
+
+    /// <summary>
+    /// Minimum on-screen size, in pixels, for a dark nebula's label and outline to be worth
+    /// drawing. Below this it is illegible clutter. Continuous in pixel space rather than the
+    /// old binary FOV cut, so appearance fades smoothly with zoom instead of flickering a pile
+    /// of labels in and out as a touch zoom crosses a boundary.
+    /// </summary>
+    public const float DarkNebulaMinOnScreenPx = 6f;
+
+    /// <summary>
     /// Phase A: walk the spatial grid, filter, dedupe, and build label lines. Produces
     /// a view-matrix-independent list of <see cref="OverlayCandidate"/>s.
     /// </summary>
@@ -758,7 +777,30 @@ public static class OverlayEngine
         // the 1 deg floor keeps the old near-edge behaviour at narrow FOVs.
         var marginDeg = Math.Max(1.0, fieldOfViewDeg * 0.15);
 
-        if (poleInView)
+        if (fieldOfViewDeg >= WideFovDeg)
+        {
+            // Whole sphere, and this branch is tested FIRST -- ahead of the pole case below --
+            // because above the threshold the gathered set MUST NOT depend on the field of view.
+            // That is what entitles the consumers' cache keys to drop the FOV (SkyMapTab.
+            // BuildOverlayKey and its VkSkyMapTab mirror), and it is not a free-standing claim:
+            // the magnitude cutoffs are already flat past 5 degrees and the dark-nebula pre-filter
+            // is clamped to the threshold, so the scan bounds were the last FOV-dependent input.
+            //
+            // Ordered the other way round it silently was not. A pole in view took the branch
+            // below, whose Dec bounds come from the corner sample and so move with the FOV -- and
+            // at these fields of view a wide-angle projection folds those corners into a narrower
+            // strip rather than a wider one. Measured on a real catalog at centre 18h -25 deg, the
+            // gathered set differed by 959 objects between 90 and 120 degrees, ALL of them present
+            // at 90 and missing at 120. Pinned by
+            // SkyMapDarkNebulaScreenFilterTests.TheGatheredSetIsIdenticalAcrossTheWholeWideRange,
+            // which is what caught it.
+            minRA = 0.0;
+            maxRA = 24.0;
+            minDec = -90.0;
+            maxDec = 90.0;
+            raWrapped = false;
+        }
+        else if (poleInView)
         {
             // Every RA projects through the pole, so the corner sample's RA bounds
             // are meaningless: sweep the full 24 h. But the Dec bounds from the
@@ -771,14 +813,6 @@ public static class OverlayEngine
             raWrapped = false;
             minDec = Math.Max(-90.0, minDec - Math.Max(2.0, marginDeg));
             maxDec = Math.Min(90.0, maxDec + Math.Max(2.0, marginDeg));
-        }
-        else if (fieldOfViewDeg >= 90.0)
-        {
-            minRA = 0.0;
-            maxRA = 24.0;
-            minDec = -90.0;
-            maxDec = 90.0;
-            raWrapped = false;
         }
         else
         {
@@ -797,17 +831,25 @@ public static class OverlayEngine
         var grid = db.DeepSkyCoordinateGrid;
         var seen = new HashSet<CatalogIndex>();
 
-        // Arcmin -> pixels (used for the dark-nebula on-screen-size filter). Pure
-        // function of ppr, so safe to compute in Phase A (view-matrix independent).
-        var arcminToPixels = (float)(ppr * Math.PI / (180.0 * 60.0));
-
-        // Dark nebulae: once the companion *.shapes.json.lz files are loaded,
-        // Dobashi / Barnard / LDN / Ced all carry natural angular sizes. Filter
-        // them by on-screen pixel size instead of the old binary FOV>10 deg cut,
-        // which flickered a pile of labels in and out as touch zoom crossed the
-        // boundary. The threshold here is in continuous pixel space, so label
-        // appearance fades smoothly with zoom.
-        const float DarkNebulaMinOnScreenPx = 6f;
+        // Arcmin -> pixels for the dark-nebula on-screen-size PRE-filter, deliberately computed
+        // at the most permissive field of view this gather's cache key can be reused across --
+        // NOT at the caller's actual FOV.
+        //
+        // Above WideFovDeg the scan already sweeps the whole sphere and both magnitude cutoffs
+        // are flat, so the consumer's cache key drops the FOV and one gathered set has to serve
+        // every FOV in [WideFovDeg, 180]. Admittance grows as the FOV narrows, so the union over
+        // that range is exactly the set admitted AT the threshold. Clamping here is what makes
+        // "the FOV is not in the key" true rather than nearly true.
+        //
+        // It stays a pre-filter, not the filter: this admits a superset, and
+        // ProjectSkyMapCandidatesInto applies the exact test for the CURRENT view every frame.
+        // Deleting the pre-filter outright would also be correct and is what a first attempt
+        // reached for, but it costs far too much: only 190 of 4,827 shaped dark nebulae survive
+        // at 180 degrees, so dropping it would inflate the cached set (and its label building) by
+        // ~4,600 entries. Clamping to the threshold admits 1,655 instead.
+        var filterPpr = SkyMapProjection.PixelsPerRadian(
+            contentRect.Height, Math.Min(fieldOfViewDeg, WideFovDeg));
+        var darkNebFilterArcminToPixels = (float)(filterPpr * Math.PI / (180.0 * 60.0));
 
         var decStep = 1.0;
         var raStep = 1.0 / 15.0;
@@ -907,17 +949,20 @@ public static class OverlayEngine
                         continue;
                     }
 
-                    // Screen-size filter for DarkNeb: hide when on-screen size drops below ~6 px
-                    // (illegible anyway). Pinned planner targets bypass this too. Entries without
-                    // shape data (e.g. Simbad NAME-only, no VizieR match) are hidden entirely --
-                    // they'd otherwise clutter wide views with placeholder circles.
+                    // Screen-size PRE-filter for DarkNeb, at the clamped FOV (see above): admit
+                    // anything that could be legible anywhere in this cache key's FOV range, and
+                    // let the projection decide per frame. Pinned planner targets bypass it, as
+                    // they bypass every other filter here. Entries without shape data (e.g. Simbad
+                    // NAME-only, no VizieR match) are hidden entirely -- they'd otherwise clutter
+                    // wide views with placeholder circles -- and THAT half is a property of the
+                    // catalog rather than of the view, so it stays in the gather.
                     if (obj.ObjectType == ObjectType.DarkNeb && !isPinnedEarly)
                     {
                         if (!db.TryGetShape(catIdx, out var dnShape) || Half.IsNaN(dnShape.MajorAxis))
                         {
                             continue;
                         }
-                        var dnScreenPx = (float)((double)dnShape.MajorAxis * arcminToPixels);
+                        var dnScreenPx = (float)((double)dnShape.MajorAxis * darkNebFilterArcminToPixels);
                         if (dnScreenPx < DarkNebulaMinOnScreenPx)
                         {
                             continue;
@@ -981,8 +1026,19 @@ public static class OverlayEngine
         foreach (var (catIdx, obj, isPinned) in scratch)
         {
             OverlayCandidateMarker marker;
-            var hasShape = db.TryGetShape(catIdx, out var shape)
+            var shapeKnown = db.TryGetShape(catIdx, out var shape);
+            var hasShape = shapeKnown
                 && !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis);
+
+            // Carried so the projection can re-apply the on-screen-size test at the actual FOV.
+            // Read from the shape rather than off the marker: a dark nebula with a major axis but
+            // no minor axis draws as a Circle, which has no angular size at all, and that is
+            // precisely the entry a marker-derived size would silently stop filtering.
+            var sizeFilterArcmin = obj.ObjectType == ObjectType.DarkNeb
+                && shapeKnown && !Half.IsNaN(shape.MajorAxis)
+                    ? (float)shape.MajorAxis
+                    : float.NaN;
+
             switch (ChooseMarkerKind(obj.ObjectType, hasShape))
             {
                 case OverlayMarkerKind.Ellipse:
@@ -1022,6 +1078,7 @@ public static class OverlayEngine
                 IsPinned = isPinned,
                 LabelPriority = priority,
                 LabelSlotHint = (int)((ulong)catIdx & 3),
+                ScreenSizeFilterArcmin = sizeFilterArcmin,
             });
         }
     }
@@ -1053,6 +1110,16 @@ public static class OverlayEngine
 
         foreach (var cand in candidates)
         {
+            // The exact half of the dark-nebula on-screen-size rule. The gather admits a superset
+            // (see OverlayCandidate.ScreenSizeFilterArcmin), so the decision for THIS field of
+            // view is made here, per frame, where the real ppr is known. Pinned targets bypass it,
+            // matching every other filter in the gather. NaN means the object has no size test.
+            if (!float.IsNaN(cand.ScreenSizeFilterArcmin) && !cand.IsPinned
+                && cand.ScreenSizeFilterArcmin * arcminToPixels < DarkNebulaMinOnScreenPx)
+            {
+                continue;
+            }
+
             if (!SkyMapProjection.ProjectWithMatrix(cand.RA, cand.Dec, viewMatrix, ppr,
                     cxView, cyView, out var screenX, out var screenY))
             {

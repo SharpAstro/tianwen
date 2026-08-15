@@ -52,15 +52,18 @@ namespace TianWen.UI.Abstractions
         /// Returns an opaque value -- only its equality across successive calls is meaningful.
         /// </summary>
         internal object BuildOverlayKeyForTest(
-            RectF32 contentRect, double fov, float cxView, float cyView, double ppr, PlannerState plannerState)
-            => BuildOverlayKey(contentRect, fov, cxView, cyView, ppr, showAllOverlays: true, showDark: false, plannerState);
+            RectF32 contentRect, double fov, float cxView, float cyView, double ppr, PlannerState plannerState,
+            bool showDark = false)
+            => BuildOverlayKey(contentRect, fov, cxView, cyView, ppr, showAllOverlays: true, showDark, plannerState);
 
         private readonly record struct PrimOverlayKey(
             double QuantRa, double QuantDec, double QuantFov,
             int RectW, int RectH, bool ShowAll, bool ShowDark, int PinHash);
 
-        // Wide FOV: the gather sweeps the whole sphere, so the view centre drops out of the cache key.
-        private const double PrimOverlayWideFovDeg = 90.0;
+        // Wide FOV: the gather sweeps the whole sphere, so the view centre (and now the FOV) drops
+        // out of the cache key. Forwards to the engine's constant so this and VkSkyMapTab's copy
+        // cannot drift from the branch they both have to agree with.
+        private const double PrimOverlayWideFovDeg = OverlayEngine.WideFovDeg;
 
         /// <summary>
         /// Draws the object overlay using CPU primitives. A subclass whose renderer has no instanced
@@ -263,14 +266,16 @@ namespace TianWen.UI.Abstractions
             // drops out of the key exactly as the centre already has. Three facts make that exact rather
             // than approximate: the scan sweeps the whole sphere past 90 degrees, and BOTH magnitude
             // cutoffs are already flat by then (GetExtendedMagCutoff and GetStarMagCutoff both switch
-            // for the last time at 5 degrees, to 8.0 and 1.0). The one remaining FOV dependence is the
-            // dark-nebula on-screen-size filter, which only exists when [D] is on, so this is gated on
-            // it rather than approximated.
+            // for the last time at 5 degrees, to 8.0 and 1.0). The last FOV dependence was the
+            // dark-nebula on-screen-size filter; the gather now admits a superset valid across the
+            // whole wide range and the projection applies the exact test per frame, so [D] no longer
+            // has to hold the FOV in the key.
             //
             // Worth it because the wide gather is the expensive one: a full-sky sweep measured at 121 ms
-            // in the browser, and zooming out from 90 to 180 degrees crosses ~7 of the 10% buckets, so
-            // it used to run about eleven times for one gesture.
-            if (wideFov && !showDark)
+            // in the browser, and zooming out from 90 to 180 degrees crosses ~7 of the 10% buckets. With
+            // dark nebulae ON that gate cost a gather on EVERY step of a zoom-out (30 against 3), which
+            // is to say the users who most wanted the overlay were the ones getting none of the fix.
+            if (wideFov)
             {
                 quantFov = double.PositiveInfinity;
             }

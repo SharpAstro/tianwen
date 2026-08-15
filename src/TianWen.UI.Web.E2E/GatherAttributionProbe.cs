@@ -40,6 +40,104 @@ public sealed class GatherAttributionProbe(TianWenWebFixture fixture, ITestOutpu
             r.GetProperty("gatherMs").GetDouble());
     }
 
+    /// <summary>Current sky-map field of view, so a per-step cost can be placed on the zoom axis.</summary>
+    private static async Task<double> FovAsync(IPage page)
+    {
+        var json = await page.EvaluateAsync<string>("async () => await window.__tianwenTest.getSkyView()");
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.GetProperty("fovDeg").GetDouble();
+    }
+
+    /// <summary>Presses a sky-map toggle key and lets the resulting repaint land.</summary>
+    private static async Task ToggleAsync(IPage page, ILocator canvas, string key)
+    {
+        await canvas.PressAsync(key);
+        await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+    }
+
+    /// <summary>
+    /// The follow-up measurement, and the one aimed at what is LEFT. A trace of the deployed build
+    /// after the gather fixes split cleanly by gesture: 805 pan frames averaged 2.22 ms (the
+    /// centre-quantized cache holding), while 57 frames following a wheel averaged 17.93 ms and carried
+    /// 36.4% of all animation-frame time, p95 124 ms and worst 161 ms. Twenty wheel events cost more
+    /// than eight hundred pointermoves, so the remaining cost is on the ZOOM axis specifically.
+    ///
+    /// <para>This drives plain wheel zooms and reports, per step, the field of view, whether a gather
+    /// ran, and the render/gather split -- which separates the two candidate explanations that a trace
+    /// cannot: a gather still re-running per 10% FOV bucket below the wide threshold, or a per-frame
+    /// cost that scales with zoom and was never cached at all (the overlay DRAW, which re-projects and
+    /// re-strokes every candidate each frame).</para>
+    ///
+    /// <para>Run it against the DEPLOYED artifact to reproduce a real trace, by pointing
+    /// <c>TIANWEN_WEB_BASEURL</c> at the published site. Interpreted WASM does not preserve ratios
+    /// between code paths (measured 29x inflation on primitive drawing against 8x on the catalog walk),
+    /// so a dev-server run can attribute this to the wrong half.</para>
+    /// </summary>
+    [Fact]
+    public async Task AttributeWheelZoomFrameCost()
+    {
+        Assert.SkipUnless(Enabled, "set TIANWEN_WEB_PROBE=1 to run this measurement");
+
+        var page = await fixture.WarmPageAsync();
+        await page.Locator("[data-view=sky]").ClickAsync();
+        await Expect(page.Locator("[data-view=sky]")).ToHaveClassAsync(ActiveClass, new() { Timeout = BootTimeout });
+        var canvas = page.Locator("#planner");
+
+        // The gather only runs with the [O] catalog overlay on, and it is off by default.
+        var stats = await page.EvaluateAsync<string>("async () => await window.__tianwenTest.getRenderStats()");
+        using (var doc = JsonDocument.Parse(stats))
+        {
+            if (!doc.RootElement.GetProperty("overlay").GetBoolean())
+            {
+                await ToggleAsync(page, canvas, "o");
+            }
+        }
+
+        // [D] is the one thing that keeps the field of view in the wide cache key, so the same sweep is
+        // run with dark nebulae off and on. If the residual cost is the gather, the two differ sharply
+        // past 90 degrees; if it is the per-frame draw, they do not.
+        async Task SweepAsync(string label, int steps, double deltaPerEvent)
+        {
+            output.WriteLine($"=== {label} ===");
+            output.WriteLine($"{"step",4} {"fov",8} {"frames",7} {"gathers",8} {"renderMs",9} {"gatherMs",9}");
+            var rows = new List<(double Fov, Stats S)>(steps);
+            var p0 = await ReadAsync(page);
+            for (var i = 0; i < steps; i++)
+            {
+                await CanvasGestures.WheelZoomAsync(page, canvas, events: 1, deltaPerEvent, burst: false);
+                var c = await ReadAsync(page);
+                var d = new Stats(c.Frames - p0.Frames, c.Gathers - p0.Gathers,
+                    c.RenderMs - p0.RenderMs, c.GatherMs - p0.GatherMs);
+                p0 = c;
+                var fov = await FovAsync(page);
+                rows.Add((fov, d));
+                output.WriteLine($"{i,4} {fov,8:F1} {d.Frames,7} {d.Gathers,8} {d.RenderMs,9:F1} {d.GatherMs,9:F1}");
+            }
+
+            var render = rows.Sum(r => r.S.RenderMs);
+            var gather = rows.Sum(r => r.S.GatherMs);
+            var gathers = rows.Sum(r => r.S.Gathers);
+            output.WriteLine($"  totals: {gathers} gathers, {render:F1} ms rendering, {gather:F1} ms gathering "
+                + $"({(render > 0 ? 100.0 * gather / render : 0):F0}% of render time)");
+            var withG = rows.Where(r => r.S.Gathers > 0).ToList();
+            var noG = rows.Where(r => r.S.Gathers == 0).ToList();
+            foreach (var (name, set) in new[] { ("WITH a gather", withG), ("WITHOUT a gather", noG) })
+            {
+                if (set.Count == 0) continue;
+                output.WriteLine($"  steps {name,-17}: {set.Count,3} steps, "
+                    + $"{set.Sum(r => r.S.RenderMs) / set.Count:8.1f} ms mean render, "
+                    + $"worst {set.Max(r => r.S.RenderMs):.1f} ms");
+            }
+            output.WriteLine("");
+        }
+
+        await SweepAsync("zoom OUT, dark nebulae OFF", steps: 30, deltaPerEvent: +120.0);
+        await SweepAsync("zoom IN, dark nebulae OFF", steps: 30, deltaPerEvent: -120.0);
+        await ToggleAsync(page, canvas, "d");
+        await SweepAsync("zoom OUT, dark nebulae ON", steps: 30, deltaPerEvent: +120.0);
+        await ToggleAsync(page, canvas, "d");
+    }
+
     [Fact]
     public async Task AttributeZoomFrameCostToTheOverlayGather()
     {
