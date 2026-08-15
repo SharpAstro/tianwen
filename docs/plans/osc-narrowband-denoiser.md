@@ -29,11 +29,25 @@ measured on dual-band and quad-band narrowband data, while the recorded deployme
 regime section 4 of [filter-inference.md](filter-inference.md) records as breaking channel-lock and
 star-colour methods.
 
-**Nothing in the dataset path knows the filter.** The bake reads
-`D:\Astro-Pics\{2025,2026,Vela SNR Moasic Project}` (see `bake-provenance.json`), which is the
-ORIGINAL untagged archive. All 67 retained masters therefore carry `FILTER = 'None'`. The 4,724
-`FILTER` cards written by `dataset tag-filter` during the reorganisation live in
-`D:\Astro-Organized`, a root the bake has never been pointed at.
+**Nothing in the dataset path knows the filter, and that is entirely a wrong-root mistake.** The bake
+reads `D:\Astro-Pics\{2025,2026,Vela SNR Moasic Project}` (see `bake-provenance.json`), the ORIGINAL
+untagged archive, so all 67 retained masters carry `FILTER = 'None'`.
+
+**The tagged archive already exists and was built for exactly this.** `D:\Astro-Organized` holds
+6,438 lights whose headers carry `FILTER = 'Optolong L-Ultimate 3nm'` or `'Optolong L-Quad Enhance'`
+(the 4,724 cards `dataset tag-filter` wrote during the verified reorganisation), filed
+`lights/<camera>/<filter>/<target>/`, with 1,496 calibration frames keyed
+`calibration/<CAMERA>/<TYPE>/<date>-g<gain>-o<offset>-t<temp>[-e<exp>]` and 1,506 flats under
+`flats/<camera>/<filter>/<date>/`. Nothing needed to be inferred, joined, or heuristically guessed;
+the bake simply has to be pointed at it. **No code change is required for the filter to flow**:
+`Image.Fits` reads `FILTER` + `FILTCLAS` (preferring the latter, with the blank guard that fix
+required) and the writer emits both, so a master built from tagged lights carries the filter forward
+by itself. A single `FILTER` card is the correct model for OSC, where one physical filter covers all
+three channels; per-channel `FILTERn` is only meaningful for a mono composite, which is task #37.
+
+Cost of the switch: the organized set is 6,438 lights against the 8,290 the untagged bake saw, since
+it covers groups A/B/C only and excludes the parked ASI585 group, the two poor mono sets, and the
+unmeasured remainder. Those are precisely the sessions that cannot be characterised anyway.
 
 ## 1. What was established this session
 
@@ -155,11 +169,11 @@ Ordered by value per unit of work, not by dependency.
 
 | Phase | Deliverable | Cost | Why now |
 |---|---|---|---|
-| **N1** | **Join the locked filter labels into the dataset.** Read `group-{a,b,c}-locked.csv`, attach a filter per session, carry it on `SessionPsf` with a provenance marker (`locked-csv` vs `header` vs `unknown`), and key `FieldRadiusProfiles` by (train, filter). No re-bake, no header surgery, no heuristic. | small | Unblocks every per-filter question below, and 48 of 67 sessions get a MEASURED label immediately. Task #19. |
-| **N2** | **PSF conditioning in the trainer.** Feed measured per-plane PSF width as a conditioning input, exactly as noise sigma already is. Re-run the 60-session arm against v15's frontier. | ~1 h GPU | The v8 lesson one axis over: the failure was a single-point training distribution, and the fix was making the varying quantity an INPUT rather than narrowing the data. If it works it explains 1b instead of working around it, and keeps all 60 sessions. Task #36, reframed. |
-| **N3** | **Restate the deployment target.** The pool is 39 3 nm + 9 quad-band + 0 broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
+| **N1** | **Re-bake from `D:\Astro-Organized`.** This is the whole fix, and it is a ROOT PATH, not code. The organized archive's 6,438 lights already carry `FILTER = 'Optolong L-Ultimate 3nm'` / `'Optolong L-Quad Enhance'` in their headers, are filed `lights/<camera>/<filter>/<target>/`, and have their calibration keyed `<CAMERA>/<TYPE>/<date>-g<gain>-o<offset>-t<temp>[-e<exp>]` with flats under `flats/<camera>/<filter>/<date>`. `Image.Fits` already READS `FILTER`+`FILTCLAS` (with the blank-guard fix) and already WRITES both, so a master built from tagged lights carries the filter forward with no change at all. | ~4.5 h, no code | Everything below depends on the dataset knowing its filter, and the work to make that true was already done and then not used. |
+| **N2** | **PSF conditioning in the trainer.** Feed measured per-plane PSF width as a conditioning input, exactly as noise sigma already is. Re-run the 60-session arm against v15's frontier. | ~1 h GPU | The v8 lesson one axis over: the failure was a single-point training distribution, and the fix was making the varying quantity an INPUT rather than narrowing the data. If it works it explains 1b instead of working around it, and keeps all sessions. Task #36, reframed. |
+| **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
 | **N4** | **Ship a checkpoint behind a strength dial.** `n2n_v17c_s0_final.pt` at 0.80x is already a defensible operating point (+2.0 relative, -19 absolute). Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed. | medium | A model exists and is not deployed. Independent of N1-N3. |
-| **N5** | **Re-bake from the tagged archive.** Point the bake at `D:\Astro-Organized` so `FILTER` comes from headers rather than a side-table, which also picks up the reorganisation's calibration filing. | ~4.5 h | Makes N1's side-table redundant and is the durable answer, but N1 delivers the same labels today. Sequence AFTER N1 proves the labels are what we want. |
+| **N5** | **Key `FieldRadiusProfiles` by (train, filter)** once N1 has made the filter available from headers. Task #19, reduced to a grouping-key change. | small | After N1 this is a few lines. Before N1 it needed a side-table that should never have been contemplated. |
 | **N6** | **Mono narrowband support.** Deferred until good mono data exists; the archive's 2 ASI1600MM sets are assessed as poor and must NOT be used as a baseline. Task #37. |  | The user intends to shoot true narrowband, where per-filter focus removes 1c's root cause at acquisition. |
 | **N7** | Red centre-vs-corner star cutouts, if the optical reading ever needs pixel-level confirmation rather than statistical. | small | Optional. The four falsified hypotheses plus train- and filter-dependence already carry it. |
 
