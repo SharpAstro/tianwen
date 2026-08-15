@@ -312,12 +312,12 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
 
             // Hold still, fingers/button still DOWN, well past the 120 ms settle. A human pausing to
             // look at where they have dragged to is the everyday version of this.
-            await Task.Delay(500);
+            await Task.Delay(500, TestContext.Current.CancellationToken);
             var paused = await GetStatsAsync(page);
 
             await page.Mouse.UpAsync();
             await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
-            await Task.Delay(300);
+            await Task.Delay(300, TestContext.Current.CancellationToken);
             var released = await GetStatsAsync(page);
 
             Assert.True(paused.LabelMs - moving.LabelMs < 0.01,
@@ -359,9 +359,9 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
             await CanvasGestures.WheelZoomAsync(page, canvas, events: 6, deltaPerEvent: -1.5, burst: false);
 
             // Well past the 120 ms settle: anything after this point is unrequested.
-            await Task.Delay(800);
+            await Task.Delay(800, TestContext.Current.CancellationToken);
             var settled = await GetStatsAsync(page);
-            await Task.Delay(2000);
+            await Task.Delay(2000, TestContext.Current.CancellationToken);
             var idle = await GetStatsAsync(page);
 
             var painted = idle.Frames - settled.Frames;

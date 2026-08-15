@@ -62,7 +62,7 @@ public sealed class OverlayVisibilityProbe(TianWenWebFixture fixture, ITestOutpu
                     break;
                 }
             }
-            await Task.Delay(500);
+            await Task.Delay(500, TestContext.Current.CancellationToken);
         }
         lock (console)
         {

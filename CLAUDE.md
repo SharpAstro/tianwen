@@ -145,10 +145,20 @@ WebGl.Renderer was gated on the switch but absent from the list, so a box with e
 cloned resolved it to `true` and aimed a `ProjectReference` at a path that was not there.
 
 **Both web projects stay out of `TianWen.slnx`, which is a separate and legitimate decision.**
-`TianWen.UI.Web` is a Blazor WASM app whose sole CI is `pages.yml` (a mono AOT publish, far too heavy for
-the per-push `dotnet.yml` loop), and `TianWen.UI.Web.E2E` needs a browser plus a running dev server, so a
-solution-wide `dotnet test` must not sweep it up. Run them explicitly:
+`TianWen.UI.Web` is a Blazor WASM app whose *deploy* CI is `pages.yml` (a mono AOT publish, far too heavy
+for the per-push `dotnet.yml` loop), and `TianWen.UI.Web.E2E` needs a browser plus a running dev server, so
+a solution-wide `dotnet test` must not sweep it up. Run them explicitly:
 `dotnet build TianWen.UI.Web`, `dotnet test TianWen.UI.Web.E2E`.
+
+**Being outside the solution is not a reason to be outside CI, and for a while it was treated as one.**
+`dotnet.yml`'s `build` job now compiles both projects explicitly, after its artifact uploads, the QUICK
+way: interpreted, no AOT, no relink (so no `wasm-tools` workload), reusing the libraries the job just
+built, and passing the same `-p:Version` so nothing rebuilds. That closes the hole where a change to
+`TianWen.UI.Abstractions` -- or a sibling pin bump moving `WebGl.Renderer` -- broke the web host and no PR
+check could say so; it surfaced only in `pages.yml`, after merge, as a broken deploy of main. It does NOT
+cover the AOT leg, trimming, or anything at runtime, and it compiles `TianWen.UI.Web.E2E` without running
+it. Keep the version properties in that step identical to the `Build` step above: a different `-p:Version`
+regenerates AssemblyInfo and turns a ~1 min incremental compile into a full rebuild of the graph.
 
 **`open-vs.ps1` generates `TianWen.local.slnx`** at the repo root (gitignored) by re-rooting
 `src/TianWen.slnx` and appending a `/Siblings/` folder, so Go To Definition lands in sibling *source*.

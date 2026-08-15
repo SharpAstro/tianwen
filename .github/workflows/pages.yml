@@ -3,9 +3,12 @@ name: pages
 # Deploy the TianWen.UI.Web in-browser planner to GitHub Pages.
 #
 # TianWen.UI.Web is a standalone Blazor WebAssembly app hosting PlannerTab<WebGlContext>
-# (WebGl.Renderer) - a fully static site, no server. It lives OUTSIDE TianWen.slnx, so the PR
-# `dotnet.yml` loop never builds it; this workflow is its sole CI and publishes
-# to https://sharpastro.github.io/tianwen/. Design + findings: docs/plans/web-showcase.md.
+# (WebGl.Renderer) - a fully static site, no server. It publishes to
+# https://sharpastro.github.io/tianwen/. Design + findings: docs/plans/web-showcase.md.
+# It lives OUTSIDE TianWen.slnx, so `dotnet build` on the solution never touches it; dotnet.yml's
+# build job compiles it explicitly on every push and PR, but only the QUICK interpreted way. This
+# workflow is still the only thing that AOTs it, trims it, bakes its assets or deploys it, so an AOT
+# or trimming regression is visible here and nowhere else.
 # It IS under the repo's Central Package Management, despite the above: CPM resolves by walking
 # directories, so solution membership never had any bearing on it. While the project opted out,
 # its inline WebGl.Renderer pin was invisible to a sibling-family sweep and fell two minors behind.
