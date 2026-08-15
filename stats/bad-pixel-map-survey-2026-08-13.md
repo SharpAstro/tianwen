@@ -161,6 +161,36 @@ excursion rather than as dots, and why the union canvas grew by (+37, +27) for t
 Whole-frame isolated peaks above 30 MAD go 12,468 -> 12,247. Most of those are real stars and are
 untouched, which is the other half of the result: the mask removed 221 of them and left the rest.
 
+### A reference-free census does NOT work, and how that was established
+
+Verifying the re-bake cannot reuse the A/B above. Between two bakes every commit in between moved,
+and drizzle deposition is not bit-identical run to run anyway (2.96M of 27.6M px differ between two
+runs differing only by a mask), so a difference reports noise everywhere and attributes none of it.
+That argues for a measurement each master answers alone, and the single-colour finding suggests one:
+count clusters bright in exactly ONE channel, since a star carries flux in all three.
+
+Calibrated against ground truth -- the pixels the mask actually changed -- it fails:
+
+| hot sigma | quiet sigma | min px | clusters found | recall | precision |
+|---|---|---|---|---|---|
+| 8 | 3.0 | 3 | 2889 | 0.45 | 0.10 |
+| 15 | 3.0 | 3 | 794 | 0.36 | 0.28 |
+| 30 | 3.0 | 3 | 411 | **0.26** | **0.39** |
+| 30 | 1.5 | 8 | 24 | 0.02 | 0.62 |
+| 30 | 1.5 | 14 | 3 | 0.00 | 1.00 |
+
+Recall and precision trade off directly and no setting gets both past 0.5. The physical intuition
+was right and insufficient: faint stars are ALSO effectively single-channel at this noise level, and
+there are far more of them than there are defects. Run as-is it would have reported 2807 -> 2528
+clusters (a 10% reduction) on a pair where the crops show the defects removed outright, and that
+number would have been read as "the mask barely worked".
+
+**So there is no census tool in `tools/`, deliberately.** Verify a re-bake from the per-session
+`hot-pixel mask: N px (P% of frame)` line the registrar already logs, which is direct evidence the
+path ran, and rely on the A/B above for evidence that the mask works. The lesson generalises: a
+discriminator built from a correct physical argument still has to be scored against a known set
+before it is trusted, and the cheapest ground truth available here was the mask's own diff.
+
 ### Two ways this measurement went silently wrong first
 
 Both produced a plausible number rather than an error, which is why they are worth recording:
