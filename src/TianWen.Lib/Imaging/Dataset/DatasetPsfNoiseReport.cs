@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -59,7 +59,24 @@ public static class DatasetPsfNoiseReport
     /// as an open question about the OPTICS ("the centre-to-corner fall is session-dependent") when it
     /// was an artifact of this aggregation; its session-dependence is just how much vignetting and
     /// coverage variation each session has. <see cref="PsfProfileFit"/> already controls brightness
-    /// for exactly this reason, via a peak band, and these bins did not.</para></param>
+    /// for exactly this reason, via a peak band, and these bins did not.</para>
+    ///
+    /// <para>On a record written with <see cref="CommonStarSampling"/> this is the REFERENCE
+    /// channel's flux, and is therefore IDENTICAL in every channel of the session. That is the
+    /// whole point: it makes one physical star set, selected once, the thing every channel's
+    /// profile describes.</para>
+    ///
+    /// <para><b>Why a per-channel percentile was wrong.</b> A star's flux differs between channels,
+    /// so the old 55th-90th percentile taken per channel cut red, green and blue at different
+    /// physical brightnesses (ch0's centre band sat at 0.01653 against ch2's 0.00847). Measured
+    /// FWHM swings 25-30% with brightness, so each channel's radial profile was tracking the
+    /// brightness composition of its own selection: banded flux moved -15.7% centre-to-corner in
+    /// ch0 while moving +39.6% and +48.4% in ch1 and ch2, and the measured FWHM followed the SIGN
+    /// of that move in all three. That is what inverted red, which appeared to grow SHARPER toward
+    /// the corner (2.637 -> 2.006 px) while green and blue broadened. It was never optics: red's
+    /// ellipticity degrades fastest toward the corner (+20.7%) over the same stars in the same
+    /// bins, and a star cannot be more elongated and sharper at once.</para>
+    /// </param>
     public sealed record RadiusSamples(float[] Fwhm, float[] Ellipticity, float[]? Flux = null);
 
     /// <summary>One channel's field-radius profile across a train's sessions.</summary>
@@ -132,7 +149,8 @@ public static class DatasetPsfNoiseReport
         double MasterNoiseRelative,
         RadiusSamples[][]? BinsByChannel,
         PsfProfileFit.Result?[]? MasterProfiles = null,
-        string? MasterStrategy = null);
+        string? MasterStrategy = null,
+        string? RadiusSampling = null);
 
     /// <summary>Per-optical-train sub-report. The field-radius PSF profile lives HERE, never
     /// aggregated across trains: a Newtonian's coma grows with field radius while a refractor's does
@@ -322,32 +340,56 @@ public static class DatasetPsfNoiseReport
         // one place the per-channel measurement is not free.
         var (channelCount, _, _) = master.Shape;
         var masterProfiles = new PsfProfileFit.Result?[channelCount];
-        // The field-radius bins are per channel for the same reason the stacked profile is, and they
-        // are FREE here: each channel's stars are already being detected for the profile fit, and the
-        // bins were simply being built from channel 0's list before the loop and called the master's.
-        // Red is the widest channel on 48 of 49 archive masters, so a channel-0-only radial profile
-        // described red's field dependence while reading as the frame's.
-        var binsByChannel = new RadiusSamples[channelCount][];
+        var starsByChannel = new StarList[channelCount];
         for (var c = 0; c < channelCount; c++)
         {
-            var channelStars = c == 0
+            starsByChannel[c] = c == 0
                 ? stars
                 : await master.FindStarsAsync(
                     channel: c, snrMin: snrMin, maxStars: maxStars, cancellationToken: cancellationToken);
-            binsByChannel[c] = BinByFieldRadius(channelStars, cx, cy, halfDiag, radiusBins);
-            masterProfiles[c] = PsfProfileFit.Measure(master, c, channelStars);
+            masterProfiles[c] = PsfProfileFit.Measure(master, c, starsByChannel[c]);
 
             if (masterProfiles[c] is { } fit)
             {
                 logger?.LogInformation(
                     "  [{Session}] ch{Channel} PSF sampled {Stars} stars, profile FWHM {Fwhm:F3} px, Moffat beta {Beta:F2} (log-rms {MoffatRms:F3} vs gaussian {GaussRms:F3}, {Stacked} stars stacked) ({Train})",
-                    sessionId, c, channelStars.Count, fit.Fwhm, fit.MoffatBeta, fit.MoffatLogRms, fit.GaussianLogRms, fit.StarsStacked, label);
+                    sessionId, c, starsByChannel[c].Count, fit.Fwhm, fit.MoffatBeta, fit.MoffatLogRms, fit.GaussianLogRms, fit.StarsStacked, label);
             }
             else
             {
                 logger?.LogInformation("  [{Session}] ch{Channel} PSF sampled {Stars} stars, profile shape not measurable ({Train})",
-                    sessionId, c, channelStars.Count, label);
+                    sessionId, c, starsByChannel[c].Count, label);
             }
+        }
+
+        // The field-radius bins come from ONE set of physical stars matched across the channels,
+        // not from each channel's own detections. See RadiusSamples.Flux for the defect that
+        // forced this: a per-channel brightness band selects a different physical brightness in
+        // every channel and at every radius, and measured FWHM follows brightness, so each
+        // channel's radial profile was reporting its own selection's brightness composition. With
+        // one matched set the selection is identical in all three, so a channel-to-channel
+        // difference in the radial trend is finally about the light and not about which stars were
+        // picked. The stacked PROFILE fits above deliberately keep each channel's own full list:
+        // that measurement ranks stars to stack by their brightness in the channel being fitted,
+        // which is the right thing for it and the wrong thing here.
+        var common = MatchStarsAcrossChannels(starsByChannel, ReferenceChannel(channelCount));
+        var binsByChannel = common is null
+            ? null
+            : BinCommonStarsByFieldRadius(common, cx, cy, halfDiag, radiusBins);
+        if (common is not null)
+        {
+            logger?.LogInformation(
+                "  [{Session}] field-radius bins on {Common} stars matched across all {Channels} channels, banded on ch{Reference} flux ({Train})",
+                sessionId, common.X.Length, channelCount, ReferenceChannel(channelCount), label);
+        }
+        else
+        {
+            // Loud, because the alternative is a silently unbinned session: too few stars survive
+            // the match, so this session contributes no radial samples at all rather than
+            // contributing confounded ones.
+            logger?.LogWarning(
+                "  [{Session}] too few stars matched across all {Channels} channels for a field-radius profile ({Train})",
+                sessionId, channelCount, label);
         }
 
         return new SessionPsf(
@@ -359,51 +401,202 @@ public static class DatasetPsfNoiseReport
             MasterNoiseRelative: RelativeBackgroundMad(master),
             BinsByChannel: binsByChannel,
             MasterProfiles: masterProfiles,
-            MasterStrategy: masterStrategy);
+            MasterStrategy: masterStrategy,
+            RadiusSampling: binsByChannel is null ? null : CommonStarSampling);
     }
 
+    /// <summary>Value of <see cref="SessionPsf.RadiusSampling"/> for a record whose field-radius
+    /// bins were built from one star set matched across every channel and banded on a single
+    /// reference flux. A record with a null marker predates the fix and was banded per channel, so
+    /// its radial profile carries the inversion described on <see cref="RadiusSamples.Flux"/>; the
+    /// two must never be pooled into one profile.</summary>
+    public const string CommonStarSampling = "common-stars";
+
+    /// <summary>How far apart two channels' centroids may sit and still be the same star. The
+    /// measured median shift between channels is 0.064 px and the worst 0.339, so 1 px is loose
+    /// enough to match everything real and far tighter than the separation at which a neighbouring
+    /// star could be picked up instead.</summary>
+    private const double ChannelMatchRadiusPx = 1.0;
+
     /// <summary>
-    /// Buckets one channel's detected stars into field-radius annuli, normalised so 0 is the frame
-    /// centre and 1 the corner. Raw samples, never a median: the report's profile is a median over
-    /// every star in a bin across a whole optical train, which a stored median-of-medians could not
-    /// reconstruct, and a brightness band has to be applied before any reduction (see
-    /// <see cref="RadiusSamples.Flux"/>).
+    /// The channel whose flux the brightness band is applied to: green on a 3-channel master (index
+    /// 1 in the archive's RGGB order), channel 0 otherwise.
+    ///
+    /// <para>Green because it carries twice the CFA sampling of red or blue, so it detects the most
+    /// stars and yields the largest matched set. FIXED rather than chosen per session (say, the
+    /// channel that happened to detect most) because the profile is a median pooled over every
+    /// session of an optical train: a reference that varied per session would band different
+    /// sessions on different physical quantities and pool the results as though they agreed.</para>
     /// </summary>
-    private static RadiusSamples[] BinByFieldRadius(
-        StarList stars, double cx, double cy, double halfDiag, int radiusBins)
+    internal static int ReferenceChannel(int channelCount) => channelCount >= 3 ? 1 : 0;
+
+    /// <summary>One star seen in every channel: where it is, the reference channel's flux for it,
+    /// and each channel's own measurement of it. Stored column-wise (<c>Fwhm[channel][star]</c>) so
+    /// the per-channel arrays can be handed straight to <see cref="RadiusSamples"/> index-aligned
+    /// with the shared flux.</summary>
+    internal sealed record CommonStars(float[] X, float[] Y, float[] ReferenceFlux, float[][] Fwhm, float[][] Ellipticity);
+
+    /// <summary>
+    /// Matches each reference-channel star to its nearest counterpart within
+    /// <see cref="ChannelMatchRadiusPx"/> in every other channel, keeping only the stars that are
+    /// present in ALL of them. Returns null when too few survive.
+    ///
+    /// <para>Nearest-within-radius over all pairs, which is quadratic and deliberately so: it runs
+    /// once per session against a star detection that already dominates the cost by orders of
+    /// magnitude, and an index would add a second thing to get wrong for no measurable gain.</para>
+    /// </summary>
+    internal static CommonStars? MatchStarsAcrossChannels(StarList[] byChannel, int referenceChannel)
     {
-        var binFwhm = new List<float>[radiusBins];
-        var binEcc = new List<float>[radiusBins];
-        var binFlux = new List<float>[radiusBins];
-        for (var b = 0; b < radiusBins; b++)
+        var channelCount = byChannel.Length;
+        if (channelCount == 0 || referenceChannel >= channelCount)
         {
-            binFwhm[b] = new List<float>();
-            binEcc[b] = new List<float>();
-            binFlux[b] = new List<float>();
+            return null;
         }
 
-        // A degenerate canvas has no radius to bin by; the empty bins still render, as "0 stars".
-        if (halfDiag > 0)
+        var arrays = new ImagedStar[channelCount][];
+        for (var c = 0; c < channelCount; c++)
         {
-            foreach (var star in stars)
+            arrays[c] = byChannel[c].ToArray();
+        }
+
+        var reference = arrays[referenceChannel];
+        var x = new List<float>(reference.Length);
+        var y = new List<float>(reference.Length);
+        var flux = new List<float>(reference.Length);
+        var fwhm = new List<float>[channelCount];
+        var ecc = new List<float>[channelCount];
+        for (var c = 0; c < channelCount; c++)
+        {
+            fwhm[c] = new List<float>(reference.Length);
+            ecc[c] = new List<float>(reference.Length);
+        }
+
+        var maxDistanceSquared = ChannelMatchRadiusPx * ChannelMatchRadiusPx;
+        var matchIndex = new int[channelCount];
+        foreach (var star in reference)
+        {
+            var matchedEverywhere = true;
+            for (var c = 0; c < channelCount && matchedEverywhere; c++)
             {
-                var dx = star.XCentroid - cx;
-                var dy = star.YCentroid - cy;
-                var rNorm = Math.Sqrt(dx * dx + dy * dy) / halfDiag;
-                var bin = Math.Min(radiusBins - 1, (int)(rNorm * radiusBins));
-                if (bin < 0) bin = 0;
-                binFwhm[bin].Add(star.StarFWHM);
-                binEcc[bin].Add(star.Ellipticity);
-                binFlux[bin].Add(star.Flux);
+                matchIndex[c] = FindNearest(arrays[c], star.XCentroid, star.YCentroid, maxDistanceSquared);
+                matchedEverywhere = matchIndex[c] >= 0;
+            }
+            if (!matchedEverywhere)
+            {
+                continue;
+            }
+
+            x.Add(star.XCentroid);
+            y.Add(star.YCentroid);
+            flux.Add(star.Flux);
+            for (var c = 0; c < channelCount; c++)
+            {
+                var matched = arrays[c][matchIndex[c]];
+                fwhm[c].Add(matched.StarFWHM);
+                ecc[c].Add(matched.Ellipticity);
             }
         }
 
-        var bins = new RadiusSamples[radiusBins];
+        // No star-count floor here on purpose. Binning only collects samples; deciding that a
+        // session has too few stars to say anything is the BAND's job and it already has that floor
+        // (FluxBand needs 40 for percentiles to mean anything, and a session below it folds in
+        // unbanded and is reported as such). Repeating the floor here would silently drop small
+        // sessions from the profile entirely, which is a different and worse behaviour than the
+        // unbanded fold they had before.
+        if (x.Count == 0)
+        {
+            return null;
+        }
+
+        var fwhmArrays = new float[channelCount][];
+        var eccArrays = new float[channelCount][];
+        for (var c = 0; c < channelCount; c++)
+        {
+            fwhmArrays[c] = fwhm[c].ToArray();
+            eccArrays[c] = ecc[c].ToArray();
+        }
+        return new CommonStars(x.ToArray(), y.ToArray(), flux.ToArray(), fwhmArrays, eccArrays);
+    }
+
+    /// <summary>Index of the nearest star to a point within a squared distance, or -1.</summary>
+    private static int FindNearest(ImagedStar[] stars, float x, float y, double maxDistanceSquared)
+    {
+        var best = -1;
+        var bestDistance = maxDistanceSquared;
+        for (var i = 0; i < stars.Length; i++)
+        {
+            double dx = stars[i].XCentroid - x;
+            double dy = stars[i].YCentroid - y;
+            var distance = dx * dx + dy * dy;
+            if (distance <= bestDistance)
+            {
+                bestDistance = distance;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Buckets the matched star set into field-radius annuli, per channel. Every channel gets the
+    /// same bin membership (the radius comes from the shared reference centroid) and the same
+    /// <see cref="RadiusSamples.Flux"/> array, so one band computed downstream selects the same
+    /// physical stars in all of them.
+    /// </summary>
+    internal static RadiusSamples[][] BinCommonStarsByFieldRadius(
+        CommonStars common, double cx, double cy, double halfDiag, int radiusBins)
+    {
+        var channelCount = common.Fwhm.Length;
+        var binOfStar = new int[common.X.Length];
+        for (var i = 0; i < common.X.Length; i++)
+        {
+            if (halfDiag <= 0)
+            {
+                binOfStar[i] = 0;
+                continue;
+            }
+            var dx = common.X[i] - cx;
+            var dy = common.Y[i] - cy;
+            var rNorm = Math.Sqrt(dx * dx + dy * dy) / halfDiag;
+            binOfStar[i] = Math.Clamp((int)(rNorm * radiusBins), 0, radiusBins - 1);
+        }
+
+        var result = new RadiusSamples[channelCount][];
+        for (var c = 0; c < channelCount; c++)
+        {
+            result[c] = new RadiusSamples[radiusBins];
+        }
         for (var b = 0; b < radiusBins; b++)
         {
-            bins[b] = new RadiusSamples(binFwhm[b].ToArray(), binEcc[b].ToArray(), binFlux[b].ToArray());
+            var members = new List<int>();
+            for (var i = 0; i < binOfStar.Length; i++)
+            {
+                if (binOfStar[i] == b)
+                {
+                    members.Add(i);
+                }
+            }
+
+            var binFlux = new float[members.Count];
+            for (var k = 0; k < members.Count; k++)
+            {
+                binFlux[k] = common.ReferenceFlux[members[k]];
+            }
+            for (var c = 0; c < channelCount; c++)
+            {
+                var binFwhm = new float[members.Count];
+                var binEcc = new float[members.Count];
+                for (var k = 0; k < members.Count; k++)
+                {
+                    binFwhm[k] = common.Fwhm[c][members[k]];
+                    binEcc[k] = common.Ellipticity[c][members[k]];
+                }
+                // The SAME flux instance in every channel, which is what makes the band identical
+                // across them rather than merely equal by construction today.
+                result[c][b] = new RadiusSamples(binFwhm, binEcc, binFlux);
+            }
         }
-        return bins;
+        return result;
     }
 
     /// <summary>
