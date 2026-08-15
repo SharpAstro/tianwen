@@ -163,11 +163,16 @@ untouched, which is the other half of the result: the mask removed 221 of them a
 
 ### A reference-free census does NOT work, and how that was established
 
-Verifying the re-bake cannot reuse the A/B above. Between two bakes every commit in between moved,
-and drizzle deposition is not bit-identical run to run anyway (2.96M of 27.6M px differ between two
-runs differing only by a mask), so a difference reports noise everywhere and attributes none of it.
-That argues for a measurement each master answers alone, and the single-colour finding suggests one:
-count clusters bright in exactly ONE channel, since a star carries flux in all three.
+Verifying the re-bake cannot reuse the A/B above, because between two bakes every commit in between
+moved. That argues for a measurement each master answers alone, and the single-colour finding
+suggests one: count clusters bright in exactly ONE channel, since a star carries flux in all three.
+
+(An earlier version of this paragraph also claimed drizzle deposition "is not bit-identical run to
+run", citing 2.96M of 27.6M px differing between the two A/B runs. **That was an assumption stated as
+a fact and it is wrong** -- see the determinism note at the end of this document. Those 2.96M
+differences are all mask consequence: masking ~22k input pixels changes the accumulated WEIGHT for
+every output cell any of them landed in, across 90 dithered frames, so millions of touched cells is
+what a mask on that many defects should produce.)
 
 Calibrated against ground truth -- the pixels the mask actually changed -- it fails:
 
@@ -240,3 +245,33 @@ TIANWEN_BPM_DARK=D:/Astro-Dataset/2025-2026/masters/master_dark_120s_-10C_g121_Z
 TIANWEN_BPM_REPORT=<path>
 dotnet test TianWen.Lib.Tests --filter FullyQualifiedName~SuperBadPixelMapProbe
 ```
+
+## The pipeline is bit-deterministic, and the 2026-08-15 re-bake proved it by accident
+
+A full re-bake was run on 2026-08-15 (commit `fd3c95f1`, 5h 20m, 67/68 sessions, 207,900 tiles) to
+clear hot pixels from the training masters. **It produced pixel-identical output to the previous
+bake.** Three session masters spot-checked across different cameras and dates: every finite pixel
+exactly equal, max |diff| 0.0, NaN masks identical. All 67 files differ by hash, but only in header
+metadata (the version stamp); the image data is untouched.
+
+The reason is that the mask was ALREADY ACTIVE in the previous bake. The wiring landed in `cd92de8a`
+and the budget walk in `2d1ca980`, both 2026-08-13; the `2025-2026-darkscaled` bake ran at `4bf290d9`
+the same day, after both. Between that commit and `fd3c95f1` the only `src/` changes are
+`DatasetBuildRunner` timing-store bookkeeping, `StageTimings`, and the `HotPixelMaskProbe` test
+itself -- nothing on the image path. So the re-bake could not have changed a pixel, and the premise
+behind it ("drizzled hot pixels sit in 45 training masters") described a state that the darkscaled
+bake had already fixed.
+
+**The check that would have prevented it takes one minute:** read the previous bake's
+`bake-provenance.json` for its commit, then `git log -S` the fix into the file it lives in and
+compare dates. The provenance file exists precisely so a bake can be asked which code produced it,
+and it was read for its ARGUMENTS while the commit field sat right above them.
+
+Two things worth keeping from it anyway:
+
+- **The pipeline is deterministic to the bit** across a full 5-hour rebuild on a different commit,
+  through registration, drizzle deposition, and integration. That is a strong property and it is now
+  demonstrated rather than assumed. It also means a future bake CAN be verified by differencing
+  against its predecessor: any non-zero pixel difference is attributable to the code that changed.
+- **A stale premise in a task list outlives the thing it describes.** Both #20 and #23 still asserted
+  the hot pixels were present. Neither was wrong when written.
