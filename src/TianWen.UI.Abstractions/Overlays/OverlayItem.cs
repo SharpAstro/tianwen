@@ -66,4 +66,17 @@ public sealed class OverlayItem
     /// labels as the user pans.
     /// </summary>
     public ulong StableSortKey { get; init; }
+
+    /// <summary>
+    /// Index of the <see cref="OverlayCandidate"/> this was projected from, or -1 when the item did
+    /// not come from a candidate list (the FITS viewer builds items directly).
+    ///
+    /// <para>It exists so a marker pass can be driven FROM the projected items instead of projecting
+    /// every candidate a second time. The sky map used to do exactly that: one pass projected every
+    /// candidate to place markers, then <see cref="OverlayEngine.ProjectSkyMapCandidatesInto"/>
+    /// projected the identical set again to place labels. Markers still have to read the candidate
+    /// (the projected item drops the arcmin extent and position angle, which the GPU path reads off
+    /// the candidate instead), so the link back is what removes the duplication.</para>
+    /// </summary>
+    public int CandidateIndex { get; init; } = -1;
 }

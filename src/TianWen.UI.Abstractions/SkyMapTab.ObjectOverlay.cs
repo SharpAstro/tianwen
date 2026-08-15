@@ -130,22 +130,36 @@ namespace TianWen.UI.Abstractions
             // Overlay fade at wide FOV (matches VkSkyMapTab): non-pinned markers dim toward a 0.55 floor
             // between 120 and 180 deg so a zoomed-out view stays readable; pinned targets stay full.
             var fovAlpha = MathF.Max(MathF.Min(120f / (float)fov, 1f), 0.55f);
-            var margin = 100f + arcminToPixels; // generous cull slop for large shapes
 
-            // Pass 1: markers, drawn from the CANDIDATES (they carry arcmin + position angle; the
-            // projected OverlayItem drops the PA since the GPU reads it off the candidate instead).
-            foreach (var cand in _primOverlayCandidates)
+            // ONE projection per frame, feeding BOTH passes. Markers still read their geometry off
+            // the CANDIDATE (it carries arcmin extent + position angle, which the projected item
+            // drops because the GPU path reads them off the candidate instead), so the item's
+            // CandidateIndex is the link back. This pass used to project every candidate itself and
+            // then ProjectSkyMapCandidatesInto projected the identical set again a few lines below:
+            // pure duplication, measured at ~2.1 ms per frame each at a full-sky zoom, and paid on
+            // every repaint since the browser has no render loop.
+            //
+            // Using the projection's own cull also fixes a discrepancy rather than inheriting one:
+            // the margin here was 100 + arcminToPixels, which adds a SCALE FACTOR to a pixel margin
+            // and so is ~100 px whatever the shape's size, while the projection extends its margin
+            // by the shape's actual on-screen semi-major axis. A large nebula centred just off the
+            // viewport got a label but no marker.
+            OverlayEngine.ProjectSkyMapCandidatesInto(_primOverlayCandidates, State, contentRect, dpiScale, _primOverlayItems);
+            if (_primOverlayItems.Count == 0)
             {
-                if (!SkyMapProjection.ProjectWithMatrix(cand.RA, cand.Dec, State.CurrentViewMatrix,
-                        ppr, cxView, cyView, out var sx, out var sy))
+                return;
+            }
+
+            // Pass 1: markers.
+            foreach (var item in _primOverlayItems)
+            {
+                if ((uint)item.CandidateIndex >= (uint)_primOverlayCandidates.Count)
                 {
                     continue;
                 }
-                if (sx < contentRect.X - margin || sx > contentRect.X + contentRect.Width + margin
-                    || sy < contentRect.Y - margin || sy > contentRect.Y + contentRect.Height + margin)
-                {
-                    continue;
-                }
+                var cand = _primOverlayCandidates[item.CandidateIndex];
+                var sx = item.ScreenX;
+                var sy = item.ScreenY;
 
                 var below = dimBelowHorizon && !site.IsAboveHorizon(cand.RA, cand.Dec);
                 var alpha = below ? 0.35f : 1f;
@@ -199,13 +213,8 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            // Pass 2: labels via the shared best-effort placement (O(N), stable slots) + DrawText.
-            OverlayEngine.ProjectSkyMapCandidatesInto(_primOverlayCandidates, State, contentRect, dpiScale, _primOverlayItems);
-            if (_primOverlayItems.Count == 0)
-            {
-                return;
-            }
-
+            // Pass 2: labels via the shared best-effort placement (stable slots) + DrawText, over the
+            // items projected once above.
             var labelSize = baseFontSize * dpiScale * 0.85f;
             var lineH = labelSize * 1.2f;
             var measureText = (string text, float size) => Renderer.MeasureText(text.AsSpan(), fontPath, size).Width;
