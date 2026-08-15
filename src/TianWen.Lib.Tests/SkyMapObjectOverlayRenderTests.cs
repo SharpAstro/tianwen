@@ -109,4 +109,68 @@ public sealed class SkyMapObjectOverlayRenderTests
         labelRegions.ShouldBeGreaterThan(0,
             "the [O] overlay should register clickable label regions so label clicks select the object");
     }
+
+    /// <summary>
+    /// Labels are skipped on a frame where the VIEW MOVED, and drawn again once it holds still.
+    ///
+    /// <para>Measured in the browser over a 40-frame dense zoom, placement plus text was 3,275 ms
+    /// against 1,253 for the candidate gather, 605 for the markers and 306 for the projection --
+    /// about half of every frame, spent on text sliding past too fast to read. Markers are NOT
+    /// skipped, so the sky itself never goes blank.</para>
+    ///
+    /// <para><b>The first frame must count as still.</b> The previous-view seeds are NaN and NaN
+    /// compares unequal to everything, so deriving "moved" from them alone made the very first render
+    /// suppress its own labels -- which a host that debounces a repaint hides, and a host that never
+    /// repaints by itself (this renderer) makes permanent. That is the regression this pins; it was
+    /// caught by the test above going red, not by review.</para>
+    /// </summary>
+    [Fact]
+    public async Task Labels_AreSkippedWhileTheViewMoves_AndComeBackWhenItStops()
+    {
+        var db = await SharedCatalogDB.InitAsync(TestContext.Current.CancellationToken);
+
+        const int w = 900, h = 900;
+        using var renderer = new RgbaImageRenderer(w, h);
+        var tab = new OverlayTestSkyMapTab(renderer) { FontPath = FontResolver.ResolveSystemFont() };
+        var state = new PlannerState
+        {
+            ObjectDb = db,
+            SiteLatitude = 48.0,
+            SiteLongitude = 11.0,
+            SiteTimeZone = TimeSpan.FromHours(1),
+            PlanningDate = new DateTimeOffset(2026, 6, 21, 0, 0, 0, TimeSpan.FromHours(1)),
+        };
+        var time = new FakeTimeProviderWrapper(state.PlanningDate.Value);
+        var content = new RectF32(0, 0, w, h);
+
+        int LabelRegions() => tab.GetRegisteredRegions()
+            .Count(r => r.Result is HitResult.ButtonHit { Action: { } act } && act.StartsWith("SkyMapObjectLabel:"));
+
+        tab.State.ShowObjectOverlay = true;
+        tab.State.CenterRA = 18.0;
+        tab.State.CenterDec = -24.0;
+        tab.State.FieldOfViewDeg = 30.0;
+
+        // First frame: no previous view, so nothing moved.
+        tab.Render(state, content, time);
+        tab.OverlayLabelsPending.ShouldBeFalse("the first frame has no previous view and so no motion");
+        LabelRegions().ShouldBeGreaterThan(0, "the first frame must draw labels");
+
+        // A zoom: this frame moved.
+        tab.State.FieldOfViewDeg = 24.0;
+        tab.Render(state, content, time);
+        tab.OverlayLabelsPending.ShouldBeTrue("a moving frame owes the host a settle repaint");
+        LabelRegions().ShouldBe(0, "labels must be skipped while the view is moving");
+
+        // Held still: the settle frame draws them again.
+        tab.Render(state, content, time);
+        tab.OverlayLabelsPending.ShouldBeFalse();
+        LabelRegions().ShouldBeGreaterThan(0, "labels must come back once the view stops");
+
+        // A PAN moves the view too, by centre rather than by field of view.
+        tab.State.CenterRA = 18.5;
+        tab.Render(state, content, time);
+        tab.OverlayLabelsPending.ShouldBeTrue("a pan is motion just as much as a zoom is");
+        LabelRegions().ShouldBe(0);
+    }
 }
