@@ -85,6 +85,11 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
         var page = await fixture.WarmPageAsync();
         await page.Locator("[data-view=sky]").ClickAsync();
         await Expect(page.Locator("[data-view=sky]")).ToHaveClassAsync(ActiveClass, new() { Timeout = BootTimeout });
+        // Wait out the Tycho-2 atlas load, which DELIBERATELY ignores canvas input while it runs. A test
+        // that drives a gesture during it measures nothing: the moves are dropped, the view never moves,
+        // and nothing repaints. Invisible on a Lightweight dev build (no atlas, so no busy phase) and
+        // certain against the deployed site, where the 28 MB fetch outlasts the boot wait above.
+        await Expect(page.Locator("[data-atlas-loading]")).ToHaveCountAsync(0, new() { Timeout = BootTimeout });
         // Let any in-flight repaint land so the before-stats are a settled baseline.
         await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
         return page;
