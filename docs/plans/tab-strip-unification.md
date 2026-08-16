@@ -1,7 +1,12 @@
 # Tab strips: one description, three surfaces
 
-**Status: PLANNED.** No code written. This is the design and the phasing for making TianWen's
-navigation sidebar a first-class DIR.Lib citizen instead of hand-drawn chrome.
+**Status: T1-T4 SHIPPED** (DIR.Lib `feat/tab-strip-items`, unpushed, version 8.3). T5-T7 remain. This
+is the design and the phasing for making TianWen's navigation sidebar a first-class DIR.Lib citizen
+instead of hand-drawn chrome.
+
+Everything DIR.Lib owes TianWen is now in place: `TabItem<T>` + `TabClick<T>`, `TabStripSide`,
+`TabSizing`, `CanCloseTabs` / `CanReorderTabs`, per-item `IsEnabled` / `Tooltip`, and
+`TabBar.HoveredIndex`. The sidebar can adopt without further DIR.Lib work.
 
 ## What exists today
 
@@ -106,19 +111,32 @@ public readonly record struct TabItem<T>(T Value, string Label)
 Each phase is independently shippable and leaves every existing consumer byte-identical until it
 opts in.
 
-| # | Phase | DIR.Lib | Consumers | Notes |
+| # | Phase | DIR.Lib | Consumers | Status |
 |---|---|---|---|---|
-| T1 | `TabItem<T>` + item-based `Render` overload | minor | none | Old `titles` overload delegates to it. Additive. |
-| T2 | `TabStripSide`, orientation derived | minor | none | `Top` is today. Needs the accent/separator/hover geometry expressed per side. |
-| T3 | `TabSizing.Uniform` | minor | none | Square tabs sized from strip thickness. |
-| T4 | Affordances (`CanCloseTabs`, `CanReorderTabs`, per-item `IsEnabled` + `Tooltip`) | minor | none | Defaults keep today's behaviour. |
-| T5 | TianWen sidebar adopts `TabBar` | - | tianwen | Delete `RenderSidebar`; `GuiTab` becomes the `T`. Six-place problem drops to three. |
+| T1 | `TabItem<T>` + item-based `Render` overload | 8.2 | none | **DONE.** Old `titles` overload delegates to it; pinned by comparing painted surfaces. |
+| T2 | `TabStripSide`, orientation derived | 8.3 | none | **DONE.** Painter reworked onto a flow/cross axis pair; one body serves four sides. |
+| T3 | `TabSizing.Uniform` | 8.3 | none | **DONE**, with T2 — see below. |
+| T4 | Affordances (`CanCloseTabs`, `CanReorderTabs`, per-item `IsEnabled` + `Tooltip`) | 8.3 | none | **DONE.** `IsEnabled`/`Tooltip` landed in T1 as fields of the record. |
+| T5 | TianWen sidebar adopts `TabBar` | - | tianwen | Next. Delete `RenderSidebar`; `GuiTab` becomes the `T`. |
 | T6 | Strip built as a `Layout` tree | minor | none | Internal reshape; the payoff is T7. |
 | T7 | Console.Lib cell painter for the strip | Console.Lib minor | tianwen | `TuiTabBar` collapses to supplying items. One strip, both surfaces. |
 | T8 | Rotated text (optional, see below) | **renderer capability** | - | Only if a consumer wants long labels on a vertical strip. |
 
-T1-T5 is the whole of what TianWen needs. T6-T7 is the prize (three implementations become one).
-T8 is separable and probably never happens here.
+T6-T7 is the prize (three implementations become one). T8 is separable and probably never happens here.
+
+**T2 and T3 shipped together, deliberately.** They are not independent the way the table implied: a
+vertical strip sizing by content sets a tab's HEIGHT from the WIDTH of its label, and on an icon-only
+rail from a label it does not draw. T2 alone would therefore have shipped a vertical mode whose only
+sizing rule is meaningless, so `Uniform` is not a follow-up refinement but the thing that makes the
+side axis usable. **T4's per-item half also moved earlier**, into T1, because `IsEnabled` and
+`Tooltip` are fields of `TabItem<T>` and shipping the record with two inert properties would have been
+worse than honouring them on arrival.
+
+**One source break, in a minor.** `Render`'s `contentLeft`/`viewportW` became `contentStart`/
+`viewportEnd` and `SlotAt`'s `x` became `flow`, since on a vertical strip the old names name the wrong
+axis. Named-argument callers break; positional ones do not, and nothing in the org passed them by
+name. Taken rather than kept for compatibility because the parameters are the API's own description of
+which axis it means.
 
 ## Rotated text is not a flag
 
@@ -145,19 +163,25 @@ the only known consumer.
 
 ## Open questions
 
-1. **How does a tab carry an icon?** TianWen's are **emoji glyphs** (🏠 🔭 📅) drawn from a bundled
-   emoji font via `EmojiFontPath`, not `Layout.Content.Icon` marks, which are built from rectangles
-   and cannot draw an emoji. Options: `TabItem.Icon` as a `Layout.Content` (so a host passes either an
-   `Icon` leaf or a `Text` run in whatever font it likes), or a narrower `Glyph` + font pair. The
-   first is more flexible and matches "rows as layout trees"; the second is easier to measure and
-   truncate. **Leaning to `Layout.Content`,** decided at T1.
-2. **Rename `ShowNewTabButton` to `CanAddTabs`?** Consistent with `CanCloseTabs` / `CanReorderTabs`,
-   but breaking, and DIR.Lib 8.0 has just shipped. Could ride the next major, or the pair can simply
-   coexist with the older name documented as the odd one out.
-3. **Does the sidebar's tooltip belong to the bar?** It is drawn *outside* the strip, over adjacent
-   content, so a widget that clips to its own bounds cannot paint it. Either the bar returns the
-   hovered item and the host draws the tooltip (simplest, and what TianWen does today), or the strip
-   declares an overlay. **Leaning to the former.**
+1. ~~**How does a tab carry an icon?**~~ **RESOLVED at T1, and neither option was needed.**
+   `TabItem.Icon` is a plain `string`. The premise — that a symbol character is unreliable on a pixel
+   surface — is true but already solved one layer down: `PixelWidgetBase.DrawText` splits a run by
+   coverage through `FontFallback` and routes supplementary-plane codepoints to `EmojiFontPath` even
+   without one, so 🏠 🔭 📅 simply draw. A `Layout.Content` would have added an API surface to reach
+   machinery the widget already runs, and the `Icon` half of it could not draw an emoji at all
+   (`IconKind` names a caret or a grid, not a telescope). Width is a **fixed box**, never measured: a
+   pictograph's advance varies by face, so measuring would make tab width depend on which fallback
+   happened to resolve.
+2. **Rename `ShowNewTabButton` to `CanAddTabs`?** **Declined at T4.** It keeps its name and is
+   documented as the odd one out. Renaming a shipped property costs a consumer more than the
+   inconsistency does, and the pair added beside it (`CanCloseTabs`, `CanReorderTabs`) are both
+   positive-logic, so the convention is established for anything added next.
+3. ~~**Does the sidebar's tooltip belong to the bar?**~~ **RESOLVED as leaned: the host draws it.**
+   `TabBar.HoveredIndex` reports the tab under the pointer, resolved while the tabs are laid out so
+   the host pays no hit test for it, and `TabItem.Tooltip` carries the text. The bar cannot paint it:
+   a tooltip lands outside the strip, over whatever is adjacent, and the bar clips to its own bounds.
+   Declaring an overlay would have moved a z-order and placement decision into a widget that cannot
+   see what it would cover.
 4. **Does TianWen's status bar stay out?** `TuiTabBar` renders a status line alongside the tabs. That
    is a TianWen composition, not a tab-strip feature; it should stay in the host.
 
