@@ -267,6 +267,36 @@ Two caveats to hold. The ASI585 confound and the PSF-heterogeneity hypothesis ar
 and dropping the 8 also shrinks the pool 60 to 52, so the arm needs a size-matched control to avoid
 re-running 1b's own confound in a new costume.
 
+### 1h. The ASI585 sessions are innocent, and the arms were never a clean session-count contrast
+
+v18 (`D:\Astro-Dataset\n2n-smoke\v18\README.md`, `bars-v18.txt`). Two 52-session arms, both strict
+subsets of v17's own 60, differing by exactly 8 each way; v17c's config verbatim, three seeds each.
+Faint amplitude kept at matched noise 0.90 on the observer session:
+
+| Arm | seeds | mean |
+|---|---|---|
+| v15 (8 sessions) | 0.821 0.823 0.850 | **0.831** |
+| v17c (60) | - 0.730 0.812 | 0.771 |
+| v18a-no585 (52) | 0.681 0.810 0.805 | 0.765 |
+| v18b-control (52) | - 0.754 0.749 | 0.752 |
+
+**A versus B is 0.013 apart against a 0.13 within-arm seed spread in A.** Not a difference. The
+ASI585's unresolved ADU scale is not what hurt v17, so 1g's mechanism is dead. **And dropping 8
+sessions of any kind did nothing either**: both 52-arms land on v17c, not on v15, so the 60-to-52
+step is invisible while the 8-to-52 gap is intact.
+
+**What the run exposed is that v15 and v17 were never a clean session-count contrast:**
+
+| Arm | sessions | cells per session | train cells |
+|---|---|---|---|
+| v15 | 8 | 120 | **960** |
+| v17 | 60 | 45 | 2700 |
+
+**v15 trains on about a third of the data and wins.** So every "8 sessions beat 60" statement,
+1b included, has been carrying two changes at once: fewer sessions AND 2.7x the sampling density
+within each. v18 has now flattened the session-count axis between 52 and 60, which leaves volume
+and density as the untested half and makes N2c the next run.
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.
@@ -292,7 +322,8 @@ Ordered by value per unit of work, not by dependency.
 | Phase | Deliverable | Cost | Why now |
 |---|---|---|---|
 | ~~**N1**~~ | ~~**Re-bake from `D:\Astro-Organized`.**~~ **DONE 2026-08-15**, see 1f. `D:\Astro-Dataset\2025-2026-organized`, 51/52 sessions, 159,300 tiles, 231 min. Every session carries its filter from the header. | 3.9 h, no code | Everything below depended on the dataset knowing its filter, and the work to make that true was already done and then not used. |
-| **N2a** | **Retrain v17 without the 8 ASI585 sessions, plus a size-matched control.** No code change: drop them from the cache build. Per 1g they are the one body with an unresolved ADU scale, so their noise-sigma conditioning is mislabelled rather than merely varied, and v15's arm contains none of them. The control matters because dropping them also shrinks 60 to 52, which is 1b's own confound again. | ~1 h GPU, no code | The cheapest remaining explanation for 1b, and it is a MECHANISM rather than a description. Do this BEFORE N2b. |
+| ~~**N2a**~~ | ~~**Retrain v17 without the 8 ASI585 sessions.**~~ **DONE 2026-08-16, negative on both counts, see 1h.** The ASI585 sessions are innocent and dropping 8 sessions of any kind changes nothing. | 1.6 h | Ruled out the cheapest mechanism, and exposed the axis nobody had separated. |
+| **N2c** | **21 sessions x 45 cells = 945 train cells**, matching v15's 960 while keeping v17's per-session density. Per 1h, v15 and v17 differ in BOTH session count and cells-per-session (8x120 vs 60x45), so every "8 beats 60" reading has carried two changes at once. v18 showed session count is flat 52-to-60; this tests the other half. | ~30 min GPU, no code | Matches v15 -> data VOLUME, and the large-pool runs have been overfitting a bigger set worse. Matches v18 -> per-session DENSITY, a sampling question rather than a diversity one. |
 | **N2b** | **PSF conditioning in the trainer.** Feed measured per-plane PSF width as a conditioning input, exactly as noise sigma already is. Re-run the 60-session arm against v15's frontier. | ~1 h GPU | The v8 lesson one axis over: the failure was a single-point training distribution, and the fix was making the varying quantity an INPUT rather than narrowing the data. If it works it explains 1b instead of working around it, and keeps all sessions. Task #36. Gated on N2a, which may make it unnecessary. |
 | **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
 | **N4** | **Ship a checkpoint behind a strength dial.** `n2n_v17c_s0_final.pt` at 0.80x is already a defensible operating point (+2.0 relative, -19 absolute). Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed. | medium | A model exists and is not deployed. Independent of N1-N3. |
