@@ -297,6 +297,40 @@ step is invisible while the 8-to-52 gap is intact.
 within each. v18 has now flattened the session-count axis between 52 and 60, which leaves volume
 and density as the untested half and makes N2c the next run.
 
+### 1i. It is the session COUNT, it saturates by 21, and one observer cannot prove that
+
+v19 (`D:\Astro-Dataset\n2n-smoke\v19\README.md`, `bars-v19.txt`). Two arms complete a 2x2 against
+v15 and v17c; all four nested subsets of v17's 60, same pinned val, same observer cells, three
+seeds each. Faint amplitude kept at matched noise:
+
+| Arm | sessions | cells/session | train cells | epochs | 0.90 | 0.85 | 0.80 |
+|---|---|---|---|---|---|---|---|
+| **v19d** | **8** | 45 | 360 | 89 | **0.842** | **0.747** | **0.645** |
+| v15 | 8 | 120 | 960 | 33 | 0.831 | 0.727 | 0.609 |
+| v19c | 21 | 45 | 945 | 34 | 0.770 | 0.643 | - |
+| v17c | 60 | 45 | 2700 | 12 | 0.771 | 0.690 | - |
+
+**360 cells from 8 sessions beats 2700 from 60**, and it closes in three comparisons. v19d vs v15
+holds the sessions fixed while density, volume and epochs each swing 2.7x, and nothing moves, so
+**all three are irrelevant**. v15 vs v19c matches volume (960/945) and epochs (33/34) and does
+move, so with density already excluded the only thing left is **count, 8 against 21**. v19c vs
+v17c is flat, so the effect **saturates by 21** and v18's blindness between 52 and 60 was expected.
+The groups separate cleanly, not on means: few-session arms span 0.821-0.866 over six seeds,
+many-session arms 0.730-0.812 over five, no overlap.
+
+**This raises task #36 from one hypothesis among four to the only survivor.** The mechanism must
+scale with the NUMBER of distinct sessions while ignoring how much data each brings, and "one
+scalar sigma cannot describe N incompatible regimes, so the model averages a prior that fits none"
+is that shape. It also predicts the saturation: eight regimes already exhaust one scalar.
+
+**And the result does not license training on 8 sessions.** Every number here is one observer
+session. Few-session arms winning ON RIM NEBULA is equally consistent with those 8 sitting closer
+to Rim Nebula than a broad pool's average does, which is the ordinary narrow-training-set story and
+would reverse on a different field. The table cannot separate the two, because the observer never
+moves. **So N2d rotates the observer before anything else is concluded from 1b, 1h or 1i** -- it
+needs no training, only evaluation, and if proximity is what is being measured then the whole
+8-beats-60 line has been steering this programme since v17 on a sampling artifact.
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.
@@ -323,7 +357,8 @@ Ordered by value per unit of work, not by dependency.
 |---|---|---|---|
 | ~~**N1**~~ | ~~**Re-bake from `D:\Astro-Organized`.**~~ **DONE 2026-08-15**, see 1f. `D:\Astro-Dataset\2025-2026-organized`, 51/52 sessions, 159,300 tiles, 231 min. Every session carries its filter from the header. | 3.9 h, no code | Everything below depended on the dataset knowing its filter, and the work to make that true was already done and then not used. |
 | ~~**N2a**~~ | ~~**Retrain v17 without the 8 ASI585 sessions.**~~ **DONE 2026-08-16, negative on both counts, see 1h.** The ASI585 sessions are innocent and dropping 8 sessions of any kind changes nothing. | 1.6 h | Ruled out the cheapest mechanism, and exposed the axis nobody had separated. |
-| **N2c** | **21 sessions x 45 cells = 945 train cells**, matching v15's 960 while keeping v17's per-session density. Per 1h, v15 and v17 differ in BOTH session count and cells-per-session (8x120 vs 60x45), so every "8 beats 60" reading has carried two changes at once. v18 showed session count is flat 52-to-60; this tests the other half. | ~30 min GPU, no code | Matches v15 -> data VOLUME, and the large-pool runs have been overfitting a bigger set worse. Matches v18 -> per-session DENSITY, a sampling question rather than a diversity one. |
+| ~~**N2c**~~ | ~~**21 sessions x 45 cells.**~~ **DONE 2026-08-16, see 1i.** Ran as a 2x2 with an 8x45 arm rather than alone, which is what made it decisive: session count is the lever, volume / density / epochs are not, and it saturates by 21. | 1.4 h | Answered, and it promoted #36 from one candidate to the only one. |
+| **N2d** | **Rotate the observer session.** Score the existing v15 / v17c / v19c / v19d checkpoints against several held-out sessions one at a time, instead of only Rim Nebula. | ~20 min, NO training | 1i is one observer wide. "Few sessions generalise better" and "these 8 happen to sit near Rim Nebula" predict the same table, and the second would mean 1b, 1h and 1i have all been reading a sampling artifact. Nothing else should be concluded until this runs. |
 | **N2b** | **PSF conditioning in the trainer.** Feed measured per-plane PSF width as a conditioning input, exactly as noise sigma already is. Re-run the 60-session arm against v15's frontier. | ~1 h GPU | The v8 lesson one axis over: the failure was a single-point training distribution, and the fix was making the varying quantity an INPUT rather than narrowing the data. If it works it explains 1b instead of working around it, and keeps all sessions. Task #36. Gated on N2a, which may make it unnecessary. |
 | **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
 | **N4** | **Ship a checkpoint behind a strength dial.** `n2n_v17c_s0_final.pt` at 0.80x is already a defensible operating point (+2.0 relative, -19 absolute). Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed. | medium | A model exists and is not deployed. Independent of N1-N3. |
