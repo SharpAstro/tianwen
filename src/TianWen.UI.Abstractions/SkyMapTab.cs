@@ -188,10 +188,18 @@ namespace TianWen.UI.Abstractions
             var cy = contentRect.Y + contentRect.Height * 0.5f;
             var fontSize = BaseFontSize * dpiScale;
 
+            // Per-label-layer timing. These layers are the residual left over once the map draw is
+            // measured, and on the browser build that residual is 80% of a repaint (6.9 ms of an
+            // 8.5 ms frame, against 1.1 ms for the whole 2.5M-star field). A residual is not a
+            // finding, though -- it is the bucket a wrong attribution hides in -- so each layer says
+            // what it costs. Cheap: one timestamp pair per layer per frame.
+            var layerMark = System.Diagnostics.Stopwatch.GetTimestamp();
+
             if (State.ShowGrid)
             {
                 DrawGridLabels(contentRect, fontSize * 0.8f, ppr, cx, cy);
             }
+            GridLabelMs += LayerElapsed(ref layerMark);
 
             // Horizon dimming: when the user has horizon clipping on, sub-horizon labels
             // get their alpha cut so they clearly read as "not currently visible" without
@@ -200,8 +208,10 @@ namespace TianWen.UI.Abstractions
 
             // Constellation names at boundary centroids (always shown)
             DrawConstellationNames(contentRect, fontSize * 0.85f, ppr, cx, cy, site, dimBelowHorizon);
+            ConstellationNameMs += LayerElapsed(ref layerMark);
 
             DrawPlanetLabels(db, viewingTime, siteLat, siteLon, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon);
+            PlanetLabelMs += LayerElapsed(ref layerMark);
 
             // Ephemeris-computed JPL comet markers (candidate set filtered to the zoom-aware magnitude
             // limit, except for pinned ones). Drawn after planets so a bright comet's label sits above
@@ -216,12 +226,14 @@ namespace TianWen.UI.Abstractions
             {
                 DrawCometLabels(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon, pinnedIndices);
             }
+            CometLabelMs += LayerElapsed(ref layerMark);
 
             // Always render the object overlay pass, when [O] is off, only pinned
             // planner targets are drawn (the user's planned observations should always
             // be visible as landmarks on the sky map). The showAll flag tells the engine
             // whether to include non-pinned catalog objects in the result.
             RenderObjectOverlay(db, contentRect, BaseFontSize, site, dimBelowHorizon, plannerState, State.ShowObjectOverlay);
+            ObjectOverlayMs += LayerElapsed(ref layerMark);
 
             // Mosaic panel grid: drawn BEHIND the mount reticle but ON TOP of catalog
             // overlays so panel outlines don't get buried under catalog markers but the
@@ -248,10 +260,12 @@ namespace TianWen.UI.Abstractions
             // cardinal labels. Drawn on top of the mount reticle so the user can always
             // click a pole or zenith to slew, even if the mount happens to overlap.
             RenderFixedPointMarkers(contentRect, BaseFontSize, ppr, cx, cy, site);
+            FixedMarkerMs += LayerElapsed(ref layerMark);
 
             var isTimeShifted = plannerState.PlanningDate.HasValue || State.TimeOffset != TimeSpan.Zero;
             DrawInfoStrip(contentRect, fontSize, cx, cy,
                 viewingTime, plannerState.SiteTimeZone, isTimeShifted);
+            InfoStripMs += LayerElapsed(ref layerMark);
 
             // Crosshair
             var crossColor = new RGBAColor32(0xFF, 0xFF, 0xFF, 0x40);
@@ -275,6 +289,7 @@ namespace TianWen.UI.Abstractions
             // hit testing (paint order = z-order).
             DrawSearchAndInfoPanel(plannerState, contentRect, db,
                 siteLat, siteLon, viewingTime, site, ppr, cx, cy);
+            SearchPanelMs += LayerElapsed(ref layerMark);
         }
 
         /// <summary>
@@ -284,6 +299,50 @@ namespace TianWen.UI.Abstractions
         /// progressive star buffer); the GPU subclass overrides it from its pipeline state.
         /// </summary>
         protected virtual bool FullStarsLoading => false;
+
+        /// <summary>
+        /// Cumulative cost of each label layer drawn on top of the map, so the layers can be ranked
+        /// instead of inferred. On the browser build everything after the map draw is 80% of a
+        /// repaint (6.9 ms of an 8.5 ms frame) against 1.1 ms for the entire 2.5M-star field, and a
+        /// residual that large is exactly where a wrong attribution hides -- this investigation had
+        /// already blamed the wrong half of a phase twice before these existed.
+        ///
+        /// <para>These layers are SKY-ANCHORED: their screen positions change on every frame of a
+        /// pan, so they cannot be cached as retained geometry the way static chrome could. What can
+        /// be done with an expensive one is what the object overlay already does -- skip it while
+        /// the view is moving and draw it back on settle, because the text is sliding past too fast
+        /// to read anyway.</para>
+        /// </summary>
+        internal double GridLabelMs { get; private set; }
+
+        /// <inheritdoc cref="GridLabelMs"/>
+        internal double ConstellationNameMs { get; private set; }
+
+        /// <inheritdoc cref="GridLabelMs"/>
+        internal double PlanetLabelMs { get; private set; }
+
+        /// <inheritdoc cref="GridLabelMs"/>
+        internal double CometLabelMs { get; private set; }
+
+        /// <inheritdoc cref="GridLabelMs"/>
+        internal double ObjectOverlayMs { get; private set; }
+
+        /// <inheritdoc cref="GridLabelMs"/>
+        internal double FixedMarkerMs { get; private set; }
+
+        /// <inheritdoc cref="GridLabelMs"/>
+        internal double InfoStripMs { get; private set; }
+
+        /// <inheritdoc cref="GridLabelMs"/>
+        internal double SearchPanelMs { get; private set; }
+
+        private static double LayerElapsed(ref long mark)
+        {
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            var ms = System.Diagnostics.Stopwatch.GetElapsedTime(mark, now).TotalMilliseconds;
+            mark = now;
+            return ms;
+        }
 
         /// <summary>
         /// Override in the GPU subclass to draw the <c>[O]</c> object overlay (ellipses

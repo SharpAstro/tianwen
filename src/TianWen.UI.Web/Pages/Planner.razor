@@ -1996,6 +1996,17 @@
             + ",\"skyGeomMs\":" + (_skyTab?.SkyGeometryMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             + ",\"skyUpdateMs\":" + (_skyTab?.SkyUpdateFrameMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             + ",\"skyDrawMs\":" + (_skyTab?.SkyDrawMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            // The label layers drawn ON TOP of the map, which are the rest of skyMs. Ranked rather
+            // than inferred: they are sky-anchored, so the fix for an expensive one is to skip it
+            // while the view moves (as the object overlay already does), not to cache its geometry.
+            + ",\"lblGrid\":" + (_skyTab?.GridLabelMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"lblConst\":" + (_skyTab?.ConstellationNameMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"lblPlanet\":" + (_skyTab?.PlanetLabelMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"lblComet\":" + (_skyTab?.CometLabelMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"lblOverlay\":" + (_skyTab?.ObjectOverlayMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"lblFixed\":" + (_skyTab?.FixedMarkerMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"lblInfo\":" + (_skyTab?.InfoStripMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"lblSearch\":" + (_skyTab?.SearchPanelMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             + ",\"worst\":{\"frameMs\":" + _worstFrameMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"busMs\":" + _worstBusMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"skyMs\":" + _worstSkyMs.ToString("F1", CultureInfo.InvariantCulture)
