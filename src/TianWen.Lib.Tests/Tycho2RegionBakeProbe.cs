@@ -1,7 +1,7 @@
 using System;
 using System.Buffers.Binary;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
@@ -15,32 +15,28 @@ namespace TianWen.Lib.Tests
     /// Prices the region-aligned multi-member bake in <c>docs/plans/web-tycho2.md</c>: what the split
     /// costs in compression ratio, and what a view then actually has to download.
     ///
-    /// <para><b>Why the existing 0.49% figure cannot be reused.</b> That was measured at EIGHT members.
-    /// <see cref="Tycho2RegionSelectorTests"/> shows a view's regions arrive as runs averaging ~143 KB
-    /// at the default field and ~40 KB when zoomed, so members have to be in that size class to be
-    /// addressable at all -- hundreds or thousands of them, not eight. Every member resets the LZMA
-    /// dictionary (<c>LzipEncoder</c> caps it to the member's own length), so the penalty grows as
-    /// members shrink, and extrapolating from eight would understate it by an unknown factor.</para>
+    /// <para><b>Why the existing 0.49% figure cannot be reused.</b> That was measured at EIGHT
+    /// members. <see cref="Tycho2RegionSelectorTests"/> shows a view's regions arrive as runs
+    /// averaging ~143 KB at the default field and ~40 KB when zoomed, so members have to be in that
+    /// size class to be addressable at all -- hundreds of them, not eight. Every member resets the
+    /// LZMA dictionary (<c>LzipEncoder</c> caps it to the member's own length), so the penalty grows
+    /// as members shrink, by an amount eight members cannot predict.</para>
     ///
-    /// <para><b>Members are region-aligned, never size-aligned.</b> A member that splits a GSC region
-    /// puts half a region behind a boundary a client cannot address, so the greedy packer below only
-    /// ever cuts between regions and the nominal size is a target rather than a stride. The 37 KB
-    /// header gets a member to itself: a client must decode it before it can know which other members
-    /// it wants, so it is the one member every visit fetches.</para>
+    /// <para><b>Requests are FILES, not ranges.</b> Byte ranges are unusable on both hosts -- GitHub
+    /// Pages answers 206 over the gzip representation, Cloudflare Pages ignores Range entirely -- so
+    /// consecutive members cannot be coalesced into one GET and the knee sits higher than a
+    /// range-based delivery would put it. See the plan for the measurements.</para>
     ///
     /// <para>Env-gated (<c>TIANWEN_TYC2_BAKE_PROBE=1</c>) like the E2E probes: it recompresses 43.5 MB
-    /// several times over and is an instrument, not an assertion.</para>
+    /// several times over and is an instrument, not an assertion. The two invariant tests beside it
+    /// are NOT gated -- they are cheap and they are what keeps the desktop safe.</para>
     /// </summary>
     public class Tycho2RegionBakeProbe(ITestOutputHelper output)
     {
+        // Weighted toward the 128 KB - 1 MB band: once members are FILES the request count stops
+        // being coalescable, so the knee moves up from where a range-based delivery would put it.
         private static readonly int[] TargetMemberSizes =
-            [4 << 20, 1 << 20, 256 << 10, 64 << 10, 32 << 10, 16 << 10];
-
-        /// <summary>Uncompressed byte span of one member, plus the region index it starts at.</summary>
-        private readonly record struct Member(int Start, int End, int FirstRegion)
-        {
-            internal int Length => End - Start;
-        }
+            [2 << 20, 1 << 20, 512 << 10, 256 << 10, 128 << 10, 64 << 10, 32 << 10];
 
         [Fact]
         public void MeasureAsync()
@@ -52,12 +48,11 @@ namespace TianWen.Lib.Tests
             var catalog = LoadResource(".tyc2.bin.lz");
             var selector = new Tycho2RegionSelector(bounds);
             var streamCount = BinaryPrimitives.ReadInt32LittleEndian(catalog);
-            var header = catalog.AsSpan(0, 4 + streamCount * 4).ToArray();
+            var header = catalog.AsSpan(0, 4 + (streamCount * 4)).ToArray();
 
             var shipped = CompressedSize(catalog, 0, catalog.Length);
             output.WriteLine($"raw {catalog.Length:N0} B, {streamCount:N0} regions");
-            output.WriteLine($"single member (what ships today): {shipped:N0} B "
-                + $"({100.0 * shipped / catalog.Length:F1}% of raw)");
+            output.WriteLine($"single member: {shipped:N0} B ({100.0 * shipped / catalog.Length:F1}% of raw)");
             output.WriteLine("");
 
             // The reference views: the widest default field, a mid zoom, and a deep zoom, at the
@@ -74,38 +69,38 @@ namespace TianWen.Lib.Tests
 
             foreach (var target in TargetMemberSizes)
             {
-                var members = PackRegionAligned(catalog, header, streamCount, target);
-                var sizes = CompressMembers(catalog, members);
+                var (byteBoundary, regionBoundary) = Tycho2MemberManifest.Pack(
+                    header, streamCount, catalog.Length, target);
+                var sizes = CompressMembers(catalog, byteBoundary);
                 var totalCompressed = sizes.Sum(s => (long)s);
+                var manifest = Tycho2MemberManifest.Create(regionBoundary, streamCount, catalog.Length);
 
                 var cells = new List<string>();
                 foreach (var (_, ra, dec, fov) in probes)
                 {
                     var regions = new List<int>();
                     selector.SelectVisible(ra, dec, fov, regions);
-                    var ranges = Tycho2RegionSelector.ToByteRanges(regions, header, catalog.Length, 0);
 
-                    var needed = MembersCovering(members, ranges);
-                    // Member 0 is the header, which every client fetches before it can ask for anything.
-                    needed.Add(0);
+                    // Ask the manifest, not the byte ranges: this is the exact path the client walks,
+                    // so a bug in the region-to-member mapping shows up in the measurement too.
+                    var needed = new List<int>();
+                    manifest.MembersForRegions(regions, needed);
+                    needed.Add(0); // the header member, which every client fetches unconditionally
+
                     var download = needed.Sum(m => (long)sizes[m]);
-
-                    // Members are laid out in index order in the compressed file, so a RUN of
-                    // consecutive members is one Range GET. Counting members instead of runs would
-                    // over-report requests badly at small member sizes -- exactly where the split is
-                    // supposed to be winning.
-                    cells.Add($"{ConsecutiveRuns(needed),5:N0} req {download / (1024.0 * 1024.0),6:F2} MB");
+                    cells.Add($"{needed.Count,4:N0}f/{ConsecutiveRuns(needed),3:N0}r "
+                        + $"{download / (1024.0 * 1024.0),6:F2} MB");
                 }
 
-                output.WriteLine($"{Human(target),8} {members.Count,8:N0} "
+                output.WriteLine($"{Human(target),8} {manifest.MemberCount,8:N0} "
                     + $"{totalCompressed / (1024.0 * 1024.0),9:F2} "
                     + $"{100.0 * totalCompressed / shipped - 100.0,11:+0.0;-0.0}%   "
                     + string.Join("  ", cells));
             }
 
             output.WriteLine("");
-            output.WriteLine("Read the last three columns as requests + COMPRESSED bytes actually downloaded,");
-            output.WriteLine($"against today's single {shipped / (1024.0 * 1024.0):F2} MB fetch for any view whatsoever.");
+            output.WriteLine("Requests are FILES (f) with the un-coalescable range count (r) beside them;");
+            output.WriteLine($"bytes are COMPRESSED, against a single {shipped / (1024.0 * 1024.0):F2} MB fetch for any view.");
         }
 
         /// <summary>
@@ -119,32 +114,45 @@ namespace TianWen.Lib.Tests
         {
             var catalog = LoadResource(".tyc2.bin.lz");
             var streamCount = BinaryPrimitives.ReadInt32LittleEndian(catalog);
-            var header = catalog.AsSpan(0, 4 + streamCount * 4).ToArray();
+            var header = catalog.AsSpan(0, 4 + (streamCount * 4)).ToArray();
 
-            // The legal cut points: the file start, the end of the header (== the first region's
-            // start), every region start, and the file end. Byte 0 counts because the header is a
-            // member in its own right -- a client must decode it before it can name any other member.
-            var starts = new HashSet<int> { 0, catalog.Length };
+            // The legal cut points: the file start, every region start (the first of which is also
+            // the end of the header), and the file end. Byte 0 counts because the header is a member
+            // in its own right -- a client must decode it before a record's tyc1 is knowable.
+            var legal = new HashSet<int> { 0, catalog.Length };
             for (var region = 0; region < streamCount; region++)
             {
-                starts.Add(RegionStart(header, region));
+                legal.Add(RegionStart(header, region));
             }
 
-            var members = PackRegionAligned(catalog, header, streamCount, 64 << 10);
-            members.Count.ShouldBeGreaterThan(1, "a 64 KB target over 43 MB must produce many members");
+            var (byteBoundary, regionBoundary) = Tycho2MemberManifest.Pack(
+                header, streamCount, catalog.Length, 64 << 10);
 
-            foreach (var member in members)
+            byteBoundary.Length.ShouldBeGreaterThan(3, "a 64 KB target over 43 MB must produce many members");
+            regionBoundary.Length.ShouldBe(byteBoundary.Length, "one region boundary per byte boundary");
+
+            foreach (var at in byteBoundary)
             {
-                starts.ShouldContain(member.Start, $"member starting at {member.Start} splits a region");
-                starts.ShouldContain(member.End, $"member ending at {member.End} splits a region");
+                legal.ShouldContain(at, $"member boundary at byte {at} splits a region");
             }
 
-            // Contiguous and gapless: the members must reconstruct the file exactly, not merely cover it.
-            members[0].Start.ShouldBe(0);
-            members[^1].End.ShouldBe(catalog.Length);
-            for (var i = 1; i < members.Count; i++)
+            // Contiguous and gapless: the members must RECONSTRUCT the file, not merely cover it.
+            byteBoundary[0].ShouldBe(0);
+            byteBoundary[^1].ShouldBe(catalog.Length);
+            for (var i = 1; i < byteBoundary.Length; i++)
             {
-                members[i].Start.ShouldBe(members[i - 1].End, $"gap or overlap before member {i}");
+                byteBoundary[i].ShouldBeGreaterThan(byteBoundary[i - 1], $"empty or inverted member {i - 1}");
+            }
+
+            // The two boundary arrays must agree: the byte a member starts at IS its first region's
+            // start. Member 0 is the header and holds no regions, hence the empty first range.
+            regionBoundary[0].ShouldBe(0);
+            regionBoundary[1].ShouldBe(0, "member 0 is the header and holds no regions");
+            regionBoundary[^1].ShouldBe(streamCount);
+            for (var i = 1; i < byteBoundary.Length - 1; i++)
+            {
+                byteBoundary[i].ShouldBe(RegionStart(header, regionBoundary[i]),
+                    $"member {i} starts at a byte that is not region {regionBoundary[i]}'s start");
             }
         }
 
@@ -153,70 +161,34 @@ namespace TianWen.Lib.Tests
         /// identical to the single-member one, so <c>Tycho2RaDecIndex</c>, the offset table and every
         /// record offset are untouched by the bake. Bounded to the first few MB so it can run in CI --
         /// the property is per-member, so more members would re-prove the same thing more slowly.
+        /// (<c>tools/bake-tycho2</c> runs the unbounded version and refuses to write if it fails.)
         /// </summary>
         [Fact]
         public void ARegionAlignedMultiMemberFileDecodesToTheIdenticalBytes()
         {
             var catalog = LoadResource(".tyc2.bin.lz");
             var streamCount = BinaryPrimitives.ReadInt32LittleEndian(catalog);
-            var header = catalog.AsSpan(0, 4 + streamCount * 4).ToArray();
+            var header = catalog.AsSpan(0, 4 + (streamCount * 4)).ToArray();
 
-            var members = PackRegionAligned(catalog, header, streamCount, 64 << 10)
-                .TakeWhile(m => m.End <= 3 << 20).ToList();
-            members.Count.ShouldBeGreaterThan(4, "the slice must span several members to prove anything");
+            var (byteBoundary, _) = Tycho2MemberManifest.Pack(header, streamCount, catalog.Length, 64 << 10);
+            var take = byteBoundary.TakeWhile(b => b <= 3 << 20).ToArray();
+            take.Length.ShouldBeGreaterThan(5, "the slice must span several members to prove anything");
 
-            var slice = catalog.AsSpan(0, members[^1].End).ToArray();
-
-            using var baked = new System.IO.MemoryStream();
-            foreach (var member in members)
+            using var baked = new MemoryStream();
+            for (var i = 1; i < take.Length; i++)
             {
-                baked.Write(LzipEncoder.Compress(catalog.AsSpan(member.Start, member.Length)));
+                baked.Write(LzipEncoder.Compress(catalog.AsSpan(take[i - 1], take[i] - take[i - 1])));
             }
 
-            LzipDecoder.Decompress(baked.ToArray()).ShouldBe(slice);
+            LzipDecoder.Decompress(baked.ToArray()).ShouldBe(catalog.AsSpan(0, take[^1]).ToArray());
         }
 
-        /// <summary>
-        /// Greedy region-aligned packing: accumulate whole regions until the member reaches its target,
-        /// then cut. The header is member 0 on its own. Never splits a region, so every member holds a
-        /// whole number of them and a client's range maps to whole members.
-        /// </summary>
-        private static List<Member> PackRegionAligned(byte[] catalog, ReadOnlySpan<byte> header, int streamCount, int target)
+        private static int[] CompressMembers(byte[] catalog, int[] byteBoundary)
         {
-            var members = new List<Member>();
-            var headerEnd = BinaryPrimitives.ReadInt32LittleEndian(header[4..]);
-            members.Add(new Member(0, headerEnd, 0));
-
-            var start = headerEnd;
-            var firstRegion = 0;
-            for (var region = 0; region < streamCount; region++)
+            var sizes = new int[byteBoundary.Length - 1];
+            Parallel.For(0, sizes.Length, i =>
             {
-                var end = region + 1 < streamCount
-                    ? BinaryPrimitives.ReadInt32LittleEndian(header[((region + 2) * 4)..])
-                    : catalog.Length;
-
-                if (end - start >= target)
-                {
-                    members.Add(new Member(start, end, firstRegion));
-                    start = end;
-                    firstRegion = region + 1;
-                }
-            }
-
-            if (start < catalog.Length)
-            {
-                members.Add(new Member(start, catalog.Length, firstRegion));
-            }
-
-            return members;
-        }
-
-        private static int[] CompressMembers(byte[] catalog, List<Member> members)
-        {
-            var sizes = new int[members.Count];
-            Parallel.For(0, members.Count, i =>
-            {
-                sizes[i] = CompressedSize(catalog, members[i].Start, members[i].Length);
+                sizes[i] = CompressedSize(catalog, byteBoundary[i], byteBoundary[i + 1] - byteBoundary[i]);
             });
             return sizes;
         }
@@ -224,27 +196,11 @@ namespace TianWen.Lib.Tests
         private static int CompressedSize(byte[] data, int start, int length)
             => LzipEncoder.Compress(data.AsSpan(start, length)).Length;
 
-        /// <summary>Every member index whose byte span intersects any requested range.</summary>
-        private static HashSet<int> MembersCovering(List<Member> members, List<Tycho2RegionSelector.ByteRange> ranges)
+        /// <summary>Maximal runs of consecutive indices: what the set WOULD have cost as byte ranges,
+        /// kept beside the file count so the gap between the two stays visible.</summary>
+        private static int ConsecutiveRuns(IEnumerable<int> indices)
         {
-            var needed = new HashSet<int>();
-            foreach (var range in ranges)
-            {
-                for (var i = 0; i < members.Count; i++)
-                {
-                    if (members[i].Start < range.End && members[i].End > range.Start)
-                    {
-                        needed.Add(i);
-                    }
-                }
-            }
-            return needed;
-        }
-
-        /// <summary>Number of maximal runs of consecutive indices, i.e. how many Range GETs the set costs.</summary>
-        private static int ConsecutiveRuns(HashSet<int> indices)
-        {
-            var sorted = indices.Order().ToArray();
+            var sorted = indices.Distinct().Order().ToArray();
             if (sorted.Length == 0) return 0;
 
             var runs = 1;

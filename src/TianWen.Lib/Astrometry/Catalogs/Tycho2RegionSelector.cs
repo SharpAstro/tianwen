@@ -26,14 +26,14 @@ namespace TianWen.Lib.Astrometry.Catalogs;
 /// doubling. Both pipelines already cull with it; using the same number here means the client fetches
 /// the sky it is about to try to draw.</para>
 /// </summary>
-internal sealed class Tycho2RegionSelector
+public sealed class Tycho2RegionSelector
 {
     /// <summary>minRA, maxRA (hours) then minDec, maxDec (degrees), four little-endian floats.</summary>
-    internal const int BytesPerRegion = 16;
+    public const int BytesPerRegion = 16;
 
     /// <summary>Packed record stride in <c>tyc2.bin</c>: tyc2 u16 | tyc3 u8 | RA f32 | Dec f32 | VT u8
     /// | BT u8 | pmRA i16 | pmDec i16.</summary>
-    internal const int BytesPerStar = 17;
+    public const int BytesPerStar = 17;
 
     private readonly float[] _minRaDeg;
     private readonly float[] _maxRaDeg;
@@ -41,7 +41,7 @@ internal sealed class Tycho2RegionSelector
     private readonly float[] _maxDecDeg;
     private readonly bool[] _empty;
 
-    internal int RegionCount => _minRaDeg.Length;
+    public int RegionCount => _minRaDeg.Length;
 
     /// <summary>
     /// Parses the decompressed bounds table. A region whose RA and Dec bounds are BOTH inverted is the
@@ -49,7 +49,7 @@ internal sealed class Tycho2RegionSelector
     /// through RA 0h, which is a real region and must be handled, not skipped. (Same reading as
     /// <see cref="Tycho2RaDecIndex"/>'s constructor -- the two must not disagree about what a region is.)
     /// </summary>
-    internal Tycho2RegionSelector(ReadOnlySpan<byte> boundsData)
+    public Tycho2RegionSelector(ReadOnlySpan<byte> boundsData)
     {
         var count = boundsData.Length / BytesPerRegion;
         _minRaDeg = new float[count];
@@ -82,7 +82,7 @@ internal sealed class Tycho2RegionSelector
     /// <param name="decDeg">View centre Dec in degrees.</param>
     /// <param name="viewRadiusDeg">The full field of view; see the class remarks.</param>
     /// <param name="into">Receives the region indices; not cleared, so a caller can accumulate.</param>
-    internal void SelectVisible(double raHours, double decDeg, double viewRadiusDeg, List<int> into)
+    public void SelectVisible(double raHours, double decDeg, double viewRadiusDeg, List<int> into)
     {
         var raDeg = NormalizeDeg(raHours * 15.0);
         for (var i = 0; i < _minRaDeg.Length; i++)
@@ -152,9 +152,9 @@ internal sealed class Tycho2RegionSelector
     }
 
     /// <summary>A half-open byte range of <c>tyc2.bin</c>, ready to become one HTTP Range header.</summary>
-    internal readonly record struct ByteRange(int Start, int End)
+    public readonly record struct ByteRange(int Start, int End)
     {
-        internal int Length => End - Start;
+        public int Length => End - Start;
     }
 
     /// <summary>
@@ -171,7 +171,7 @@ internal sealed class Tycho2RegionSelector
     /// per region. Only the header is needed, so a client can resolve ranges from the 37 KB it already
     /// fetched.</param>
     /// <param name="fileLength">Total length of <c>tyc2.bin</c>; the last region ends there.</param>
-    internal static List<ByteRange> ToByteRanges(
+    public static List<ByteRange> ToByteRanges(
         IReadOnlyList<int> regions, ReadOnlySpan<byte> header, int fileLength, int maxGapBytes)
     {
         var ranges = new List<ByteRange>();
