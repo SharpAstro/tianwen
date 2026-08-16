@@ -284,6 +284,10 @@
         // Inert in a normal session: the shim's getSkyView is never wired unless the flag is present.
         if (IsE2ETestMode())
         {
+            // Latched, because the URL is NOT a durable carrier of this fact: SwitchView rewrites it to
+            // "?view=sky", dropping the flag, so anything asking IsE2ETestMode() after the first chip
+            // click gets false. The session's e2e-ness is decided once, where the ref is handed out.
+            _isE2ETestSession = true;
             _testRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("__tianwenTestInit", _testRef);
         }
@@ -1932,6 +1936,13 @@
     bool IsE2ETestMode()
         => Nav.ToAbsoluteUri(Nav.Uri).Query.Contains("e2e=1", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// <see cref="IsE2ETestMode"/> latched at the moment the test ref was handed out. Ask THIS, never
+    /// the URL, after startup: <see cref="SwitchView"/> navigates to "?view=sky" and the flag is gone
+    /// from the query the moment the user (or a test) leaves the planner.
+    /// </summary>
+    bool _isE2ETestSession;
+
     // Live sky-map view state as JSON (fov + centre), invoked from the index.html test shim. Returns
     // "null" before the sky tab exists. Hand-built JSON (no JsonSerializerContext) keeps it AOT-trivial.
     [JSInvokable]
@@ -2034,13 +2045,29 @@
     public string PinObjectForTest(string catalogName)
     {
         // Every other hook here is read-only; this one MUTATES, so it re-checks the gate itself rather
-        // than relying only on the .NET ref never being handed out outside ?e2e=1.
-        if (!IsE2ETestMode()
-            || _state.ObjectDb is not { } db
-            || !CatalogUtils.TryGetCleanedUpCatalogName(catalogName, out var idx)
-            || !db.TryLookupByIndex(idx, out var obj))
+        // than relying only on the .NET ref never being handed out outside ?e2e=1. The LATCHED flag,
+        // not the URL -- switching to the sky view rewrites the query and drops "e2e=1", so the live
+        // check answers false for every call a test makes after its first chip click, which is all of
+        // them. (Found the hard way: this hook returned "null" against the deployed build and looked
+        // like an unresolvable catalog name.)
+        if (!_isE2ETestSession)
         {
             return "null";
+        }
+
+        // Distinct reasons rather than a bare "null", so a failure names itself instead of sending the
+        // reader to the catalog when the gate, or the load order, is what refused.
+        if (_state.ObjectDb is not { } db)
+        {
+            return "\"no-catalog\"";
+        }
+        if (!CatalogUtils.TryGetCleanedUpCatalogName(catalogName, out var idx))
+        {
+            return "\"unparsed\"";
+        }
+        if (!db.TryLookupByIndex(idx, out var obj))
+        {
+            return "\"unresolved\"";
         }
 
         PlannerActions.ToggleProposal(_state, new Target(obj.RA, obj.Dec, obj.DisplayName, obj.Index));

@@ -226,8 +226,8 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
             {
                 var result = await page.EvaluateAsync<string>(
                     "async (n) => await window.__tianwenTest.pinObject(n)", name);
-                Assert.True(result != "null", $"could not pin {name}; the catalog did not resolve it");
-                pinned = int.Parse(result);
+                Assert.True(int.TryParse(result, out pinned),
+                    $"could not pin {name}: the hook answered {result} (a count means it pinned)");
             }
 
             // A pan, so the cache key moves and a gather genuinely runs in the pinned configuration
