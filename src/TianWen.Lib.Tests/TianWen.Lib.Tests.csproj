@@ -27,6 +27,9 @@
     <!-- SkyWatcher protocol oracle: wire transcripts recorded from GSServer's own
          GS.SkyWatcher client driving a scripted serial port (tools/GssOracle). -->
     <EmbeddedResource Include="Data/gss-oracle-transcripts.json" />
+    <!-- N2N denoiser cross-language parity: torch's answer for a plate both languages generate
+         from the same stated LCG. Regenerate with n2n-smoke/ship/n2n_fixture.py. -->
+    <EmbeddedResource Include="Data/n2n-parity-fixture.json" />
   </ItemGroup>
 
   <!-- Canon raw fixtures: LFS-tracked, copied to test output dir. Resolved via

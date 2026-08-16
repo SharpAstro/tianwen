@@ -563,6 +563,59 @@ output of a method.** If it is ever retrained, re-measure rather than assume. v1
 as the lower-variance alternative -- it uses 60 of 63 available sessions so it has almost no draw
 variance left, and it means 0.830 against armD's 0.861 over the clean observers.
 
+### 1o. Shipping it (N4): the dial we planned was the wrong one, and the model had a colour cast
+
+2026-08-17. `n2n_v19d_s2` is exported, wired and pinned. Working notes and the numbers behind each
+claim: `D:\Astro-Dataset\n2n-smoke\ship\README.md`. Three findings, in the order they surfaced.
+
+**The seed matters and was never picked.** Over the three uncontaminated observers, faint amplitude
+at matched noise 0.90 is s0 0.869, s1 0.844, **s2 0.883**. Picked on that table rather than on the
+gate, which is single-observer. The spread is 0.039, so the same "best MEASURED, re-measure a
+retrain" caveat that applies to the checkpoint applies to the seed inside it.
+
+**The conditioning dial is not shippable, and the plan had named it as THE dial.** `with_sigma`'s
+`strength` was to be exposed directly: free, no retraining. Measured over all four observers against
+the blend at matched noise, it loses on three independent grounds, any one sufficient.
+
+1. **It cannot reach gentle.** At `strength` 0.15 -- a 6.7x understatement of sigma -- three of four
+   observers still sit below the noise the blend reaches at a = 0.1. Scaling the conditioning down
+   does not scale the residual correction to zero, so the dial saturates long before "barely touch
+   it", which is most of the range a user wants.
+2. **Its reachable span varies by 4x between observers** (0.072 on Horsehead, 0.273 on Skull), so one
+   knob position means different things on different data.
+3. **Fabricated point sources RISE toward its gentle end, by 2.6x to 6.3x** (Rim 0.71 -> 4.50 per
+   tile above the input's own bar). Told its input is clean, the model reads noise as signal and
+   sharpens it. A control labelled "less" that invents more is not shippable at any documentation
+   budget.
+
+Where both are measurable it is behind anyway (-0.066 and -0.017 on Rim, +0.008 on Skull). So the
+shipped dial is the blend `input + a * (denoised - input)`: exactly monotone, spans the full range
+to untouched by construction, and being a convex combination of two images that already exist it
+cannot invent. The graph keeps a `strength` input pinned at 1.0.
+
+**The model has a per-channel level prior, and it would have shipped as a colour cast.** Over 49
+held-out tiles the shift in a channel's median correlates with that channel's input level at
+**-0.988** (and only -0.278 with its noise): the net drags an input toward the sky level of its
+eight training sessions. Because the prior is per channel it lands unequally -- the worst held-out
+tile moved R +0.017, G +0.002, **B +0.048**. Any master whose sky sits below the training set's
+would have come out blue. `N2nLinearRunner.RestoreLevel` adds back the per-channel constant that
+restores the source median, per chunk, where the shift is produced. It is free with respect to
+everything the checkpoint was selected on: a per-channel constant moves the per-channel std by at
+most 3.7e-9 and the background sigma by 1.7e-7, so the frontier numbers stand unchanged.
+
+**Verification.** The exported graph reproduces torch to max |diff| 1.49e-7 (5 ppm of the tile
+noise). The whole C# path -- NCHW packing, median-fill border, 256 px chunking, edge-chunk
+replicate pad, level restore, rim-dropping stitch, blend -- reproduces torch to 5.07e-7 on the worst
+sampled pixel, pinned by `N2nDenoiserTests.TheWholePipelineReproducesTorch` against a fixture both
+languages generate from the same stated LCG. That test was seen to FAIL (by 80x its tolerance) with
+the level restore removed, so its green means something.
+
+**Not the default `IDenoiseEnhancer`.** `AddTianWenN2nDenoiser` is opt-in. The model is measured
+against its own ablations on held-out astro masters and has never been compared against
+`OnnxDenoiser` on the enhance pipeline's own job; it is also OSC-only and throws on mono, where the
+AI4 family has a weight bundle. Making it the default would assert a comparison nobody ran, silently,
+on every `--ai-backend sas` run.
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.
@@ -594,7 +647,7 @@ Ordered by value per unit of work, not by dependency.
 | ~~**N2b**~~ | ~~**PSF conditioning in the trainer.**~~ **PARTLY DONE 2026-08-16 as band conditioning, negative, see 1k.** The cheap tile-measurable proxy (`--cond-bands`, 3 noise-colour planes) does not rescue the 60-session arm and destabilised training. | 1.4 h | Killed the proxy, not the hypothesis: band sigma describes NOISE colour, and 1i is about SIGNAL scale. |
 | ~~**N2e**~~ | ~~**A signal-scale conditioning plane, measurable from ONE tile.**~~ **MOOT per 1l (2026-08-16).** The mechanism is corruption of the TARGETS (time-correlated pair residue), which no input-side plane can describe away; 1k's negative was structural, not a proxy problem. The fix axis is N8's pair selection, not a richer estimator. | - | Withdrawn before any code was written, which is the cheap time to withdraw it. |
 | **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
-| **N4** | **Ship a checkpoint behind a strength dial. The one to ship is now `n2n_v19d_s*_final.pt`** (8 sessions, 360 train cells, scalar conditioning), which is best or tied-best on all four observers at both noise levels and beats the v17c checkpoint the earlier draft of this row named. Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed; `with_sigma`'s `strength` argument IS the dial, no retraining needed. | medium | **This is now the next thing to do**, and its last open risk closed: at matched noise v19d holds nebulosity at parity and leads fine structure on every observer (1l, re-confirmed against five arms in 1m and 1n), so the star-only gate was not hiding a trade. **Ship it as the best checkpoint MEASURED, not as the output of a method** -- 1m retired the count story and 1n showed the draw-to-draw spread exceeds the margin, so a retrain must be re-measured rather than assumed. Name v17c beside it as the lower-variance alternative (1n). |
+| ~~**N4**~~ | ~~**Ship a checkpoint behind a strength dial.**~~ **DONE 2026-08-17, see 1o.** `n2n_v19d_s2` exported to ONNX with the conditioning baked in, wired as an opt-in `IDenoiseEnhancer` (`AddTianWenN2nDenoiser`), pinned by a cross-language parity test. Two things changed on the way: the shipped dial is the BLEND, not `with_sigma`'s `strength` (measured and rejected), and the model needed a per-channel level restore it did not have. Distribution of the `.onnx` is the one piece left. | medium | Done. |
 | ~~**N8**~~ | ~~**Run v23: the causal test + the which-8 arm.**~~ **DONE 2026-08-16, all three predictions failed, see 1m.** Pair-time moves the operator by -10% to -27% (wrong direction), and armE shows the count claim was never established. | 2 h | Closed the residue pathway and, more valuably, found that 1i had a confound nobody had checked. |
 | ~~**N9**~~ | ~~**armF: a THIRD disjoint 8-session set.**~~ **DONE 2026-08-16, see 1n.** armF does not reproduce armD (0.739 vs 0.825 on Rim), so there is no size recipe; and armD-vs-armF is a tie everywhere except Rim. PF also failed, retiring 1l's surviving half. | 1 h | Closed the recipe question and showed the draw/seed variance exceeds every effect chased since v17. |
 | **N10** | **Ask what armD has on RIM specifically** -- narrowed by 1n from "what is armD like" to a single cell, because armD ties armF on every other observer. Compare armD / armE / armF on per-session PSF width, pixel scale and focal length, sky background and integration depth, from the stores that already hold them (`psf-sessions.jsonl` et al). Descriptive, no training. **The target property must explain faint STARS and not structure**: on Rim armD and armF keep fine structure identically (0.974 both) while differing 0.086 in faint-star amplitude. | small | Optional and bounded. Do NOT widen it back to 65 sessions x N properties -- at that width something always correlates, and 1n has already established the honest headline without it. |
