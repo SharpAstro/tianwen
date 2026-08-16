@@ -332,10 +332,20 @@
          region (a wheel over a panel's column, a resize gutter, a swallow that stops a chrome click
          starting a drag on the content under it) asks whether the widget was drawn at all. This repo has
          several such predicates.
+         8.3 is what makes a tab strip exist ONCE. TabStripTree describes it, TabBar paints that tree on
+         pixels and Console.Lib's CellLayout paints the same tree on cells, so TianWen's sidebar is a
+         configured TabBar (Left, Uniform, no close, no reorder) and TuiTabBar supplies items instead of
+         building its own tree. It brings TabItem&lt;T&gt; (a tab carries what it MEANS, not an index the
+         host maps back), TabStripSide with orientation DERIVED from it, and CompositeWidget&lt;TSurface&gt;,
+         which is the one that mattered here: a child's regions live on the CHILD, so a host asking only
+         the composite silently misses every control its children registered. VkGuiRenderer is a composite
+         now. Also IconKind.Plus / Minus as a pair, which Console.Lib 4.26 maps.
+         The 8.0 note above about the graph unifying DIR.Lib upward by version is now half closed:
+         Console.Lib 4.26 declares 8.3 outright.
          NOTE for the next editor of this block: an XML comment cannot contain a double hyphen, and MSBuild
          does not say so. It reports NU1015 "PackageReference items do not have a version specified" for
          every project instead, because the malformed comment swallows the ItemGroup below it. -->
-    <PackageVersion Include="DIR.Lib" Version="8.0.*" />
+    <PackageVersion Include="DIR.Lib" Version="8.3.*" />
     <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
          ship as a lockstep family from the Codecs repo. 3.0 brought a
          binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
@@ -475,7 +485,11 @@
          field, the caret is the terminal's real one, and an over-long value scrolls instead of
          ellipsizing. CellLayout.TextInputs(arranged) feeds TextInputInteraction's TabFields, so the
          TUI shares Tab cycling too. -->
-    <PackageVersion Include="Console.Lib" Version="4.25.*" />
+    <!-- 4.26 maps DIR.Lib 8.3's IconKind.Plus / Minus, and fills a hole that had been open since
+         7.23: CaretUp / CaretDown were never mapped, so both rendered as the "?" placeholder on
+         every terminal. Nothing failed, which is why it survived four minor versions. The guard is
+         EveryIconKindHasAGlyph, which enumerates the enum rather than trusting a theory's rows. -->
+    <PackageVersion Include="Console.Lib" Version="4.26.*" />
     <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
          stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
          glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
