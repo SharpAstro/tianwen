@@ -176,6 +176,18 @@
     int _renderFrames;
     double _renderMs;
 
+    // Per-phase render accounting, and the SPLIT OF THE WORST FRAME. A total cannot answer the
+    // question a jank hunt actually asks: a repaint here has a median of 0.9 ms and a max of 177 ms,
+    // so the mean is dominated by the 99% of frames that are already fine, and the phase that only
+    // fires on the slow 1% is invisible in it. Recording the worst frame's own breakdown names that
+    // phase directly. Every other candidate for those frames -- the overlay gather, the GPU upload,
+    // IndexedDB, member fetch/decode, the atlas rebuild, a clock tick, the region selector -- has
+    // been measured and excluded, so what is left is inside this method and nothing outside it can
+    // see in: to a browser trace the whole WASM module is one opaque frame.
+    double _phaseBusMs, _phaseSkyMs, _phasePresentMs, _phaseOverlaySyncMs, _phaseTextLayerMs;
+    double _worstFrameMs, _worstBusMs, _worstSkyMs, _worstPresentMs, _worstOverlaySyncMs, _worstTextLayerMs;
+    int _slowFrames;
+
     // ── Document-level keys (see wwwroot/document-keys.js for the why) ─────────
     // A <canvas> only hears keydown while it holds DOM focus, and RestoreCanvasFocus only covers the
     // two ways focus leaves that the app can see (a chrome button click, a gesture). Focus taken by
@@ -1580,13 +1592,23 @@
         if (_webGl is null || _tab is null) return;
         _renderFrames++;
         var frameStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        double busMs = 0, skyMs = 0, presentMs = 0, overlaySyncMs = 0, textLayerMs = 0;
         try
         {
+            var phase = System.Diagnostics.Stopwatch.GetTimestamp();
+            static double Since(ref long mark)
+            {
+                var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                var ms = System.Diagnostics.Stopwatch.GetElapsedTime(mark, now).TotalMilliseconds;
+                mark = now;
+                return ms;
+            }
             // Web has no per-frame loop; every event ends in a RenderFrame, so this is the bus pump
             // (delivers the auto-posted SavePlannerSessionSignal after pin/slider mutations) and the
             // completion reaper for the tracked async saves.
             _bus.ProcessPending(_tracker);
             _tracker.ProcessCompletions(Logger);
+            busMs = Since(ref phase);
             _webGl.Clear(Background);
             var content = new RectF32(0f, 0f, _metrics.BackingWidth, _metrics.BackingHeight);
             if (_view == View.SkyMap && _skyTab is not null)
@@ -1609,6 +1631,7 @@
                 _skyTab.DpiScale = (float)_metrics.DevicePixelRatio;
                 _skyTab.FontPath = _fontPath;
                 _skyTab.Render(_state, content, Time);
+                skyMs = Since(ref phase);
 
                 // The overlay skips its labels while the view is moving -- about half of a gesture's
                 // frame time, spent on text sliding past too fast to read. There is no render loop
@@ -1625,17 +1648,40 @@
                 _tab.DpiScale = (float)_metrics.DevicePixelRatio;
                 _tab.FontPath = _fontPath;
                 _tab.Render(_state, content, Time, _mouse);
+                skyMs = Since(ref phase);
             }
             _webGl.Present();
+            presentMs = Since(ref phase);
             SyncOverlayRect(); // regions were re-registered by the Render above
+            overlaySyncMs = Since(ref phase);
             SyncSelectableTextLayer();
+            textLayerMs = Since(ref phase);
         }
         finally
         {
             // Measured here rather than read off a trace: the browser runs the whole paint inside the
             // animation-frame callback, so a trace cannot separate "the frame was slow" from "the
             // candidate gather inside it was slow". Paired with the tab's own gather timer it can.
-            _renderMs += System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds;
+            var frameMs = System.Diagnostics.Stopwatch.GetElapsedTime(frameStart).TotalMilliseconds;
+            _renderMs += frameMs;
+            _phaseBusMs += busMs;
+            _phaseSkyMs += skyMs;
+            _phasePresentMs += presentMs;
+            _phaseOverlaySyncMs += overlaySyncMs;
+            _phaseTextLayerMs += textLayerMs;
+            if (frameMs >= 50.0)
+            {
+                _slowFrames++;
+            }
+            if (frameMs > _worstFrameMs)
+            {
+                _worstFrameMs = frameMs;
+                _worstBusMs = busMs;
+                _worstSkyMs = skyMs;
+                _worstPresentMs = presentMs;
+                _worstOverlaySyncMs = overlaySyncMs;
+                _worstTextLayerMs = textLayerMs;
+            }
         }
     }
 
@@ -1935,7 +1981,21 @@
             // focus. Reported for the same reason `overlay` is: a test that presses at the document
             // and sees the map react cannot otherwise tell the FALLBACK carrying the key from focus
             // having been on the canvas all along, and the second passes with the fallback removed.
-            + ",\"documentKeys\":" + _documentKeys.ToString(CultureInfo.InvariantCulture) + "}";
+            + ",\"documentKeys\":" + _documentKeys.ToString(CultureInfo.InvariantCulture)
+            // Phase totals, and the split of the WORST single frame -- see the fields' remarks for
+            // why a total alone cannot find a phase that only fires on the slowest 1% of repaints.
+            + ",\"slowFrames\":" + _slowFrames.ToString(CultureInfo.InvariantCulture)
+            + ",\"busMs\":" + _phaseBusMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"skyMs\":" + _phaseSkyMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"presentMs\":" + _phasePresentMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"overlaySyncMs\":" + _phaseOverlaySyncMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"textLayerMs\":" + _phaseTextLayerMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"worst\":{\"frameMs\":" + _worstFrameMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"busMs\":" + _worstBusMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"skyMs\":" + _worstSkyMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"presentMs\":" + _worstPresentMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"overlaySyncMs\":" + _worstOverlaySyncMs.ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"textLayerMs\":" + _worstTextLayerMs.ToString("F1", CultureInfo.InvariantCulture) + "}}";
 
     [JSInvokable]
     public string GetPlannerSearchRectJson()
