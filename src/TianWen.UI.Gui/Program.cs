@@ -703,7 +703,7 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
     // widgets make up a frame is its knowledge, not this host's, and assembling the list here meant a
     // new child widget silently dropped out of the inspector (its controls just stop appearing).
     // Read on the render thread inside the inspector's command pump.
-    GetRegions = () => guiRenderer.PaintedRegions(),
+    GetRegions = () => guiRenderer.InspectorRegions(),
     GetLayout = () =>
     {
         // Full arranged layout tree (chrome + active tab), the structural counterpart to GetRegions

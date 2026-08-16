@@ -18,7 +18,7 @@ namespace TianWen.UI.Gui
     /// participate in the unified <see cref="PixelWidgetBase{TSurface}.RegisterClickable"/>
     /// / <see cref="PixelWidgetBase{TSurface}.HitTestAndDispatch"/> system.
     /// </summary>
-    public sealed class VkGuiRenderer : PixelWidgetBase<VulkanContext>, IGuiChrome, IDisposable
+    public sealed class VkGuiRenderer : CompositeWidget<VulkanContext>, IGuiChrome, IDisposable
     {
         private readonly VkRenderer _renderer;
         private readonly VkPlannerTab _plannerTab;
@@ -90,73 +90,95 @@ namespace TianWen.UI.Gui
         // reference held once. A window has exactly one app state, so this can never be a different one.
         private GuiAppState? _appState;
 
+        // What this chrome paints, in PAINT order (back to front), rebuilt by Render. Every aggregate
+        // query -- hit test, dispatch, cursor, text inputs, region enumeration -- derives from this one
+        // list via CompositeWidget, so they cannot disagree about what is on screen or in what order.
+        //
+        // They did disagree. Before this was a composite the same list was restated per query, and the
+        // five copies had drifted into three different orderings plus one omission: the cursor asked the
+        // active tab first (inverted -- the status bar paints OVER the tab), dispatch asked the chrome
+        // first, and the text-input scan had never heard of the rail. None of it was visible, because
+        // every site is individually plausible and the frame looks correct either way.
+        private readonly List<PixelWidgetBase<VulkanContext>> _children = [];
+
+        /// <inheritdoc/>
+        protected override IReadOnlyList<PixelWidgetBase<VulkanContext>> Children => _children;
+
         /// <summary>The currently active tab as an <see cref="IPixelWidget"/> for tab-specific hit testing.</summary>
         public IPixelWidget? ActiveTab => _activeTab;
 
         /// <summary>
-        /// What the pointer should look like at this point, asked of the regions painted last frame:
-        /// the active tab's first, then this chrome's, and null when nothing under the pointer had a
-        /// view (which is NOT the same as "the arrow" -- that is the host's default to choose).
+        /// What the pointer should look like at this point, asked of the regions painted last frame, and
+        /// null when nothing under the pointer had a view (which is NOT the same as "the arrow" -- that
+        /// is the host's default to choose).
         /// <para>
-        /// Answered here rather than in the host because the composition is this renderer's own
-        /// knowledge: the active tab paints over the chrome, so it gets asked first. A host that
-        /// reconstructed that order would be keeping a second copy of it.
+        /// A thin name over <see cref="CompositeWidget{TSurface}.HitTestCursor"/>, kept because a host
+        /// reads better asking the chrome what the cursor is than asking it to hit-test. The ORDER is no
+        /// longer restated here -- it comes from <see cref="Children"/>, like every other aggregate
+        /// query. It used to ask the active tab first and this chrome last, which was inverted (the
+        /// status bar paints OVER the tab) and disagreed with the dispatch order below.
         /// </para>
         /// </summary>
-        public CursorKind? CursorAt(float x, float y)
-            => _activeTab?.HitTestCursor(x, y) ?? _sidebar.HitTestCursor(x, y) ?? HitTestCursor(x, y);
+        public CursorKind? CursorAt(float x, float y) => HitTestCursor(x, y);
 
         /// <summary>
-        /// Chrome dispatch, extended to the navigation rail. The rail is a child widget, so its regions
-        /// live on ITS tracker: asking only this chrome would miss every tab silently — the frame would
-        /// look right and the cells simply would not answer.
+        /// Composed dispatch, with a press on the navigation rail turned into the tab switch it means.
         /// </summary>
         /// <remarks>
-        /// The rail is asked FIRST because it paints over the content area's left edge, and its press is
-        /// translated into the same <c>Tab:&lt;name&gt;</c> <see cref="HitResult.ButtonHit"/> the
-        /// hand-drawn sidebar reported — so <c>GuiEventHandlerBase</c>'s auto-discover-on-Equipment check
-        /// keeps working unchanged, and the switch it used to need is gone: the pressed item carries the
-        /// <see cref="GuiTab"/> it selects.
+        /// <para>
+        /// It INTERPRETS the composed walk rather than hit-testing the rail itself first. Asking the rail
+        /// up front would have worked -- the rail and the status bar do not overlap -- but it would be a
+        /// second opinion about z-order sitting next to <see cref="Children"/>, which is the one thing
+        /// this class is now arranged to have exactly one of.
+        /// </para>
+        /// <para>
+        /// The rail reports a tab as an indexed <see cref="HitResult.ListItemHit"/>; this maps it through
+        /// the item list to the <see cref="GuiTab"/> it carries, so the index never becomes meaning
+        /// anywhere. The returned <c>Tab:&lt;name&gt;</c> <see cref="HitResult.ButtonHit"/> is what the
+        /// hand-drawn sidebar always reported, which is why <c>GuiEventHandlerBase</c>'s
+        /// auto-discover-on-Equipment check keeps working untouched.
+        /// </para>
+        /// <para>
+        /// A press on a LOCKED cell arrives as <see cref="TabBarRegions.DisabledTabs"/> and falls through
+        /// to the default return -- non-null, so the click is consumed rather than passed to whatever the
+        /// rail is painted over. That is the intent: the rail is opaque.
+        /// </para>
         /// </remarks>
         public override HitResult? HitTestAndDispatch(float x, float y, InputModifier modifiers = InputModifier.None)
         {
-            if (_appState is { } appState && _sidebar.HandleMouseDown(x, y, _sidebarItems) is { } click)
+            var hit = base.HitTestAndDispatch(x, y, modifiers);
+
+            if (hit is HitResult.ListItemHit { ListId: TabBarRegions.Tabs, Index: var i }
+                && _appState is { } appState
+                && i < _sidebarItems.Count)
             {
-                appState.ActiveTab = click.Value;
+                var tab = _sidebarItems[i].Value;
+                appState.ActiveTab = tab;
                 appState.NeedsRedraw = true;
-                return new HitResult.ButtonHit($"Tab:{click.Value}");
+                return new HitResult.ButtonHit($"Tab:{tab}");
             }
 
-            return base.HitTestAndDispatch(x, y, modifiers);
+            return hit;
         }
 
         /// <summary>
-        /// Every clickable region painted in the frame just drawn — this chrome's, the navigation rail's
-        /// and the active tab's — for the debug inspector.
+        /// Every clickable region painted this frame, with the navigation rail's tabs re-labelled as the
+        /// <c>Tab:&lt;name&gt;</c> buttons the debug inspector drives them by.
         /// </summary>
         /// <remarks>
-        /// <para>
-        /// Answered here for the reason <see cref="CursorAt"/> and <see cref="PaintedTextInputs"/> are:
-        /// what a frame is composed of is this renderer's own knowledge. The host used to assemble this
-        /// list itself, and adding the rail as a child widget would have made that a FOURTH place needing
-        /// to learn about it — with the failure being silent, since a missing widget just means its
-        /// controls quietly stop appearing.
-        /// </para>
-        /// <para>
-        /// <b>The rail's regions are re-labelled on the way out.</b> The bar registers a tab as a
-        /// <see cref="HitResult.ListItemHit"/> carrying an index, but the inspector's click-by-label
-        /// drives tabs by name (<c>Tab:Planner</c>), which is how every unattended GUI test switches
-        /// tabs. The rect is the bar's own — the one it painted — and only the label is translated, from
-        /// the same item list the bar was handed, so this adds no second geometry.
-        /// </para>
+        /// The COMPOSITION is <see cref="CompositeWidget{TSurface}.PaintedRegions"/>'s; only the
+        /// relabelling is TianWen's. The bar registers a tab as a <see cref="HitResult.ListItemHit"/>
+        /// carrying an index, while click-by-label -- how every unattended GUI test switches tabs --
+        /// needs a name. The rect is the bar's own and the label comes from the same item list the bar
+        /// was handed, so this adds no second geometry.
         /// </remarks>
-        public IReadOnlyList<ClickableRegion> PaintedRegions()
+        public IReadOnlyList<ClickableRegion> InspectorRegions()
         {
-            var regions = new List<ClickableRegion>(GetRegisteredRegions());
-
-            foreach (var region in _sidebar.GetRegisteredRegions())
+            var regions = PaintedRegions();
+            var labelled = new List<ClickableRegion>(regions.Count);
+            foreach (var region in regions)
             {
-                regions.Add(region.Result switch
+                labelled.Add(region.Result switch
                 {
                     HitResult.ListItemHit { ListId: TabBarRegions.Tabs, Index: var i } when i < _sidebarItems.Count
                         => region with { Result = new HitResult.ButtonHit($"Tab:{_sidebarItems[i].Value}") },
@@ -164,62 +186,35 @@ namespace TianWen.UI.Gui
                 });
             }
 
-            if (_activeTab is { } tab)
-            {
-                regions.AddRange(tab.GetRegisteredRegions());
-            }
-
-            return regions;
+            return labelled;
         }
 
         /// <summary>
-        /// Every text field painted in the frame just drawn, across the chrome AND the active tab.
-        /// <para>
-        /// Answered here for exactly the reason <see cref="CursorAt"/> is: what a frame is composed of is
-        /// this renderer's own knowledge. Feeding it to <see cref="TextInputFocus.BlurIfUnpainted"/> is what
-        /// stops a field keeping the keyboard after it leaves the screen -- scrolled out of a culled list,
-        /// or on a tab the user has switched away from.
-        /// </para>
-        /// <para>
-        /// <b>Both halves are load-bearing.</b> Asking only the active tab would blur a chrome field every
-        /// single frame; asking only the chrome would blur every tab field. That failure looks identical to
-        /// the bug this fixes, which is why the composition is stated in one place rather than at the call.
-        /// </para>
+        /// Every text field painted in the frame just drawn, across this chrome and everything it hosts.
+        /// Feeding it to <see cref="TextInputFocus.BlurIfUnpainted"/> is what stops a field keeping the
+        /// keyboard after it leaves the screen -- scrolled out of a culled list, or on a tab the user
+        /// switched away from.
         /// </summary>
+        /// <remarks>
+        /// The composition is <see cref="CompositeWidget{TSurface}.GetRegisteredTextInputs"/>'s now; this
+        /// survives only to DE-DUPLICATE, since chrome and tab can register the same field instance in
+        /// one frame and the blur check compares by identity.
+        /// </remarks>
         public IReadOnlyCollection<TextInputState> PaintedTextInputs()
-        {
-            var painted = new HashSet<TextInputState>(GetRegisteredTextInputs());
-            if (_activeTab is { } tab)
-            {
-                painted.UnionWith(tab.GetRegisteredTextInputs());
-            }
-
-            return painted;
-        }
+            => new HashSet<TextInputState>(GetRegisteredTextInputs());
 
         /// <summary>
-        /// Where the focused field's caret was painted this frame, across chrome AND the active tab, or
-        /// <c>default</c> if no active field was drawn. The host hands this to
-        /// <c>SdlVulkanWindow.SetTextInputArea</c> so an input method can place its candidate window beside
-        /// the caret instead of over the text being typed.
-        /// <para>
-        /// It lives here for the same reason <see cref="CursorAt"/> does: which surfaces compose a frame is
-        /// this renderer's own knowledge, and a host asking just one of them would miss a field on the other.
-        /// The tab is asked first, mirroring paint order.
-        /// </para>
+        /// Where the focused field's caret was painted this frame, or <c>default</c> if no active field
+        /// was drawn. The host hands this to <c>SdlVulkanWindow.SetTextInputArea</c> so an input method
+        /// places its candidate window beside the caret rather than over the text being typed.
         /// </summary>
-        public RectInt FocusedCaretRect
-        {
-            get
-            {
-                if (_activeTab is { } tab && tab.CaretRect is { Width: > 0 } fromTab)
-                {
-                    return fromTab;
-                }
-
-                return CaretRect;
-            }
-        }
+        /// <remarks>
+        /// No longer composed across chrome and tab, because there is nothing to compose: a caret is a
+        /// per-WINDOW fact and has ridden on the shared <see cref="WindowUiSettings"/> since DIR.Lib 7.30,
+        /// so every widget sharing this context returns the same rect. Asking two of them was a leftover
+        /// from before that moved.
+        /// </remarks>
+        public RectInt FocusedCaretRect => CaretRect;
 
         /// <inheritdoc/>
         public EquipmentTabState EquipmentState => _equipmentTab.State;
@@ -497,6 +492,16 @@ namespace TianWen.UI.Gui
             // Paint sidebar and status bar on top: these register clickable regions
             RenderSidebar(appState);
             RenderStatusBar(appState, plannerState, timeProvider);
+
+            // Declare the composition in the order it was just painted, back to front. Stated HERE, next
+            // to the painting, because that is the only place the order is actually decided -- a list
+            // built anywhere else is a second opinion about it.
+            _children.Clear();
+            if (_activeTab is { } painted)
+            {
+                _children.Add(painted);
+            }
+            _children.Add(_sidebar);
         }
 
         /// <summary>
