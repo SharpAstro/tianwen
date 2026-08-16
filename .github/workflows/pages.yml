@@ -42,6 +42,14 @@ on:
       # the worst of both: green CI, unchanged site, and nothing saying so.
       - 'src/Directory.Packages.props'
       - 'src/Directory.Build.props'
+      # The bake tools decide what the site SERVES, which makes them as load-bearing as the source
+      # directories above and subject to exactly the same failure: change a tool alone, get green CI,
+      # an unchanged site, and nothing saying so. bake-comets writes the two JPL assets the app cannot
+      # fetch cross-origin; bake-tycho2 writes the star atlas the sky map loads. Neither is reachable
+      # from any path listed above, because neither is referenced by the web project -- they are run
+      # BY this workflow, which is precisely why only this workflow can notice them.
+      - 'tools/bake-comets/**'
+      - 'tools/bake-tycho2/**'
       - '.github/workflows/pages.yml'
   schedule:
     # Weekly redeploy to re-bake the comet assets: orbit solutions update on new observation
