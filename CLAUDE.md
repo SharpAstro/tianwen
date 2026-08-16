@@ -187,8 +187,13 @@ here. What follows is only what that doc omits:
   -getProperty` stdout, so the SDK's first-run banner must not be able to land in it. Pair it with a
   shape check that *fails the run*, so a renamed or unresolvable property cannot quietly stamp every
   package as `.<run>`.
-- **Release notes go in the workflow `env:`, never beside the number.** Several entries contain a
-  double hyphen, which XML forbids inside a comment (see the NU1015 note in memory).
+- **Release notes go in `CHANGELOG.md` at the repo root, never beside the number.** They used to live
+  in the workflow's `env:` comment block, justified by the double hyphen several entries contain,
+  which XML forbids inside a comment (see the NU1015 note in memory) -- but that only ever ruled out
+  the *csproj*, and markdown has neither problem. Nothing read them there (no `PackageReleaseNotes`,
+  no read-back), so they were 90% of a CI file: DIR.Lib's `dotnet.yml` was 612 comment lines of 674.
+  Converted for `DIR.Lib`, `Console.Lib`, `SdlVulkan.Renderer`, `WebGl.Renderer` and `Fonts.Lib`;
+  newest entry first, one `## Major.Minor` section each.
 - **A test step that rebuilds a `GeneratePackageOnBuild` project without `-p:Version` publishes a
   second, stray package.** It packs again at the csproj default `X.Y.0` into the same `bin/Release`
   the publish job globs with `**/*.nupkg`; both get pushed and `--skip-duplicate` hides it by making
