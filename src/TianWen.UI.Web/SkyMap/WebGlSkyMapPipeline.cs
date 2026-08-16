@@ -597,11 +597,21 @@ namespace TianWen.UI.Web.SkyMap
             // Group + sort + index HERE, not in ApplyPendingTycho2: this is the off-render-loop entry
             // point (the host's fetch task), while the apply step runs on the render thread and has to
             // stay cheap. This is what makes the cull in Draw a pair of array lookups.
-            if (starCount > 0)
-            {
-                _pendingTycho2Chunks = StarChunkIndex.Build(verts.AsSpan(0, starCount * SkyMapState.FloatsPerStar));
-            }
+            var chunks = starCount > 0
+                ? StarChunkIndex.Build(verts.AsSpan(0, starCount * SkyMapState.FloatsPerStar))
+                : [];
+            SubmitTycho2Stars(verts, starCount, chunks);
+        }
 
+        /// <summary>
+        /// As <see cref="SubmitTycho2Stars(float[], int)"/>, but for a buffer that is ALREADY in
+        /// chunk layout with its table computed -- what <see cref="StarChunkAccumulator.Pack"/>
+        /// returns. The incremental atlas keys each star once on arrival, so re-deriving the table
+        /// here would put back exactly the whole-buffer pass the accumulator exists to remove.
+        /// </summary>
+        public void SubmitTycho2Stars(float[] verts, int starCount, StarChunk[] chunks)
+        {
+            _pendingTycho2Chunks = chunks;
             _pendingTycho2Verts = verts;
             _pendingTycho2Count = starCount;
         }

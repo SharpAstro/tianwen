@@ -1282,23 +1282,47 @@ namespace TianWen.UI.Abstractions
         /// <see cref="FloatsPerStar"/> consecutive floats).</returns>
         public static int FillTycho2StarVertices(
             ICelestialObjectDB db, double dtJulianYears, Span<float> destination)
+            => FillTycho2StarVertices(db, dtJulianYears, destination, 0, int.MaxValue);
+
+        /// <summary>
+        /// As <see cref="FillTycho2StarVertices(ICelestialObjectDB, double, Span{float})"/>, but over
+        /// a RANGE of catalog records rather than all of them.
+        ///
+        /// <para>This is what lets an incrementally-fetched catalog pay per arrival instead of per
+        /// rebuild. The full walk visits every record whether or not its region was ever fetched
+        /// (absent ones decode to a NaN magnitude and are skipped), so it costs the same at eight
+        /// members held as at all 166 -- ~74 ms on the deployed WASM build, on every rebuild. Flatten
+        /// the member that just landed and the cost is proportional to what actually changed. Get the
+        /// range from <c>Tycho2PartialCatalog.TryGetRecordRange</c>.</para>
+        /// </summary>
+        /// <param name="startRecord">First catalog record index to read.</param>
+        /// <param name="maxRecords">How many records to read at most; the walk still stops at the end
+        /// of the catalog.</param>
+        public static int FillTycho2StarVertices(
+            ICelestialObjectDB db, double dtJulianYears, Span<float> destination,
+            int startRecord, int maxRecords)
         {
             var tycCount = db.Tycho2StarCount;
-            if (tycCount == 0)
+            if (tycCount == 0 || maxRecords <= 0 || startRecord < 0 || startRecord >= tycCount)
             {
                 return 0;
             }
 
+            tycCount = maxRecords >= tycCount - startRecord ? tycCount : startRecord + maxRecords;
+
             // Read Tycho-2 records in chunks -- keeps the temp alloc bounded
-            // (~16 MB) while still minimising the number of CopyTycho2Stars calls.
-            const int chunkSize = 200_000;
+            // (~16 MB) while still minimising the number of CopyTycho2Stars calls. Sized to the range
+            // when the caller asked for a small one: a per-member flatten reads ~15k records, and a
+            // fixed 200k scratch would allocate ~13x the data it reads, on the one WASM thread, once
+            // per member.
+            var chunkSize = Math.Min(200_000, tycCount - startRecord);
             var chunk = new Tycho2StarLite[chunkSize];
 
             // Skip per-star pm computation entirely when dt is zero (test frames,
             // missing DATE-OBS) -- avoids 2.5M wasted cos(Dec) calls on the no-op.
             var applyPm = dtJulianYears != 0.0;
 
-            var read = 0;
+            var read = startRecord;
             var written = 0;
             while (read < tycCount)
             {

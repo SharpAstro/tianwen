@@ -58,6 +58,39 @@ public sealed class Tycho2PartialCatalog
 
     public int MemberCount => _manifest.MemberCount;
 
+    /// <summary>
+    /// The catalog record range a member covers, as
+    /// <c>(first record index, record count)</c> in the same index space
+    /// <see cref="ICelestialObjectDB.CopyTycho2Stars"/>'s <c>startIndex</c> uses -- so a caller can
+    /// flatten JUST the member that has arrived instead of re-walking the whole offset table.
+    ///
+    /// <para>That distinction is what makes an incremental atlas incremental. The full walk costs the
+    /// same whether one member is held or all of them (~74 ms on the deployed WASM build, every
+    /// rebuild), because absent regions are still visited and skipped.</para>
+    ///
+    /// <para>Records are a fixed stride and regions are written back to back after the header, so a
+    /// member's byte offset converts to a record index by subtracting the header length and dividing.
+    /// Returns false before the header has landed, when the member index is out of range, or for
+    /// member 0, which is the offset table and holds no records.</para>
+    /// </summary>
+    public bool TryGetRecordRange(int member, out int startRecord, out int recordCount)
+    {
+        startRecord = 0;
+        recordCount = 0;
+        if (_memberStart is not { } starts || member <= 0 || member >= starts.Length)
+        {
+            return false;
+        }
+
+        // starts[1] is exactly the header length (ResolveMemberStarts refuses the header otherwise),
+        // so it is where record 0 begins.
+        var recordsBegin = starts.Length > 1 ? starts[1] : 0;
+        var end = member + 1 < starts.Length ? starts[member + 1] : Buffer.Length;
+        startRecord = (starts[member] - recordsBegin) / Tycho2RegionSelector.BytesPerStar;
+        recordCount = (end - starts[member]) / Tycho2RegionSelector.BytesPerStar;
+        return recordCount > 0;
+    }
+
     public Tycho2PartialCatalog(Tycho2MemberManifest manifest)
     {
         _manifest = manifest;

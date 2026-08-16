@@ -1009,6 +1009,10 @@
     bool _tyc2FetchRunning;
     bool _tyc2FetchAgain;
 
+    // The incremental chunk layout. Members are keyed into it as they arrive and a settle packs it;
+    // only the member-path uses it (the whole-catalog fallback keeps FlattenAndSubmitTycho2).
+    readonly StarChunkAccumulator _tyc2Accumulator = new();
+
     // Attempts the member path. Returns false (having changed nothing) when the assets are absent,
     // so the caller falls through to the whole-catalog fetch.
     async Task<bool> TryStartIncrementalAtlasAsync()
@@ -1103,8 +1107,8 @@
         }
     }
 
-    // Fetches every member the current view needs and is not already holding, then flattens ONCE.
-    // Flattening per member would re-walk all 2.5M offsets per file for a fraction more stars.
+    // Fetches every member the current view needs and is not already holding, accumulating each into
+    // the chunk layout as it lands. A member is keyed ONCE, here; the settle below is a concatenation.
     async Task FetchVisibleMembersOnceAsync()
     {
         if (_tyc2Manifest is not { } manifest || _tyc2Partial is not { } partial
@@ -1128,39 +1132,73 @@
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
-        // Issue every request BEFORE awaiting any of them. Awaiting each in turn made a wide view 50
-        // sequential round trips, which spends the entire point of small files: the browser can have
-        // many in flight, and small independent members are exactly what that is good at. Decode
-        // stays serial (one WASM thread), but it now overlaps the remaining downloads.
-        var downloads = wanted
-            .Select(m => (Member: m, Body: Http.GetByteArrayAsync($"tyc2/{Tycho2MemberManifest.MemberFileName(m)}")))
-            .ToArray();
+        // Which of these we already decoded on a previous visit. One probe for the whole batch, and
+        // a cached member skips BOTH the network and the lzip decode -- the decode being the half
+        // that costs main-thread time. A probe failure just reports nothing cached.
+        var cached = await ProbeCachedMembersAsync(wanted);
+
+        // Issue every request BEFORE awaiting any of them, and only for the members we do not already
+        // have. Awaiting each in turn made a wide view 50 sequential round trips, which spends the
+        // entire point of small files: the browser can have many in flight, and small independent
+        // members are exactly what that is good at.
+        var downloads = new Task<byte[]>?[wanted.Length];
+        for (var i = 0; i < wanted.Length; i++)
+        {
+            downloads[i] = cached[i]
+                ? null
+                : Http.GetByteArrayAsync($"tyc2/{Tycho2MemberManifest.MemberFileName(wanted[i])}");
+        }
 
         var landed = 0;
-        foreach (var (member, body) in downloads)
+        var fromCache = 0;
+        for (var i = 0; i < wanted.Length; i++)
         {
+            var member = wanted[i];
             try
             {
-                var raw = await body;
+                byte[] decoded;
+                if (downloads[i] is { } body)
+                {
+                    var lz = await body;
 
-                // ONE MEMBER PER TASK. Decoding is ~15 ms of straight-line WASM, which is fine; what
-                // is not fine is a dozen of them back to back. `await body` completes synchronously
-                // once its download has already landed -- which is the normal case here, since every
-                // request was issued up front -- so without this the whole batch decodes inside a
-                // single JS task and the page cannot paint until the last member is in. Measured on
-                // the deployed build, that batching WAS the residual jank after the chunk-build fix:
-                // 1183 ms of the 1443 ms still blocked over three pans, in tasks of 132-318 ms, every
-                // one of them ending at a "tyc2 members: +N" line. Split up, each decode lands under
-                // the 50 ms long-task threshold and the browser paints between them.
-                //
-                // Task.Delay(1), not Task.Yield(): a yield can be drained inside the current JS task
-                // by the runtime's own dispatcher, which would end the frame boundary this needs. The
-                // timer is the same load-bearing await AtlasPhaseAsync already relies on.
-                await Task.Delay(1);
+                    // ONE MEMBER PER TASK. Decoding is ~15 ms of straight-line WASM, which is fine;
+                    // what is not fine is a dozen of them back to back. `await body` completes
+                    // SYNCHRONOUSLY once its download has landed -- the normal case here, since every
+                    // request went out up front -- so without this the whole batch decodes inside one
+                    // JS task and the page cannot paint until the last member is in. Measured on the
+                    // deployed build, that batching WAS the residual jank after the chunk-build fix:
+                    // 1183 ms of the 1443 ms still blocked over three pans, in tasks of 132-318 ms,
+                    // every one ending at a "tyc2 members: +N" line. Split up, each decode lands under
+                    // the 50 ms long-task threshold and the browser paints between them.
+                    //
+                    // Task.Delay(1), not Task.Yield(): a yield can be drained inside the current JS
+                    // task by the runtime's own dispatcher, which would not end the frame this needs.
+                    // It is the same load-bearing await AtlasPhaseAsync already relies on.
+                    await Task.Delay(1);
+                    decoded = SharpAstro.Lzip.LzipDecoder.Decompress(lz);
+                    _ = SaveMemberToCacheAsync(member, decoded); // fire-and-forget; non-fatal
+                }
+                else
+                {
+                    decoded = await LoadMemberFromCacheAsync(member);
+                    if (decoded.Length == 0)
+                    {
+                        // Evicted between the probe and the read. Fall back to the network rather than
+                        // leaving a hole in the sky.
+                        var lz = await Http.GetByteArrayAsync($"tyc2/{Tycho2MemberManifest.MemberFileName(member)}");
+                        await Task.Delay(1);
+                        decoded = SharpAstro.Lzip.LzipDecoder.Decompress(lz);
+                    }
+                    else
+                    {
+                        fromCache++;
+                    }
+                }
 
-                if (partial.Accept(member, SharpAstro.Lzip.LzipDecoder.Decompress(raw)))
+                if (partial.Accept(member, decoded))
                 {
                     landed++;
+                    AccumulateMemberStars(member);
                 }
             }
             catch (Exception ex)
@@ -1172,9 +1210,71 @@
 
         if (landed > 0)
         {
-            Console.WriteLine($"[tianwen-web] tyc2 members: +{landed} of {wanted.Length} in "
+            Console.WriteLine($"[tianwen-web] tyc2 members: +{landed} of {wanted.Length} ({fromCache} cached) in "
                 + $"{sw.ElapsedMilliseconds} ms ({partial.MembersPresent}/{partial.MemberCount} held)");
             ScheduleTycho2Flatten();
+        }
+    }
+
+    // Flattens JUST the member that landed into the accumulator. This is the incremental half: the
+    // whole-catalog flatten costs the same whether one member is held or all 166 (~74 ms on the
+    // deployed build, because absent regions are still walked and skipped), so doing it per settle
+    // made the pan path pay for every star it already had. Per member it is ~1 ms.
+    void AccumulateMemberStars(int member)
+    {
+        if (_tyc2Partial is not { } partial || !partial.TryGetRecordRange(member, out var start, out var count))
+        {
+            return;
+        }
+
+        var scratch = new float[count * SkyMapState.FloatsPerStar];
+        var written = SkyMapState.FillTycho2StarVertices(Db, dtJulianYears: 0.0, scratch, start, count);
+        if (written > 0)
+        {
+            _tyc2Accumulator.Add(scratch.AsSpan(0, written * SkyMapState.FloatsPerStar));
+        }
+    }
+
+    async Task<bool[]> ProbeCachedMembersAsync(int[] members)
+    {
+        try
+        {
+            return await JS.InvokeAsync<bool[]>("tyc2Cache.hasMembers", Tyc2CacheVersion, members);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] tyc2 member cache probe failed, fetching all: {ex.Message}");
+            return new bool[members.Length];
+        }
+    }
+
+    async Task<byte[]> LoadMemberFromCacheAsync(int member)
+    {
+        try
+        {
+            var streamRef = await JS.InvokeAsync<IJSStreamReference>("tyc2Cache.loadMember", Tyc2CacheVersion, member);
+            await using var s = await streamRef.OpenReadStreamAsync(maxAllowedSize: 8L * 1024 * 1024);
+            using var ms = new System.IO.MemoryStream();
+            await s.CopyToAsync(ms);
+            return ms.ToArray();
+        }
+        catch
+        {
+            return []; // treated as a miss; the caller re-fetches
+        }
+    }
+
+    async Task SaveMemberToCacheAsync(int member, byte[] decoded)
+    {
+        try
+        {
+            using var ms = new System.IO.MemoryStream(decoded, writable: false);
+            using var streamRef = new DotNetStreamReference(ms, leaveOpen: false);
+            await JS.InvokeVoidAsync("tyc2Cache.saveMember", Tyc2CacheVersion, member, streamRef);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] tyc2 member {member} cache write failed (non-fatal): {ex.Message}");
         }
     }
 
@@ -1228,7 +1328,19 @@
         }
 
         _tyc2FlattenPending = false;
-        FlattenAndSubmitTycho2($"{partial.MembersPresent} members");
+        PackAndSubmitTycho2($"{partial.MembersPresent} members");
+    }
+
+    // The settle, now that arriving members are keyed as they land: concatenate the slots and hand
+    // the buffer over with its table already built. No re-walk of the offset table, no re-keying of
+    // stars that have not moved, and no comparison sort -- which is what the whole rebuild used to be.
+    void PackAndSubmitTycho2(string source)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var (verts, count, chunks) = _tyc2Accumulator.Pack();
+        Console.WriteLine($"[tianwen-web] tyc2 pack ({source}): {count} stars in {sw.ElapsedMilliseconds} ms");
+        _skyTab?.SubmitTycho2Stars(verts, count, chunks);
+        RenderFrame(); // swap it in on the next paint
     }
 
     // Per-frame hook: fetch whatever the view now needs. The selector walks 9537 bounding boxes, so

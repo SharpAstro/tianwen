@@ -38,6 +38,77 @@ namespace TianWen.UI.Abstractions
         /// <summary>Chunks per buffer; the returned array is always this long.</summary>
         public const int ChunkCount = GridCols * GridRows;
 
+        /// <summary>Ordering slots: one per (chunk, magnitude bucket) pair.</summary>
+        internal const int SlotCount = ChunkCount * StarMagnitudeIndex.BucketCount;
+
+        /// <summary>
+        /// The ordering slot a star belongs to: its chunk MAJOR, its magnitude bucket MINOR. Ascending
+        /// slot order is therefore "grouped by region, brightest-first within a region", which is the
+        /// whole layout the draw needs -- so a counting sort on this key does the entire job in one
+        /// pass, with no comparer.
+        /// <para>Shared so <see cref="StarChunkAccumulator"/> and <see cref="Build"/> cannot disagree
+        /// about where a star goes; a disagreement would render as stars in the wrong place with
+        /// nothing failing.</para>
+        /// </summary>
+        internal static int SlotOf(float x, float y, float z, float magnitude)
+        {
+            const float raCellDeg = 360f / GridCols;
+            const float decCellDeg = 180f / GridRows;
+            const float rad2deg = 180f / MathF.PI;
+
+            var decDeg = MathF.Asin(Math.Clamp(z, -1f, 1f)) * rad2deg;            // [-90, 90]
+            var raDeg = MathF.Atan2(y, x) * rad2deg;                              // (-180, 180]
+            if (raDeg < 0f)
+            {
+                raDeg += 360f;                                                    // [0, 360)
+            }
+            var col = Math.Clamp((int)(raDeg / raCellDeg), 0, GridCols - 1);
+            var row = Math.Clamp((int)((decDeg + 90f) / decCellDeg), 0, GridRows - 1);
+            return (((row * GridCols) + col) * StarMagnitudeIndex.BucketCount)
+                + StarMagnitudeIndex.BucketOf(magnitude);
+        }
+
+        /// <summary>
+        /// The per-chunk table for a buffer already laid out in <see cref="SlotOf"/> order, given the
+        /// per-slot star counts. Shared by <see cref="Build"/> and
+        /// <see cref="StarChunkAccumulator"/>; <paramref name="coneOf"/> supplies each populated
+        /// chunk's bounding cone, which is the only part that has to touch the stars.
+        /// </summary>
+        internal static StarChunk[] TableFromCounts(
+            ReadOnlySpan<int> slotCounts, Func<int, int, int, (float X, float Y, float Z, float R)> coneOf)
+        {
+            const int buckets = StarMagnitudeIndex.BucketCount;
+            var chunks = new StarChunk[ChunkCount];
+            var offset = 0;
+            for (var c = 0; c < ChunkCount; c++)
+            {
+                var first = c * buckets;
+                var bins = new uint[StarMagnitudeIndex.BinCount];
+                var running = 0;
+
+                // magBins[b] = stars in this chunk at or above bin b's threshold. The overflow bucket
+                // is deliberately never added, which is what keeps stars fainter than the last bin out
+                // of every prefix.
+                for (var b = 0; b < StarMagnitudeIndex.BinCount; b++)
+                {
+                    running += slotCounts[first + b];
+                    bins[b] = (uint)running;
+                }
+
+                var n = running + slotCounts[first + StarMagnitudeIndex.BinCount];
+                if (n == 0)
+                {
+                    chunks[c] = new StarChunk(0, 0, [], 0f, 0f, 1f, 0f);
+                    continue;
+                }
+
+                var (cx, cy, cz, radRad) = coneOf(c, offset, n);
+                chunks[c] = new StarChunk((uint)offset, (uint)n, bins, cx, cy, cz, radRad);
+                offset += n;
+            }
+            return chunks;
+        }
+
         /// <summary>
         /// Groups <paramref name="verts"/> by sky region IN PLACE and returns the per-chunk layout.
         /// Each chunk is ordered brightest-first and carries its own magnitude prefix table, so a draw
@@ -64,89 +135,45 @@ namespace TianWen.UI.Abstractions
             StarMagnitudeIndex.EnsureWholeRecords(verts.Length, nameof(verts));
 
             const int floatsPerStar = SkyMapState.FloatsPerStar;
-            const int buckets = StarMagnitudeIndex.BucketCount;
             var count = verts.Length / floatsPerStar;
-            var chunks = new StarChunk[ChunkCount];
             if (count == 0)
             {
-                return chunks; // every chunk Count == 0 -> all culled at draw
+                return new StarChunk[ChunkCount]; // every chunk Count == 0 -> all culled at draw
             }
 
-            const float raCellDeg = 360f / GridCols;
-            const float decCellDeg = 180f / GridRows;
-            const float rad2deg = 180f / MathF.PI;
-
-            // 1. One key per star: its chunk MAJOR, its magnitude bucket MINOR. Ascending key order is
-            //    therefore already "grouped by region, brightest-first within a region", which is what
-            //    makes a single counting scatter do the whole job.
-            var keyOf = new int[count];
-            var counts = new int[ChunkCount * buckets];
+            // 1. One key per star, chunk MAJOR / magnitude bucket MINOR.
+            var slotOf = new int[count];
+            var counts = new int[SlotCount];
             for (var i = 0; i < count; i++)
             {
                 var b = i * floatsPerStar;
-                float x = verts[b], y = verts[b + 1], z = verts[b + 2];
-                var decDeg = MathF.Asin(Math.Clamp(z, -1f, 1f)) * rad2deg;            // [-90, 90]
-                var raDeg = MathF.Atan2(y, x) * rad2deg;                              // (-180, 180]
-                if (raDeg < 0f)
-                {
-                    raDeg += 360f;                                                    // [0, 360)
-                }
-                var col = Math.Clamp((int)(raDeg / raCellDeg), 0, GridCols - 1);
-                var row = Math.Clamp((int)((decDeg + 90f) / decCellDeg), 0, GridRows - 1);
-                var key = ((row * GridCols) + col) * buckets + StarMagnitudeIndex.BucketOf(verts[b + 3]);
-                keyOf[i] = key;
-                counts[key]++;
+                var slot = SlotOf(verts[b], verts[b + 1], verts[b + 2], verts[b + 3]);
+                slotOf[i] = slot;
+                counts[slot]++;
             }
 
-            // 2. Prefix offsets per key. The per-chunk instance offset falls out as the offset of its
-            //    first (brightest) bucket, and the per-chunk bin table as the running total across its
-            //    own buckets -- so the prefix tables cost no extra pass over the stars.
-            var offsets = new int[(ChunkCount * buckets) + 1];
-            for (int k = 0, running = 0; k < ChunkCount * buckets; k++)
+            // 2. Prefix offsets per slot.
+            var cursor = new int[SlotCount];
+            for (int k = 0, running = 0; k < SlotCount; k++)
             {
-                offsets[k] = running;
+                cursor[k] = running;
                 running += counts[k];
             }
-            offsets[ChunkCount * buckets] = count;
 
             // 3. Stable scatter into a grouped copy, then write it back over the input span.
             var grouped = new float[count * floatsPerStar];
-            var cursor = (int[])offsets.Clone();
             for (var i = 0; i < count; i++)
             {
-                var dst = cursor[keyOf[i]]++ * floatsPerStar;
+                var dst = cursor[slotOf[i]]++ * floatsPerStar;
                 verts.Slice(i * floatsPerStar, floatsPerStar).CopyTo(grouped.AsSpan(dst, floatsPerStar));
             }
             grouped.AsSpan().CopyTo(verts);
 
-            // 4. Per chunk: read the bin table straight off the histogram, then the bounding cone.
-            for (var c = 0; c < ChunkCount; c++)
-            {
-                var first = c * buckets;
-                var offset = offsets[first];
-                var n = offsets[first + buckets] - offset;
-                if (n == 0)
-                {
-                    chunks[c] = new StarChunk(0, 0, [], 0f, 0f, 1f, 0f);
-                    continue;
-                }
-
-                // magBins[b] = stars in this chunk at or above bin b's threshold = the running total
-                // over buckets 0..b. The overflow bucket is deliberately never reached, which is what
-                // keeps stars fainter than the last bin out of every prefix.
-                var bins = new uint[StarMagnitudeIndex.BinCount];
-                var running = 0;
-                for (var b = 0; b < StarMagnitudeIndex.BinCount; b++)
-                {
-                    running += counts[first + b];
-                    bins[b] = (uint)running;
-                }
-
-                var sub = verts.Slice(offset * floatsPerStar, n * floatsPerStar);
-                var (cx, cy, cz, radRad) = ComputeCone(sub, floatsPerStar);
-                chunks[c] = new StarChunk((uint)offset, (uint)n, bins, cx, cy, cz, radRad);
-            }
-            return chunks;
+            // 4. Bin tables come straight off the histogram; only the cone has to touch the stars.
+            //    Read them from `grouped` rather than `verts`: it holds the same placed layout and is
+            //    an array, so the callback can close over it (a Span cannot be captured).
+            return TableFromCounts(counts, (_, offset, n) =>
+                ComputeCone(grouped.AsSpan(offset * floatsPerStar, n * floatsPerStar), floatsPerStar));
         }
 
         /// <summary>
@@ -164,6 +191,11 @@ namespace TianWen.UI.Abstractions
             var sep = MathF.Acos(Math.Clamp(dot, -1f, 1f));
             return sep <= viewRadiusRad + chunk.ConeRadiusRad;
         }
+
+        /// <summary>Bounding cone for a chunk's stars, at the standard record stride. Shared with
+        /// <see cref="StarChunkAccumulator"/> so both tables bound their chunks identically.</summary>
+        internal static (float X, float Y, float Z, float RadiusRad) ComputeConeOf(ReadOnlySpan<float> span)
+            => ComputeCone(span, SkyMapState.FloatsPerStar);
 
         /// <summary>
         /// Bounding cone for a chunk's stars: axis = the normalized mean of the member unit vectors,

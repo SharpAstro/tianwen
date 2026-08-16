@@ -128,6 +128,56 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// A member's record range must address EXACTLY that member's stars, because the incremental
+        /// atlas flattens per arrival instead of re-walking the whole offset table per settle.
+        ///
+        /// <para>The conversion is byte offset to record index, which is only valid because records
+        /// are a fixed stride and regions are written back to back after the header. If the bake ever
+        /// pads or reorders, this is what fails -- and the symptom in the app would be stars drawn at
+        /// other stars' coordinates, so it is worth pinning against the whole-catalog flatten rather
+        /// than against arithmetic that would drift with it.</para>
+        /// </summary>
+        [Fact]
+        public void FlatteningMemberByMemberProducesExactlyTheWholeCatalogFlatten()
+        {
+            var (manifest, bounds, catalog) = Bake();
+            var partial = new Tycho2PartialCatalog(manifest);
+            for (var m = 0; m < manifest.MemberCount; m++)
+            {
+                partial.Accept(m, catalog.AsSpan(bounds[m], bounds[m + 1] - bounds[m])).ShouldBeTrue($"member {m}");
+            }
+
+            var db = new CelestialObjectDB();
+            db.TryLoadTycho2BulkFromDecoded(partial.Buffer).ShouldBeTrue();
+            var total = ((ICelestialObjectDB)db).Tycho2StarCount;
+
+            var whole = new float[total * Stride];
+            var wholeWritten = SkyMapState.FillTycho2StarVertices(db, dtJulianYears: 0.0, whole);
+
+            // Walking the members in order must reproduce the same stars, in the same order: the
+            // whole-catalog walk is just the concatenation of the per-member walks.
+            var perMember = new float[total * Stride];
+            var at = 0;
+            var covered = 0;
+            for (var m = 1; m < manifest.MemberCount; m++)
+            {
+                partial.TryGetRecordRange(m, out var start, out var count)
+                    .ShouldBeTrue($"member {m} must address records");
+                start.ShouldBe(covered, $"member {m} must begin where member {m - 1} ended");
+                covered += count;
+
+                var written = SkyMapState.FillTycho2StarVertices(
+                    db, dtJulianYears: 0.0, perMember.AsSpan(at * Stride), start, count);
+                at += written;
+            }
+
+            covered.ShouldBe(total, "the members must tile the catalog with no gap and no overlap");
+            at.ShouldBe(wholeWritten, "member-by-member emitted a different number of stars");
+            perMember.AsSpan(0, at * Stride).SequenceEqual(whole.AsSpan(0, wholeWritten * Stride))
+                .ShouldBeTrue("member-by-member produced different star data");
+        }
+
+        /// <summary>
         /// The zero-fill disaster, stated as a test so the choice of sentinel cannot be quietly
         /// "simplified" later: with nothing loaded but the header, the catalog must flatten to no
         /// stars at all rather than to a couple of million bright ones at the origin.

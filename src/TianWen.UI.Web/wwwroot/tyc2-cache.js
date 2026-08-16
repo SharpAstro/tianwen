@@ -62,6 +62,75 @@ window.tyc2Cache = (function () {
             }
         },
 
+        // ---- Per-member cache (the incremental atlas) ----------------------------------------
+        //
+        // The member path never reaches the whole-catalog entries above, so without these a repeat
+        // visit re-fetched and, more to the point, RE-DECODED every member it had already seen --
+        // measured at 1183 ms of blocked main thread over three pans. These store the DECOMPRESSED
+        // member bytes, so a hit skips the lzip decode entirely, which is the expensive half.
+        // Keyed `<version>:m<member>` in the same store, so bumping the version drops them too.
+
+        // Which of `members` are already cached, as a parallel array of booleans. One transaction
+        // for the whole set: asking per member is a transaction each, which costs more than the
+        // decode it is trying to avoid.
+        hasMembers: async function (version, members) {
+            const out = new Array(members.length).fill(false);
+            try {
+                const db = await openDb();
+                await new Promise(function (resolve, reject) {
+                    const tx = db.transaction(STORE, "readonly");
+                    const store = tx.objectStore(STORE);
+                    members.forEach(function (m, i) {
+                        // getKey, not get: this must not deserialize ~260 KB per member just to
+                        // answer a yes/no, which is the whole reason the probe is separate.
+                        const req = store.getKey(version + ":m" + m);
+                        req.onsuccess = function () { out[i] = req.result !== undefined; };
+                    });
+                    tx.oncomplete = function () { resolve(); };
+                    tx.onerror = function () { reject(tx.error); };
+                });
+                db.close();
+            } catch (e) {
+                console.warn("[tianwen-web] tyc2 member cache probe failed:", e);
+            }
+            return out;
+        },
+
+        // Decompressed bytes for one member, or an empty array on any miss/failure.
+        loadMember: async function (version, member) {
+            try {
+                const db = await openDb();
+                const rec = await new Promise(function (resolve, reject) {
+                    const req = db.transaction(STORE, "readonly").objectStore(STORE).get(version + ":m" + member);
+                    req.onsuccess = function () { resolve(req.result); };
+                    req.onerror = function () { reject(req.error); };
+                });
+                db.close();
+                return rec && rec.byteLength ? new Uint8Array(rec) : new Uint8Array(0);
+            } catch (e) {
+                console.warn("[tianwen-web] tyc2 member load failed:", e);
+                return new Uint8Array(0);
+            }
+        },
+
+        // Persist one member's DECOMPRESSED bytes. Best-effort and fire-and-forget from C#: a quota
+        // failure must leave the atlas working, just uncached.
+        saveMember: async function (version, member, streamRef) {
+            try {
+                const buf = await streamRef.arrayBuffer();
+                const db = await openDb();
+                await new Promise(function (resolve, reject) {
+                    const tx = db.transaction(STORE, "readwrite");
+                    tx.objectStore(STORE).put(buf, version + ":m" + member);
+                    tx.oncomplete = function () { resolve(); };
+                    tx.onerror = function () { reject(tx.error); };
+                });
+                db.close();
+            } catch (e) {
+                console.warn("[tianwen-web] tyc2 member save failed:", e);
+            }
+        },
+
         // `streamRef` is a .NET DotNetStreamReference; read it fully and persist under `version`.
         // Best-effort: a failure (private mode, quota) is swallowed so the atlas still works.
         save: async function (version, streamRef) {

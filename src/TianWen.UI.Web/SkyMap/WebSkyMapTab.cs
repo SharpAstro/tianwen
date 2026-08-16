@@ -28,6 +28,11 @@ namespace TianWen.UI.Web.SkyMap
         /// <see cref="WebGlSkyMapPipeline.SubmitTycho2Stars"/>.</summary>
         public void SubmitTycho2Stars(float[] verts, int starCount) => _pipeline.SubmitTycho2Stars(verts, starCount);
 
+        /// <summary>Hands over a buffer already in chunk layout with its table, as
+        /// <see cref="StarChunkAccumulator.Pack"/> returns it.</summary>
+        public void SubmitTycho2Stars(float[] verts, int starCount, StarChunk[] chunks)
+            => _pipeline.SubmitTycho2Stars(verts, starCount, chunks);
+
         protected override void RenderSkyMap(
             ICelestialObjectDB db, RectF32 contentRect,
             System.DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
