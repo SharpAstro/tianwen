@@ -166,10 +166,16 @@ prefix table says about 3.07%.
 **The tiling already exists in the format; it is simply not addressable while the file is one lzip
 member.** So the change is to the bake, not to the layout.
 
-- **Bake:** set `LzipOptions.MemberSize` so member boundaries fall on GSC-region-group boundaries.
-  Cost 0.49%, and this is the case the measurement actually covers, because slicing in the existing
-  byte order IS slicing on region boundaries. **The record order does not change**, so nothing
-  downstream of the decode can tell the difference.
+- **Bake:** cut lzip members on GSC-region boundaries -- never on a fixed stride, because a member
+  that splits a region puts half a region behind a boundary no client can address. So `MemberSize`
+  is a *target* the packer rounds up to the next region edge, not a stride. **The record order does
+  not change**, so nothing downstream of the decode can tell the difference.
+  - **The 0.49%-for-8-members figure does NOT apply here and must not be quoted for it.** The run
+    table below puts a run at ~143 KB in a wide field and ~40 KB when zoomed, so members have to be
+    in that size class to be addressable at all -- hundreds or thousands of them. Every member resets
+    the LZMA dictionary (`LzipEncoder` caps the dictionary to the member's own length), so the
+    penalty grows as members shrink by an amount eight members cannot predict. Measured separately;
+    see the member-size table.
 - **Desktop reads every member** -- unchanged by construction, not by careful preservation -- and
   *gains* parallel decode for free, since `LzipDecoder.Parallel.For` only engages on a multi-member
   file.
@@ -181,12 +187,82 @@ member.** So the change is to the bake, not to the layout.
   regions can be submitted as they land. `SubmitTycho2Stars` already does a render-thread buffer
   swap, so progressive submission reuses the mechanism that is there rather than adding one.
 
-**The honest caveat on request count.** 9537 regions over 41253 square degrees is ~4.3 sq deg each,
-so a 60-degree FOV covers roughly 650 of them. That is far too many individual requests; it is only
-viable because regions are ordered by `tyc1`, which runs in declination bands, so the visible set
-should form a modest number of CONTIGUOUS runs that coalesce into a few dozen ranges. **Measure the
-run count before building this** -- it is the difference between a few dozen requests and hundreds,
-and it is cheap to compute offline from the bounds table alone.
+### The run-count gate: MEASURED 2026-08-16, and it passes
+
+This was the plan's one blocking unknown -- 9537 regions over 41253 square degrees is ~4.3 sq deg
+each, so a wide view touches many hundreds of them, and the whole design rested on those coalescing
+into a modest number of CONTIGUOUS runs. Computed offline from the shipped bounds table by
+`Tycho2RegionSelectorTests` (no browser, no network), with the view radius set to the FULL field of
+view, matching what both pipelines already cull with (`StarChunkIndex.IsVisible`).
+
+| view | FOV | regions | exact runs | reqs @256K gap | MB | reqs @1M gap | MB |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| galactic centre | 60 | 2,915 | 86 | **15** | 13.17 | 13 | 14.43 |
+| galactic centre | 10 | 110 | 18 | 4 | 1.01 | 4 | 1.01 |
+| galactic centre | 2 | 9 | 5 | 2 | 0.17 | 2 | 0.17 |
+| north galactic pole | 60 | 1,931 | **99** | 17 | 6.48 | 13 | 9.05 |
+| Orion | 60 | 2,543 | 64 | 18 | 11.77 | 16 | 13.03 |
+| RA 0h seam | 60 | 2,167 | 60 | 18 | 9.24 | 18 | 9.24 |
+| north celestial pole | 60 | 2,481 | **23** | 2 | 12.40 | 1 | 13.29 |
+| south celestial pole | 60 | 2,614 | 24 | 2 | 14.05 | 2 | 14.05 |
+
+**Dozens, not hundreds: the worst case across every view and zoom is 99 exact runs, and a 256 KB gap
+allowance turns that into 17 requests.** Zoomed in it collapses -- a 10-degree field is 4 requests
+and ~1 MB of raw records, a 2-degree field 2 requests and 0.17 MB, against today's unconditional
+30.1 MB.
+
+Three things the measurement said that guesswork did not:
+
+- **The poles are the BEST case, not the worst.** 23-24 runs against 60-99 elsewhere, collapsing to
+  one or two requests, because polar regions are few and adjacent in `tyc1`. The intuition that
+  converging RA bands would fragment the selection is backwards: convergence means *fewer, wider*
+  regions, and they are neighbours in the index.
+- **The two culling axes are anti-correlated, and that is the real cost structure.** A wide field
+  needs few stars but many regions (2,915 regions, ~13 MB) while a deep zoom needs many stars but
+  almost no regions (9 regions, 0.17 MB). So region fetching is weakest exactly at the default view
+  and strongest exactly where the magnitude prefix gives up. They compose; neither alone would do.
+- **The gap allowance is worth more than it costs.** Going from exact runs to a 256 KB allowance cuts
+  the galactic-centre wide view from 86 requests to 15 for +0.86 MB. On any link where latency
+  dominates that is the right side of the trade, and the numbers say where the knee is.
+
+### Member size: MEASURED 2026-08-16, and 64 KB is the knee
+
+The other half of the price, from `Tycho2RegionBakeProbe` (env-gated; it recompresses the catalog six
+times over). Members are region-aligned by the greedy packer described above, the 37 KB header gets a
+member to itself because every client must decode it before it can ask for anything, and consecutive
+members are one Range GET because they are contiguous in the compressed file.
+
+Baseline: raw 43.52 MB, single member **28.88 MiB** with our own encoder (the shipped asset is
+28.71 MiB -- `LzipEncoder` is ~0.6% behind whatever baked it, which is why the deltas below are
+against our single-member number and not against the file on disk).
+
+| member target | members | total | vs 1 member | gal. centre 60 deg | gal. centre 10 deg | gal. centre 2 deg |
+|---|---:|---:|---:|---|---|---|
+| 4 MB | 12 | 28.88 MiB | +0.0% | 2 req, 23.31 MiB | 2 req, 8.29 MiB | 2 req, 5.55 MiB |
+| 1 MB | 43 | 28.97 MiB | +0.3% | 6 req, 19.14 MiB | 5 req, 3.49 MiB | 3 req, 1.41 MiB |
+| 256 KB | 166 | 29.28 MiB | +1.4% | 16 req, 11.87 MiB | 5 req, 1.40 MiB | 3 req, 0.36 MiB |
+| **64 KB** | **636** | **29.45 MiB** | **+1.9%** | **17 req, 9.68 MiB** | **6 req, 0.79 MiB** | **3 req, 0.20 MiB** |
+| 32 KB | 1,219 | 29.61 MiB | +2.5% | 19 req, 9.44 MiB | 7 req, 0.72 MiB | 4 req, 0.15 MiB |
+| 16 KB | 2,264 | 29.89 MiB | +3.5% | 26 req, 9.19 MiB | 9 req, 0.61 MiB | 5 req, 0.11 MiB |
+
+**Take 64 KB.** It costs +1.9% (~0.57 MiB) on the asset and turns the worst view from an
+unconditional 28.88 MiB into 9.68 MiB (3.0x), a 10-degree view into 0.79 MiB (37x) and a 2-degree
+view into 0.20 MiB (144x).
+
+- **The dictionary-reset penalty is far smaller than the member count suggests, and that is a
+  property of this data.** 636 independent members cost 1.9%, not the tens of percent a
+  from-eight-members extrapolation would have predicted. The records are a fixed 17-byte stride whose
+  compressible structure is *local* -- neighbouring stars in a region share RA/Dec high bytes -- so an
+  LZMA dictionary capped at 64 KB still sees everything worth matching against. Do not carry this
+  conclusion to a differently-shaped asset.
+- **Coarse members are the trap, and they look fine on the request column.** 4 MB members give the
+  prettiest request count in the table (2) and are useless: 23.31 MiB for a wide view is 81% of
+  fetching the whole thing. Requests are not the metric; bytes are.
+- **Past 64 KB the curve is flat and the costs are not.** 16 KB buys 0.49 MiB on the wide view for
+  +1.6% ratio and 53% more requests. The knee is unambiguous.
+- **A wide view is the worst case at every member size** -- see the anti-correlation note above. If
+  9.68 MiB on first open is judged too slow, the fix is the bright-prefix side asset below, not a
+  smaller member.
 
 **If the instant-sky property is still wanted**, the non-destructive form is a **separate** small
 bright-prefix asset (V<=8.5 is ~78k stars, ~1.3 MB at 17 B/record) baked alongside the untouched main
@@ -348,17 +424,17 @@ what it was allowed to assume):
 - ~~Measured AOT serial decode wall-time (gates P2).~~ **1802 ms decompress + 93 ms flatten of a
   6.67 s cold load.** Re-measure with `AtlasLoadCostProbe` against a DEPLOYED build after any change
   to the bake; a dev server answers a different question.
-- ~~Multi-member `MemberSize` sweet spot: decode-parallelism vs compression-ratio.~~ **8 independent
-  members cost 0.49% (+0.15 MB)**, measured in the file's existing byte order. The ratio is not the
-  constraint, so `MemberSize` should be chosen by where the GSC-region groups fall.
+- ~~Multi-member `MemberSize` sweet spot: decode-parallelism vs compression-ratio.~~ **64 KB
+  region-aligned members: 636 of them, +1.9% on the asset, and a 3.0x-to-144x cut in what a view
+  downloads.** The first pass at this answered "8 members cost 0.49%", which was true and irrelevant:
+  8 members are not addressable. See the member-size table.
+
+- ~~How many ranges a view actually costs.~~ **Dozens. Worst case 99 exact runs, 17 requests at a
+  256 KB gap allowance; a 10-degree field costs 4 requests and ~1 MB.** See the run-count table.
+  Computed by `Tycho2RegionSelectorTests` from the bounds table alone -- re-run it after any change
+  to the bake or to the record order.
 
 Still open:
-
-- **How many ranges a view actually costs.** 9537 regions over 41253 sq deg is ~4.3 sq deg each, so a
-  60-degree FOV touches ~650 of them. The whole design rests on those coalescing into a few dozen
-  CONTIGUOUS runs, because `tyc1` runs in declination bands. **Compute the run-count distribution
-  offline from the bounds table** before writing any fetch code -- it is cheap, it needs no browser,
-  and it is the number that says whether this is viable at all.
 - **What the user sees while regions land.** A star field that fills in by sky patch is either
   delightful or distracting, and it is a different experience from one that thickens uniformly.
   Worth deciding with a real build in front of you, not on paper.
