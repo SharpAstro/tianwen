@@ -1,12 +1,15 @@
 # Tab strips: one description, three surfaces
 
-**Status: T1-T4 SHIPPED** (DIR.Lib `feat/tab-strip-items`, unpushed, version 8.3). T5-T7 remain. This
+**Status: T1-T7 SHIPPED** (DIR.Lib `feat/tab-strip-items` + tianwen `feat/tab-strip-sidebar`, both
+unpushed; DIR.Lib 8.3). Only T8 remains, and it is the phase the plan expected never to happen. This
 is the design and the phasing for making TianWen's navigation sidebar a first-class DIR.Lib citizen
 instead of hand-drawn chrome.
 
-Everything DIR.Lib owes TianWen is now in place: `TabItem<T>` + `TabClick<T>`, `TabStripSide`,
-`TabSizing`, `CanCloseTabs` / `CanReorderTabs`, per-item `IsEnabled` / `Tooltip`, and
-`TabBar.HoveredIndex`. The sidebar can adopt without further DIR.Lib work.
+**Three implementations are one.** `TabStripTree.Build` describes the strip as a `Layout.Node` tree;
+`TabBar` paints it through `PaintLayout` and `TuiTabBar` through `CellLayout`, and TianWen's sidebar is
+a configured `TabBar` (`RenderSidebar` deleted). What differs between surfaces is `TabStripMetrics`
+(pixels vs cells) and two policies -- `TabStripOverflow` and `TabLabelDecoration`. Everything else is
+shared.
 
 ## What exists today
 
@@ -117,12 +120,29 @@ opts in.
 | T2 | `TabStripSide`, orientation derived | 8.3 | none | **DONE.** Painter reworked onto a flow/cross axis pair; one body serves four sides. |
 | T3 | `TabSizing.Uniform` | 8.3 | none | **DONE**, with T2 — see below. |
 | T4 | Affordances (`CanCloseTabs`, `CanReorderTabs`, per-item `IsEnabled` + `Tooltip`) | 8.3 | none | **DONE.** `IsEnabled`/`Tooltip` landed in T1 as fields of the record. |
-| T5 | TianWen sidebar adopts `TabBar` | - | tianwen | Next. Delete `RenderSidebar`; `GuiTab` becomes the `T`. |
-| T6 | Strip built as a `Layout` tree | minor | none | Internal reshape; the payoff is T7. |
-| T7 | Console.Lib cell painter for the strip | Console.Lib minor | tianwen | `TuiTabBar` collapses to supplying items. One strip, both surfaces. |
+| T5 | TianWen sidebar adopts `TabBar` | - | tianwen | **DONE.** `RenderSidebar` deleted; forced `CompositeWidget` + `HoverBackground` + `IconSize`. |
+| T6 | Strip built as a `Layout` tree | 8.3 | none | **DONE.** 69 geometry tests unchanged; the `+` stays imperative (see below). |
+| T7 | Console.Lib cell painter for the strip | none needed | tianwen | **DONE**, and Console.Lib needed NO change -- `CellLayout` already paints any tree. |
 | T8 | Rotated text (optional, see below) | **renderer capability** | - | Only if a consumer wants long labels on a vertical strip. |
 
-T6-T7 is the prize (three implementations become one). T8 is separable and probably never happens here.
+T8 remains and is still not wanted: a vertical strip draws upright content, which is what its only
+consumer needs.
+
+**T7 cost Console.Lib nothing.** The plan budgeted a "Console.Lib cell painter for the strip"; none was
+needed, because `CellLayout` already paints an arbitrary `Layout.Node` tree -- the Home board had
+proved that. The phase was really "stop `TuiTabBar` building its own tree", which is a TianWen change.
+
+**Two things the shared strip needed that neither surface alone would have asked for.**
+`FillsAvailable`, because the terminal embeds its strip beside a status text while the GPU strip IS the
+bar -- and a Star-sized strip beside any other Star sibling splits the row with it, compressing every
+fixed-width tab (9 cells arranged into 5). And the `+` button stays imperative in `TabBar`: it belongs
+to a tab BAR rather than a tab strip, and its mark is two rectangles, so a tree form would mean adding
+`IconKind.Plus` and owing a cell drawing for a control no cell surface has.
+
+**`TuiTabBar` got LONGER** (140 -> 170 lines). The duplicated logic went; explicit documented
+configuration replaced it. The measure that matters is that tab layout has one implementation, not the
+line count -- and the honest version of "collapses to supplying items" is "supplies items plus a
+config block".
 
 **T2 and T3 shipped together, deliberately.** They are not independent the way the table implied: a
 vertical strip sizing by content sets a tab's HEIGHT from the WIDTH of its label, and on an icon-only
