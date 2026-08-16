@@ -342,10 +342,33 @@ exactly.
 - **A single pan cost SIX full rebuilds**, one per quantized view cell it crossed, each re-walking
   all 2.5M record offsets, regrouping the buffer and re-uploading the whole instance buffer.
   **Making the fetch single-flight did not help, and that is the useful part**: the fetches then
-  finished *between* crossings, which is the tell that the flatten was the cost all along. Debouncing
+  finished *between* crossings, which is the tell that the REBUILD was the cost all along. Debouncing
   the rebuild on the same generation-guard as the overlay labels took it to three, with batches
   visibly coalescing. The probe asserts the rebuild COUNT for the same reason the numbers above are
   counts.
+
+- **The rebuild's cost was then attributed to the wrong half of itself, and only a deployed-build
+  trace could tell them apart.** "The flatten" was named as the expense in the commit, the probe's
+  comment and the bullet above; the flatten was never the expense. A DevTools trace of the deployed
+  site showed three 2.4 s main-thread blocks in thirteen seconds -- 580 of 611 frames dropped, each
+  block one `setTimeout(120)`, i.e. exactly the one-rebuild-per-settle the debounce promises -- and
+  the app's own log placed the split: `tyc2 flatten (66 members): 1011547 stars in 74 ms`. The
+  remaining 2.4 s was `StarChunkIndex.Build`, and inside it `SortBrightestFirst`.
+  **`Span<T>.Sort<T, TComparer>` over an app-defined record struct and a struct comparer is a generic
+  instantiation the Mono AOT compiler does not emit, so that one call ran interpreted while
+  everything around it was compiled**: 272 ms on desktop against ~2.4 s in the browser. No desktop
+  measurement can see that factor, and it is invisible in source -- the call looks like the cheapest
+  possible sort, and on every other target it is.
+  The sort was also unnecessary: its only reader is `VisibleCount`, which answers with a bin's prefix
+  count, so ordering within a 0.5-magnitude bucket is unobservable. The region grouping and the
+  magnitude ordering now fold into ONE counting scatter keyed (chunk major, bucket minor). Desktop
+  `Build` 334 ms -> 57 ms at 2.56M stars; on the deployed build a settle's rebuild went from ~2.4 s
+  to **81-113 ms measured at 0.76M-1.46M stars held**.
+  Two lessons worth more than the fix: **name the phase you measured, not the phase you assumed**
+  (one `Stopwatch` around the flatten would have exonerated it immediately, and the log that finally
+  did was already there), and **a WASM perf claim needs the AOT target** -- the interpreted dev
+  server this plan's probe runs against is uniformly ~25x slower, which is the same order as the
+  cliff, so it hides exactly the bug it looks like.
 
 ### The bright-prefix side asset is NOT needed
 

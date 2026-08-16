@@ -101,11 +101,17 @@ public sealed class AtlasMemberFetchProbe(TianWenWebFixture fixture, ITestOutput
         afterOpen.Files.ShouldBeGreaterThan(1, "the header alone is not a sky");
         afterPan.Files.ShouldBeGreaterThanOrEqualTo(afterOpen.Files, "panning must never un-fetch");
 
-        // The rebuild is the expensive part (a full re-walk of 2.5M offsets, a regroup, and a whole
-        // instance-buffer re-upload) and it does NOT get cheaper for happening more often, since it
+        // The rebuild is the expensive part -- a full re-walk of 2.5M offsets, a regroup, and a whole
+        // instance-buffer re-upload -- and it does NOT get cheaper for happening more often, since it
         // always covers every member held. Before the debounce this pan cost six of them, one per
         // quantized view cell it crossed; the count is asserted rather than the duration because a
         // duration measured on an interpreted dev server means nothing on the deployed build.
+        //
+        // Which HALF of the rebuild is expensive is a separate question this probe cannot answer, and
+        // guessing it cost a release: the re-walk was blamed, and the re-walk was ~74 ms of a 2.4 s
+        // rebuild. The rest was a generic Span.Sort the browser ran interpreted (see the remarks on
+        // StarMagnitudeIndex.SortBrightestFirst). Only a DevTools trace of the DEPLOYED build split
+        // them; on this interpreted server everything is ~25x slow and the cliff is invisible.
         output.WriteLine($"[members] rebuilds: {rebuilds} (one for the first open, then per settle)");
         rebuilds.ShouldBeGreaterThan(0, "no rebuild at all means the stars never reached the GPU");
         rebuilds.ShouldBeLessThanOrEqualTo(4,
