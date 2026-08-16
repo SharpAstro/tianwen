@@ -45,7 +45,8 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
     private void Report(string measurement) => output.WriteLine($"[perf] {measurement}");
 
     private readonly record struct RenderStats(
-        int Frames, int Coalesced, int Gathers, bool Overlay, int Uploads, double LabelMs);
+        int Frames, int Coalesced, int Gathers, bool Overlay, int Uploads,
+        double LabelMs, double RenderMs, double GatherMs, double ProjectMs, double MarkerMs);
 
     private static async Task<RenderStats> GetStatsAsync(IPage page)
     {
@@ -61,7 +62,15 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
             // Only ever advances on a frame that actually DREW labels, which is what makes it the
             // observable for "did the labels come back" -- the pixels cannot say, since a frame with
             // labels and a frame without are both correct renders of their own moment.
-            r.GetProperty("labelMs").GetDouble());
+            r.GetProperty("labelMs").GetDouble(),
+            // Cumulative totals: a DELTA over a known gesture divided by the frames it painted is the
+            // per-frame cost. These are the only numbers here about how much a frame costs rather than
+            // how often one happens, which is the axis every other assertion in this file is on -- and
+            // the two are independent, so a gesture can be perfectly coalesced and still miss vsync.
+            r.GetProperty("renderMs").GetDouble(),
+            r.GetProperty("gatherMs").GetDouble(),
+            r.GetProperty("projectMs").GetDouble(),
+            r.GetProperty("markerMs").GetDouble());
     }
 
     /// <summary>
@@ -213,6 +222,17 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
 
         Report($"paced zoom: {events} events -> {painted} painted, {gathers} overlay gathers "
             + $"(per-event would be {painted})");
+        // The per-frame BUDGET, which no assertion in this file covers: everything else here asserts
+        // that work does not repeat, and a frame that never repeats can still miss vsync on its own.
+        // 16.67 ms is the whole frame, so these four are the share of it the overlay spends.
+        if (painted > 0)
+        {
+            Report($"  per painted frame: render {(after.RenderMs - before.RenderMs) / painted:F2} ms "
+                + $"(gather {(after.GatherMs - before.GatherMs) / painted:F2}, "
+                + $"project {(after.ProjectMs - before.ProjectMs) / painted:F2}, "
+                + $"markers {(after.MarkerMs - before.MarkerMs) / painted:F2}, "
+                + $"labels {(after.LabelMs - before.LabelMs) / painted:F2}) of a 16.67 ms frame");
+        }
 
         // The zoom really happened, so SOME repaints landed - otherwise the test proves nothing.
         Assert.True(painted >= events / 2,
