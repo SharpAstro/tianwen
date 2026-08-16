@@ -623,6 +623,15 @@ namespace TianWen.UI.Web.SkyMap
                 return;
             }
 
+            // Free the previous instance buffer first. This used to be a one-shot HR -> Tycho-2 swap
+            // where overwriting the handle was harmless; the incremental member fetch re-submits a
+            // grown buffer every time new sky lands, so without this each pan would strand a ~50 MB
+            // GPU allocation. A default handle is a no-op to destroy, so the first apply is unchanged.
+            if (_tycho2StarCount > 0)
+            {
+                _renderer.DestroyBuffer(_tycho2Stars);
+            }
+
             _tycho2Stars = _renderer.CreateBuffer(verts.AsSpan(0, _pendingTycho2Count * SkyMapState.FloatsPerStar));
             _tycho2StarCount = _pendingTycho2Count;
             _tycho2Chunks = _pendingTycho2Chunks;
@@ -635,7 +644,7 @@ namespace TianWen.UI.Web.SkyMap
                 atDefault += StarMagnitudeIndex.VisibleCount(chunk.MagBins, 8.5f);
             }
             Console.WriteLine(
-                $"[tianwen-web] sky geometry: upgraded to Tycho-2 ({_tycho2StarCount} stars in "
+                $"[tianwen-web] sky geometry: Tycho-2 ({_tycho2StarCount} stars in "
                 + $"{StarChunkIndex.ChunkCount} chunks, {atDefault} of them at V<=8.5)");
         }
 
