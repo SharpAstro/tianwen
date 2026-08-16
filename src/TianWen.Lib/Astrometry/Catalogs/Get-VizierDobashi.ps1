@@ -1,6 +1,9 @@
 [CmdletBinding()]
 param()
 
+# Managed lzip (SharpAstro.Lzip); no external `lzip` binary anywhere.
+. "$PSScriptRoot/../../../../tools/lzip-util.ps1"
+
 # Pulls the Dobashi 2011 dark-cloud catalog from VizieR (J/PASJ/63/S1/table8) and
 # writes Dobashi.shapes.json.lz next to the existing Dobashi.json.lz. The Simbad
 # export only carries ids + position + VMag; this side-car adds a size estimate
@@ -45,7 +48,7 @@ $lzFile  = "$outFile.lz"
 if (Test-Path $lzFile) { Remove-Item $lzFile }
 $entries | ConvertTo-Json -Compress | Out-File -Encoding UTF8NoBOM $outFile
 $uncompressedSize = [int](Get-Item $outFile).Length
-$null = lzip -9 $outFile
+Compress-FileToLz $outFile
 if (Test-Path $lzFile) {
     $compressedSize = (Get-Item $lzFile).Length
     $ratio = if ($uncompressedSize -gt 0) { $compressedSize / $uncompressedSize * 100 } else { 0 }

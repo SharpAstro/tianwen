@@ -12,10 +12,16 @@ Provides:
   Initialize-Lzip   [-LzipAssembly <path>]  load Lzip.Lib.dll once (explicit path ->
                     sibling-build probe -> NuGet global-packages probe)
   Expand-LzToFile   <in.lz> <out>           managed decompress (byte-verbatim)
-  Compress-FileToLz <path>                  managed compress at level 9; writes <path>.lz and
-                    deletes the input -- the same contract as the old `lzip -9 <path>` shell-out,
-                    so no external lzip binary is needed anywhere anymore (Lzip.Lib ships both
-                    the decoder AND the encoder since #75/#76).
+  Compress-FileToLz <path> [-MemberSize n]  managed compress at level 9; writes <path>.lz and
+                    deletes the input -- the same contract as the old `lzip -9 <path>` shell-out.
+                    -MemberSize is lzip's `-b` (independent members, 0 = one), which decides
+                    whether LzipDecoder can parallelise the read at all.
+
+No external lzip binary is needed anywhere (Lzip.Lib ships both the decoder AND the encoder since
+#75/#76). That sentence used to be here as a claim and was false for three of the catalog-fetch
+scripts, which still shelled out to `lzip` -- Get-Tycho2Catalogs, Get-VizierDobashi and
+Get-VizierDarkNebulaShapes. They are converted; keep it that way, and note that these scripts run by
+hand on a catalog refresh, so nothing in CI would have caught the drift.
 #>
 
 $script:LzipLoaded = $false
@@ -65,12 +71,23 @@ function Expand-LzToFile([string] $LzPath, [string] $OutPath) {
     [System.IO.File]::WriteAllBytes($OutPath, $plain)
 }
 
-# Compress $Path to "$Path.lz" at level 9 (LzipOptions.Default) and delete the input file --
-# byte-for-byte the same contract as the old external `lzip -9 <path>`.
-function Compress-FileToLz([string] $Path) {
+# Compress $Path to "$Path.lz" at level 9 and delete the input file -- the same contract as the old
+# external `lzip -9 <path>`.
+#
+# -MemberSize is the managed equivalent of lzip's `-b`: uncompressed bytes per INDEPENDENT member,
+# 0 (the default) meaning one member. It is not cosmetic. LzipDecoder only parallelises across
+# members, so a single-member catalog decodes serially however many cores are present -- which is
+# why tyc2.bin.lz has always been baked at 4 MiB blocks. A conversion that quietly dropped it would
+# have looked byte-clean and cost every desktop start-up its parallel decode.
+function Compress-FileToLz([string] $Path, [long] $MemberSize = 0) {
     Initialize-Lzip
     $plain = [System.IO.File]::ReadAllBytes($Path)
-    $compressed = [SharpAstro.Lzip.LzipEncoder]::Compress($plain)
+    $options = if ($MemberSize -gt 0) {
+        [SharpAstro.Lzip.LzipOptions] @{ MemberSize = $MemberSize }
+    } else {
+        [SharpAstro.Lzip.LzipOptions]::Default
+    }
+    $compressed = [SharpAstro.Lzip.LzipEncoder]::Compress($plain, $options)
     [System.IO.File]::WriteAllBytes("$Path.lz", $compressed)
     Remove-Item -LiteralPath $Path -Force
 }
