@@ -1,62 +1,27 @@
 ﻿<Project>
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
-    <!-- Allow floating versions (e.g. "3.0.*", "2.30.*") so sibling-tracked
-         packages auto-pick up new CI publishes without manual bumps here.
-         The cost of that convenience, learned the hard way on 2026-08-14: a float makes a SIBLING'S
-         transitive floor our problem, with no commit of ours involved. SdlVulkan.Renderer republished a
-         patch of its own pinned line (7.15.2351) whose dependency reads DIR.Lib >= 7.22.2191; the 7.15.*
-         float took it, and restore failed NU1605 (downgrade-as-error) against our then-current 7.21.*
-         DIR.Lib, across every UI project. main had been green on its last run two days earlier and would
-         have failed if re-run. So a red PR whose restore error names a package the branch never touched
-         is a cue to check whether main would still pass TODAY, not to hunt through your own diff. Fix by
-         raising OUR floor; pinning the sibling back to an older patch only defers the same failure to its
-         next republish. -->
+
     <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
-    <!-- Single source of truth for the SharpAstro Codecs family float prefix. Every
-         member (Tiff/Exif/Png/Color.Icc/Jpeg/Jpeg.IccInjector/Jpeg.GainMap/Jxr/Exr +
-         the SharpAstro.Codecs facade) ships in lockstep from the Codecs repo, so they
-         must all resolve to the SAME minor (mixing minors across a lockstep break is a
-         runtime hazard). Bump this ONE prefix on a family minor/major; the X.Y.* float
-         still auto-picks CI patch builds within the minor.
-         3.7 added SharpAstro.Jbig2 (clean-room ITU-T T.88, for PDF's /JBIG2Decode) to the family and
-         3.8 gave it resource limits, after the shipped 3.7 decoder was found to accept decompression
-         bombs. TianWen references neither package, so 3.6 -> 3.8 carries no API change here; the bump
-         is to keep the matched set matched, which is the whole reason this one property exists. -->
+
     <SharpAstroCodecsVersion>3.8.*</SharpAstroCodecsVersion>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Source generator packages -->
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0" />
     <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.3.0" />
-    <!-- Core libraries -->
+
     <PackageVersion Include="CommunityToolkit.HighPerformance" Version="8.4.2" />
     <PackageVersion Include="DotNext.Threading" Version="6.1.0" />
-    <!-- Floating 4.6.* picks up auto-versioned patch builds from FITS.Lib CI
-         (matches the SdlVulkan.Renderer / DIR.Lib / Console.Lib convention).
-         Bump the prefix manually on minor (4.6 -> 4.7) or major (4.X -> 5.X). -->
+
     <PackageVersion Include="FITS.Lib" Version="4.6.*" />
-    <!-- SER.Lib: SER planetary-video reader (SharpAstro.Ser). Sibling-tracked; floats 1.1.*
-         to pick up CI patch publishes. TianWen.Lib's SerImageBridge consumes it; the FITS
-         viewer's SerPreviewSource gets it transitively. Bumped 1.0.* -> 1.1.* manually (the
-         X.Y.* float can't cross a minor): the sibling shipped 1.1.x and the 1.0.* cap left CI
-         restoring the stale 1.0.91 while UseLocalSiblings builds against the 1.1 sibling source. -->
+
     <PackageVersion Include="SER.Lib" Version="1.1.*" />
-    <!-- Lzip.Lib: pure-managed lzip (LZMA1) codec (SharpAstro.Lzip). Runtime decode of the
-         tyc2.bin.lz + baked Milky Way blob (CelestialObjectDB / SkyMapTab); build-time decode of
-         the .json.lz/.csv.lz catalog inputs (tools/preprocess-catalog.ps1); and encode of the
-         milkyway .bgra.lz (tools/generate_milkyway.cs), so no external lzip binary is needed.
-         1.1 added the encoder; floats 1.1.* to pick up CI patch publishes. -->
+
     <PackageVersion Include="Lzip.Lib" Version="1.1.*" />
-    <!-- LAN.Lib: zero-dependency LAN peer discovery (UDP announce beacon + self-expiring peer
-         table), extracted from chess's Chess.Net for the remote-profile feature (see
-         docs/plans/remote-profile.md). TianWen.Server announces; the GUI beacons symmetrically and
-         reads IPeerTable for the "rigs nearby" list. Floats 1.2.* to pick up CI patch publishes; the
-         repo records no release note for 1.2, so this is tracking its published line rather than
-         following a change TianWen needs. -->
+
     <PackageVersion Include="LAN.Lib" Version="1.2.*" />
     <PackageVersion Include="GeoTimeZone" Version="6.1.0" />
-    <!-- Microsoft packages -->
+
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
@@ -65,628 +30,66 @@
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="10.0.10" />
     <PackageVersion Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.4.0" />
-    <!-- MCP server SDK for TianWen.AI.MCP. Hosts an MCP (Model Context Protocol)
-         stdio server so an AI assistant can call read-only debugging tools
-         against TianWen.Lib. AOT-compatible when registered via WithTools<T>(). -->
+
     <PackageVersion Include="ModelContextProtocol" Version="1.1.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.201" />
     <PackageVersion Include="System.IO.Ports" Version="10.0.5" />
     <PackageVersion Include="System.Numerics.Tensors" Version="10.0.5" />
-    <!-- ONNX Runtime: CPU baseline, plus per-RID accelerator variants. The
-         CPU / GPU / DirectML / QNN packages each bundle their own native
-         onnxruntime build, so consumers pick exactly ONE per published RID
-         (gated by RuntimeIdentifier in TianWen.AI.csproj). Floats to track
-         testwinai's transitive QNN version. -->
+
     <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.24.*" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.Gpu.Linux" Version="1.24.*" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.24.*" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime.QNN" Version="1.24.*" />
-    <!-- Benchmark packages -->
+
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
-    <!-- Testing packages -->
+
     <PackageVersion Include="coverlet.collector" Version="8.0.1" />
     <PackageVersion Include="Meziantou.Extensions.Logging.Xunit.v3" Version="1.1.26" />
     <PackageVersion Include="Nerdbank.Streams" Version="2.13.16" />
-    <!-- Browser driver for TianWen.UI.Web.E2E. That project stays OUTSIDE TianWen.slnx, because it
-         needs a browser and a running dev server and must not be swept up by a solution-wide
-         dotnet test, but it is under CPM like everything else: solution membership and CPM are
-         unrelated, and keeping it out of CPM only meant its versions could drift unseen (they did,
-         with Microsoft.NET.Test.Sdk 18.6.0 inline against 18.3.0 here). -->
+
     <PackageVersion Include="Microsoft.Playwright" Version="1.61.0" />
     <PackageVersion Include="NSubstitute" Version="5.3.0" />
     <PackageVersion Include="NSubstitute.Analyzers.CSharp" Version="1.0.17" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
-    <!-- CLI packages -->
+
     <PackageVersion Include="Pastel" Version="7.0.1" />
     <PackageVersion Include="System.CommandLine" Version="2.0.6" />
-    <!-- SDL3 + Vulkan packages -->
-    <!-- DIR.Lib 4.0 dropped its phantom codec dependencies (SharpAstro.Tiff/.Exif/.Color.Icc
-         are not used by DIR.Lib source). BoxRasterizer.RenderToRgba now returns RgbaImage
-         instead of a (byte[], int, int) tuple.
-         4.4 adds renderer clip hooks (PushClip/PopClip) + TabBar / FontFallbackResolver
-         widgets. Lockstep with SdlVulkan.Renderer 5.1, which implements the clip hooks
-         via Vulkan scissor, so the two must move together.
-         4.5 adds PixelWidgetBase.MeasureValueColumnWidth (shared stepper value-column
-         sizing); released in lockstep with Console.Lib 2.18 + SdlVulkan.Renderer 6.1.
-         4.6 adds PinchSource on InputEvent.Pinch (touchpad vs touchscreen classification);
-         additive, so Console.Lib 2.18 stays as-is. Lockstep with SdlVulkan.Renderer 6.3.
-         5.0 ships the LayoutNode layout engine (Stack/Dock/Grid/Overlay, Fixed/Auto/Star,
-         RenderLayout draw==hit) + surface-agnostic PixelMenuWidget/MenuLayout + DrawScrim.
-         Major; consumed by the per-row tab migration (FormRowLayout). Lockstep with
-         SdlVulkan.Renderer 6.4 + Console.Lib 3.0.
-         5.1 adds markdown image parsing (![alt](url) -> MdImage node). Lockstep with
-         Console.Lib 3.1 + SdlVulkan.Renderer 6.5.
-         5.2 adds LayoutNode.Split (two resizable panes + a draw==hit divider), consumed by
-         the FITS-viewer single-source layout. Lockstep with Console.Lib 3.2 + SdlVulkan.Renderer 6.6.
-         6.0 (MAJOR) moves the layout engine into a new DIR.Lib.Layout namespace and drops the redundant
-         `Layout` prefix (LayoutNode -> Layout.Node, LayoutEngine -> Layout.Engine, LayoutContent ->
-         Layout.Content, LayoutAxis -> Layout.Axis; Sizing/SizeKind/Size/DockChild/DockSide/ArrangedNode/
-         IMeasureContext move into the namespace too) + adds the Layout.Builder DSL & fluent Node modifiers
-         (.RowH()/.WStar()/.Bg()/.Clickable()/...). Source-breaking: consumers alias
-         `using Layout = DIR.Lib.Layout;` and write Layout.Node / Layout.Builder / Layout.Sizing. Lockstep
-         with Console.Lib 3.3 + SdlVulkan.Renderer 6.7.
-         6.3 bumped alongside SdlVulkan.Renderer 6.10 (which requires DIR.Lib >= 6.3.1201).
-         6.4-6.6 continue the lockstep with SdlVulkan.Renderer 6.11-6.15 + Console.Lib 3.5.
-         6.8 lifted the core off the stale 6.4 line; DIR.Lib.Shaping 6.8 rebuilt against
-         SharpAstro.Fonts.Shaping 1.5.551 (F6+F7: ~3-4x faster, zero-alloc shaping), but TianWen does
-         not reference the shaping satellite (lockstep with SdlVulkan.Renderer 6.16).
-         6.11 added SdfGlyphDiskCache's read-only mode (what single-threaded
-         browser WASM needs) and is WebGl.Renderer 1.1+'s floor - TianWen.UI.Web's package graph was
-         already unifying up to 6.11 via WebGl.Renderer, so this keeps desktop + web on one version.
-         6.12 added the selectable-text channel (DrawSelectableText registers a SelectableTextRegion
-         per frame; Renderer.HostRendersSelectableText lets the web host swap the raster for a
-         selectable DOM span layer). PlannerTab's details panel opts in.
-         6.13 added per-instance SdfFontAtlas raster size + page cap (the large-text
-         atlas tier); SdfFontAtlas.GetGlyphScale/ScreenPxHalfBand became instance methods.
-         6.14 is the current pin: the responsive layout primitives (Sizing Min/Max clamps on
-         Auto/Star, Node.CollapseBelow, Node.Wrap flow container) that PlannerTab's portrait
-         reflow builds on. The Sizing ctor/Star/WStar signatures gained optional parameters
-         (binary-breaking), so the whole sibling family rebuilt: lockstep with Console.Lib 3.8 +
-         SdlVulkan.Renderer 6.25 + WebGl.Renderer 1.8.
-         6.20 is the current pin: it adds Renderer.FillRoundedRectangle (a base virtual, so every
-         backend gains rounded fills at once) and fixes per-vector alpha compositing in
-         RgbaImage.FillRect, where a translucent fill over an opaque surface now yields alpha 255 as
-         it always should have. RGB output is bit-identical, so no TianWen golden moved.
-         6.21 is the current pin: Layout.Node.CornerRadius + the .Radius(designUnits) fluent, so a
-         rounded panel is a property of the tree. Chrome only, so arrange is unaffected and a rounded
-         node occupies exactly the rect a square one would; a zero radius keeps the plain FillRectangle
-         path, so untouched trees paint byte-identically.
-         7.2 is what made a TERMINAL inspectable: 7.1 hoisted the debug
-         inspector's surface-agnostic half into DIR.Lib.Diagnostics (DebugInspectorCore: discovery,
-         framing, the loopback command server), and 7.2 made an instance declare its SurfaceKind so a
-         sidecar can filter on it. Console.Lib 4.6 is DebugInspectorCore's first non-GPU backend; the
-         GPU one moved onto the same core. Serialization is deliberately NON-reflective throughout,
-         because an AOT consumer disables reflective JSON and the generic overload throws at runtime.
-         7.3 raised the inspector core to the EXECUTION model (batch with per-step
-         waits, exclusive vs background pump ownership), published from the sibling family alongside
-         SdlVulkan.Renderer 7.3; TianWen consumes it transitively through Console.Lib 4.8.
-         7.4 is the current pin: a CELL-authored layout tree can now be arranged on a PIXEL surface.
-         Console.Lib has carried the opposite crossing since 4.10 (CellMeasureContext.PixelAuthored, which
-         is how the Home board paints ONE tree on both the GPU tab and the TUI tab), so this closes the
-         gap rather than adding a feature: PixelMeasureContext gains per-axis scales plus a matching
-         CellAuthored factory on the same nominal 8x16 cell. It also adds PixelWidgetBase
-         Arrange/Paint/RenderLayout overloads that take the measure CONTEXT instead of a bare dpiScale, so
-         the painter reads FontPath, FontScale and corner radius from the same object the measure pass
-         used. That half is what makes per-axis safe: the scalar used to be threaded separately into the
-         measure context and the paint loop, two copies kept in step by hand, and per-axis scales would
-         have turned that into text painted at a size it was never measured at. Additive, since the scalar
-         overloads delegate to the context ones with an isotropic context, so every existing TianWen call
-         site paints byte-identically.
-         7.5: a font now resolves by its DECLARED family rather than by file identity,
-         so every face in a family is reachable, and a run a face cannot cover falls back per RUN instead
-         of per request. The fallback split is allocation-free and gated on an allocation-free
-         PrimaryCoversAll, so text needing no fallback costs nothing; the all-ASCII shortcut was fixed to
-         check that the primary actually covers ASCII. 7.5 also collapsed every package in that repo onto
-         one version property, which is how DIR.Lib.Shaping stopped shipping a full major behind the
-         library it ships with.
-         7.6 finishes 7.5 by letting collection faces reach the last two consumers of a font id.
-         7.7 lets a LAYOUT TREE state a hyperlink: PaintLayout resolves the nearest enclosing
-         HitResult.LinkHit (depth-keyed, matching Console.Lib's CellLayout so one tree cannot mean
-         different things per surface) and routes text under it through DrawSelectableText with Href set.
-         Additive: only LINKED text takes the new route. TianWen already has the desktop half of this
-         (LinkHit -> OpenUrlSignal) from the planner Wikipedia links, so this is what a web host needs to
-         render the same tree as a real anchor.
-         7.8 closes a silent overdraw: 7.7 shipped Trim as an author's
-         declaration only the CELL painter acted on, while a pixel DrawText starts at its rect's edge and
-         keeps going, so an over-wide run drew straight over its neighbour, and only at the surface sizes
-         where it happened not to fit. PaintLayout now fits every Content.Text to its arranged rect
-         through the new public TextFit. Relevant to every tab here, since the whole chrome is arranged
-         from one layout pass.
-         7.11 was the one TianWen asked for, and unlike the last few before it. UiPalette gained
-         eight roles (Accent, AccentAlt, Focus, SeparatorStrong, Success, Info, Warn, Error) and became a
-         sealed record with required members, which is what GuiTheme's Light/Dark/Night palettes are built
-         on; see MIGRATION.md in that repo. BREAKING there, so this pin cannot go backwards. 7.10 (TabBar
-         takes a colour palette) and 7.9 (a PDF font's own /Encoding selects the glyph) are both in this
-         range and neither is exercised here; TianWen draws its own sidebar chrome rather than DIR.Lib's
-         TabBar, and references TabBarColors zero times.
-         Console.Lib, SdlVulkan.Renderer and WebGl.Renderer still pin DIR.Lib 7.8.* and are NOT being
-         re-released for this: all three reference UiPalette zero times, so there is nothing to port, and
-         the graph unifies DIR.Lib upward to 7.11 for us anyway. That unification is the standing smell
-         noted elsewhere in this file, not something this bump introduces.
-         7.12 (TextInputColors, additive) was taken without this prose moving; it says so now.
-         Two of the crossed minors are text MEASUREMENT behaviour, which is why an app whose whole chrome
-         is arranged from one layout pass wants them: 7.13 bounds the SDF rasterize retry (a glyph that
-         can never rasterize is given up on instead of retried forever) and carries a whitespace-advance
-         fix that shipped unnoted, and 7.14 makes ShrinkToWidth return a size it actually measured rather
-         than an unverified estimate. 7.17 follows Fonts.Lib to 1.11. 7.15 and
-         7.16 are TabBar (a "+" after the last tab, then hover from a pointer the bar is given) and are
-         not exercised here for the same reason 7.9 and 7.10 were not: TianWen draws its own sidebar
-         chrome.
-         7.18 is the current pin and is what this bump is FOR: Layout.Content.Icon, a leaf named by
-         MEANING (Grid / List / Auto) that each surface then draws the way that surface actually can, the
-         pixel painter from rectangles and a cell painter from a block-element glyph. The Home board's
-         view selector is its first consumer here. A Text run carrying a symbol character is the obvious
-         alternative and is the wrong tool, because the two surfaces fail in opposite directions: on a
-         pixel surface a glyph missing from the bound font arrives as .notdef, an empty box exactly where
-         the icon belongs, while a cell surface cannot draw rectangles at all but is relied on for
-         precisely those glyph ranges.
-         The whole family moved with it (Console.Lib 4.21, SdlVulkan.Renderer 7.13 and WebGl.Renderer
-         1.19 all pin DIR.Lib 7.18.*), so for the first time in several minors no member lags and the
-         graph resolves ONE DIR.Lib by intent rather than by highest version. That retires the standing
-         smell noted above, until some member is next left behind.
-         7.19 adds three theme marks to the same set (ThemeSystem, ThemeLight, ThemeDark), which is what
-         the Home board's theme control now draws. They arrive as a family for the reason the enum's own
-         doc gives: an app with a light/dark setting needs all three or none. Note the CONSTRUCTION, since
-         it is what makes them usable here at all. Each is built from scanline spans, so the crescent is
-         the spans an offset disc does not cover rather than that disc over-painted in the button's
-         background. The over-paint trick has to know the ground, and this board paints its control on a
-         Selection fill in four different palettes.
-         7.20 makes an icon draw at the size it DECLARES, centred and clamped by its rect, instead of
-         stretching to fill it. Size had been a measure-time hint only, which is meaningless once a node
-         carries explicit sizing, and every icon here does. 7.21 then normalises every kind to ink that
-         full square: the same declared size used to produce ink spanning 63% (the half-disc) to 100%
-         (the grid) of it, so a row of marks looked ragged however carefully it was centred.
-         7.21 also adds Layout.CrossAlign to a Stack, which this board now uses. A Stack placed every
-         child at the cross-axis START, so a Fixed-height control in a taller bar hugged the top and sat
-         half the slack high. The workaround was padding the bar and making every child Star-height, which
-         also inset the label horizontally as a side effect; .CrossCenter() states the intent and lets the
-         engine, which knows both extents, do the arithmetic.
-         7.22 makes the CURSOR a property of a region (CursorKind + ClickableRegion.Cursor +
-         RegisterCursor/HitTestCursor), which retires the two host predicates this repo had. Both were the
-         failure the enum's own doc describes: the FITS viewer answered "resize handle?" with an X-band
-         test PLUS a "not while a dropdown is open" term (one term per overlay, and every overlay added
-         later silently invalidated it), and the GUI answered "link?" with a hit test that could say
-         nothing else, so a text field never showed an I-beam. The region list already knows what is under
-         the pointer, so asking it removes the class rather than the instance. RenderTextInput now carries
-         CursorKind.Text itself, which is where the GUI's I-beams came from for free.
-         7.23 adds IconKind.CaretUp/CaretDown, which the Live Session mode pill now draws instead of
-         baking a down-triangle character into its label: a symbol character in a Text run is .notdef on
-         any surface whose
-         face lacks it, and an icon states its MEANING (the rule the Home board's marks already followed).
-         7.24 splits padding per axis (PaddingY, null = "same as Padding"), which is what lets that pill
-         pad ten units either side of the label and nothing above or below: a fixed-height bar padded
-         symmetrically leaves a content box too short for the mark, and an icon (square by the smaller
-         side) collapses to a stub while the text beside it goes on looking correct.
-         7.25 makes RgbaImageRenderer honour PushClip/PopClip. It matters here because the layout tests
-         render headlessly through that backend: a clip the app applied was ignored offline, so a control
-         that trims to its bounds drew over the whole picture and the disagreement read as a widget bug.
-         It also adds PixelWidgetBase.PushClip(x, y, w, h), the x/y/w/h form of the RectInt call whose
-         corners go in the opposite order; the five sites here spelled that inversion out by hand.
-         7.26 adds Renderer.DrawTriangles with a scanline default, so a mark that is not rectangles,
-         ellipses or text no longer has to reach past the abstract renderer to a backend with a triangle
-         pipeline. Nothing here called one; the carets above are what it now draws.
-         7.27 makes clips NEST and NARROW: a push inside a push draws in the intersection, and a pop
-         restores the enclosing clip rather than the whole surface. Nothing here nests today, so the five
-         sites are unaffected either way; the reason to take it is the direction of the change, since
-         under the old single-level contract the rest of an outer panel painted UNCLIPPED after an inner
-         pop. The region bookkeeping moved into the base, so PushClip/PopClip are no longer virtual and a
-         backend implements ApplyClip/ClearClip instead. That is a floor for the whole family rather than
-         a preference: SdlVulkan.Renderer 7.18 and WebGl.Renderer 1.22 exist to follow it.
-         7.28 makes a TEXT FIELD a declaration: Layout.Builder.TextInput(state, fontSize) is the whole
-         thing, because the painter draws it, registers its TextInputHit over the arranged rect, states
-         CursorKind.Text and so puts it in Tab order, none of which it can forget. That retired 11
-         keyed-Fill-plus-painter-lambda call sites here, whose real cost was the IDENTITY: a magic
-         string shared between a tree and a dictionary that nothing checks, so a typo was a silently
-         blank field. It also brings TextInputFocus, which is why GuiAppState.ActiveTextInput is now
-         read-only: the host binds FocusChanged ONCE to SDL Start/StopTextInput, so the desync that
-         left the IME up with nothing to type into is unreachable rather than merely fixed. BREAKING
-         for the key router (KeyContext's IPixelWidget became a TabFields callback, which is what lets
-         the TUI share it; HandleKey reads the focused field from the owner), all of which this repo
-         consumed before the release rather than after, because validating a library API at its real call
-         sites is what stops a wrong one being frozen in a package, and it caught both of those
-         shapes.
-         7.29 was taken without this prose moving; it says so now, and it is the one in this range that
-         closes a limitation recorded on OUR side. A text field draws through the FALLBACK CHAIN: the
-         layout painter splits text LEAVES into coverage runs, but a field's content is not a leaf, so
-         TextInputRenderer takes the resolver and measures the caret through the same chain. That is
-         exactly the "a blank field is font coverage, not input" failure noted here, where DejaVu carries
-         no CJK and a field holding correct characters rendered EMPTY, indistinguishable from one that
-         never received the keystrokes. 7.29 also adds IME composition to TextInputState (a field handling
-         only committed text cannot accept CJK at all, since every keystroke before the commit is
-         composition), and introduces WindowUiSettings: DPI scale, fonts and the fallback chain live once
-         per WINDOW and are SHARED BY REFERENCE via ShareUiContext, rather than each widget holding a copy
-         kept in agreement by an overridden setter naming every child, which is precisely the propagation
-         this repo does by hand in VkGuiRenderer today.
-         7.30 moves TextInputFocus onto that same per-window context (get-only, created there). Additive,
-         and the argument is the one this repo already accepted when it stopped letting
-         GuiAppState.ActiveTextInput be assigned: there is one keyboard, so focus is the same KIND of
-         per-window fact as the DPI scale, and a window whose fields sit in more than one widget otherwise
-         hand-threads ONE TextInputFocus through each constructor or they each believe they hold it. That
-         failure is silent: two carets blink, one is dead, Tab cycles the wrong list, nothing throws.
-         7.32 is the one worth adopting next: a widget is hit only on a frame it DREW. WindowUiSettings.
-         FrameId is bumped once per frame by the host and stamped by BeginFrame, and every read (hit test,
-         dispatch, cursor, Tab order, the inspector's region capture) declines a set that is not this
-         frame's. Registering as you paint already made a widget un-hittable WHERE it is not drawn; it said
-         nothing about WHEN, so a host that simply stops calling a widget's render leaves the last frame's
-         regions standing and a control no longer on screen goes on taking clicks AND running their
-         handlers. That is the same class as BlurIfUnpainted here, which solves the keyboard half by having
-         the host pass in what it painted; FrameId solves the click half without the host enumerating
-         anything. Costs nothing until adopted: a host that does not count frames leaves the id at 0, every
-         stamp at 0, and every comparison matching as before, which is why this bump changes no behaviour.
-         8.0 is BREAKING in exactly one place and it is a place nothing here reaches: TabBar becomes
-         TabBar&lt;TSurface&gt; : PixelWidgetBase&lt;TSurface&gt;, taking its renderer at construction and
-         reading the window's font / fallback / DPI off the shared context, so TabBar.Scale and the
-         font+fallback ctor arguments are gone and Render drops its renderer parameter. TianWen draws its
-         own sidebar chrome and its TuiTabBar is an unrelated class of its own; Console.Lib,
-         SdlVulkan.Renderer and WebGl.Renderer reference DIR.Lib's TabBar zero times each, which is what
-         makes this major safe to take ahead of them. They still DECLARE 7.29.2321, so the graph unifies
-         DIR.Lib upward to 8.0 by version rather than by intent, the standing smell noted elsewhere in this
-         file. WebGl.Renderer closes its half in the next cut (it is being released anyway); Console.Lib
-         and SdlVulkan.Renderer follow on their next release, and neither has anything to port.
-         The additive half of 8.0 is ClickableRegionTracker.Regions / PixelWidgetBase.RegisteredRegions (a
-         widget reads back its own regions without the per-call copy GetRegisteredRegions makes) and
-         PixelWidgetBase.DrewThisFrame, which is how a host resolving input by GEOMETRY rather than by
-         region (a wheel over a panel's column, a resize gutter, a swallow that stops a chrome click
-         starting a drag on the content under it) asks whether the widget was drawn at all. This repo has
-         several such predicates.
-         8.3 is what makes a tab strip exist ONCE. TabStripTree describes it, TabBar paints that tree on
-         pixels and Console.Lib's CellLayout paints the same tree on cells, so TianWen's sidebar is a
-         configured TabBar (Left, Uniform, no close, no reorder) and TuiTabBar supplies items instead of
-         building its own tree. It brings TabItem&lt;T&gt; (a tab carries what it MEANS, not an index the
-         host maps back), TabStripSide with orientation DERIVED from it, and CompositeWidget&lt;TSurface&gt;,
-         which is the one that mattered here: a child's regions live on the CHILD, so a host asking only
-         the composite silently misses every control its children registered. VkGuiRenderer is a composite
-         now. Also IconKind.Plus / Minus as a pair, which Console.Lib 4.26 maps.
-         The 8.0 note above about the graph unifying DIR.Lib upward by version is now half closed:
-         Console.Lib 4.26 declares 8.3 outright.
-         NOTE for the next editor of this block: an XML comment cannot contain a double hyphen, and MSBuild
-         does not say so. It reports NU1015 "PackageReference items do not have a version specified" for
-         every project instead, because the malformed comment swallows the ItemGroup below it. -->
+
     <PackageVersion Include="DIR.Lib" Version="8.3.*" />
-    <!-- DIR.Lib 3.0 extracted its codec layer to these sibling packages, which
-         ship as a lockstep family from the Codecs repo. 3.0 brought a
-         binary-breaking SharpAstro.Tiff change (TiffPageOptions.IccProfile is
-         ReadOnlyMemory<byte>) plus the JpegIccInjector sibling (now packaged as
-         SharpAstro.Jpeg.IccInjector) for APP2 ICC embedding.
-         3.1 = SharpAstro.Png CicpChunk record's positional args switched from
-         raw bytes to H.273 enums (binary-breaking) + SharpAstro.Color.Icc adds
-         the H.273 enums + IccProfiles.WithCicp helper.
-         3.2 = the new SharpAstro.Exr (OpenEXR read+write) package joins the family.
-         3.3 = family minor bump (Codecs repo); members continue to ship as a
-         matched set.
-         3.4 = the repo left the StbImageSharp fork network and was renamed to
-         Codecs (source-identical republish; the auto-translated stb_image C-port
-         was dropped, so the family no longer decodes BMP/TGA/PSD/GIF/HDR).
-         3.5 = the SharpAstro.Codecs facade grows to the whole family (TIFF/JXR/EXR/JXL
-         join PNG+JPEG decode) with ColorEncoding signalling + ToFloats(), and a new
-         SharpAstro.Jpeg.GainMap member adds gain-map (Ultra HDR / hdrgm 1.0) JPEG.
-         3.6 = SharpAstro.Jpeg gains a baseline JPEG encoder (JpegEncoder.Encode: baseline
-         sequential DCT, 4:4:4 / 4:2:0, quality 1..100; a byte-exact stb_image_write port),
-         so SharpAstro.Jpeg is now a full codec and Ultra HDR generation is fully in-family
-         (encode both renditions + GainMap.Compute/Assemble, no external encoder needed).
-         The whole family floats in lockstep off the $(SharpAstroCodecsVersion) prefix
-         (defined once at the top of this file) so all members resolve to the matched set;
-         bump that ONE property on a family minor/major. -->
+
     <PackageVersion Include="SharpAstro.Tiff" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Exif" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Png" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Color.Icc" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Jpeg.IccInjector" Version="$(SharpAstroCodecsVersion)" />
-    <!-- SharpAstro.Jpeg: pure-managed JPEG codec: baseline + progressive decode (scaled
-         1/2..1/8), and as of 3.6 a baseline sequential encoder (JpegEncoder.Encode). Consumed
-         transitively (FC.SDK.Raw / Console.Lib), directly by TianWen.UI.Benchmarks, and directly
-         by TianWen.Lib (the Ultra HDR gain-map export encodes both renditions with it). -->
+
     <PackageVersion Include="SharpAstro.Jpeg" Version="$(SharpAstroCodecsVersion)" />
-    <!-- SharpAstro.Jpeg.GainMap: gain-map (Ultra HDR / hdrgm 1.0) JPEG. TianWen.Lib's
-         MasterPreviewRenderer references it directly for the WRITE path (JpegGainMap.Compute
-         fits the gain map, JpegGainMap.Assemble splices GContainer XMP + MPF). Same 3.6.* lockstep. -->
+
     <PackageVersion Include="SharpAstro.Jpeg.GainMap" Version="$(SharpAstroCodecsVersion)" />
-    <!-- Pure-managed JPEG XR (T.832) + OpenEXR codecs. Image.WriteJxrAsync emits
-         HDR float pixels (BD32F mono / BD16F RGB); Image.WriteExrAsync emits OpenEXR
-         (FLOAT mono / HALF RGB). Same Codecs repo + 3.6.* lockstep as the
-         other SharpAstro codec siblings. -->
+
     <PackageVersion Include="SharpAstro.Jxr" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Exr" Version="$(SharpAstroCodecsVersion)" />
-    <!-- SharpAstro.Codecs: the image-decode facade (sniff magic bytes -> dispatch to the
-         matching family decoder: PNG/JPEG/TIFF/JXR/EXR/JXL). TianWen.Lib's Image.Import
-         TryReadImageFile falls back to it so tianwen can reopen the raster formats it
-         writes (PNG previews, EXR/JXR HDR masters) but has no bespoke reader for. Same
-         Codecs repo + 3.6.* lockstep as the codec members it wraps. -->
+
     <PackageVersion Include="SharpAstro.Codecs" Version="$(SharpAstroCodecsVersion)" />
-    <!-- Console.Lib 2.17 adds ScrollableList + TreeView opt-in auto wheel routing
-         (on top of 2.13-2.16 widget work). 2.18 is a no-code lockstep rebuild against
-         DIR.Lib 4.5, same sibling family as SdlVulkan.Renderer 6.1.
-         3.0 adds the cell-surface MenuWidget on DIR.Lib's shared MenuLayout; rebuilt
-         against DIR.Lib 5.0 (lockstep with SdlVulkan.Renderer 6.4).
-         3.1 renders markdown images (![alt](url)) to the terminal; rebuilt against
-         DIR.Lib 5.1 (lockstep with SdlVulkan.Renderer 6.5).
-         3.2 is a no-code lockstep rebuild against DIR.Lib 5.2.
-         3.3 is a no-code lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL).
-         3.4-3.5 continue the lockstep rebuilds against DIR.Lib 6.x; 3.5 also carries the codecs-facade
-         migration (Console.Lib references SharpAstro.Codecs for image decode). 3.8 was the no-code
-         lockstep rebuild against DIR.Lib 6.14 (its Sizing/Star signatures are binary-breaking, so the
-         3.5 binary would MissingMethodException at runtime); 3.10-3.12 continue that lockstep.
-         3.13 is the current pin: it adds the shared TextTable + BorderStyle (markdown tables render
-         through it, so mdcat inherits the border vocabulary) and widens TerminalViewport.UpdateGeometry
-         to public so a layout tree can host a widget at a Fill leaf and re-point it at the arranged
-         rect each frame. That is the seam the TUI's CellLayout migration is built on.
-         3.15 is the current pin. 3.14 taught CellLayout to honour Layout.Node.CornerRadius (one arc
-         glyph per corner; the magnitude is ignored because a grid cannot round by fractions of a cell)
-         and added ScrollableList.RegisterRowHits; 3.15 added RegisterRowSpanHits for rows carrying
-         inline buttons. Between them the list now owns the row hit geometry the TUI tabs used to
-         reconstruct by hand: viewport-offset origin, header row, SCROLLED item index, and yielding the
-         scrollbar column so the thumb stays grabbable.
-         4.3 added CellBuffer (a front/back grid whose Flush emits only changed cells, so a 40-cell
-         clock row rewritten in full per tick emits ONE cell) plus VirtualTerminal.EnableCellBuffer to
-         route writes through it, and ConsoleDebugInspector, whose cell plane is the thing a GPU surface
-         cannot offer: the screen readable as TEXT, straight off the FRONT buffer, so an agent asserts
-         in words. 4.4-4.7 shipped the Console.Lib.Inspector MCP sidecar (see .mcp.json), settled its
-         discovery tag on "tui", and gave the key verb chorded modifiers.
-         Buffering is OPT-IN in the library (unbuffered stays byte-for-byte what it was, so mdcat and
-         every other consumer are untouched by the pin alone); the TUI opts in unconditionally. Sixel
-         needed one structural fix (4.3's Canvas blit vanished under buffering): a raw blit declares
-         itself through BeginRawOutput / MarkRawRegion, both default interface methods, so the diff
-         flushes before the pixels land and then breaks its runs AROUND the picture.
-         4.8 is the current pin, and it is what makes buffering LIVABLE: it fixed the five bugs the
-         TUI's adoption exposed (unstated colours emitted as opaque black instead of SGR 39/49; text
-         inheriting its background from leftover SGR state, so a row's colour depended on which sibling
-         painted first; ReverseOn never turned off; a per-cursor-move flush shipping the HALF-PAINTED
-         diff, which WAS the once-per-second top-bar flicker; and 0x08 shadowing Ctrl+H as Backspace)
-         and added the flush accounting (FlushedCellsTotal / CollectFlushDiagnostics) that found them.
-         See CLAUDE.md's TUI-inspector section for the shapes not to reintroduce. Re-pins DIR.Lib
-         7.3.*.
-         4.10 is the current pin and is a BREAKING one: IRowFormatter is deleted and
-         ITreeNode.FormatNodeContent replaced, so a ScrollableList row now implements
-         IRowLayout.BuildRow(in RowContext) and a TreeView node ITreeNode.BuildNodeContent, both
-         returning a DIR.Lib Layout.Node that the widget arranges into the row's rect and paints via
-         CellLayout. No shim, deliberately: a default-implementation bridge would let a consumer sit
-         half-ported while keeping every defect. What it buys: a row's inline button is a
-         .Clickable(...) NODE resolved through ScrollableList.DispatchRowHit against the rect that was
-         painted, rather than a column range re-derived beside the code that drew it (and a row cannot
-         see the scrollbar column, so a right-anchored span drifted by one exactly when the list
-         scrolled); a cell states its own pen, which the diffing cell buffer requires; and the same tree
-         can serve a GPU surface. RowSpan / RegisterRowHits / RegisterRowSpanHits / RowGeometry /
-         ForEachVisibleRow are gone with it, leaving HitTestRow for "which ITEM is under this point".
-         The three-overload cascade collapses into fields on RowContext, so the next capability adds a
-         field rather than a rung an implementation can silently ignore. See Console.Lib's MIGRATION.md
-         and CLAUDE.md's Layout DSL section.
-         4.11 was a no-code lockstep rebuild against DIR.Lib 7.4, so the family restores one DIR.Lib
-         instead of two. 4.12 was the same thing against DIR.Lib 7.5. Nothing in the TUI changes in either.
-         4.14 makes CellLayout honour Layout.Content.Text.Trim (DIR.Lib 7.7), so a run says which end it
-         loses, and 4.16 states what the two NEW TextTrim members mean on a character grid (DIR.Lib 7.8).
-         Together with DIR.Lib 7.8's pixel-side TextFit, that is the same authored tree behaving the same
-         way on both of TianWen's surfaces, which is the whole premise of TuiHomeTab sharing the rig-card
-         tree with the GPU board.
-         4.17 makes ConsoleSize read the terminal's REAL size when stdout is redirected, which is exactly
-         how this repo runs the TUI (`2> tui-stderr.log`, and every scripted run through the console
-         inspector).
-         4.19 is the current pin, and the reason for the bump: TextBar.Caret parks the terminal's own
-         cursor at a column of a bar's text. TuiEquipmentTab's site row needs it — three fields in one bar
-         means the caret column is an offset into the joined string, which no single-field widget can
-         derive. 4.18 is what put the caret on ITerminalViewport in the first place.
-         4.20 was the no-code lockstep rebuild that follows DIR.Lib 7.14, taken so the TUI and the GPU
-         surface keep resolving ONE DIR.Lib rather than two. Nothing in the TUI changed.
-         4.21 is the current pin and is NOT a rebuild: it is the cell half of DIR.Lib 7.18's
-         Layout.Content.Icon. CellLayout paints the icon a shared tree names, mapping Grid / List / Auto
-         onto the block-element and mathematical-operator ranges a terminal font is relied on to carry
-         (the same well every border and tree marker here already draws from). So a view selector authored
-         once renders on the GPU board and in TuiHomeTab, which is the whole point of naming an icon by
-         meaning rather than by drawing.
-         4.22 is the cell half of those three marks, mapping them to the geometric-shapes circles rather
-         than to the sun and moon of Miscellaneous Symbols, which a monospace face need not carry. So the
-         TUI Home header renders the same theme control with no code of its own.
-         4.23 follows DIR.Lib to 7.21, so the TUI arranges through the same engine and the shared Home
-         tree centres its header controls on both surfaces from one authoring pass. -->
-    <!-- 4.24 paints DIR.Lib 7.28's TextInput leaf on a character grid, which is what let the TUI's
-         hand-rolled site-row caret arithmetic be deleted rather than reimplemented: the fill IS the
-         field, the caret is the terminal's real one, and an over-long value scrolls instead of
-         ellipsizing. CellLayout.TextInputs(arranged) feeds TextInputInteraction's TabFields, so the
-         TUI shares Tab cycling too. -->
-    <!-- 4.26 maps DIR.Lib 8.3's IconKind.Plus / Minus, and fills a hole that had been open since
-         7.23: CaretUp / CaretDown were never mapped, so both rendered as the "?" placeholder on
-         every terminal. Nothing failed, which is why it survived four minor versions. The guard is
-         EveryIconKindHasAGlyph, which enumerates the enum rather than trusting a theory's rows. -->
+
     <PackageVersion Include="Console.Lib" Version="4.26.*" />
-    <!-- SdlVulkan.Renderer 5.0 adds a multi-page SDF glyph atlas (no more grow
-         stall / Adreno submit-wedge) on top of 4.1's SetSystemCursor + anisotropic
-         glyph xScale. 5.1 implements DIR.Lib 4.4's PushClip/PopClip via Vulkan
-         scissor, in lockstep with DIR.Lib 4.4 (see above).
-         6.0 (PR #22) adds glyph/atlas hot-path perf, draw-call dedup, and Mailbox
-         present mode.
-         6.1 hardens GPU-wedge recovery: bounded vkWaitForFences drains (no unbounded
-         vkDeviceWaitIdle) + a device-level IsGpuStuck flag, so a stuck GPU can no longer
-         hang the UI thread. Repinned to DIR.Lib 4.5 (lockstep with Console.Lib 2.18).
-         6.2 (PR #27) extends that: bounded swapchain readback (no unbounded vkQueueWaitIdle),
-         TryWaitPriorFramesIdle for font-atlas grow/evict, and a once-per-storm
-         SdlWindowView.OnRenderDegraded callback so the app can load-shed to a safe view.
-         6.3 classifies pinch device type (touchpad vs touchscreen) on OnPinch, passing a
-         PinchSource so the app can anchor zoom sensibly. Repinned to DIR.Lib 4.6.
-         6.4 rebuilt against DIR.Lib 5.0 (layout engine + PixelMenuWidget); removes
-         VkMenuWidget, superseded by DIR.Lib's surface-agnostic PixelMenuWidget.
-         6.5 adds live-device offscreen thumbnail capture + per-page SDF LRU eviction;
-         repinned to DIR.Lib 5.1 (lockstep with Console.Lib 3.1).
-         6.6 is a no-code lockstep rebuild against DIR.Lib 5.2 (LayoutNode.Split).
-         6.7 is a no-code lockstep rebuild against DIR.Lib 6.0 (layout namespace + Layout.Builder DSL).
-         6.8 adds the inspector render-thread watchdog (render_liveness).
-         6.9 adds the inspector describe_layout MCP tool: serializes the full arranged DIR.Lib.Layout
-         tree (depth + kind + rect + chrome), not just the clickable subset; needs DIR.Lib 6.0.1161
-         (ArrangedNode.Depth + PixelWidgetBase.GetCapturedLayout + LayoutInspection).
-         6.10 adds DebugSignalArgs (JsonElement OptInt/OptDouble/OptBool/OptString extension members) used by
-         Program.cs's DebugInspector SignalFactories; without this bump the GUI DEBUG build fails CS1061.
-         6.11 was the prior pin (lockstep rebuild against DIR.Lib 6.4).
-         6.16 re-pinned its own DIR.Lib floor 6.6.* -> 6.8.* (requires DIR.Lib >= 6.8), which is why the
-         DIR.Lib pin above sits at 6.8.* in lockstep.
-         6.17 hardens GPU-wedge recovery: stuck-fence recovery runs on a sacrificial background task the
-         render thread only polls (a truly hung driver can block inside teardown), + SDF atlas hazard fixes.
-         6.18 idles the render loop while a window is minimized. A minimized window
-         reports a non-zero pixel size on Windows, so the old size guard missed it and the loop busy-spun
-         through swapchain recreation (~270ms/frame) for invisible frames; now gated on the SDL minimized
-         flag (~0% CPU while minimized, instant repaint on restore). Also DEBUG-only inspector additions
-         (minimize/maximize/restore + a per-iteration command pump). No DIR.Lib floor change.
-         6.23 is the current pin: adds the net10.0-android target + an SDL Vulkan host (Org.Libsdl.App.
-         SDLActivity, immersive-fullscreen default, swapchain recover-on-resume) so the renderer can run on
-         Android, plus the 6.22->6.23 atlas-backend reshape. Multi-targets net10.0;net10.0-android; a
-         net10.0 consumer (every current TianWen project) restores the net10.0 asset with NO Android
-         workload, so CI stays green. Requires DIR.Lib >= 6.10 (satisfied by the 6.11.* pin above).
-         6.24 added the large-text SDF atlas tier (a second atlas + tier-select + fallback) on
-         DIR.Lib 6.13's per-instance SdfFontAtlas. 6.25 was the no-code lockstep rebuild against
-         DIR.Lib 6.14 (binary-breaking Sizing/Star signatures). 6.26 made the Khronos validation layer
-         opt-in even in Debug (CompiledDebug and SDLVK_VALIDATION=1). 6.27 is the current pin: batched
-         DrawPolyline/DrawPolylineDashed overrides (whole polyline into one Flat-pipeline draw); see
-         docs/plans/render-batching.md.
-         7.1 moved the GPU inspector onto DIR.Lib 7.1's DebugInspectorCore and lost its reflective JSON
-         with it. 7.3 completed the inspector consolidation upstream (one
-         dir-inspect protocol shared with the terminal inspector, loopback-only bind, the SDL-side
-         transport deleted; batch and wait became core verbs). 7.4 was a no-code lockstep
-         rebuild against DIR.Lib 7.4, and 7.5 the same against DIR.Lib 7.5. No
-         render-path change in either, so these are rebuilds from TianWen's side, pinned forward to keep
-         the family on one DIR.Lib. 7.6 continued that, rebuilt against DIR.Lib 7.8 (7.6 and 7.7 needed
-         nothing there).
-         7.9 is the one that matters: a queue submit the driver REJECTS is no
-         longer treated as one in flight, which was the GPU-wedge root cause. This repo has chased that
-         wedge from its own side (see the render-thread watchdog and the gpu-freeze hardening notes), so
-         the fix belongs on the CI-restored path and not only in local sibling source. The inspector's
-         batch steps also accept the same parameter spellings as the direct verbs now, though that half is
-         DEBUG-only and so reaches us through sibling SOURCE rather than through this package.
-         7.10 is the current pin and carries the OFFSCREEN half of the same wedge: 7.9 dropped a rejected
-         frame on the swapchain path only, while an offscreen submit still went through CheckResult and
-         threw BEFORE advancing the frame index, so its fence sat reset with nothing behind it and the
-         next BeginOffscreenFrame waited on it with ulong.MaxValue. That is a permanent hang rather than
-         an escalating one, because the offscreen wait is unbounded. It reaches THIS repo through the GPU
-         test suite: OffscreenGpuFixture, VkRendererPrimitiveTests, VkHistogramPipelineTests and
-         GpuStretchPipelineTests all render offscreen, so a rejection on the CI runner could hang the job
-         instead of failing it. An offscreen submit now RETRIES a rejection instead of dropping the frame,
-         which is right because offscreen the frame IS the output and a dropped one reads back stale or
-         blank pixels indistinguishable from a render.
-         7.12 is the current pin and 7.11 is the substance: five renderer fixes found by running under
-         the Khronos validation layer from the Vulkan SDK, which is the same wedge/device-loss hunt 7.9
-         and 7.10 are above. Read as a set, they say a GPU fault must NAME itself.
-         (a) VK_ERROR_DEVICE_LOST is terminal now, not a swapchain-recovery case. It used to enter the
-         mid-frame recovery path, which cannot work once the device and every object it owns are gone, so
-         it re-failed on the next submit (three attempts inside 34ms) and escaped only because the
-         recover-streak detector tripped, logging a "recovery storm" that reads as a WORKLOAD problem and
-         points diagnosis away from a dead device. New event 115 says device loss instead. That matters
-         here because our own render-thread watchdog (the inspector's render_liveness ALIVE/BLOCKED/DEAD)
-         is the other half of the same diagnosis, and it was being handed a load-shedding story.
-         (b) The render-finished semaphore is per swapchain IMAGE now, not per frame in flight: present
-         waits until the presentation engine releases the image, image count is not bounded by
-         MaxFramesInFlight, so a new submit could re-signal a semaphore an earlier present still waited on
-         (VUID-vkQueueSubmit-pSignalSemaphores-00067). Latent while presentation is regular, which is why
-         it surfaced upstream as device losses over Remote Desktop.
-         (c) One shared subpass-dependency pair, declared once in VulkanDevice.FillSubpassDependencies and
-         used by all six creation sites, with srcAccessMask = ColorAttachmentWrite. Render-pass
-         compatibility covers dependencies, so pre-baked pipelines drawn inside the thumbnail-capture pass
-         (two) after being baked against the swapchain pass (one) reported
-         VUID-vkCmdDraw-renderPass-02684; and srcAccessMask = 0 ordered execution without a memory
-         dependency on the previous frame's storeOp write, a WRITE_AFTER_WRITE hazard on alternating
-         frames. This repo drew through both passes: the thumbnail path backs the inspector's screenshot
-         verb, and OffscreenGpuFixture / VkRendererPrimitiveTests / VkHistogramPipelineTests /
-         GpuStretchPipelineTests all render offscreen.
-         (d) validationReport stops lying. "enabled" came straight from the DEBUG + SDLVK_VALIDATION gate,
-         so a host with no Khronos layer installed reported enabled:true with zero messages, read once as
-         a clean run when nothing had been checking anything. It now also reports layerAvailable and
-         active. RULE for us: a zero message count out of the inspector's validation_report tool is
-         evidence of correctness only when active is true.
-         (e) Prefers a DiscreteGpu (a preference, never a requirement, so an integrated-only box is
-         unaffected, including the win-arm64 dev box, where it is a no-op) and logs the selection as
-         event 501: device name, type, driver version, API version, queue family, count enumerated. Until
-         this, a GPU report in our own logs could not be attributed to hardware at all.
-         7.12 itself adds a window icon from an RgbaImage, which nothing here sets yet.
-         7.13 is the current pin and carries no renderer change at all: it follows DIR.Lib to 7.18 so the
-         backend paints Layout.Content.Icon through the same PixelWidgetBase every other leaf goes
-         through, and so this repo resolves one DIR.Lib rather than two. Verified on the CI path
-         (-p:UseLocalDirLib=false) rather than a plain build, which self-enables the sibling switch and
-         resolves the project's own 7.18.0 instead of the published package.
-         7.14 follows DIR.Lib to 7.19 with no renderer change, keeping the family on one DIR.Lib.
-         7.15 follows DIR.Lib to 7.21; the alignment and icon work is all in shared code.
-         7.16 is the SDL half of DIR.Lib 7.22's cursor work: CursorKind.ToSystemCursor, on the same seam
-         as ToInputKey/ToInputModifier, and the only place in the stack that has to know SDL calls the
-         hand cursor Pointer. Both hosts here now map through it rather than naming SDL cursors directly.
-         7.16 also lets the inspector synthesize double and triple clicks (a clicks count on click /
-         clickLabel, delivering the WHOLE run rather than just its last press, because SDL reports a
-         double as two button-downs and an app is entitled to act on both). Any control with a
-         double-click affordance was undrivable unattended before it.
-         7.17 follows DIR.Lib to 7.26 and OVERRIDES its new DrawTriangles. Worth reading as a hazard
-         rather than a feature: VkRenderer already had a method of that name and shape, so the base's
-         arrival silently turned an override into a hide. That compiles and draws identically through a
-         VkRenderer reference, but held as Renderer<TSurface>, which is exactly how a backend-neutral
-         widget holds it, every triangle would have taken the software path. 7.17 also gives the
-         inspector's scroll a modifier, so Ctrl+wheel zoom and Shift+wheel are drivable at all.
-         7.18 follows DIR.Lib 7.27's nesting clip stack: the scissor calls move from the retired
-         PushClip/PopClip overrides onto ApplyClip/ClearClip, which take one absolute, already-intersected
-         rect, and the renderer resets the stack at its frame boundary (a Vulkan command buffer's scissor
-         does not survive one, so a widget that threw mid-frame could otherwise leave every later frame
-         clipped to a rect nobody can name). -->
-    <!-- 7.19 follows DIR.Lib to 7.28: describe_layout reports a text field, what it holds and
-         whether it has the keyboard. "Which box is focused" is where every text-input bug starts
-         and was unanswerable from a layout dump. -->
+
     <PackageVersion Include="SdlVulkan.Renderer" Version="7.20.*" />
-    <!-- The WebGL2 backend for the same DIR.Lib Renderer, consumed ONLY by TianWen.UI.Web (which sits
-         outside TianWen.slnx). It lives here, next to its desktop counterpart, because it used to be
-         pinned inline in that csproj instead: a sibling-family bump that swept this file could not see
-         it, so it silently sat two minors behind at 1.12 while 1.13 was published, and stayed the last
-         member built against DIR.Lib 7.0 after the rest moved to 7.4. The package graph then unified
-         DIR.Lib by taking the highest version rather than by intent. Bump it with the family.
-         1.14 was the no-code lockstep rebuild against DIR.Lib 7.4; 1.15 the same against DIR.Lib 7.5;
-         1.16 the same against DIR.Lib 7.8 (nothing in 7.6 or 7.7 touched this backend). It has moved with
-         the family each time rather than being found two minors behind, which is the point of it living
-         here. DIR.Lib 7.7's tree-stated hyperlinks matter most on this backend, since a web host is the
-         one that can render a real anchor.
-         1.18 followed DIR.Lib 7.14 with the rest of the family; 1.17 brought the canvas capture and its
-         events in as one family.
-         1.19 is the current pin and follows DIR.Lib to 7.18, so the web backend inherits
-         Layout.Content.Icon from the shared painter with no code of its own. Taken in the same cut as
-         SdlVulkan.Renderer 7.13, which is the arrangement this comment has been arguing for since 1.12
-         sat two minors behind: the family lands together or it does not land.
-         1.20 follows DIR.Lib to 7.19 in the same cut as SdlVulkan.Renderer 7.14.
-         1.21 follows DIR.Lib to 7.21 in the same cut.
-         1.22 is NOT a lockstep rebuild: it is the WebGL half of DIR.Lib 7.27's nesting clip stack, and
-         it had to exist before this repo could take 7.27 at all. The backend was still overriding
-         PushClip/PopClip, which 7.27 made non-virtual. Note how that fails, because it is quiet: the
-         source stops compiling (the good case), while a PUBLISHED binary overriding a method the base
-         no longer declares virtual either refuses to load or becomes a method that never runs, and the
-         symptom is content escaping its panel rather than an exception naming the cause. Exactly the
-         shape that cost SdlVulkan.Renderer its DrawTriangles override one release earlier, which is the
-         second time this family has paid for the same mistake. 1.22 also resets the clip stack at the
-         frame boundary and pins DIR.Lib as a FLOOR (ApplyClip does not exist before 7.27).
-         1.25 is what the web build's remaining gesture cost was: a finger reached this app TWICE, once
-         as the touch events webgl-canvas.js bridges and once as the pointer stream, which fires for
-         touch as well. WebGlCanvas.HandlePointerMoveAsync already discarded the second, so behaviour was
-         right, but it discarded it only AFTER Blazor had serialized a full PointerEventArgs and crossed
-         into .NET, which is the entire cost of an event that was never going to be used: measured in a
-         Chrome trace of a real touch session at 812 dispatches, 0.657 s, ~0.81 ms each, every one thrown
-         away, about 5.6% of the main thread's busy time. The canvas now stops a touch-sourced
-         pointermove at the target, which works because Blazor DELEGATES (one listener per event type on
-         document) and uses the capture phase only for its non-bubbling set, which pointermove is not in.
-         Pinned by an E2E here (CanvasRenderCostTests), asserted at that exact boundary: a document-level
-         listener must see mouse and pen but not touch. Mouse and pen keep the pointer stream because
-         they have no bridge; it IS their input.
-         1.25 also carries the DIR.Lib 8.0 follow, so the ONE consumer that pins 8.0 no longer unifies
-         this backend upward by version. Nothing to port: 8.0's only break is TabBar becoming a widget
-         and this backend references it zero times. -->
+
     <PackageVersion Include="WebGl.Renderer" Version="1.25.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
     <PackageVersion Include="SDL3-CS.Native" Version="3.5.0-preview.20260205-174353" />
-    <!-- Canon DSLR. Both packages ship from the FC.SDK repo at one release line, so they move
-         together. 1.7 -> 3.0 crosses two majors: 2.0 reshaped the property surface, and 3.0 adds
-         live-view magnification, which is what the planetary EVF-zoom ROI jog needed and now uses.
-         That work was deferred for three releases on a stated blocker that could not be satisfied:
-         it asked for a point/rect accessor for Evf_ZoomPosition / Evf_ZoomRect, and over PTP no such
-         property exists. Zoom and pan are OPERATIONS (0x9158 / 0x9159) and the resulting crop is a
-         record inside the live-view frame, so 3.0 ships SetEvfZoomAsync / SetEvfZoomPositionAsync /
-         GetEvfZoomRectAsync instead. Do not re-word that as pending a version again. -->
+
     <PackageVersion Include="FC.SDK" Version="3.0.*" />
-    <!-- Floating: Canon raw decoder (.cr2/.cr3 -> mosaic). Same repo + release line as FC.SDK. -->
+
     <PackageVersion Include="FC.SDK.Raw" Version="3.0.*" />
-    <!-- Blazor WebAssembly host for TianWen.UI.Web. That project is outside TianWen.slnx and is not
-         part of the desktop test/release chain, but it is still governed by this file: being outside a
-         solution has no bearing on CPM, which is resolved by walking directories. -->
+
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.9" />
     <PackageVersion Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.9" />
-    <!-- Other packages -->
+
     <PackageVersion Include="QHYCCD.SDK" Version="1.0.*" />
     <PackageVersion Include="TianWen.DAL" Version="2.0.*" />
     <PackageVersion Include="ZWOptical.SDK" Version="4.2.*" />
