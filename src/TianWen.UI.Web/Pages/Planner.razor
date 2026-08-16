@@ -1002,11 +1002,12 @@
     Tycho2MemberManifest? _tyc2Manifest;
     Tycho2PartialCatalog? _tyc2Partial;
     Tycho2RegionSelector? _tyc2Selector;
-    readonly HashSet<int> _tyc2Inflight = [];
     readonly List<int> _tyc2ScratchRegions = [];
     readonly List<int> _tyc2ScratchMembers = [];
     (long Ra, long Dec, long Fov) _tyc2ViewKey = (long.MinValue, 0, 0);
     bool _tyc2MembersActive;
+    bool _tyc2FetchRunning;
+    bool _tyc2FetchAgain;
 
     // Attempts the member path. Returns false (having changed nothing) when the assets are absent,
     // so the caller falls through to the whole-catalog fetch.
@@ -1072,9 +1073,39 @@
         => SharpAstro.Lzip.LzipDecoder.Decompress(
             await Http.GetByteArrayAsync($"tyc2/{Tycho2MemberManifest.MemberFileName(member)}"));
 
+    // Single-flight with a re-check, so a gesture costs ONE rebuild rather than one per cell it
+    // crosses. A drag walks through several quantized view cells, and the first version started a
+    // fetch + a full re-flatten at every one of them: a measured pan produced six rounds, each
+    // re-flattening every member held so far and re-uploading the whole instance buffer. Now a view
+    // change during a running batch only raises a flag, and the batch re-evaluates once when it is
+    // done -- which also means the final evaluation sees where the gesture ENDED.
+    async Task FetchVisibleMembersAsync()
+    {
+        if (_tyc2FetchRunning)
+        {
+            _tyc2FetchAgain = true;
+            return;
+        }
+
+        _tyc2FetchRunning = true;
+        try
+        {
+            do
+            {
+                _tyc2FetchAgain = false;
+                await FetchVisibleMembersOnceAsync();
+            }
+            while (_tyc2FetchAgain);
+        }
+        finally
+        {
+            _tyc2FetchRunning = false;
+        }
+    }
+
     // Fetches every member the current view needs and is not already holding, then flattens ONCE.
     // Flattening per member would re-walk all 2.5M offsets per file for a fraction more stars.
-    async Task FetchVisibleMembersAsync()
+    async Task FetchVisibleMembersOnceAsync()
     {
         if (_tyc2Manifest is not { } manifest || _tyc2Partial is not { } partial
             || _tyc2Selector is not { } selector || _skyTab is not { State: { } sky })
@@ -1089,39 +1120,36 @@
         selector.SelectVisible(sky.CenterRA, sky.CenterDec, sky.FieldOfViewDeg, _tyc2ScratchRegions);
         manifest.MembersForRegions(_tyc2ScratchRegions, _tyc2ScratchMembers);
 
-        var wanted = _tyc2ScratchMembers
-            .Where(m => m > 0 && !partial.IsPresent(m) && _tyc2Inflight.Add(m))
-            .ToArray();
+        var wanted = _tyc2ScratchMembers.Where(m => m > 0 && !partial.IsPresent(m)).ToArray();
         if (wanted.Length == 0)
         {
             return;
         }
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        // Issue every request BEFORE awaiting any of them. Awaiting each in turn made a wide view 50
+        // sequential round trips, which spends the entire point of small files: the browser can have
+        // many in flight, and small independent members are exactly what that is good at. Decode
+        // stays serial (one WASM thread), but it now overlaps the remaining downloads.
+        var downloads = wanted
+            .Select(m => (Member: m, Body: Http.GetByteArrayAsync($"tyc2/{Tycho2MemberManifest.MemberFileName(m)}")))
+            .ToArray();
+
         var landed = 0;
-        try
+        foreach (var (member, body) in downloads)
         {
-            foreach (var member in wanted)
+            try
             {
-                try
+                if (partial.Accept(member, SharpAstro.Lzip.LzipDecoder.Decompress(await body)))
                 {
-                    if (partial.Accept(member, await FetchMemberAsync(member)))
-                    {
-                        landed++;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // One member failing is a hole in the sky, not a dead atlas: keep the rest.
-                    Console.WriteLine($"[tianwen-web] tyc2 member {member} failed: {ex.Message}");
+                    landed++;
                 }
             }
-        }
-        finally
-        {
-            foreach (var member in wanted)
+            catch (Exception ex)
             {
-                _tyc2Inflight.Remove(member);
+                // One member failing is a hole in the sky, not a dead atlas: keep the rest.
+                Console.WriteLine($"[tianwen-web] tyc2 member {member} failed: {ex.Message}");
             }
         }
 
@@ -1129,8 +1157,42 @@
         {
             Console.WriteLine($"[tianwen-web] tyc2 members: +{landed} of {wanted.Length} in "
                 + $"{sw.ElapsedMilliseconds} ms ({partial.MembersPresent}/{partial.MemberCount} held)");
-            FlattenAndSubmitTycho2($"{partial.MembersPresent} members");
+            ScheduleTycho2Flatten();
         }
+    }
+
+    // The rebuild is DEBOUNCED, on the same generation-guard as the overlay labels and for the same
+    // reason. Rebuilding is not cheap -- it re-walks all 2.5M record offsets, regroups the buffer
+    // into chunks, and re-uploads the whole instance buffer -- and it does not get cheaper for
+    // arriving more often, because it always covers every member held. A measured pan crossed six
+    // quantized view cells and paid for all six; making the FETCH single-flight did not help,
+    // because the fetches got fast enough to finish between crossings, which is the tell that the
+    // flatten was the cost all along. During a gesture the stars are sliding past too fast to read
+    // anyway, exactly as with the labels.
+    int _tyc2SettleGeneration;
+    bool _tyc2FlattenPending;
+
+    void ScheduleTycho2Flatten()
+    {
+        _tyc2FlattenPending = true;
+        var generation = ++_tyc2SettleGeneration;
+        // Same shape as ScheduleLabelSettle: longer than a gesture's own event spacing so
+        // mid-gesture requests supersede each other, but still a BACKSTOP that always fires -- a
+        // gesture can end without a release reaching us, and a rebuild that waits for one that never
+        // comes would leave the newly-fetched sky invisible until the next gesture ended.
+        _ = SettleTycho2FlattenAsync(generation, _pointerGestureActive ? 700 : 120);
+    }
+
+    async Task SettleTycho2FlattenAsync(int generation, int delayMs)
+    {
+        await Task.Delay(delayMs);
+        if (generation != _tyc2SettleGeneration || !_tyc2FlattenPending || _tyc2Partial is not { } partial)
+        {
+            return; // superseded by a later batch of the same gesture
+        }
+
+        _tyc2FlattenPending = false;
+        FlattenAndSubmitTycho2($"{partial.MembersPresent} members");
     }
 
     // Per-frame hook: fetch whatever the view now needs. The selector walks 9537 bounding boxes, so
