@@ -1227,12 +1227,14 @@
             return;
         }
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var scratch = new float[count * SkyMapState.FloatsPerStar];
         var written = SkyMapState.FillTycho2StarVertices(Db, dtJulianYears: 0.0, scratch, start, count);
         if (written > 0)
         {
             _tyc2Accumulator.Add(scratch.AsSpan(0, written * SkyMapState.FloatsPerStar));
         }
+        _tyc2AccumulateMs += sw.ElapsedMilliseconds;
     }
 
     async Task<bool[]> ProbeCachedMembersAsync(int[] members)
@@ -1336,12 +1338,31 @@
     // stars that have not moved, and no comparison sort -- which is what the whole rebuild used to be.
     void PackAndSubmitTycho2(string source)
     {
+        // Timed in THREE parts, permanently. The whole of this investigation turned on the app
+        // already logging one phase and not the next: "the flatten" was blamed for a 2.4 s rebuild
+        // it contributed 74 ms to, and only the deployed build's own log could settle it. An
+        // external profile can see GL and JS but not which WASM phase it is inside, so the phases
+        // say so themselves. Three integers a settle is not a cost worth saving.
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var (verts, count, chunks) = _tyc2Accumulator.Pack();
-        Console.WriteLine($"[tianwen-web] tyc2 pack ({source}): {count} stars in {sw.ElapsedMilliseconds} ms");
+        var packMs = sw.ElapsedMilliseconds;
+
+        sw.Restart();
         _skyTab?.SubmitTycho2Stars(verts, count, chunks);
+        var submitMs = sw.ElapsedMilliseconds;
+
+        sw.Restart();
         RenderFrame(); // swap it in on the next paint
+        Console.WriteLine($"[tianwen-web] tyc2 pack ({source}): {count} stars, "
+            + $"pack {packMs} ms, submit {submitMs} ms, render {sw.ElapsedMilliseconds} ms, "
+            + $"accumulate {_tyc2AccumulateMs} ms since last");
+        _tyc2AccumulateMs = 0;
     }
+
+    // Time spent keying arriving members into the accumulator since the last settle. Aggregated
+    // rather than logged per member: a batch is up to 49 of them and the per-member number is only
+    // interesting as a total against the settle it feeds.
+    long _tyc2AccumulateMs;
 
     // Per-frame hook: fetch whatever the view now needs. The selector walks 9537 bounding boxes, so
     // it is gated on a QUANTIZED view key rather than run every frame.
