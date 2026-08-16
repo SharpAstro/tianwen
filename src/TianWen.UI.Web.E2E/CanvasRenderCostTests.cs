@@ -30,10 +30,19 @@ namespace TianWen.UI.Web.E2E;
 /// count can, which is the same reason <c>SkyMapState.PlanetCacheRebuilds</c> exists.</para>
 /// </summary>
 [Collection(TianWenWebCollection.Name)]
-public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
+public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutputHelper output)
 {
     private const float BootTimeout = 120_000;
     private static readonly Regex ActiveClass = new(@"\bactive\b");
+
+    /// <summary>
+    /// Prints what a test actually measured, not just whether it stayed inside its bound. Every
+    /// assertion here is a generous ceiling -- a gather count "under 12" is equally true at 2 and at 11,
+    /// and only one of those is the fix still working. Without the number a run says the suite is green
+    /// and says nothing about whether the win eroded, which is the thing a perf test exists to notice.
+    /// Surfaced with <c>--logger "console;verbosity=detailed"</c>.
+    /// </summary>
+    private void Report(string measurement) => output.WriteLine($"[perf] {measurement}");
 
     private readonly record struct RenderStats(
         int Frames, int Coalesced, int Gathers, bool Overlay, int Uploads, double LabelMs);
@@ -160,6 +169,9 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
         var painted = after.Frames - before.Frames;
         var coalesced = after.Coalesced - before.Coalesced;
 
+        Report($"burst pinch: {events} events -> {painted} painted, {coalesced} coalesced away "
+            + $"({(events == 0 ? 0 : 100.0 * coalesced / events):F0}% of events)");
+
         Assert.True(coalesced > 0,
             $"a {events}-event burst in one task must coalesce; coalesced={coalesced}, painted={painted}");
         Assert.True(painted < events,
@@ -198,6 +210,9 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
 
         var painted = after.Frames - before.Frames;
         var gathers = after.Gathers - before.Gathers;
+
+        Report($"paced zoom: {events} events -> {painted} painted, {gathers} overlay gathers "
+            + $"(per-event would be {painted})");
 
         // The zoom really happened, so SOME repaints landed - otherwise the test proves nothing.
         Assert.True(painted >= events / 2,
@@ -269,6 +284,10 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
         }
 
         var painted = afterPan.Frames - before.Frames;
+        Report($"20-step pan: {painted} painted, uploads +{afterPan.Uploads - before.Uploads}, "
+            + $"gathers +{afterPan.Gathers - before.Gathers}; the zoom after it uploaded "
+            + $"+{afterZoom.Uploads - afterPan.Uploads}");
+
         Assert.True(painted > 0, "the pan painted nothing, so it measured nothing");
         Assert.True(afterPan.Uploads - before.Uploads <= afterPan.Gathers - before.Gathers,
             $"a pan re-uploaded the instance buffer without re-gathering; uploads +{afterPan.Uploads - before.Uploads}, "
@@ -320,6 +339,10 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
             await Task.Delay(300, TestContext.Current.CancellationToken);
             var released = await GetStatsAsync(page);
 
+            Report($"drag label settle: moving {moving.LabelMs:F1} ms -> paused {paused.LabelMs:F1} ms "
+                + $"(+{paused.LabelMs - moving.LabelMs:F2} during a 500 ms hold) -> released {released.LabelMs:F1} ms "
+                + $"(+{released.LabelMs - paused.LabelMs:F1} once the gesture ended)");
+
             Assert.True(paused.LabelMs - moving.LabelMs < 0.01,
                 $"the labels were redrawn during a 500 ms pause inside a drag (+{paused.LabelMs - moving.LabelMs:F1} ms "
                 + "of label work): the next move hides them again, which is the flicker");
@@ -365,6 +388,8 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture)
             var idle = await GetStatsAsync(page);
 
             var painted = idle.Frames - settled.Frames;
+            Report($"idle map: {painted} frames painted over 2 s with nobody touching it");
+
             Assert.True(painted <= 1,
                 $"the map painted {painted} frames over 2 s while nobody touched it: the label-settle "
                 + "repaint is re-arming itself, so the labels never land and the map never goes quiet");
