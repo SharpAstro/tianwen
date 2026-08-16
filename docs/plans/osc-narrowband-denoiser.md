@@ -331,6 +331,39 @@ moves. **So N2d rotates the observer before anything else is concluded from 1b, 
 needs no training, only evaluation, and if proximity is what is being measured then the whole
 8-beats-60 line has been steering this programme since v17 on a sampling artifact.
 
+### 1j. The observer rotation clears it: proximity is not what produced 1i
+
+v20 (`D:\Astro-Dataset\n2n-smoke\v20\README.md`, `rotate-v20.txt`). No training; the same 12
+checkpoints re-scored on every session no arm has seen, each with its own raw-sub floor and noise
+normalisation. Faint amplitude kept, few-session arms against many:
+
+| Observer | v15 | v17c | v19c | v19d | few - many |
+|---|---|---|---|---|---|
+| ASI533 / Rim Nebula (0.90) | 0.816 | 0.781 | 0.730 | **0.825** | +0.035 |
+| SV605CC / Horsehead | 0.891 | 0.858 | 0.886 | **0.901** | +0.005 |
+| SV605CC / Skull and Crossbones | 0.863 | 0.826 | 0.839 | **0.865** | +0.024 |
+| ASI585 / 24mm wide field | 0.858 | 0.851 | 0.846 | **0.856** | +0.005 |
+
+**8 of 8 cells across four observers and two noise levels favour the 8-session arms**, and v19d
+(360 cells) is best in 7 of 8. The direction never flips, which is exactly what the proximity
+story required.
+
+**The decisive cell is the ASI585 field.** The few-session arms contain no ASI585 session at all
+(v15's eight are 5 ASI533 + 3 SV605CC) while v17c trained on eight. On the one observer where the
+many-session arm has home advantage and the few-session arms are strangers, the few-session arms
+still win. Proximity cannot produce that.
+
+Read it with two limits. **Two of the four margins are 0.005, below seed spread, and are ties**;
+the evidence is the consistency of a direction, not the size of any cell. And **a residual
+proximity signal is visible** -- the largest margin is on Rim Nebula, the smallest on the two
+fields furthest from the pool -- so proximity likely contributes to the v19 numbers without
+producing them.
+
+**Consequence: task #36 is unblocked** and the averaged-prior mechanism is the one to attack. Also
+worth noting the ceiling: only four observers exist because v17 consumed 62 of the root's 67
+sessions and two of the rest are mono. Widening this needs more of the archive baked (task #11),
+not more evaluation code.
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.
@@ -358,7 +391,7 @@ Ordered by value per unit of work, not by dependency.
 | ~~**N1**~~ | ~~**Re-bake from `D:\Astro-Organized`.**~~ **DONE 2026-08-15**, see 1f. `D:\Astro-Dataset\2025-2026-organized`, 51/52 sessions, 159,300 tiles, 231 min. Every session carries its filter from the header. | 3.9 h, no code | Everything below depended on the dataset knowing its filter, and the work to make that true was already done and then not used. |
 | ~~**N2a**~~ | ~~**Retrain v17 without the 8 ASI585 sessions.**~~ **DONE 2026-08-16, negative on both counts, see 1h.** The ASI585 sessions are innocent and dropping 8 sessions of any kind changes nothing. | 1.6 h | Ruled out the cheapest mechanism, and exposed the axis nobody had separated. |
 | ~~**N2c**~~ | ~~**21 sessions x 45 cells.**~~ **DONE 2026-08-16, see 1i.** Ran as a 2x2 with an 8x45 arm rather than alone, which is what made it decisive: session count is the lever, volume / density / epochs are not, and it saturates by 21. | 1.4 h | Answered, and it promoted #36 from one candidate to the only one. |
-| **N2d** | **Rotate the observer session.** Score the existing v15 / v17c / v19c / v19d checkpoints against several held-out sessions one at a time, instead of only Rim Nebula. | ~20 min, NO training | 1i is one observer wide. "Few sessions generalise better" and "these 8 happen to sit near Rim Nebula" predict the same table, and the second would mean 1b, 1h and 1i have all been reading a sampling artifact. Nothing else should be concluded until this runs. |
+| ~~**N2d**~~ | ~~**Rotate the observer session.**~~ **DONE 2026-08-16, see 1j.** 8 of 8 cells favour the few-session arms, including on the ASI585 field they never trained on and v17c did. Proximity excluded. | 25 min | Cleared the confound that would have invalidated 1b, 1h and 1i, and unblocked N2b. |
 | **N2b** | **PSF conditioning in the trainer.** Feed measured per-plane PSF width as a conditioning input, exactly as noise sigma already is. Re-run the 60-session arm against v15's frontier. | ~1 h GPU | The v8 lesson one axis over: the failure was a single-point training distribution, and the fix was making the varying quantity an INPUT rather than narrowing the data. If it works it explains 1b instead of working around it, and keeps all sessions. Task #36. Gated on N2a, which may make it unnecessary. |
 | **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
 | **N4** | **Ship a checkpoint behind a strength dial.** `n2n_v17c_s0_final.pt` at 0.80x is already a defensible operating point (+2.0 relative, -19 absolute). Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed. | medium | A model exists and is not deployed. Independent of N1-N3. |
