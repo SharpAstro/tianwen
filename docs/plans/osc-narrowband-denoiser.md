@@ -364,6 +364,48 @@ worth noting the ceiling: only four observers exist because v17 consumed 62 of t
 sessions and two of the rest are mono. Widening this needs more of the archive baked (task #11),
 not more evaluation code.
 
+### 1k. Band conditioning does not rescue the 60-session arm, and the cheap proxy is spent
+
+v21 (`D:\Astro-Dataset\n2n-smoke\v21\README.md`). `--cond-bands` (3 DoG-band planes) against
+`--cond` (1 scalar) on the same two caches, config otherwise v17c's, three seeds, four observers.
+
+**The shape of #36 had to change before it could run.** Conditioning planes are computed FROM THE
+TILE inside `with_sigma()`, at training and inference alike. A per-session PSF width read out of
+`psf-sessions.jsonl` would train the model to lean on a number a deployed denoiser can never
+obtain, which is [the tile-border train/inference asymmetry](../../docs/plans/ai-denoise-deconv.md)
+in another costume. `--cond-bands` is the conditioning upgrade that respects the constraint, and
+`run-v17c.ps1` had pre-registered this exact re-test (v14 rejected band conditioning, but on the
+8-session data "where a shape descriptor had far less to do").
+
+Faint amplitude at matched noise 0.90, usable seeds in brackets:
+
+| Observer | 60 scalar | 60 bands | 8 scalar | 8 bands |
+|---|---|---|---|---|
+| Rim Nebula | 0.781 (1) | **never reaches 0.90** | 0.825 (3) | 0.809 (3) |
+| Horsehead | 0.858 (3) | 0.902 (2) | 0.901 (3) | 0.899 (3) |
+| Skull and Crossbones | 0.826 (3) | 0.844 (2) | 0.865 (2) | 0.908 (1) |
+| ASI585 wide field | 0.851 (2) | 0.847 (2) | 0.856 (2) | 0.906 (3) |
+
+**No.** The 60-band arm beats 60-scalar on two of three observers where it produces a number, still
+trails the 8-session arms on two of three, and on Rim Nebula cannot be pushed to 0.90 at all. **It
+also destabilised training**: `v21a_s0` plateaued at 0.94x and never passed the gate, so no
+`_final.pt` exists, which no scalar-conditioned arm here has ever done.
+
+**Read it with the seed counts.** They run 1, 2 and 3 across cells, so several means come from very
+small and unequal subsets (`8 bands` on Skull is ONE seed). The supportable claim is "band
+conditioning did not rescue the 60-session arm and made training less reliable", NOT a ranking of
+the four arms. **We are at the resolution limit of 4 observers x 3 seeds with a gate that sometimes
+yields nothing**; a finer question needs more observers (task #11) or more seeds first.
+
+**What survives.** The 3 bands measure per-band noise SIGMA, i.e. the noise's colour. 1i's
+hypothesis is about PSF regimes, and PSF width is a property of the SIGNAL that no band-sigma plane
+reports. So this kills the cheap proxy, not the hypothesis. Testing it properly needs a
+signal-scale plane measurable from one tile (autocorrelation width of the high-passed image, or a
+star-size estimate), which is new code and a real estimator-design problem.
+
+**Given v19d already beats every other arm on every observer, N4 comes first.** Ship the model that
+exists, then decide whether the estimator is worth building.
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.
@@ -392,9 +434,10 @@ Ordered by value per unit of work, not by dependency.
 | ~~**N2a**~~ | ~~**Retrain v17 without the 8 ASI585 sessions.**~~ **DONE 2026-08-16, negative on both counts, see 1h.** The ASI585 sessions are innocent and dropping 8 sessions of any kind changes nothing. | 1.6 h | Ruled out the cheapest mechanism, and exposed the axis nobody had separated. |
 | ~~**N2c**~~ | ~~**21 sessions x 45 cells.**~~ **DONE 2026-08-16, see 1i.** Ran as a 2x2 with an 8x45 arm rather than alone, which is what made it decisive: session count is the lever, volume / density / epochs are not, and it saturates by 21. | 1.4 h | Answered, and it promoted #36 from one candidate to the only one. |
 | ~~**N2d**~~ | ~~**Rotate the observer session.**~~ **DONE 2026-08-16, see 1j.** 8 of 8 cells favour the few-session arms, including on the ASI585 field they never trained on and v17c did. Proximity excluded. | 25 min | Cleared the confound that would have invalidated 1b, 1h and 1i, and unblocked N2b. |
-| **N2b** | **PSF conditioning in the trainer.** Feed measured per-plane PSF width as a conditioning input, exactly as noise sigma already is. Re-run the 60-session arm against v15's frontier. | ~1 h GPU | The v8 lesson one axis over: the failure was a single-point training distribution, and the fix was making the varying quantity an INPUT rather than narrowing the data. If it works it explains 1b instead of working around it, and keeps all sessions. Task #36. Gated on N2a, which may make it unnecessary. |
+| ~~**N2b**~~ | ~~**PSF conditioning in the trainer.**~~ **PARTLY DONE 2026-08-16 as band conditioning, negative, see 1k.** The cheap tile-measurable proxy (`--cond-bands`, 3 noise-colour planes) does not rescue the 60-session arm and destabilised training. | 1.4 h | Killed the proxy, not the hypothesis: band sigma describes NOISE colour, and 1i is about SIGNAL scale. |
+| **N2e** | **A signal-scale conditioning plane, measurable from ONE tile.** NOT a per-session PSF lookup: per 1k the planes are computed inside `with_sigma()` at inference too, so a side-table width is a train/inference asymmetry that ships broken. Needs a real estimator (autocorrelation width of the high-passed tile, or star size where stars exist) plus its calibration, in the shape `band_sigma_torch` already models. | new code, ~1 day + GPU | The 1i mechanism is still standing and 1k killed only the proxy. **But do N4 first**: this is speculative estimator design against a model that is already the best one here, and 1k showed the evaluation is at its resolution limit anyway. |
 | **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
-| **N4** | **Ship a checkpoint behind a strength dial.** `n2n_v17c_s0_final.pt` at 0.80x is already a defensible operating point (+2.0 relative, -19 absolute). Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed. | medium | A model exists and is not deployed. Independent of N1-N3. |
+| **N4** | **Ship a checkpoint behind a strength dial. The one to ship is now `n2n_v19d_s*_final.pt`** (8 sessions, 360 train cells, scalar conditioning), which is best or tied-best on all four observers at both noise levels and beats the v17c checkpoint the earlier draft of this row named. Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed; `with_sigma`'s `strength` argument IS the dial, no retraining needed. | medium | **This is now the next thing to do.** Four experiments have refined the research question and the best deployable model has not moved since v19; N2b's estimator is speculative work by comparison. |
 | **N5** | **Key `FieldRadiusProfiles` by (train, filter).** N1 has made the filter available from headers, so the key change itself is a few lines. It is NOT only a key change: per 1f the split is 36-to-1 on the ASI533, so the design decision is what a one-session cell does (fall back to the train profile, or be withheld as unsupported), and that has to be stated rather than emerge. Task #19. | small | Before N1 it needed a side-table that should never have been contemplated. |
 | **N6** | **Mono narrowband support.** Deferred until good mono data exists; the archive's 2 ASI1600MM sets are assessed as poor and must NOT be used as a baseline. Task #37. |  | The user intends to shoot true narrowband, where per-filter focus removes 1c's root cause at acquisition. |
 | **N7** | Red centre-vs-corner star cutouts, if the optical reading ever needs pixel-level confirmation rather than statistical. | small | Optional. The four falsified hypotheses plus train- and filter-dependence already carry it. |
