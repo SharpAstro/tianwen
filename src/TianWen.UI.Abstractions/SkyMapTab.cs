@@ -684,9 +684,17 @@ namespace TianWen.UI.Abstractions
                     && sx >= rect.X && sx < rect.X + rect.Width
                     && sy >= rect.Y && sy < rect.Y + rect.Height)
                 {
-                    var name = planetIdx == CatalogIndex.Moon ? "Moon"
-                        : planetIdx == CatalogIndex.Sol ? "Sun"
-                        : db.TryLookupByIndex(planetIdx, out var obj) ? obj.DisplayName : "?";
+                    // Everything about a planet except where it is on screen is FIXED, so it is
+                    // resolved once and kept: the display name (a DB lookup), the hit result, and the
+                    // click delegate. Rebuilding those per planet per frame is ~30 allocations a frame
+                    // on a path that runs on every pointermove -- an interpolated hit label, a closure
+                    // over the screen position, and a delegate, plus a catalog lookup for a name that
+                    // cannot change. Measured on the deployed build this layer was 2.91 ms/frame, 41%
+                    // of the whole map render, against 0.38 ms for all 88 constellation names -- and
+                    // those draw text the same way but register nothing, which is what points here
+                    // rather than at the glyphs.
+                    var label = GetPlanetLabel(db, planetIdx);
+                    var name = label.Name;
                     var belowHorizon = dimBelowHorizon && !site.IsAboveHorizon(ra, dec);
                     var planetColor = DimmedIf(SkyMapRenderer.GetPlanetColor(planetIdx), belowHorizon);
 
@@ -706,13 +714,58 @@ namespace TianWen.UI.Abstractions
                     // outside that tolerance -- so it was unclickable. Register a hit box over the
                     // label that synthesizes a click-select at the DOT position, so the same resolver
                     // selects the planet. Mirrors how catalog-object labels are made clickable.
-                    var planetScreenX = sx;
-                    var planetScreenY = sy;
+                    //
+                    // The delegate reads the position off the cached entry instead of capturing it,
+                    // so it is allocated once rather than per frame. The click still uses THIS
+                    // frame's position, because the entry is stamped just below.
+                    label.ScreenX = sx;
+                    label.ScreenY = sy;
                     RegisterClickable(sx + 10, sy - fontSize, 100, fontSize * 1.2f,
-                        new HitResult.ButtonHit($"SkyMapPlanetLabel:{name}"),
-                        _ => PostSignal(new SkyMapClickSelectSignal(planetScreenX, planetScreenY, InputModifier.None)));
+                        label.Hit, label.OnClick);
                 }
             }
+        }
+
+        /// <summary>
+        /// Per-planet constants for <see cref="DrawPlanetLabels"/>, resolved on first sight and kept:
+        /// the display name, the hit result, and the click delegate. <see cref="ScreenX"/> /
+        /// <see cref="ScreenY"/> are re-stamped each frame so the one delegate can read the current
+        /// position without a closure capturing it.
+        /// </summary>
+        private sealed class PlanetLabelEntry
+        {
+            public PlanetLabelEntry(string name, SkyMapTab<TSurface> owner)
+            {
+                Name = name;
+                Hit = new HitResult.ButtonHit("SkyMapPlanetLabel:" + name);
+                OnClick = _ => owner.PostSignal(
+                    new SkyMapClickSelectSignal(ScreenX, ScreenY, InputModifier.None));
+            }
+
+            public string Name { get; }
+
+            public HitResult Hit { get; }
+
+            public Action<InputModifier> OnClick { get; }
+
+            public float ScreenX;
+
+            public float ScreenY;
+        }
+
+        private readonly Dictionary<CatalogIndex, PlanetLabelEntry> _planetLabels = [];
+
+        private PlanetLabelEntry GetPlanetLabel(ICelestialObjectDB db, CatalogIndex planetIdx)
+        {
+            if (!_planetLabels.TryGetValue(planetIdx, out var label))
+            {
+                var name = planetIdx == CatalogIndex.Moon ? "Moon"
+                    : planetIdx == CatalogIndex.Sol ? "Sun"
+                    : db.TryLookupByIndex(planetIdx, out var obj) ? obj.DisplayName : "?";
+                label = new PlanetLabelEntry(name, this);
+                _planetLabels[planetIdx] = label;
+            }
+            return label;
         }
 
         private static readonly RGBAColor32 CometColor      = new(0x88, 0xEE, 0xCC, 0xFF);
@@ -825,17 +878,74 @@ namespace TianWen.UI.Abstractions
                 // on 10P in 2026: our two-body propagation lands 9.3 degrees from Horizons after two
                 // revolutions, while the magnitude agrees with Horizons to 0.03 mag. So the label
                 // qualifies the dot the user is looking at, and leaves the number alone.
-                var text = $"{marker.Label}{(marker.PositionUncertain ? "?" : "")}  {marker.VMag:F1}m";
-                DrawText(text.AsSpan(), fontPath,
+                // Cached exactly as the planet label is, and for the same measured reason: the hit
+                // result, the click delegate and the display text would otherwise be rebuilt per
+                // marker per frame, on a path that runs on every pointermove. The text is rebuilt
+                // only when what it SAYS changes -- the magnitude is formatted to 0.1, so it is
+                // stable across a whole gesture even though the underlying value drifts continuously.
+                var entry = GetCometLabel(marker.Index, marker.Label);
+                DrawText(entry.Text(marker.VMag, marker.PositionUncertain).AsSpan(), fontPath,
                     sx + 10, sy - fontSize, 170, fontSize * 1.2f,
                     fontSize, labelColor, TextAlign.Near, TextAlign.Center);
 
-                var dotX = sx;
-                var dotY = sy;
+                entry.ScreenX = sx;
+                entry.ScreenY = sy;
                 RegisterClickable(sx + 10, sy - fontSize, 170, fontSize * 1.2f,
-                    new HitResult.ButtonHit($"SkyMapCometLabel:{marker.Label}"),
-                    _ => PostSignal(new SkyMapClickSelectSignal(dotX, dotY, InputModifier.None)));
+                    entry.Hit, entry.OnClick);
             }
+        }
+
+        /// <summary>Per-comet counterpart of <c>PlanetLabelEntry</c>. Keyed on the catalog index and
+        /// rebuilt if the designation itself changes, which an apparition upgrade can do.</summary>
+        private sealed class CometLabelEntry
+        {
+            private string _text = string.Empty;
+            private int _textMagTenths = int.MinValue;
+            private bool _textUncertain;
+
+            public CometLabelEntry(string label, SkyMapTab<TSurface> owner)
+            {
+                Label = label;
+                Hit = new HitResult.ButtonHit("SkyMapCometLabel:" + label);
+                OnClick = _ => owner.PostSignal(
+                    new SkyMapClickSelectSignal(ScreenX, ScreenY, InputModifier.None));
+            }
+
+            public string Label { get; }
+
+            public HitResult Hit { get; }
+
+            public Action<InputModifier> OnClick { get; }
+
+            public float ScreenX;
+
+            public float ScreenY;
+
+            /// <summary>The rendered label, rebuilt only when the displayed magnitude (to 0.1) or the
+            /// uncertainty marker actually changes -- never merely because the frame did.</summary>
+            public string Text(double vMag, bool positionUncertain)
+            {
+                var tenths = (int)Math.Round(vMag * 10.0);
+                if (tenths != _textMagTenths || positionUncertain != _textUncertain || _text.Length == 0)
+                {
+                    _textMagTenths = tenths;
+                    _textUncertain = positionUncertain;
+                    _text = $"{Label}{(positionUncertain ? "?" : "")}  {vMag:F1}m";
+                }
+                return _text;
+            }
+        }
+
+        private readonly Dictionary<CatalogIndex, CometLabelEntry> _cometLabels = [];
+
+        private CometLabelEntry GetCometLabel(CatalogIndex index, string label)
+        {
+            if (!_cometLabels.TryGetValue(index, out var entry) || entry.Label != label)
+            {
+                entry = new CometLabelEntry(label, this);
+                _cometLabels[index] = entry;
+            }
+            return entry;
         }
 
         private static readonly RGBAColor32 TimeShiftColor = new(0x88, 0xCC, 0xFF, 0xFF);
