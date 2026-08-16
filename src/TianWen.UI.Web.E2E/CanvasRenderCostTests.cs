@@ -217,10 +217,11 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
         var canvas = page.Locator("#planner");
         await SetObjectOverlayAsync(page, canvas, on: false);
 
-        RenderStats after;
+        RenderStats before, after;
         var pinned = 0;
         try
         {
+            before = await GetStatsAsync(page);
             // Two real DSOs, pinned through the same PlannerActions path the sky map's pin button uses.
             foreach (var name in new[] { "M8", "NGC6611" })
             {
@@ -255,7 +256,18 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
             }
         }
 
+        var painted = after.Frames - before.Frames;
+        var gathers = after.Gathers - before.Gathers;
         Report($"pinned={after.Pins} overlay={after.Overlay} -> {after.Candidates} candidates gathered");
+        if (painted > 0)
+        {
+            // The cost side of the same fact. A gather that returns 2 costs nothing; one that returns
+            // thousands is a walk of the catalog, and this pan pays for however many it triggers.
+            Report($"  pan: {painted} painted, {gathers} gathers, per painted frame "
+                + $"render {(after.RenderMs - before.RenderMs) / painted:F2} ms "
+                + $"(gather {(after.GatherMs - before.GatherMs) / painted:F2}, "
+                + $"labels {(after.LabelMs - before.LabelMs) / painted:F2}) of a 16.67 ms frame");
+        }
 
         Assert.Equal(2, pinned);
         Assert.Equal(2, after.Pins);
