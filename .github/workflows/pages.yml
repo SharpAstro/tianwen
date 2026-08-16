@@ -126,10 +126,26 @@ jobs:
             --seed https://sharpastro.github.io/tianwen/comets-apparitions.json \
             --max-fetches 120
 
-      # Stage the full Tycho-2 catalog as a same-origin static asset. Lightweight strips the ~30 MB
-      # tyc2.bin.lz from the WASM bundle (keeps the bundle small); the atlas fetches it on first
-      # open and decodes it in-browser (web-tycho2.md). The .lz source is an LFS object pulled above.
-      - name: Stage tyc2.bin.lz for the Sky Atlas (fetched at runtime, not bundled)
+      # Stage the full Tycho-2 catalog as same-origin static assets. Lightweight strips the ~30 MB
+      # tyc2.bin.lz from the WASM bundle (keeps the bundle small); the atlas fetches it on first open
+      # and decodes it in-browser (web-tycho2.md). The .lz source is an LFS object pulled above.
+      #
+      # TWO shapes are staged, and both are wanted:
+      #   tyc2.bin.lz   the whole catalog, one request. Still the fallback, and what a client uses
+      #                 when it wants everything.
+      #   tyc2/*.lz     166 region-aligned members + a manifest, so a view fetches only the sky it
+      #                 is looking at: a 10-degree field costs 9 files / 1.40 MiB against 28.7 MiB.
+      #
+      # The members are DERIVED from the same .lz, not baked from the upstream catalog, so they
+      # cannot drift into disagreeing about the sky; bake-tycho2 verifies the concatenated members
+      # decode back to the identical bytes and refuses to write if they do not.
+      #
+      # These are FILES rather than byte ranges of the one asset because ranges are unusable on both
+      # candidate hosts: GitHub Pages answers 206 over the GZIP representation (Fastly compresses
+      # every content type, and Accept-Encoding is a forbidden header so no browser can ask for
+      # identity), and Cloudflare Pages ignores Range outright. Do NOT re-test this with curl and
+      # conclude otherwise -- curl's default headers are exactly what hides it.
+      - name: Stage Tycho-2 for the Sky Atlas (whole catalog + region-aligned members)
         run: |
           set -euo pipefail
           src="src/TianWen.Lib/Astrometry/Catalogs/tyc2.bin.lz"
@@ -137,6 +153,11 @@ jobs:
           [ "$(stat -c%s "$src")" -gt 1000000 ] || { echo "tyc2.bin.lz looks like an LFS pointer, not the object"; exit 1; }
           cp "$src" src/TianWen.UI.Web/wwwroot/tyc2.bin.lz
           echo "staged tyc2.bin.lz ($(du -h src/TianWen.UI.Web/wwwroot/tyc2.bin.lz | cut -f1))"
+          # No --nologo: dotnet run forwards an unrecognised flag to the APP, which rightly rejects
+          # it (exit 2). DOTNET_NOLOGO is set in env: anyway. Same trap as the bake-comets run.
+          dotnet run --project tools/bake-tycho2/BakeTycho2.csproj -c Release -- \
+            "$src" src/TianWen.UI.Web/wwwroot/tyc2
+          echo "staged $(ls src/TianWen.UI.Web/wwwroot/tyc2 | wc -l) member files"
 
       # No sibling checkouts in CI: WebGl.Renderer + DIR.Lib resolve from NuGet
       # (UseLocalSiblings=false). Lightweight strips the 30 MB tyc2 catalog; AOT is the

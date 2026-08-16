@@ -176,16 +176,62 @@ member.** So the change is to the bake, not to the layout.
     the LZMA dictionary (`LzipEncoder` caps the dictionary to the member's own length), so the
     penalty grows as members shrink by an amount eight members cannot predict. Measured separately;
     see the member-size table.
-- **Desktop reads every member** -- unchanged by construction, not by careful preservation -- and
-  *gains* parallel decode for free, since `LzipDecoder.Parallel.For` only engages on a multi-member
-  file.
-- **Web fetches the 37.3 KB header + the bounds table, then coalesced ranges for the regions the view
-  covers.** GitHub Pages honours byte-range GETs (verified: `206 Partial Content` with an exact
-  `Content-Range` at offset 0 and mid-file). One asset, no CI splitting step, and **no new tile
-  index -- the offset table and the bounds table are both already shipped**.
+- **Desktop reads every member** -- unchanged by construction, not by careful preservation. It does
+  **not** gain parallel decode from this: an earlier draft claimed it would, but the shipped asset is
+  *already* multi-member, because `Get-Tycho2Catalogs.ps1` bakes it with `lzip -9 -b 4MiB` (~11
+  members). `LzipDecoder`'s `Parallel.For` has been engaging all along. Finer members make its units
+  smaller, nothing more.
+- **Web fetches one file per member.** Not byte ranges -- see below, they do not work on either host.
 - **Seam:** `ICelestialObjectDB.TryLoadTycho2BulkFromDecoded` gains an append/incremental form so
   regions can be submitted as they land. `SubmitTycho2Stars` already does a render-thread buffer
   swap, so progressive submission reuses the mechanism that is there rather than adding one.
+
+### Byte ranges do not work, on EITHER host (measured 2026-08-16)
+
+An earlier revision of this plan specified coalesced byte ranges over one asset and explicitly
+forbade splitting into files. **Both halves were wrong**, and the way they were wrong is the reason
+to record it: the range design passes every local test, works perfectly under `curl`, and returns
+garbage in a browser.
+
+- **GitHub Pages returns `206` -- over the GZIP representation.** Fastly compresses *every* content
+  type there (checked `application/octet-stream`, `application/json`, `text/html`), so a request
+  carrying Chrome's real `Accept-Encoding: gzip, deflate, br, zstd` for `bytes=20000000-20000063`
+  comes back with `Content-Range: bytes 20000000-20000063/30116376` -- the **gzip** length, not the
+  file's 30,107,173 -- and a 64-byte body that is not valid gzip standalone. **`Accept-Encoding` is a
+  forbidden header name**, so no browser can ask for identity and no amount of client code recovers
+  it. The earlier "verified 206 at offset 0 and mid-file" was true and measured with `curl`'s default
+  headers, which is precisely the trap.
+- **Cloudflare Pages ignores `Range` outright**: `200 OK` with the full body, no `Accept-Ranges`,
+  cold or warm. Worse for ranges, though it does not gzip binaries.
+
+**So: one file per member.** The objection the old plan raised against files ("a CI step, N cache
+entries and a manifest to keep in sync") does not survive contact: the bake is a CI step either way,
+the manifest is needed either way because lzip member enumeration walks BACKWARDS from the file end
+(`LzipDecoder.FindMembers`) and a client holding only the head cannot find member boundaries, and N
+cache entries is a *benefit* -- the browser's own HTTP cache handles them per member.
+
+**It is still one artifact.** The member files concatenated in order ARE the multi-member lzip file,
+byte for byte -- the desktop embeds the concatenation, the browser fetches slices of it, and neither
+knows what the other did. That is the "one artifact serves both hosts" invariant intact, not
+abandoned; only the delivery is sliced.
+
+### Host choice: build for GitHub Pages, treat Cloudflare as a pure upgrade
+
+Ranges are dead on both, so the design is host-agnostic and nothing about the code changes with the
+host. Cloudflare Pages is nonetheless the better home for it, on two axes that are **deploy config,
+not code** (both verified live against a throwaway `pages.dev` project):
+
+- **`Cache-Control` on immutable members.** GitHub Pages pins `max-age=600` with no override, so a
+  visitor returning after ten minutes revalidates every member. Cloudflare `_headers` accepts
+  `public, max-age=31536000, immutable` -- verified served back. On a design that lands 166 immutable
+  files that is most of what P3's IndexedDB cache does, bought with a header.
+- **COOP/COEP, i.e. wasm threads.** [web-multithreading.md](web-multithreading.md) names these two
+  headers as *the* gated layer and records "GitHub Pages gives no way to set response headers" as the
+  blocker. `_headers` sends arbitrary headers (verified), so Cloudflare removes that blocker and the
+  `coi-serviceworker` shim with it. **Worth noting threads are worth LESS after this phase, not
+  more** -- a wide view decodes ~17 MB instead of 43.5 MB -- and that COEP `require-corp` forces every
+  cross-origin subresource to opt in, which is survivable here only because the JPL comet assets are
+  now baked same-origin.
 
 ### The run-count gate: MEASURED 2026-08-16, and it passes
 
@@ -236,18 +282,29 @@ Baseline: raw 43.52 MB, single member **28.88 MiB** with our own encoder (the sh
 28.71 MiB -- `LzipEncoder` is ~0.6% behind whatever baked it, which is why the deltas below are
 against our single-member number and not against the file on disk).
 
+Requests below are **files**, since ranges are unusable. Files cannot be coalesced, which moves the
+knee upward from where a range-based delivery would have put it.
+
 | member target | members | total | vs 1 member | gal. centre 60 deg | gal. centre 10 deg | gal. centre 2 deg |
 |---|---:|---:|---:|---|---|---|
-| 4 MB | 12 | 28.88 MiB | +0.0% | 2 req, 23.31 MiB | 2 req, 8.29 MiB | 2 req, 5.55 MiB |
-| 1 MB | 43 | 28.97 MiB | +0.3% | 6 req, 19.14 MiB | 5 req, 3.49 MiB | 3 req, 1.41 MiB |
-| 256 KB | 166 | 29.28 MiB | +1.4% | 16 req, 11.87 MiB | 5 req, 1.40 MiB | 3 req, 0.36 MiB |
-| **64 KB** | **636** | **29.45 MiB** | **+1.9%** | **17 req, 9.68 MiB** | **6 req, 0.79 MiB** | **3 req, 0.20 MiB** |
-| 32 KB | 1,219 | 29.61 MiB | +2.5% | 19 req, 9.44 MiB | 7 req, 0.72 MiB | 4 req, 0.15 MiB |
-| 16 KB | 2,264 | 29.89 MiB | +3.5% | 26 req, 9.19 MiB | 9 req, 0.61 MiB | 5 req, 0.11 MiB |
+| 2 MB | 22 | 28.90 MiB | +0.0% | 17 files, 21.95 MiB | 6 files, 6.93 MiB | 3 files, 2.78 MiB |
+| 1 MB | 43 | 28.97 MiB | +0.3% | 29 files, 19.14 MiB | 6 files, 3.49 MiB | 3 files, 1.41 MiB |
+| 512 KB | 84 | 29.12 MiB | +0.8% | 43 files, 14.61 MiB | 7 files, 2.09 MiB | 4 files, 1.06 MiB |
+| **256 KB** | **166** | **29.28 MiB** | **+1.4%** | **69 files, 11.87 MiB** | **9 files, 1.40 MiB** | **3 files, 0.36 MiB** |
+| 128 KB | 326 | 29.36 MiB | +1.6% | 120 files, 10.54 MiB | 14 files, 1.16 MiB | 4 files, 0.28 MiB |
+| 64 KB | 636 | 29.45 MiB | +1.9% | 213 files, 9.68 MiB | 18 files, 0.79 MiB | 5 files, 0.20 MiB |
+| 32 KB | 1,219 | 29.61 MiB | +2.5% | 397 files, 9.44 MiB | 30 files, 0.72 MiB | 6 files, 0.15 MiB |
 
-**Take 64 KB.** It costs +1.9% (~0.57 MiB) on the asset and turns the worst view from an
-unconditional 28.88 MiB into 9.68 MiB (3.0x), a 10-degree view into 0.79 MiB (37x) and a 2-degree
-view into 0.20 MiB (144x).
+**Take 256 KB.** It costs +1.4% (~0.40 MiB) on the asset and turns the worst view from an
+unconditional 28.88 MiB into 11.87 MiB (2.4x), a 10-degree view into 1.40 MiB (21x) and a 2-degree
+view into 0.36 MiB (80x), at 69 / 9 / 3 requests.
+
+**Why not smaller, given 64 KB downloads less?** Because the 2.2 MiB it saves on the worst view costs
+213 requests against 69, and that view is the one where the user is waiting. Under HTTP/2 the extra
+requests are cheap but not free, and a year-long immutable cache (Cloudflare) makes the byte
+difference matter even less on any visit after the first. If first-open latency measures badly and
+bytes turn out to be the binding constraint rather than round trips, 128 KB is the next stop -- it is
+a one-line change to the bake and nothing downstream knows the difference.
 
 - **The dictionary-reset penalty is far smaller than the member count suggests, and that is a
   property of this data.** 636 independent members cost 1.9%, not the tens of percent a
@@ -408,10 +465,16 @@ and only the `(decode)` source string to give it away.
   concatenate to the same records in the same order, so the desktop's embedded read is unchanged
   while the browser reads the subset it needs -- the host decides how much to read, and neither knows
   what the other did.
-- **Byte ranges are the addressing mechanism, and GitHub Pages supports them** (`206 Partial
-  Content` with an exact `Content-Range`, verified at offset 0 and mid-file). So the regions are
-  offsets into ONE asset -- do not split the catalog into N files, which would add a CI step, N
-  cache entries and a manifest to keep in sync alongside the offset table the file already has.
+- **One file per member is the addressing mechanism; byte ranges are NOT usable on either host.**
+  GitHub Pages answers `206` over the *gzip* representation and Cloudflare Pages ignores `Range`
+  entirely -- see "Byte ranges do not work" above for the measurements and why `curl` says otherwise.
+  **Never re-derive this from a `curl` probe**: curl does not send a browser's `Accept-Encoding`, and
+  that single difference is what makes the range design look correct.
+- **The manifest is not optional and is not a tile index.** `LzipDecoder.FindMembers` enumerates
+  members by walking BACKWARDS from the end of the file, reading each trailer's `member_size`, so a
+  client holding the head of the file cannot find a single member boundary. The manifest carries only
+  the framing (member count, raw length, each member's first region); the *spatial* index is still
+  the bounds table, which is already embedded and needs no fetch.
 - **Do not switch away from lzip to get free native decompression.** Pages serves gzip only and
   browsers' `DecompressionStream` has no brotli, so the only reachable alternative costs +6.9 MB to
   save 1802 ms -- break-even at ~31 Mbps, a regression below it. Measured; see above.

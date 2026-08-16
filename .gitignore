@@ -36,6 +36,9 @@ src/TianWen.UI.Web/wwwroot/comets-apparitions.json
 # CI-staged Tycho-2 catalog (pages.yml copies the LFS .lz into wwwroot on the runner; the atlas
 # fetches it at runtime - it must never be committed into the source tree's wwwroot)
 src/TianWen.UI.Web/wwwroot/tyc2.bin.lz
+# ... and the region-aligned members bake-tycho2 derives from it (166 files + manifest.bin), so a
+# view can fetch only the sky it is looking at. Derived on the runner, never committed.
+src/TianWen.UI.Web/wwwroot/tyc2/
 # Isolated AOT-publish output (local :5100 perf builds; keeps the dev server's obj/bin unclobbered)
 bin-aot/
 obj-aot/
