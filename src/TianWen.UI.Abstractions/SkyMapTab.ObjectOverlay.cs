@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using DIR.Lib;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
+using TianWen.Lib.Sequencing;
 using TianWen.UI.Abstractions.Overlays;
 
 namespace TianWen.UI.Abstractions
@@ -28,6 +30,47 @@ namespace TianWen.UI.Abstractions
         private readonly List<OverlayItem> _primOverlayItems = [];
         private bool _primOverlayHasKey;
         private PrimOverlayKey _primOverlayKey;
+
+        // The pinned set is asked for twice per frame (the comet layer and the overlay pass) and
+        // GetPinnedCatalogIndices builds a fresh HashSet each time. Proposals is an ImmutableArray,
+        // so identity of the underlying array is a sound cache key: a pin change replaces it.
+        private ImmutableArray<ProposedObservation> _pinnedSetFor;
+        private IReadOnlySet<CatalogIndex>? _pinnedSet;
+
+        private IReadOnlySet<CatalogIndex>? PinnedCatalogIndices(PlannerState plannerState)
+        {
+            var proposals = plannerState.Proposals;
+            if (!_pinnedSetFor.Equals(proposals))
+            {
+                _pinnedSetFor = proposals;
+                _pinnedSet = PlannerActions.GetPinnedCatalogIndices(proposals);
+            }
+
+            return _pinnedSet;
+        }
+
+        /// <summary>
+        /// Whether any pinned target is a comet, which is what entitles the comet layer to draw with
+        /// its own toggle off. Comets are the one pinnable body with no entry in the object DB, so
+        /// the overlay pass cannot render them and this layer has to honour the pin itself.
+        /// </summary>
+        private static bool HasPinnedComet(IReadOnlySet<CatalogIndex>? pinned)
+        {
+            if (pinned is null)
+            {
+                return false;
+            }
+
+            foreach (var idx in pinned)
+            {
+                if (idx.ToCatalog() == Catalog.Comet)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
 
         // Whether the view is still moving, compared on the RAW field of view and centre. Not on the
         // quantized cache key: a smooth zoom crosses a 10% FOV bucket only every ~9 frames, so a
@@ -130,7 +173,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var showDark = State.ShowDarkNebulae;
-            var pinned = PlannerActions.GetPinnedCatalogIndices(plannerState.Proposals);
+            var pinned = PinnedCatalogIndices(plannerState);
 
             // Both layers off and nothing pinned: nothing to draw (mirrors VkSkyMapTab's early-out).
             if (!showAllOverlays && !showDark && pinned is null)
@@ -140,6 +183,11 @@ namespace TianWen.UI.Abstractions
                 OverlayLabelsPending = false;
                 return;
             }
+
+            // Both layers off but something IS pinned: the pass runs only to draw landmarks, so the
+            // gather looks the pins up directly instead of walking the grid to build a set it would
+            // then throw all but two entries of. See GatherSkyMapOverlayCandidates' pinnedOnly.
+            var pinnedOnly = !showAllOverlays && !showDark;
 
             var fov = State.FieldOfViewDeg;
             var cxView = contentRect.X + contentRect.Width * 0.5f;
@@ -164,12 +212,14 @@ namespace TianWen.UI.Abstractions
                 PrimOverlayGathers++;
                 var gatherStart = System.Diagnostics.Stopwatch.GetTimestamp();
                 OverlayEngine.GatherSkyMapOverlayCandidates(
-                    State.CurrentViewMatrix, fov, contentRect, dpiScale, db, pinned, _primOverlayCandidates);
+                    State.CurrentViewMatrix, fov, contentRect, dpiScale, db, pinned, _primOverlayCandidates,
+                    pinnedOnly);
                 PrimOverlayGatherMs += System.Diagnostics.Stopwatch.GetElapsedTime(gatherStart).TotalMilliseconds;
 
                 // Per-layer visibility (same rule as VkSkyMapTab): dark nebulae follow [D], every other
-                // catalog object follows [O]; pinned targets bypass both so they stay visible.
-                if (!showAllOverlays || !showDark)
+                // catalog object follows [O]; pinned targets bypass both so they stay visible. The
+                // pinned-only gather already returns exactly that set, so there is nothing to remove.
+                if (!pinnedOnly && (!showAllOverlays || !showDark))
                 {
                     _primOverlayCandidates.RemoveAll(c => !c.IsPinned
                         && (c.ObjectType == ObjectType.DarkNeb ? !showDark : !showAllOverlays));

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Numerics;
@@ -701,6 +701,19 @@ public static class OverlayEngine
     /// which removes the per-pan grid walk and all per-rebuild List/HashSet allocs
     /// that previously made wide-FOV panning sluggish.
     /// </remarks>
+    /// <param name="pinnedOnly">
+    /// True when the caller will keep NOTHING but the pinned targets -- i.e. both the [O] and [D]
+    /// layers are off and the overlay pass is running only to draw planner landmarks. Then the
+    /// grid walk is skipped entirely and the pinned objects are looked up directly.
+    ///
+    /// <para><b>Without this the walk ran at full price to produce two markers</b>, and worse than
+    /// full price: the cheap magnitude/type gate below is disabled whenever any pin exists (a pin
+    /// bypasses those filters, and recognising one needs the cross-index closure), so every object
+    /// in every scanned cell paid the most expensive question in the loop -- and the caller then
+    /// dropped all but the pinned handful. Pinning two DSOs with the overlay OFF therefore made
+    /// panning markedly SLOWER than pinning nothing, which is the opposite of what the toggle
+    /// suggests, and it is the one configuration a probe with an empty planner never reaches.</para>
+    /// </param>
     public static void GatherSkyMapOverlayCandidates(
         in Matrix4x4 viewMatrix,
         double fieldOfViewDeg,
@@ -708,7 +721,8 @@ public static class OverlayEngine
         float dpiScale,
         ICelestialObjectDB db,
         IReadOnlySet<CatalogIndex>? pinnedCatalogIndices,
-        List<OverlayCandidate> output)
+        List<OverlayCandidate> output,
+        bool pinnedOnly = false)
     {
         // NOTE: this walk is the heavy Phase A pass (60-170ms in dense regions / pole-in-view).
         // It takes the view matrix + FOV by value rather than reading a live SkyMapState so it
@@ -718,6 +732,12 @@ public static class OverlayEngine
 
         if (contentRect.Width <= 0 || contentRect.Height <= 0)
         {
+            return;
+        }
+
+        if (pinnedOnly)
+        {
+            GatherPinnedOnly(db, pinnedCatalogIndices, LabelZoomFor(fieldOfViewDeg), output);
             return;
         }
 
@@ -858,6 +878,18 @@ public static class OverlayEngine
         var grid = db.DeepSkyCoordinateGrid;
         var seen = new HashSet<CatalogIndex>();
 
+        // Pin recognition, resolved ONCE for the pinned set instead of per scanned object.
+        //
+        // A pinned target may be saved under any catalog variant, so "is this object pinned" has to
+        // cover the object's own index, the grid key we entered on, AND the cross-index closure. It
+        // used to be asked the expensive way round -- close over EVERY object and test the result
+        // against the pins -- which forced the cheap magnitude/type gate below to be disabled
+        // whenever a pin existed, because an object that fails those gates can still be pinned. The
+        // closure is a connected component of an undirected alias table, so membership is symmetric:
+        // closing over the PINS instead and testing containment answers the identical question with
+        // two hash lookups, and the gate goes back to running for everyone.
+        var pinnedClosure = ExpandPinnedIndices(db, pinnedCatalogIndices);
+
         // Arcmin -> pixels for the dark-nebula on-screen-size PRE-filter, deliberately computed
         // at the most permissive field of view this gather's cache key can be reused across --
         // NOT at the caller's actual FOV.
@@ -881,10 +913,7 @@ public static class OverlayEngine
         var decStep = 1.0;
         var raStep = 1.0 / 15.0;
 
-        // Zoom-equivalent knob for label verbosity. At narrow FOV (zoomed in) we show more
-        // cross-index detail; the viewer's BuildOverlayLabel uses an image-zoom scalar with
-        // the same 0.5/1.0 breakpoints, so map FOV to an equivalent zoom value.
-        var labelZoom = (float)Math.Clamp(10.0 / Math.Max(fieldOfViewDeg, 0.5), 0.25, 2.0);
+        var labelZoom = LabelZoomFor(fieldOfViewDeg);
 
         // Scratch list used so the magnitude sort happens before label/priority
         // construction -- keeps output in brightest-first order without sorting
@@ -937,36 +966,22 @@ public static class OverlayEngine
                     var magPasses = Half.IsNaN(obj.V_Mag) || (double)obj.V_Mag <= effectiveMagCutoffEarly;
                     var typePasses = isExtended || isStar;
 
-                    // A pinned target bypasses both gates, so it can only be skipped here when there
-                    // are no pins at all. With pins present the object still has to go the long way,
-                    // because recognising one needs the cross-refs; the pinned set is tiny, so this
-                    // costs nothing on the common path and stays exactly as correct on the rare one.
-                    if (!(magPasses && typePasses) && pinnedCatalogIndices is null)
+                    // A pinned target bypasses both gates. Answered against the pre-expanded closure
+                    // (see pinnedClosure above), so the gate runs whether or not anything is pinned --
+                    // it used to be switched off entirely by the presence of a single pin.
+                    var isPinnedEarly = pinnedClosure is not null
+                        && (pinnedClosure.Contains(catIdx)
+                            || (obj.Index != default && pinnedClosure.Contains(obj.Index)));
+
+                    if (!(magPasses && typePasses) && !isPinnedEarly)
                     {
                         continue;
                     }
 
-                    // ONE cross-index closure per object. The pinned check and the duplicate check
-                    // below both need it, and it is the single most expensive question asked per
-                    // candidate, so asking it twice doubled the cost of the whole walk.
+                    // ONE cross-index closure per object, for the duplicate check below. It is the
+                    // single most expensive question asked per candidate, so it is asked only of
+                    // objects that have already passed the gates above.
                     var hasCrossIndices = db.TryGetCrossIndices(catIdx, out var crossIndices);
-
-                    var isPinnedEarly = false;
-                    if (pinnedCatalogIndices is not null)
-                    {
-                        if ((obj.Index != default && pinnedCatalogIndices.Contains(obj.Index))
-                            || pinnedCatalogIndices.Contains(catIdx))
-                        {
-                            isPinnedEarly = true;
-                        }
-                        else if (hasCrossIndices)
-                        {
-                            foreach (var x in crossIndices)
-                            {
-                                if (pinnedCatalogIndices.Contains(x)) { isPinnedEarly = true; break; }
-                            }
-                        }
-                    }
 
                     // Only extended objects (galaxies / nebulae / clusters) and stars are drawn --
                     // unless the object is pinned, in which case the user wants to see it regardless
@@ -1052,62 +1067,166 @@ public static class OverlayEngine
 
         foreach (var (catIdx, obj, isPinned) in scratch)
         {
-            OverlayCandidateMarker marker;
-            var shapeKnown = db.TryGetShape(catIdx, out var shape);
-            var hasShape = shapeKnown
-                && !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis);
+            AppendCandidate(db, catIdx, obj, isPinned, labelZoom, output);
+        }
+    }
 
-            // Carried so the projection can re-apply the on-screen-size test at the actual FOV.
-            // Read from the shape rather than off the marker: a dark nebula with a major axis but
-            // no minor axis draws as a Circle, which has no angular size at all, and that is
-            // precisely the entry a marker-derived size would silently stop filtering.
-            var sizeFilterArcmin = obj.ObjectType == ObjectType.DarkNeb
-                && shapeKnown && !Half.IsNaN(shape.MajorAxis)
-                    ? (float)shape.MajorAxis
-                    : float.NaN;
+    /// <summary>
+    /// Zoom-equivalent knob for label verbosity. At narrow FOV (zoomed in) we show more
+    /// cross-index detail; the viewer's <see cref="BuildOverlayLabel"/> uses an image-zoom scalar
+    /// with the same 0.5/1.0 breakpoints, so map FOV to an equivalent zoom value.
+    /// </summary>
+    private static float LabelZoomFor(double fieldOfViewDeg)
+        => (float)Math.Clamp(10.0 / Math.Max(fieldOfViewDeg, 0.5), 0.25, 2.0);
 
-            switch (ChooseMarkerKind(obj.ObjectType, hasShape))
+    /// <summary>
+    /// The pinned set closed over cross-catalog aliases, so a per-object pin test is two hash
+    /// lookups rather than a per-object closure. Returns null when nothing is pinned, which is the
+    /// signal the walk uses to skip the test altogether.
+    /// </summary>
+    private static IReadOnlySet<CatalogIndex>? ExpandPinnedIndices(
+        ICelestialObjectDB db, IReadOnlySet<CatalogIndex>? pinnedCatalogIndices)
+    {
+        if (pinnedCatalogIndices is null || pinnedCatalogIndices.Count == 0)
+        {
+            return null;
+        }
+
+        var expanded = new HashSet<CatalogIndex>(pinnedCatalogIndices);
+        foreach (var pin in pinnedCatalogIndices)
+        {
+            if (db.TryGetCrossIndices(pin, out var aliases))
             {
-                case OverlayMarkerKind.Ellipse:
-                    marker = new OverlayCandidateMarker.Ellipse(
-                        (float)((double)shape.MajorAxis / 2.0),
-                        (float)((double)shape.MinorAxis / 2.0),
-                        shape.PositionAngle);
-                    break;
-                case OverlayMarkerKind.Cross:
-                    marker = new OverlayCandidateMarker.Cross(6f);
-                    break;
-                default:
-                    marker = new OverlayCandidateMarker.Circle(8f);
-                    break;
+                foreach (var alias in aliases)
+                {
+                    expanded.Add(alias);
+                }
             }
 
-            var color = GetOverlayColor(obj.ObjectType);
-            var lines = BuildOverlayLabel(obj, catIdx, db, labelZoom);
-
-            // Pinned items get a large priority boost so their labels are never
-            // dropped by collision avoidance. The +100 puts them well above any
-            // natural ComputeLabelPriority score (~20 max for a bright named DSO).
-            var priority = ComputeLabelPriority(obj, catIdx, db);
-            if (isPinned) priority += 100f;
-
-            var (ux, uy, uz) = SkyMapState.RaDecToUnitVec(obj.RA, obj.Dec);
-            output.Add(new OverlayCandidate
+            // The saved index may be an alias whose canonical record carries a different index
+            // again; TryLookupByIndex resolves it, and that resolved index is what the grid walk
+            // would have entered on.
+            if (db.TryLookupByIndex(pin, out var obj) && obj.Index != default)
             {
-                CatalogIndex = catIdx,
-                ObjectType = obj.ObjectType,
-                RA = obj.RA,
-                Dec = obj.Dec,
-                UnitVec = new Vector3((float)ux, (float)uy, (float)uz),
-                Color = color,
-                Marker = marker,
-                LabelLines = lines,
-                IsPinned = isPinned,
-                LabelPriority = priority,
-                LabelSlotHint = (int)((ulong)catIdx & 3),
-                ScreenSizeFilterArcmin = sizeFilterArcmin,
-            });
+                expanded.Add(obj.Index);
+            }
         }
+
+        return expanded;
+    }
+
+    /// <summary>
+    /// <paramref name="pinnedCatalogIndices"/> looked up directly, with no grid walk: the whole
+    /// gather when both catalog layers are off (see the <c>pinnedOnly</c> parameter of
+    /// <see cref="GatherSkyMapOverlayCandidates"/>). Candidate construction is the shared
+    /// <see cref="AppendCandidate"/>, so a landmark looks the same whichever path produced it.
+    /// </summary>
+    private static void GatherPinnedOnly(
+        ICelestialObjectDB db, IReadOnlySet<CatalogIndex>? pinnedCatalogIndices,
+        float labelZoom, List<OverlayCandidate> output)
+    {
+        if (pinnedCatalogIndices is null || pinnedCatalogIndices.Count == 0)
+        {
+            return;
+        }
+
+        var resolved = new List<(CatalogIndex CatIdx, CelestialObject Obj)>(pinnedCatalogIndices.Count);
+        var seen = new HashSet<CatalogIndex>();
+        foreach (var pin in pinnedCatalogIndices)
+        {
+            if (!db.TryLookupByIndex(pin, out var obj))
+            {
+                continue;
+            }
+
+            // Two pins that are aliases of one object must not produce two markers. Key on the
+            // resolved index for the same reason the walk dedupes on the canonical entry.
+            var catIdx = obj.Index != default ? obj.Index : pin;
+            if (seen.Add(catIdx))
+            {
+                resolved.Add((catIdx, obj));
+            }
+        }
+
+        // Same order rule as the walk (brightest first, catalog index as the stable tie-break), so
+        // label slot placement does not depend on which path gathered.
+        resolved.Sort(static (a, b) =>
+        {
+            var aMag = Half.IsNaN(a.Obj.V_Mag) ? 99.0 : (double)a.Obj.V_Mag;
+            var bMag = Half.IsNaN(b.Obj.V_Mag) ? 99.0 : (double)b.Obj.V_Mag;
+            var c = aMag.CompareTo(bMag);
+            return c != 0 ? c : ((ulong)a.CatIdx).CompareTo((ulong)b.CatIdx);
+        });
+
+        foreach (var (catIdx, obj) in resolved)
+        {
+            AppendCandidate(db, catIdx, obj, isPinned: true, labelZoom, output);
+        }
+    }
+
+    /// <summary>
+    /// Builds one <see cref="OverlayCandidate"/> (marker geometry, colour, label lines, priority)
+    /// and appends it. Shared by the grid walk and the pinned-only lookup.
+    /// </summary>
+    private static void AppendCandidate(
+        ICelestialObjectDB db, CatalogIndex catIdx, CelestialObject obj, bool isPinned,
+        float labelZoom, List<OverlayCandidate> output)
+    {
+        OverlayCandidateMarker marker;
+        var shapeKnown = db.TryGetShape(catIdx, out var shape);
+        var hasShape = shapeKnown
+            && !Half.IsNaN(shape.MajorAxis) && !Half.IsNaN(shape.MinorAxis);
+
+        // Carried so the projection can re-apply the on-screen-size test at the actual FOV.
+        // Read from the shape rather than off the marker: a dark nebula with a major axis but
+        // no minor axis draws as a Circle, which has no angular size at all, and that is
+        // precisely the entry a marker-derived size would silently stop filtering.
+        var sizeFilterArcmin = obj.ObjectType == ObjectType.DarkNeb
+            && shapeKnown && !Half.IsNaN(shape.MajorAxis)
+                ? (float)shape.MajorAxis
+                : float.NaN;
+
+        switch (ChooseMarkerKind(obj.ObjectType, hasShape))
+        {
+            case OverlayMarkerKind.Ellipse:
+                marker = new OverlayCandidateMarker.Ellipse(
+                    (float)((double)shape.MajorAxis / 2.0),
+                    (float)((double)shape.MinorAxis / 2.0),
+                    shape.PositionAngle);
+                break;
+            case OverlayMarkerKind.Cross:
+                marker = new OverlayCandidateMarker.Cross(6f);
+                break;
+            default:
+                marker = new OverlayCandidateMarker.Circle(8f);
+                break;
+        }
+
+        var color = GetOverlayColor(obj.ObjectType);
+        var lines = BuildOverlayLabel(obj, catIdx, db, labelZoom);
+
+        // Pinned items get a large priority boost so their labels are never
+        // dropped by collision avoidance. The +100 puts them well above any
+        // natural ComputeLabelPriority score (~20 max for a bright named DSO).
+        var priority = ComputeLabelPriority(obj, catIdx, db);
+        if (isPinned) priority += 100f;
+
+        var (ux, uy, uz) = SkyMapState.RaDecToUnitVec(obj.RA, obj.Dec);
+        output.Add(new OverlayCandidate
+        {
+            CatalogIndex = catIdx,
+            ObjectType = obj.ObjectType,
+            RA = obj.RA,
+            Dec = obj.Dec,
+            UnitVec = new Vector3((float)ux, (float)uy, (float)uz),
+            Color = color,
+            Marker = marker,
+            LabelLines = lines,
+            IsPinned = isPinned,
+            LabelPriority = priority,
+            LabelSlotHint = (int)((ulong)catIdx & 3),
+            ScreenSizeFilterArcmin = sizeFilterArcmin,
+        });
     }
 
     /// <summary>

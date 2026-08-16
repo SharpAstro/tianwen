@@ -608,6 +608,13 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
             return;
         }
 
+        // Both layers off but something IS pinned: this pass exists only to draw landmarks, so the
+        // gather looks the pins up directly rather than walking the grid to build a set the filter
+        // below would strip back to those same few. See GatherSkyMapOverlayCandidates' pinnedOnly.
+        // Desktop gathers on a background thread, so this never showed up as jank here -- it was
+        // simply a core burning 60-170 ms per view change to answer a question with two lookups.
+        var pinnedOnly = !showAllOverlays && !showDarkNebulae;
+
         // Snapshot the view by value -- the background walk must not read the live (mutating)
         // SkyMapState. Matrix4x4 is a struct, so this is a consistent copy. The seed capacity
         // is read HERE on the render thread (reading _overlayCandidates.Count inside the task
@@ -622,12 +629,13 @@ public sealed unsafe class VkSkyMapTab(VkRenderer renderer) : SkyMapTab<VulkanCo
         {
             var list = new List<OverlayCandidate>(seedCapacity);
             OverlayEngine.GatherSkyMapOverlayCandidates(
-                snapViewMatrix, snapFov, contentRect, dpiScale, db, pinnedIndices, list);
+                snapViewMatrix, snapFov, contentRect, dpiScale, db, pinnedIndices, list, pinnedOnly);
 
             // Per-layer visibility: dark nebulae follow [D], every other catalog object
             // follows [O]. Pinned planner targets survive both gates so they stay visible
-            // as landmarks regardless of layer state.
-            if (!showAllOverlays || !showDarkNebulae)
+            // as landmarks regardless of layer state. The pinned-only gather already returns
+            // exactly that set, so there is nothing to remove.
+            if (!pinnedOnly && (!showAllOverlays || !showDarkNebulae))
             {
                 list.RemoveAll(c =>
                 {

@@ -217,14 +217,22 @@ namespace TianWen.UI.Abstractions
             // limit, except for pinned ones). Drawn after planets so a bright comet's label sits above
             // the planet layer.
             //
-            // Runs when the layer is on OR anything is pinned, mirroring the object overlay below: a
+            // Runs when the layer is on OR a COMET is pinned, mirroring the object overlay below: a
             // pinned target is a landmark and must be visible with its layer off. Comets need the rule
             // stated HERE and not only there, because the overlay pass gathers out of the object DB and
             // comets are deliberately not in it, so a pinned comet has no other path onto the map.
-            var pinnedIndices = PlannerActions.GetPinnedCatalogIndices(plannerState.Proposals);
-            if (State.ShowComets || pinnedIndices is not null)
+            //
+            // "A comet is pinned", not "anything is pinned": every pin bypasses its own layer's gate,
+            // not every other layer's, and pinning a galaxy used to switch the whole comet layer on for
+            // a user who had turned it off.
+            var pinnedIndices = PinnedCatalogIndices(plannerState);
+            var pinnedComets = HasPinnedComet(pinnedIndices) ? pinnedIndices : null;
+            if (State.ShowComets || pinnedComets is not null)
             {
-                DrawCometLabels(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon, pinnedIndices);
+                // Null when no COMET is pinned, so the draw loop -- which asks the set about every one
+                // of ~1,600 cached markers on every frame -- skips a hash lookup per marker that can
+                // only ever answer no.
+                DrawCometLabels(viewingTime, contentRect, fontSize, ppr, cx, cy, site, dimBelowHorizon, pinnedComets);
             }
             CometLabelMs += LayerElapsed(ref layerMark);
 
