@@ -931,6 +931,14 @@
             SetAtlasBusy(true, "Loading star catalog...");
             await Task.Delay(30);
 
+            // Preferred path: fetch only the members the current view needs (web-tycho2.md). Falls
+            // through to the whole-catalog path below if the member assets are not deployed, which
+            // is what a dev server and any pre-member deploy look like.
+            if (await TryStartIncrementalAtlasAsync())
+            {
+                return;
+            }
+
             // Warm path: the raw decompressed catalog cached from a prior visit skips BOTH the
             // ~30 MB fetch and the lzip decompress. It feeds the SAME DB path as the cold decode
             // (records + spatial index), so click-to-identify works identically on a cached load.
@@ -979,6 +987,182 @@
         }
     }
 
+    // ---- Incremental (per-member) atlas ------------------------------------------------------
+    //
+    // The catalog is also published as ~166 region-aligned lzip members plus a tiny manifest, so a
+    // view fetches only the sky it is looking at: a 10-degree field is 9 files / 1.4 MiB against the
+    // whole catalog's 28.7 MiB. Members are FILES rather than byte ranges of the one asset because
+    // ranges are unusable on both candidate hosts -- GitHub Pages answers 206 over the GZIP
+    // representation and Cloudflare Pages ignores Range entirely (docs/plans/web-tycho2.md).
+    //
+    // Absent regions are not "missing" from the buffer, they are filled with the catalog's own
+    // no-data sentinel, so the completely unmodified star flatten skips them; see
+    // Tycho2PartialCatalog for why that byte is 0xFF and why zero would paint a sky of impossibly
+    // bright stars at the origin.
+    Tycho2MemberManifest? _tyc2Manifest;
+    Tycho2PartialCatalog? _tyc2Partial;
+    Tycho2RegionSelector? _tyc2Selector;
+    readonly HashSet<int> _tyc2Inflight = [];
+    readonly List<int> _tyc2ScratchRegions = [];
+    readonly List<int> _tyc2ScratchMembers = [];
+    (long Ra, long Dec, long Fov) _tyc2ViewKey = (long.MinValue, 0, 0);
+    bool _tyc2MembersActive;
+
+    // Attempts the member path. Returns false (having changed nothing) when the assets are absent,
+    // so the caller falls through to the whole-catalog fetch.
+    async Task<bool> TryStartIncrementalAtlasAsync()
+    {
+        byte[] manifestBytes;
+        try
+        {
+            manifestBytes = await Http.GetByteArrayAsync("tyc2/manifest.bin");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] tyc2 members unavailable ({ex.Message}); using the whole catalog");
+            return false;
+        }
+
+        try
+        {
+            var manifest = Tycho2MemberManifest.Read(manifestBytes);
+            var selector = Tycho2RegionSelector.FromEmbeddedBounds();
+            if (selector is null)
+            {
+                Console.WriteLine("[tianwen-web] GSC bounds are not embedded; using the whole catalog");
+                return false;
+            }
+
+            await AtlasPhaseAsync("Loading star catalog...");
+
+            // The header member carries the offset table, and nothing else can be placed until it
+            // has: a member's position in the buffer is only knowable from it.
+            var partial = new Tycho2PartialCatalog(manifest);
+            if (!partial.Accept(0, await FetchMemberAsync(0)))
+            {
+                Console.WriteLine("[tianwen-web] tyc2 header member rejected; using the whole catalog");
+                return false;
+            }
+
+            // Wire the DB once, now. The buffer is mutated in place as members land, so every later
+            // member is visible to the DB with no re-wiring -- that aliasing is the whole point.
+            if (!Db.TryLoadTycho2BulkFromDecoded(partial.Buffer))
+            {
+                Console.WriteLine("[tianwen-web] tyc2 partial buffer refused by the DB; using the whole catalog");
+                return false;
+            }
+
+            _tyc2Manifest = manifest;
+            _tyc2Partial = partial;
+            _tyc2Selector = selector;
+            _tyc2MembersActive = true;
+
+            await AtlasPhaseAsync("Loading the sky you are looking at...");
+            await FetchVisibleMembersAsync();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] tyc2 member path failed ({ex.Message}); using the whole catalog");
+            return false;
+        }
+    }
+
+    async Task<byte[]> FetchMemberAsync(int member)
+        => SharpAstro.Lzip.LzipDecoder.Decompress(
+            await Http.GetByteArrayAsync($"tyc2/{Tycho2MemberManifest.MemberFileName(member)}"));
+
+    // Fetches every member the current view needs and is not already holding, then flattens ONCE.
+    // Flattening per member would re-walk all 2.5M offsets per file for a fraction more stars.
+    async Task FetchVisibleMembersAsync()
+    {
+        if (_tyc2Manifest is not { } manifest || _tyc2Partial is not { } partial
+            || _tyc2Selector is not { } selector || _skyTab is not { State: { } sky })
+        {
+            return;
+        }
+
+        _tyc2ScratchRegions.Clear();
+        _tyc2ScratchMembers.Clear();
+        // Radius = the FULL field of view, matching what both star pipelines already cull with
+        // (StarChunkIndex.IsVisible), so the client fetches the sky it is about to try to draw.
+        selector.SelectVisible(sky.CenterRA, sky.CenterDec, sky.FieldOfViewDeg, _tyc2ScratchRegions);
+        manifest.MembersForRegions(_tyc2ScratchRegions, _tyc2ScratchMembers);
+
+        var wanted = _tyc2ScratchMembers
+            .Where(m => m > 0 && !partial.IsPresent(m) && _tyc2Inflight.Add(m))
+            .ToArray();
+        if (wanted.Length == 0)
+        {
+            return;
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var landed = 0;
+        try
+        {
+            foreach (var member in wanted)
+            {
+                try
+                {
+                    if (partial.Accept(member, await FetchMemberAsync(member)))
+                    {
+                        landed++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // One member failing is a hole in the sky, not a dead atlas: keep the rest.
+                    Console.WriteLine($"[tianwen-web] tyc2 member {member} failed: {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            foreach (var member in wanted)
+            {
+                _tyc2Inflight.Remove(member);
+            }
+        }
+
+        if (landed > 0)
+        {
+            Console.WriteLine($"[tianwen-web] tyc2 members: +{landed} of {wanted.Length} in "
+                + $"{sw.ElapsedMilliseconds} ms ({partial.MembersPresent}/{partial.MemberCount} held)");
+            FlattenAndSubmitTycho2($"{partial.MembersPresent} members");
+        }
+    }
+
+    // Per-frame hook: fetch whatever the view now needs. The selector walks 9537 bounding boxes, so
+    // it is gated on a QUANTIZED view key rather than run every frame.
+    //
+    // The cell size is derived from the BUCKETED field of view, never the raw one. Deriving it from
+    // the raw value is the bug that made the object-overlay cache miss on every single zoom event
+    // (69 gathers over a pinch against 8): the grid rescales continuously, so the rounded centre
+    // moves even when the centre is perfectly still, and the quantization quantizes nothing.
+    void MaybeFetchVisibleMembers()
+    {
+        if (!_tyc2MembersActive || _skyTab is not { State: { } sky })
+        {
+            return;
+        }
+
+        var fovBucket = (long)Math.Round(Math.Log(Math.Max(0.1, sky.FieldOfViewDeg)) * 8.0);
+        var cellDeg = Math.Max(0.05, Math.Exp(fovBucket / 8.0) / 8.0);
+        var key = (
+            (long)Math.Round(sky.CenterRA * 15.0 / cellDeg),
+            (long)Math.Round(sky.CenterDec / cellDeg),
+            fovBucket);
+
+        if (key == _tyc2ViewKey)
+        {
+            return;
+        }
+
+        _tyc2ViewKey = key;
+        _ = FetchVisibleMembersAsync();
+    }
+
     // Names the phase and gives the browser a frame to actually paint it before the next stall.
     // The await is load-bearing, not cosmetic: every phase below runs synchronously on the one WASM
     // thread, so a label set without yielding first is only ever rendered once the work it describes
@@ -994,7 +1178,14 @@
     void FlattenAndSubmitTycho2(string source)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var count = Db.Tycho2StarCount;
+
+        // Size by the records actually HELD, not by Tycho2StarCount. The offset table describes the
+        // whole catalog whether or not its members have been fetched, so the full count would
+        // allocate ~51 MB to hold a couple of MB of stars -- on every member batch, on the one WASM
+        // thread. A fresh array each time is deliberate: SubmitTycho2Stars keeps the reference for a
+        // later render-thread upload and StarChunkIndex.Build reorders it in place, so reusing one
+        // would rewrite a buffer the pipeline is still holding.
+        var count = _tyc2Partial?.PresentRecordCount ?? Db.Tycho2StarCount;
         var verts = new float[count * SkyMapState.FloatsPerStar];
         var written = SkyMapState.FillTycho2StarVertices(Db, dtJulianYears: 0.0, verts);
         Console.WriteLine($"[tianwen-web] tyc2 flatten ({source}): {written} stars in {sw.ElapsedMilliseconds} ms");
@@ -1178,6 +1369,9 @@
                     _tycho2Requested = true;
                     _ = EnsureTycho2AtlasAsync();
                 }
+                // On the member path, panning and zooming reveal sky we have not fetched. Cheap: it
+                // returns immediately unless the quantized view key actually moved.
+                MaybeFetchVisibleMembers();
                 // DPI + font each have one owner: the widget's DpiScale / FontPath properties (the browser's
                 // devicePixelRatio + resolved font, re-set per frame since the JS resize observer updates
                 // _metrics / _fontPath out of band). The web host has no emoji font.

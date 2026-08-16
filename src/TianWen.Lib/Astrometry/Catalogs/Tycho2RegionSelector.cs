@@ -1,6 +1,8 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Linq;
+using SharpAstro.Lzip;
 
 namespace TianWen.Lib.Astrometry.Catalogs;
 
@@ -72,6 +74,25 @@ public sealed class Tycho2RegionSelector
             _minDecDeg[i] = minDec;
             _maxDecDeg[i] = maxDec;
         }
+    }
+
+    /// <summary>
+    /// Builds a selector from the GSC bounds embedded in this assembly, which survive the
+    /// <c>Lightweight</c> build that strips the catalog itself -- so a browser can decide which
+    /// regions it needs before it has fetched a single star. Returns null if the resource is absent.
+    /// </summary>
+    public static Tycho2RegionSelector? FromEmbeddedBounds()
+    {
+        var assembly = typeof(Tycho2RegionSelector).Assembly;
+        var name = assembly.GetManifestResourceNames()
+            .FirstOrDefault(n => n.EndsWith(".tyc2_gsc_bounds.bin.lz", StringComparison.Ordinal));
+        if (name is null)
+        {
+            return null;
+        }
+
+        using var stream = assembly.GetManifestResourceStream(name);
+        return stream is null ? null : new Tycho2RegionSelector(LzipDecoder.Decompress(stream));
     }
 
     /// <summary>
