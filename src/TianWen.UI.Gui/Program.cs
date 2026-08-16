@@ -699,18 +699,11 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
 {
     AppName = "TianWen",
     WindowTitle = () => lastWindowTitle,
-    GetRegions = () =>
-    {
-        // Chrome (sidebar / status bar) clickables + the active tab's clickables, both rebuilt
-        // each frame. Read on the render thread inside the inspector's command pump.
-        var regions = new List<ClickableRegion>();
-        regions.AddRange(guiRenderer.GetRegisteredRegions());
-        if (guiRenderer.ActiveTab is PixelWidgetBase<VulkanContext> activeTab)
-        {
-            regions.AddRange(activeTab.GetRegisteredRegions());
-        }
-        return regions;
-    },
+    // Chrome + navigation rail + active tab, rebuilt each frame and composed by the RENDERER: which
+    // widgets make up a frame is its knowledge, not this host's, and assembling the list here meant a
+    // new child widget silently dropped out of the inspector (its controls just stop appearing).
+    // Read on the render thread inside the inspector's command pump.
+    GetRegions = () => guiRenderer.PaintedRegions(),
     GetLayout = () =>
     {
         // Full arranged layout tree (chrome + active tab), the structural counterpart to GetRegions

@@ -75,6 +75,21 @@ namespace TianWen.UI.Gui
         // costs nothing beyond the extra field.
         private PixelWidgetBase<VulkanContext>? _activeTab;
 
+        // The navigation sidebar. A DIR.Lib TabBar configured as a nav rail rather than ~70 lines of
+        // hand-placed rects here, which is what makes its click regions the rects it drew instead of a
+        // second piece of geometry derived from an index.
+        private readonly TabBar<VulkanContext> _sidebar;
+
+        // Reused per frame so building the strip allocates nothing: the tab set is fixed (GuiAppState
+        // .TabOrder) and only the per-item icon / enabled state varies.
+        private readonly List<TabItem<GuiTab>> _sidebarItems = [];
+
+        // Stashed by Render, for the same reason _activeTab is: a press arrives BETWEEN frames, and the
+        // rail's dispatch has to act on the state the frame was painted from. The hand-drawn sidebar
+        // reached the same state through a closure captured per region per frame; one field is the same
+        // reference held once. A window has exactly one app state, so this can never be a different one.
+        private GuiAppState? _appState;
+
         /// <summary>The currently active tab as an <see cref="IPixelWidget"/> for tab-specific hit testing.</summary>
         public IPixelWidget? ActiveTab => _activeTab;
 
@@ -88,7 +103,74 @@ namespace TianWen.UI.Gui
         /// reconstructed that order would be keeping a second copy of it.
         /// </para>
         /// </summary>
-        public CursorKind? CursorAt(float x, float y) => _activeTab?.HitTestCursor(x, y) ?? HitTestCursor(x, y);
+        public CursorKind? CursorAt(float x, float y)
+            => _activeTab?.HitTestCursor(x, y) ?? _sidebar.HitTestCursor(x, y) ?? HitTestCursor(x, y);
+
+        /// <summary>
+        /// Chrome dispatch, extended to the navigation rail. The rail is a child widget, so its regions
+        /// live on ITS tracker: asking only this chrome would miss every tab silently — the frame would
+        /// look right and the cells simply would not answer.
+        /// </summary>
+        /// <remarks>
+        /// The rail is asked FIRST because it paints over the content area's left edge, and its press is
+        /// translated into the same <c>Tab:&lt;name&gt;</c> <see cref="HitResult.ButtonHit"/> the
+        /// hand-drawn sidebar reported — so <c>GuiEventHandlerBase</c>'s auto-discover-on-Equipment check
+        /// keeps working unchanged, and the switch it used to need is gone: the pressed item carries the
+        /// <see cref="GuiTab"/> it selects.
+        /// </remarks>
+        public override HitResult? HitTestAndDispatch(float x, float y, InputModifier modifiers = InputModifier.None)
+        {
+            if (_appState is { } appState && _sidebar.HandleMouseDown(x, y, _sidebarItems) is { } click)
+            {
+                appState.ActiveTab = click.Value;
+                appState.NeedsRedraw = true;
+                return new HitResult.ButtonHit($"Tab:{click.Value}");
+            }
+
+            return base.HitTestAndDispatch(x, y, modifiers);
+        }
+
+        /// <summary>
+        /// Every clickable region painted in the frame just drawn — this chrome's, the navigation rail's
+        /// and the active tab's — for the debug inspector.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Answered here for the reason <see cref="CursorAt"/> and <see cref="PaintedTextInputs"/> are:
+        /// what a frame is composed of is this renderer's own knowledge. The host used to assemble this
+        /// list itself, and adding the rail as a child widget would have made that a FOURTH place needing
+        /// to learn about it — with the failure being silent, since a missing widget just means its
+        /// controls quietly stop appearing.
+        /// </para>
+        /// <para>
+        /// <b>The rail's regions are re-labelled on the way out.</b> The bar registers a tab as a
+        /// <see cref="HitResult.ListItemHit"/> carrying an index, but the inspector's click-by-label
+        /// drives tabs by name (<c>Tab:Planner</c>), which is how every unattended GUI test switches
+        /// tabs. The rect is the bar's own — the one it painted — and only the label is translated, from
+        /// the same item list the bar was handed, so this adds no second geometry.
+        /// </para>
+        /// </remarks>
+        public IReadOnlyList<ClickableRegion> PaintedRegions()
+        {
+            var regions = new List<ClickableRegion>(GetRegisteredRegions());
+
+            foreach (var region in _sidebar.GetRegisteredRegions())
+            {
+                regions.Add(region.Result switch
+                {
+                    HitResult.ListItemHit { ListId: TabBarRegions.Tabs, Index: var i } when i < _sidebarItems.Count
+                        => region with { Result = new HitResult.ButtonHit($"Tab:{_sidebarItems[i].Value}") },
+                    _ => region,
+                });
+            }
+
+            if (_activeTab is { } tab)
+            {
+                regions.AddRange(tab.GetRegisteredRegions());
+            }
+
+            return regions;
+        }
 
         /// <summary>
         /// Every text field painted in the frame just drawn, across the chrome AND the active tab.
@@ -281,6 +363,37 @@ namespace TianWen.UI.Gui
         // DIR.Lib's (already in scope via the using); only GuiTheme is TianWen's.
         private static UiPalette Palette => TianWen.UI.Abstractions.GuiTheme.Palette;
 
+        /// <summary>
+        /// The rail's palette, mapped from the same roles the hand-drawn sidebar used so the adoption is
+        /// a refactor and not a restyle. A PROPERTY, like every colour above, because a theme can change
+        /// while the window is alive and a field initialiser would snapshot at type-init.
+        /// </summary>
+        /// <remarks>
+        /// Two of these deliberately blend into the surface behind them, because a nav rail is not a
+        /// document strip and TianWen's has never drawn either:
+        /// <list type="bullet">
+        /// <item><b>Separator</b> takes the rail's own background, so no rule is drawn between cells or
+        /// down the rail's inner edge. Give it <c>Palette.Separator</c> to turn them on.</item>
+        /// <item><b>ActiveAccent</b> takes the active plate, so the accent bar is invisible. Give it
+        /// <c>Palette.Accent</c> for the VS Code-style marker on the outer edge.</item>
+        /// </list>
+        /// <see cref="TabBarColors.HoverBackground"/> is the reason the rail needed it: with no accent,
+        /// hover and active would otherwise render identically and the rail could not say which cell a
+        /// click would take you to.
+        /// </remarks>
+        private static TabBarColors SidebarColors => new()
+        {
+            BarBackground = SidebarBg,
+            InactiveBackground = SidebarBg,
+            HoverBackground = HoverTabBg,
+            ActiveBackground = ActiveTabBg,
+            ActiveText = ActiveIcon,
+            InactiveText = IconColor,
+            DisabledText = LockedIcon,
+            Separator = SidebarBg,
+            ActiveAccent = ActiveTabBg,
+        };
+
         public VkGuiRenderer(VkRenderer renderer, uint width, uint height, SignalBus? bus = null, ILogger? logger = null) : base(renderer)
         {
             Bus = bus;
@@ -314,9 +427,18 @@ namespace TianWen.UI.Gui
             // because that is what a window HAS. Adopting these settings discards the face they resolved
             // during their own construction, which is the intent -- a viewer inside this chrome should
             // label itself in the chrome's face.
+            // The sidebar is a configured DIR.Lib TabBar, not chrome drawn here: a vertical strip of
+            // uniform icon cells that cannot be closed or reordered. See RenderSidebar.
+            _sidebar = new TabBar<VulkanContext>(renderer)
+            {
+                Side = TabStripSide.Left,
+                Sizing = TabSizing.Uniform,
+                CanCloseTabs = false,
+                CanReorderTabs = false,
+            };
             ShareUiContext(_plannerTab, _equipmentTab, _sessionTab, _skyMapTab,
                            _liveSessionTab, _guiderTab, _notificationsTab, _homeTab,
-                           _guiderViewer, _previewViewer, _planetaryTab);
+                           _guiderViewer, _previewViewer, _planetaryTab, _sidebar);
             ResolveFontPath();
         }
 
@@ -343,6 +465,7 @@ namespace TianWen.UI.Gui
             }
 
             BeginFrame();
+            _appState = appState;
             _equipmentTab.FrameCount++;
             _plannerTab.FrameCount++;
             _sessionTab.FrameCount++;
@@ -397,76 +520,69 @@ namespace TianWen.UI.Gui
         // Sidebar: registers each tab as a clickable region
         // -----------------------------------------------------------------------
 
+        /// <summary>
+        /// Paints the navigation rail by handing <see cref="GuiAppState.TabOrder"/> to a configured
+        /// <see cref="TabBar{TSurface}"/>, and draws the hovered tab's tooltip beside it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This used to be ~70 lines of hand-placed rects: a button rect derived from an index
+        /// (<c>startY + i * size</c>), hover re-derived from the mouse against that same arithmetic, and
+        /// a click region registered separately from the drawing. Three expressions of one geometry, any
+        /// of which could drift from the others. The bar registers the rects it painted, so the click
+        /// region IS the drawn cell by construction.
+        /// </para>
+        /// <para>
+        /// The tooltip stays here on purpose. It is drawn OUTSIDE the rail, over whatever content is
+        /// beside it, and the bar clips to its own bounds — so it reports
+        /// <see cref="TabBar{TSurface}.HoveredIndex"/> and the host paints.
+        /// </para>
+        /// </remarks>
         private void RenderSidebar(GuiAppState appState)
         {
             var sw = SidebarWidth;
-            var h = (float)_height;
-
-            // Background
-            FillRect(0, 0, sw, h, SidebarBg);
-
-            var buttonSize = sw;
-            var startY = StatusBarHeight;
-            var mouseX = appState.MouseScreenPosition.X;
-            var mouseY = appState.MouseScreenPosition.Y;
-
             var noProfile = appState.ActiveProfile is null;
 
-            // Track hovered tooltip to draw last (over sidebar + any adjacent content).
-            string? hoverTooltip = null;
-            float hoverY = 0f;
-
-            var tabs = GuiAppState.TabOrder;
-            for (var i = 0; i < tabs.Length; i++)
+            _sidebarItems.Clear();
+            foreach (var tab in GuiAppState.TabOrder)
             {
-                var tab = tabs[i];
                 // One path with the window title: the mode-following Live Session glyph is resolved
                 // inside TabTitleChrome (see LiveSessionIcon), never re-derived here.
                 var (icon, label) = TabTitleChrome(tab);
+                var locked = (noProfile && tab is not GuiTab.Equipment)
+                          || (LocalLiveSession.IsRunning && tab is GuiTab.Equipment);
+
+                // The tooltip carries the shortcut, and for a LOCKED tab it is the only place the reason
+                // can be said at all -- the rail has room for a glyph and nothing else.
                 var shortcut = TabChrome[tab].Shortcut;
-                var btnY = startY + i * buttonSize;
-                var isActive = appState.ActiveTab == tab;
-                var isLocked = (noProfile && tab is not GuiTab.Equipment)
-                            || (LocalLiveSession.IsRunning && tab is GuiTab.Equipment);
-                var isHover = !isLocked && mouseX >= 0 && mouseX < sw
-                           && mouseY >= btnY && mouseY < btnY + buttonSize;
+                var tooltip = locked
+                    ? $"{label} — {(noProfile ? "create a profile first" : "not while a session is running")}"
+                    : $"{label} ({shortcut})";
 
-                var bgColor = isActive ? ActiveTabBg
-                            : isHover  ? HoverTabBg
-                                       : SidebarBg;
-
-                FillRect(0, btnY, sw, buttonSize, bgColor);
-
-                var textColor = isLocked ? LockedIcon
-                              : isActive ? ActiveIcon
-                                         : IconColor;
-                var iconFont = EmojiFontPath ?? FontPath;
-                if (!string.IsNullOrEmpty(iconFont))
+                _sidebarItems.Add(new TabItem<GuiTab>(label, tab)
                 {
-                    _renderer.DrawText(icon.AsSpan(), iconFont, FontSize * 1.3f,
-                        textColor, new RectInt(new PointInt((int)sw, (int)(btnY + buttonSize)), new PointInt(0, (int)btnY)),
-                        TextAlign.Center, TextAlign.Center);
-                }
-
-                // Register clickable region (only enabled tabs)
-                if (!isLocked)
-                {
-                    var capturedTab = tab;
-                    RegisterClickable(0, btnY, sw, buttonSize,
-                        new HitResult.ButtonHit($"Tab:{tab}"),
-                        _ => { appState.ActiveTab = capturedTab; appState.NeedsRedraw = true; });
-                }
-
-                if (isHover)
-                {
-                    hoverTooltip = $"{label} ({shortcut})";
-                    hoverY = btnY + buttonSize * 0.5f;
-                }
+                    Icon = icon,
+                    IsEnabled = !locked,
+                    Tooltip = tooltip,
+                });
             }
 
-            if (hoverTooltip is not null && !string.IsNullOrEmpty(FontPath))
+            // The pointer, so the bar resolves its own hover rather than being told an index derived from
+            // last frame's geometry.
+            _sidebar.Pointer = appState.MouseScreenPosition;
+            // Set per frame rather than once at construction: both follow the palette and the display
+            // scale, either of which can change while the window is alive (F12, a monitor move).
+            _sidebar.Colors = SidebarColors;
+            _sidebar.IconSize = FontSize * 1.3f;
+            _sidebar.Render(new RectF32(0f, StatusBarHeight, sw, _height - StatusBarHeight),
+                _sidebarItems, appState.ActiveTab);
+
+            if (_sidebar.HoveredIndex is >= 0 and var hovered
+                && hovered < _sidebarItems.Count
+                && _sidebarItems[hovered].Tooltip is { } text
+                && !string.IsNullOrEmpty(FontPath))
             {
-                DrawTooltip(hoverTooltip, sw + 6f, hoverY);
+                DrawTooltip(text, sw + 6f, StatusBarHeight + (hovered + 0.5f) * sw);
             }
         }
 
