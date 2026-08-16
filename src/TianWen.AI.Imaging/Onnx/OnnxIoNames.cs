@@ -73,6 +73,38 @@ internal static class OnnxIoNames
     }
 
     /// <summary>
+    /// The spatial tile size the model declares on its NCHW image input, i.e. the (H, W) in
+    /// <c>[N, C, H, W]</c>, or <c>null</c> for either axis the model leaves dynamic.
+    /// <para>
+    /// Same rule as <see cref="ImageInputChannels"/>: ask the model. It matters more than usual for
+    /// <see cref="N2nDenoiser"/>, whose graph is fixed at 256 on purpose -- it computes its own
+    /// noise-conditioning plane from the darkest half of the tile it is handed, so the tile IS the
+    /// estimator's support region and a different size would silently be a different statistic from
+    /// the one it was trained against. A caller that picked its own chunk size would change the
+    /// conditioning by changing how it chunks.
+    /// </para>
+    /// </summary>
+    public static (int? Height, int? Width) ImageInputTileSize(InferenceSession session, string imageInputName)
+    {
+        if (!session.InputMetadata.TryGetValue(imageInputName, out var meta))
+        {
+            throw new InvalidOperationException(
+                $"OnnxIoNames.ImageInputTileSize: no input named '{imageInputName}' (have: " +
+                string.Join(", ", session.InputMetadata.Keys) + ").");
+        }
+
+        var dims = meta.Dimensions;
+        if (dims.Length != 4)
+        {
+            throw new InvalidOperationException(
+                $"OnnxIoNames.ImageInputTileSize: '{imageInputName}' is not a rank-4 NCHW image input; " +
+                $"got [{string.Join(",", dims)}].");
+        }
+
+        return (dims[2] > 0 ? dims[2] : null, dims[3] > 0 ? dims[3] : null);
+    }
+
+    /// <summary>
     /// Two-input image + scalar classification. Used by
     /// <see cref="OnnxNonStellarDeconvolver"/>. The image input has rank 4
     /// (NCHW); the scalar input has rank &lt;= 2 (e.g. <c>[1, 1]</c>). Same

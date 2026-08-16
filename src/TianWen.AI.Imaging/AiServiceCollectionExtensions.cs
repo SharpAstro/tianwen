@@ -49,4 +49,30 @@ public static class AiServiceCollectionExtensions
         services.TryAddSingleton<SharpenPipeline>();
         return services;
     }
+
+    /// <summary>
+    /// Opt in to the in-house Noise2Noise denoiser (<see cref="N2nDenoiser"/>) as the
+    /// <see cref="IDenoiseEnhancer"/>, replacing the AI4 NAFNet one. Calls
+    /// <see cref="AddTianWenAi"/> first, so it is the only call a consumer needs.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why this is opt-in rather than the default.</b> The N2N model is measured against
+    /// its own ablations on held-out astro masters, and is the best of them. It has never been
+    /// compared against <see cref="OnnxDenoiser"/> on the enhance pipeline's own job. Making it the
+    /// default on the strength of the first measurement would assert the second, which nobody has
+    /// checked -- and it would do so silently, on every <c>--ai-backend sas</c> run.</para>
+    ///
+    /// <para>It is also OSC-only and throws on mono input, where <see cref="OnnxDenoiser"/> has a
+    /// mono weight bundle. A composition root serving mono users wants the default.</para>
+    ///
+    /// <para>Uses <c>Replace</c> rather than <c>TryAdd</c> deliberately, mirroring
+    /// <c>AddRcAstroAi</c>: the caller has named a preference, so a registration already made by
+    /// <see cref="AddTianWenAi"/> should lose rather than win.</para>
+    /// </remarks>
+    public static IServiceCollection AddTianWenN2nDenoiser(this IServiceCollection services)
+    {
+        services.AddTianWenAi();
+        services.Replace(ServiceDescriptor.Singleton<IDenoiseEnhancer, N2nDenoiser>());
+        return services;
+    }
 }

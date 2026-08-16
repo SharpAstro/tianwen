@@ -1,0 +1,367 @@
+using System;
+using System.Linq;
+using System.Reflection;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Meziantou.Extensions.Logging.Xunit.v3;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Shouldly;
+using TianWen.AI.Imaging;
+using TianWen.AI.Imaging.Onnx;
+using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Enhancement;
+using Xunit;
+
+namespace TianWen.Lib.Tests;
+
+/// <summary>
+/// Tests for the in-house Noise2Noise denoiser, gated on
+/// <c>tianwen_denoise_osc_v19d.onnx</c> being present under
+/// <c>%LOCALAPPDATA%\TianWen\models</c>; they skip silently when it is missing so a fresh clone
+/// stays green.
+/// <para>
+/// <b>The parity test is the point of this file.</b> The exported graph is already pinned against
+/// torch by <c>n2n-smoke/ship/n2n_export.py</c> (max |diff| 1.49e-7). What no Python check can
+/// cover is the C# deployment path around it: NCHW packing, the median-fill border, the 256 px
+/// chunking, the replicate-pad of an edge chunk, the per-channel level restore, the stitch that
+/// drops a 16 px rim, and the blend. Every one of those fails silently -- a transposed tensor or a
+/// mis-scaled input still produces a plausible-looking picture.
+/// </para>
+/// </summary>
+[Collection("Imaging")]
+public class N2nDenoiserTests(ITestOutputHelper output)
+{
+    private const string FixtureResource = "TianWen.Lib.Tests.Data.n2n-parity-fixture.json";
+
+    private static bool HasModel(out string skipMessage)
+    {
+        if (new ModelResolver().TryResolve(N2nDenoiser.ModelFileName, out _))
+        {
+            skipMessage = string.Empty;
+            return true;
+        }
+        skipMessage = $"{N2nDenoiser.ModelFileName} not found; run tools/tianwen-ai-models-fetch.ps1 to enable this test.";
+        return false;
+    }
+
+    private static JsonElement LoadFixture()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(FixtureResource).ShouldNotBeNull();
+        using var doc = JsonDocument.Parse(stream);
+        return doc.RootElement.Clone();
+    }
+
+    /// <summary>
+    /// The plate the Python fixture generator builds, restated. Both sides run the LCG explicitly
+    /// (<c>s = s * 1664525 + 1013904223 mod 2^32</c>) because no two runtimes' built-in RNGs agree
+    /// -- <see cref="Random"/> and <c>numpy.random</c> least of all -- and shipping the plate as a
+    /// fixture would mean 300 KiB of incompressible noise that still has to be read identically at
+    /// both ends to be worth anything.
+    /// </summary>
+    private static Image BuildPlate(int size, int channels, float background, float noiseAmplitude, int starCount, uint seed)
+    {
+        var state = seed;
+        float NextUnit()
+        {
+            state = unchecked(state * 1664525u + 1013904223u);
+            return (float)(state / 4294967296.0);
+        }
+
+        var planes = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
+            var plane = new float[size, size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++) plane[y, x] = background;
+            }
+            planes[c] = plane;
+        }
+
+        for (var s = 0; s < starCount; s++)
+        {
+            var cx = NextUnit() * size;
+            var cy = NextUnit() * size;
+            var amp = 0.05f + 0.60f * NextUnit();
+            var sigma = 1.2f + 1.8f * NextUnit();
+            var x0 = Math.Max(0, (int)(cx - 8));
+            var x1 = Math.Min(size, (int)(cx + 9));
+            var y0 = Math.Max(0, (int)(cy - 8));
+            var y1 = Math.Min(size, (int)(cy + 9));
+            for (var c = 0; c < channels; c++)
+            {
+                var weight = 0.7 + 0.3 * ((c + 1.0) / channels);
+                for (var y = y0; y < y1; y++)
+                {
+                    for (var x = x0; x < x1; x++)
+                    {
+                        var d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                        planes[c][y, x] += (float)(amp * Math.Exp(-d2 / (2.0 * sigma * sigma)) * weight);
+                    }
+                }
+            }
+        }
+
+        // Grain last, and in channel-then-row-then-column order: the LCG is a single stream, so
+        // the traversal order is part of the plate's definition.
+        for (var c = 0; c < channels; c++)
+        {
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++)
+                {
+                    planes[c][y, x] = Math.Clamp(planes[c][y, x] + noiseAmplitude * (NextUnit() - 0.5f), 0f, 1f);
+                }
+            }
+        }
+
+        return new Image(planes, BitDepth.Float32, 1.0f, 0f, 0f,
+            new ImageMeta { SensorType = SensorType.Color });
+    }
+
+    private static Image BuildPlateFrom(JsonElement fixture) => BuildPlate(
+        fixture.GetProperty("size").GetInt32(),
+        fixture.GetProperty("channels").GetInt32(),
+        fixture.GetProperty("background").GetSingle(),
+        fixture.GetProperty("noise_amplitude").GetSingle(),
+        fixture.GetProperty("star_count").GetInt32(),
+        (uint)fixture.GetProperty("seed").GetInt64());
+
+    /// <summary>
+    /// The plate itself must match first. If this fails, nothing downstream means anything -- and
+    /// the failure is in the generator restatement, not in the denoiser.
+    /// </summary>
+    [Fact]
+    public void ThePlateGeneratorAgreesWithPython()
+    {
+        var fixture = LoadFixture();
+        var plate = BuildPlateFrom(fixture);
+        var expectedMean = fixture.GetProperty("input").GetProperty("mean").EnumerateArray().Select(e => e.GetSingle()).ToArray();
+        var expectedStd = fixture.GetProperty("input").GetProperty("std").EnumerateArray().Select(e => e.GetSingle()).ToArray();
+
+        for (var c = 0; c < plate.ChannelCount; c++)
+        {
+            var span = plate.GetChannelSpan(c);
+            double sum = 0;
+            for (var i = 0; i < span.Length; i++) sum += span[i];
+            var mean = sum / span.Length;
+            double sq = 0;
+            for (var i = 0; i < span.Length; i++) sq += (span[i] - mean) * (span[i] - mean);
+            var std = Math.Sqrt(sq / span.Length);
+
+            output.WriteLine($"ch{c}: mean {mean:F6} (want {expectedMean[c]:F6}), std {std:F6} (want {expectedStd[c]:F6})");
+            mean.ShouldBe(expectedMean[c], 1e-5);
+            std.ShouldBe(expectedStd[c], 1e-5);
+        }
+
+        // Every sampled input pixel too: a mean and a std would survive a transposed plate.
+        foreach (var sample in fixture.GetProperty("samples").EnumerateArray())
+        {
+            var c = sample.GetProperty("c").GetInt32();
+            var x = sample.GetProperty("x").GetInt32();
+            var y = sample.GetProperty("y").GetInt32();
+            var expected = sample.GetProperty("in").GetSingle();
+            plate.GetChannelSpan(c)[y * fixture.GetProperty("size").GetInt32() + x].ShouldBe(expected, 1e-5f);
+        }
+    }
+
+    /// <summary>
+    /// The whole C# path against torch's answer for the same plate. The fixture's 160 px size is
+    /// load-bearing: it borders to 192, which <c>ChunkedInference.Split</c> yields as exactly ONE
+    /// chunk (its step is 192 and its loop runs while <c>i &lt; height</c>), so a discrepancy is
+    /// attributable rather than averaged away across overlapping tiles. That chunk is still
+    /// replicate-padded 192 -> 256 to meet the model's declared tile, so the edge-chunk path every
+    /// real image takes at its right and bottom margins is covered here too.
+    /// </summary>
+    [Fact]
+    public async Task TheWholePipelineReproducesTorch()
+    {
+        if (!HasModel(out var skip)) { Assert.Skip(skip); return; }
+
+        var fixture = LoadFixture();
+        var size = fixture.GetProperty("size").GetInt32();
+        var plate = BuildPlateFrom(fixture);
+
+        using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
+        using var enhancer = new N2nDenoiser(new ModelResolver(), factory.CreateLogger<N2nDenoiser>());
+        var result = await enhancer.EnhanceAsync(plate, 1.0f, TestContext.Current.CancellationToken);
+
+        var (channels, w, h) = result.Shape;
+        channels.ShouldBe(fixture.GetProperty("channels").GetInt32());
+        w.ShouldBe(size);
+        h.ShouldBe(size);
+
+        var expectedMean = fixture.GetProperty("output").GetProperty("mean").EnumerateArray().Select(e => e.GetSingle()).ToArray();
+        var expectedStd = fixture.GetProperty("output").GetProperty("std").EnumerateArray().Select(e => e.GetSingle()).ToArray();
+        for (var c = 0; c < channels; c++)
+        {
+            var span = result.GetChannelSpan(c);
+            double sum = 0;
+            for (var i = 0; i < span.Length; i++) sum += span[i];
+            var mean = sum / span.Length;
+            double sq = 0;
+            for (var i = 0; i < span.Length; i++) sq += (span[i] - mean) * (span[i] - mean);
+            var std = Math.Sqrt(sq / span.Length);
+            output.WriteLine($"ch{c}: mean {mean:F6} (torch {expectedMean[c]:F6}), std {std:F6} (torch {expectedStd[c]:F6})");
+            // 1e-4 rather than the graph's own 1e-7: this compares ORT against torch across two
+            // runtimes and two execution providers, so it is a correctness bound, not a
+            // bit-exactness one. A packing, border, level or blend defect misses by far more.
+            mean.ShouldBe(expectedMean[c], 1e-4);
+            std.ShouldBe(expectedStd[c], 1e-4);
+        }
+
+        var worst = 0.0f;
+        foreach (var sample in fixture.GetProperty("samples").EnumerateArray())
+        {
+            var c = sample.GetProperty("c").GetInt32();
+            var x = sample.GetProperty("x").GetInt32();
+            var y = sample.GetProperty("y").GetInt32();
+            var got = result.GetChannelSpan(c)[y * size + x];
+            worst = Math.Max(worst, Math.Abs(got - sample.GetProperty("out").GetSingle()));
+        }
+        output.WriteLine($"worst sampled-pixel difference vs torch: {worst:E3}");
+        worst.ShouldBeLessThan(1e-3f);
+
+        result.Release();
+    }
+
+    /// <summary>
+    /// The user-facing dial is a blend, so it must be exactly linear in the model's output and
+    /// must reach the untouched input as it goes to zero. Both are checked against the model's own
+    /// full-strength answer rather than against a fixture, so this holds for any future checkpoint.
+    /// </summary>
+    [Fact]
+    public async Task TheStrengthDialIsALinearBlendTowardTheInput()
+    {
+        if (!HasModel(out var skip)) { Assert.Skip(skip); return; }
+
+        var fixture = LoadFixture();
+        var size = fixture.GetProperty("size").GetInt32();
+        var plate = BuildPlateFrom(fixture);
+        using var enhancer = new N2nDenoiser(new ModelResolver());
+
+        var full = await enhancer.EnhanceAsync(plate, 1.0f, TestContext.Current.CancellationToken);
+        var half = await enhancer.EnhanceAsync(plate, 0.5f, TestContext.Current.CancellationToken);
+        var faint = await enhancer.EnhanceAsync(plate, 0.01f, TestContext.Current.CancellationToken);
+
+        var worstHalf = 0.0f;
+        var worstFaint = 0.0f;
+        for (var c = 0; c < plate.ChannelCount; c++)
+        {
+            var src = plate.GetChannelSpan(c);
+            var f = full.GetChannelSpan(c);
+            var hh = half.GetChannelSpan(c);
+            var ff = faint.GetChannelSpan(c);
+            for (var i = 0; i < src.Length; i++)
+            {
+                worstHalf = Math.Max(worstHalf, Math.Abs(hh[i] - (src[i] + 0.5f * (f[i] - src[i]))));
+                worstFaint = Math.Max(worstFaint, Math.Abs(ff[i] - src[i]));
+            }
+        }
+        output.WriteLine($"worst |blend(0.5) - midpoint| {worstHalf:E3}, worst |blend(0.01) - input| {worstFaint:E3}");
+        worstHalf.ShouldBeLessThan(1e-5f);
+        // At 1% the output must be within 1% of the model's excursion from the input, which for
+        // this plate is a small number -- the assertion is that the dial genuinely approaches the
+        // untouched input rather than bottoming out, the failure mode the conditioning dial has.
+        worstFaint.ShouldBeLessThan(0.01f);
+
+        full.Release();
+        half.Release();
+        faint.Release();
+        _ = size;
+    }
+
+    [Fact]
+    public async Task MonoIsRejectedRatherThanTiledAcrossTheColourSlots()
+    {
+        if (!HasModel(out var skip)) { Assert.Skip(skip); return; }
+
+        var mono = new Image([new float[64, 64]], BitDepth.Float32, 1.0f, 0f, 0f,
+            new ImageMeta { SensorType = SensorType.Monochrome });
+        using var enhancer = new N2nDenoiser(new ModelResolver());
+
+        var ex = await Should.ThrowAsync<NotSupportedException>(
+            async () => await enhancer.EnhanceAsync(mono, TestContext.Current.CancellationToken));
+        ex.Message.ShouldContain("one-shot-colour");
+    }
+
+    [Fact]
+    public async Task OutOfRangeInputIsRejectedWithThePointerToNormalisation()
+    {
+        if (!HasModel(out var skip)) { Assert.Skip(skip); return; }
+
+        var src = new Image([new float[16, 16], new float[16, 16], new float[16, 16]],
+            BitDepth.Float32, maxValue: 65535f, minValue: 0f, pedestal: 0f,
+            new ImageMeta { SensorType = SensorType.Color });
+        using var enhancer = new N2nDenoiser(new ModelResolver());
+
+        var ex = await Should.ThrowAsync<ArgumentException>(
+            async () => await enhancer.EnhanceAsync(src, TestContext.Current.CancellationToken));
+        ex.Message.ShouldContain("AdoptImageAsync");
+    }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(-0.5f)]
+    [InlineData(1.5f)]
+    [InlineData(float.NaN)]
+    public async Task AStrengthOutsideTheUnitIntervalIsRejected(float strength)
+    {
+        if (!HasModel(out var skip)) { Assert.Skip(skip); return; }
+
+        var src = new Image([new float[16, 16], new float[16, 16], new float[16, 16]],
+            BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+        using var enhancer = new N2nDenoiser(new ModelResolver());
+
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(
+            async () => await enhancer.EnhanceAsync(src, strength, TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// The N2N model is opt-in and must not displace <see cref="OnnxDenoiser"/> by merely being
+    /// registered: it is OSC-only, and it has never been compared against the AI4 denoiser on the
+    /// enhance pipeline's own job. Both halves of that are asserted here so a future
+    /// <c>TryAddSingleton</c> slip in <c>AddTianWenAi</c> shows up as a red test.
+    /// </summary>
+    [Fact]
+    public void TheDefaultRegistrationKeepsTheAi4DenoiserAndTheOptInReplacesIt()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(NullLoggerFactory.Instance);
+        services.AddLogging();
+        services.AddTianWenAi();
+        using (var provider = services.BuildServiceProvider())
+        {
+            provider.GetRequiredService<IDenoiseEnhancer>().ShouldBeOfType<OnnxDenoiser>();
+        }
+
+        var optIn = new ServiceCollection();
+        optIn.AddSingleton(NullLoggerFactory.Instance);
+        optIn.AddLogging();
+        optIn.AddTianWenN2nDenoiser();
+        using (var provider = optIn.BuildServiceProvider())
+        {
+            var denoiser = provider.GetRequiredService<IDenoiseEnhancer>();
+            denoiser.ShouldBeOfType<N2nDenoiser>();
+            denoiser.Name.ShouldContain("N2N");
+        }
+    }
+
+    /// <summary>
+    /// One weight bundle exists, so a caller asking for Lite or Walking is told rather than
+    /// silently handed Default -- the variant axis belongs to the AI4 family, not to this model.
+    /// </summary>
+    [Fact]
+    public async Task ANonDefaultVariantIsRefusedRatherThanIgnored()
+    {
+        var src = new Image([new float[16, 16], new float[16, 16], new float[16, 16]],
+            BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
+        using var enhancer = new N2nDenoiser(new ModelResolver());
+
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(
+            async () => await enhancer.EnhanceAsync(src, DenoiseVariant.Lite, TestContext.Current.CancellationToken));
+    }
+}
