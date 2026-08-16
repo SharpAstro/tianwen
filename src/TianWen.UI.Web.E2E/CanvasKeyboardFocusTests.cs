@@ -32,6 +32,21 @@ public sealed class CanvasKeyboardFocusTests(TianWenWebFixture fixture)
         return doc.RootElement.GetProperty("overlay").GetBoolean();
     }
 
+    /// <summary>Keys the DOCUMENT listener delivered, i.e. ones the canvas would not have heard. Without
+    /// this a test that presses at the document and sees the map react cannot tell the fallback carrying
+    /// the key from focus having been on the canvas anyway -- and the latter passes with it removed.
+    ///
+    /// <para>Returns -1 when the build reports no such counter, rather than throwing. The failing
+    /// baseline for these tests is the DEPLOYED build, which predates the field, and a crash on the
+    /// missing property would pre-empt the behavioural assertion that is the point of the test.</para>
+    /// </summary>
+    private static async Task<int> DocumentKeysAsync(IPage page)
+    {
+        var json = await page.EvaluateAsync<string>("async () => await window.__tianwenTest.getRenderStats()");
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.TryGetProperty("documentKeys", out var keys) ? keys.GetInt32() : -1;
+    }
+
     private async Task<(IPage Page, ILocator Canvas)> SkyMapAsync()
     {
         var page = await fixture.WarmPageAsync();
@@ -125,5 +140,80 @@ public sealed class CanvasKeyboardFocusTests(TianWenWebFixture fixture)
         var on = await OverlayOnAsync(page);
         await RestoreOverlayOffAsync(page, canvas);
         Assert.True(on, "[O] did nothing after a touch pinch: driving the map does not restore keyboard focus");
+    }
+
+    /// <summary>
+    /// The residual gap the two tests above cannot close: focus taken by something the app never sees.
+    /// Devtools opening, an alt-tab that returns to &lt;body&gt;, an extension, the browser's find bar --
+    /// none of them is a click the app handles or a gesture on the map, so nothing calls
+    /// RestoreCanvasFocus and there is nothing that COULD. The keyboard has to reach the app without
+    /// focus rather than by being handed focus back, which is what document-keys.js does.
+    ///
+    /// <para>Deliberately no gesture anywhere in this test: a single pointer event would repair the
+    /// state under test and it would pass with the fallback removed.</para>
+    /// </summary>
+    [Fact]
+    public async Task KeysStillReachTheMapWhenFocusIsSomewhereTheAppNeverSaw()
+    {
+        var (page, canvas) = await SkyMapAsync();
+        if (await OverlayOnAsync(page))
+        {
+            await canvas.PressAsync("o");
+        }
+
+        // Let the chip click's focus restore LAND before taking focus away. It goes through the page's
+        // task tracker, so a blur issued straight after the click is overtaken by it and the canvas is
+        // focused again -- the test would then be measuring the race, not the state it set up.
+        Assert.Equal("planner", await ActiveElementIdAsync(page, expected: "planner"));
+
+        await page.EvaluateAsync("() => document.activeElement instanceof HTMLElement && document.activeElement.blur()");
+        Assert.NotEqual("planner", await page.EvaluateAsync<string>("() => document.activeElement?.id ?? ''"));
+
+        var before = await DocumentKeysAsync(page);
+        await PressAtDocumentAsync(page, "o");
+        var on = await OverlayOnAsync(page);
+        var after = await DocumentKeysAsync(page);
+        await RestoreOverlayOffAsync(page, canvas);
+
+        // Behaviour first, provenance second: the first assertion is the bug as a user meets it, and
+        // the second is what makes the pass mean something (the fallback carried it, not stray focus).
+        Assert.True(on,
+            "[O] did nothing with focus off the canvas: there was no gesture to hand it back, so the "
+            + "document listener is the only path the key had");
+        Assert.True(before >= 0 && after > before,
+            $"the overlay toggled but the document listener did not deliver it (documentKeys {before} -> {after})");
+    }
+
+    /// <summary>
+    /// The other half of the same rule: a real DOM input owns every key while it is focused, letters
+    /// included. Lat/Lon are ordinary number inputs sitting beside the canvas, so a document listener
+    /// that took keys unconditionally would toggle the overlay while somebody types a latitude -- the
+    /// obvious way to over-fix the test above, and invisible unless it is asserted.
+    /// </summary>
+    [Fact]
+    public async Task ARealInputKeepsItsOwnKeys()
+    {
+        var (page, canvas) = await SkyMapAsync();
+        if (await OverlayOnAsync(page))
+        {
+            await canvas.PressAsync("o");
+        }
+
+        // Same ordering point as the test above: the chip click restores canvas focus asynchronously,
+        // and a restore arriving after the Lat click would take the keyboard back off the input.
+        Assert.Equal("planner", await ActiveElementIdAsync(page, expected: "planner"));
+
+        var lat = page.Locator("input[type=number]").First;
+        await lat.ClickAsync();
+        await Expect(lat).ToBeFocusedAsync();
+
+        var before = await DocumentKeysAsync(page);
+        await PressAtDocumentAsync(page, "o");
+        var on = await OverlayOnAsync(page);
+        var after = await DocumentKeysAsync(page);
+        await RestoreOverlayOffAsync(page, canvas);
+
+        Assert.False(on, "typing into the Lat field toggled the map's object overlay");
+        Assert.Equal(before, after);
     }
 }
