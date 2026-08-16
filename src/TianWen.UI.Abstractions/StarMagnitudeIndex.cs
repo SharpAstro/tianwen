@@ -28,6 +28,39 @@ namespace TianWen.UI.Abstractions
         public const int BinCount = 30;
 
         /// <summary>
+        /// Ordering buckets: the <see cref="BinCount"/> magnitude bins plus one overflow bucket for
+        /// everything fainter than the last bin's threshold. The overflow bucket is what lets a
+        /// bucket ordering be exactly equivalent to a full sort as far as
+        /// <see cref="VisibleCount"/> is concerned: those stars have always been undrawable (the bin
+        /// index clamps at <see cref="BinCount"/> - 1, so no limit ever reaches them), and parking
+        /// them after every bin keeps them out of every prefix.
+        /// </summary>
+        internal const int BucketCount = BinCount + 1;
+
+        /// <summary>
+        /// The ordering bucket a magnitude belongs to: the lowest bin whose threshold it satisfies,
+        /// or the overflow bucket when it is fainter than every bin (or not a number).
+        ///
+        /// <para>This is <see cref="ComputeBins"/>'s predicate read backwards, and the two must stay
+        /// that way: bin <c>b</c> counts records with <c>Magnitude &lt;= (b + 1) * 0.5</c>, so the
+        /// bucket of a magnitude is the smallest <c>b</c> satisfying it, i.e.
+        /// <c>ceil(2m) - 1</c>.</para>
+        /// </summary>
+        internal static int BucketOf(float magnitude)
+        {
+            if (!float.IsFinite(magnitude))
+            {
+                // A NaN loses every comparison, so it would otherwise convert to bucket 0 and render
+                // as the brightest star in its chunk. The flatten already filters these out; this is
+                // the backstop that keeps a leak from being a visible one.
+                return BucketCount - 1;
+            }
+
+            var bucket = (int)MathF.Ceiling(magnitude * 2f) - 1;
+            return bucket < 0 ? 0 : (bucket >= BucketCount ? BucketCount - 1 : bucket);
+        }
+
+        /// <summary>
         /// One star exactly as <see cref="SkyMapState.FloatsPerStar"/> lays it out, so a star buffer
         /// can be reinterpreted as records instead of being indexed by hand. Blittable and exactly
         /// 20 bytes, which is what makes the <see cref="MemoryMarshal.Cast{TFrom, TTo}(Span{TFrom})"/>
@@ -65,6 +98,15 @@ namespace TianWen.UI.Abstractions
         ///
         /// <para>Throws on a span that is not a whole number of records -- see
         /// <see cref="EnsureWholeRecords"/> for why that is not merely pedantic.</para>
+        ///
+        /// <para><b>Not used by <see cref="StarChunkIndex"/> any more, and think before reaching for
+        /// it on a browser path.</b> <c>Span&lt;T&gt;.Sort&lt;T, TComparer&gt;</c> instantiated over
+        /// an app-defined value type and a struct comparer is a generic instantiation the Mono AOT
+        /// compiler does not emit, so under Blazor WASM it silently falls back to the interpreter:
+        /// measured on the deployed sky map, sorting ~1M stars this way cost <b>2.4 s</b> and froze
+        /// the main thread, against 86 ms for the same call on desktop. The chunk builder now orders
+        /// by <see cref="BucketOf"/> with a counting sort, which is O(n), allocation-light and plain
+        /// enough that AOT compiles it. Keep this for callers that genuinely need a total order.</para>
         /// </summary>
         /// <exception cref="ArgumentException">
         /// <paramref name="span"/>'s length is not a multiple of the record size.

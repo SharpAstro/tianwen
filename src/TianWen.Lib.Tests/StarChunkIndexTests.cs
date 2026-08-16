@@ -172,6 +172,84 @@ namespace TianWen.Lib.Tests
             StarChunkIndex.IsVisible(antipodal, vx, vy, vz, (float)double.DegreesToRadians(5.0)).ShouldBeFalse();
         }
 
+        /// <summary>
+        /// THE ordering contract, stated with magnitudes that do NOT fall on bin boundaries.
+        ///
+        /// <para>The builder orders by half-magnitude bucket rather than sorting outright, because the
+        /// only reader of the order is <see cref="StarMagnitudeIndex.VisibleCount"/> and it asks for a
+        /// prefix. <see cref="EachChunkIsSortedBrightestFirstSoItsPrefixIsMeaningful"/> cannot tell the
+        /// two apart -- its field's magnitudes are exact multiples of 0.5, so one star lands per bucket
+        /// and bucket order IS magnitude order. This one uses magnitudes that share buckets, so it
+        /// fails if the prefix property is ever actually broken, and passes under either ordering.</para>
+        /// </summary>
+        [Fact]
+        public void EveryStarAtOrAboveALimitOccupiesTheChunkPrefixThatVisibleCountReports()
+        {
+            // Magnitudes deliberately land inside buckets rather than on their thresholds, and several
+            // stars share a bucket, so within-bucket order is genuinely unconstrained here.
+            const int perAxis = 24;
+            var verts = new float[perAxis * perAxis * Stride];
+            var i = 0;
+            for (var ra = 0; ra < perAxis; ra++)
+            {
+                for (var dec = 0; dec < perAxis; dec++)
+                {
+                    Write(verts, i, 24.0 * ra / perAxis, -85.0 + (170.0 * dec / (perAxis - 1)),
+                        1.13f + ((i % 37) * 0.31f));
+                    i++;
+                }
+            }
+
+            var chunks = StarChunkIndex.Build(verts);
+
+            foreach (var chunk in chunks.Where(c => c.Count > 0))
+            {
+                for (var bin = 0; bin < StarMagnitudeIndex.BinCount; bin++)
+                {
+                    var limit = (bin + 1) * 0.5f;
+                    var drawn = StarMagnitudeIndex.VisibleCount(chunk.MagBins, limit);
+
+                    // Everything the prefix contains is at or above the limit ...
+                    for (var k = 0u; k < drawn; k++)
+                    {
+                        verts[(int)(chunk.Offset + k) * Stride + 3]
+                            .ShouldBeLessThanOrEqualTo(limit,
+                                $"chunk at {chunk.Offset} draws a star fainter than the limit at slot {k}");
+                    }
+
+                    // ... and nothing at or above the limit was left outside it.
+                    for (var k = drawn; k < chunk.Count; k++)
+                    {
+                        verts[(int)(chunk.Offset + k) * Stride + 3]
+                            .ShouldBeGreaterThan(limit,
+                                $"chunk at {chunk.Offset} left a visible star outside the prefix at slot {k}");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// A star fainter than the last bin must survive the regrouping but never be drawn -- the
+        /// overflow bucket's whole job. Before the counting scatter this fell out of the sort placing
+        /// it last; now it is explicit, so it is pinned explicitly.
+        /// </summary>
+        [Fact]
+        public void AStarFainterThanTheLastBinIsKeptButNeverDrawn()
+        {
+            var verts = new float[3 * Stride];
+            Write(verts, 0, 6.0, 20.0, 4.0f);
+            Write(verts, 1, 6.0, 20.0, 19.5f);   // fainter than bin 29's 15.0 threshold
+            Write(verts, 2, 6.0, 20.0, 7.0f);
+
+            var chunks = StarChunkIndex.Build(verts);
+            var chunk = chunks.Single(c => c.Count > 0);
+
+            chunk.Count.ShouldBe(3u, "the faint star must still occupy its slot in the buffer");
+            StarMagnitudeIndex.VisibleCount(chunk.MagBins, 30f)
+                .ShouldBe(2u, "a limit past every bin still must not reach the overflow bucket");
+            verts[(int)(chunk.Offset + 2) * Stride + 3].ShouldBe(19.5f, "it belongs after every drawable star");
+        }
+
         [Fact]
         public void AnEmptyBufferProducesAFullyCulledChunkTable()
         {
