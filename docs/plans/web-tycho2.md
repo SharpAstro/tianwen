@@ -1,6 +1,7 @@
 # Tycho-2 in the Browser Atlas (plan)
 
-**Status: P1 SHIPPED (2026-07-18); P2-P4 measurement-gated.** Bring the full ~2.5M-star Tycho-2
+**Status: P1 + P3 SHIPPED; P2 and P4 MEASURED and merged into one bake change (see "The measurement
+that settled P2 and P4", 2026-08-16).** Bring the full ~2.5M-star Tycho-2
 catalog to the web sky atlas, which used to show only the ~8.6k HR bright stars (`Lightweight=true`
 strips `tyc2.bin.lz` from the WASM bundle). Grew out of the threading/WebGPU investigation
 ([web-multithreading.md](web-multithreading.md), [web-webgpu.md](web-webgpu.md)), which established
@@ -52,8 +53,8 @@ absent, so nothing crashes; the data is simply not there.
 | Cost | Status | Lever |
 |------|--------|-------|
 | **Render** 2.5M instanced stars | **already solved**, `DrawInstanced` renders it; desktop Vulkan proves the scale (~50 MB VRAM instance buffer) | - |
-| **Decode** lzip decompress + flatten to star buffer | serial *today* on WASM, but **parallel across lzip members** via `LzipDecoder.Parallel.For` (unlocked by wasm-threads + a multi-member bake) | P1 serial → P2 parallel |
-| **Payload** ~30 MB download | **the dominant blocker**: untouched by threads or GPU | P1 lazy-fetch → P3 IndexedDB cache → P4 tiling |
+| **Decode** lzip decompress + flatten to star buffer | **measured 1802 ms + 93 ms** = 27% + 1.4% of a cold load. The flatten is noise; the decompress is real but is not what the user waits for once band 0 lands | P1 serial → P2+P4 band-aligned members |
+| **Payload** ~30 MB download | **confirmed the dominant blocker at 45%**, and the codec cannot fix it (gzip costs +6.9 MB, brotli is unserveable on Pages) | P1 lazy-fetch → P3 IndexedDB cache ✅ → P2+P4 banded prefix |
 
 ## Disciplined framing (value gate)
 
@@ -62,23 +63,106 @@ The atlas is **already a fine showcase** with the ~8.6k naked-eye HR stars. Full
 **measurement-gated**: ship the cheapest working version first, measure, and only take on the
 infrastructure (wasm-threads, tiling) if the numbers justify it.
 
+That gate did its job. The measurement below retired the wasm-threads infrastructure and the tiling
+scheme -- the two most expensive things this plan had proposed -- and replaced both with a bake
+change costing 0.49% of payload. Neither would have been wrong to build; both would have been built
+against a guess about where the 6.67 s went.
+
 **Scope decision; display-only, not searchable (v1).** The web atlas needs tyc2 for *rendering*, not
 for F3 search / cross-identity. So the decode path builds **only the flat star-instance buffer** (via
 the `CopyTycho2Stars` shape) and **skips** the desktop's DB dictionary integration
 (`hip_to_tyc`/`hd_to_tyc` cross-maps, per-star `TryGetTycho2Star` lookup). That keeps the parse
 per-record-parallel and avoids the serial dictionary-build. Searching individual TYC stars is deferred.
 
+## The measurement that settled P2 and P4 (2026-08-16)
+
+Everything below P1 was gated on a number this plan recorded as unknown: the AOT decode wall-time.
+Measured on the **deployed** build (a dev server is interpreted, where compute is 24-42x slower and
+the ratio between phases is meaningless, and it 404s the asset anyway) by
+`TianWen.UI.Web.E2E/AtlasLoadCostProbe`:
+
+| phase | cold | share |
+|---|---:|---:|
+| fetch 30.1 MB | 2972 ms | 45% |
+| lzip decompress -> 43.5 MB, incl. the DB wire-up | 1802 ms | 27% |
+| flatten 2,557,481 stars | **93 ms** | 1.4% |
+| unaccounted (phase yields, the 51 MB vertex alloc, GPU upload) | ~1.8 s | 27% |
+| **total atlas work after the app is usable** | **6.67 s** | |
+
+Warm (P3 cache hit): **0.997 s**, flatten 63 ms.
+
+Three conclusions, each of which redirects a phase:
+
+1. **The flatten is noise.** 93 ms of 6.67 s. Nothing in P2 should be spent parallelizing it, and the
+   original P2 bullet proposing exactly that is struck.
+2. **Payload dominates, and the codec cannot fix it.** Measured against the raw 43.5 MB:
+
+   | codec | size | vs lzip | note |
+   |---|---:|---:|---|
+   | **lzip -9** (shipped) | **30.1 MB** | - | costs the 1802 ms WASM decode |
+   | gzip -6 / -9 | 37.0 MB | +6.9 MB (+23%) | what Pages would do transparently |
+   | brotli q5 | 36.4 MB | +6.3 MB (+21%) | |
+   | brotli q11 | 31.0 MB | +0.9 MB (+3.1%) | 121 s to compress |
+
+   Two hard constraints make brotli unreachable: **GitHub Pages serves gzip only** (`Accept-Encoding:
+   br` alone returns identity, verified against the live host), and **`DecompressionStream` supports
+   gzip/deflate only in every browser** -- so a pre-compressed brotli asset would need a WASM decoder,
+   which is precisely what lzip already is. The only real option is raw + transparent Pages gzip,
+   which trades 6.9 MB of payload for the 1802 ms decode: **break-even at 3.8 MB/s (~31 Mbps)**. The
+   measured link ran 10.1 MB/s (net -1.1 s), but below ~31 Mbps it is a REGRESSION, and slow/mobile
+   links are the case this plan cares about. **Do not swap the codec.** (Pages currently gzips the
+   `.lz` for nothing and adds 9 KB doing it -- harmless, but do not read the header as a saving.)
+3. **Splitting into independently-decodable members is nearly free: 8 members cost 0.49% (+0.15 MB).**
+   That is what makes the phase below possible at all, and it is the number that had been assumed
+   ("slightly worsens the compression ratio ... measure both") rather than known.
+
+## P2+P4: band-aligned multi-member bake (the one remaining phase)
+
+**Bands, not sky tiles**, and the same artifact serves the desktop and the browser.
+
+The bands already exist. `StarMagnitudeIndex` sorts the buffer brightest-first and indexes 0.5-mag
+prefixes, so a magnitude band is a **contiguous prefix of the array already shipped** -- the file
+needs a segment table in its header, not a new layout and not a re-sort. And the prefix table shows
+why the axis is right: V<=8.5, the default 60-degree FOV, is **3.07% of the catalog**.
+
+- **Bake:** set `LzipOptions.MemberSize` so member boundaries land on band boundaries, and write the
+  per-band byte offsets into the header. Cost measured above: 0.49%.
+- **Desktop reads every member.** Concatenated members carry the same records in the same order, so
+  the embedded-resource path is behaviourally unchanged -- and it *gains* the parallel decode for
+  free, because `LzipDecoder.Parallel.For` only engages on a multi-member file. The desktop gets
+  faster; it is not merely left unbroken.
+- **Web range-fetches per band.** GitHub Pages honours byte-range GETs (verified: `206 Partial
+  Content` with an exact `Content-Range` at both offset 0 and mid-file). Band 0 is ~1 MB, so a
+  complete-looking 60-degree sky lands almost immediately and the deep bands stream in behind it.
+  ONE asset: no CI splitting step, no tile index, no fetch-on-pan logic, no per-tile cache.
+- **Seam:** `ICelestialObjectDB.TryLoadTycho2BulkFromDecoded` gains an append/incremental form so
+  bands can be submitted as they land. `SubmitTycho2Stars` already does a render-thread buffer swap,
+  so progressive submission reuses the mechanism that is there rather than adding one.
+
+**Why not the spatial tiling this plan used to specify.** At the default 60-degree FOV the view
+covers a large slice of the visible sky, so a tiled scheme needs most of its tiles immediately and
+buys nothing on first load. Tiles only pay at deep zoom -- which is exactly the case
+`StarChunkIndex`'s cone cull already handles on the GPU, without downloading anything. Bands also
+need no view-dependent fetch logic at all: a fixed count, in a fixed order, decided before the user
+touches anything.
+
+**What is NOT needed any more.** The wasm-threads infrastructure the old P2 was built on --
+`WasmEnableThreads`, the `coi-serviceworker` COOP/COEP shim, the subresource audit, the Blazor
+dispatcher marshalling -- was there to parallelize a decode that is 27% of the load. Band 0 makes
+the sky appear before most of that decode has run, so the infrastructure is no longer on the
+critical path for the thing it was meant to fix. It stays available for its own reasons (see
+web-multithreading.md), but this plan no longer asks for it.
+
 ## Phasing
 
 | Phase | Scope | Risk | Ships |
 |-------|-------|------|-------|
-| **P1 ✅ DONE** | **Lazy-fetch + serial decode.** tyc2 stays un-embedded for web (`Lightweight`); shipped as a same-origin static asset (CI-staged into wwwroot); fetched on **first atlas-open**; serial decode + flatten off the first-paint path; swapped over the HR seed. AOT decode wall-time still to measure. | Med | Full-density atlas, no first-load bloat |
-| **P2** | **Parallel decode** (gated on P1 decode being too slow). Bake tyc2 **multi-member**; `WasmEnableThreads`; `coi-serviceworker` shim; COEP subresource audit; marshal decode off the Blazor main thread. `LzipDecoder.Parallel.For` then parallelizes for free. | High | Faster decode |
-| **P3** | **IndexedDB decoded-snapshot cache** (gated on repeat-visit UX). Cache the decoded flat buffer; later visits skip download + decode. | Med | Instant repeat visits |
-| **P4** | **Spatial tiling** (deferred). Pre-tile tyc2 by sky region, fetch tiles on pan/zoom. Progressive/instant load, smallest incremental download. | High | Progressive load |
+| **P1 ✅ DONE** | **Lazy-fetch + serial decode.** tyc2 stays un-embedded for web (`Lightweight`); shipped as a same-origin static asset (CI-staged into wwwroot); fetched on **first atlas-open**; serial decode + flatten off the first-paint path; swapped over the HR seed. | Med | Full-density atlas, no first-load bloat |
+| **P3 ✅ DONE** | **IndexedDB cache** of the raw decompressed catalog (`Tyc2CacheVersion = "tyc2-v2-raw"`; v1 cached the flattened buffer, raw enables clickable stars). Measured 6.67 s cold -> 0.997 s warm. | Med | Instant repeat visits |
+| **P2+P4** | **Band-aligned multi-member bake** (below). ONE artifact change serves both: the desktop gets parallel decode, the web gets a progressive banded load over HTTP ranges. Supersedes the separate "parallel decode" and "spatial tiling" phases. | Med | Progressive first load + faster decode everywhere |
 
-Incremental value: **P1 ships the feature.** P2/P3/P4 are each independently justified only by a
-measured problem P1 surfaces.
+Incremental value: **P1 ships the feature**, P3 solves the repeat visit, and P2+P4 is the only
+remaining phase -- justified by the measurement below rather than by expectation.
 
 ## P1: lazy-fetch + serial decode (the shippable core)
 
@@ -138,40 +222,34 @@ measured problem P1 surfaces.
    the JS side turns into a per-instance attribute byte offset -- equivalent for a divisor-1 attribute
    and free, since the draw re-binds those attributes anyway.
 
-## P2: parallel decode (measurement-gated)
+## P2 (superseded) and P4 (superseded)
 
-Only if P1's AOT serial decode is a real UX problem (rule of thumb: a multi-second stall even with a
-progress bar). Then:
-- **Bake multi-member.** Set `LzipOptions.MemberSize` in the tyc2 preprocess/bake so `tyc2.bin.lz`
-  is many independent members; the default is single-member → `LzipDecoder` takes the serial
-  `DecompressSingleMember` path and `Parallel.For` never engages. **Trade-off:** multi-member slightly
-  worsens the compression ratio (each member resets the LZMA dictionary) and payload is the dominant
-  cost; pick `MemberSize` large enough that the ratio hit is negligible (measure both).
-- **Enable threads.** `<WasmEnableThreads>true</WasmEnableThreads>`. `LzipDecoder.Parallel.For` then
-  dispatches across the mono thread pool → real multi-core decompress, **zero new decode code** (the
-  parallel loop already exists). This is the "ready-made wasm-threads consumer."
-- **Cross-origin isolation on Pages.** `SharedArrayBuffer` needs COOP/COEP, which Pages can't set → add
-  a `coi-serviceworker.js` shim (re-headers responses client-side + one reload) or host off Pages.
-  Audit COEP subresource fallout (comet JSON + fonts are same-origin so fine; check geolocation).
-- **Blazor marshaling.** The decode must run off the main thread but marshal the finished buffer + any
-  `StateHasChanged`/JS touch back via the dispatcher (Blazor renderer is main-thread-affine).
-- Also parallelize the **flatten** (`Tycho2StarLite[]` → instance floats); per-record independent, a
-  natural `Parallel.For`.
-- Measure: multi-core decode speedup **vs** the MT-runtime download-size + first-load cost + the
-  multi-member ratio hit. Full analysis in web-multithreading.md.
+Both are folded into the band-aligned multi-member bake described above; the sections are kept here
+in outline because each contains a decision that is still live, and because what killed them is
+worth reading beside what replaced them.
 
-## P3: IndexedDB decoded-snapshot cache (measurement-gated)
+**The old P2 (parallel decode over wasm-threads)** proposed `WasmEnableThreads`, a
+`coi-serviceworker.js` COOP/COEP shim, a COEP subresource audit, Blazor dispatcher marshalling, and a
+parallel flatten -- all to speed up a decode measured at 27% of the load, and a flatten measured at
+1.4%. Its one surviving element is the **multi-member bake**, which is now wanted for band
+addressability rather than for threads, and whose ratio trade-off it correctly flagged as needing
+measurement (answered: 0.49% for 8 members). The threads work keeps its own justification in
+[web-multithreading.md](web-multithreading.md); this plan no longer needs it.
 
-Pay the download + decode **once**; cache the decoded flat star buffer (a `Float32Array`/blob) in
-IndexedDB keyed by a catalog version. Later visits load the decoded buffer directly; no 30 MB
-re-download, no re-decode. Orthogonal to P1/P2 (a caching layer on top). Generalizes the deferred
-"decoded-DB IndexedDB snapshot" idea from web-showcase.md, scoped to just the tyc2 star buffer.
+**The old P4 (spatial tiling)** proposed pre-tiling by HEALPix or an RA/Dec grid with fetch-on-pan.
+It is the wrong axis for this app: at the default 60-degree FOV the view covers a large slice of the
+visible sky, so a tiled scheme must fetch most of its tiles on first load. Tiles only pay at deep
+zoom, and that case is already handled entirely on the GPU by `StarChunkIndex`'s cone cull, which
+downloads nothing. Magnitude bands additionally need no view-dependent fetch logic, no tile index and
+no per-tile cache -- and, unlike tiles, they are already the order the file is sorted in.
 
-## P4: spatial tiling (deferred)
-
-Pre-tile tyc2 by sky region (HEALPix or a simple RA/Dec grid), fetch only the visible tiles on
-pan/zoom, cache per-tile. Smallest incremental download + progressive load, but requires a tiling
-scheme + tile index + fetch-on-pan logic. Only if payload/instant-load becomes critical (e.g. mobile).
+**P3 ✅ SHIPPED** as the IndexedDB cache of the *raw decompressed* catalog (`Tyc2CacheVersion =
+"tyc2-v2-raw"`). v1 cached the flattened float buffer; raw was chosen because it feeds the same DB
+path as a cold decode, which is what makes click-to-identify work on a cached load. Measured 6.67 s
+cold -> 0.997 s warm. **Its write is fire-and-forget and moves 43.5 MB**, so anything measuring the
+warm path has to wait for the app to report `tyc2 cached to IndexedDB` first -- navigating on the
+flatten line measures a second cold load and reads as a broken cache, with identical phase timings
+and only the `(decode)` source string to give it away.
 
 ## Integration points / invariants for the implementer
 
@@ -190,11 +268,42 @@ scheme + tile index + fetch-on-pan logic. Only if payload/instant-load becomes c
 - **Display-only v1:** tyc2 stars are NOT added to the searchable `ICelestialObjectDB`; flat instance
   buffer only. F3 search of individual TYC stars is deferred.
 - **GPU compute is the wrong tool** for the decode (LZMA range-decode is sequential-within-member);
-  parallelism is across-member CPU threads (P2), not GPU. WebGPU is irrelevant to this feature.
+  parallelism is across-member CPU threads, not GPU. WebGPU is irrelevant to this feature.
+- **The bake must serve BOTH hosts from one artifact.** A web-only catalog format would be a second
+  implementation of the thing `StarMagnitudeIndex` and `StarChunkIndex` are shared to avoid. Members
+  concatenate to the same records in the same order, so the desktop's embedded read is unchanged
+  while the browser reads a prefix -- the host decides how much to read, and neither knows what the
+  other did.
+- **Byte ranges are the addressing mechanism, and GitHub Pages supports them** (`206 Partial
+  Content` with an exact `Content-Range`, verified at offset 0 and mid-file). So the bands are
+  offsets into ONE asset -- do not split the catalog into N files, which would add a CI step, N
+  cache entries and a manifest to keep in sync for nothing.
+- **Do not switch away from lzip to get free native decompression.** Pages serves gzip only and
+  browsers' `DecompressionStream` has no brotli, so the only reachable alternative costs +6.9 MB to
+  save 1802 ms -- break-even at ~31 Mbps, a regression below it. Measured; see above.
 
 ## Open questions / gates
 
-- Measured AOT serial decode wall-time (gates P2). Unknown until P1 ships.
-- Multi-member `MemberSize` sweet spot: decode-parallelism vs compression-ratio (payload); measure both.
+**Answered 2026-08-16** (kept, because a plan that silently deletes its gates loses the record of
+what it was allowed to assume):
+
+- ~~Measured AOT serial decode wall-time (gates P2).~~ **1802 ms decompress + 93 ms flatten of a
+  6.67 s cold load.** Re-measure with `AtlasLoadCostProbe` against a DEPLOYED build after any change
+  to the bake; a dev server answers a different question.
+- ~~Multi-member `MemberSize` sweet spot: decode-parallelism vs compression-ratio.~~ **8 independent
+  members cost 0.49% (+0.15 MB).** The ratio is not the constraint, so `MemberSize` should be chosen
+  by where the magnitude bands fall, not by compression.
+
+Still open:
+
+- **Band boundaries.** How many, and at which magnitudes. V<=8.5 (3.07%) is the obvious band 0
+  because it is the default 60-degree FOV; the rest is a trade between request count and how
+  abruptly density arrives. `StarMagnitudeIndex`'s 0.5-mag table is the natural quantisation.
+- **What the user sees while bands land.** A star field that visibly thickens is either delightful or
+  a flicker, and which one it is depends on band size. Worth deciding with a real build in front of
+  you, not on paper.
+- **Range-request behaviour under a CDN cache.** Pages returned `206` cleanly on a cold and a mid-file
+  range, but N range GETs per visit interact with Fastly caching differently from one whole-file GET;
+  confirm the bands are actually cached rather than re-fetched.
 - Published `_framework` + tyc2 asset size budget (web-showcase.md already flags a payload-budget item).
 - HR-replace vs HR+tyc2-mag-split: a visual-quality call on bright-star color.
