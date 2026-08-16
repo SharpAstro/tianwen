@@ -38,14 +38,47 @@ namespace TianWen.UI.Web.SkyMap
             System.DateTimeOffset viewingTime, double siteLat, double siteLon, SiteContext site)
         {
             // Sun-altitude-tinted sky background (the base implementation).
+            var mark = System.Diagnostics.Stopwatch.GetTimestamp();
             base.RenderSkyMap(db, contentRect, viewingTime, siteLat, siteLon, site);
+            SkyBackgroundMs += Elapsed(ref mark);
 
             _pipeline.EnsureGeometry(db);
+            SkyGeometryMs += Elapsed(ref mark);
+
             // The web map draws full-canvas: viewport == canvas == contentRect (the razor host
             // hands the whole drawing buffer to the active tab).
             _pipeline.UpdateFrame(State, contentRect.Width, contentRect.Height, site);
+            SkyUpdateFrameMs += Elapsed(ref mark);
+
             _pipeline.Draw(State, site);
+            SkyDrawMs += Elapsed(ref mark);
         }
+
+        private static double Elapsed(ref long mark)
+        {
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            var ms = System.Diagnostics.Stopwatch.GetElapsedTime(mark, now).TotalMilliseconds;
+            mark = now;
+            return ms;
+        }
+
+        /// <summary>
+        /// Per-phase totals for the map draw, which the host reports alongside its own. The host's
+        /// timing puts 96% of a repaint inside this method, and no browser-side tool can go further:
+        /// a trace sees the whole WASM module as one frame. These four split it the only way that
+        /// matters -- CPU geometry rebuilt per frame (<see cref="SkyUpdateFrameMs"/>) against GPU
+        /// submission (<see cref="SkyDrawMs"/>) -- because the fixes for those two are opposite.
+        /// </summary>
+        internal double SkyBackgroundMs { get; private set; }
+
+        /// <inheritdoc cref="SkyBackgroundMs"/>
+        internal double SkyGeometryMs { get; private set; }
+
+        /// <inheritdoc cref="SkyBackgroundMs"/>
+        internal double SkyUpdateFrameMs { get; private set; }
+
+        /// <inheritdoc cref="SkyBackgroundMs"/>
+        internal double SkyDrawMs { get; private set; }
 
         /// <summary>Draws the [O] catalog overlay + [D] dark nebulae + pinned-target landmarks through
         /// the shared path: same candidate gather, projection and label placement as desktop, with the

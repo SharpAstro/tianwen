@@ -1990,6 +1990,12 @@
             + ",\"presentMs\":" + _phasePresentMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"overlaySyncMs\":" + _phaseOverlaySyncMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"textLayerMs\":" + _phaseTextLayerMs.ToString("F1", CultureInfo.InvariantCulture)
+            // Inside skyMs: the CPU-vs-GPU split of the map draw. 96% of a repaint is skyMs, and
+            // these say which half of it, which decides the fix.
+            + ",\"skyBgMs\":" + (_skyTab?.SkyBackgroundMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"skyGeomMs\":" + (_skyTab?.SkyGeometryMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"skyUpdateMs\":" + (_skyTab?.SkyUpdateFrameMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
+            + ",\"skyDrawMs\":" + (_skyTab?.SkyDrawMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             + ",\"worst\":{\"frameMs\":" + _worstFrameMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"busMs\":" + _worstBusMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"skyMs\":" + _worstSkyMs.ToString("F1", CultureInfo.InvariantCulture)
