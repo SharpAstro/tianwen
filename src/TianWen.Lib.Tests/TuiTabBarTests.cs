@@ -47,11 +47,37 @@ namespace TianWen.Lib.Tests
         private static ImmutableArray<Layout.ArrangedNode<int>> Arrange(TuiTabBar bar, int width) =>
             bar.Arrange(GuiTab.Equipment, Status, width);
 
+        /// <summary>
+        /// The arranged tab regions, paired with the label drawn inside each.
+        /// </summary>
+        /// <remarks>
+        /// A tab is a <see cref="HitResult.ListItemHit"/> on the tab's CONTAINER since the strip became
+        /// <see cref="TabStripTree"/>'s shared description -- it was a ButtonHit on the text leaf itself.
+        /// The label therefore comes from the Text leaf arranged INSIDE the region rather than from the hit
+        /// node, which is also why every caller here asserts against it rather than against a literal.
+        /// </remarks>
         private static (string Text, Rect<int> Rect)[] TabRects(ImmutableArray<Layout.ArrangedNode<int>> arranged) =>
             [.. arranged
-                .Where(a => a.Node.Hit is HitResult.ButtonHit { Action: var action } && action.StartsWith("Tab:"))
-                .Select(a => (Text: (a.Node as Layout.Node.Leaf)?.Content is Layout.Content.Text t ? t.Value : "", a.Bounds))
-                .OrderBy(x => x.Bounds.X)];
+                .Where(a => a.Node.Hit is HitResult.ListItemHit { ListId: TabBarRegions.Tabs })
+                .Select(a => (Text: LabelIn(arranged, a.Bounds), Rect: a.Bounds))
+                .OrderBy(x => x.Rect.X)];
+
+        /// <summary>The text drawn inside <paramref name="bounds"/>, or "" if none was.</summary>
+        private static string LabelIn(ImmutableArray<Layout.ArrangedNode<int>> arranged, Rect<int> bounds)
+        {
+            foreach (var node in arranged)
+            {
+                if (node.Node is Layout.Node.Leaf { Content: Layout.Content.Text text }
+                    && node.Bounds.X >= bounds.X
+                    && node.Bounds.X + node.Bounds.Width <= bounds.X + bounds.Width
+                    && node.Bounds.Y >= bounds.Y)
+                {
+                    return text.Value;
+                }
+            }
+
+            return "";
+        }
 
         /// <summary>Paints into a real <see cref="CellBuffer"/>, so what the diff would emit is assertable.</summary>
         private sealed class BufferedViewport(CellBuffer buffer, int width) : ITerminalViewport
@@ -114,10 +140,15 @@ namespace TianWen.Lib.Tests
             // Draw == hit by construction: the region IS the arranged rect of the text node, so a change to
             // the separator or the active-tab decoration cannot desynchronise them any more.
             var arranged = Arrange(Bar(), width: 120);
+            var tabs = TabRects(arranged);
 
-            foreach (var (text, rect) in TabRects(arranged))
+            // Or the loop below asserts nothing at all -- which is how this test kept passing when the
+            // strip's region identity changed underneath it and TabRects started returning nothing.
+            tabs.ShouldNotBeEmpty();
+
+            foreach (var (text, rect) in tabs)
             {
-                rect.Width.ShouldBe(text.Length);
+                rect.Width.ShouldBe(text.Length, $"tab '{text}' arranged at x={rect.X} w={rect.Width}");
                 rect.Height.ShouldBe(1);
                 rect.Y.ShouldBe(0);
             }
@@ -132,7 +163,10 @@ namespace TianWen.Lib.Tests
             var arranged = Arrange(bar, width: 80);
 
             var statusStart = 80 - Status.Length;
-            foreach (var (_, rect) in TabRects(arranged))
+            var tabs = TabRects(arranged);
+            tabs.ShouldNotBeEmpty();
+
+            foreach (var (_, rect) in tabs)
             {
                 (rect.X + rect.Width).ShouldBeLessThanOrEqualTo(statusStart,
                     "a tab drawn under the status text is a tab that mis-hits");

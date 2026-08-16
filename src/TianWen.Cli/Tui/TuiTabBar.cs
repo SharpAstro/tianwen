@@ -49,6 +49,32 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
     private ImmutableArray<Layout.ArrangedNode<int>> _arranged;
     private GuiTab? _clicked;
 
+    // Reused per frame: the tab set is fixed, so only the active index moves.
+    private readonly List<TabItem<GuiTab>> _items = new(Tabs.Length);
+
+    /// <summary>
+    /// Cell metrics, and the two policies where a terminal genuinely differs from a pixel strip.
+    /// <see cref="TabStripOverflow.Drop"/> because a clipped tab would leave a region that is hit but not
+    /// visible; <see cref="TabLabelDecoration.Brackets"/> because a background colour is not a safe bet on
+    /// somebody else's terminal palette. Everything else is shared.
+    /// </summary>
+    private static readonly TabStripOptions StripOptions = new()
+    {
+        Metrics = TabStripMetrics.Cells,
+        Colors = new TabBarColors
+        {
+            BarBackground = BarBg,
+            InactiveBackground = BarBg,
+            ActiveBackground = ActiveTabBg,
+            ActiveText = TabText,
+            InactiveText = TabText,
+        },
+        Overflow = TabStripOverflow.Drop,
+        Decoration = TabLabelDecoration.Brackets,
+        CanCloseTabs = false,
+        FillsAvailable = false,
+    };
+
     public void Render(GuiAppState appState, ITimeProvider timeProvider, TimeSpan siteTimeZone)
     {
         var width = viewport.Size.Width;
@@ -93,48 +119,52 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
     internal ImmutableArray<Layout.ArrangedNode<int>> Arrange(GuiTab active, string status, int width) =>
         Layout.Engine.Arrange(Build(active, status, width), new Rect<int>(0, 0, width, 1), MeasureContext);
 
+    /// <summary>
+    /// The bar: the shared tab strip, then the status text on the right.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The STRIP is <see cref="TabStripTree"/>'s -- the same description DIR.Lib's <c>TabBar</c> paints on
+    /// a GPU surface, given cell metrics instead of pixel ones. What used to be here was a fourth copy of
+    /// "a row of tabs, one active, click to switch", and the copies had already disagreed about enough
+    /// (decoration, overflow, which edge marks active) that nothing but reading them side by side would
+    /// have found it.
+    /// </para>
+    /// <para>
+    /// The STATUS text stays here, and that is deliberate: it is a TianWen composition, not a tab-strip
+    /// feature, so the strip is asked to fit what is left rather than being taught about a neighbour. It
+    /// keeps its priority -- reserved up front, tabs fit into the remainder -- which is what
+    /// <see cref="TabStripOverflow.Drop"/> then acts on.
+    /// </para>
+    /// </remarks>
     private Layout.Node Build(GuiTab active, string status, int width)
     {
-        var children = ImmutableArray.CreateBuilder<Layout.Node>(Tabs.Length * 2 + 3);
-
-        // Leading space, as before.
-        children.Add(Layout.Builder.Spacer().WFixed(1f).HStar());
-
-        // The status text keeps its priority, so reserve it up front and fit tabs into what is left. A tab
-        // that does not fit is left out of the tree entirely -- not drawn, and therefore not clickable.
-        var used = 1 + status.Length;
-        var first = true;
+        _items.Clear();
         foreach (var (label, tab) in Tabs)
         {
-            var text = tab == active ? $"[{label}]" : $" {label} ";
-            var cost = text.Length + (first ? 0 : 1);
-            if (used + cost > width)
-            {
-                break;
-            }
-
-            if (!first)
-            {
-                children.Add(Layout.Builder.Spacer().WFixed(1f).HStar());
-            }
-
-            var captured = tab;
-            var node = Layout.Builder.Text(text, 1f, TabText).WFixed(text.Length).HStar();
-            if (tab == active)
-            {
-                node = node.Bg(ActiveTabBg);
-            }
-
-            children.Add(node.Clickable(
-                new HitResult.ButtonHit($"Tab:{captured}"), _ => _clicked = captured));
-
-            used += cost;
-            first = false;
+            _items.Add(new TabItem<GuiTab>(label, tab));
         }
 
-        children.Add(Layout.Builder.Spacer().WStar().HStar());
-        children.Add(Layout.Builder.Text(status, 1f, StatusText).WFixed(status.Length).HStar());
+        var activeIndex = _items.FindIndex(item => EqualityComparer<GuiTab>.Default.Equals(item.Value, active));
 
-        return Layout.Builder.HStack([.. children]).HStar().Bg(BarBg);
+        // Leading space, as before, and the status reserved out of what the tabs may use.
+        var available = width - 1 - status.Length;
+
+        var strip = TabStripTree.Build(
+            _items,
+            activeIndex,
+            hoveredIndex: -1,          // a terminal has no hover to report
+            available,
+            static label => label.Length,
+            StripOptions,
+            index => _clicked = _items[index].Value);
+
+        return Layout.Builder.HStack(
+                Layout.Builder.Spacer().WFixed(1f).HStar(),
+                strip.HStar(),
+                Layout.Builder.Spacer().WStar().HStar(),
+                Layout.Builder.Text(status, 1f, StatusText).WFixed(status.Length).HStar())
+            .HStar()
+            .Bg(BarBg);
     }
 }
