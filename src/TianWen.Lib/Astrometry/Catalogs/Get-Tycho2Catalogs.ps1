@@ -14,6 +14,13 @@ $cats = [ordered]@{
     leda    = [PSCustomObject]@{ Cat = 'VII/237'; File = 'pgc.dat.gz'; }
 }
 
+. "$PSScriptRoot/../../../../tools/lzip-util.ps1"
+
+# Uncompressed bytes per independent lzip member, the managed equivalent of the `-b 4MiB` this
+# used to pass to the external binary. Load-bearing: LzipDecoder only parallelises ACROSS members,
+# so a single-member catalog would decode serially on every desktop start-up.
+$script:Tycho2MemberSize = 4MB
+
 function Compress-WithLzip
 {
     param(
@@ -26,7 +33,7 @@ function Compress-WithLzip
     }
 
     $uncompressedSize = [int](Get-Item $Path).Length
-    & lzip -9 -b 4MiB $Path
+    Compress-FileToLz $Path -MemberSize $script:Tycho2MemberSize
     if (Test-Path $lzFile) {
         $compressedSize = (Get-Item $lzFile).Length
         $ratio = if ($uncompressedSize -gt 0) { $compressedSize / $uncompressedSize * 100 } else { 0 }

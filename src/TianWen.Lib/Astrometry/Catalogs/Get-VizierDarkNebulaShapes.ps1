@@ -6,6 +6,9 @@ param(
     [double]$DobashiMergeArcmin = 20.0
 )
 
+# Managed lzip (SharpAstro.Lzip); no external `lzip` binary anywhere.
+. "$PSScriptRoot/../../../../tools/lzip-util.ps1"
+
 # Pulls per-object size information from VizieR source catalogs for the
 # Simbad-derived *.json.lz families that otherwise ship without shape data
 # (DarkNeb / RefNeb / etc). Writes side-car *.shapes.json.lz files next to
@@ -38,7 +41,7 @@ function Save-Shapes {
     if (Test-Path $lzFile) { Remove-Item $lzFile }
     $Entries | ConvertTo-Json -Compress | Out-File -Encoding UTF8NoBOM $outFile
     $uncompressedSize = [int](Get-Item $outFile).Length
-    $null = lzip -9 $outFile
+    Compress-FileToLz $outFile
     if (Test-Path $lzFile) {
         $compressedSize = (Get-Item $lzFile).Length
         $ratio = if ($uncompressedSize -gt 0) { $compressedSize / $uncompressedSize * 100 } else { 0 }
