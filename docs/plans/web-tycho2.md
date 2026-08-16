@@ -1,7 +1,8 @@
 # Tycho-2 in the Browser Atlas (plan)
 
-**Status: P1 + P3 SHIPPED; P2 and P4 MEASURED and merged into one bake change (see "The measurement
-that settled P2 and P4", 2026-08-16).** Bring the full ~2.5M-star Tycho-2
+**Status: COMPLETE. P1 + P3 shipped earlier; P2+P4 shipped 2026-08-16 as one region-aligned bake
+plus a per-member client.** A first open fetches 8.96 MiB of the sky it is looking at instead of an
+unconditional 28.71 MiB, and picks up more as you pan. Bring the full ~2.5M-star Tycho-2
 catalog to the web sky atlas, which used to show only the ~8.6k HR bright stars (`Lightweight=true`
 strips `tyc2.bin.lz` from the WASM bundle). Grew out of the threading/WebGPU investigation
 ([web-multithreading.md](web-multithreading.md), [web-webgpu.md](web-webgpu.md)), which established
@@ -321,11 +322,45 @@ a one-line change to the bake and nothing downstream knows the difference.
   9.68 MiB on first open is judged too slow, the fix is the bright-prefix side asset below, not a
   smaller member.
 
-**If the instant-sky property is still wanted**, the non-destructive form is a **separate** small
-bright-prefix asset (V<=8.5 is ~78k stars, ~1.3 MB at 17 B/record) baked alongside the untouched main
-file. It costs ~1.3 MB of duplication, needs no re-sort, breaks no index, and can be dropped later
-without touching anything. That is what the magnitude idea should have been from the start: an
-addition, not a reordering.
+### Driven in a browser (2026-08-16): it works, and it found two flaws nothing offline could
+
+`TianWen.UI.Web.E2E/AtlasMemberFetchProbe` against a Lightweight dev server with the members staged.
+**Counts and bytes only** -- a dev server is interpreted, so its durations mean nothing on the
+deployed build, but request counts and payload sizes are properties of the design and transfer
+exactly.
+
+| | files | bytes |
+|---|---:|---:|
+| first open (default 60-degree view) | 52 | **8.96 MiB** |
+| after panning to new sky | 71 | 12.36 MiB |
+| *what it replaced* | 1 | *28.71 MiB, whatever you were looking at* |
+
+- **Members were fetched one at a time**, so a wide view was 50 sequential round trips -- which
+  spends the entire point of small independent files. Issuing every request before awaiting any took
+  a 4-member batch from 32.5 s to 2.5 s on that server. The residual is serial LZMA decode on the one
+  WASM thread, not the network.
+- **A single pan cost SIX full rebuilds**, one per quantized view cell it crossed, each re-walking
+  all 2.5M record offsets, regrouping the buffer and re-uploading the whole instance buffer.
+  **Making the fetch single-flight did not help, and that is the useful part**: the fetches then
+  finished *between* crossings, which is the tell that the flatten was the cost all along. Debouncing
+  the rebuild on the same generation-guard as the overlay labels took it to three, with batches
+  visibly coalescing. The probe asserts the rebuild COUNT for the same reason the numbers above are
+  counts.
+
+### The bright-prefix side asset is NOT needed
+
+The plan reserved it for "only if the region path measures badly on the first paint". It does not,
+and the reason is that the instant-sky job is already done by something that ships today: **the HR
+bright-star seed (8,641 stars) is on screen from the first paint** and stays there until Tycho-2
+replaces it. The side asset would buy a denser instant sky for ~1.3 MB of duplicated records, on top
+of a first open that already fell from 28.71 MiB to 8.96 MiB.
+
+Kept on the shelf rather than deleted, because the one measurement that would revive it has not been
+taken: **this was measured over localhost, so it says nothing about how the first open FEELS on a
+slow link.** If that ever reads badly, the non-destructive form is a **separate** small bright-prefix
+asset (V<=8.5 is ~78k stars, ~1.3 MB at 17 B/record) baked alongside the untouched main file -- no
+re-sort, no index broken, droppable later without touching anything. That is what the magnitude idea
+should have been from the start: an addition, not a reordering.
 
 **What is NOT needed any more.** The wasm-threads infrastructure the old P2 was built on --
 `WasmEnableThreads`, the `coi-serviceworker` COOP/COEP shim, the subresource audit, the Blazor
@@ -340,10 +375,17 @@ this plan no longer asks for it.
 |-------|-------|------|-------|
 | **P1 ✅ DONE** | **Lazy-fetch + serial decode.** tyc2 stays un-embedded for web (`Lightweight`); shipped as a same-origin static asset (CI-staged into wwwroot); fetched on **first atlas-open**; serial decode + flatten off the first-paint path; swapped over the HR seed. | Med | Full-density atlas, no first-load bloat |
 | **P3 ✅ DONE** | **IndexedDB cache** of the raw decompressed catalog (`Tyc2CacheVersion = "tyc2-v2-raw"`; v1 cached the flattened buffer, raw enables clickable stars). Measured 6.67 s cold -> 0.997 s warm. | Med | Instant repeat visits |
-| **P2+P4** | **Region-aligned multi-member bake** (below). The record order does NOT change: the file is already segmented by GSC region with an offset table in its header, so the bake only makes those segments independently decodable. Desktop gets parallel decode; web range-fetches the regions it can see. Supersedes the separate "parallel decode" and "spatial tiling" phases. | Med | Progressive first load + faster decode everywhere |
+| **P2+P4 ✅ DONE** | **Region-aligned multi-member bake + per-member client.** The record order does NOT change: the file is already segmented by GSC region with an offset table in its header, so the bake only makes those segments independently decodable, and `tools/bake-tycho2` derives them from the committed `.lz` (verifying the concatenation decodes back to identical bytes). Published as ONE FILE PER MEMBER, not byte ranges -- ranges are unusable on both candidate hosts. Supersedes the separate "parallel decode" and "spatial tiling" phases. | Med | 8.96 MiB first open instead of 28.71 MiB, more as you pan |
 
-Incremental value: **P1 ships the feature**, P3 solves the repeat visit, and P2+P4 is the only
-remaining phase -- justified by the measurement below rather than by expectation.
+Incremental value: **P1 ships the feature**, P3 solves the repeat visit, and P2+P4 made the first
+open proportional to what you are looking at -- each justified by measurement rather than expectation.
+
+**What is deliberately NOT here.** The bright-prefix side asset (measured unnecessary, see above);
+wasm threads (`web-multithreading.md` keeps its own case, and this phase made them worth *less*, not
+more, since a wide view now decodes ~13 MB rather than 43.5 MB); and searching individual TYC stars,
+still deferred. The IndexedDB cache (P3) now only serves the whole-catalog fallback -- on the member
+path the browser's own HTTP cache holds the members, which is what it is for, and a partial buffer
+written to IndexedDB would be indistinguishable from a complete one on the next visit.
 
 ## P1: lazy-fetch + serial decode (the shippable core)
 
