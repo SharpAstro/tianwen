@@ -153,7 +153,8 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
         var strip = TabStripTree.Build(
             _items,
             activeIndex,
-            hoveredIndex: -1,          // a terminal has no hover to report
+            pointerFlow: null,         // a terminal reports no hover position
+            pointerCross: null,
             available,
             static label => label.Length,
             StripOptions,
@@ -161,7 +162,7 @@ internal sealed class TuiTabBar(ITerminalViewport viewport)
 
         return Layout.Builder.HStack(
                 Layout.Builder.Spacer().WFixed(1f).HStar(),
-                strip.HStar(),
+                strip.Root.HStar(),
                 Layout.Builder.Spacer().WStar().HStar(),
                 Layout.Builder.Text(status, 1f, StatusText).WFixed(status.Length).HStar())
             .HStar()
