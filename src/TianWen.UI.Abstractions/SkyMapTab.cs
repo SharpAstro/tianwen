@@ -727,17 +727,21 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Per-planet constants for <see cref="DrawPlanetLabels"/>, resolved on first sight and kept:
-        /// the display name, the hit result, and the click delegate. <see cref="ScreenX"/> /
-        /// <see cref="ScreenY"/> are re-stamped each frame so the one delegate can read the current
-        /// position without a closure capturing it.
+        /// Everything about a sky-anchored marker label that CANNOT change, resolved on first sight
+        /// and kept: the name, the hit result, and the click delegate. Only
+        /// <see cref="ScreenX"/> / <see cref="ScreenY"/> move, and they are re-stamped each frame so
+        /// the one delegate reads the current position instead of a fresh closure capturing it.
+        ///
+        /// <para>Shared by the planet and comet layers, which were 41% and 17% of the map render
+        /// respectively for exactly this reason -- rebuilding an interpolated hit string, a closure
+        /// and a delegate per marker per frame on a path that runs on every pointermove.</para>
         /// </summary>
-        private sealed class PlanetLabelEntry
+        private class MarkerLabelEntry
         {
-            public PlanetLabelEntry(string name, SkyMapTab<TSurface> owner)
+            public MarkerLabelEntry(string name, string hitPrefix, SkyMapTab<TSurface> owner)
             {
                 Name = name;
-                Hit = new HitResult.ButtonHit("SkyMapPlanetLabel:" + name);
+                Hit = new HitResult.ButtonHit(hitPrefix + name);
                 OnClick = _ => owner.PostSignal(
                     new SkyMapClickSelectSignal(ScreenX, ScreenY, InputModifier.None));
             }
@@ -753,16 +757,16 @@ namespace TianWen.UI.Abstractions
             public float ScreenY;
         }
 
-        private readonly Dictionary<CatalogIndex, PlanetLabelEntry> _planetLabels = [];
+        private readonly Dictionary<CatalogIndex, MarkerLabelEntry> _planetLabels = [];
 
-        private PlanetLabelEntry GetPlanetLabel(ICelestialObjectDB db, CatalogIndex planetIdx)
+        private MarkerLabelEntry GetPlanetLabel(ICelestialObjectDB db, CatalogIndex planetIdx)
         {
             if (!_planetLabels.TryGetValue(planetIdx, out var label))
             {
                 var name = planetIdx == CatalogIndex.Moon ? "Moon"
                     : planetIdx == CatalogIndex.Sol ? "Sun"
                     : db.TryLookupByIndex(planetIdx, out var obj) ? obj.DisplayName : "?";
-                label = new PlanetLabelEntry(name, this);
+                label = new MarkerLabelEntry(name, "SkyMapPlanetLabel:", this);
                 _planetLabels[planetIdx] = label;
             }
             return label;
@@ -895,31 +899,16 @@ namespace TianWen.UI.Abstractions
             }
         }
 
-        /// <summary>Per-comet counterpart of <c>PlanetLabelEntry</c>. Keyed on the catalog index and
-        /// rebuilt if the designation itself changes, which an apparition upgrade can do.</summary>
-        private sealed class CometLabelEntry
+        /// <summary>
+        /// A <see cref="MarkerLabelEntry"/> whose displayed text is not just its name: a comet shows
+        /// its magnitude too, so the ONE thing it adds is a cache for that formatting.
+        /// </summary>
+        private sealed class CometLabelEntry(string label, SkyMapTab<TSurface> owner)
+            : MarkerLabelEntry(label, "SkyMapCometLabel:", owner)
         {
             private string _text = string.Empty;
             private int _textMagTenths = int.MinValue;
             private bool _textUncertain;
-
-            public CometLabelEntry(string label, SkyMapTab<TSurface> owner)
-            {
-                Label = label;
-                Hit = new HitResult.ButtonHit("SkyMapCometLabel:" + label);
-                OnClick = _ => owner.PostSignal(
-                    new SkyMapClickSelectSignal(ScreenX, ScreenY, InputModifier.None));
-            }
-
-            public string Label { get; }
-
-            public HitResult Hit { get; }
-
-            public Action<InputModifier> OnClick { get; }
-
-            public float ScreenX;
-
-            public float ScreenY;
 
             /// <summary>The rendered label, rebuilt only when the displayed magnitude (to 0.1) or the
             /// uncertainty marker actually changes -- never merely because the frame did.</summary>
@@ -930,7 +919,7 @@ namespace TianWen.UI.Abstractions
                 {
                     _textMagTenths = tenths;
                     _textUncertain = positionUncertain;
-                    _text = $"{Label}{(positionUncertain ? "?" : "")}  {vMag:F1}m";
+                    _text = $"{Name}{(positionUncertain ? "?" : "")}  {vMag:F1}m";
                 }
                 return _text;
             }
@@ -940,7 +929,7 @@ namespace TianWen.UI.Abstractions
 
         private CometLabelEntry GetCometLabel(CatalogIndex index, string label)
         {
-            if (!_cometLabels.TryGetValue(index, out var entry) || entry.Label != label)
+            if (!_cometLabels.TryGetValue(index, out var entry) || entry.Name != label)
             {
                 entry = new CometLabelEntry(label, this);
                 _cometLabels[index] = entry;
