@@ -370,6 +370,45 @@ exactly.
   server this plan's probe runs against is uniformly ~25x slower, which is the same order as the
   cliff, so it hides exactly the bug it looks like.
 
+- **Fixing the sort exposed the next two layers, and the profile named each one in turn.** Measured
+  the same way each time -- `PerformanceObserver('longtask')` on the deployed site, three pans, with
+  the app's console lines on the same `performance.now()` clock so a task can be placed between two
+  of them.
+  1. With the sort gone, **1183 ms of the remaining 1443 ms was the member fetch loop**, in tasks of
+     132-318 ms, every one ending at a `tyc2 members: +N` line. Cause: issuing every request before
+     awaiting any -- correct for the network -- means `await body` completes SYNCHRONOUSLY for each
+     member already downloaded, so a batch decoded end to end inside one JS task. A `Task.Delay(1)`
+     between members puts each ~15 ms decode in its own task, under the long-task threshold.
+  2. What was left were two O(sky HELD) terms paid per settle, when what changes is O(sky ARRIVED):
+     the flatten walks the whole offset table regardless of which members are present, and the chunk
+     build re-keyed every star already in the buffer. `StarChunkAccumulator` keys a member once as it
+     lands and a settle concatenates -- **the rebuild is now 5-35 ms**, and it gets FASTER as more sky
+     is held (35 ms at 762k stars, 10 ms at 1.50M), because a later settle dirties fewer chunks and
+     the clean ones carry their cone over.
+  3. **The member path never reached the IndexedDB cache** -- `TryStartIncrementalAtlasAsync` returns
+     before it, so `tyc2-v2-raw` only ever served the whole-catalog fallback the deployed site no
+     longer takes. P3's warm-start win was lost the day members shipped, silently, because the HTTP
+     cache still saved the download and only the decode was being re-paid. Members now cache their
+     DECOMPRESSED bytes per member.
+
+  **Deployed result, three pans:**
+
+  | | long tasks | blocked | longest | rebuild |
+  |---|---|---|---|---|
+  | before | 37 | 12 078 ms | 2 483 ms | ~2 400 ms |
+  | after, cold | 7 | 684 ms | 235 ms | 10-35 ms |
+  | after, warm (IndexedDB) | 7 | 654 ms | 215 ms | 5-24 ms |
+
+  A warm member batch reads `+3 of 3 (3 cached) in 27 ms` against a cold `+9 of 9 (0 cached) in
+  652 ms`, and the first batch of 49 goes 1944 ms -> 797 ms.
+
+  **Still O(total) per settle, and the next thing to look at if it matters:** the GPU upload
+  re-uploads the whole instance buffer (`CreateBuffer` over every held star) and the previous one
+  becomes garbage. That is the likeliest remaining occupant of the ~215 ms outlier. The fix would be
+  a fixed-capacity buffer sized from a baked per-chunk census plus `bufferSubData` into each chunk's
+  own sub-range -- worth it only if a measurement says that outlier is actually the upload, which
+  this one does not.
+
 ### The bright-prefix side asset is NOT needed
 
 The plan reserved it for "only if the region path measures badly on the first paint". It does not,
