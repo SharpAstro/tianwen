@@ -406,6 +406,44 @@ star-size estimate), which is new code and a real estimator-design problem.
 **Given v19d already beats every other arm on every observer, N4 comes first.** Ship the model that
 exists, then decide whether the estimator is worth building.
 
+### 1l. Why 8 beats 60, measured on the checkpoints: the N2N premise is broken, and many sessions generalise the damage
+
+v22 (`D:\Astro-Dataset\n2n-smoke\v22\README.md`). Four measurement scripts, ZERO training, all
+pre-registered in their docstrings before the first number. This is the mechanism 1i asked for
+and 1k could not reach, and it is not a conditioning problem at all.
+
+- **Every training pair is two subs of the same session, and the N2N independence premise is
+  violated in every session, not a bad subset.** Time-adjacent sub pairs' residuals (vs master,
+  high-passed, faint-masked) correlate 1.5-3x more than distant pairs' on essentially all 65
+  measurable sessions (adjacency excess, median +0.016). Seeing bursts, drift, walking pattern:
+  target corruption that the training loss REWARDS keeping. The pre-registered "v19d's 8 sit
+  clean" prediction FAILED (armD's Statue session ranks 3rd of 65), which is what killed the
+  simple violator-inclusion story and forced the sharper one.
+- **The arms differ in how they TRANSFER.** On the four observers (nobody trained on them), all
+  arms keep the pair-shared residue preferentially (0.63-0.72 kept, against 0.24-0.34 of the
+  white part) -- but the many-session models keep more of it (0.71-0.72 vs v19d's 0.63, seeds
+  non-overlapping) and more of everything (kept_total 0.33 vs 0.24). On their OWN train sessions
+  the arms are near-equal. So: **few sessions = memorise specific residue patterns that do not
+  transfer = strip hard and uniformly off-pool; many sessions = generalise "structured
+  high-frequency content is often real, keep it" = a soggier operator on every unseen session.**
+  21 = 60 to three decimals (0.716 vs 0.710), the saturation visible in the operator itself, and
+  the long-logged "same weights read 0.04-0.17 higher noise on a second session" shift is this
+  sogginess by another name. Conditioning cannot fix it because the corruption is in the TARGETS,
+  which is why 1k had to come out negative.
+- **The star-only gate's blind spot was checked and cleared.** armD is mostly sparse star fields
+  and nothing since v15 ever measured extended structure, so v19d could have been winning the
+  faint-star metric by ironing nebulosity flat. Raw-operator measurement showed exactly that
+  deficit (4-16 px band, all four observers) -- and at MATCHED NOISE it vanishes: v19d holds
+  nebulosity at parity (0.97-1.00, every arm) while keeping MORE 1.5-4 px fine structure and more
+  faint-star amplitude, at 0.90 and 0.85 both. The amp column reproduces 1j's numbers exactly.
+  **v19d dominates end to end; N4 ships it with its one untested axis now tested.**
+- **What is measured is not yet proven causal.** v23 (`D:\Astro-Dataset\n2n-smoke\v23\`, written
+  and pre-registered, NOT yet run) is the causal test: `--pair-time far` trains the 60-arm only
+  on time-separated pairs (prediction PA: recovers toward v19d -- and if so, far-pairing is the
+  one-flag fix that finally lets more data help), `near` is the dose control (PB: degrades), and
+  armE is 8 DIFFERENT sessions (PC: lands in the few-session band, so the effect never needed
+  armD's particular 8).
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.
@@ -435,9 +473,10 @@ Ordered by value per unit of work, not by dependency.
 | ~~**N2c**~~ | ~~**21 sessions x 45 cells.**~~ **DONE 2026-08-16, see 1i.** Ran as a 2x2 with an 8x45 arm rather than alone, which is what made it decisive: session count is the lever, volume / density / epochs are not, and it saturates by 21. | 1.4 h | Answered, and it promoted #36 from one candidate to the only one. |
 | ~~**N2d**~~ | ~~**Rotate the observer session.**~~ **DONE 2026-08-16, see 1j.** 8 of 8 cells favour the few-session arms, including on the ASI585 field they never trained on and v17c did. Proximity excluded. | 25 min | Cleared the confound that would have invalidated 1b, 1h and 1i, and unblocked N2b. |
 | ~~**N2b**~~ | ~~**PSF conditioning in the trainer.**~~ **PARTLY DONE 2026-08-16 as band conditioning, negative, see 1k.** The cheap tile-measurable proxy (`--cond-bands`, 3 noise-colour planes) does not rescue the 60-session arm and destabilised training. | 1.4 h | Killed the proxy, not the hypothesis: band sigma describes NOISE colour, and 1i is about SIGNAL scale. |
-| **N2e** | **A signal-scale conditioning plane, measurable from ONE tile.** NOT a per-session PSF lookup: per 1k the planes are computed inside `with_sigma()` at inference too, so a side-table width is a train/inference asymmetry that ships broken. Needs a real estimator (autocorrelation width of the high-passed tile, or star size where stars exist) plus its calibration, in the shape `band_sigma_torch` already models. | new code, ~1 day + GPU | The 1i mechanism is still standing and 1k killed only the proxy. **But do N4 first**: this is speculative estimator design against a model that is already the best one here, and 1k showed the evaluation is at its resolution limit anyway. |
+| ~~**N2e**~~ | ~~**A signal-scale conditioning plane, measurable from ONE tile.**~~ **MOOT per 1l (2026-08-16).** The mechanism is corruption of the TARGETS (time-correlated pair residue), which no input-side plane can describe away; 1k's negative was structural, not a proxy problem. The fix axis is N8's pair selection, not a richer estimator. | - | Withdrawn before any code was written, which is the cheap time to withdraw it. |
 | **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
-| **N4** | **Ship a checkpoint behind a strength dial. The one to ship is now `n2n_v19d_s*_final.pt`** (8 sessions, 360 train cells, scalar conditioning), which is best or tied-best on all four observers at both noise levels and beats the v17c checkpoint the earlier draft of this row named. Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed; `with_sigma`'s `strength` argument IS the dial, no retraining needed. | medium | **This is now the next thing to do.** Four experiments have refined the research question and the best deployable model has not moved since v19; N2b's estimator is speculative work by comparison. |
+| **N4** | **Ship a checkpoint behind a strength dial. The one to ship is now `n2n_v19d_s*_final.pt`** (8 sessions, 360 train cells, scalar conditioning), which is best or tied-best on all four observers at both noise levels and beats the v17c checkpoint the earlier draft of this row named. Wire as an `IDenoiseEnhancer` in the SAS tier with strength exposed; `with_sigma`'s `strength` argument IS the dial, no retraining needed. | medium | **This is now the next thing to do**, and 1l closed its last open risk: at matched noise v19d holds nebulosity at parity and leads on fine structure, so the star-only gate was not hiding a trade. If N8's PA holds, a "60 far" model may later supersede it behind the same interface. |
+| **N8** | **Run v23: the causal test + the which-8 arm** (`D:\Astro-Dataset\n2n-smoke\v23\`, fully written and pre-registered; `run-v23.ps1` then `n2n_rotate.py`). 60-arm on time-FAR pairs only, on time-NEAR pairs only, and armE's 8 different sessions; predictions PA/PB/PC in the run script. | 9 trainings, ~2-3 h GPU | Proves or kills 1l's causal reading, and PA holding turns into the fix that lets a large pool finally beat v19d. Independent of N4; run it whenever the GPU is idle. |
 | **N5** | **Key `FieldRadiusProfiles` by (train, filter).** N1 has made the filter available from headers, so the key change itself is a few lines. It is NOT only a key change: per 1f the split is 36-to-1 on the ASI533, so the design decision is what a one-session cell does (fall back to the train profile, or be withheld as unsupported), and that has to be stated rather than emerge. Task #19. | small | Before N1 it needed a side-table that should never have been contemplated. |
 | **N6** | **Mono narrowband support.** Deferred until good mono data exists; the archive's 2 ASI1600MM sets are assessed as poor and must NOT be used as a baseline. Task #37. |  | The user intends to shoot true narrowband, where per-filter focus removes 1c's root cause at acquisition. |
 | **N7** | Red centre-vs-corner star cutouts, if the optical reading ever needs pixel-level confirmation rather than statistical. | small | Optional. The four falsified hypotheses plus train- and filter-dependence already carry it. |
@@ -452,9 +491,9 @@ Ordered by value per unit of work, not by dependency.
   reorganisation has not reached, and the organized bake simply does not contain them: the pool went
   68 sessions to 51, all labelled. The heterogeneity question they posed is now a question about
   whether losing 17 sessions costs anything, which 1b suggests it does not.
-- **Does PSF conditioning subsume filter conditioning?** A 3 nm frame's red plane is soft because of
-  focus, and the conditioning input is the measured width, so possibly the filter never needs to be an
-  input at all, only a grouping key for analysis. N2 answers this.
+- ~~**Does PSF conditioning subsume filter conditioning?**~~ **Dissolved by 1l.** The 8-vs-60
+  mechanism is target corruption, not an input-description gap, so neither PSF nor filter needs to
+  be a conditioning input for THIS question. The filter stays a grouping key for analysis.
 
 ## 4. Invariants
 
