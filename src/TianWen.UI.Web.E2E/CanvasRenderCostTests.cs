@@ -46,7 +46,8 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
 
     private readonly record struct RenderStats(
         int Frames, int Coalesced, int Gathers, bool Overlay, int Uploads,
-        double LabelMs, double RenderMs, double GatherMs, double ProjectMs, double MarkerMs);
+        double LabelMs, double RenderMs, double GatherMs, double ProjectMs, double MarkerMs,
+        int Pins, int Candidates);
 
     private static async Task<RenderStats> GetStatsAsync(IPage page)
     {
@@ -70,7 +71,13 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
             r.GetProperty("renderMs").GetDouble(),
             r.GetProperty("gatherMs").GetDouble(),
             r.GetProperty("projectMs").GetDouble(),
-            r.GetProperty("markerMs").GetDouble());
+            r.GetProperty("markerMs").GetDouble(),
+            // Pinned planner targets, and what the last gather produced. The overlay pass takes a
+            // DIFFERENT branch once anything is pinned (a pin is a landmark and stays visible with [O]
+            // off), so an empty planner measures an early-out -- read `overlay` here as the analogous
+            // guard on the other branch.
+            r.GetProperty("pins").GetInt32(),
+            r.GetProperty("cands").GetInt32());
     }
 
     /// <summary>
@@ -185,6 +192,75 @@ public sealed class CanvasRenderCostTests(TianWenWebFixture fixture, ITestOutput
             $"a {events}-event burst in one task must coalesce; coalesced={coalesced}, painted={painted}");
         Assert.True(painted < events,
             $"painted {painted} frames for {events} events - repaints are not coalescing onto the frame clock");
+    }
+
+    /// <summary>
+    /// The configuration a real user is in, and the one every earlier measurement here missed: targets
+    /// pinned, catalog overlay OFF.
+    ///
+    /// <para>The overlay pass runs on every frame regardless of [O], because a pinned target is a
+    /// landmark that has to stay visible with its layer off. It used to run the FULL grid walk to do
+    /// that -- and worse than full, since the walk's cheap magnitude/type gate was disabled outright
+    /// whenever a pin existed -- and the caller then discarded everything but the pins. Measured on the
+    /// real catalog at a 30 degree field: <b>1,260 candidates gathered, labelled and sorted to draw two
+    /// markers</b>; at a wide zoom, the whole sphere.</para>
+    ///
+    /// <para>The count is the only observable. Both versions draw the same two markers, so the pixels,
+    /// the frame count and the gather COUNT are all identical -- what differs is what one gather did.
+    /// Hence <c>cands</c>, asserted with <c>pins</c> beside it so the test cannot pass by measuring an
+    /// unpinned app, which is precisely how this escaped a whole investigation.</para>
+    /// </summary>
+    [Fact]
+    public async Task PinnedTargetsWithTheOverlayOffGatherOnlyThePins()
+    {
+        var page = await WarmSkyAtlasAsync();
+        var canvas = page.Locator("#planner");
+        await SetObjectOverlayAsync(page, canvas, on: false);
+
+        RenderStats after;
+        var pinned = 0;
+        try
+        {
+            // Two real DSOs, pinned through the same PlannerActions path the sky map's pin button uses.
+            foreach (var name in new[] { "M8", "NGC6611" })
+            {
+                var result = await page.EvaluateAsync<string>(
+                    "async (n) => await window.__tianwenTest.pinObject(n)", name);
+                Assert.True(result != "null", $"could not pin {name}; the catalog did not resolve it");
+                pinned = int.Parse(result);
+            }
+
+            // A pan, so the cache key moves and a gather genuinely runs in the pinned configuration
+            // rather than the assertion reading a set left over from before the pins existed.
+            var box = await canvas.BoundingBoxAsync() ?? throw new InvalidOperationException("no canvas box");
+            var y = box.Y + (box.Height / 2);
+            await page.Mouse.MoveAsync(box.X + (box.Width * 0.6f), y);
+            await page.Mouse.DownAsync();
+            for (var i = 1; i <= 20; i++)
+            {
+                await page.Mouse.MoveAsync(box.X + (box.Width * 0.6f) - (i * 6), y);
+                await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+            }
+            await page.Mouse.UpAsync();
+            await page.EvaluateAsync("() => new Promise(r => requestAnimationFrame(() => r()))");
+            after = await GetStatsAsync(page);
+        }
+        finally
+        {
+            // Hand the shared warm page back unpinned, however this ends: every later test's baseline
+            // assumes an empty planner.
+            foreach (var name in new[] { "M8", "NGC6611" })
+            {
+                await page.EvaluateAsync("async (n) => await window.__tianwenTest.pinObject(n)", name);
+            }
+        }
+
+        Report($"pinned={after.Pins} overlay={after.Overlay} -> {after.Candidates} candidates gathered");
+
+        Assert.Equal(2, pinned);
+        Assert.Equal(2, after.Pins);
+        Assert.False(after.Overlay, "the [O] overlay is on, so the walk is legitimately gathering the catalog");
+        Assert.Equal(after.Pins, after.Candidates);
     }
 
     /// <summary>

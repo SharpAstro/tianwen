@@ -1971,6 +1971,15 @@
             + ",\"coalesced\":" + _rafCoalesced.ToString(CultureInfo.InvariantCulture)
             + ",\"gathers\":" + (_skyTab?.PrimOverlayGathers ?? 0).ToString(CultureInfo.InvariantCulture)
             + ",\"overlay\":" + ((_skyTab?.State.ShowObjectOverlay ?? false) ? "true" : "false")
+            // pins - reported for exactly the reason `overlay` is. The overlay pass runs on every frame
+            // whenever anything is pinned and early-outs when nothing is, so a test asserting the
+            // gather stays bounded WITH pins passes trivially on zero pins, i.e. passes while measuring
+            // the other branch. Assert pins > 0 beside any such bound.
+            + ",\"pins\":" + (_state.Proposals.Length).ToString(CultureInfo.InvariantCulture)
+            // cands - what the last gather produced. With both layers off and N targets pinned this
+            // must be N: the pass is drawing landmarks and nothing else, so anything larger is work
+            // the caller is about to discard.
+            + ",\"cands\":" + (_skyTab?.PrimOverlayCandidateCount ?? 0).ToString(CultureInfo.InvariantCulture)
             + ",\"renderMs\":" + _renderMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"gatherMs\":" + (_skyTab?.PrimOverlayGatherMs ?? 0).ToString("F1", CultureInfo.InvariantCulture)
             + ",\"uploads\":" + (_skyTab?.OverlayInstanceUploads ?? 0).ToString(CultureInfo.InvariantCulture)
@@ -2013,6 +2022,31 @@
             + ",\"presentMs\":" + _worstPresentMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"overlaySyncMs\":" + _worstOverlaySyncMs.ToString("F1", CultureInfo.InvariantCulture)
             + ",\"textLayerMs\":" + _worstTextLayerMs.ToString("F1", CultureInfo.InvariantCulture) + "}}";
+
+    /// <summary>
+    /// Pins (or unpins) a catalog object by designation and returns the resulting pin count, so an E2E
+    /// can put the app in the configuration a real user is in. Not merely convenience: the object-overlay
+    /// pass takes a completely different branch once anything is pinned, and every perf measurement taken
+    /// so far ran against an empty planner and therefore against the branch nobody is on.
+    /// Returns "null" when the catalog is not loaded or the designation does not resolve.
+    /// </summary>
+    [JSInvokable]
+    public string PinObjectForTest(string catalogName)
+    {
+        // Every other hook here is read-only; this one MUTATES, so it re-checks the gate itself rather
+        // than relying only on the .NET ref never being handed out outside ?e2e=1.
+        if (!IsE2ETestMode()
+            || _state.ObjectDb is not { } db
+            || !CatalogUtils.TryGetCleanedUpCatalogName(catalogName, out var idx)
+            || !db.TryLookupByIndex(idx, out var obj))
+        {
+            return "null";
+        }
+
+        PlannerActions.ToggleProposal(_state, new Target(obj.RA, obj.Dec, obj.DisplayName, obj.Index));
+        RenderFrame();
+        return _state.Proposals.Length.ToString(CultureInfo.InvariantCulture);
+    }
 
     [JSInvokable]
     public string GetPlannerSearchRectJson()

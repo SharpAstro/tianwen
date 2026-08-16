@@ -114,6 +114,13 @@
                 // properties of a continuous gesture (frames coalesce onto vsync; the overlay cache does
                 // not re-gather per event) without reading a Chrome trace by hand.
                 getRenderStats: function () { return ref.invokeMethodAsync('GetRenderStatsJson'); },
+                // Pins/unpins a catalog object, so a test can reach the WITH-PINS configuration. That
+                // configuration is not a detail: the object-overlay pass runs on every frame whenever
+                // anything is pinned (a pinned target is a landmark and stays visible with [O] off), so
+                // an empty planner exercises an early-out and measures none of it. A whole performance
+                // investigation was run against an empty planner and missed a gather walking the grid
+                // per view change to produce two markers.
+                pinObject: function (name) { return ref.invokeMethodAsync('PinObjectForTest', name); },
             };
         };
     </script>

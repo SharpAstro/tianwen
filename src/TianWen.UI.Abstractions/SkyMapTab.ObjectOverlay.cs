@@ -108,6 +108,15 @@ namespace TianWen.UI.Abstractions
         internal int PrimOverlayGathers { get; private set; }
 
         /// <summary>
+        /// How many candidates the last gather produced. The observable for "the gather did only the
+        /// work this configuration needs": with both layers off and two targets pinned it must be 2,
+        /// and it was 1,260 at a 30 degree field (the whole sphere's worth at a wide one), every one of
+        /// them label-built and sorted so the caller could throw all but two away. Nothing downstream
+        /// can see the difference -- the same two markers are drawn either way.
+        /// </summary>
+        internal int PrimOverlayCandidateCount => _primOverlayCandidates.Count;
+
+        /// <summary>
         /// Cumulative wall time inside the candidate gather. Paired with
         /// <see cref="PrimOverlayGathers"/> it separates "how often" from "how expensive", which a
         /// frame-duration trace cannot: the browser runs the gather INSIDE the animation-frame
