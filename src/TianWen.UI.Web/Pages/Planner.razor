@@ -1141,7 +1141,24 @@
         {
             try
             {
-                if (partial.Accept(member, SharpAstro.Lzip.LzipDecoder.Decompress(await body)))
+                var raw = await body;
+
+                // ONE MEMBER PER TASK. Decoding is ~15 ms of straight-line WASM, which is fine; what
+                // is not fine is a dozen of them back to back. `await body` completes synchronously
+                // once its download has already landed -- which is the normal case here, since every
+                // request was issued up front -- so without this the whole batch decodes inside a
+                // single JS task and the page cannot paint until the last member is in. Measured on
+                // the deployed build, that batching WAS the residual jank after the chunk-build fix:
+                // 1183 ms of the 1443 ms still blocked over three pans, in tasks of 132-318 ms, every
+                // one of them ending at a "tyc2 members: +N" line. Split up, each decode lands under
+                // the 50 ms long-task threshold and the browser paints between them.
+                //
+                // Task.Delay(1), not Task.Yield(): a yield can be drained inside the current JS task
+                // by the runtime's own dispatcher, which would end the frame boundary this needs. The
+                // timer is the same load-bearing await AtlasPhaseAsync already relies on.
+                await Task.Delay(1);
+
+                if (partial.Accept(member, SharpAstro.Lzip.LzipDecoder.Decompress(raw)))
                 {
                     landed++;
                 }
@@ -1167,8 +1184,14 @@
     // arriving more often, because it always covers every member held. A measured pan crossed six
     // quantized view cells and paid for all six; making the FETCH single-flight did not help,
     // because the fetches got fast enough to finish between crossings, which is the tell that the
-    // flatten was the cost all along. During a gesture the stars are sliding past too fast to read
-    // anyway, exactly as with the labels.
+    // REBUILD was the cost. During a gesture the stars are sliding past too fast to read anyway,
+    // exactly as with the labels.
+    //
+    // Which HALF of the rebuild was expensive is a separate question, and it was guessed wrong for a
+    // release: "the flatten" was blamed everywhere, while the deployed build's own log had it at
+    // ~74 ms of a 2.4 s rebuild. The rest was a generic Span.Sort that Blazor WASM ran interpreted
+    // (see StarMagnitudeIndex.SortBrightestFirst). It is now a counting scatter, and a rebuild here
+    // measures 54-85 ms at ~1.4M stars held.
     int _tyc2SettleGeneration;
     bool _tyc2FlattenPending;
 
@@ -1189,6 +1212,19 @@
         if (generation != _tyc2SettleGeneration || !_tyc2FlattenPending || _tyc2Partial is not { } partial)
         {
             return; // superseded by a later batch of the same gesture
+        }
+
+        // A fetch still in flight will schedule its own rebuild the moment it lands, so rebuilding
+        // now buys one frame of slightly-fresher sky and pays for the whole thing twice. Measured, a
+        // single pan repeatedly produced "+8 members -> rebuild" immediately followed by
+        // "+1 member -> rebuild": the straggler's own view cell started a second fetch session that
+        // the generation guard cannot merge, because it arrives AFTER this one has already fired.
+        // Re-arming keeps the debounce's promise (one rebuild per settle) against a trickle, and the
+        // backstop still holds -- the running fetch always ends, and its completion re-schedules.
+        if (_tyc2FetchRunning)
+        {
+            _ = SettleTycho2FlattenAsync(generation, delayMs);
+            return;
         }
 
         _tyc2FlattenPending = false;
