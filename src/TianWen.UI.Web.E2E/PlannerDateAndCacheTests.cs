@@ -46,6 +46,15 @@ public sealed class PlannerDateAndCacheTests(TianWenWebFixture fixture, ITestOut
         Assert.True(Saw(console, "tonight's best (full sweep)"),
             "the first visit should have swept the catalog; " + Dump(console));
 
+        // Printed so the before and after are read off ONE run of ONE build. The rescore's cost was
+        // first taken from a warm session (167 ms via the Recompute button, after the astrom grid and
+        // the profile code had already run once) and that is not what a reload pays -- comparing it to
+        // a cold sweep would have overstated the win several times over.
+        foreach (var line in Lines(console))
+        {
+            output.WriteLine($"[planner] first visit: {line}");
+        }
+
         // --- A date change must reach the planner, not just the sky map ---
         lock (console) console.Clear();
         await page.Locator("[data-view=sky]").ClickAsync();
