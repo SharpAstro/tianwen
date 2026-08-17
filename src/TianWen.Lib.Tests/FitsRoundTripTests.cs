@@ -205,4 +205,48 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
         reloaded.Width.ShouldBe(width);
         reloaded.Height.ShouldBe(height);
     }
+
+    [Theory]
+    // A known TELESCOP writes the kind the reviewed OpticalSystems table states for it...
+    [InlineData("SH61 EDPH", "refractor")]
+    [InlineData("Samyang 135 f/2 ED", "camera lens")]
+    // ...an unknown one writes NOTHING (never bake "(unclassified)" into a file forever), and a
+    // missing TELESCOP also writes nothing: at capture time an empty name may just be an unfilled
+    // profile, so the bare-lens-by-construction inference stays a read-time inference.
+    [InlineData("Some Unknown Scope", null)]
+    [InlineData("", null)]
+    public void OptSysIsWrittenOnlyWhenTheKindIsAPositiveFact(string telescope, string? expectedKind)
+    {
+        var imageMeta = new ImageMeta(
+            Instrument: "Test Camera",
+            ExposureStartTime: new DateTimeOffset(2026, 8, 17, 22, 0, 0, TimeSpan.Zero),
+            ExposureDuration: TimeSpan.FromSeconds(30),
+            FrameType: FrameType.Light,
+            Telescope: telescope,
+            PixelSizeX: 3.76f,
+            PixelSizeY: 3.76f,
+            FocalLength: 270,
+            FocusPos: -1,
+            Filter: Filter.None,
+            BinX: 1,
+            BinY: 1,
+            CCDTemperature: float.NaN,
+            SensorType: SensorType.Monochrome,
+            BayerOffsetX: 0,
+            BayerOffsetY: 0,
+            RowOrder: RowOrder.TopDown,
+            Latitude: float.NaN,
+            Longitude: float.NaN);
+        var image = new Image([new float[8, 8]], BitDepth.Int16, maxValue: 100f, minValue: 0f, pedestal: 0f, imageMeta);
+
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "optsys.fits");
+        image.WriteToFitsFile(fitsPath);
+
+        using var bf = new nom.tam.util.BufferedFile(fitsPath, FileAccess.Read, FileShare.Read, 1024);
+        using var fits = new nom.tam.fits.Fits(bf, false);
+        var hdu = fits.ReadHDUHeaderOnly();
+        hdu.ShouldNotBeNull();
+        hdu.Header.GetStringValue("OPTSYS").ShouldBe(expectedKind);
+    }
 }
