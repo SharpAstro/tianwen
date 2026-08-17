@@ -11,6 +11,7 @@ using System.Numerics;
 using System.Numerics.Tensors;
 using System.Runtime.InteropServices;
 using TianWen.Lib.Astrometry;
+using TianWen.Lib.Imaging.Dataset;
 
 namespace TianWen.Lib.Imaging;
 
@@ -790,6 +791,18 @@ public partial class Image
         AddHeaderValueIfHasValue("DATAMAX", MaxValue, "");
         AddHeaderValueIfHasValue("INSTRUME", imageMeta.Instrument, "");
         AddHeaderValueIfHasValue("TELESCOP", imageMeta.Telescope, "");
+        // OPTSYS is TianWen-defined (surveyed 2026-08-17: no optical-system-kind keyword exists in
+        // SBFITSEXT, MaxIm DL, or N.I.N.A.; TELESCOP is only a name): the coarse kind behind
+        // TELESCOP, so a reader can judge a field-radius trend without knowing the hardware by
+        // name. Written only when it is a positive fact: an unknown telescope writes nothing
+        // (never bake "(unclassified)" into a file forever), and a missing TELESCOP writes
+        // nothing because at capture time an empty name may just be an unfilled profile, not
+        // evidence of a bare lens (the report keeps that inference at read time).
+        if (!string.IsNullOrWhiteSpace(imageMeta.Telescope)
+            && OpticalSystems.Classify(imageMeta.Telescope) is not OpticalSystem.Unclassified and var opticalSystem)
+        {
+            AddHeaderValueIfHasValue("OPTSYS", opticalSystem.Label, "optical system kind, from TELESCOP");
+        }
         AddHeaderValueIfHasValue("OBJECT", imageMeta.ObjectName, "");
         AddHeaderValueIfHasValue("ROWORDER", imageMeta.RowOrder, "");
         if (imageMeta.FocalLength > 0)

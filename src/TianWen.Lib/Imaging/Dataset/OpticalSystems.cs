@@ -42,6 +42,12 @@ namespace TianWen.Lib.Imaging.Dataset
     /// <para>Kept in the repo for the same reason as <see cref="TelescopeAliases"/>: a
     /// classification is a factual claim about hardware, worth reviewing in a diff, and the set is
     /// small and slow-moving.</para>
+    ///
+    /// <para>Two consumers: the PSF report annotates each (train, filter) section, and
+    /// <c>Image.WriteToFitsFile</c> stamps the kind into captured lights/flats as the
+    /// TianWen-defined <c>OPTSYS</c> card (only when it classifies; an unknown name writes no
+    /// card). No such keyword exists elsewhere -- SBFITSEXT, MaxIm DL, and N.I.N.A. all stop at
+    /// the TELESCOP name (surveyed 2026-08-17).</para>
     /// </summary>
     public static class OpticalSystems
     {
