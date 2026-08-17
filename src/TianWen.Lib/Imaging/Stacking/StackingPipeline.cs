@@ -623,7 +623,7 @@ public sealed class StackingPipeline(
             FrameCache.DecideCacheCap(lightList.Count, calibratedFrameBytes));
         var matched = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>();
         var skipCount = 0;
-        // Skips split by CAUSE plus the light-side quad range, for the same reason the reference
+        // Skips split by CAUSE plus the per-frame census, for the same reason the reference
         // counts are logged above: a bare skip tally cannot separate a DETECTION problem (few quads
         // anywhere) from a PURITY one (plenty of quads on both sides that still do not correspond),
         // and those have opposite fixes. A quad matches only when the same four stars form it in
@@ -632,8 +632,15 @@ public sealed class StackingPipeline(
         // fingerprint set as about how many.
         var skippedTooFewStars = 0;
         var skippedNoQuadFit = 0;
-        var minLightQuads = int.MaxValue;
-        var maxLightQuads = 0;
+        // Census inputs, in capture order. The order is load-bearing: it is what lets the census
+        // report a TREND, and a session that degraded through the night has the same min/median/max
+        // as one that was uniformly poor while needing a different fix. Same shape as
+        // SessionRegistrar's census; the min/max quad scalars this loop used to hand-roll live
+        // inside the census now, alongside the histograms and trend they always lacked.
+        var censusStars = new List<int>(lightList.Count);
+        var censusQuads = new List<int>(lightList.Count);
+        var censusHfd = new List<float>(lightList.Count);
+        var censusEcc = new List<float>(lightList.Count);
         sw.Restart();
         foreach (var lightInfo in lightList)
         {
@@ -648,11 +655,25 @@ public sealed class StackingPipeline(
             {
                 transform = Matrix3x2.Identity;
                 frameMetrics = referenceMetrics;
+                // Every frame contributes to the census, including the reference: it is one of the
+                // frames whose focus the census is describing, and excluding it would silently drop
+                // the sharpest sample from the spread.
+                censusStars.Add(referenceMetrics.StarCount);
+                censusHfd.Add(referenceMetrics.MedianHfd);
+                censusEcc.Add(referenceMetrics.MedianEllipticity);
             }
             else
             {
                 var (stars, _) = await FrameRegistration.DetectAsync(
                     calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, ct);
+                // Per-frame PSF medians for EVERY frame, not only the matched ones (cheap single
+                // pass over the existing StarList): the census wants the skipped frames' spread
+                // most of all, and the matched tuple reuses the same value so the post-loop
+                // quality filter has session-wide statistics without re-running star detection.
+                var detectedMetrics = FrameRegistration.MetricsFrom(stars);
+                censusStars.Add(stars.Count);
+                censusHfd.Add(detectedMetrics.MedianHfd);
+                censusEcc.Add(detectedMetrics.MedianEllipticity);
                 if (stars.Count < MinStarsForMatch)
                 {
                     transform = null;
@@ -663,8 +684,7 @@ public sealed class StackingPipeline(
                 {
                     using var lightSorted = new SortedStarList(stars);
                     var lightQuads = await lightSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
-                    minLightQuads = Math.Min(minLightQuads, lightQuads.Count);
-                    maxLightQuads = Math.Max(maxLightQuads, lightQuads.Count);
+                    censusQuads.Add(lightQuads.Count);
                     var (solution, tolUsed, _) = await FrameRegistration.TryMatchAsync(lightSorted, referenceSorted, options.QuadStars);
                     transform = solution;
                     if (transform is null)
@@ -691,15 +711,9 @@ public sealed class StackingPipeline(
                         var (refined, refScale, refRotDeg, refTx, refTy, refRms, refMatched) =
                             RegistrationRefiner.RefineRigid(lightSorted, referenceSorted, transform.Value);
                         transform = refined;
-                        // Per-frame PSF medians from the detected stars. Cheap
-                        // (single pass over the existing StarList) so always
-                        // logged -- spotting an outlier frame's HFD or
-                        // ellipticity spike is exactly what we need when a
-                        // long-span stack ends up with poor SPCC matches.
-                        // Stashed on the matched tuple so the post-loop
-                        // quality filter has session-wide statistics without
-                        // re-running star detection.
-                        frameMetrics = FrameRegistration.MetricsFrom(stars);
+                        // The medians were computed at detect time (they feed the census for every
+                        // frame); stash them on the matched tuple for the post-loop quality filter.
+                        frameMetrics = detectedMetrics;
                         var (medHfd, medFwhm, medEcc) =
                             (frameMetrics.MedianHfd, frameMetrics.MedianFwhm, frameMetrics.MedianEllipticity);
                         logger.LogInformation(
@@ -714,10 +728,15 @@ public sealed class StackingPipeline(
             matched.Add((lightInfo, transform.Value, frameMetrics));
             progress?.Report(new StackingProgress(StackingPhase.Registering, slug, matched.Count + skipCount, lightList.Count));
         }
+        // One census, reused by the summary line here and the collapse warning below -- two
+        // renderings of the same numbers is how one of them ends up stale (the registrar learned
+        // that with its min/max quad range, which is inside the census now).
+        var registrationCensus = RegistrationCensus.Describe(
+            RegistrationCensus.Measure(censusStars, censusQuads, censusHfd, censusEcc));
         logger.LogInformation(
-            "  registered {Matched}/{Attempted} frames (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit; other subs' quads {MinQuads}..{MaxQuads}) in {ElapsedMs} ms",
+            "  registered {Matched}/{Attempted} frames (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit) in {ElapsedMs} ms; census {Census}",
             matched.Count, lightList.Count, skipCount, skippedTooFewStars, skippedNoQuadFit,
-            minLightQuads == int.MaxValue ? 0 : minLightQuads, maxLightQuads, sw.ElapsedMilliseconds);
+            sw.ElapsedMilliseconds, registrationCensus);
         hostTracker.Log(logger, $"register/{slug}");
 
         // Post-registration quality filter. Off by default; enable via
@@ -790,7 +809,15 @@ public sealed class StackingPipeline(
 
         if (matched.Count < 2)
         {
-            logger.LogWarning("  [skip] fewer than 2 matched frames; integration would be meaningless");
+            // WARNING level is what a run's log actually shows, so it has to be self-diagnosing:
+            // the census separates a detection problem (few quads anywhere) from a purity one
+            // (plenty of quads on both sides that do not correspond), and those have opposite
+            // fixes. Same shape as SessionRegistrar's collapse warning, so the two paths' logs
+            // read side by side.
+            logger.LogWarning(
+                "  [skip] fewer than 2 matched frames; integration would be meaningless. reference {RefFile} stars={RefStars} quads={RefQuads}, skipped {TooFew} too-few-stars + {NoFit} no-quad-fit. census {Census}",
+                Path.GetFileName(reference.Path), referenceSorted.Count, referenceQuads.Count,
+                skippedTooFewStars, skippedNoQuadFit, registrationCensus);
             try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
             return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                 PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "fewer than 2 matched frames");
