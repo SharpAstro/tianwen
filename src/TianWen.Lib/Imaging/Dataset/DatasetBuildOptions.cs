@@ -113,8 +113,12 @@ public sealed record DatasetBuildOptions
     /// stays a wildcard (a header-less library is not dropped). Pairs naturally with
     /// <see cref="RequireDarkCalibration"/>: strict-gain narrows the candidates, require-dark then
     /// skips a session left with none. Flats are unaffected (flat division normalises gain away).
-    /// Default false.</summary>
-    public bool RequireGainMatch { get; init; } = false;
+    /// Default TRUE (flipped 2026-08-17): gain is a discrete axis like sensor and geometry, and a
+    /// wrong-gain dark leaves a residual fixed pattern CORRELATED between the two subs of an N2N
+    /// pair, the exact independence violation the temperature gate's doc below describes. Pass
+    /// false only to deliberately accept wrong-gain darks (e.g. salvaging a camera whose same-gain
+    /// library was never shot).</summary>
+    public bool RequireGainMatch { get; init; } = true;
 
     /// <summary>Maximum |dark - light| sensor temperature, in degrees C, for a dark to be a
     /// candidate at all. Null (default) keeps the prior behaviour, where temperature only weights

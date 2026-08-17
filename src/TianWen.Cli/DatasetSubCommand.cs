@@ -103,7 +103,9 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                           "score-penalise it). The fixed-pattern amplitude a dark subtracts is gain-" +
                           "dependent, so a wrong-gain dark mis-scales it. Pairs with --require-dark to " +
                           "skip a session left with no same-gain dark. Unknown gain stays a wildcard; " +
-                          "flats are unaffected.",
+                          "flats are unaffected. ON by default; pass '--require-gain-match false' to " +
+                          "deliberately accept wrong-gain darks.",
+            DefaultValueFactory = _ => true,
         };
         var maxDarkDeltaTOpt = new Option<double?>("--max-dark-delta-t")
         {
