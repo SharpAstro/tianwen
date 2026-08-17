@@ -17,7 +17,7 @@ RC-Astro integration tests.
 
 | Commit | What |
 |---|---|
-| (tip) | `BAYERPAT='VALID'` decodes as ASCOM RGGB base + XBAYROFF/YBAYROFF (MaxIm convention, verified from pixels) + `SensorTypeTests` |
+| `c4908d62` | `BAYERPAT='VALID'` decodes as ASCOM RGGB base + XBAYROFF/YBAYROFF (MaxIm convention, verified from pixels) + `SensorTypeTests` |
 | `b5801f43` | SBFITSEXT IMAGETYP spellings parse ("Light Frame", "Flat Field"): a MaxIm archive used to read as `FrameType.None` and be invisible |
 | `44e14ca8` | `tianwen dataset coverage`: per-session calibration coverage TSV + rollup, resolved by the production matcher (task #51) |
 | `9d662dd4` | Task #25: calibration epochs (30-day chain gap), time as a tie-breaker (1/yr = 0.1 degC), stacker `MatchMaster` consumes the resolver's gates/penalties, SWCREATE + DATE-BEG/END provenance on masters |
