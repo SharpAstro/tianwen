@@ -447,5 +447,67 @@ namespace TianWen.Lib.Tests
                 MasterNoiseRelative: 0.004,
                 BinsByChannel: [[new DatasetPsfNoiseReport.RadiusSamples([2.9f], [0.5f])]],
                 MasterProfiles: profiles);
+
+        /// <summary>The filter is the FOURTH field of the session id and nothing else: a target is
+        /// not a filter, and a filter with no OBJECT still occupies the fourth slot because
+        /// <see cref="ImagingSession.Id"/> always emits the OBJECT slot when a filter is present.</summary>
+        [Theory]
+        [InlineData("2025-06/session|ASI533", "")]
+        [InlineData("2025-06/session|ASI533|Vela SNR", "")]
+        [InlineData("2025-06/session|ASI533|Vela SNR|Optolong L-Ultimate 3nm", "Optolong L-Ultimate 3nm")]
+        [InlineData("2025-06/session|ASI533||Ha", "Ha")]
+        public void FilterFromSessionId_ReadsTheFourthFieldAndOnlyThat(string sessionId, string expected)
+            => DatasetPsfNoiseReport.FilterFromSessionId(sessionId).ShouldBe(expected);
+
+        /// <summary>
+        /// An RGB night and a narrowband night on the same scope are two different measurement
+        /// populations (autofocus optimises ~500-550 nm, so how badly red loses depends on the
+        /// passband), so one optical train splits into one section per filter -- while a record
+        /// whose id predates filters keeps the pre-filter behaviour: one unfiltered bucket.
+        /// </summary>
+        [Fact]
+        public void SessionsOfOneTrain_AreSplitByFilter_AndPreFilterIdsKeepOneBucket()
+        {
+            DatasetPsfNoiseReport.SessionPsf Session(string id) => new(
+                SessionId: id, OpticalTrain: "T", SubFwhm: [3f], SubHfd: [3f],
+                SubEllipticity: [0.5f], MasterNoiseRelative: 0.004, BinsByChannel: null);
+
+            var acc = new DatasetPsfNoiseReport.Accumulator(radiusBins: 1);
+            acc.Add(Session("d1|CAM|Obj|Optolong L-Ultimate 3nm"));
+            acc.Add(Session("d2|CAM|Obj|Optolong L-Quad Enhance"));
+            acc.Add(Session("d3|CAM|Obj"));
+            var report = acc.Build();
+
+            report.Trains.Length.ShouldBe(3);
+            // Ordered by label then filter, so the unfiltered bucket ("" sorts first) leads.
+            report.Trains.Select(t => t.Filter).ShouldBe(["", "Optolong L-Quad Enhance", "Optolong L-Ultimate 3nm"]);
+            report.Trains.ShouldAllBe(t => t.OpticalTrain == "T" && t.Sessions == 1);
+        }
+
+        /// <summary>The rendered section names its filter (in the heading AND beside the numbers)
+        /// and classifies the glass, so a reader can judge a corner trend without knowing the
+        /// hardware by name -- and so the first Newtonian to enter the archive announces itself.
+        /// "(no filter recorded)" is deliberate wording: an absent FILTER header is an absent fact,
+        /// not broadband.</summary>
+        [Fact]
+        public async Task TheRenderedSectionNamesTheFilterAndTheOpticalSystem()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            DatasetPsfNoiseReport.SessionPsf Session(string id, string train) => new(
+                SessionId: id, OpticalTrain: train, SubFwhm: [3f], SubHfd: [3f],
+                SubEllipticity: [0.5f], MasterNoiseRelative: 0.004, BinsByChannel: null);
+
+            var acc = new DatasetPsfNoiseReport.Accumulator(radiusBins: 1);
+            acc.Add(Session("d1|SV605|Orion|Optolong L-Ultimate 3nm", "SVBONY SV605CC / SH61 EDPH @ 270mm"));
+            acc.Add(Session("d2|ASI585|Widefield", "ZWO ASI585MC Pro @ 24mm"));
+            var mdPath = Path.Combine(_dir, "filter-sections.md");
+            await DatasetPsfNoiseReport.WriteMarkdownAsync(acc.Build(), mdPath, ct);
+            var md = await File.ReadAllTextAsync(mdPath, ct);
+
+            md.ShouldContain("### SVBONY SV605CC / SH61 EDPH @ 270mm [Optolong L-Ultimate 3nm]");
+            md.ShouldContain("- Filter: Optolong L-Ultimate 3nm | Optical system: refractor");
+            md.ShouldContain("### ZWO ASI585MC Pro @ 24mm");
+            md.ShouldContain("- Filter: (no filter recorded) | Optical system: camera lens");
+        }
     }
 }
