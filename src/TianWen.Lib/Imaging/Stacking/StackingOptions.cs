@@ -51,6 +51,15 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// "pierUnknown" sub-group rather than being silently merged with East. Off
 /// by default -- a unified master across the meridian is the production
 /// norm.</param>
+/// <param name="RequireGainMatch">When true (the default), a dark master whose
+/// gain is KNOWN and differs from the light group's is rejected outright
+/// rather than score-penalised, mirroring the dataset builder's flag of the
+/// same name: the fixed-pattern amplitude a dark subtracts is gain-dependent,
+/// so a wrong-gain dark mis-scales it. A group whose only dark is wrong-gain
+/// then stacks with NO dark (the sigma-clip rejector and, for drizzle, the
+/// session-derived bad-pixel map carry hot-pixel handling) instead of being
+/// silently mis-calibrated. Unknown gain on either side stays a wildcard.
+/// Pass false to deliberately accept wrong-gain darks.</param>
 /// <param name="HotPixelSigma">One knob for both bad-pixel-map producers,
 /// whose UNION is the shipped mask (they flag nearly disjoint real
 /// populations; see <see cref="Calibration.BadPixelAccumulator.UnionInto"/>);
@@ -123,6 +132,7 @@ public sealed record StackingOptions(
     int QuadStars = FrameRegistration.DefaultQuadStars,
     DrizzleOptions? DrizzleOptions = null,
     bool SplitByPierSide = false,
+    bool RequireGainMatch = true,
     float HotPixelSigma = 8.0f,
     float? QualityRejectSigma = null,
     string? ReferenceFrameHint = null,

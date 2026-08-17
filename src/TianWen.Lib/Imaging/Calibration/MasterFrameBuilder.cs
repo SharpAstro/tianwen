@@ -32,6 +32,52 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// </summary>
 public static class MasterFrameBuilder
 {
+    /// <summary>Stamped into every persisted master's <c>SWCREATE</c> by
+    /// <see cref="ProvenanceHeaders"/>. The <c>TianWen.</c> prefix is what
+    /// <c>IntegrationFitsWriter.IsTianWenProduct</c> matches, so a cached calibration master parked
+    /// where a scan can see it is recognised as our own output -- it used to inherit
+    /// <c>SWCREATE='N.I.N.A. ...'</c> from its subs and pass as a raw calibration frame.</summary>
+    public const string SoftwareCreator = "TianWen.Imaging.Calibration.MasterFrameBuilder";
+
+    /// <summary>
+    /// The provenance cards every persisted master should carry (task #25): <c>SWCREATE</c>
+    /// declaring the builder, and the input capture-date SPAN as standard FITS <c>DATE-BEG</c> /
+    /// <c>DATE-END</c> -- the seed metadata's DATE-OBS is one representative frame, and before
+    /// epochs split the groups, that single date was all a 2021+2026 blend showed. Callers add
+    /// their own cards on top (the dataset cache adds its fingerprint pair).
+    /// </summary>
+    public static Dictionary<string, (object Value, string Comment)> ProvenanceHeaders(IReadOnlyList<FrameInfo> inputs)
+    {
+        var extras = new Dictionary<string, (object Value, string Comment)>
+        {
+            ["SWCREATE"] = (SoftwareCreator, "Software that created this calibration master"),
+        };
+        var begin = default(DateTimeOffset);
+        var end = default(DateTimeOffset);
+        foreach (var f in inputs)
+        {
+            var t = f.Meta.ExposureStartTime;
+            if (t == default)
+            {
+                continue;
+            }
+            if (begin == default || t < begin)
+            {
+                begin = t;
+            }
+            if (end == default || t > end)
+            {
+                end = t;
+            }
+        }
+        if (begin != default)
+        {
+            extras["DATE-BEG"] = (begin.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture), "Earliest input frame (UTC)");
+            extras["DATE-END"] = (end.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture), "Latest input frame (UTC)");
+        }
+        return extras;
+    }
+
     /// <summary>Combines bias frames via per-pixel median. Bias has no
     /// exposure-time dependence and tolerates a plain median; cosmic-ray hits
     /// on bias frames are rare enough that sigma-clip rejection isn't worth

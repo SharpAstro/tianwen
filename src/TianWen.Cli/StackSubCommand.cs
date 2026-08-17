@@ -106,6 +106,15 @@ internal sealed class StackSubCommand(
         {
             Description = "Sub-partition each light group by FITS PIERSIDE (pre/post meridian flip) and write separate masters per pier side. Useful for diagnosing drizzle streaks tied to the flip, or for capture setups that don't update BayerOffset post-flip. Filenames pick up _pierE / _pierW / _pierUnknown suffixes.",
         };
+        var requireGainMatchOpt = new Option<bool>("--require-gain-match")
+        {
+            Description = "Reject a dark master whose gain is known and differs from the lights (not just " +
+                          "score-penalise it), mirroring the dataset builder's flag of the same name: a " +
+                          "wrong-gain dark mis-scales the fixed pattern it exists to remove. A group whose " +
+                          "only dark is wrong-gain then stacks with NO dark. ON by default; pass " +
+                          "'--require-gain-match false' to deliberately accept wrong-gain darks.",
+            DefaultValueFactory = _ => true,
+        };
         var hotPixelSigmaOpt = new Option<float>("--hot-pixel-sigma")
         {
             Description = "Bad-pixel masking sigma, one knob for both producers, whose UNION is the shipped mask: the per-frame outlier sigma of the session-derived registration map (built when the group's own dither lets it be; flags defects at the lights' own exposure/gain/temperature, no dark needed) and the threshold above the dark master's median for the dark-derived map. Flagged pixels are skipped by drizzle deposition. Default 8 (hot pixels typically score 100+). Pass 0 to disable masking.",
@@ -287,6 +296,7 @@ internal sealed class StackSubCommand(
                 QuadStars: parseResult.GetValue(quadStarsOpt),
                 DrizzleOptions: drizzleOptions,
                 SplitByPierSide: parseResult.GetValue(splitByPierSideOpt),
+                RequireGainMatch: parseResult.GetValue(requireGainMatchOpt),
                 HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt),
                 QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
                 ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
