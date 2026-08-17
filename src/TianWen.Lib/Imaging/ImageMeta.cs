@@ -44,8 +44,8 @@ namespace TianWen.Lib.Imaging;
 /// <param name="BinY">Vertical binning factor (FITS: YBINNING).</param>
 /// <param name="CCDTemperature">Measured sensor temperature in Celsius (FITS: CCD-TEMP). NaN if unavailable.</param>
 /// <param name="SensorType">Sensor type: Monochrome, RGGB, Color, etc. (FITS: BAYERPAT, COLORTYP, CFAIMAGE).</param>
-/// <param name="BayerOffsetX">Bayer pattern X offset (FITS: BAYOFFX).</param>
-/// <param name="BayerOffsetY">Bayer pattern Y offset (FITS: BAYOFFY).</param>
+/// <param name="BayerOffsetX">Bayer pattern X offset (FITS: XBAYROFF, legacy read fallback BAYOFFX).</param>
+/// <param name="BayerOffsetY">Bayer pattern Y offset (FITS: YBAYROFF, legacy read fallback BAYOFFY).</param>
 /// <param name="RowOrder">Pixel row order: TopDown or BottomUp (FITS: ROWORDER).</param>
 /// <param name="Latitude">Observatory latitude in decimal degrees (FITS: SITELAT). NaN if unknown.</param>
 /// <param name="Longitude">Observatory longitude in decimal degrees (FITS: SITELONG). NaN if unknown.</param>

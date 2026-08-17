@@ -18,8 +18,9 @@ namespace TianWen.Lib.Imaging.Calibration;
 /// Measured against a real N.I.N.A. light, a read-then-write round trip destroys 21 of its 50
 /// informational cards, among them <c>AIRMASS</c>, <c>CENTALT</c>/<c>CENTAZ</c>,
 /// <c>DATE-AVG</c>/<c>MJD-AVG</c> (the sub-second averaged midpoint), the whole focuser telemetry
-/// block, and <c>OBSERVER</c>/<c>SITENAME</c>; it also renames <c>XBAYROFF</c>/<c>YBAYROFF</c> to
-/// our own spelling, and it re-encodes the pixels through a float buffer. That is fine for writing a
+/// block, and <c>OBSERVER</c>/<c>SITENAME</c>, and it re-encodes the pixels through a float buffer
+/// (until 2026-08-17 it also renamed <c>XBAYROFF</c>/<c>YBAYROFF</c> to a private spelling; the
+/// writer emits the standard names now). That is fine for writing a
 /// NEW file and unacceptable for amending an irreplaceable one.</para>
 ///
 /// <para><b>The model here is the opposite: everything is preserved except the one card being

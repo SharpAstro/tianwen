@@ -265,7 +265,13 @@ public partial class Image
         var (sensorType, bayerOffsetX, bayerOffsetY) = SensorType.FromFITSValue(
             isCFA,
             channelCount,
-            hdu.Header.GetIntValue("BAYOFFX", 0), hdu.Header.GetIntValue("BAYOFFY", 0),
+            // XBAYROFF/YBAYROFF is the living convention (MaxIm DL, N.I.N.A.). BAYOFFX/BAYOFFY is
+            // the Atik Artemis legacy spelling that TianWen wrote until 2026-08-17 (and old SharpCap
+            // emitted both sets side by side), kept as the read fallback so those files stay
+            // legible. Reading only the legacy name made every N.I.N.A. file's offset silently land
+            // at (0,0) -- benign only when (0,0) happens to be true.
+            hdu.Header.GetIntValue("XBAYROFF", hdu.Header.GetIntValue("BAYOFFX", 0)),
+            hdu.Header.GetIntValue("YBAYROFF", hdu.Header.GetIntValue("BAYOFFY", 0)),
             [hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP"), cfaPattern]
         );
         var latitude = hdu.Header.GetFloatValue("SITELAT", float.NaN);
@@ -516,7 +522,13 @@ public partial class Image
         var (sensorType, bayerOffsetX, bayerOffsetY) = SensorType.FromFITSValue(
             isCFA,
             channelCount,
-            hdu.Header.GetIntValue("BAYOFFX", 0), hdu.Header.GetIntValue("BAYOFFY", 0),
+            // XBAYROFF/YBAYROFF is the living convention (MaxIm DL, N.I.N.A.). BAYOFFX/BAYOFFY is
+            // the Atik Artemis legacy spelling that TianWen wrote until 2026-08-17 (and old SharpCap
+            // emitted both sets side by side), kept as the read fallback so those files stay
+            // legible. Reading only the legacy name made every N.I.N.A. file's offset silently land
+            // at (0,0) -- benign only when (0,0) happens to be true.
+            hdu.Header.GetIntValue("XBAYROFF", hdu.Header.GetIntValue("BAYOFFX", 0)),
+            hdu.Header.GetIntValue("YBAYROFF", hdu.Header.GetIntValue("BAYOFFY", 0)),
             [hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP"), cfaPattern]
         );
         var latitude = hdu.Header.GetFloatValue("SITELAT", float.NaN);
@@ -862,8 +874,10 @@ public partial class Image
         {
             AddHeaderValueIfHasValue("SATURATE", fullScaleAdu, "[adu] saturation level (sensor full scale)");
         }
-        AddHeaderValueIfHasValue("BAYOFFX", imageMeta.BayerOffsetX, "");
-        AddHeaderValueIfHasValue("BAYOFFY", imageMeta.BayerOffsetY, "");
+        // The MaxIm DL / N.I.N.A. spelling. TianWen wrote the Atik-legacy BAYOFFX/BAYOFFY until
+        // 2026-08-17; the reader keeps that as a fallback, the writer does not.
+        AddHeaderValueIfHasValue("XBAYROFF", imageMeta.BayerOffsetX, "");
+        AddHeaderValueIfHasValue("YBAYROFF", imageMeta.BayerOffsetY, "");
         AddHeaderValueIfHasValue("SITELAT", imageMeta.Latitude, "degrees");
         AddHeaderValueIfHasValue("SITELONG", imageMeta.Longitude, "degrees");
         if (!double.IsNaN(imageMeta.TargetRA) && !double.IsNaN(imageMeta.TargetDec))
@@ -879,7 +893,7 @@ public partial class Image
         // A debayered RGB master (channelCount==3) has separate R/G/B
         // planes -- downstream tools that see BAYERPAT will think they
         // need to debayer again and produce double-debayered garbage.
-        // Note: BAYOFFX / BAYOFFY above are written unconditionally; for
+        // Note: XBAYROFF / YBAYROFF above are written unconditionally; for
         // a debayered image they're effectively meaningless metadata but
         // not actively misleading (no tool re-debayers from offsets
         // alone). If we ever propagate the original CFA pattern through
