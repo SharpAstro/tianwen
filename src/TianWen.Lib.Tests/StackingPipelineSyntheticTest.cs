@@ -134,15 +134,15 @@ public class StackingPipelineSyntheticTest(ITestOutputHelper output)
 
         // 5) Stage timings ride on the result with their denominators (StageTimings adoption,
         //    task #21). Items are pinned exactly; wall seconds are not (machine-dependent).
-        //    Register currently carries real pixels because pass B reloads + re-detects every
-        //    frame -- when the register shell collapses onto retained star lists that recording
-        //    drops to zero, and THIS assertion is the one that must be flipped to pin the win.
+        //    Register pixels are pinned at ZERO: the register phase works from the star lists the
+        //    measure pass retained, so it reads no pixel -- this assertion records the win over
+        //    the old reload + re-detect pass B, and going red here means the double-detect is back.
         result.Stages.IsDefaultOrEmpty.ShouldBeFalse("GroupResult should carry the stage table");
         var stagesByName = result.Stages.ToDictionary(s => s.Name);
         stagesByName[StageNames.Measure].Items.ShouldBe(FrameCount);
         stagesByName[StageNames.Measure].Pixels.ShouldBe((long)FrameCount * FrameSize * FrameSize);
         stagesByName[StageNames.Register].Items.ShouldBe(FrameCount);
-        stagesByName[StageNames.Register].Pixels.ShouldBeGreaterThan(0);
+        stagesByName[StageNames.Register].Pixels.ShouldBe(0L);
         stagesByName[StageNames.Integrate].Items.ShouldBe(FrameCount);
         stagesByName[StageNames.Integrate].Pixels.ShouldBe((long)FrameCount * master.Width * master.Height);
         stagesByName[StageNames.Post].Items.ShouldBe(1);
