@@ -32,8 +32,16 @@ public static class CalibrationResolver
     /// (a single frame is enough, no &gt;=2-raw median), whereas a raw group builds its master by
     /// combination. Raw and master frames of the same sensor-config + train are kept in SEPARATE
     /// groups (the flag is part of the grouping key), so a camera whose dark library survives only as
-    /// a master still resolves while raw libraries build normally.</summary>
-    public sealed record CalGroup(MasterGroupKey Key, CalTrain Train, ImmutableArray<FrameInfo> Frames, bool IsMaster = false);
+    /// a master still resolves while raw libraries build normally.
+    /// <para>A group is also ONE EPOCH (<see cref="CalibrationEpochs"/>): frames of the same
+    /// sensor-config shot years apart land in separate groups, so a 2021 and a 2026 dark library can
+    /// never blend into one master. <paramref name="EpochStart"/>/<paramref name="EpochEnd"/> carry
+    /// the capture-date span (default = undated); <paramref name="EpochSuffix"/> is non-empty only
+    /// when the config actually split into several epochs, and keeps their cached masters on
+    /// distinct paths while a single-epoch archive keeps its legacy filenames.</para></summary>
+    public sealed record CalGroup(
+        MasterGroupKey Key, CalTrain Train, ImmutableArray<FrameInfo> Frames, bool IsMaster = false,
+        DateTimeOffset EpochStart = default, DateTimeOffset EpochEnd = default, string EpochSuffix = "");
 
     /// <summary>
     /// Optical-train identity a light and its calibration must share, ON TOP of the sensor-config
@@ -208,7 +216,19 @@ public static class CalibrationResolver
             {
                 byType[key.Type] = groups = new List<CalGroup>();
             }
-            groups.Add(new CalGroup(key, train, [.. list], isMaster));
+            // One CalGroup per EPOCH (task #25): a config whose library was re-shot years later
+            // must not blend both shoots into one master (epoch merging attenuates recently-emerged
+            // defects by frames-from-epoch/total and hides them from the mask detector). Applies to
+            // foreign master groups too, so several archived masters of one config resolve to the
+            // temporally nearest rather than the ordinally first. The suffix is minted only when a
+            // config actually split, so single-epoch archives keep their legacy cache filenames.
+            var epochs = CalibrationEpochs.Split(list);
+            foreach (var epoch in epochs)
+            {
+                groups.Add(new CalGroup(key, train, [.. epoch.Frames], isMaster,
+                    EpochStart: epoch.Start, EpochEnd: epoch.End,
+                    EpochSuffix: epochs.Count > 1 ? CalibrationEpochs.EpochSlug(epoch.Start) : ""));
+            }
         }
         return byType;
     }
@@ -270,8 +290,8 @@ public static class CalibrationResolver
                 calGroups.GetValueOrDefault(FrameType.Dark), flatGroup)
             : null;
 
-        var dark = darkGroup is null ? null : await masterCache.GetOrBuildAsync(darkGroup.Key, darkGroup.Train, darkGroup.Frames, darkGroup.IsMaster, normalizedAduScale, cancellationToken: cancellationToken);
-        var flat = flatGroup is null ? null : await masterCache.GetOrBuildAsync(flatGroup.Key, flatGroup.Train, flatGroup.Frames, flatGroup.IsMaster, normalizedAduScale, flatPedestalGroup, cancellationToken);
+        var dark = darkGroup is null ? null : await masterCache.GetOrBuildAsync(darkGroup.Key, darkGroup.Train, darkGroup.Frames, darkGroup.IsMaster, normalizedAduScale, epochSuffix: darkGroup.EpochSuffix, cancellationToken: cancellationToken);
+        var flat = flatGroup is null ? null : await masterCache.GetOrBuildAsync(flatGroup.Key, flatGroup.Train, flatGroup.Frames, flatGroup.IsMaster, normalizedAduScale, flatPedestalGroup, flatGroup.EpochSuffix, cancellationToken);
 
         logger?.LogInformation("  [{Session}] calibration: dark={Dark} flat={Flat} flat-pedestal={Pedestal}",
             session.Id, darkGroup is null ? "NONE" : darkGroup.Key.Slug(), flatGroup is null ? "NONE" : flatGroup.Key.Slug(),
@@ -312,7 +332,8 @@ public static class CalibrationResolver
                 darkBias = darkBiasGroup is null
                     ? null
                     : await masterCache.GetOrBuildAsync(darkBiasGroup.Key, darkBiasGroup.Train, darkBiasGroup.Frames,
-                        darkBiasGroup.IsMaster, normalizedAduScale, cancellationToken: cancellationToken);
+                        darkBiasGroup.IsMaster, normalizedAduScale, epochSuffix: darkBiasGroup.EpochSuffix,
+                        cancellationToken: cancellationToken);
 
                 if (darkBias is not null)
                 {
@@ -353,6 +374,30 @@ public static class CalibrationResolver
     /// than a gain mismatch (pattern amplitude): quarter weight.</summary>
     private const double OffsetMismatchPenalty = 50.0;
     private const double OffsetUnknownPenalty = 25.0;
+
+    /// <summary>Score per YEAR of capture-date distance between a calibration epoch and the frames
+    /// it would calibrate. Deliberately a TIE-BREAKER, not a physical axis: sized at one tenth of a
+    /// single degree C (<see cref="TempPenalty"/> x10 = 10/degree), because the measured cost of
+    /// staleness is tiny next to any physical mismatch -- new defects emerge at ~80 px/year on the
+    /// reference sensor (~1.8% of the 18,393-px stable defect set over 4.3 years), while 1 C of
+    /// temperature error mis-subtracts dark current by ~12%. So a four-year-old exact-temperature
+    /// library still beats a fresh one that is 1 C off, and time only decides between epochs the
+    /// physics cannot separate -- which, now that <see cref="CalibrationEpochs"/> splits re-shot
+    /// libraries into distinct candidates, is exactly the choice that newly exists.</summary>
+    internal const double TimePenaltyPerYear = 1.0;
+
+    /// <summary>Distance of <see cref="TimePenaltyPerYear"/> charged when either side's capture
+    /// date is unknown: a dated epoch at equal physics beats an undated one, and an undated epoch
+    /// beats a dated one a couple of years away.</summary>
+    internal const double TimeUnknownPenalty = 2.0;
+
+    /// <summary>Capture-date distance score between a calibration epoch and the frames it would
+    /// calibrate; see <see cref="TimePenaltyPerYear"/>. <c>default</c> on either side means the
+    /// date is unknown.</summary>
+    internal static double TimePenalty(DateTimeOffset epoch, DateTimeOffset target) =>
+        epoch == default || target == default
+            ? TimeUnknownPenalty
+            : Math.Abs((epoch - target).TotalDays) / 365.25 * TimePenaltyPerYear;
 
     /// <summary>A light-dark must fall within this factor of the light's exposure to be a candidate.
     /// The pipeline DOES dark-scale now (see the dark-scaling block in <see cref="ResolveAsync"/>),
@@ -401,7 +446,8 @@ public static class CalibrationResolver
             var score = TempPenalty(g.Key, lightKey) * 10.0
                 + Math.Abs((g.Key.Exposure - lightKey.Exposure).TotalSeconds)
                 + GainPenalty(g.Key, lightKey)
-                + OffsetPenalty(g.Key, lightKey);
+                + OffsetPenalty(g.Key, lightKey)
+                + TimePenalty(g.EpochStart, light.Meta.ExposureStartTime);
             if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
             {
                 bestScore = score;
@@ -431,7 +477,12 @@ public static class CalibrationResolver
             // foreign master flat is exempt (loaded directly).
             if (!Buildable(g) || !DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain)) continue;
             var filterMismatch = g.Key.FilterName == lightKey.FilterName && g.Key.FilterBandpass == lightKey.FilterBandpass ? 0.0 : 1000.0;
-            var score = filterMismatch + TempPenalty(g.Key, lightKey) * 10.0 + GainPenalty(g.Key, lightKey);
+            // Time matters a little more for flats than the constant's sizing suggests (dust moves
+            // between seasons), but it is still no physical axis: filter and temperature dominate,
+            // and time separates two epochs of the SAME train's flats -- the season whose dust
+            // matches the lights wins.
+            var score = filterMismatch + TempPenalty(g.Key, lightKey) * 10.0 + GainPenalty(g.Key, lightKey)
+                + TimePenalty(g.EpochStart, light.Meta.ExposureStartTime);
             if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
             {
                 bestScore = score;
@@ -444,7 +495,7 @@ public static class CalibrationResolver
     /// <summary>True when a dark's exposure is within <see cref="ExposureCompatibleLow"/>..
     /// <see cref="ExposureCompatibleHigh"/> of the light's, i.e. a plausible light-dark, not a
     /// dark-flat. A non-positive light exposure (unknown) disables the gate (accept any).</summary>
-    private static bool ExposureCompatible(TimeSpan dark, TimeSpan light)
+    internal static bool ExposureCompatible(TimeSpan dark, TimeSpan light)
     {
         var l = light.TotalSeconds;
         if (l <= 0) return true;
@@ -493,8 +544,11 @@ public static class CalibrationResolver
         {
             if (!Buildable(g) || !DimensionCompatible(g.Key, darkKey) || !g.Train.CameraCompatibleWith(darkCamera)) continue;
             // Gain dominates: a bias at the wrong gain has the wrong pedestal, which would put the
-            // split in the wrong place and bias every scaled pixel. Temperature is a tiebreak.
-            var score = GainPenalty(g.Key, darkKey) * 10.0 + TempPenalty(g.Key, darkKey);
+            // split in the wrong place and bias every scaled pixel. Temperature is a tiebreak, and
+            // time (scored against the DARK being split, not the lights) separates re-shot bias
+            // libraries the physics cannot.
+            var score = GainPenalty(g.Key, darkKey) * 10.0 + TempPenalty(g.Key, darkKey)
+                + TimePenalty(g.EpochStart, darkGroup.EpochStart);
             if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
             {
                 best = g;
@@ -595,7 +649,8 @@ public static class CalibrationResolver
                 if (exposureGate && !FlatPedestalExposureCompatible(g.Key.Exposure, flatKey.Exposure)) continue;
                 var score = FlatPedestalThermalError(g.Key, flatKey)
                     + TempPenalty(g.Key, flatKey) * FlatPedestalTempTiebreak
-                    + GainPenalty(g.Key, flatKey);
+                    + GainPenalty(g.Key, flatKey)
+                    + TimePenalty(g.EpochStart, flatGroup.EpochStart);
                 if (score < bestScore || (score == bestScore && SlugBefore(g, best)))
                 {
                     bestScore = score;
@@ -621,7 +676,7 @@ public static class CalibrationResolver
     /// silently substituted. An unknown gain on either side stays a wildcard (a header-less library
     /// is not dropped) -- the same lenient-on-unknown policy the optical-train comparisons use. When
     /// off, gain only weights the score (see <see cref="GainPenalty"/>).</summary>
-    private static bool GainCompatible(MasterGroupKey g, MasterGroupKey light, bool requireGainMatch) =>
+    internal static bool GainCompatible(MasterGroupKey g, MasterGroupKey light, bool requireGainMatch) =>
         !requireGainMatch || !(g.Gain >= 0 && light.Gain >= 0 && g.Gain != light.Gain);
 
     /// <summary>The strict temperature gate (opt-in via
@@ -637,21 +692,24 @@ public static class CalibrationResolver
         || light.TemperatureC is not { } lt
         || Math.Abs(gt - lt) <= max;
 
-    private static bool DimensionCompatible(MasterGroupKey g, MasterGroupKey light) =>
+    // Internal rather than private: StackingPipeline.MatchMaster consumes the same gates and
+    // penalties, so the two paths' matching arithmetic cannot drift (the registrar collapse's
+    // lesson applied to calibration matching).
+    internal static bool DimensionCompatible(MasterGroupKey g, MasterGroupKey light) =>
         g.SensorType == light.SensorType
         && g.ChannelCount == light.ChannelCount
         && g.Width == light.Width
         && g.Height == light.Height;
 
-    private static double TempPenalty(MasterGroupKey g, MasterGroupKey light) =>
+    internal static double TempPenalty(MasterGroupKey g, MasterGroupKey light) =>
         g.TemperatureC is { } gt && light.TemperatureC is { } lt ? Math.Abs(gt - lt) : 100.0;
 
-    private static double GainPenalty(MasterGroupKey g, MasterGroupKey light) =>
+    internal static double GainPenalty(MasterGroupKey g, MasterGroupKey light) =>
         g.Gain >= 0 && light.Gain >= 0
             ? g.Gain == light.Gain ? 0.0 : GainMismatchPenalty
             : GainUnknownPenalty;
 
-    private static double OffsetPenalty(MasterGroupKey g, MasterGroupKey light) =>
+    internal static double OffsetPenalty(MasterGroupKey g, MasterGroupKey light) =>
         g.Offset >= 0 && light.Offset >= 0
             ? g.Offset == light.Offset ? 0.0 : OffsetMismatchPenalty
             : OffsetUnknownPenalty;

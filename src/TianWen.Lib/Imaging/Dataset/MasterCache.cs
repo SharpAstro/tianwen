@@ -39,21 +39,23 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
     private const string FingerprintCard = "DSETFPR"; // dataset input-set fingerprint (<= 8 chars)
     private const string InputCountCard = "DSETNIN";  // dataset input frame count
 
-    // Keyed by (sensor-config group, optical train, master flag): two cameras that share a sensor
-    // model produce the same MasterGroupKey, so without the train in the key a second body's build
-    // would either cross-serve the first's cached Task (in-flight map) or overwrite its file (same
-    // slug) -- silently calibrating one camera's lights with another's master. The master flag keeps
-    // a foreign already-integrated master group distinct from a raw group of the same config (they
-    // take different paths -- direct load vs median build).
-    private readonly ConcurrentDictionary<(MasterGroupKey Key, CalibrationResolver.CalTrain Train, bool IsMaster), Task<Image?>> _inFlight = new();
+    // Keyed by (sensor-config group, optical train, master flag, epoch suffix): two cameras that
+    // share a sensor model produce the same MasterGroupKey, so without the train in the key a second
+    // body's build would either cross-serve the first's cached Task (in-flight map) or overwrite its
+    // file (same slug) -- silently calibrating one camera's lights with another's master. The master
+    // flag keeps a foreign already-integrated master group distinct from a raw group of the same
+    // config (they take different paths -- direct load vs median build). The epoch suffix keeps two
+    // EPOCHS of one config (task #25: a library re-shot years later) from cross-serving each other,
+    // exactly the same failure shape as the train.
+    private readonly ConcurrentDictionary<(MasterGroupKey Key, CalibrationResolver.CalTrain Train, bool IsMaster, string Epoch), Task<Image?>> _inFlight = new();
 
     /// <summary>
     /// Returns the master for a calibration group. For a raw group (<paramref name="isMaster"/> =
     /// false) it builds the master if the on-disk cache is missing or fingerprint-stale, else loads
     /// the cached file, returning null when the group has too few frames to combine (&lt; 2). For a
     /// FOREIGN master group (<paramref name="isMaster"/> = true) it loads the already-integrated
-    /// master file directly (no rebuild). Concurrent calls for the same key + train + flag share one
-    /// build/load.
+    /// master file directly (no rebuild). Concurrent calls for the same key + train + flag + epoch
+    /// share one build/load.
     /// </summary>
     /// <param name="normalizedAduScale">ADU full-scale to rescale a NORMALISED foreign subtractive
     /// master ([0,1]) back into, so it can be subtracted from raw-ADU lights. Derived by the caller
@@ -64,17 +66,22 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
     /// is normalised; see <see cref="MasterFrameBuilder.BuildFlatMasterAsync"/> for why that matters.
     /// Resolved recursively through this same cache, so the pedestal master is itself built once and
     /// shared. Ignored for every type but a raw <see cref="FrameType.Flat"/> build.</param>
+    /// <param name="epochSuffix">The group's <see cref="CalibrationResolver.CalGroup.EpochSuffix"/>:
+    /// non-empty only when the config split into several epochs, in which case it lands in the cache
+    /// filename (and the in-flight key) so each epoch's master lives on its own path. Empty keeps
+    /// the legacy filename, so single-epoch archives keep their existing cache.</param>
     public Task<Image?> GetOrBuildAsync(
         MasterGroupKey key, CalibrationResolver.CalTrain train, IReadOnlyList<FrameInfo> inputs,
         bool isMaster = false, float? normalizedAduScale = null,
-        CalibrationResolver.CalGroup? flatPedestal = null, CancellationToken cancellationToken = default)
-        => _inFlight.GetOrAdd((key, train, isMaster), _ => isMaster
+        CalibrationResolver.CalGroup? flatPedestal = null, string epochSuffix = "",
+        CancellationToken cancellationToken = default)
+        => _inFlight.GetOrAdd((key, train, isMaster, epochSuffix), _ => isMaster
             ? LoadForeignMasterAsync(key, inputs, normalizedAduScale, cancellationToken)
-            : BuildOrLoadAsync(key, train, inputs, flatPedestal, cancellationToken));
+            : BuildOrLoadAsync(key, train, inputs, flatPedestal, epochSuffix, cancellationToken));
 
     private async Task<Image?> BuildOrLoadAsync(
         MasterGroupKey key, CalibrationResolver.CalTrain train, IReadOnlyList<FrameInfo> inputs,
-        CalibrationResolver.CalGroup? flatPedestal, CancellationToken ct)
+        CalibrationResolver.CalGroup? flatPedestal, string epochSuffix, CancellationToken ct)
     {
         if (inputs.Count < 2)
         {
@@ -84,8 +91,9 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
 
         Directory.CreateDirectory(mastersDir);
         // The train suffix keeps two same-sensor cameras' masters on distinct paths (empty for a
-        // header-less archive, preserving the legacy filename).
-        var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{train.SlugSuffix()}.fits");
+        // header-less archive, preserving the legacy filename); the epoch suffix does the same for
+        // two epochs of one config.
+        var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{train.SlugSuffix()}{epochSuffix}.fits");
 
         // A pedestal changes the master's PIXELS without changing its input set, so folding the
         // pedestal group's own fingerprint into this one is what stops a flat cached before the
@@ -114,7 +122,7 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
         {
             pedestalMaster = await GetOrBuildAsync(
                 flatPedestal.Key, flatPedestal.Train, flatPedestal.Frames, flatPedestal.IsMaster,
-                cancellationToken: ct);
+                epochSuffix: flatPedestal.EpochSuffix, cancellationToken: ct);
             logger?.LogInformation("  flat {Slug} pedestal: {Pedestal}",
                 key.Slug(), pedestalMaster is null ? "NONE (unbuildable)" : flatPedestal.Key.Slug());
         }
@@ -126,11 +134,12 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
             FrameType.Flat => await MasterFrameBuilder.BuildFlatMasterAsync(inputs, pedestalMaster, ct),
             _ => throw new ArgumentException($"Not a calibration frame type: {key.Type}", nameof(key)),
         };
-        var extraHeaders = new Dictionary<string, (object Value, string Comment)>
-        {
-            [FingerprintCard] = (fingerprint, "TianWen dataset input-set fingerprint"),
-            [InputCountCard] = (inputs.Count, "TianWen dataset input frame count"),
-        };
+        // The shared provenance cards (SWCREATE declaring the builder + the input capture-date
+        // span as DATE-BEG/DATE-END, so a blend can never again be invisible), plus this cache's
+        // own fingerprint pair.
+        var extraHeaders = MasterFrameBuilder.ProvenanceHeaders(inputs);
+        extraHeaders[FingerprintCard] = (fingerprint, "TianWen dataset input-set fingerprint");
+        extraHeaders[InputCountCard] = (inputs.Count, "TianWen dataset input frame count");
         master.WriteToFitsFile(masterPath, null, extraHeaders);
         logger?.LogInformation("  master {File} built ({Count} inputs)", Path.GetFileName(masterPath), inputs.Count);
         return master;

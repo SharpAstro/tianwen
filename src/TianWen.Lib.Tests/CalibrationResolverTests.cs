@@ -19,11 +19,12 @@ namespace TianWen.Lib.Tests
     public class CalibrationResolverTests
     {
         private static FrameInfo Cal(FrameType type, double expoSec, float tempC, short gain = 100,
-            string instrument = "TestCam", string telescope = "T", int focalLength = 135, bool isMaster = false)
+            string instrument = "TestCam", string telescope = "T", int focalLength = 135, bool isMaster = false,
+            DateTimeOffset? when = null)
         {
             var meta = new ImageMeta(
                 Instrument: instrument,
-                ExposureStartTime: new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
+                ExposureStartTime: when ?? new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero),
                 ExposureDuration: TimeSpan.FromSeconds(expoSec),
                 FrameType: type,
                 Telescope: telescope,
@@ -48,20 +49,84 @@ namespace TianWen.Lib.Tests
         }
 
         private static CalibrationResolver.CalGroup Group(FrameType type, double expoSec, float tempC, short gain = 100,
-            string instrument = "TestCam", string telescope = "T", int focalLength = 135, int frameCount = 2, bool isMaster = false)
+            string instrument = "TestCam", string telescope = "T", int focalLength = 135, int frameCount = 2, bool isMaster = false,
+            DateTimeOffset? when = null)
         {
-            var f = Cal(type, expoSec, tempC, gain, instrument, telescope, focalLength, isMaster);
+            var f = Cal(type, expoSec, tempC, gain, instrument, telescope, focalLength, isMaster, when);
             // Default 2 frames = buildable (a raw master needs >= 2); pass frameCount: 1 to model an
             // unbuildable singleton, or isMaster: true for a foreign master (a single frame IS
             // buildable -- loaded directly). The frames' content is irrelevant to Best* (they read
-            // Key + Train + the master flag).
+            // Key + Train + the master flag). EpochStart mirrors what GroupCalibration stamps, so
+            // the time term scores the same here as in production.
             var frames = Enumerable.Repeat(f, frameCount).ToImmutableArray();
-            return new(MasterGroupKey.FromFrame(f), CalibrationResolver.CalTrain.ForFrame(f), frames, isMaster);
+            return new(MasterGroupKey.FromFrame(f), CalibrationResolver.CalTrain.ForFrame(f), frames, isMaster,
+                EpochStart: f.Meta.ExposureStartTime, EpochEnd: f.Meta.ExposureStartTime);
         }
 
         private static FrameInfo Light(double expoSec, float tempC, short gain,
-            string instrument = "TestCam", string telescope = "T", int focalLength = 135)
-            => Cal(FrameType.Light, expoSec, tempC, gain, instrument, telescope, focalLength);
+            string instrument = "TestCam", string telescope = "T", int focalLength = 135, DateTimeOffset? when = null)
+            => Cal(FrameType.Light, expoSec, tempC, gain, instrument, telescope, focalLength, when: when);
+
+        [Fact]
+        public void GroupCalibration_SplitsAReShotLibraryIntoEpochs()
+        {
+            // The same sensor config shot in 2021 and again in 2026 must land in TWO groups: one
+            // master per epoch, so the blend (which attenuated recently-emerged defects and was
+            // invisible behind a single representative DATE-OBS) is structurally impossible. The
+            // suffix is minted only for configs that actually split, so the single-epoch flat
+            // keeps its legacy (empty) suffix and its existing cache path.
+            var frames = new List<FrameInfo>
+            {
+                Cal(FrameType.Dark, 60, -10, when: new DateTimeOffset(2021, 9, 27, 0, 0, 0, TimeSpan.Zero)),
+                Cal(FrameType.Dark, 60, -10, when: new DateTimeOffset(2021, 9, 28, 0, 0, 0, TimeSpan.Zero)),
+                Cal(FrameType.Dark, 60, -10, when: new DateTimeOffset(2026, 1, 29, 0, 0, 0, TimeSpan.Zero)),
+                Cal(FrameType.Dark, 60, -10, when: new DateTimeOffset(2026, 1, 30, 0, 0, 0, TimeSpan.Zero)),
+                Cal(FrameType.Flat, 3, -10),
+                Cal(FrameType.Flat, 3, -10),
+            };
+
+            var groups = CalibrationResolver.GroupCalibration(frames);
+
+            var darks = groups[FrameType.Dark];
+            darks.Count.ShouldBe(2, "2021 and 2026 shoots of one config are separate epochs");
+            var early = darks.Single(g => g.EpochStart.Year == 2021);
+            var late = darks.Single(g => g.EpochStart.Year == 2026);
+            early.Frames.Length.ShouldBe(2);
+            late.Frames.Length.ShouldBe(2);
+            early.EpochSuffix.ShouldBe("_e20210927");
+            late.EpochSuffix.ShouldBe("_e20260129");
+            early.EpochEnd.ShouldBe(new DateTimeOffset(2021, 9, 28, 0, 0, 0, TimeSpan.Zero));
+
+            groups[FrameType.Flat].Single().EpochSuffix.ShouldBe("", "a single-epoch config keeps its legacy cache path");
+        }
+
+        [Fact]
+        public void BestDark_NearestEpochWins_WhenThePhysicsTie()
+        {
+            // Two epochs of the SAME library (identical exposure/temp/gain) is exactly the choice
+            // the time term exists to decide: the lights' contemporary epoch wins, in either input
+            // order (no enumeration-order luck).
+            var early = Group(FrameType.Dark, 60, -5, gain: 121, when: new DateTimeOffset(2021, 9, 27, 0, 0, 0, TimeSpan.Zero));
+            var late = Group(FrameType.Dark, 60, -5, gain: 121, when: new DateTimeOffset(2026, 1, 29, 0, 0, 0, TimeSpan.Zero));
+            var light = Light(60, -5, gain: 121, when: new DateTimeOffset(2026, 2, 10, 0, 0, 0, TimeSpan.Zero));
+
+            CalibrationResolver.BestDark([early, late], light).ShouldBe(late);
+            CalibrationResolver.BestDark([late, early], light).ShouldBe(late);
+        }
+
+        [Fact]
+        public void BestDark_TimeIsATieBreaker_NeverAPhysicalAxis()
+        {
+            // Staleness costs ~80 defect px/year (~1.8% of the stable defect set over 4.3 years);
+            // 1 C of temperature error mis-subtracts dark current by ~12%. So a four-year-old
+            // exact-temperature library must beat a fresh library 1 C off -- the time penalty is
+            // sized to lose to a single degree, and this pins that sizing.
+            var oldExactTemp = Group(FrameType.Dark, 60, -5, gain: 121, when: new DateTimeOffset(2022, 1, 1, 0, 0, 0, TimeSpan.Zero));
+            var freshTempOff = Group(FrameType.Dark, 60, -6, gain: 121, when: new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero));
+            var light = Light(60, -5, gain: 121, when: new DateTimeOffset(2026, 2, 10, 0, 0, 0, TimeSpan.Zero));
+
+            CalibrationResolver.BestDark([freshTempOff, oldExactTemp], light).ShouldBe(oldExactTemp);
+        }
 
         [Fact]
         public void GroupCalibration_BucketsByTypeAndKey_IgnoresLights()

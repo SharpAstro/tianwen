@@ -293,7 +293,8 @@ public sealed class StackingPipeline(
                 candidates.AddRange(biasMasters);
                 candidates.AddRange(darkFlatMasters);
                 candidates.AddRange(pedestalDarkMasters.Where(m => CalibrationResolver.FlatPedestalExposureCompatible(m.Key.Exposure, flatKey.Exposure)));
-                var (pedestal, pedestalKey) = MatchMaster(candidates, flatKey);
+                var (pedestal, pedestalKey) = MatchMaster(
+                    candidates, flatKey, MasterMatchKind.FlatPedestal, list[0].Meta.ExposureStartTime);
                 logger.LogInformation("  flat pedestal: {Pedestal}", pedestalKey?.Slug() ?? "NONE");
                 return await MasterFrameBuilder.BuildFlatMasterAsync(list, pedestal, token);
             },
@@ -460,8 +461,9 @@ public sealed class StackingPipeline(
         // subtracting both bias AND dark would double-subtract the bias
         // pedestal. Matched-exposure stacking works cleanly with
         // light - dark - flat alone.
-        var (dark, darkKey) = MatchMaster(darkMasters, calKey);
-        var (flat, flatKey) = MatchMaster(flatMasters, calKey);
+        var groupDate = lightList[0].Meta.ExposureStartTime;
+        var (dark, darkKey) = MatchMaster(darkMasters, calKey, MasterMatchKind.Dark, groupDate, options.RequireGainMatch);
+        var (flat, flatKey) = MatchMaster(flatMasters, calKey, MasterMatchKind.Flat, groupDate);
         logger.LogInformation("  dark master: {Dark}", darkKey is null ? "NONE" : darkKey.Slug());
         logger.LogInformation("  flat master: {Flat}", flatKey is null ? "NONE" : flatKey.Slug());
         var calibrator = new Calibrator(Bias: null, Dark: dark, Flat: flat, Pedestal: 0f);
@@ -1090,53 +1092,96 @@ public sealed class StackingPipeline(
         foreach (var group in frames.GroupBy(MasterGroupKey.FromFrame))
         {
             var key = group.Key;
-            var list = group.ToList();
-            if (list.Count < 2) continue;
-
-            var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{pathSuffix}.fits");
-
-            // Cache hit: master from a previous run. Bias/dark/flat
-            // masters are pure functions of their inputs + builder
-            // settings, so if the file exists we trust it. To force
-            // refresh, delete outputDir/masters.
-            if (File.Exists(masterPath) && Image.TryReadFitsFile(masterPath, out var cached) && cached is not null)
+            // One master per EPOCH (task #25): a config whose library was re-shot years later must
+            // not blend both shoots into one master -- epoch merging attenuates recently-emerged
+            // defects by frames-from-epoch/total and hides them from the hot-pixel detector, and the
+            // blend was invisible (one representative DATE-OBS). The suffix is minted only when the
+            // config actually split, so a single-epoch root keeps its legacy cache filename.
+            var epochs = CalibrationEpochs.Split(group.ToList());
+            foreach (var epoch in epochs)
             {
-                masters.Add((key, cached));
-                logger.LogInformation("  cached {File} ({Count} input frames)", Path.GetFileName(masterPath), list.Count);
-                continue;
-            }
+                var list = epoch.Frames;
+                if (list.Count < 2) continue;
+                var epochSuffix = epochs.Count > 1 ? CalibrationEpochs.EpochSlug(epoch.Start) : "";
+                var masterPath = Path.Combine(mastersDir, $"master_{key.Slug()}{pathSuffix}{epochSuffix}.fits");
 
-            var master = await builder(list, ct);
-            masters.Add((key, master));
-            master.WriteToFitsFile(masterPath);
-            logger.LogInformation("  built {File} ({Count} input frames)", Path.GetFileName(masterPath), list.Count);
+                // Cache hit: master from a previous run. Bias/dark/flat
+                // masters are pure functions of their inputs + builder
+                // settings, so if the file exists we trust it. To force
+                // refresh, delete outputDir/masters.
+                if (File.Exists(masterPath) && Image.TryReadFitsFile(masterPath, out var cached) && cached is not null)
+                {
+                    masters.Add((key, cached));
+                    logger.LogInformation("  cached {File} ({Count} input frames)", Path.GetFileName(masterPath), list.Count);
+                    continue;
+                }
+
+                var master = await builder(list, ct);
+                masters.Add((key, master));
+                // Shared provenance cards (SWCREATE + DATE-BEG/DATE-END): this write had the same
+                // defect the dataset cache had -- the master inherited its subs' SWCREATE and
+                // declared nothing about itself or its input span.
+                master.WriteToFitsFile(masterPath, null, MasterFrameBuilder.ProvenanceHeaders(list));
+                logger.LogInformation("  built {File} ({Count} input frames, {Start:yyyy-MM-dd}..{End:yyyy-MM-dd})",
+                    Path.GetFileName(masterPath), list.Count, epoch.Start, epoch.End);
+            }
         }
         return masters;
     }
 
-    /// <summary>Find the best master for a light group: exact key match
-    /// preferred, else match on (SensorType, ChannelCount, Width,
-    /// Height) with closest Exposure/Temp.</summary>
-    private static (Image? Master, MasterGroupKey? Key) MatchMaster(List<(MasterGroupKey Key, Image Master)> masters, MasterGroupKey lightKey)
-    {
-        if (masters.Count == 0) return (null, null);
-        var compatible = masters
-            .Where(m => m.Key.SensorType == lightKey.SensorType
-                     && m.Key.ChannelCount == lightKey.ChannelCount
-                     && m.Key.Width == lightKey.Width
-                     && m.Key.Height == lightKey.Height)
-            .ToList();
-        if (compatible.Count == 0) return (null, null);
+    /// <summary>What a master is being matched FOR, because the three consumers weight different
+    /// physics: a DARK must be a plausible light-dark (exposure band excludes mislabeled dark-flats,
+    /// gain is a hard gate -- a wrong-gain dark mis-scales the fixed pattern it exists to remove); a
+    /// FLAT must carry the same filter's dust/vignetting (exposure is irrelevant, gain a score); a
+    /// flat PEDESTAL keeps the legacy exposure-proximity ranking (its exposure term is a proxy for
+    /// the thermal signal the candidate removes; the caller pre-gates the candidate pool).</summary>
+    internal enum MasterMatchKind { Dark, Flat, FlatPedestal }
 
-        var pick = compatible
-            .OrderBy(m =>
+    /// <summary>Find the best master for a light group. The gates and penalties are the dataset
+    /// resolver's own (<see cref="CalibrationResolver"/>), so the two paths' matching arithmetic
+    /// cannot drift: until 2026-08-17 this method never consulted gain, offset, filter or capture
+    /// date at all -- a g252 dark silently calibrated g121 lights whenever it won on
+    /// temperature/exposure, and a mislabeled 6.7s dark-flat could calibrate 60s lights when it was
+    /// the only candidate. Ties break by ordinal slug, never by scan enumeration order.</summary>
+    internal static (Image? Master, MasterGroupKey? Key) MatchMaster(
+        List<(MasterGroupKey Key, Image Master)> masters, MasterGroupKey lightKey,
+        MasterMatchKind kind, DateTimeOffset targetDate, bool requireGainMatch = true)
+    {
+        Image? bestMaster = null;
+        MasterGroupKey? bestKey = null;
+        var bestScore = double.PositiveInfinity;
+        foreach (var (key, master) in masters)
+        {
+            if (!CalibrationResolver.DimensionCompatible(key, lightKey))
             {
-                var dTemp = lightKey.TemperatureC is { } lt && m.Key.TemperatureC is { } mt ? Math.Abs(lt - mt) : 100;
-                var dExposure = Math.Abs((m.Key.Exposure - lightKey.Exposure).TotalSeconds);
-                return dTemp * 10.0 + dExposure;
-            })
-            .First();
-        return (pick.Master, pick.Key);
+                continue;
+            }
+            if (kind is MasterMatchKind.Dark
+                && (!CalibrationResolver.ExposureCompatible(key.Exposure, lightKey.Exposure)
+                    || !CalibrationResolver.GainCompatible(key, lightKey, requireGainMatch)))
+            {
+                continue;
+            }
+            var score = CalibrationResolver.TempPenalty(key, lightKey) * 10.0
+                + CalibrationResolver.GainPenalty(key, lightKey)
+                + CalibrationResolver.TimePenalty(master.ImageMeta.ExposureStartTime, targetDate)
+                + kind switch
+                {
+                    // A flat's exposure says nothing about its dust; its filter says everything.
+                    MasterMatchKind.Flat =>
+                        key.FilterName == lightKey.FilterName && key.FilterBandpass == lightKey.FilterBandpass ? 0.0 : 1000.0,
+                    _ => Math.Abs((key.Exposure - lightKey.Exposure).TotalSeconds)
+                        + (kind is MasterMatchKind.Dark ? CalibrationResolver.OffsetPenalty(key, lightKey) : 0.0),
+                };
+            if (score < bestScore
+                || (score == bestScore && bestKey is not null && string.CompareOrdinal(key.Slug(), bestKey.Slug()) < 0))
+            {
+                bestScore = score;
+                bestMaster = master;
+                bestKey = key;
+            }
+        }
+        return (bestMaster, bestKey);
     }
 
 }
