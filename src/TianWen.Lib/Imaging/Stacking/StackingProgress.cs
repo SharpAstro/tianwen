@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Immutable;
 
 namespace TianWen.Lib.Imaging.Stacking;
 
@@ -26,6 +27,13 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <param name="SkipReason">Empty when the group integrated; otherwise
 /// a human-readable reason ("no reference frame", "fewer than 2 matched",
 /// "no calibration master for shape").</param>
+/// <param name="Stages">Per-stage wall time with Items AND Pixels
+/// (<see cref="StageTimings"/>), so throughput is stored rather than
+/// re-derived from log lines. On a skipped group it carries whatever
+/// stages completed before the skip. Default (unset) when the group
+/// never entered the per-group pipeline. NOTE: an ImmutableArray member
+/// makes record equality reference-based for this field; consumers
+/// compare fields, never whole GroupResults.</param>
 public sealed record GroupResult(
     string GroupSlug,
     int FramesAttempted,
@@ -35,7 +43,8 @@ public sealed record GroupResult(
     string? PreviewPngPath,
     TimeSpan Elapsed,
     string SkipReason = "",
-    SpccDiagnostics? Spcc = null);
+    SpccDiagnostics? Spcc = null,
+    ImmutableArray<StageTimings.Stage> Stages = default);
 
 /// <summary>
 /// Coarse phase markers used by <see cref="StackingPipeline.RunAsync"/>
