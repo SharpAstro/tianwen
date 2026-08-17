@@ -51,16 +51,23 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// "pierUnknown" sub-group rather than being silently merged with East. Off
 /// by default -- a unified master across the meridian is the production
 /// norm.</param>
-/// <param name="HotPixelSigma">Threshold (in Gaussian sigmas above the dark
-/// master's per-channel median) for flagging hot pixels. The flagged
-/// positions get NaN'd in the calibrated light frames so downstream
-/// integration ignores them entirely -- dark subtraction alone removes
-/// the average per-pixel offset but leaves per-frame shot-noise variance
+/// <param name="HotPixelSigma">One knob for both bad-pixel-map producers,
+/// whose UNION is the shipped mask (they flag nearly disjoint real
+/// populations; see <see cref="Calibration.BadPixelAccumulator.UnionInto"/>);
+/// 0 disables masking entirely (legacy behaviour). It is the per-frame
+/// outlier sigma of the session-derived registration map
+/// (<see cref="Calibration.BadPixelAccumulator"/>, built whenever the
+/// group's own dither/drift lets it be -- it flags defects at the
+/// lights' own exposure, gain and temperature, needing no dark) AND the
+/// threshold (in Gaussian sigmas above the dark master's per-channel
+/// median) of the dark-derived map. The flagged positions are
+/// skipped by drizzle deposition -- dark subtraction alone removes the
+/// average per-pixel offset but leaves per-frame shot-noise variance
 /// from genuinely-hot pixels, which then survives into the master (most
 /// visible as single bright pixels in drizzle output where there is no
 /// per-cell averaging). Default 8 is conservative; hot pixels typically
-/// score 100+ sigma. Pass 0 to disable masking (legacy behaviour).
-/// Ignored when no dark master is matched to the light group.</param>
+/// score 100+ sigma. The dark fallback is further ignored when no dark
+/// master is matched to the light group.</param>
 /// <param name="QualityRejectSigma">When set, runs the post-registration
 /// frame quality filter at this sigma threshold: a frame is dropped from
 /// integration if its median HFD or ellipticity exceeds

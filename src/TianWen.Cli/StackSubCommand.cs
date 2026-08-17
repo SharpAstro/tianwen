@@ -108,7 +108,7 @@ internal sealed class StackSubCommand(
         };
         var hotPixelSigmaOpt = new Option<float>("--hot-pixel-sigma")
         {
-            Description = "Threshold (Gaussian sigmas above dark master median) for hot-pixel masking. Flagged pixels are NaN'd in calibrated lights so integration ignores them. Default 8 (hot pixels typically score 100+). Pass 0 to disable masking.",
+            Description = "Bad-pixel masking sigma, one knob for both producers, whose UNION is the shipped mask: the per-frame outlier sigma of the session-derived registration map (built when the group's own dither lets it be; flags defects at the lights' own exposure/gain/temperature, no dark needed) and the threshold above the dark master's median for the dark-derived map. Flagged pixels are skipped by drizzle deposition. Default 8 (hot pixels typically score 100+). Pass 0 to disable masking.",
             DefaultValueFactory = _ => 8.0f,
         };
         var qualityRejectSigmaOpt = new Option<float?>("--quality-reject-sigma")

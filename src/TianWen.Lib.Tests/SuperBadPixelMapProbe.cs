@@ -3,11 +3,14 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.Imaging.Stacking;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -346,6 +349,98 @@ namespace TianWen.Lib.Tests
                         Line($"  {sigma,5:F1} | {flagged,8:N0} | {inCore,14:N0} | " +
                              $"{(coreCount > 0 ? inCore * 100.0 / coreCount : 0),6:F2}% | " +
                              $"{inNever,15:N0} | {(flagged > 0 ? inNever * 100.0 / flagged : 0),6:F2}%");
+                    }
+
+                    // REGISTRATION-DERIVED MAP (task #22). The dark sweep above can only ever
+                    // recover pixels hot in THIS dark; the session-derived accumulator flags
+                    // whatever misbehaves in the lights themselves. Scoring it against the same
+                    // CORE / NEVER sets is the task's oracle question: CORE recall says how much of
+                    // the unanimous five-year defect set the session's own evidence recovers, and
+                    // NEVER contamination bounds the harm. Set TIANWEN_BPM_LIGHTS to a session of
+                    // this sensor's lights (TIANWEN_BPM_MAXLIGHTS caps the run) to enable.
+                    if (Environment.GetEnvironmentVariable("TIANWEN_BPM_LIGHTS") is { Length: > 0 } lightsDir
+                        && Directory.Exists(lightsDir))
+                    {
+                        var lights = new List<FrameInfo>();
+                        await foreach (var f in new FitsFolderFrameSource(lightsDir, recursive: true).EnumerateAsync(ct))
+                        {
+                            lights.Add(f);
+                        }
+                        if (int.TryParse(Environment.GetEnvironmentVariable("TIANWEN_BPM_MAXLIGHTS"), out var cap)
+                            && cap > 1 && cap < lights.Count)
+                        {
+                            lights = [.. lights.OrderBy(f => f.Path, StringComparer.OrdinalIgnoreCase).Take(cap)];
+                        }
+
+                        // The production machinery end to end -- shared measure (which feeds the
+                        // accumulator), shared reference score, shared register loop -- so the
+                        // transforms behind the dither gate are the real ones, not a synthetic
+                        // stand-in.
+                        var calibrator = new Calibrator(Dark: dark);
+                        var accumulator = new BadPixelAccumulator();
+                        var analyzed = new List<SessionFrameAnalyzer.AnalyzedFrame>(lights.Count);
+                        foreach (var light in lights)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            analyzed.Add(await SessionFrameAnalyzer.MeasureAsync(
+                                light, calibrator, badPixels: accumulator, cancellationToken: ct));
+                        }
+                        var reference = analyzed[0];
+                        var bestScore = float.NegativeInfinity;
+                        foreach (var a in analyzed)
+                        {
+                            var score = FrameRegistration.ReferenceScore(a.Metrics);
+                            if (score > bestScore)
+                            {
+                                bestScore = score;
+                                reference = a;
+                            }
+                        }
+                        using var registerLoop = await RegisterLoop.CreateAsync(
+                            reference.Stars, FrameRegistration.DefaultQuadStars, ct);
+                        var transforms = new List<Matrix3x2> { Matrix3x2.Identity };
+                        foreach (var a in analyzed)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            if (ReferenceEquals(a, reference))
+                            {
+                                continue;
+                            }
+                            var attempt = await registerLoop.RegisterAsync(a.Stars, a.Metrics, ct);
+                            if (attempt.Transform is { } t)
+                            {
+                                transforms.Add(t);
+                            }
+                        }
+
+                        Line("");
+                        var registrationMask = accumulator.BuildMask(
+                            transforms, new CapturingLogger(Line, "registration"));
+                        if (registrationMask is not { Length: > 0 })
+                        {
+                            Line($"registration-derived map: refused over {lights.Count} light(s); see the line above for why");
+                        }
+                        else
+                        {
+                            var rm = registrationMask[0];
+                            int flagged = 0, inCore = 0, inNever = 0;
+                            for (var y = 0; y < h; y++)
+                            {
+                                for (var x = 0; x < w; x++)
+                                {
+                                    if (!rm[y, x]) { continue; }
+                                    flagged++;
+                                    var i = y * w + x;
+                                    if (coreSet[i]) { inCore++; }
+                                    else if (counts[i] == 0) { inNever++; }
+                                }
+                            }
+                            Line($"registration-derived map over {lights.Count} light(s) vs the same reference sets:");
+                            Line("  flagged |  of CORE found |  recall | landed in NEVER | of flagged");
+                            Line($"  {flagged,7:N0} | {inCore,14:N0} | " +
+                                 $"{(coreCount > 0 ? inCore * 100.0 / coreCount : 0),6:F2}% | " +
+                                 $"{inNever,15:N0} | {(flagged > 0 ? inNever * 100.0 / flagged : 0),6:F2}%");
+                        }
                     }
                 }
             }

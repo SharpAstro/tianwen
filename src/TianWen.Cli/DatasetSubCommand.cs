@@ -118,16 +118,20 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
         };
         var hotPixelSigmaOpt = new Option<float>("--hot-pixel-sigma")
         {
-            Description = "STARTING CEILING for the sigma above the master dark's own background at " +
-                          "which a pixel is masked out of drizzle deposition, matching the stacker's " +
-                          "flag of the same name. The detector walks it DOWN to a defect budget, so " +
-                          "raising it does not tighten the mask the way it reads; sigma multiplies a " +
-                          "quantized MAD and is not portable between darks of the same sensor at " +
-                          "different gains. Pass 0 to disable masking entirely, which is how to run " +
-                          "the mask-on vs mask-off control: comparing a bake against an EARLIER bake " +
-                          "cannot attribute a change to the mask, because every other commit in " +
-                          "between moved too. Only BayerDrizzle sessions can show a difference at all " +
-                          "(a rejection-integrated master already sigma-clips hot pixels). Default 8.",
+            Description = "Bad-pixel masking sigma, one knob for both producers (their UNION is the " +
+                          "shipped mask), matching the stacker's flag of the same name. It is the " +
+                          "per-frame outlier sigma of the session-derived registration map (built " +
+                          "whenever the session's own dither lets it be; flags defects at the " +
+                          "lights' own exposure/gain/temperature, no dark needed) AND the STARTING " +
+                          "CEILING for the dark-derived map, whose detector walks it DOWN to a defect " +
+                          "budget -- so raising it does not tighten the dark mask the way it reads; " +
+                          "sigma multiplies a quantized MAD and is not portable between darks of the " +
+                          "same sensor at different gains. Pass 0 to disable masking entirely, which " +
+                          "is how to run the mask-on vs mask-off control: comparing a bake against an " +
+                          "EARLIER bake cannot attribute a change to the mask, because every other " +
+                          "commit in between moved too. Only BayerDrizzle sessions can show a " +
+                          "difference at all (a rejection-integrated master already sigma-clips hot " +
+                          "pixels). Default 8.",
             DefaultValueFactory = _ => 8f,
         };
         var softwareOpt = new Option<string>("--software")
