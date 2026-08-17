@@ -629,6 +629,34 @@ refuses a pointer stub (a clone without git-lfs installed) and keeps probing, so
 a logged skip, not an opaque ONNX Runtime protobuf error. The cost accepted knowingly: every retrain
 that ships adds ~3 MiB to LFS storage, which is fine at this size and wrong for anything AI4-sized.
 
+**Reachability (decided 2026-08-17): `--ai-backend n2n`, plus an Auto rescue tier.** Until now the
+model was DI-opt-in only -- usable from code, invisible to `image sharpen` / `stack --enhance` / the
+server endpoint / the viewer. `EnhanceBackend.N2n` closes that, with three deliberate semantics:
+
+- **`n2n` means "the in-house model where this role has one, Auto everywhere else."** One options
+  record threads through every pipeline step, so the star remover and deconvolver see the value too
+  and must keep working; scoping it per role is what makes the flag composable rather than a trap.
+  Routed by the same `DeferredEnhancer.Resolve` that arbitrates RC-vs-SAS, so there is still exactly
+  one selection path.
+- **Auto gains a rescue tier, not a preference.** Auto's denoise chain is RC (present + licensed)
+  -&gt; SAS -&gt; N2N, where the N2N tier fires ONLY when the SAS AI4 weights are not on disk and the
+  input is OSC at the default variant (`DeferredDenoiser.Pick`, logged as a warning). With the SAS
+  weights installed, Auto is byte-for-byte the old path -- the rescue converts "fresh checkout,
+  no 300 MB AI4 fetch -&gt; FileNotFoundException" into a working enhance with the 3 MiB in-repo
+  model. It replaces a crash, never a measured backend's result, which is what keeps the
+  never-compared-against-AI4 rule intact. A mono input or Lite/Walking variant falls through to
+  SAS unchanged, whose missing-model error names the bundle that could actually serve it.
+- **The strength dial rides the existing knob.** `EnhanceTuning.DenoiseStrength` (`--nxt-denoise`)
+  is "how much denoising" in [0, 1] whatever the backend: RC maps it to `nxt --dn`, N2N maps it to
+  the blend (`out = in + s*(den - in)`, null = 1.0). No second flag for the same user intent.
+
+The viewer's right-click backend cycle gains the fourth stop (Auto -&gt; RC -&gt; SAS -&gt; N2N,
+label `Enhance (N2N)`); the server endpoint inherits the value through the shared
+`EnhanceOptions.TryParse`. Pinned by `EnhanceOptionsTests` (parse), `RcAstroPhase3Tests`
+(the routing matrix: explicit n2n, degrade-to-Auto without a lane, and the four-row rescue
+matrix over a temp-dir `ModelResolver`), and `N2nDenoiserTests.TheTuningDenoiseStrengthDrivesTheBlend`
+(the options path is the identical computation to the direct strength path, checked span-equal).
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.

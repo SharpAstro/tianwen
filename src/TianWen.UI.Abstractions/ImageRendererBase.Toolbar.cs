@@ -492,6 +492,7 @@ namespace TianWen.UI.Abstractions
                 {
                     EnhanceBackend.ForceRcAstro => "Enhance (RC)",
                     EnhanceBackend.ForceSas => "Enhance (SAS)",
+                    EnhanceBackend.N2n => "Enhance (N2N)",
                     _ => "Enhance (Auto)",
                 },
                 _ => baseLabel,

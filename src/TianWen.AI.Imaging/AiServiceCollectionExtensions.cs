@@ -54,6 +54,11 @@ public static class AiServiceCollectionExtensions
     /// Opt in to the in-house Noise2Noise denoiser (<see cref="N2nDenoiser"/>) as the
     /// <see cref="IDenoiseEnhancer"/>, replacing the AI4 NAFNet one. Calls
     /// <see cref="AddTianWenAi"/> first, so it is the only call a consumer needs.
+    /// <para>This is the REGISTRATION-time opt-in (the N2N model becomes the denoiser
+    /// unconditionally). For per-call selection, composition roots that call
+    /// <c>AddRcAstroAi()</c> get the N2N lane on the deferred denoiser instead:
+    /// <c>EnhanceBackend.N2n</c> (<c>--ai-backend n2n</c>) selects it per enhance, and Auto
+    /// rescues an OSC input with it when the SAS weights are not installed.</para>
     /// </summary>
     /// <remarks>
     /// <para><b>Why this is opt-in rather than the default.</b> The N2N model is measured against
