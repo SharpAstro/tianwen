@@ -1,194 +1,103 @@
 # continue.md
 
-Handoff rewritten 2026-08-14, branch `feat/detection-purity-probe`. Supersedes the 2026-08-11
-version entirely (that one described PR #148, since merged, on a branch that no longer exists).
-
-**This file is now TRACKED and pushed**, unlike the previous version. It was deliberately untracked
-so it would show in `git status`, but that also meant it only ever existed on one box, which is the
-opposite of what a handoff is for. It costs one line of `git status` noise; delete it when the work
-lands.
+Handoff rewritten **2026-08-17 (evening, peak-hours shutdown)**, branch **`feat/ai-enhancements`**.
+Supersedes the 2026-08-14 version entirely (that one described the `feat/detection-purity-probe`
+wave: the bake, the N2N experiments and their retractions; all of that is merged history now,
+recorded in `docs/plans/ai-denoise-deconv.md` and the memory notes).
 
 ## TL;DR
 
-Nothing is running. No jobs in flight, no background processes, no open PRs. The dataset is baked
-and verified; the last three sessions of work were the P1 denoiser training experiments, which are
-complete and recorded. The branch had **never been pushed** (43 commits, no upstream) and now is.
+Nothing is running. The branch is an accumulating AI-enhancements wave, **all pushed**, one PR at
+the end of it (rebase-merge, one-PR-in-flight rule). Every commit below went through a green full
+suite (~5.5 min, 4,468+ tests). Two user questions are answered but have follow-ups waiting on a
+human: the PixInsight-launch mystery (needs a concrete sighting) and whether to env-gate the
+RC-Astro integration tests.
 
-## What landed since the last handoff
+## The wave so far (this branch, newest first)
 
-The bake, the star-detection work and the PSF measurement are all done and covered by commits on
-this branch; read `git log` for those. The part that is NOT obvious from the log:
+| Commit | What |
+|---|---|
+| (tip) | `BAYERPAT='VALID'` decodes as ASCOM RGGB base + XBAYROFF/YBAYROFF (MaxIm convention, verified from pixels) + `SensorTypeTests` |
+| `b5801f43` | SBFITSEXT IMAGETYP spellings parse ("Light Frame", "Flat Field"): a MaxIm archive used to read as `FrameType.None` and be invisible |
+| `44e14ca8` | `tianwen dataset coverage`: per-session calibration coverage TSV + rollup, resolved by the production matcher (task #51) |
+| `9d662dd4` | Task #25: calibration epochs (30-day chain gap), time as a tie-breaker (1/yr = 0.1 degC), stacker `MatchMaster` consumes the resolver's gates/penalties, SWCREATE + DATE-BEG/END provenance on masters |
+| `d202fe10` | `--require-gain-match` defaults ON everywhere (a wrong-gain dark is rejected, not penalised) |
+| `a16f0be8` | Task #22: bad-pixel map from the lights' own registration, UNIONed with the dark map (near-disjoint populations, APP-oracle-validated) |
+| `2b98eae2` | SNAPSHOT on masters + SWMODIFY on enhance outputs (provenance cards) |
 
-### The N2N denoiser experiments (2026-08-13/14), and two retractions
+## Deliverables that live OUTSIDE the repo
 
-Full record with checkpoints, logs and scripts: **`D:\Astro-Dataset\n2n-smoke\v10\README.md`**.
-Design + conclusions are in `docs/plans/ai-denoise-deconv.md` (§3a and the "Optimisation" bullet).
+- **`D:\Astro-Reports\calibration-coverage.tsv` + `.md`** (2026-08-17): 60 sessions / 7,161 lights
+  over `D:\Astro-Pics\2025`+`2026`, NINA lights only, strict gain gate. Headlines: darks 57/60
+  (all gain-matched; the 3 misses are the QHY294 g1600 sessions with ZERO candidates), flats
+  60/60, **no session in the source archive carries a FILTER header and no sidecar exists** (the
+  dual-band identity lives in folder names only; `D:\Astro-Organized` has the tags instead).
+  Re-run: `tianwen dataset coverage --archive-root D:\Astro-Pics\2025 --archive-root
+  D:\Astro-Pics\2026 --out D:\Astro-Reports --software "*N.I.N.A.*"` (~12 min, USB-disk-bound).
+- **QHY294 dark shopping list** (read off the stranded session's own lights): 60 s, gain 1600,
+  offset 40, -5 C, bin 1, **"11M MODE"** readout, 4164x2795, ~20-30 subs; plus ~4 s dark-flats
+  (their flats metered 4.05 s) or a g1600/o40 bias set. Un-drops 193 lights / 3 targets
+  (task #10, spec now precise).
+- **Organized-archive gap** (name-diff vs `D:\Astro-Organized`): every non-ASI533/SV605CC session
+  is absent -- Helix 317 (ASI585), Rim 264 + Lagoon 56 (ASI585), eta Car LUM 243 (ASI1600MM),
+  SW8Q trio 193 (QHY294) = **1,073 dataset lights with no organized counterpart**. SharpCap/EAA
+  exclusions are by design. Task #49's re-org is where this lands.
+- **`C:\temp\test-data`**: 191 iTelescope frames (M33 LRGB / M42 Ha+OIII / M45 OSC), renamed
+  `.fit` -> `.fits`, **all pre-calibrated** (`CALSTAT='BDF'`, float32, `PEDESTAL=-100`) -- never
+  calibrate them again. M45 measured **RGGB** from its own CFA subplane medians. Full detail in
+  memory note `reference_itelescope_test_data.md`.
 
-**Half-master pairs are a NEGATIVE result.** Wired in as a fourth sampling regime and trained three
-seeds per arm, they leave the noise/amplitude frontier where it was and invent *more* point sources
-at matched noise (0.75x noise: control +5.1 in a −2.4..10.2 range, half pairs +21.4 in 17.2..25.6).
-The depth argument that motivated them still measures out (a half is 0.215x a sub against a 4-sub
-average's 0.591x, through the same rejecting integrator); it just does not cash out in training.
+## Open threads, in rough order
 
-**The stopping rule beats every config change tried.** The loss falls monotonically while invented
-sources climb from +1 per tile over the raw-sub floor at step 250 to +38 at step 4000, so every
-extra step improved the objective and degraded the product. Selecting on a mid-training fabrication
-probe instead: **+22% faint-star amplitude and 46% fewer invented sources for 1.6% more noise**,
-replicated 3/3 seeds, two of three strictly dominating at equal or better noise.
+1. **Finish the wave -> one PR** from `feat/ai-enhancements` (rebase-merge). Nothing blocks it;
+   more items can join first.
+2. **PixInsight mystery (user-blocked).** Nothing reproducible launches it: rc-astro spawns zero
+   children (license probe AND real nxt run), the RC test classes leave the tripwire untouched,
+   and a full suite under a 200 ms process watcher saw nothing. PI genuinely ran once at 21:35:24
+   during (not provably because of) a suite. **Tripwire:** `LastWriteTime` of
+   `%APPDATA%\Pleiades\core-001-pxi.settings`; watcher script in the old session scratchpad.
+   Need the user's concrete sighting (what + when) to go further.
+3. **Env-gate the RC-Astro integration tests?** Offered (`TIANWEN_RCASTRO_TESTS`, simulator-suite
+   pattern) so routine suites stop running real rc-astro (GPU DirectML spikes). User has not
+   decided; do not do it unprompted.
+4. **CALSTAT / SWMODIFY / SNAPSHOT read guards** (filed with task #11): now more than theoretical,
+   `C:\temp\test-data` is entirely pre-calibrated data a stack run would happily re-calibrate if
+   matching darks were present.
+5. **Filter identity for the dual-band Astro-Pics sessions**: sidecars (`.tianwen-meta.json`) or
+   `dataset tag-filter`; the coverage report makes the gap visible (`filter_source=none` on all 60).
+6. **Task #37 (mono narrowband end to end)**: the M42 Ha/OIII set is the perfect real fixture, and
+   M33 LRGB exercises mono broadband; both now parse correctly.
+7. Optional: run `dataset coverage` over `D:\Astro-Organized` for a filter-aware report.
 
-**Two things I reported and then had to retract, both worth not repeating:**
+## Task list snapshot (2026-08-17)
 
-1. `n2n_smoke.py` never seeded torch. numpy WAS seeded, which is the worst case: two runs drew the
-   same tiles in the same order with identical per-regime step counts, so they *looked* controlled
-   while starting from different weights. A third run of the same config landed on the far side of
-   the control. Every A/B before 2026-08-14 in that series measured the initialisation. Fixed with
-   `--seed` covering init and tile draw plus `cudnn.deterministic`; two runs of one seed are now
-   bit-identical at no throughput cost.
-2. "The gate found an excellent checkpoint" was one probe squeaking under a threshold nothing else
-   could reach. `|resid corr| <= 0.20` rejected 117 of 120 probes, was the sole reason 39 times, and
-   sat below the 5th percentile of 0.229; the one pass read 0.199. Relaxing it to 0.30 was also
-   wrong: measured across two held-out sessions the metric moves 0.301 for one checkpoint while the
-   spread across six different checkpoints on one session is 0.160, so it cannot gate at any
-   setting. It is now report-only, replaced by a minimum-denoising floor.
+Pending: **#10** QHY294 g1600 dark library (spec above) · **#11** bake older years (+ read guards)
+· **#15** gradient fields for P5 · **#37** mono narrowband · **#38** organized panel level ·
+**#39** record master inputs (partially superseded by #25's DATE-BEG/END + SWCREATE; check before
+starting) · **#49** organized re-re-org · **#50** TILEXY at capture.
+Completed this session: **#22, #25, #51** (+ the unnumbered gain-default flip).
 
-The gate's current shape: `spurious over floor <= 6`, `faint amp >= 0.60`, `noise <= 0.82`, then
-minimise noise among passers. Residual correlation reported, not gated.
+## Session learnings (the non-obvious ones)
 
-### Then v14 (same day): band conditioning, and a third retraction
+- **MaxIm DL conventions, all hit on real data**: IMAGETYP uses SBFITSEXT names ("Light Frame",
+  "Flat Field"); `BAYERPAT='VALID'` asserts existence and the pattern rides on XBAYROFF/YBAYROFF
+  against the ASCOM canonical RGGB base (ASCOM's SensorType has exactly ONE Bayer member, so the
+  base cannot be anything else); `PEDESTAL=-100` means +100 ADU was re-added post-calibration.
+- **A CFA pattern is measurable from pixels**: the two green subplanes' medians match to ~0.2%
+  (names the green diagonal), and the brighter remaining subplane is red on any real sky. The
+  scratch `fitscheck` tool (old session scratchpad) did this; trivial to rebuild.
+- **The `dev/null/` directory at the repo root** was git-lfs hooks written under
+  `core.hooksPath=/dev/null` (Go's `filepath.IsAbs` says false on Windows, so it lands relative to
+  the worktree). Real hooks in `.git/hooks` were intact; artifact deleted. If it reappears, some
+  tool is invoking git with that config.
+- **`FormattableString.Invariant` rejects concatenated interpolated strings** (`$"a" + $"b"` is a
+  string, not a FormattableString) -- hit twice in one day; write one long interpolation.
+- **Process-launch forensics on Windows without admin**: vendor app-data write times are a better
+  tripwire than process polling (they catch a launch that happened while you were not looking),
+  and a 200 ms `Win32_Process` poll with ParentProcessId capture names the launcher when you can
+  watch live. Prefetch needs admin; PI's is `%APPDATA%\Pleiades`.
+- **The coverage-report design earned its keep immediately**: putting a candidate COUNT beside
+  every resolved-or-not column turns "no dark" into either "shoot a library" (0) or "a gate
+  refused them" (>0) with no investigation.
 
-Full record: **`D:\Astro-Dataset\n2n-smoke\v14\README.md`**. Six runs, 3 seeds x 2 arms, with the
-v13 runs serving as the control arm (same seeds, same config, already scored).
-
-**The half-pair negative is now UNCONDITIONAL.** It had a live escape: a scalar sigma plane cannot
-express noise SHAPE, so adding half pairs labels two genuinely different distributions with one
-number. The shape gap is real and large (band1/band0 power measured scene-free: 0.601 / 0.596 /
-0.589 for 1-sub / 2-avg / 4-avg against **0.320** for a half-master, so every training regime shares
-one shape and deployment has another, and sub-averaging only ever closed the LEVEL half of the gap).
-Re-run with three band-sigma planes replacing the scalar, half pairs are still null on every metric
-at matched noise, and two of three runs never passed the gate at all.
-
-**Band conditioning itself is WORSE and is rejected.** It converges far more slowly and never reaches
-below ~0.80x noise in 4000 steps where scalar reaches 0.60-0.65x; it keeps 0.060 less amplitude at
-matched noise on the gate session; and on the held-out report session it is equal-or-worse at every
-comparable point (matched pair 17.5 invented against 18.3, group ranges overlapping, no band run
-below 0.80x).
-
-3. **`n2n_metrics.py` defaults `--cache` to the OLD calgated bake, and I omitted the flag.** So the
-   first v14 scoring was cross-bake, which is what produced an apparent 30% fabrication win for band
-   conditioning (14.7 against 21.1) that does not exist on the bake the models trained on. Nothing
-   was contaminated: neither of that cache's val sessions is in the trainer's train or val split.
-   But a bake difference moves fabrication more than a config change does. **The tell was free and I
-   ignored it** -- the raw-sub floor printed 20.1 where v10, v12 and v13 all printed 21.2. Always
-   pass `--cache`, and check the floor against the previous run before reading any fabrication
-   comparison. Only today's run had the bug; every earlier one passed the flag.
-4. **I transfer-tested the gate I retired and not the one that replaced it.** `spurious_over_floor`
-   fails the same test `resid_corr` did: worst session-to-session delta **8.094** against a **4.875**
-   spread across models on one session, and that test used the correct cache throughout, comparing
-   two sessions of the SAME bake. So `<= 6.0` is session-calibrated, not a universal purity bar.
-   Subtracting the raw-sub floor was supposed to normalise this and does not, because the shift is
-   systematic and one-signed. **When you retire a gate, transfer-test its successor**: the successor
-   inherits the job, not the evidence.
-
-`n2n_gatenorm.py` then closed the "find a better formula" branch: six candidates, none clearing
-merit 1.0, and the current `mean_diff` the best of them at 0.60. But `log_ratio` is worst on
-threshold (0.43) and best on ordering (rho +0.857), and ordering survives any monotone session
-shift -- so the fix is a RELATIVE stopping rule on `log_ratio` rather than a better absolute bar.
-**Watch merit's population dependence**: adding the nine step-4000 checkpoints lifted every
-candidate above 1.0 (mean_diff to 1.47) purely by widening the numerator with known-bad models, and
-that flattering number answers an easier question than the gate faces.
-
-## Repo state
-
-- Branch **`feat/detection-purity-probe`**, 22 commits ahead of `origin/main`, now pushed with an
-  upstream set. It had no upstream at all before today.
-- `origin/feat/per-channel-psf` was a **stale remote-tracking ref** for a branch deleted after PR
-  #148 merged; `git fetch --prune` cleared it. The remote only ever had `main` plus this branch.
-- No open PRs. Opening one for this branch is the obvious next step and was not done because the
-  work is mid-stream; `gh pr create --base main` when ready.
-- Working tree clean apart from this file.
-
-## Outstanding tasks
-
-The in-session task list does NOT survive a restart, so this is the durable copy. Numbers match the
-session list at the time of writing.
-
-### Dataset / stacking
-
-| # | Item | Notes |
-|---|---|---|
-| 20 | ~~Carry `BadPixelDetection` into the dataset path~~ | **DONE.** The wiring was already there; the gap was that `HotPixelMaskProbe` asserted nothing (it wrote two masters and said "diff them"). Now a real A/B: both runs must stay on BayerDrizzle (an AHD fallback never consults the mask, so the probe would pass by proving nothing), at least one changed cluster, changed fraction < 2%, and the extreme-outlier count cannot rise. Measured on 2025-12-28 Segaull (ASI533MC g121, 90 subs): **2119 px changed, 0.0077% of frame, 617 clusters, outliers 162618 to 161334.** The 45 already-baked masters still carry the defect; clearing them is #23's re-bake. |
-| 21 | Collapse the dataset registrar onto the stacking core | They parallel each other and have drifted both ways before. |
-| 22 | Derive the bad-pixel map from registration, not from the dark | |
-| 23 | Pre-rebake checklist | Fix everything below before burning another ~4.5 h bake. |
-| 19 | Per-channel flux banding inverts channel 0's field-radius profile | The red channel's profile runs backwards; it is banding, not optics, and it survives the drizzle re-bake. |
-| 25 | Temporal + tolerance semantics for calibration matching | **Parked by user direction** ("not sure we should faff around with some misbehaving scaled darks"). |
-| 11 | Bake older years of `D:\Astro-Pics` | Detached via `Start-Process`; expect new TELESCOP spellings. |
-| 10 | Shoot a QHY294 g1600 dark library | Hardware, needs a night. Un-drops 3 Newtonian sessions. |
-| 15 | Harvest gradient fields from the retained masters for P5 | |
-
-### P1 denoiser
-
-| # | Item | Notes |
-|---|---|---|
-| 33 | ~~Recalibrate the fabrication gate's threshold~~ | **DONE (v15).** Resolved as a guardrail, not a new metric. Reformulation closed (six candidates, none usable, the current one best). A relative rule on `log_ratio` closed too (no margin both stable and useful; the baseline's sign varies by seed, so the arbitrariness just moved into the first few probes). The decisive fact: the fabrication bar rejects NOTHING on the unprobed session (0 of 19 steps; every rejection is the noise bar), because the shift is one-signed and the probed session is the stricter one. But that is an accident of the val ordering, so `--gate-observe` is now the DEFAULT and prints the second trajectory. See `v15/README.md`. |
-| 31 | ~~Retrain on a genuinely SHORTER schedule~~ | **DONE (v16), NEGATIVE.** The mechanism was real (a 4000-step run is at ~65% of peak LR when it reaches step 1600, so the gate keeps an un-annealed checkpoint) and it does not cash out: at matched noise, amplitude and invention both overlap the 4000-step control at every level the 1600- and 2400-step arms reach. The extra steps buy frontier RANGE, which is what a gate needs (lowest noise reached 0.58-0.65x at 4000, 0.76-0.85x at 1600, and one short run never cleared the 0.82x bar at all). Keep the long run plus the gate. See `v16/README.md`. |
-| 32 | Test the shared-residue mechanism for half-pair fabrication | N2N preserves what the two views SHARE. Check whether the sources the half-pair model invents sit where BOTH halves carry a coincident local maximum. Note `corr(A − master, B − master)` is algebraically forced to −0.99 and cannot be used. |
-| 30 | ~~Score the denoised half against B, not the master~~ | **DONE, and the leak was not the reason.** Rescored against the independent half, the leak is only 0.011 of correlation (0.996 to 0.985) and 0.002 of amplitude, and the verdict is unchanged: every model spends 21-32% of faint-star amplitude to remove 17-26% of the noise. Two metrics also stop working at that depth: structure correlation spans 0.005 across every row incl. the raw half (saturated, cannot rank), and the fabrication count flips direction a third time because the master-at-8-MAD truth mask sits BELOW a half's own 5-MAD bar, so its 76.7 floor is real faint stars and models beat it by erasing them. `n2n_halfscore.py`. |
-| - | Extend the metric suite (user's item 3, not started) | The transfer test suggests the first addition should be a per-SESSION breakdown rather than another metric: two sessions already disagree by more than most models do. Also split every per-channel and 1-2 px figure on `MasterStrategy` (47 of 67 masters are BayerDrizzle; averaging them with AHD sessions throws away what the re-bake bought). |
-
-## Paths and commands
-
-```
-Dataset root    D:\Astro-Dataset\2025-2026-darkscaled     (the current bake; calgated is the old one)
-  store         stats\psf-sessions.jsonl                  (THE source of truth for FWHM)
-  manifest      tiles-manifest.jsonl                      (no FWHM column, by design)
-N2N records     D:\Astro-Dataset\n2n-smoke\
-  v8            the chosen config before this series
-  v9            RETRACTED (unseeded torch); measurements stand, comparisons do not
-  v10           the seeded verdict: v10-v13, 15 runs, README has the whole arc
-  v14           band conditioning + the half-pair retest; the gate's transfer failure is here
-Training cache  C:\tianwen-scratch\n2n-ds                 (1200 cells, 11 slots incl. half pairs)
-Scratch         C:\tianwen-scratch                        (NVMe; D: is USB HDD at 37 MB/s)
-
-Re-render the dataset report (no archive scan, works with D: unmounted):
-  tianwen dataset report --out D:\Astro-Dataset\2025-2026-darkscaled
-```
-
-The N2N scripts live in `D:\Astro-Dataset\n2n-smoke\v14\scripts` (the newest copy; `v10\scripts` is
-the pre-band-conditioning snapshot). The reusable half is
-`n2n_frontier.py` (compare configs at matched noise, not matched step count), `n2n_gateaudit.py`
-(which gate is binding, and what relaxing it surfaces), `n2n_gatetransfer.py` (does a metric survive
-a change of session) and `n2n_compare_figure.py` (labelled comparison, panels captioned in-image).
-
-Tile format is raw fp16 little-endian, 256 x 256 x 3, so exactly 393,216 bytes per tile.
-
-## Constraints still in force
-
-- A multi-hour build must run detached via `Start-Process`, never the Bash background tool.
-- `--resume` does NOT skip the ~19k-header archive scan, which is seek-bound on the USB spindle.
-  Avoid needless restarts.
-- Never write destructively to `C:\temp\astro` or the `D:\Astro-Pics` originals. Scratch copy first.
-- **Never read a file a running job appends to.** A `Get-Content` of `psf-sessions.jsonl` failed a
-  session 65 of 68 into a bake. Read the console log, or copy first.
-- RC-Astro EULA section 10 forbids using RC-Astro or its outputs to create, train, test or benchmark
-  a competing model.
-- Do not create local nupkg feeds or run `dotnet pack` to short-circuit a sibling release. Extend the
-  `UseLocalSiblings` auto-detect instead.
-- A push to `main` triggers `publish-nuget`. PR branches are safe.
-- Do not change behaviour without evidence.
-- `pwsh` never `powershell`; `python` never `python3`; CRLF for `.cs` and `.csproj`; no em-dashes.
-- Use the SSD for anything I/O-heavy so a job is not starved by D:.
-
-## Method notes worth keeping (they cost real time to learn)
-
-- **Compare configs at matched noise, never at matched step count.** A config that trains more
-  gently reads as "keeps more amplitude, removes less noise" at a fixed budget while sitting on the
-  same frontier, merely less far along it.
-- **Several seeds per arm, always.** Here one arm's fabrication count spanned 15.1 to 34.4 across
-  three seeds against the other's 32.6 to 33.6.
-- **Audit a threshold against the metric's distribution before believing a pass rate.** A bar below
-  the achievable range vetoes rather than selects, and reads as a rare find.
-- **A ratio objective can be maximised by doing nothing.** `faint_amp / noise` is exactly 1.0 for the
-  identity, which also passes every purity gate trivially.
-- **A metric whose session-to-session shift exceeds its across-model spread cannot gate at any
-  setting.** Measure that before adopting one, not after.
+Delete this file when the wave's PR lands.
