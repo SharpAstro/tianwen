@@ -32,6 +32,10 @@ public static class FrameTypeEx
         /// "MASTERFLAT" / "MASTERBIAS", or "MASTERDARKFLAT") resolves to its underlying frame type;
         /// callers that need to know whether it is a master (vs a raw sub) check
         /// <see cref="IsMasterFITSValue"/> separately (surfaced on <see cref="ImageMeta.IsMaster"/>).
+        /// Also accepts the SBFITSEXT spellings MaxIm DL / TheSkyX write ("Light Frame",
+        /// "Bias Frame", "Dark Frame", "Flat Field"): a trailing "Frame" is noise and "Flat Field"
+        /// IS the flat -- without these, an entire MaxIm-authored archive read as
+        /// <see cref="FrameType.None"/> and was invisible to session discovery and the stacker.
         /// Returns null for anything that is not a recognised frame type (e.g. "BADPIXELMAP"), which
         /// both the dataset builder and the stacker treat as neither light nor calibration -&gt; excluded.</summary>
         public static FrameType? FromFITSValue(string value)
@@ -45,7 +49,15 @@ public static class FrameTypeEx
             {
                 v = v[6..];
             }
-            return Enum.TryParse(v, true, out FrameType frameType) ? frameType : null;
+            if (v.EndsWith("FRAME", StringComparison.OrdinalIgnoreCase))
+            {
+                v = v[..^5];
+            }
+            if (v.Equals("FLATFIELD", StringComparison.OrdinalIgnoreCase))
+            {
+                v = "FLAT";
+            }
+            return v.Length > 0 && Enum.TryParse(v, true, out FrameType frameType) ? frameType : null;
         }
 
         /// <summary>True when a FITS IMAGETYP / FRAMETYP value denotes a MASTER calibration frame (an

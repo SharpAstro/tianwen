@@ -25,12 +25,23 @@ namespace TianWen.Lib.Tests
         [InlineData("MASTERBIAS", FrameType.Bias)]
         [InlineData("MASTERDARKFLAT", FrameType.DarkFlat)]
         [InlineData("Master Dark", FrameType.Dark)]
+        // SBFITSEXT spellings, what MaxIm DL / TheSkyX actually write: a trailing "Frame" is
+        // noise and "Flat Field" IS the flat. Before these were accepted, an entire
+        // MaxIm-authored archive parsed as FrameType.None and was invisible to discovery.
+        [InlineData("Light Frame", FrameType.Light)]
+        [InlineData("Dark Frame", FrameType.Dark)]
+        [InlineData("Bias Frame", FrameType.Bias)]
+        [InlineData("Flat Frame", FrameType.Flat)]
+        [InlineData("Flat Field", FrameType.Flat)]
+        [InlineData("Dark Flat Frame", FrameType.DarkFlat)]
+        [InlineData("Master Flat Field", FrameType.Flat)]
         public void FromFITSValue_ParsesTypeAndStripsMasterPrefix(string value, FrameType expected)
             => FrameType.FromFITSValue(value).ShouldBe(expected);
 
         [Theory]
         [InlineData("BADPIXELMAP")]
         [InlineData("MASTER")]
+        [InlineData("Frame")]
         [InlineData("")]
         [InlineData(null)]
         public void FromFITSValue_ReturnsNullForUnrecognised(string? value)
