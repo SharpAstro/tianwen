@@ -453,6 +453,11 @@ public sealed class StackingPipeline(
         // method. Tied to a single group, so we capture it once up top.
         var calKey = key.CalibrationKey;
         var groupSw = Stopwatch.StartNew();
+        // Per-stage wall time with Items AND Pixels (StageTimings, the type the dataset registrar
+        // already records into), so throughput is stored on the GroupResult rather than re-derived
+        // from log lines -- the log-derived version of the dataset baseline got a stage wrong by
+        // normalising per input frame, which is exactly what stored denominators prevent.
+        var timings = new StageTimings();
         logger.LogInformation("=== Light group: {Slug} ({Count} frames) ===", slug, lightList.Count);
 
         // Calibration path: bias is intentionally NOT passed to the
@@ -512,12 +517,14 @@ public sealed class StackingPipeline(
         // broader -- bad reference for the rest of the session to
         // register against.
         progress?.Report(new StackingProgress(StackingPhase.Registering, slug, 0, lightList.Count));
-        var sw = Stopwatch.StartNew();
+        var measureStart = StageTimings.Start();
+        long measuredPixels = 0;
         var frameCandidates = new List<(FrameInfo Frame, FrameMetrics Metrics, float Score)>(lightList.Count);
         foreach (var lf in lightList)
         {
             ct.ThrowIfCancellationRequested();
             var raw = await lf.LoadFullAsync(ct);
+            measuredPixels += (long)raw.Width * raw.Height;
             var calibrated = calibrator.Apply(raw);
             // Shared detect site (FrameRegistration.DetectAsync): pre-debayer luminance, which this
             // path used to reach by detecting on channel 0 of the VNG-debayered frame. That is the
@@ -529,6 +536,7 @@ public sealed class StackingPipeline(
             var metrics = FrameRegistration.MetricsFrom(stars);
             frameCandidates.Add((lf, metrics, FrameRegistration.ReferenceScore(metrics)));
         }
+        timings.Record(StageNames.Measure, measureStart, lightList.Count, measuredPixels);
 
         // Reference selection: explicit ReferenceFrameHint wins (substring
         // match on path, first hit), otherwise composite-quality score.
@@ -566,7 +574,8 @@ public sealed class StackingPipeline(
         {
             logger.LogWarning("  [skip] no reference frame could be picked");
             return new GroupResult(slug, lightList.Count, 0, Result: null, MasterFitsPath: null,
-                PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "no reference frame could be picked");
+                PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "no reference frame could be picked",
+                Stages: timings.Snapshot());
         }
         var refCandidate = frameCandidates.First(s => s.Frame.Path == reference.Path);
         logger.LogInformation("  reference: {File} (stars={Stars} hfd={Hfd:F2} ecc={Ecc:F3} score={Score:F1}, {ElapsedMs} ms)",
@@ -575,12 +584,17 @@ public sealed class StackingPipeline(
             refCandidate.Metrics.MedianHfd,
             refCandidate.Metrics.MedianEllipticity,
             refCandidate.Score,
-            sw.ElapsedMilliseconds);
+            (long)Stopwatch.GetElapsedTime(measureStart).TotalMilliseconds);
 
         // Pre-load + calibrate + debayer reference once; detect ref stars
         // once and wrap in SortedStarList so the per-frame matcher reuses
-        // the cached quad list.
+        // the cached quad list. Reference prep charges to the register
+        // stage, mirroring the registrar (its register stage opens with
+        // the reference quad build).
+        var registerStart = StageTimings.Start();
+        long registerPixels = 0;
         var referenceRaw = await reference.LoadFullAsync(ct);
+        registerPixels += (long)referenceRaw.Width * referenceRaw.Height;
         // Grab the FITS header WCS as a plate-solve search hint. N.I.N.A.
         // captures usually stamp approximate RA/DEC keywords; we pass
         // these to CatalogPlateSolver so it knows where to look.
@@ -641,11 +655,11 @@ public sealed class StackingPipeline(
         var censusQuads = new List<int>(lightList.Count);
         var censusHfd = new List<float>(lightList.Count);
         var censusEcc = new List<float>(lightList.Count);
-        sw.Restart();
         foreach (var lightInfo in lightList)
         {
             ct.ThrowIfCancellationRequested();
             var lightRaw = await lightInfo.LoadFullAsync(ct);
+            registerPixels += (long)lightRaw.Width * lightRaw.Height;
             var calibrated = calibrator.Apply(lightRaw);
             var name = Path.GetFileNameWithoutExtension(lightInfo.Path);
 
@@ -736,7 +750,14 @@ public sealed class StackingPipeline(
         logger.LogInformation(
             "  registered {Matched}/{Attempted} frames (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit) in {ElapsedMs} ms; census {Census}",
             matched.Count, lightList.Count, skipCount, skippedTooFewStars, skippedNoQuadFit,
-            sw.ElapsedMilliseconds, registrationCensus);
+            (long)Stopwatch.GetElapsedTime(registerStart).TotalMilliseconds, registrationCensus);
+        // Items = every frame attempted (a failed match still cost its detect + tolerance ladder).
+        // Pixels are REAL on this path, unlike the registrar's centroid-only register stage: this
+        // pass reloads, calibrates and re-detects every frame pass A already measured. The recorded
+        // pixel throughput IS the measured cost of that double-detect -- when the register shell
+        // collapses onto retained star lists (task #21), this drops to zero and the stage table
+        // shows the win rather than a claim of it.
+        timings.Record(StageNames.Register, registerStart, lightList.Count, registerPixels);
         hostTracker.Log(logger, $"register/{slug}");
 
         // Post-registration quality filter. Off by default; enable via
@@ -820,7 +841,8 @@ public sealed class StackingPipeline(
                 skippedTooFewStars, skippedNoQuadFit, registrationCensus);
             try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
             return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
-                PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "fewer than 2 matched frames");
+                PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "fewer than 2 matched frames",
+                Stages: timings.Snapshot());
         }
 
         // BayerDrizzle is opt-in only (--strategy BayerDrizzle). Gate up
@@ -846,7 +868,8 @@ public sealed class StackingPipeline(
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
                 return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed,
-                    SkipReason: $"{kindName} requires SensorType.RGGB (got {referenceRaw.ImageMeta.SensorType})");
+                    SkipReason: $"{kindName} requires SensorType.RGGB (got {referenceRaw.ImageMeta.SensorType})",
+                    Stages: timings.Snapshot());
             }
             if (matched.Count < drizzleOpts.MinFrameCount)
             {
@@ -855,7 +878,8 @@ public sealed class StackingPipeline(
                 try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
                 return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed,
-                    SkipReason: $"{kindName} requires >= {drizzleOpts.MinFrameCount} matched frames (got {matched.Count})");
+                    SkipReason: $"{kindName} requires >= {drizzleOpts.MinFrameCount} matched frames (got {matched.Count})",
+                    Stages: timings.Snapshot());
             }
         }
 
@@ -1024,7 +1048,7 @@ public sealed class StackingPipeline(
             DrizzleOptions: isDrizzle ? (options.DrizzleOptions ?? new DrizzleOptions()) : null,
             BadPixelMask: isDrizzle ? badPixelMask : null);
 
-        sw.Restart();
+        var integrateStart = StageTimings.Start();
         IntegrationResult intResult;
         try
         {
@@ -1035,10 +1059,16 @@ public sealed class StackingPipeline(
             logger.LogWarning("  [strategy] {Kind} threw NotImplementedException: {Msg}", selection.Chosen.Kind, ex.Message);
             try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
             return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
-                PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: $"strategy {selection.Chosen.Kind} not implemented");
+                PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: $"strategy {selection.Chosen.Kind} not implemented",
+                Stages: timings.Snapshot());
         }
+        // Same canvas-pixel accounting as the registrar's integrate stage. Warp has no stage of its
+        // own on this path, deliberately: the strategies stream the warp inside their own pass (the
+        // producer yields warped frames), so its cost is inseparable from integration here, whereas
+        // the registrar warps eagerly to scratch FITS and legitimately times it apart.
+        timings.Record(StageNames.Integrate, integrateStart, matched.Count, (long)matched.Count * outWidth * outHeight);
         logger.LogInformation("  integrated in {ElapsedMs} ms (frames={Frames}, rejections={Rej}, rate={Rate:P2})",
-            sw.ElapsedMilliseconds, intResult.FrameCount, intResult.TotalRejections, intResult.MeanRejectionRate);
+            (long)Stopwatch.GetElapsedTime(integrateStart).TotalMilliseconds, intResult.FrameCount, intResult.TotalRejections, intResult.MeanRejectionRate);
         hostTracker.Log(logger, $"integrate/{slug}");
 
         // 3c. Plate-solve the master + write FITS (+ autocrop). No
@@ -1065,12 +1095,14 @@ public sealed class StackingPipeline(
         var masterPath = Path.Combine(outputDir, $"master_{slug}{strategySuffix}.fits");
         var refImageDim = referenceRaw.GetImageDim();
         var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null, enhanceProgress);
+        var postStart = StageTimings.Start();
         var postResult = await postProcessor.WriteMasterAsync(
             intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind,
             enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates,
             enhanceOptions: options.EnhanceOptions ?? Enhancement.EnhanceOptions.Default,
             outputs: options.RenderOutputs, previewBoost: options.PreviewBoost,
             ultraHdrPeakNits: options.UltraHdrPeakNits, ct: ct);
+        timings.Record(StageNames.Post, postStart, 1, (long)outWidth * outHeight);
         if (intResult.TotalRejections > 0)
         {
             logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));
@@ -1084,7 +1116,8 @@ public sealed class StackingPipeline(
             MasterFitsPath: masterPath,
             PreviewPngPath: previewPath,
             Elapsed: groupSw.Elapsed,
-            Spcc: postResult.Spcc);
+            Spcc: postResult.Spcc,
+            Stages: timings.Snapshot());
     }
 
     // =====================================================================

@@ -131,6 +131,21 @@ public class StackingPipelineSyntheticTest(ITestOutputHelper output)
         result.Result.MeanRejectionRate.ShouldBeLessThan(0.05,
             $"rejection rate {result.Result.MeanRejectionRate:P2} is implausibly high " +
             "for clean synthetic frames with two outliers");
+
+        // 5) Stage timings ride on the result with their denominators (StageTimings adoption,
+        //    task #21). Items are pinned exactly; wall seconds are not (machine-dependent).
+        //    Register currently carries real pixels because pass B reloads + re-detects every
+        //    frame -- when the register shell collapses onto retained star lists that recording
+        //    drops to zero, and THIS assertion is the one that must be flipped to pin the win.
+        result.Stages.IsDefaultOrEmpty.ShouldBeFalse("GroupResult should carry the stage table");
+        var stagesByName = result.Stages.ToDictionary(s => s.Name);
+        stagesByName[StageNames.Measure].Items.ShouldBe(FrameCount);
+        stagesByName[StageNames.Measure].Pixels.ShouldBe((long)FrameCount * FrameSize * FrameSize);
+        stagesByName[StageNames.Register].Items.ShouldBe(FrameCount);
+        stagesByName[StageNames.Register].Pixels.ShouldBeGreaterThan(0);
+        stagesByName[StageNames.Integrate].Items.ShouldBe(FrameCount);
+        stagesByName[StageNames.Integrate].Pixels.ShouldBe((long)FrameCount * master.Width * master.Height);
+        stagesByName[StageNames.Post].Items.ShouldBe(1);
     }
 
     /// <summary>

@@ -275,4 +275,9 @@ public static class StageNames
     /// <summary>Resolving and building the bias/dark/flat masters for the session. Items = masters
     /// built; a cache hit legitimately records time with no items.</summary>
     public const string Calibrate = "calibrate";
+
+    /// <summary>Master post-processing (plate-solve, WCS, FITS + preview writes, optional enhance).
+    /// StackingPipeline only; the dataset registrar returns its master in memory. Items = 1 master,
+    /// pixels = one canvas raster.</summary>
+    public const string Post = "post";
 }

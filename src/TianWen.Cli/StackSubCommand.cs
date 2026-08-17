@@ -441,6 +441,17 @@ internal sealed class StackSubCommand(
                 consoleHost.WriteScrollable(
                     $"[stack] {result.GroupSlug}: {result.FramesMatched}/{result.FramesAttempted} matched, " +
                     $"wrote {Path.GetFileName(result.MasterFitsPath)} in {result.Elapsed.TotalSeconds:F1}s");
+                // Per-stage wall time with stored Items/Pixels denominators (GroupResult.Stages) --
+                // the same table the dataset build prints, so a stack and a bake read side by side.
+                if (!result.Stages.IsDefaultOrEmpty)
+                {
+                    foreach (var line in TianWen.Lib.Imaging.Stacking.StageTimings
+                        .DescribeTable(result.Stages, result.Elapsed.TotalSeconds)
+                        .Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        consoleHost.WriteScrollable($"[stack]   {line.TrimEnd()}");
+                    }
+                }
 
                 // EXR companion path: short-circuit before the PNG renderer
                 // block. Both master + autocrop are written as float-true
