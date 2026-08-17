@@ -152,11 +152,43 @@ public static class DatasetPsfNoiseReport
         string? MasterStrategy = null,
         string? RadiusSampling = null);
 
-    /// <summary>Per-optical-train sub-report. The field-radius PSF profile lives HERE, never
-    /// aggregated across trains: a Newtonian's coma grows with field radius while a refractor's does
-    /// not, so a merged profile would smear the position-varying degradation the deconvolver sweep
-    /// must reproduce. Keyed by <see cref="CalibrationResolver.CalTrain.OpticalTrain"/> (camera +
-    /// telescope + focal length -- i.e. one profile per OTA/camera combination).</summary>
+    /// <summary>
+    /// The filter encoded in a <see cref="SessionPsf.SessionId"/>, or empty when the session had
+    /// none recorded. <see cref="ImagingSession.Id"/> emits <c>dir|CAMERA[|OBJECT[|FILTER]]</c>
+    /// and always emits the OBJECT slot (possibly empty) when a filter is present, so a fourth
+    /// field IS the filter, unambiguously. Deriving it here rather than storing it again is
+    /// deliberate: the id already carries it for every record written since filters entered the
+    /// session key (the whole organized-root store), a second copy would be one more thing able to
+    /// disagree with the join key, and records that predate filtered ids (three fields or fewer)
+    /// degrade to one unfiltered bucket per train with no migration. Note that empty does NOT mean
+    /// broadband -- per the filter-inference work, an absent FILTER header is an absent fact -- so
+    /// the report renders it as "(no filter recorded)", never as a filter.
+    /// </summary>
+    public static string FilterFromSessionId(string sessionId)
+    {
+        var first = sessionId.IndexOf('|');
+        if (first < 0) return "";
+        var second = sessionId.IndexOf('|', first + 1);
+        if (second < 0) return "";
+        var third = sessionId.IndexOf('|', second + 1);
+        return third < 0 ? "" : sessionId[(third + 1)..];
+    }
+
+    /// <summary>Per-(optical train, filter) sub-report. The field-radius PSF profile lives HERE,
+    /// never aggregated across trains OR filters. Across trains because a Newtonian's coma grows
+    /// with field radius while a refractor's does not, so a merged profile would smear the
+    /// position-varying degradation the deconvolver sweep must reproduce. Across filters because
+    /// autofocus never optimises red (it minimises star size where the flux is, ~500-550 nm), and
+    /// how badly red loses depends on the passband: measured red/green centre width is 1.381
+    /// broadband but 1.642 under narrowband on the same rigs, with the field-radius trend flipping
+    /// sign between them -- so an RGB night and an Ha-OIII night on the same scope are two
+    /// different measurement populations, and pooling them was the same grouping error the
+    /// per-<see cref="SessionPsf.MasterStrategy"/> split already fixed for integrators. Keyed by
+    /// <see cref="CalibrationResolver.CalTrain"/>'s label (camera + telescope + focal length) plus
+    /// <see cref="Filter"/>.</summary>
+    /// <param name="Filter">The filter this section's sessions were shot through
+    /// (<see cref="FilterFromSessionId"/>), empty when none was recorded -- which the rendering
+    /// states as "(no filter recorded)" rather than treating as broadband.</param>
     /// <param name="RecordedAs">The distinct header labels that folded into this train, sorted; a
     /// single entry equal to <paramref name="OpticalTrain"/> in the ordinary case. More than one
     /// means <see cref="TelescopeAliases"/> merged differently-spelled headers, and the report says
@@ -172,6 +204,7 @@ public static class DatasetPsfNoiseReport
     /// <c>--force-psf</c>.</param>
     public sealed record TrainReport(
         string OpticalTrain,
+        string Filter,
         int Sessions,
         int Subs,
         long StarsSampled,
@@ -612,13 +645,17 @@ public static class DatasetPsfNoiseReport
         private readonly int _radiusBins;
         private readonly float _snrMin;
         private readonly int _maxStars;
-        // One accumulator per optical train (OTA/camera). The field-radius profile is optics-specific
-        // -- it must not merge a coma-heavy Newtonian with a flat-field refractor -- so everything is
-        // bucketed by train and the overall population summary is derived by concatenation. Keyed by
-        // the train's DESCRIBED label rather than the CalTrain value, because a record read back from
-        // the store carries only the label (its frames were never re-read) and must bucket with a
-        // freshly measured session of the same train.
-        private readonly Dictionary<string, TrainAcc> _byTrain = new(StringComparer.Ordinal);
+        // One accumulator per (optical train, filter). Per train because the field-radius profile is
+        // optics-specific -- it must not merge a coma-heavy Newtonian with a flat-field refractor --
+        // and per filter because the chromatic behaviour it measures is passband-specific: an RGB
+        // night and a narrowband night on the same scope are two different populations (see
+        // TrainReport's remarks for the measured sizes). The overall population summary is derived
+        // by concatenation. Keyed by the train's DESCRIBED label rather than the CalTrain value,
+        // because a record read back from the store carries only the label (its frames were never
+        // re-read) and must bucket with a freshly measured session of the same train; the filter
+        // half of the key comes out of the session id (FilterFromSessionId), which has carried it
+        // since filters entered the session key.
+        private readonly Dictionary<(string Label, string Filter), TrainAcc> _byTrain = new();
 
         public Accumulator(int radiusBins = 5, float snrMin = 5f, int maxStars = 3000)
         {
@@ -651,11 +688,15 @@ public static class DatasetPsfNoiseReport
             // Keyed by the STORED label, so a resumed session (whose frames were never re-read) lands
             // in the same train bucket as a freshly measured one -- but canonicalised first, so one
             // lens recorded under two TELESCOP spellings is one train here even though the store
-            // faithfully kept both names. Display-time merge: see TelescopeAliases.
+            // faithfully kept both names. Display-time merge: see TelescopeAliases. The filter joins
+            // the key from the session id, so an RGB night and a narrowband night on the same scope
+            // stop pooling into one profile; a record whose id predates filters lands in the train's
+            // single "(no filter recorded)" bucket, which is exactly the pre-filter behaviour.
             var label = TelescopeAliases.CanonicalizeLabel(record.OpticalTrain);
-            if (!_byTrain.TryGetValue(label, out var acc))
+            var filter = FilterFromSessionId(record.SessionId);
+            if (!_byTrain.TryGetValue((label, filter), out var acc))
             {
-                _byTrain[label] = acc = new TrainAcc(label, _radiusBins);
+                _byTrain[(label, filter)] = acc = new TrainAcc(label, filter, _radiusBins);
             }
             acc.RecordedAs.Add(record.OpticalTrain);
 
@@ -807,7 +848,9 @@ public static class DatasetPsfNoiseReport
             var totalSubs = 0;
             long totalStars = 0;
 
-            foreach (var acc in _byTrain.Values.OrderBy(a => a.Label, StringComparer.Ordinal))
+            foreach (var acc in _byTrain.Values
+                .OrderBy(a => a.Label, StringComparer.Ordinal)
+                .ThenBy(a => a.Filter, StringComparer.Ordinal))
             {
                 var radialProfiles = ImmutableArray.CreateBuilder<ChannelRadiusProfile>(acc.ChannelBinFwhm.Count);
                 for (var c = 0; c < acc.ChannelBinFwhm.Count; c++)
@@ -836,6 +879,7 @@ public static class DatasetPsfNoiseReport
 
                 trains.Add(new TrainReport(
                     OpticalTrain: acc.Label,
+                    Filter: acc.Filter,
                     RecordedAs: [.. acc.RecordedAs],
                     Sessions: acc.Sessions,
                     Subs: acc.Subs,
@@ -874,11 +918,15 @@ public static class DatasetPsfNoiseReport
                 Trains: trains.MoveToImmutable());
         }
 
-        /// <summary>Per-train accumulator: the same small metric lists + radius bins the whole report
-        /// used to keep once, now held one instance per optical train.</summary>
+        /// <summary>Per-(train, filter) accumulator: the same small metric lists + radius bins the
+        /// whole report used to keep once, now held one instance per optical train per filter.</summary>
         private sealed class TrainAcc
         {
             public string Label { get; }
+            /// <summary>The session-id-derived filter this bucket aggregates, empty for sessions
+            /// with none recorded (including every record written before filters entered the
+            /// session key).</summary>
+            public string Filter { get; }
             /// <summary>Distinct header labels folded into this train (usually just one). A
             /// SortedSet so the rendered note is deterministic across runs, like everything else in
             /// this report.</summary>
@@ -911,9 +959,10 @@ public static class DatasetPsfNoiseReport
             /// so, because a mixed table is the one thing this measurement must not do silently.</summary>
             public int BandedSessions;
 
-            public TrainAcc(string label, int radiusBins)
+            public TrainAcc(string label, string filter, int radiusBins)
             {
                 Label = label;
+                Filter = filter;
             }
         }
     }
@@ -929,7 +978,7 @@ public static class DatasetPsfNoiseReport
         sb.AppendLine(string.Create(ci, $"- Sessions: {report.Sessions}"));
         sb.AppendLine(string.Create(ci, $"- Subs (registered): {report.Subs}"));
         sb.AppendLine(string.Create(ci, $"- Stars sampled (field-radius profile): {report.StarsSampled}"));
-        sb.AppendLine(string.Create(ci, $"- Optical trains (OTA/camera): {report.Trains.Length}"));
+        sb.AppendLine(string.Create(ci, $"- Field-radius sections (optical train x filter): {report.Trains.Length}"));
         sb.AppendLine();
         sb.AppendLine("## Per-sub PSF distribution (median-of-frame metrics, all trains)");
         sb.AppendLine();
@@ -945,18 +994,30 @@ public static class DatasetPsfNoiseReport
         sb.AppendLine("|--------|----|-----|-----|-----|-----|");
         AppendPct(sb, ci, "MAD / max", report.MasterNoiseRelative);
         sb.AppendLine();
-        sb.AppendLine("## Field-radius PSF profile (per optical train, centre -> corner)");
+        sb.AppendLine("## Field-radius PSF profile (per optical train PER FILTER, centre -> corner)");
         sb.AppendLine();
         sb.AppendLine("Drives the deconvolver's position-varying synthetic-PSF sweep: sample FWHM per");
         sb.AppendLine("field-radius bin so corner degradation matches the optics. Reported PER OPTICAL");
         sb.AppendLine("TRAIN -- a Newtonian's coma grows toward the corner while a refractor's field");
-        sb.AppendLine("stays flat, so a single merged profile would smear both. Sweep each train against");
-        sb.AppendLine("its own row set.");
+        sb.AppendLine("stays flat, so a single merged profile would smear both -- and PER FILTER,");
+        sb.AppendLine("because autofocus optimises where the flux is (~500-550 nm) and how badly red");
+        sb.AppendLine("loses depends on the passband: red/green centre width measures 1.381 broadband");
+        sb.AppendLine("but 1.642 narrowband on the same rigs, with the radial trend flipping sign.");
+        sb.AppendLine("\"(no filter recorded)\" means exactly that -- an absent FILTER header is an");
+        sb.AppendLine("absent fact, not broadband. Sweep each section against its own row set.");
         sb.AppendLine();
         foreach (var train in report.Trains)
         {
-            sb.AppendLine(string.Create(ci, $"### {train.OpticalTrain}"));
+            sb.AppendLine(train.Filter.Length > 0
+                ? string.Create(ci, $"### {train.OpticalTrain} [{train.Filter}]")
+                : string.Create(ci, $"### {train.OpticalTrain}"));
             sb.AppendLine();
+            // Which glass this is, coarsely, so the reader does not need to know the hardware by
+            // name to judge whether a corner trend is plausible -- and so the first Newtonian to
+            // enter the archive announces itself. Filter stated on its own line as well as in the
+            // heading, because "(no filter recorded)" must be legible where the numbers are read.
+            sb.AppendLine(string.Create(ci,
+                $"- Filter: {(train.Filter.Length > 0 ? train.Filter : "(no filter recorded)")} | Optical system: {OpticalSystems.ClassifyLabel(train.OpticalTrain)}"));
             // Only when an alias actually merged something: on the ordinary single-spelling train
             // this line would be noise repeating the heading.
             if (train.RecordedAs.Length > 1)
