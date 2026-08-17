@@ -110,17 +110,23 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void BestDark_WrongGainMatchedExposureAndTemp_BeatsWarmShortSameGainDark()
+        public void BestDark_WrongGainMatchedExposureAndTemp_BeatsWarmShortSameGainDark_OnlyInLenientMode()
         {
             // The real-archive trade-off (2026: g121/60s/-5C lights, only a g212 60s/-5C library
-            // and g121 4.5s/+22C flat-wizard darks exist): the matched-exposure/temperature dark
-            // is the better of two bad options even at the wrong gain; the warm short dark holds
-            // essentially none of the lights' dark-current pattern. Pins the penalty sizing.
+            // and g121 4.5s/+22C flat-wizard darks exist). In LENIENT mode (requireGainMatch:
+            // false, the pre-2026-08-17 default) the matched-exposure/temperature dark is the
+            // better of two bad options even at the wrong gain -- this pins the penalty sizing.
+            // Under the strict DEFAULT the same archive resolves NO dark at all: the wrong-gain
+            // dark is hard-rejected (its residual fixed pattern is correlated between both subs of
+            // an N2N pair, the exact independence violation) and the warm short dark fails the
+            // exposure gate, so the session is uncalibrated rather than silently mis-calibrated.
             var wrongGainRightDark = Group(FrameType.Dark, 60, -5, gain: 212);
             var sameGainUselessDark = Group(FrameType.Dark, 4.5, 22, gain: 121);
             var light = Light(60, -5, gain: 121);
 
-            CalibrationResolver.BestDark([sameGainUselessDark, wrongGainRightDark], light).ShouldBe(wrongGainRightDark);
+            CalibrationResolver.BestDark([sameGainUselessDark, wrongGainRightDark], light, requireGainMatch: false)
+                .ShouldBe(wrongGainRightDark);
+            CalibrationResolver.BestDark([sameGainUselessDark, wrongGainRightDark], light).ShouldBeNull();
         }
 
         [Fact]
@@ -144,13 +150,17 @@ namespace TianWen.Lib.Tests
             // The 4.6s/6.7s -5C "darks" in the archive are DARK-FLATS (matched to the flat exposure,
             // shot in a DARKFLAT\ folder) that N.I.N.A. labels IMAGETYP=DARK. They must never calibrate
             // a 60s LIGHT: dark current scales with exposure, so a ~9x-too-short frame is not a valid
-            // light-dark. The matched-exposure dark wins even at the wrong gain (mirrors the stack
-            // pipeline's exposure-primary matcher).
+            // light-dark. In LENIENT gain mode the matched-exposure dark wins even at the wrong gain
+            // (which is still the stack pipeline's behaviour -- its MatchMaster never consults gain,
+            // see task #25); under the strict DEFAULT both candidates fall (exposure gate, gain gate)
+            // and the session resolves no dark rather than a wrong one of either kind.
             var darkFlat = Group(FrameType.Dark, 6.68, -5, gain: 121);      // same gain+temp, ~9x too short
             var matchedExposure = Group(FrameType.Dark, 60, -5, gain: 212); // right exposure+temp, wrong gain
             var light = Light(60, -5, gain: 121);
 
-            CalibrationResolver.BestDark([darkFlat, matchedExposure], light).ShouldBe(matchedExposure);
+            CalibrationResolver.BestDark([darkFlat, matchedExposure], light, requireGainMatch: false)
+                .ShouldBe(matchedExposure);
+            CalibrationResolver.BestDark([darkFlat, matchedExposure], light).ShouldBeNull();
         }
 
         [Fact]
@@ -335,10 +345,12 @@ namespace TianWen.Lib.Tests
         {
             // A 1-frame group can never build a master (median needs >= 2). If Best* returned it, the
             // resolved dark would be null and RequireDarkCalibration would wrongly skip a session that
-            // DID have a buildable dark. So the buildable (exposure-matched) dark must win over the
-            // gain-perfect singleton -- both are exposure-compatible, isolating the buildable filter.
+            // DID have a buildable dark. So the buildable dark must win over the score-perfect
+            // singleton -- both are exposure- and gain-compatible, so the buildable filter is the only
+            // discriminator left (the buildable one loses on temperature score, which must not save
+            // the singleton).
             var perfectSingleton = Group(FrameType.Dark, 60, -5, gain: 121, frameCount: 1); // score 0, unbuildable
-            var buildable = Group(FrameType.Dark, 60, -5, gain: 212, frameCount: 2);        // exposure-matched, wrong gain, buildable
+            var buildable = Group(FrameType.Dark, 60, -15, gain: 121, frameCount: 2);       // 10C off, buildable
             var light = Light(60, -5, gain: 121);
 
             CalibrationResolver.BestDark([perfectSingleton, buildable], light).ShouldBe(buildable);

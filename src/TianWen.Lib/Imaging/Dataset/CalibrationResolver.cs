@@ -223,7 +223,7 @@ public static class CalibrationResolver
         ImagingSession session,
         IReadOnlyDictionary<FrameType, List<CalGroup>> calGroups,
         MasterCache masterCache,
-        bool requireGainMatch = false,
+        bool requireGainMatch = true,
         double? maxDarkTemperatureDelta = null,
         ILogger? logger = null,
         CancellationToken cancellationToken = default)
@@ -377,7 +377,7 @@ public static class CalibrationResolver
     /// see <see cref="GainMismatchPenalty"/>). Score ties break by ordinal <see cref="MasterGroupKey.Slug"/>
     /// so the pick never depends on dictionary / filesystem enumeration order (the build's determinism
     /// claim).</summary>
-    internal static CalGroup? BestDark(List<CalGroup>? darks, FrameInfo light, bool requireGainMatch = false, double? maxTempDelta = null)
+    internal static CalGroup? BestDark(List<CalGroup>? darks, FrameInfo light, bool requireGainMatch = true, double? maxTempDelta = null)
     {
         if (darks is null) return null;
         var lightKey = MasterGroupKey.FromFrame(light);
@@ -616,7 +616,7 @@ public static class CalibrationResolver
 
     private static bool Buildable(CalGroup g) => g.Frames.Length >= (g.IsMaster ? 1 : 2);
 
-    /// <summary>The strict gain gate (opt-in via RequireGainMatch): when on, a dark whose gain is
+    /// <summary>The strict gain gate (RequireGainMatch, ON by default since 2026-08-17): when on, a dark whose gain is
     /// KNOWN and differs from the light's is rejected outright, so a wrong-gain dark can never be
     /// silently substituted. An unknown gain on either side stays a wildcard (a header-less library
     /// is not dropped) -- the same lenient-on-unknown policy the optical-train comparisons use. When
