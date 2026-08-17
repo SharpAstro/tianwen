@@ -125,12 +125,11 @@ public static class SessionRegistrar
         return true;
     }
 
-    /// <summary>Absolute floor of matched stars for a quad fit, and the cap on the brightest stars
-    /// that form the fingerprints. Both live in <see cref="FrameRegistration"/> now: they used to be
-    /// declared here AND in <c>StackingPipeline</c>, which is how the two ended up at 100 and 500
-    /// respectively with only a comment noting the divergence.</summary>
-    private const int MinStarsForMatch = FrameRegistration.MinStarsForMatch;
-
+    /// <summary>The cap on the brightest stars that form the quad fingerprints. Lives in
+    /// <see cref="FrameRegistration"/> now: it used to be declared here AND in
+    /// <c>StackingPipeline</c>, which is how the two ended up at 100 and 500 respectively with only
+    /// a comment noting the divergence. (The matched-star floor is applied inside the shared
+    /// <see cref="RegisterLoop"/> and needs no alias here.)</summary>
     private const int QuadStars = FrameRegistration.DefaultQuadStars;
 
     /// <summary>One surviving light registered onto the session's union canvas.</summary>
@@ -331,74 +330,60 @@ public static class SessionRegistrar
             session.Id, Path.GetFileName(reference.Frame.Path),
             reference.Metrics.StarCount, reference.Metrics.MedianHfd, reference.Metrics.MedianEllipticity, bestScore);
 
-        // 4. Register each survivor against the reference from the RETAINED star lists.
+        // 4. Register each survivor against the reference from the RETAINED star lists, through the
+        //    shared RegisterLoop -- the SAME loop body StackingPipeline runs (min-stars floor ->
+        //    quad-form -> tolerance ladder -> rigid refine, census + skip counters included), so
+        //    the two paths cannot drift here. What stays local is exactly what differs: Debug-level
+        //    per-frame logs keyed by session id, and the AnalyzedFrame result tuples.
         var registerStart = StageTimings.Start();
-        using var referenceSorted = new SortedStarList(reference.Stars);
-        var referenceQuads = await referenceSorted.FindQuadsAsync(maxStars: QuadStars, cancellationToken: cancellationToken);
+        using var registerLoop = await RegisterLoop.CreateAsync(reference.Stars, QuadStars, cancellationToken);
         logger?.LogInformation("  [{Session}] reference quads={Quads} from {Stars} retained stars (top {Cap})",
-            session.Id, referenceQuads.Count, referenceSorted.Count, QuadStars);
+            session.Id, registerLoop.ReferenceQuadCount, registerLoop.ReferenceStarCount, QuadStars);
         var matched = new List<(SessionFrameAnalyzer.AnalyzedFrame Frame, Matrix3x2 Transform)>(survivors.Length);
-        var skippedTooFewStars = 0;
-        var skippedNoQuadFit = 0;
-        // Census inputs, in survivor order, which is capture order. The order is load-bearing: it is
-        // what lets the census report a TREND, and a session that degraded through the night has the
-        // same min/median/max as one that was uniformly poor while needing a different fix.
-        var censusStars = new List<int>(survivors.Length);
-        var censusQuads = new List<int>(survivors.Length);
-        var censusHfd = new List<float>(survivors.Length);
-        var censusEcc = new List<float>(survivors.Length);
         foreach (var f in survivors)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            // Every survivor contributes, including the reference: it is one of the frames whose
-            // focus the census is describing, and excluding it would silently drop the sharpest
-            // sample from the spread.
-            censusStars.Add(f.Metrics.StarCount);
-            censusHfd.Add(f.Metrics.MedianHfd);
-            censusEcc.Add(f.Metrics.MedianEllipticity);
             if (ReferenceEquals(f, reference))
             {
+                // The reference still contributes to the census: it is one of the frames whose
+                // focus the census is describing, and excluding it would silently drop the
+                // sharpest sample from the spread.
+                registerLoop.AddReference(f.Metrics);
                 matched.Add((f, Matrix3x2.Identity));
                 continue;
             }
-            if (f.Stars.Count < MinStarsForMatch)
+            var attempt = await registerLoop.RegisterAsync(f.Stars, f.Metrics, cancellationToken);
+            if (attempt.Transform is not { } transform)
             {
-                skippedTooFewStars++;
-                logger?.LogDebug("  [{Session}] {File} stars={Stars} (< {Min}) -> skip (too few)",
-                    session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, MinStarsForMatch);
-                continue;
-            }
-            using var lightSorted = new SortedStarList(f.Stars);
-            var lightQuads = await lightSorted.FindQuadsAsync(maxStars: QuadStars, cancellationToken: cancellationToken);
-            censusQuads.Add(lightQuads.Count);
-            var (solution, quadTolerance, rmsResidualPx) = await FrameRegistration.TryMatchAsync(lightSorted, referenceSorted, QuadStars);
-            if (solution is null)
-            {
-                skippedNoQuadFit++;
-                // Both counts are already in hand, so state them: "no fit" on its own cannot
-                // separate a DETECTION problem (few quads on this sub) from a GEOMETRY one
-                // (plenty of quads on both sides that still do not correspond), and those two
-                // have opposite fixes.
-                // HFD and ellipticity are stated alongside the counts because they are what says
-                // WHY the counts look as they do, and they were already measured. Without them a
-                // reconstructed histogram can show that a session was not star-poor but still
-                // cannot show that its focus was drifting, which is the next question every time.
-                logger?.LogDebug(
-                    "  [{Session}] {File} stars={Stars} quads={Quads} hfd={Hfd:F2} ecc={Ecc:F3} vs reference quads={RefQuads} -> skip (no quad fit up to tolerance {MaxTol})",
-                    session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, lightQuads.Count,
-                    f.Metrics.MedianHfd, f.Metrics.MedianEllipticity,
-                    referenceQuads.Count, FrameRegistration.QuadTolerances[^1]);
+                if (attempt.Skip is RegisterLoop.SkipCause.TooFewStars)
+                {
+                    logger?.LogDebug("  [{Session}] {File} stars={Stars} (< {Min}) -> skip (too few)",
+                        session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, FrameRegistration.MinStarsForMatch);
+                }
+                else
+                {
+                    // Both counts are already in hand, so state them: "no fit" on its own cannot
+                    // separate a DETECTION problem (few quads on this sub) from a GEOMETRY one
+                    // (plenty of quads on both sides that still do not correspond), and those two
+                    // have opposite fixes.
+                    // HFD and ellipticity are stated alongside the counts because they are what says
+                    // WHY the counts look as they do, and they were already measured. Without them a
+                    // reconstructed histogram can show that a session was not star-poor but still
+                    // cannot show that its focus was drifting, which is the next question every time.
+                    logger?.LogDebug(
+                        "  [{Session}] {File} stars={Stars} quads={Quads} hfd={Hfd:F2} ecc={Ecc:F3} vs reference quads={RefQuads} -> skip (no quad fit up to tolerance {MaxTol})",
+                        session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, attempt.LightQuads,
+                        f.Metrics.MedianHfd, f.Metrics.MedianEllipticity,
+                        registerLoop.ReferenceQuadCount, FrameRegistration.QuadTolerances[^1]);
+                }
                 continue;
             }
             logger?.LogDebug(
                 "  [{Session}] {File} stars={Stars} quads={Quads} hfd={Hfd:F2} ecc={Ecc:F3} -> matched at tolerance {Tol} (rms {Rms:F2} px)",
-                session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, lightQuads.Count,
+                session.Id, Path.GetFileName(f.Frame.Path), f.Stars.Count, attempt.LightQuads,
                 f.Metrics.MedianHfd, f.Metrics.MedianEllipticity,
-                quadTolerance, rmsResidualPx);
-            // Rigid (rotation + isotropic scale + translation) refinement on top of the bulk
-            // quad fit -- closes the sub-pixel residual the fingerprint match averages away.
-            var refined = RegistrationRefiner.RefineRigid(lightSorted, referenceSorted, solution.Value).Refined;
-            matched.Add((f, refined));
+                attempt.QuadTolerance, attempt.MatchRmsPx);
+            matched.Add((f, transform));
         }
         // Items are the SURVIVORS, not the matches: the ones that failed still cost their quad-form
         // and their trip up the tolerance ladder, so charging the stage only for its successes would
@@ -406,12 +391,12 @@ public static class SessionRegistrar
         // star centroids only, never a pixel, which is the whole reason it is a rounding error next
         // to every other stage.
         timings?.Record(StageNames.Register, registerStart, survivors.Length);
-        var spread = RegistrationCensus.Measure(censusStars, censusQuads, censusHfd, censusEcc);
+        var spread = registerLoop.MeasureCensus();
         var census = RegistrationCensus.Describe(spread);
         logger?.LogInformation(
             "  [{Session}] registered {Matched}/{Survivors} (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit); census {Census}",
-            session.Id, matched.Count, survivors.Length, skippedTooFewStars + skippedNoQuadFit,
-            skippedTooFewStars, skippedNoQuadFit, census);
+            session.Id, matched.Count, survivors.Length, registerLoop.SkippedTooFewStars + registerLoop.SkippedNoQuadFit,
+            registerLoop.SkippedTooFewStars, registerLoop.SkippedNoQuadFit, census);
         if (matched.Count < 2)
         {
             // WARNING level, which is what a bake log actually shows, so it has to be
@@ -439,18 +424,18 @@ public static class SessionRegistrar
             logger?.LogWarning(
                 "  [{Session}] fewer than 2 registered subs -- skipped. reference {RefFile} stars={RefStars} quads={RefQuads}, skipped {TooFew} too-few-stars + {NoFit} no-quad-fit. census {Census}",
                 session.Id, Path.GetFileName(reference.Frame.Path),
-                referenceSorted.Count, referenceQuads.Count,
-                skippedTooFewStars, skippedNoQuadFit, census);
+                registerLoop.ReferenceStarCount, registerLoop.ReferenceQuadCount,
+                registerLoop.SkippedTooFewStars, registerLoop.SkippedNoQuadFit, census);
             await DatasetSkipStore.RecordAsync(skipStorePath, new DatasetSkipStore.SkippedSession(
                 SessionId: session.Id,
                 Reason: "fewer-than-2-registered",
                 Survivors: survivors.Length,
                 Registered: matched.Count,
-                SkippedTooFewStars: skippedTooFewStars,
-                SkippedNoQuadFit: skippedNoQuadFit,
+                SkippedTooFewStars: registerLoop.SkippedTooFewStars,
+                SkippedNoQuadFit: registerLoop.SkippedNoQuadFit,
                 ReferenceFile: Path.GetFileName(reference.Frame.Path),
-                ReferenceStars: referenceSorted.Count,
-                ReferenceQuads: referenceQuads.Count,
+                ReferenceStars: registerLoop.ReferenceStarCount,
+                ReferenceQuads: registerLoop.ReferenceQuadCount,
                 Census: spread), logger, cancellationToken);
             return null;
         }
@@ -494,9 +479,10 @@ public static class SessionRegistrar
                 sensorType = raw.ImageMeta.SensorType;
             }
             var calibrated = calibrator?.Apply(raw) ?? raw;
-            var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
-            var shifted = transform * canvasShift;
-            var warped = await debayered.WarpToReferenceGridAsync(shifted, canvasW, canvasH, cancellationToken);
+            // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
+            // three lines StackingPipeline's producer runs, so the two paths cannot drift here.
+            var (warped, shifted) = await FrameRegistration.WarpToCanvasAsync(
+                calibrated, transform, canvasShift, debayerAlgorithm, canvasW, canvasH, cancellationToken);
             var warpedPath = Path.Combine(sessionScratch, $"warped_{i:D4}.fits");
             warped.WriteToFitsFile(warpedPath);
             subs.Add(new RegisteredSub(f.Frame, warpedPath, shifted, f.Metrics));
@@ -624,7 +610,7 @@ public static class SessionRegistrar
 
         return new RegisteredSession(
             session, master, subsList, canvasW, canvasH, statsRect,
-            reference.Frame, survivors.Length, matched.Count, skippedTooFewStars + skippedNoQuadFit,
+            reference.Frame, survivors.Length, matched.Count, registerLoop.SkippedTooFewStars + registerLoop.SkippedNoQuadFit,
             useDrizzle ? IntegrationStrategyKind.BayerDrizzle : IntegrationStrategyKind.Float16Staged,
             halfA, halfB);
 

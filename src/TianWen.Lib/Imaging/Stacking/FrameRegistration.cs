@@ -138,4 +138,27 @@ public static class FrameRegistration
         }
         return (null, float.NaN, float.NaN);
     }
+
+    /// <summary>
+    /// Debayers a calibrated frame and warps it onto the union canvas, returning the warped frame
+    /// AND the canvas-space transform (the dataset side persists that per sub). These three lines
+    /// were byte-identical in both pipelines -- their only divergence was what happens to the
+    /// result (the stacker yields it to a streaming integrator, the registrar writes a scratch
+    /// FITS) -- and a divergence HERE would be silent behavioural drift between the master a user
+    /// sees and the master a model trains on, the exact class of drift this file exists to end.
+    /// </summary>
+    public static async Task<(Image Warped, Matrix3x2 CanvasTransform)> WarpToCanvasAsync(
+        Image calibrated,
+        Matrix3x2 transformToReference,
+        Matrix3x2 canvasShift,
+        DebayerAlgorithm debayerAlgorithm,
+        int canvasWidth,
+        int canvasHeight,
+        CancellationToken cancellationToken = default)
+    {
+        var debayered = await calibrated.DebayerAsync(debayerAlgorithm, cancellationToken: cancellationToken);
+        var shifted = transformToReference * canvasShift;
+        var warped = await debayered.WarpToReferenceGridAsync(shifted, canvasWidth, canvasHeight, cancellationToken);
+        return (warped, shifted);
+    }
 }

@@ -58,12 +58,6 @@ public sealed class StackingPipeline(
     Enhancement.SharpenPipeline? sharpenPipeline = null,
     IProgress<Enhancement.EnhanceProgress>? enhanceProgress = null)
 {
-    /// <summary>The tolerance ladder and the matched-star floor both live in
-    /// <see cref="FrameRegistration"/> now. They used to be declared here AND in the dataset
-    /// builder's registrar, the latter documenting itself as a verbatim copy, which is exactly the
-    /// arrangement that let the two paths drift apart in both directions.</summary>
-    private const int MinStarsForMatch = FrameRegistration.MinStarsForMatch;
-
     /// <summary>
     /// Picks a pixel rejector for the integration step based on frame
     /// count. Defaults from the manual test against the SoL dataset:
@@ -519,7 +513,7 @@ public sealed class StackingPipeline(
         progress?.Report(new StackingProgress(StackingPhase.Registering, slug, 0, lightList.Count));
         var measureStart = StageTimings.Start();
         long measuredPixels = 0;
-        var frameCandidates = new List<(FrameInfo Frame, FrameMetrics Metrics, float Score)>(lightList.Count);
+        var frameCandidates = new List<(FrameInfo Frame, FrameMetrics Metrics, float Score, StarList Stars)>(lightList.Count);
         foreach (var lf in lightList)
         {
             ct.ThrowIfCancellationRequested();
@@ -534,7 +528,11 @@ public sealed class StackingPipeline(
             var (stars, _) = await FrameRegistration.DetectAsync(
                 calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, ct);
             var metrics = FrameRegistration.MetricsFrom(stars);
-            frameCandidates.Add((lf, metrics, FrameRegistration.ReferenceScore(metrics)));
+            // The star list is RETAINED (the dataset registrar's model): registration is centroid
+            // work, so keeping it makes the register pass below pixel-free instead of reloading,
+            // re-calibrating and re-detecting every frame this loop just measured. Centroids only,
+            // tens of KB per frame -- the registrar retains them for whole 300-sub sessions.
+            frameCandidates.Add((lf, metrics, FrameRegistration.ReferenceScore(metrics), stars));
         }
         timings.Record(StageNames.Measure, measureStart, lightList.Count, measuredPixels);
 
@@ -586,15 +584,14 @@ public sealed class StackingPipeline(
             refCandidate.Score,
             (long)Stopwatch.GetElapsedTime(measureStart).TotalMilliseconds);
 
-        // Pre-load + calibrate + debayer reference once; detect ref stars
-        // once and wrap in SortedStarList so the per-frame matcher reuses
-        // the cached quad list. Reference prep charges to the register
-        // stage, mirroring the registrar (its register stage opens with
-        // the reference quad build).
+        // The reference raw stays loaded once: its meta + dims feed the drizzle gate, the canvas
+        // and the post-processor. Registration itself no longer reads it -- the register phase
+        // works entirely from the star lists the measure pass retained (the reference's included),
+        // which is what deleted this method's second detect-per-frame pass. Reference prep charges
+        // to the register stage, mirroring the registrar (its register stage opens with the
+        // reference quad build).
         var registerStart = StageTimings.Start();
-        long registerPixels = 0;
         var referenceRaw = await reference.LoadFullAsync(ct);
-        registerPixels += (long)referenceRaw.Width * referenceRaw.Height;
         // Grab the FITS header WCS as a plate-solve search hint. N.I.N.A.
         // captures usually stamp approximate RA/DEC keywords; we pass
         // these to CatalogPlateSolver so it knows where to look.
@@ -603,10 +600,7 @@ public sealed class StackingPipeline(
         {
             logger.LogWarning("  [warn] couldn't reread ref FITS for WCS hint: {Path}", reference.Path);
         }
-        var (referenceStars, referenceDebayered) = await FrameRegistration.DetectAsync(
-            calibrator.Apply(referenceRaw), options.CentroidDebayerAlg, options.SnrMin, options.MinStars, ct);
-        var referenceSorted = new SortedStarList(referenceStars);
-        var referenceQuads = await referenceSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
+        using var registerLoop = await RegisterLoop.CreateAsync(refCandidate.Stars, options.QuadStars, ct);
         // State the fingerprint set on SUCCESS, not only when registration collapses. Both counts
         // were already computed here and thrown away, and their absence is what makes the
         // still-pending port of the dataset builder's two registration fixes (detect pre-debayer
@@ -616,148 +610,85 @@ public sealed class StackingPipeline(
         // would otherwise look identical. Mirrors SessionRegistrar's line of the same shape so the
         // two paths' logs can be read side by side.
         logger.LogInformation("  reference {File} stars={Stars} quads={Quads} (top {Cap})",
-            Path.GetFileName(reference.Path), referenceSorted.Count, referenceQuads.Count, options.QuadStars);
+            Path.GetFileName(reference.Path), registerLoop.ReferenceStarCount, registerLoop.ReferenceQuadCount, options.QuadStars);
         // Reference-frame metrics so the matched tuple gets a real
-        // FrameMetrics even for the reference (which skips the register
-        // loop's star-detection path). Used by the post-registration
-        // quality filter -- without it the reference would be a (0,0,0)
-        // outlier and always survive even if it's actually the worst.
-        var referenceMetrics = FrameRegistration.MetricsFrom(referenceStars);
+        // FrameMetrics even for the reference (which never goes through
+        // the register loop). Used by the post-registration quality
+        // filter -- without it the reference would be a (0,0,0) outlier
+        // and always survive even if it's actually the worst.
+        var referenceMetrics = refCandidate.Metrics;
 
         // Per-group staging dir. Cleaned up by the chosen strategy.
         var stagingDir = Path.Combine(outputDir, "_staging", slug);
         if (Directory.Exists(stagingDir)) Directory.Delete(stagingDir, recursive: true);
         Directory.CreateDirectory(stagingDir);
 
-        // 3b. Per-light: calibrate + debayer + register against
-        // pre-debayered reference + warp 3-channel RGB to ref grid.
-        var calibratedFrameBytes = (long)referenceRaw.Width * referenceRaw.Height * sizeof(float);
-        var calibratedCache = new FrameCache(
-            lightList.Count,
-            FrameCache.DecideCacheCap(lightList.Count, calibratedFrameBytes));
+        // 3b. Per-light: register the RETAINED star lists against the reference through the shared
+        // RegisterLoop (min-stars floor -> quad-form -> tolerance ladder -> rigid refine, plus the
+        // census + skip counters -- the same loop body the dataset registrar runs). No pixel is
+        // read in this phase any more; the warp producer loads frames when integration streams.
+        // The skip split by CAUSE matters because a bare tally cannot separate a DETECTION problem
+        // (few quads anywhere) from a PURITY one (plenty of quads on both sides that still do not
+        // correspond), and those have opposite fixes.
         var matched = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>();
         var skipCount = 0;
-        // Skips split by CAUSE plus the per-frame census, for the same reason the reference
-        // counts are logged above: a bare skip tally cannot separate a DETECTION problem (few quads
-        // anywhere) from a PURITY one (plenty of quads on both sides that still do not correspond),
-        // and those have opposite fixes. A quad matches only when the same four stars form it in
-        // both frames, so with a fraction p of the top-K detections real, at most about p^4 of quads
-        // can match. That is why the dataset path's fix was as much about WHICH stars form the
-        // fingerprint set as about how many.
-        var skippedTooFewStars = 0;
-        var skippedNoQuadFit = 0;
-        // Census inputs, in capture order. The order is load-bearing: it is what lets the census
-        // report a TREND, and a session that degraded through the night has the same min/median/max
-        // as one that was uniformly poor while needing a different fix. Same shape as
-        // SessionRegistrar's census; the min/max quad scalars this loop used to hand-roll live
-        // inside the census now, alongside the histograms and trend they always lacked.
-        var censusStars = new List<int>(lightList.Count);
-        var censusQuads = new List<int>(lightList.Count);
-        var censusHfd = new List<float>(lightList.Count);
-        var censusEcc = new List<float>(lightList.Count);
-        foreach (var lightInfo in lightList)
+        foreach (var candidate in frameCandidates)
         {
             ct.ThrowIfCancellationRequested();
-            var lightRaw = await lightInfo.LoadFullAsync(ct);
-            registerPixels += (long)lightRaw.Width * lightRaw.Height;
-            var calibrated = calibrator.Apply(lightRaw);
-            var name = Path.GetFileNameWithoutExtension(lightInfo.Path);
+            var name = Path.GetFileNameWithoutExtension(candidate.Frame.Path);
 
             Matrix3x2? transform;
-            FrameMetrics frameMetrics = default;
-            if (string.Equals(lightInfo.Path, reference.Path, StringComparison.OrdinalIgnoreCase))
+            var frameMetrics = candidate.Metrics;
+            if (string.Equals(candidate.Frame.Path, reference.Path, StringComparison.OrdinalIgnoreCase))
             {
                 transform = Matrix3x2.Identity;
                 frameMetrics = referenceMetrics;
-                // Every frame contributes to the census, including the reference: it is one of the
-                // frames whose focus the census is describing, and excluding it would silently drop
-                // the sharpest sample from the spread.
-                censusStars.Add(referenceMetrics.StarCount);
-                censusHfd.Add(referenceMetrics.MedianHfd);
-                censusEcc.Add(referenceMetrics.MedianEllipticity);
+                registerLoop.AddReference(referenceMetrics);
             }
             else
             {
-                var (stars, _) = await FrameRegistration.DetectAsync(
-                    calibrated, options.CentroidDebayerAlg, options.SnrMin, options.MinStars, ct);
-                // Per-frame PSF medians for EVERY frame, not only the matched ones (cheap single
-                // pass over the existing StarList): the census wants the skipped frames' spread
-                // most of all, and the matched tuple reuses the same value so the post-loop
-                // quality filter has session-wide statistics without re-running star detection.
-                var detectedMetrics = FrameRegistration.MetricsFrom(stars);
-                censusStars.Add(stars.Count);
-                censusHfd.Add(detectedMetrics.MedianHfd);
-                censusEcc.Add(detectedMetrics.MedianEllipticity);
-                if (stars.Count < MinStarsForMatch)
+                var attempt = await registerLoop.RegisterAsync(candidate.Stars, candidate.Metrics, ct);
+                transform = attempt.Transform;
+                switch (attempt.Skip)
                 {
-                    transform = null;
-                    skippedTooFewStars++;
-                    logger.LogInformation("  [{Name}] stars={Stars} -> SKIP (too few stars)", name, stars.Count);
-                }
-                else
-                {
-                    using var lightSorted = new SortedStarList(stars);
-                    var lightQuads = await lightSorted.FindQuadsAsync(maxStars: options.QuadStars, ct);
-                    censusQuads.Add(lightQuads.Count);
-                    var (solution, tolUsed, _) = await FrameRegistration.TryMatchAsync(lightSorted, referenceSorted, options.QuadStars);
-                    transform = solution;
-                    if (transform is null)
-                    {
-                        skippedNoQuadFit++;
+                    case RegisterLoop.SkipCause.TooFewStars:
+                        logger.LogInformation("  [{Name}] stars={Stars} -> SKIP (too few stars)",
+                            name, candidate.Stars.Count);
+                        break;
+                    case RegisterLoop.SkipCause.NoQuadFit:
                         logger.LogInformation(
                             "  [{Name}] stars={Stars} quads={Quads} vs reference quads={RefQuads} -> SKIP (no quad fit at any tolerance)",
-                            name, stars.Count, lightQuads.Count, referenceQuads.Count);
-                    }
-                    else
-                    {
-                        // Translation-only refinement on top of the bulk
-                        // quad-fingerprint match. Quad fit is RMS-minimising
-                        // over the brightest N stars, which leaves a small
-                        // per-frame translation bias on meridian-flip
-                        // sessions (pre-flip and post-flip averages differ
-                        // by ~1-2 px). Drizzle preserves that bias as a
-                        // "dumbbell" stretch on every star -- bilinear-warp
-                        // strategies hide it under kernel smoothing.
-                        // Refinement is essentially free (~1 ms / frame
-                        // brute-force NN over ~100 stars) so we always
-                        // apply it; non-drizzle strategies get a marginal
-                        // accuracy improvement at zero cost.
-                        var (refined, refScale, refRotDeg, refTx, refTy, refRms, refMatched) =
-                            RegistrationRefiner.RefineRigid(lightSorted, referenceSorted, transform.Value);
-                        transform = refined;
-                        // The medians were computed at detect time (they feed the census for every
-                        // frame); stash them on the matched tuple for the post-loop quality filter.
-                        frameMetrics = detectedMetrics;
-                        var (medHfd, medFwhm, medEcc) =
-                            (frameMetrics.MedianHfd, frameMetrics.MedianFwhm, frameMetrics.MedianEllipticity);
+                            name, candidate.Stars.Count, attempt.LightQuads, registerLoop.ReferenceQuadCount);
+                        break;
+                    default:
                         logger.LogInformation(
                             "  [{Name}] stars={Stars} quads={Quads} hfd={Hfd:F2} fwhm={Fwhm:F2} ecc={Ecc:F3} -> MATCH qt={Tol:F3} refine: rot={Rot:F3}° s={Scale:F5} t=({Tx:F2},{Ty:F2}) rms={Rms:F2}px from {RefMatched} pairs",
-                            name, stars.Count, lightQuads.Count, medHfd, medFwhm, medEcc, tolUsed, refRotDeg, refScale, refTx, refTy, refRms, refMatched);
-                    }
+                            name, candidate.Stars.Count, attempt.LightQuads,
+                            frameMetrics.MedianHfd, frameMetrics.MedianFwhm, frameMetrics.MedianEllipticity,
+                            attempt.QuadTolerance, attempt.RefineRotationDeg, attempt.RefineScale,
+                            attempt.RefineTx, attempt.RefineTy, attempt.RefineRmsPx, attempt.RefineMatchedPairs);
+                        break;
                 }
             }
             if (transform is null) { skipCount++; continue; }
 
-            calibratedCache.Set(matched.Count, calibrated);
-            matched.Add((lightInfo, transform.Value, frameMetrics));
+            matched.Add((candidate.Frame, transform.Value, frameMetrics));
             progress?.Report(new StackingProgress(StackingPhase.Registering, slug, matched.Count + skipCount, lightList.Count));
         }
         // One census, reused by the summary line here and the collapse warning below -- two
         // renderings of the same numbers is how one of them ends up stale (the registrar learned
         // that with its min/max quad range, which is inside the census now).
-        var registrationCensus = RegistrationCensus.Describe(
-            RegistrationCensus.Measure(censusStars, censusQuads, censusHfd, censusEcc));
+        var registrationCensus = RegistrationCensus.Describe(registerLoop.MeasureCensus());
         logger.LogInformation(
             "  registered {Matched}/{Attempted} frames (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit) in {ElapsedMs} ms; census {Census}",
-            matched.Count, lightList.Count, skipCount, skippedTooFewStars, skippedNoQuadFit,
+            matched.Count, lightList.Count, skipCount, registerLoop.SkippedTooFewStars, registerLoop.SkippedNoQuadFit,
             (long)Stopwatch.GetElapsedTime(registerStart).TotalMilliseconds, registrationCensus);
-        // Items = every frame attempted (a failed match still cost its detect + tolerance ladder).
-        // Pixels are REAL on this path, unlike the registrar's centroid-only register stage: this
-        // pass reloads, calibrates and re-detects every frame pass A already measured. The recorded
-        // pixel throughput IS the measured cost of that double-detect -- when the register shell
-        // collapses onto retained star lists (task #21), this drops to zero and the stage table
-        // shows the win rather than a claim of it.
-        timings.Record(StageNames.Register, registerStart, lightList.Count, registerPixels);
+        // Items = every frame attempted (a failed match still cost its quad-form + tolerance
+        // ladder). Pixels are ZERO now, same as the registrar's register stage: this phase works
+        // from the retained star lists, and the reload + re-detect pass whose pixel throughput used
+        // to be recorded here is the double-detect the collapse removed (task #21). Pinned by the
+        // synthetic pipeline test.
+        timings.Record(StageNames.Register, registerStart, lightList.Count);
         hostTracker.Log(logger, $"register/{slug}");
 
         // Post-registration quality filter. Off by default; enable via
@@ -785,29 +716,18 @@ public sealed class StackingPipeline(
                         "  [quality] sigma={Sigma:F2}: rejecting {N}/{Total} frames",
                         qSigma, matched.Count - filterResult.KeptCount, matched.Count);
                 }
+                // No calibrated-frame cache rides alongside matched any more, which retires a whole
+                // failure class by construction: the index-keyed cache used to need rebuilding here
+                // in lockstep with the filtered list, and skipping that paired new matched[K+] with
+                // OLD cache[K+]'s pixels -- the wrong calibrated frame under the right transform,
+                // visible as chromatic speckle on SoL pier-side drizzle masters. The producers load
+                // frames themselves when integration streams, indexed off the final matched list.
                 var filtered = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>(filterResult.KeptCount);
-                // Rebuild the calibratedCache alongside matched so the
-                // integrator's index-based lookup stays consistent. The
-                // cache is keyed by integer frame index = matched[i]
-                // position; when we drop frame K from matched, every
-                // subsequent index in the cache becomes off-by-one
-                // relative to the new matched list. Without this
-                // rebuild, the integrator pairs new matched[K+] with
-                // OLD cache[K+]'s calibrated image -- it uses the
-                // wrong calibrated frame with the right transform,
-                // producing systematic misregistration on every frame
-                // after the drop. That looked like chromatic speckle on
-                // SoL pier-side drizzle masters.
-                var newCache = new FrameCache(filterResult.KeptCount, FrameCache.DecideCacheCap(filterResult.KeptCount, calibratedFrameBytes));
                 for (var i = 0; i < matched.Count; i++)
                 {
                     var reason = filterResult.Reasons[i];
                     if (reason == FrameRejectReason.Kept)
                     {
-                        if (calibratedCache.TryGet(i, out var cachedImg))
-                        {
-                            newCache.Set(filtered.Count, cachedImg);
-                        }
                         filtered.Add(matched[i]);
                     }
                     else
@@ -820,7 +740,6 @@ public sealed class StackingPipeline(
                     }
                 }
                 matched = filtered;
-                calibratedCache = newCache;
             }
             else
             {
@@ -837,8 +756,8 @@ public sealed class StackingPipeline(
             // read side by side.
             logger.LogWarning(
                 "  [skip] fewer than 2 matched frames; integration would be meaningless. reference {RefFile} stars={RefStars} quads={RefQuads}, skipped {TooFew} too-few-stars + {NoFit} no-quad-fit. census {Census}",
-                Path.GetFileName(reference.Path), referenceSorted.Count, referenceQuads.Count,
-                skippedTooFewStars, skippedNoQuadFit, registrationCensus);
+                Path.GetFileName(reference.Path), registerLoop.ReferenceStarCount, registerLoop.ReferenceQuadCount,
+                registerLoop.SkippedTooFewStars, registerLoop.SkippedNoQuadFit, registrationCensus);
             try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
             return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                 PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "fewer than 2 matched frames",
@@ -888,36 +807,30 @@ public sealed class StackingPipeline(
         // intersection rectangle for stretch stats.
         var transforms = matched.ConvertAll(m => m.Transform);
         var (canvasShift, outOriginX, outOriginY, outWidth, outHeight) =
-            CanvasGeometry.ComputeUnionCanvas(transforms, referenceDebayered.Width, referenceDebayered.Height);
+            CanvasGeometry.ComputeUnionCanvas(transforms, referenceRaw.Width, referenceRaw.Height);
         logger.LogInformation("  [canvas] union bbox = {W}x{H} (origin {X},{Y} in ref space)",
             outWidth, outHeight, outOriginX, outOriginY);
 
         var (frameFootprints, statsRect) = CanvasGeometry.ComputeFootprintsAndStatsRect(
-            transforms, canvasShift, referenceDebayered.Width, referenceDebayered.Height, outWidth, outHeight);
+            transforms, canvasShift, referenceRaw.Width, referenceRaw.Height, outWidth, outHeight);
 
-        // Pass B: producer that re-loads each matched frame and warps
-        // into the BB canvas, yielding one Image at a time. Cache hot
-        // path: pass A stashed each matched frame's calibrated image.
+        // Producer that loads each matched frame and warps into the BB canvas, yielding one Image
+        // at a time -- the ONE place this group's pixels are read after the measure pass. Loads
+        // per frame, deliberately uncached: the register phase no longer reads pixels, so the load
+        // that used to fill the pipeline-level cache is gone and per-frame totals are unchanged;
+        // the staged strategies keep their own internal FrameCache for their multi-pass needs.
         async IAsyncEnumerable<Image> WarpedFramesProducer(
             [EnumeratorCancellation] CancellationToken token)
         {
-            for (var i = 0; i < matched.Count; i++)
+            foreach (var (lightInfo, transformOrig, _) in matched)
             {
-                var (lightInfo, transformOrig, _) = matched[i];
                 token.ThrowIfCancellationRequested();
-                Image calibrated;
-                if (calibratedCache.TryGet(i, out var cached))
-                {
-                    calibrated = cached;
-                }
-                else
-                {
-                    var lightRaw = await lightInfo.LoadFullAsync(token);
-                    calibrated = calibrator.Apply(lightRaw);
-                }
-                var debayered = await calibrated.DebayerAsync(options.StackDebayerAlg, cancellationToken: token);
-                var shifted = transformOrig * canvasShift;
-                var warped = await debayered.WarpToReferenceGridAsync(shifted, outWidth, outHeight, token);
+                var lightRaw = await lightInfo.LoadFullAsync(token);
+                var calibrated = calibrator.Apply(lightRaw);
+                // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
+                // three lines the dataset registrar runs, so the two paths cannot drift here.
+                var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
+                    calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, token);
                 yield return warped;
             }
         }
@@ -930,20 +843,11 @@ public sealed class StackingPipeline(
         async IAsyncEnumerable<RawBayerFrame> RawBayerFramesProducer(
             [EnumeratorCancellation] CancellationToken token)
         {
-            for (var i = 0; i < matched.Count; i++)
+            foreach (var (lightInfo, transformOrig, _) in matched)
             {
-                var (lightInfo, transformOrig, _) = matched[i];
                 token.ThrowIfCancellationRequested();
-                Image calibrated;
-                if (calibratedCache.TryGet(i, out var cached))
-                {
-                    calibrated = cached;
-                }
-                else
-                {
-                    var lightRaw = await lightInfo.LoadFullAsync(token);
-                    calibrated = calibrator.Apply(lightRaw);
-                }
+                var lightRaw = await lightInfo.LoadFullAsync(token);
+                var calibrated = calibrator.Apply(lightRaw);
                 var shifted = transformOrig * canvasShift;
                 yield return new RawBayerFrame(calibrated, shifted);
             }
@@ -958,8 +862,8 @@ public sealed class StackingPipeline(
         // Drizzle strategies key CanRun off this in their Evaluate.
         var probe = IntegrationProbe.Snapshot(
             frameCount: matched.Count,
-            frameWidth: referenceDebayered.Width,
-            frameHeight: referenceDebayered.Height,
+            frameWidth: referenceRaw.Width,
+            frameHeight: referenceRaw.Height,
             channelCount: 3,
             canvasWidth: outWidth,
             canvasHeight: outHeight,
