@@ -59,6 +59,12 @@ jobs:
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
+        # A changed key (any LFS pointer added or updated) restores the newest previous
+        # object set so `git lfs pull` fetches only the delta. Without this, adding one
+        # 3 MB file forced a full re-pull of every object in the glob per leg, which is
+        # how the account's LFS budget got exhausted on 2026-08-17.
+        restore-keys: |
+          lfs-build-
     - name: Fetch required LFS objects
       run: git lfs pull --include="*.lz,*.ttf,*.bin.gz"
     - uses: actions/setup-dotnet@v5
@@ -193,6 +199,14 @@ jobs:
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
+        # A changed key (any LFS pointer added or updated) restores the newest previous
+        # object set so `git lfs pull` fetches only the delta. Without this, adding one
+        # 3 MB file forced a full ~205 MB re-pull per leg, which is how the account's
+        # LFS budget got exhausted on 2026-08-17. The prefix is shared with the other
+        # test job on purpose: their globs overlap almost entirely, so either job's
+        # saved set is a near-complete starting point for the other.
+        restore-keys: |
+          lfs-tests-
     - name: Fetch required LFS objects
       # `*.CR2`/`*.cr2` cover Cr2ImportTests (Data/CR2/*, ~19 MB). `*.CR3`/`*.cr3`
       # cover Cr3ImportTests (Data/CR3/*, ~7 MB). Both case variants are tracked
@@ -324,6 +338,14 @@ jobs:
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
+        # A changed key (any LFS pointer added or updated) restores the newest previous
+        # object set so `git lfs pull` fetches only the delta. Without this, adding one
+        # 3 MB file forced a full ~205 MB re-pull per leg, which is how the account's
+        # LFS budget got exhausted on 2026-08-17. The prefix is shared with the other
+        # test job on purpose: their globs overlap almost entirely, so either job's
+        # saved set is a near-complete starting point for the other.
+        restore-keys: |
+          lfs-tests-
     - name: Fetch required LFS objects
       run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz"
     - name: Download preprocessed catalogs
@@ -403,6 +425,12 @@ jobs:
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
+        # A changed key (any LFS pointer added or updated) restores the newest previous
+        # object set so `git lfs pull` fetches only the delta. Without this, adding one
+        # 3 MB file forced a full re-pull of every object in the glob per leg, which is
+        # how the account's LFS budget got exhausted on 2026-08-17.
+        restore-keys: |
+          lfs-build-
     - name: Fetch required LFS objects
       shell: bash
       run: git lfs pull --include="*.lz,*.ttf,*.bin.gz"
