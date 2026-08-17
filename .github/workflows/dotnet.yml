@@ -61,8 +61,10 @@ jobs:
         key: ${{ steps.lfs-key.outputs.key }}
         # A changed key (any LFS pointer added or updated) restores the newest previous
         # object set so `git lfs pull` fetches only the delta. Without this, adding one
-        # 3 MB file forced a full re-pull of every object in the glob per leg, which is
-        # how the account's LFS budget got exhausted on 2026-08-17.
+        # 3 MB file meant a full cold re-pull of every object in the glob per leg --
+        # which is what turned the 2026-08-17 LFS-budget refusal into a hard CI failure.
+        # (The budget itself was spent by non-CI pulls; every sampled run that month rode
+        # a cache hit and transferred nothing.)
         restore-keys: |
           lfs-build-
     - name: Fetch required LFS objects
@@ -201,10 +203,12 @@ jobs:
         key: ${{ steps.lfs-key.outputs.key }}
         # A changed key (any LFS pointer added or updated) restores the newest previous
         # object set so `git lfs pull` fetches only the delta. Without this, adding one
-        # 3 MB file forced a full ~205 MB re-pull per leg, which is how the account's
-        # LFS budget got exhausted on 2026-08-17. The prefix is shared with the other
-        # test job on purpose: their globs overlap almost entirely, so either job's
-        # saved set is a near-complete starting point for the other.
+        # 3 MB file meant a full ~205 MB cold re-pull per leg -- which is what turned the
+        # 2026-08-17 LFS-budget refusal into a hard CI failure. (The budget itself was
+        # spent by non-CI pulls; every sampled run that month rode a cache hit.) The
+        # prefix is shared with the other test job on purpose: their globs overlap almost
+        # entirely, so either job's saved set is a near-complete starting point for the
+        # other.
         restore-keys: |
           lfs-tests-
     - name: Fetch required LFS objects
@@ -340,10 +344,12 @@ jobs:
         key: ${{ steps.lfs-key.outputs.key }}
         # A changed key (any LFS pointer added or updated) restores the newest previous
         # object set so `git lfs pull` fetches only the delta. Without this, adding one
-        # 3 MB file forced a full ~205 MB re-pull per leg, which is how the account's
-        # LFS budget got exhausted on 2026-08-17. The prefix is shared with the other
-        # test job on purpose: their globs overlap almost entirely, so either job's
-        # saved set is a near-complete starting point for the other.
+        # 3 MB file meant a full ~205 MB cold re-pull per leg -- which is what turned the
+        # 2026-08-17 LFS-budget refusal into a hard CI failure. (The budget itself was
+        # spent by non-CI pulls; every sampled run that month rode a cache hit.) The
+        # prefix is shared with the other test job on purpose: their globs overlap almost
+        # entirely, so either job's saved set is a near-complete starting point for the
+        # other.
         restore-keys: |
           lfs-tests-
     - name: Fetch required LFS objects
@@ -427,8 +433,10 @@ jobs:
         key: ${{ steps.lfs-key.outputs.key }}
         # A changed key (any LFS pointer added or updated) restores the newest previous
         # object set so `git lfs pull` fetches only the delta. Without this, adding one
-        # 3 MB file forced a full re-pull of every object in the glob per leg, which is
-        # how the account's LFS budget got exhausted on 2026-08-17.
+        # 3 MB file meant a full cold re-pull of every object in the glob per leg --
+        # which is what turned the 2026-08-17 LFS-budget refusal into a hard CI failure.
+        # (The budget itself was spent by non-CI pulls; every sampled run that month rode
+        # a cache hit and transferred nothing.)
         restore-keys: |
           lfs-build-
     - name: Fetch required LFS objects
