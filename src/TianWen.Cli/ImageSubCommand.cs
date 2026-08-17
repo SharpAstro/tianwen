@@ -826,7 +826,7 @@ internal sealed class ImageSubCommand(
             else if (result.Final is { } finalImage)
             {
                 var dst = EnsureFitsExtension(outputPath ?? DefaultOut(input, "_sharpened"));
-                finalImage.WriteToFitsFile(dst, wcs);
+                finalImage.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
                 consoleHost.WriteScrollable($"[sharpen] wrote {dst}");
                 // For dual-stretch: composite is already in stretched [0, 1]
                 // space (per-plate MTF + screen recombine), so MasterPreviewRenderer
@@ -946,7 +946,7 @@ internal sealed class ImageSubCommand(
             }
 
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_starless"));
-            starless.WriteToFitsFile(dst, wcs);
+            starless.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
             consoleHost.WriteScrollable($"[remove-stars] wrote {dst}");
             var format = parseResult.GetValue(formatOpt);
             var peakNits = Math.Clamp(parseResult.GetValue(pngPqPeakNitsOpt), 1f, 10000f);
@@ -1045,7 +1045,7 @@ internal sealed class ImageSubCommand(
             }
 
             var dst = EnsureFitsExtension(parseResult.GetValue(outputOpt) ?? DefaultOut(input, "_flattened"));
-            flattened.WriteToFitsFile(dst, wcs);
+            flattened.WriteToFitsFile(dst, wcs, SharpenPipeline.SwModifyHeader());
             consoleHost.WriteScrollable($"[flatten] wrote {dst}");
             await WriteCompanionAsync(flattened, dst, format, src.ImageMeta, wcs, "flatten",
                 useStretchedPng: false, peakNits: peakNits, gamutToBt2020: gamutToBt2020, ct: ct);
@@ -1062,7 +1062,7 @@ internal sealed class ImageSubCommand(
                 else
                 {
                     var gradientDst = ReplaceExtension(dst, "_gradient.fits");
-                    background.WriteToFitsFile(gradientDst, wcs);
+                    background.WriteToFitsFile(gradientDst, wcs, SharpenPipeline.SwModifyHeader());
                     consoleHost.WriteScrollable($"[flatten] wrote {gradientDst}");
                     if (format != ImageOutputFormat.None)
                     {
@@ -1353,7 +1353,7 @@ internal sealed class ImageSubCommand(
         var path = basePath.EndsWith(".fits", StringComparison.OrdinalIgnoreCase)
             ? StripExtension(basePath) + suffix + ".fits"
             : basePath + suffix + ".fits";
-        plate.WriteToFitsFile(path, wcs);
+        plate.WriteToFitsFile(path, wcs, SharpenPipeline.SwModifyHeader());
         consoleHost.WriteScrollable($"[sharpen] wrote {path}");
         await WriteCompanionAsync(plate, path, format, sensorMeta, wcs, "sharpen",
             useStretchedPng: false, peakNits: peakNits, gamutToBt2020: gamutToBt2020, ct: ct);

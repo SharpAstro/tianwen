@@ -54,6 +54,15 @@ public class StackEnhanceTests
         return new Image([r, g, b], BitDepth.Float32, 1.0f, 0f, 0f, meta);
     }
 
+    private static string? ReadHeaderString(string fitsPath, string card)
+    {
+        using var bf = new nom.tam.util.BufferedFile(fitsPath, FileAccess.Read, FileShare.Read, 1024);
+        using var fits = new nom.tam.fits.Fits(bf, false);
+        var hdu = fits.ReadHDUHeaderOnly();
+        hdu.ShouldNotBeNull();
+        return hdu.Header.GetStringValue(card);
+    }
+
     private static IntegrationResult MakeResult(Image master)
     {
         // RejectionMap is a single-channel non-null Image per the
@@ -128,6 +137,14 @@ public class StackEnhanceTests
                 .ShouldBeTrue();
             sharpenedCrop!.Width.ShouldBe(autocrop.Width);
             sharpenedCrop.Height.ShouldBe(autocrop.Height);
+
+            // The sharpened sibling names its modifier (SWMODIFY, the MaxIm DL card); the raw
+            // master, which nothing modified, must not.
+            ReadHeaderString(masterPath, "SWMODIFY").ShouldBeNull();
+            ReadHeaderString(Path.Combine(tmp.FullName, "master_test_sharpened.fits"), "SWMODIFY")
+                .ShouldBe(SharpenPipeline.SoftwareModifier);
+            ReadHeaderString(Path.Combine(tmp.FullName, "master_test_sharpened_autocrop.fits"), "SWMODIFY")
+                .ShouldBe(SharpenPipeline.SoftwareModifier);
         }
         finally
         {

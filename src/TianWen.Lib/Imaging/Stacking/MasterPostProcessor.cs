@@ -426,7 +426,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // MeanRejectionRate) so IntegrationFitsWriter keeps the same provenance
             // headers; just swap Master for the enhanced pixels.
             var sharpenedPath = WithSuffix(masterPath, "_sharpened");
-            IntegrationFitsWriter.Write(sharpenedPath, master with { Master = enhancedMaster }, solvedWcs, strategy);
+            IntegrationFitsWriter.Write(sharpenedPath, master with { Master = enhancedMaster }, solvedWcs, strategy,
+                modifiedBy: SharpenPipeline.SoftwareModifier);
             logger.LogInformation("  wrote {Path} (enhance blend={Blend:F2}, {Ms} ms)", sharpenedPath, blend, sw.ElapsedMilliseconds);
 
             Image? enhancedCropped = null;
@@ -434,7 +435,8 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             {
                 enhancedCropped = CropImage(enhancedMaster, autocropRect);
                 var sharpenedCropPath = WithSuffix(masterPath, "_sharpened_autocrop");
-                IntegrationFitsWriter.Write(sharpenedCropPath, croppedResult with { Master = enhancedCropped }, croppedWcs, strategy);
+                IntegrationFitsWriter.Write(sharpenedCropPath, croppedResult with { Master = enhancedCropped }, croppedWcs, strategy,
+                    modifiedBy: SharpenPipeline.SoftwareModifier);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", sharpenedCropPath, autocropRect.Width, autocropRect.Height);
             }
 
