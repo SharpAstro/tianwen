@@ -60,11 +60,24 @@ public static class IntegrationFitsWriter
     /// AHD+stack master without having to read pixel data. Null is
     /// allowed for non-pipeline callers (tests, manual workflows) that
     /// don't have a strategy kind handy.</param>
-    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null)
+    /// <param name="modifiedBy">Stamped into <c>SWMODIFY</c> (MaxIm DL's
+    /// "software that modified the image" card) on the MASTER only, for
+    /// callers writing an image something changed after integration -- the
+    /// enhance path passes <c>SharpenPipeline.SoftwareModifier</c> when it
+    /// re-writes the sharpened master through this writer. The rejection map
+    /// never carries it: the map is the ORIGINAL integration statistic,
+    /// re-written verbatim beside the modified pixels. Null (the default)
+    /// writes no card.</param>
+    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null, string? modifiedBy = null)
     {
         var extras = new Dictionary<string, (object Value, string Comment)>
         {
             ["STACK_N"] = (result.FrameCount, "Number of frames combined into this master"),
+            // The SBFITSEXT spelling of the same fact, for readers that know that vocabulary
+            // (MaxIm DL, TheSkyX). Beside STACK_N rather than instead of it: our own scan and
+            // FrameInfo keep reading STACK_N first, and capture software in the wild writes
+            // SNAPSHOT=1 on RAW subs, so the count alone must never be the product marker.
+            ["SNAPSHOT"] = (result.FrameCount, "Number of images combined (SBFITSEXT)"),
             ["REJ_TOT"] = ((long)result.TotalRejections, "Total per-pixel rejections across the stack"),
             ["REJ_RATE"] = (result.MeanRejectionRate, "Mean rejection rate (rejections / (frames * pixels * channels))"),
             ["SWCREATE"] = (SoftwareCreator, "Software that created the master"),
@@ -72,6 +85,10 @@ public static class IntegrationFitsWriter
         if (strategy is { } s)
         {
             extras["STRATEGY"] = (s.ToString(), "Integration strategy used (IntegrationStrategyKind)");
+        }
+        if (modifiedBy is not null)
+        {
+            extras["SWMODIFY"] = (modifiedBy, "Software that modified this image");
         }
 
         result.Master.WriteToFitsFile(masterPath, wcs, extras);

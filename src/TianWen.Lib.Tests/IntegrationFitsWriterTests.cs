@@ -93,11 +93,53 @@ public class IntegrationFitsWriterTests
         var hdu = fits.ReadHDUHeaderOnly();
         hdu.ShouldNotBeNull();
         hdu.Header.GetIntValue("STACK_N", -1).ShouldBe(5);
+        // SBFITSEXT spells the combined-frame count SNAPSHOT; the writer stamps both
+        // so MaxIm-vocabulary readers see the fact too.
+        hdu.Header.GetIntValue("SNAPSHOT", -1).ShouldBe(5);
         hdu.Header.GetLongValue("REJ_TOT", -1L).ShouldBeGreaterThan(0L);
         hdu.Header.GetDoubleValue("REJ_RATE", -1.0).ShouldBeGreaterThan(0.0);
         // Custom SWCREATE overrides the ImageMeta default (which is empty
         // for our synthetic frames, but extras-supplied header wins regardless).
         hdu.Header.GetStringValue("SWCREATE").ShouldContain("Integrator");
+        // A freshly integrated master was not modified by anything.
+        hdu.Header.GetStringValue("SWMODIFY").ShouldBeNull();
+    }
+
+    [Fact]
+    public void Write_ModifiedBy_StampsSwModifyOnTheMasterButNeverTheRejectionMap()
+    {
+        var dir = CreateTempDir();
+        var masterPath = Path.Combine(dir, "sharpened.fits");
+        var frames = new List<Image>
+        {
+            MonoFrame(0.50f), MonoFrame(0.51f), MonoFrame(0.49f),
+            MonoFrame(0.50f), MonoFrame(99.0f),
+        };
+        var result = Integrator.Integrate(frames,
+            new IntegrationOptions(Rejector: new SigmaClipRejector(), ApplyNormalization: false));
+        result.TotalRejections.ShouldBeGreaterThan(0);
+
+        IntegrationFitsWriter.Write(masterPath, result, modifiedBy: "TianWen.Test.Modifier");
+
+        using (var bf = new nom.tam.util.BufferedFile(masterPath, FileAccess.Read, FileShare.Read, 1024))
+        using (var fits = new nom.tam.fits.Fits(bf, false))
+        {
+            var hdu = fits.ReadHDUHeaderOnly();
+            hdu.ShouldNotBeNull();
+            hdu.Header.GetStringValue("SWMODIFY").ShouldBe("TianWen.Test.Modifier");
+        }
+
+        // The rejection map is the ORIGINAL integration statistic re-written beside the
+        // modified pixels; a modifier card there would claim something touched it.
+        var rejectionPath = IntegrationFitsWriter.RejectionPathFor(masterPath);
+        File.Exists(rejectionPath).ShouldBeTrue();
+        using (var bf = new nom.tam.util.BufferedFile(rejectionPath, FileAccess.Read, FileShare.Read, 1024))
+        using (var fits = new nom.tam.fits.Fits(bf, false))
+        {
+            var hdu = fits.ReadHDUHeaderOnly();
+            hdu.ShouldNotBeNull();
+            hdu.Header.GetStringValue("SWMODIFY").ShouldBeNull();
+        }
     }
 
     [Fact]

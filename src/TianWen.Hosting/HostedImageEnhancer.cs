@@ -126,7 +126,7 @@ internal sealed class HostedImageEnhancer(
 
                 if (result.Final is { } final)
                 {
-                    final.WriteToFitsFile(outputPath, wcs);
+                    final.WriteToFitsFile(outputPath, wcs, SharpenPipeline.SwModifyHeader());
                     ok = true;
                 }
                 else
