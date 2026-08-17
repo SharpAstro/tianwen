@@ -328,8 +328,116 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildTagFilterCommand() },
+            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildCoverageCommand(consoleHost), BuildTagFilterCommand() },
         };
+    }
+
+    /// <summary>
+    /// <c>tianwen dataset coverage</c>: one TSV row per session stating what calibration a bake
+    /// would resolve (dark / flat / pedestal / dark-scaling bias / bias availability / APP BPM
+    /// presence, each with gain + offset + temperature + exposure + epoch). A sibling of
+    /// <c>build</c> rather than a flag on it because it writes no tiles, needs no output dataset,
+    /// and must include sessions a build would skip (the row FLAGS below-threshold sessions
+    /// instead of hiding them).
+    /// </summary>
+    private Command BuildCoverageCommand(IConsoleHost consoleHost)
+    {
+        var archiveRootOpt = new Option<string[]>("--archive-root")
+        {
+            Description = "Archive root scanned recursively for lights + calibration (repeatable).",
+            Required = true,
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var outOpt = new Option<string>("--out", "-o")
+        {
+            Description = "Directory the report files are written into (created if missing): " +
+                          "calibration-coverage.tsv + calibration-coverage.md.",
+            Required = true,
+        };
+        var softwareOpt = new Option<string>("--software")
+        {
+            Description = "Case-insensitive wildcard on SWCREATE; only LIGHTS authored by matching " +
+                          "software get a row (e.g. '*N.I.N.A.*'). Calibration frames resolve " +
+                          "regardless of authoring tool. Empty = no filter.",
+            DefaultValueFactory = _ => "",
+        };
+        var minExposureOpt = new Option<double>("--min-exposure")
+        {
+            Description = "Minimum light exposure in seconds (the bake's own gate).",
+            DefaultValueFactory = _ => 10d,
+        };
+        var maxExposureOpt = new Option<double>("--max-exposure")
+        {
+            Description = "Maximum light exposure in seconds (the bake's own gate).",
+            DefaultValueFactory = _ => 300d,
+        };
+        var minSubsOpt = new Option<int>("--min-subs")
+        {
+            Description = "The bake threshold the below_bake_min_subs column is judged against. " +
+                          "Sessions below it still get a row; this only sets where the flag flips.",
+            DefaultValueFactory = _ => 10,
+        };
+        var requireGainMatchOpt = new Option<bool>("--require-gain-match")
+        {
+            Description = "Resolve darks under the strict gain gate (the production default). Pass " +
+                          "'--require-gain-match false' to see what a lenient run would pick instead.",
+            DefaultValueFactory = _ => true,
+        };
+        var maxDarkDeltaTOpt = new Option<double?>("--max-dark-delta-t")
+        {
+            Description = "Reject darks further than this many degrees C from the lights, as the " +
+                          "bake would with the same flag. Omit for no limit.",
+        };
+
+        var command = new Command("coverage",
+            "Per-session calibration coverage over the archive, resolved by the production matcher " +
+            "(never a parallel scan): flats, dark-flats matching those flats, biases, darks/master " +
+            "darks/BPMs, light counts, filter provenance, and gain/offset for each. Output is a " +
+            "parsable TSV plus a markdown rollup.")
+        {
+            Options =
+            {
+                archiveRootOpt, outOpt, softwareOpt, minExposureOpt, maxExposureOpt, minSubsOpt,
+                requireGainMatchOpt, maxDarkDeltaTOpt,
+            },
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var archiveRoots = parseResult.GetValue(archiveRootOpt)!;
+            foreach (var root in archiveRoots)
+            {
+                if (!Directory.Exists(root))
+                {
+                    consoleHost.WriteError($"Archive root does not exist: {root}");
+                    return 1;
+                }
+            }
+            var outDir = parseResult.GetValue(outOpt)!;
+
+            var options = new DatasetBuildOptions
+            {
+                ArchiveRoots = [.. archiveRoots.Select(Path.GetFullPath)],
+                OutputDir = outDir,
+                MinExposure = TimeSpan.FromSeconds(parseResult.GetValue(minExposureOpt)),
+                MaxExposure = TimeSpan.FromSeconds(parseResult.GetValue(maxExposureOpt)),
+                MinSubsPerSession = parseResult.GetValue(minSubsOpt),
+                SoftwareIncludePattern = parseResult.GetValue(softwareOpt) ?? "",
+                RequireGainMatch = parseResult.GetValue(requireGainMatchOpt),
+                MaxDarkTemperatureDelta = parseResult.GetValue(maxDarkDeltaTOpt),
+            };
+
+            var result = await CalibrationCoverageReport.WriteAsync(
+                options, outDir, logger,
+                progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
+                cancellationToken: ct);
+
+            consoleHost.WriteScrollable($"[coverage] {result.Sessions} session(s) -> {result.TsvPath}");
+            consoleHost.WriteScrollable($"[coverage] rollup: {result.SummaryPath}");
+            return 0;
+        });
+
+        return command;
     }
 
     /// <summary>
