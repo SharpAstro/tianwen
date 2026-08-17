@@ -29,13 +29,30 @@ namespace TianWen.Lib.Tests
     /// <c>TIANWEN_BPM_DARK</c> to a master dark FITS. Optional: <c>TIANWEN_BPM_OUT</c> (output dir,
     /// default a temp dir), <c>TIANWEN_BPM_MAXLIGHTS</c> (cap the frame count for a quick run).</para>
     ///
-    /// <para><b>Measured 2026-08-15</b> on 2025-12-28 Segaull+Thors_Helmet (ZWO ASI533MC Pro, g121,
-    /// 60s) against <c>master_dark_120s_-10C_g121_ZWOASI533MCPro.fits</c>, capped at 100 lights of
-    /// which 90 registered, both runs BayerDrizzle. The mask changed <b>2119 px, 0.0077% of the
-    /// frame</b>, in 617 clusters spread across all three channels, and the extreme-outlier count
-    /// fell 162618 -> 161334. So it is surgical and it moves in the right direction, which is what
-    /// the assertions below pin. Point it at a dark for the RIGHT gain: sigma is not portable
-    /// between darks, and a mismatched one changes what gets flagged rather than failing loudly.</para>
+    /// <para><b>Measured 2026-08-15</b> on 2025-12-28 Segaull+Thors_Helmet / HIP-34710 (ZWO ASI533MC
+    /// Pro, g121, 60s) against <c>master_dark_120s_-10C_g121_ZWOASI533MCPro.fits</c>, capped at 100
+    /// lights of which 90 registered, both runs BayerDrizzle, mask source the DARK-derived map. The
+    /// mask changed <b>2119 px, 0.0077% of the frame</b>, in 617 clusters spread across all three
+    /// channels, and the extreme-outlier count fell 162618 -> 161334. So it is surgical and it moves
+    /// in the right direction, which is what the assertions below pin. Point it at a dark for the
+    /// RIGHT gain: sigma is not portable between darks, and a mismatched one changes what gets
+    /// flagged rather than failing loudly.</para>
+    ///
+    /// <para><b>Measured 2026-08-17</b>, same session / dark / cap (90 registered again), with the
+    /// masked arm building the REGISTRATION-derived map (task #22,
+    /// <see cref="BadPixelAccumulator"/>) ALONE, mid-development replacement semantics: <b>9182 px,
+    /// 0.0332% of the frame, in 2997 clusters</b>; bright outliers fell 162521 -> 157467. Its 138
+    /// flagged sensor px removed roughly 4x the residue the dark map's 21,898 reached on the same
+    /// night -- the defect population at the lights' own exposure/gain/temperature that the
+    /// mismatched dark could never flag -- while staying two orders of magnitude under the surgical
+    /// bar. The two maps proved nearly DISJOINT (the APP-map oracle scored the session map at 3 of
+    /// 18,393 unanimous-core px), which is why the shipped semantics became the UNION of both.</para>
+    ///
+    /// <para><b>Measured 2026-08-17, shipped UNION semantics</b>, same session / dark / cap:
+    /// <b>9795 px, 0.0354% of the frame, in 3284 clusters</b>; bright outliers fell
+    /// 162522 -> 157338. Strictly more residue removed than either map alone (-5184 outliers vs
+    /// -5054 registration-only and -1284 dark-only), at unchanged surgical scale -- the empirical
+    /// footing under UnionInto.</para>
     /// </summary>
     public sealed class HotPixelMaskProbe(ITestOutputHelper output)
     {

@@ -221,9 +221,13 @@ public static class SessionRegistrar
     /// rejection one, so a single number is wrong for one of them. Pass a value only to override
     /// deliberately.</param>
     /// <param name="debayerAlgorithm">Debayer used for both measurement and warping.</param>
-    /// <param name="hotPixelSigma">STARTING CEILING for the sigma above the dark's own background
-    /// at which a pixel is masked out of drizzle deposition, matching
-    /// <c>StackingOptions.HotPixelSigma</c>. Zero disables. It is a ceiling rather than the
+    /// <param name="hotPixelSigma">One knob, two producers, and the shipped mask is their UNION:
+    /// it is the per-frame outlier sigma of the session-derived <see cref="BadPixelAccumulator"/>
+    /// map (built whenever the registered transforms prove the session dithered/drifted enough to
+    /// separate stars from defects; the two producers flag nearly disjoint real populations, see
+    /// <see cref="BadPixelAccumulator.UnionInto"/>) AND the STARTING CEILING for the sigma above
+    /// the dark's own background at which a pixel is masked out of drizzle deposition, matching
+    /// <c>StackingOptions.HotPixelSigma</c>. Zero disables both. It is a ceiling rather than the
     /// threshold because sigma is not portable between darks: it multiplies a quantized MAD, so the
     /// same number recovered 32.95% of a sensor's consensus defect set on one master dark and
     /// 74.77% on another from the SAME sensor at a different gain.
@@ -263,14 +267,18 @@ public static class SessionRegistrar
     {
         // 1. Measure every light: calibrate -> debayer -> detect stars -> PSF metrics.
         //    The star list is retained on each AnalyzedFrame so nothing below re-detects.
+        //    The session bad-pixel accumulator (task #22) rides along: the measure pass is the one
+        //    place the calibrated pixels are already in hand, and every measured light votes --
+        //    gate-rejected frames included, since a sensor defect does not care about clouds.
         var measureStart = StageTimings.Start();
+        var badPixelAccumulator = hotPixelSigma > 0f ? new BadPixelAccumulator(hotPixelSigma) : null;
         var analyzed = new List<SessionFrameAnalyzer.AnalyzedFrame>(session.Lights.Length);
         var measuredPixels = 0L;
         foreach (var light in session.Lights)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var frame = await SessionFrameAnalyzer.MeasureAsync(
-                light, calibrator, debayerAlgorithm, cancellationToken: cancellationToken);
+                light, calibrator, debayerAlgorithm, badPixels: badPixelAccumulator, cancellationToken: cancellationToken);
             analyzed.Add(frame);
             measuredPixels += (long)frame.Frame.Width * frame.Frame.Height;
         }
@@ -552,6 +560,28 @@ public static class SessionRegistrar
                 flagged,
                 flagged * 100.0 / (darkMaster.Width * (double)darkMaster.Height * darkMaster.ChannelCount),
                 hotPixelSigma);
+        }
+        // The session-derived map (task #22) joins the dark-derived one as a UNION when it can be
+        // built (enough measured frames, the registered transforms prove real dither/drift,
+        // flagged fraction sane): the two flag nearly DISJOINT real populations (see
+        // BadPixelAccumulator.UnionInto) -- the dark map the stable dark-current defects, the
+        // session map the pixels actively misbehaving at the lights' own exposure, gain and
+        // temperature, which is the population the dark A/B proved is missed (35 of 52 residual
+        // clusters stood at dark-derived sigma 8, six byte-identical to the unmasked run).
+        // BuildMask refuses with a logged reason otherwise, and the dark mask above stands alone.
+        if (badPixelAccumulator?.BuildMask(transforms, logger, session.Id) is { } registrationMask)
+        {
+            if (badPixelMask is { Length: > 0 } darkMask
+                && calibrator?.Dark is { } dm && dm.Width == refW && dm.Height == refH)
+            {
+                var (shared, regOnly, darkOnly) = BadPixelAccumulator.Overlap(
+                    registrationMask[0], darkMask[0], refW, refH);
+                logger?.LogInformation(
+                    "  [{Session}] bad-pixel masks: {Shared} px shared, {RegOnly} registration-only, {DarkOnly} dark-only; masking their union",
+                    session.Id, shared, regOnly, darkOnly);
+                BadPixelAccumulator.UnionInto(registrationMask[0], darkMask[0], refW, refH);
+            }
+            badPixelMask = registrationMask;
         }
 
         var all = Enumerable.Range(0, subsList.Length).ToImmutableArray();

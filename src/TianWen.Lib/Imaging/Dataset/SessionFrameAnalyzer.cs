@@ -76,10 +76,17 @@ public static class SessionFrameAnalyzer
         DebayerAlgorithm debayerAlgorithm = DebayerAlgorithm.VNG,
         float snrMin = 5f,
         int minStars = 2000,
+        BadPixelAccumulator? badPixels = null,
         CancellationToken cancellationToken = default)
     {
         var raw = await frame.LoadFullAsync(cancellationToken);
         var calibrated = calibrator?.Apply(raw) ?? raw;
+        // The measure pass is the one place the calibrated pixels are already in hand, so the
+        // session bad-pixel accumulator (task #22) piggybacks here rather than costing its own
+        // load+calibrate pass. BEFORE DetectAsync, whose internal debayer can rescale the
+        // calibrated frame in place -- the accumulator must see the values the warp/drizzle
+        // passes' own Apply emits.
+        badPixels?.Accumulate(calibrated);
         // The shared detect site. The debayer inside it is retained deliberately (DebayerAsync can
         // rescale its input in place, so it participates in what detection sees) even though this
         // caller does not consume the debayered frame.

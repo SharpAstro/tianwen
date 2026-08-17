@@ -494,6 +494,22 @@ public sealed class StackingPipeline(
             logger.LogInformation("  hot-pixel mask: {Count} px flagged at sigma={Sigma:F1}",
                 maskedCount, options.HotPixelSigma);
         }
+        // The session-derived bad-pixel accumulator (task #22): counts per-sensor-pixel outlier
+        // persistence across the lights during the measure pass, so BuildMask (after registration,
+        // when the transforms can prove the session moved) can flag the defects the dark never
+        // showed -- the measured A/B left 35 of 52 residual clusters standing on dark-derived
+        // masking alone, six of them byte-identical to the unmasked run. Only built when drizzle is
+        // in play (only the drizzle strategies consume IntegrationJob.BadPixelMask; the standard
+        // path's sigma-clip handles outliers across frames) and masking is enabled at all. The
+        // per-frame outlier sigma shares options.HotPixelSigma with the dark detector, so one knob
+        // (and zero) governs both producers.
+        var drizzleMinFrames = options.DrizzleOptions?.MinFrameCount ?? DrizzleStrategy.AutoSelectMinFrameCount;
+        var drizzlePlausible = key.CalibrationKey.SensorType == SensorType.RGGB
+            && (options.ForcedStrategy is IntegrationStrategyKind.BayerDrizzle or IntegrationStrategyKind.TilePipelinedDrizzle
+                || (!options.DisableBayerDrizzle && lightList.Count >= drizzleMinFrames));
+        var badPixelAccumulator = drizzlePlausible && options.HotPixelSigma > 0f
+            ? new BadPixelAccumulator(options.HotPixelSigma)
+            : null;
 
         // 3a. Pick reference by composite PSF quality.
         //
@@ -518,6 +534,11 @@ public sealed class StackingPipeline(
             var raw = await lf.LoadFullAsync(ct);
             measuredPixels += (long)raw.Width * raw.Height;
             var calibrated = calibrator.Apply(raw);
+            // BEFORE DetectAsync, whose internal debayer can rescale the calibrated frame in
+            // place: the accumulator must see the same values the integration producers' own
+            // Apply emits. (The outlier test is scale-invariant per frame, but seeing the
+            // producer's values is the invariant worth stating.)
+            badPixelAccumulator?.Accumulate(calibrated);
             // Shared detect site (FrameRegistration.DetectAsync): pre-debayer luminance, which this
             // path used to reach by detecting on channel 0 of the VNG-debayered frame. That is the
             // interpolated RED plane, and measured on a real session its top-K detections could not
@@ -804,6 +825,27 @@ public sealed class StackingPipeline(
         // footprints in reference space + per-frame canvas-space AABBs +
         // intersection rectangle for stretch stats.
         var transforms = matched.ConvertAll(m => m.Transform);
+
+        // The session-derived map joins the dark-derived one as a UNION when it can be built
+        // (enough frames, the transforms prove real dither/drift, flagged fraction sane): the two
+        // flag nearly DISJOINT real populations (see BadPixelAccumulator.UnionInto), so preferring
+        // either alone discards a measured good. BuildMask refuses with a logged reason otherwise
+        // and the dark mask stands alone.
+        if (badPixelAccumulator?.BuildMask(transforms, logger) is { } registrationMask)
+        {
+            if (badPixelMask is { Length: > 0 } darkMask
+                && dark is not null && dark.Width == referenceRaw.Width && dark.Height == referenceRaw.Height)
+            {
+                var (shared, regOnly, darkOnly) = BadPixelAccumulator.Overlap(
+                    registrationMask[0], darkMask[0], referenceRaw.Width, referenceRaw.Height);
+                logger.LogInformation(
+                    "  bad-pixel masks: {Shared} px shared, {RegOnly} registration-only, {DarkOnly} dark-only; masking their union",
+                    shared, regOnly, darkOnly);
+                BadPixelAccumulator.UnionInto(registrationMask[0], darkMask[0], referenceRaw.Width, referenceRaw.Height);
+            }
+            badPixelMask = registrationMask;
+        }
+
         var (canvasShift, outOriginX, outOriginY, outWidth, outHeight) =
             CanvasGeometry.ComputeUnionCanvas(transforms, referenceRaw.Width, referenceRaw.Height);
         logger.LogInformation("  [canvas] union bbox = {W}x{H} (origin {X},{Y} in ref space)",
@@ -882,7 +924,6 @@ public sealed class StackingPipeline(
         // CanRun and the pool entirely), so a user who passes both
         // --no-bayer-drizzle and --strategy=BayerDrizzle gets drizzle.
         IEnumerable<IIntegrationStrategy>? pool = null;
-        var drizzleMinFrames = options.DrizzleOptions?.MinFrameCount ?? DrizzleStrategy.AutoSelectMinFrameCount;
         if (options.DisableBayerDrizzle)
         {
             pool = IntegrationStrategySelector.DefaultStrategies()
