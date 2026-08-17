@@ -84,6 +84,11 @@ jobs:
         with:
           path: .git/lfs
           key: ${{ steps.lfs-key.outputs.key }}
+          # A changed key restores the newest previous object set so the pull fetches
+          # only the delta (see the dotnet.yml cache steps for the 2026-08-17 incident
+          # this guards against).
+          restore-keys: |
+            lfs-build-
       - name: Fetch required LFS objects
         run: git lfs pull --include="*.lz,*.ttf,*.bin.gz"
 
