@@ -51,7 +51,8 @@ public sealed class AtlasLoadCostProbe(TianWenWebFixture fixture, ITestOutputHel
         // when the flatten line prints. Navigating on that line measured a SECOND cold load and read
         // as a broken cache -- the phase timings were identical and the source said "(decode)", which
         // is the only thing that gave it away. Wait for the app to say it stored the catalog.
-        var saved = await WaitForConsoleAsync(console, "tyc2 cached to IndexedDB", CacheWriteTimeout);
+        var saved = await WaitForConsoleAsync(console, CacheWriteTimeout,
+            "tyc2 cached to IndexedDB", "tyc2 members:");
         output.WriteLine($"[atlas] cache write completed: {saved}");
 
         // Same context, reloaded: the catalog is now cached, so this is the repeat-visit cost.
@@ -75,33 +76,44 @@ public sealed class AtlasLoadCostProbe(TianWenWebFixture fixture, ITestOutputHel
         // Absent is the state before the load starts as well as after it ends, so the first version of
         // this probe passed in 31 ms having measured the gap before the fetch was even issued -- with
         // no tyc2 console lines to show for it, which is the only reason it was caught.
-        var flatten = await WaitForConsoleAsync(console, "tyc2 flatten", LoadTimeout);
+        //
+        // EITHER marker, because there are two star-buffer paths now and the deployed build takes the
+        // one this probe was not written for: region-aligned members print "tyc2 pack", only the
+        // whole-catalog fallback prints "tyc2 flatten". Waiting on the fallback's line alone timed out
+        // after 180 s against a site that had loaded perfectly well.
+        var built = await WaitForConsoleAsync(console, LoadTimeout, "tyc2 pack", "tyc2 flatten");
         var total = sw.ElapsedMilliseconds;
-        Assert.True(flatten, $"{leg}: the catalog never flattened within {LoadTimeout} ms");
+        Assert.True(built, $"{leg}: the star buffer was never built within {LoadTimeout} ms");
 
         output.WriteLine($"[atlas] --- {leg} ---");
         output.WriteLine($"[atlas] chrome interactive at {interactive} ms, catalog on screen at {total} ms "
             + $"({total - interactive} ms of atlas work after the app was usable)");
         lock (console)
         {
-            foreach (var line in console.Where(c => c.Contains("tyc2") || c.Contains("atlas")))
+            // Every app line, not only the tyc2/atlas ones. The boot prints the DSO catalog init and
+            // the tonight's-best sweep too, and those are the OTHER half of a repeat visit: the atlas
+            // is cached in IndexedDB, they are not, so filtering them out reported a warm boot as being
+            // as cheap as its atlas phase.
+            foreach (var line in console.Where(c => c.Contains("[tianwen-web]") || c.Contains("atlas")))
             {
                 output.WriteLine($"[atlas]   {line}");
             }
         }
     }
 
-    /// <summary>Polls the captured console for a marker line. The app reports each phase as it
-    /// finishes, so its own output is the completion signal -- and unlike a DOM state, a line that has
-    /// been printed cannot un-print, so this cannot pass before the work it names has happened.</summary>
-    private static async Task<bool> WaitForConsoleAsync(List<string> console, string marker, float timeoutMs)
+    /// <summary>Polls the captured console for ANY of the marker lines. The app reports each phase as
+    /// it finishes, so its own output is the completion signal -- and unlike a DOM state, a line that
+    /// has been printed cannot un-print, so this cannot pass before the work it names has happened.
+    /// Any-of rather than one, because a phase can legitimately be reached by more than one code path
+    /// and each names itself differently.</summary>
+    private static async Task<bool> WaitForConsoleAsync(List<string> console, float timeoutMs, params string[] markers)
     {
         var deadline = Stopwatch.StartNew();
         while (deadline.ElapsedMilliseconds < timeoutMs)
         {
             lock (console)
             {
-                if (console.Any(c => c.Contains(marker, StringComparison.Ordinal))) return true;
+                if (console.Any(c => markers.Any(m => c.Contains(m, StringComparison.Ordinal)))) return true;
             }
             await Task.Delay(50, TestContext.Current.CancellationToken);
         }
