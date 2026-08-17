@@ -360,32 +360,33 @@ internal sealed class ImageSubCommand(
             DefaultValueFactory = _ => 1.0,
         };
 
-        // RC-Astro vs SAS backend control + per-product strength overrides (Phase 3a).
+        // AI backend selection + per-role strength overrides (Phase 3a; flags renamed
+        // backend-neutral when the n2n lane made them serve more than RC-Astro).
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
             Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), 'sas' (force SAS ONNX even when RC-Astro is licensed), or 'n2n' (the in-house TianWen Noise2Noise model for the denoise step - OSC-only, ships with the repo; other roles behave as auto). No effect on stellar-sharpen / gradient-correction (SAS-only).",
             DefaultValueFactory = _ => "auto",
         };
-        var bxtSharpenOpt = new Option<double>("--bxt-sharpen")
+        var deblurSharpenOpt = new Option<double>("--deblur-sharpen")
         {
-            Description = "RC-Astro BlurXTerminator non-stellar sharpen (bxt --sn) in [0, 1], applied to the full-image deblur and the starless deconvolution. < 0 (default) = the enhancer's own default (0.90). Only affects the RC-Astro backend.",
+            Description = "Non-stellar deblur/deconvolution sharpen in [0, 1], applied to the full-image deblur and the starless deconvolution. RC-Astro maps it to BlurXTerminator's bxt --sn; < 0 (default) = the enhancer's own default (0.90). Other backends ignore it.",
             DefaultValueFactory = _ => -1.0,
         };
-        var nxtDenoiseOpt = new Option<double>("--nxt-denoise")
+        var denoiseStrengthOpt = new Option<double>("--denoise-strength")
         {
             Description = "Denoise strength in [0, 1]. RC-Astro maps it to NoiseXTerminator's nxt --dn (< 0, the default, = noise-adaptive auto); the n2n backend maps it to its blend dial (out = in + s*(den - in), default 1.0). The SAS backend ignores it.",
             DefaultValueFactory = _ => -1.0,
         };
-        var nxtIterationsOpt = new Option<int>("--nxt-iterations")
+        var denoiseIterationsOpt = new Option<int>("--denoise-iterations")
         {
-            Description = "RC-Astro NoiseXTerminator iterations (nxt --it). < 1 (default) = the enhancer's own default (2). Only affects the RC-Astro backend.",
+            Description = "Denoiser iterations. RC-Astro maps it to NoiseXTerminator's nxt --it; < 1 (default) = the enhancer's own default (2). Other backends ignore it.",
             DefaultValueFactory = _ => 0,
         };
 
         var cmd = new Command("sharpen", "Full AI4 NAFNet sharpen pipeline: remove stars, sharpen the stars-only plate, deconvolve + denoise the starless plate, optional SCNR on stars, recombine.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, modeOpt, stellarSharpenOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, bxtSharpenOpt, nxtDenoiseOpt, nxtIterationsOpt },
+            Options = { outputOpt, modeOpt, stellarSharpenOpt, noDeconvOpt, noDenoiseOpt, noRecombineOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, stellarBlendOpt, deconvBlendOpt, denoiseBlendOpt, denoiseVariantOpt, scnrOpt, scnrAmountOpt, dualStretchOpt, stretchStarsAmountOpt, stretchStarlessMedianOpt, starStretchModeOpt, starlessStretchModeOpt, stretchModeOpt, ghsConvergeOpt, ghsLnDOpt, ghsBOpt, ghsLpOpt, ghsHpOpt, ghsSpOpt, ghsPassesOpt, ghsStagesOpt, ghsAutoTargetValueOpt, ghsAutoTargetOpt, asinhBetaOpt, asinhBlackPointOpt, asinhLumaOpt, noReduceBgOpt, reduceBgCompressionOpt, noCompressHighlightsOpt, highlightKneeOpt, highlightAmountOpt, aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -409,17 +410,17 @@ internal sealed class ImageSubCommand(
                 return 1;
             }
 
-            var bxtSharpen = parseResult.GetValue(bxtSharpenOpt);
-            var nxtDenoise = parseResult.GetValue(nxtDenoiseOpt);
-            var nxtIterations = parseResult.GetValue(nxtIterationsOpt);
+            var deblurSharpen = parseResult.GetValue(deblurSharpenOpt);
+            var denoiseStrength = parseResult.GetValue(denoiseStrengthOpt);
+            var denoiseIterations = parseResult.GetValue(denoiseIterationsOpt);
             // Backend + per-product tuning parse is shared with `stack --enhance` and the server
             // enhance endpoint via EnhanceOptions.TryParse (single source of truth). CLI sentinels
             // (-1 / 0 = "unset") map to a null override before the call.
             if (!EnhanceOptions.TryParse(
                     parseResult.GetValue(aiBackendOpt),
-                    bxtSharpen >= 0 ? (float)bxtSharpen : null,
-                    nxtDenoise >= 0 ? (float)nxtDenoise : null,
-                    nxtIterations >= 1 ? nxtIterations : null,
+                    deblurSharpen >= 0 ? (float)deblurSharpen : null,
+                    denoiseStrength >= 0 ? (float)denoiseStrength : null,
+                    denoiseIterations >= 1 ? denoiseIterations : null,
                     out var enhanceOptions, out var enhanceError))
             {
                 consoleHost.WriteError(enhanceError!);

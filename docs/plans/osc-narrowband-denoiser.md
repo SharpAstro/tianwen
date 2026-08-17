@@ -646,9 +646,14 @@ server endpoint / the viewer. `EnhanceBackend.N2n` closes that, with three delib
   model. It replaces a crash, never a measured backend's result, which is what keeps the
   never-compared-against-AI4 rule intact. A mono input or Lite/Walking variant falls through to
   SAS unchanged, whose missing-model error names the bundle that could actually serve it.
-- **The strength dial rides the existing knob.** `EnhanceTuning.DenoiseStrength` (`--nxt-denoise`)
-  is "how much denoising" in [0, 1] whatever the backend: RC maps it to `nxt --dn`, N2N maps it to
-  the blend (`out = in + s*(den - in)`, null = 1.0). No second flag for the same user intent.
+- **The strength dial rides the existing knob, which lost its product name.** The flags shipped as
+  `--bxt-sharpen` / `--nxt-denoise` / `--nxt-iterations` when they only steered RC-Astro; the moment
+  a second backend read one, the product prefix became a lie, so they are now `--deblur-sharpen` /
+  `--denoise-strength` / `--denoise-iterations` (hard rename, no aliases -- the wire DTO fields were
+  generic all along, so only the CLI surface moved). `EnhanceTuning.DenoiseStrength`
+  (`--denoise-strength`) is "how much denoising" in [0, 1] whatever the backend: RC maps it to
+  `nxt --dn`, N2N maps it to the blend (`out = in + s*(den - in)`, null = 1.0). No second flag for
+  the same user intent.
 
 The viewer's right-click backend cycle gains the fourth stop (Auto -&gt; RC -&gt; SAS -&gt; N2N,
 label `Enhance (N2N)`); the server endpoint inherits the value through the shared

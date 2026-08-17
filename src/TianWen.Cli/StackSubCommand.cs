@@ -140,26 +140,27 @@ internal sealed class StackSubCommand(
         {
             Description = "Also emit edit-ready, dual-stretched per-plate TIFFs (master_*_stars.tif + master_*_starless.tif) from the SAME enhance pass - no second AI run. The stars-only and starless plates produced internally by the BlurX-first enhance are stretched (StarStretch / MTF + reduce-bg + compress-highlights, fixed defaults) and written as sRGB-ICC float TIFFs, cropped to the autocrop AABB, for layering in Photoshop / Affinity (Screen-blend stars over starless). Implies --enhance.",
         };
-        // RC-Astro vs SAS backend control + per-product strength overrides (Phase 3a),
+        // AI backend selection + per-role strength overrides (Phase 3a; flags renamed
+        // backend-neutral when the n2n lane made them serve more than RC-Astro),
         // mirrored from `image sharpen` so `stack --enhance` honours the same knobs.
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
             Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), 'sas' (force SAS ONNX even when RC-Astro is licensed), or 'n2n' (the in-house TianWen Noise2Noise model for the denoise step - OSC-only, ships with the repo; other roles behave as auto). No effect on stellar-sharpen / gradient-correction (SAS-only). Implies --enhance unless 'auto'.",
             DefaultValueFactory = _ => "auto",
         };
-        var bxtSharpenOpt = new Option<double>("--bxt-sharpen")
+        var deblurSharpenOpt = new Option<double>("--deblur-sharpen")
         {
-            Description = "RC-Astro BlurXTerminator non-stellar sharpen (bxt --sn) in [0, 1], applied to the full-image deblur and the starless deconvolution. < 0 (default) = the enhancer's own default (0.90). Only affects the RC-Astro backend. Implies --enhance.",
+            Description = "Non-stellar deblur/deconvolution sharpen in [0, 1], applied to the full-image deblur and the starless deconvolution. RC-Astro maps it to BlurXTerminator's bxt --sn; < 0 (default) = the enhancer's own default (0.90). Other backends ignore it. Implies --enhance.",
             DefaultValueFactory = _ => -1.0,
         };
-        var nxtDenoiseOpt = new Option<double>("--nxt-denoise")
+        var denoiseStrengthOpt = new Option<double>("--denoise-strength")
         {
             Description = "Denoise strength in [0, 1]. RC-Astro maps it to NoiseXTerminator's nxt --dn (< 0, the default, = noise-adaptive auto); the n2n backend maps it to its blend dial (out = in + s*(den - in), default 1.0). The SAS backend ignores it. Implies --enhance.",
             DefaultValueFactory = _ => -1.0,
         };
-        var nxtIterationsOpt = new Option<int>("--nxt-iterations")
+        var denoiseIterationsOpt = new Option<int>("--denoise-iterations")
         {
-            Description = "RC-Astro NoiseXTerminator iterations (nxt --it). < 1 (default) = the enhancer's own default (2). Only affects the RC-Astro backend. Implies --enhance.",
+            Description = "Denoiser iterations. RC-Astro maps it to NoiseXTerminator's nxt --it; < 1 (default) = the enhancer's own default (2). Other backends ignore it. Implies --enhance.",
             DefaultValueFactory = _ => 0,
         };
         // Masked finishing boost for the preview PNG (Image.MaskedBoost): applied AFTER the
@@ -190,7 +191,7 @@ internal sealed class StackSubCommand(
                 qualityRejectSigmaOpt, referenceFrameHintOpt,
                 noBayerDrizzleOpt, includeIntegrationsOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
-                aiBackendOpt, bxtSharpenOpt, nxtDenoiseOpt, nxtIterationsOpt,
+                aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt,
                 saturationOpt, contrastBoostOpt,
             },
         };
@@ -241,16 +242,16 @@ internal sealed class StackSubCommand(
             // EnhanceOptions threaded to SharpenPipeline. Like a sub-1 blend, these also
             // imply --enhance (a backend/tuning flag without --enhance would otherwise be
             // silently ignored).
-            var bxtSharpen = parseResult.GetValue(bxtSharpenOpt);
-            var nxtDenoise = parseResult.GetValue(nxtDenoiseOpt);
-            var nxtIterations = parseResult.GetValue(nxtIterationsOpt);
+            var deblurSharpen = parseResult.GetValue(deblurSharpenOpt);
+            var denoiseStrength = parseResult.GetValue(denoiseStrengthOpt);
+            var denoiseIterations = parseResult.GetValue(denoiseIterationsOpt);
             // Shared backend + tuning parse (see EnhanceOptions.TryParse) -- same source of truth
             // as `image sharpen` and the server enhance endpoint. CLI sentinels (-1 / 0) map to null.
             if (!EnhanceOptions.TryParse(
                     parseResult.GetValue(aiBackendOpt),
-                    bxtSharpen >= 0 ? (float)bxtSharpen : null,
-                    nxtDenoise >= 0 ? (float)nxtDenoise : null,
-                    nxtIterations >= 1 ? nxtIterations : null,
+                    deblurSharpen >= 0 ? (float)deblurSharpen : null,
+                    denoiseStrength >= 0 ? (float)denoiseStrength : null,
+                    denoiseIterations >= 1 ? denoiseIterations : null,
                     out var enhanceOptions, out var enhanceError))
             {
                 consoleHost.WriteError(enhanceError!);
