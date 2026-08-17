@@ -103,9 +103,11 @@ public sealed class OnnxDenoiser(
     /// <summary>
     /// Resolves the (channels, variant) pair to the on-disk ONNX file name.
     /// Mono lite has an upstream filename typo (<c>..lite..onnx</c>); we
-    /// honour the disk reality rather than fight it.
+    /// honour the disk reality rather than fight it. Internal so the deferred
+    /// denoiser's Auto rescue tier can probe whether these weights exist
+    /// without constructing a session.
     /// </summary>
-    private static string ModelFileNameFor(int channels, DenoiseVariant variant) => (channels, variant) switch
+    internal static string ModelFileNameFor(int channels, DenoiseVariant variant) => (channels, variant) switch
     {
         (1, DenoiseVariant.Default) => "deep_denoise_mono_AI4.onnx",
         (3, DenoiseVariant.Default) => "deep_denoise_color_AI4.onnx",

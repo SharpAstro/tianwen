@@ -144,7 +144,7 @@ internal sealed class StackSubCommand(
         // mirrored from `image sharpen` so `stack --enhance` honours the same knobs.
         var aiBackendOpt = new Option<string>("--ai-backend")
         {
-            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), or 'sas' (force SAS ONNX even when RC-Astro is licensed). No effect on stellar-sharpen / gradient-correction (SAS-only). Implies --enhance unless 'auto'.",
+            Description = "AI enhancer backend for the RC-servable roles (star removal / deblur / deconvolution / denoise): 'auto' (RC-Astro when present + licensed, else SAS ONNX - default), 'rc' (force RC-Astro whenever the CLI is installed, skipping the license probe), 'sas' (force SAS ONNX even when RC-Astro is licensed), or 'n2n' (the in-house TianWen Noise2Noise model for the denoise step - OSC-only, ships with the repo; other roles behave as auto). No effect on stellar-sharpen / gradient-correction (SAS-only). Implies --enhance unless 'auto'.",
             DefaultValueFactory = _ => "auto",
         };
         var bxtSharpenOpt = new Option<double>("--bxt-sharpen")
@@ -154,7 +154,7 @@ internal sealed class StackSubCommand(
         };
         var nxtDenoiseOpt = new Option<double>("--nxt-denoise")
         {
-            Description = "RC-Astro NoiseXTerminator strength (nxt --dn) in [0, 1]. < 0 (default) = noise-adaptive auto. Only affects the RC-Astro backend. Implies --enhance.",
+            Description = "Denoise strength in [0, 1]. RC-Astro maps it to NoiseXTerminator's nxt --dn (< 0, the default, = noise-adaptive auto); the n2n backend maps it to its blend dial (out = in + s*(den - in), default 1.0). The SAS backend ignores it. Implies --enhance.",
             DefaultValueFactory = _ => -1.0,
         };
         var nxtIterationsOpt = new Option<int>("--nxt-iterations")

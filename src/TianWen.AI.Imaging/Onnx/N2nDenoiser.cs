@@ -73,9 +73,24 @@ public sealed class N2nDenoiser(
     public Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, CancellationToken cancellationToken = default)
         => variant is DenoiseVariant.Default
             ? EnhanceAsync(input, defaultStrength, cancellationToken)
-            : throw new ArgumentOutOfRangeException(
-                nameof(variant), variant,
-                $"{nameof(N2nDenoiser)} ships a single weight bundle; only {nameof(DenoiseVariant.Default)} is available.");
+            : throw RefuseVariant(variant);
+
+    /// <summary>
+    /// The pipeline path (<c>SharpenPipeline</c>'s denoise step calls this overload). The one
+    /// tuning knob this model reads is <see cref="EnhanceTuning.DenoiseStrength"/>, which maps
+    /// onto the blend dial -- the same "how much denoising" the user meant when they set it for
+    /// RC's <c>nxt --dn</c>. <paramref name="progress"/> is dropped: chunked ORT inference has no
+    /// sub-step stream, so the pipeline's own step-boundary ticks are the progress, exactly as
+    /// for the SAS enhancers.
+    /// </summary>
+    public Task<Image> EnhanceAsync(Image input, DenoiseVariant variant, EnhanceOptions options, IProgress<float>? progress = null, CancellationToken cancellationToken = default)
+        => variant is DenoiseVariant.Default
+            ? EnhanceAsync(input, options.Tuning?.DenoiseStrength ?? defaultStrength, cancellationToken)
+            : throw RefuseVariant(variant);
+
+    private static ArgumentOutOfRangeException RefuseVariant(DenoiseVariant variant) => new(
+        nameof(variant), variant,
+        $"{nameof(N2nDenoiser)} ships a single weight bundle; only {nameof(DenoiseVariant.Default)} is available.");
 
     /// <summary>
     /// Denoise and blend the result back toward the input.

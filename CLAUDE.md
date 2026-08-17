@@ -1170,7 +1170,7 @@ free fallback tier; `IStellarSharpener` / `IGradientCorrector` stay SAS (no RC e
 `docs/plans/rc-astro-enhancers.md`.
 
 **CLI flags + viewer Enhance action.** `image sharpen` and `stack --enhance` both take
-`--ai-backend auto|rc|sas`, `--bxt-sharpen`, `--nxt-denoise`, `--nxt-iterations`, parsed by the
+`--ai-backend auto|rc|sas|n2n`, `--bxt-sharpen`, `--nxt-denoise`, `--nxt-iterations`, parsed by the
 shared **`EnhanceOptions.TryParse`** (the single source of truth for the `auto`/`rc`/`sas` + tuning
 mapping -- also used by the server endpoint below; never re-inline the switch) and threaded as an
 immutable `EnhanceOptions` (backend + `EnhanceTuning`) through `SharpenPipeline.ProcessAsync` to
@@ -1307,16 +1307,24 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
 - **SETI Astro (SAS Pro AI4)** -- plain ONNX models loaded in-proc via ONNX Runtime
   (`TianWen.AI.Imaging/Onnx/*`, `AddTianWenAi()`). Models under `%LOCALAPPDATA%\TianWen\models`
   (`tools/tianwen-ai-models-fetch.ps1`).
-- **In-house N2N denoiser** (`N2nDenoiser`, opt-in via `AddTianWenN2nDenoiser` -- deliberately NOT
-  the default `IDenoiseEnhancer`; OSC-only, throws on mono). Its weights ship **in this repo under
-  Git LFS** at `src/TianWen.AI.Imaging/models/` (`*.onnx` rule in `.gitattributes`): the test
-  project copies them to its output so `N2nDenoiserTests`' cross-language parity test runs off the
-  checkout (CI narrow-pulls `*.onnx` for the same reason), and the fetch script's phase 4 hardlinks
-  them into the models dir. `ModelResolver` refuses a Git LFS pointer stub (a clone without
-  git-lfs), so the failure mode is a logged skip, never an ORT protobuf error. The user-facing
-  strength dial is a **blend** (`out = in + a*(den - in)`); the graph's `strength` input is pinned
-  to 1.0 (the conditioning-plane dial was measured and rejected: it saturates, its span varies 4x
-  by target, and fabrication rises toward its gentle end). Design + measurements:
+- **In-house N2N denoiser** (`N2nDenoiser`; OSC-only, throws on mono). Its weights ship **in this
+  repo under Git LFS** at `src/TianWen.AI.Imaging/models/` (`*.onnx` rule in `.gitattributes`): the
+  test project copies them to its output so `N2nDenoiserTests`' cross-language parity test runs off
+  the checkout (CI narrow-pulls `*.onnx` for the same reason), and the fetch script's phase 4
+  hardlinks them into the models dir. `ModelResolver` refuses a Git LFS pointer stub (a clone
+  without git-lfs), so the failure mode is a logged skip, never an ORT protobuf error. The
+  user-facing strength dial is a **blend** (`out = in + a*(den - in)`, mapped from
+  `EnhanceTuning.DenoiseStrength` / `--nxt-denoise`); the graph's `strength` input is pinned to 1.0
+  (the conditioning-plane dial was measured and rejected: it saturates, its span varies 4x by
+  target, and fabrication rises toward its gentle end). **Three ways in, deliberately tiered:**
+  `--ai-backend n2n` (`EnhanceBackend.N2n`) selects it per enhance for the denoise role while every
+  other role behaves as Auto (the one options record reaches all roles, so roles without an
+  in-house lane must keep working); **Auto rescues with it** when the SAS AI4 weights are not
+  installed and the input is OSC at the default variant (it replaces a crash, never a measured
+  backend's result -- with SAS weights present, Auto is byte-for-byte the old path); and
+  `AddTianWenN2nDenoiser` is the registration-time opt-in that makes it the `IDenoiseEnhancer`
+  unconditionally. It is deliberately NOT Auto's preferred denoiser: it has never been compared
+  against the AI4 model on the enhance pipeline's own job. Design + measurements:
   `docs/plans/osc-narrowband-denoiser.md` section 1o.
 - **RC-Astro (BlurX/NoiseX/StarXTerminator)** -- `TianWen.AI.Imaging/RcAstro/*`, `AddRcAstroAi()`.
   RC-Astro's `.onnx` files are **encrypted at rest** (only the official binary can decrypt them; the

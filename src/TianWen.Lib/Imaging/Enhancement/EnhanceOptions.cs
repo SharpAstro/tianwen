@@ -9,7 +9,10 @@ public enum EnhanceBackend
 {
     /// <summary>RC-Astro when the CLI is present AND the product is licensed; otherwise
     /// the SAS ONNX fallback. The default, and the only behaviour before this option
-    /// existed.</summary>
+    /// existed. For the DENOISE role there is one further rescue tier: when the SAS AI4
+    /// weights are not installed (fresh checkout, fetch script never run) and the input is
+    /// OSC at the default variant, the in-house N2N model serves instead of the run dying
+    /// on a missing file -- it replaces a crash, never a measured backend's result.</summary>
     Auto = 0,
 
     /// <summary>Use RC-Astro whenever the CLI binary is present, bypassing the
@@ -20,6 +23,15 @@ public enum EnhanceBackend
     /// <summary>Never use RC-Astro -- always the SAS ONNX enhancer, even when RC-Astro
     /// is present and licensed (reproducibility / speed / avoiding the subprocess).</summary>
     ForceSas = 2,
+
+    /// <summary>Prefer the in-house TianWen model for any role that has one -- today that is
+    /// the DENOISE role only (the Noise2Noise <c>tianwen_denoise_osc_v19d</c> net) -- and behave
+    /// as <see cref="Auto"/> for every other role. Scoped this way because one options record
+    /// threads through every step of a pipeline run, so the star remover and deconvolver see
+    /// this value too and must keep working. The N2N denoiser is OSC-only (throws on mono, by
+    /// design) and is served where the composition root wires it (<c>AddRcAstroAi()</c> does);
+    /// a root without the lane falls back to <see cref="Auto"/> for the denoise role as well.</summary>
+    N2n = 3,
 }
 
 /// <summary>
@@ -62,9 +74,12 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
     /// <c>null</c> before calling.
     /// </summary>
     /// <param name="backend"><c>auto</c> (<c>null</c>/empty =&gt; auto), <c>rc</c>/<c>rcastro</c>/<c>rc-astro</c>,
-    /// or <c>sas</c> (case-insensitive). Anything else =&gt; <c>false</c> with <paramref name="error"/> set.</param>
+    /// <c>sas</c>, or <c>n2n</c> (case-insensitive). Anything else =&gt; <c>false</c> with <paramref name="error"/> set.</param>
     /// <param name="deblurSharpen">RC <c>bxt --sn</c> override, or <c>null</c> for the enhancer default.</param>
-    /// <param name="denoiseStrength">RC <c>nxt --dn</c> override, or <c>null</c> for noise-adaptive auto.</param>
+    /// <param name="denoiseStrength">Denoise strength in <c>[0, 1]</c>: RC maps it to <c>nxt --dn</c>
+    /// (<c>null</c> = noise-adaptive auto); the N2N backend maps it to its blend dial
+    /// (<c>out = in + s*(den - in)</c>, <c>null</c> = 1.0, and 0 is rejected there -- run without the
+    /// denoise step instead of asking a denoiser to do nothing).</param>
     /// <param name="denoiseIterations">RC <c>nxt --it</c> override, or <c>null</c> for the enhancer default.</param>
     /// <param name="options">The parsed options (<see cref="Default"/> when this returns <c>false</c>).</param>
     /// <param name="error">A human-readable reason when this returns <c>false</c>; otherwise <c>null</c>.</param>
@@ -83,9 +98,10 @@ public sealed record EnhanceOptions(EnhanceBackend Backend = EnhanceBackend.Auto
             case "" or "auto": parsed = EnhanceBackend.Auto; break;
             case "rc" or "rcastro" or "rc-astro": parsed = EnhanceBackend.ForceRcAstro; break;
             case "sas": parsed = EnhanceBackend.ForceSas; break;
+            case "n2n": parsed = EnhanceBackend.N2n; break;
             default:
                 options = Default;
-                error = $"Unknown AI backend '{backend}' (expected 'auto', 'rc', or 'sas')";
+                error = $"Unknown AI backend '{backend}' (expected 'auto', 'rc', 'sas', or 'n2n')";
                 return false;
         }
 

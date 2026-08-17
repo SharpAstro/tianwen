@@ -362,6 +362,7 @@ public class N2nDenoiserTests(ITestOutputHelper output)
     /// <summary>
     /// One weight bundle exists, so a caller asking for Lite or Walking is told rather than
     /// silently handed Default -- the variant axis belongs to the AI4 family, not to this model.
+    /// Both routes in: the variant overload and the pipeline's variant+options overload.
     /// </summary>
     [Fact]
     public async Task ANonDefaultVariantIsRefusedRatherThanIgnored()
@@ -372,5 +373,37 @@ public class N2nDenoiserTests(ITestOutputHelper output)
 
         await Should.ThrowAsync<ArgumentOutOfRangeException>(
             async () => await enhancer.EnhanceAsync(src, DenoiseVariant.Lite, TestContext.Current.CancellationToken));
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(
+            async () => await enhancer.EnhanceAsync(src, DenoiseVariant.Walking, EnhanceOptions.Default,
+                progress: null, TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>
+    /// <c>--nxt-denoise</c> reaches this model: the pipeline calls the variant+options overload,
+    /// and <see cref="EnhanceTuning.DenoiseStrength"/> must land on the blend dial -- the same
+    /// deterministic path as the direct strength overload, so the two answers are identical.
+    /// </summary>
+    [Fact]
+    public async Task TheTuningDenoiseStrengthDrivesTheBlend()
+    {
+        if (!HasModel(out var skip)) { Assert.Skip(skip); return; }
+
+        var fixture = LoadFixture();
+        var plate = BuildPlateFrom(fixture);
+        using var enhancer = new N2nDenoiser(CreateResolver());
+
+        var viaOptions = await enhancer.EnhanceAsync(plate, DenoiseVariant.Default,
+            new EnhanceOptions(EnhanceBackend.N2n, new EnhanceTuning(DenoiseStrength: 0.5f)),
+            progress: null, TestContext.Current.CancellationToken);
+        var direct = await enhancer.EnhanceAsync(plate, 0.5f, TestContext.Current.CancellationToken);
+
+        for (var c = 0; c < plate.ChannelCount; c++)
+        {
+            viaOptions.GetChannelSpan(c).SequenceEqual(direct.GetChannelSpan(c)).ShouldBeTrue(
+                $"channel {c}: the options path must be the same computation as the direct strength path");
+        }
+
+        viaOptions.Release();
+        direct.Release();
     }
 }

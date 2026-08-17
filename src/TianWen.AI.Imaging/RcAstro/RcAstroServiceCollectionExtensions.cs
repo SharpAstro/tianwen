@@ -38,11 +38,18 @@ namespace TianWen.AI.Imaging.RcAstro
                     () => new RcAstroStarRemover(sp.GetRequiredService<IRcAstroCli>(), sp.GetService<ILogger<RcAstroStarRemover>>()),
                     () => sp.GetRequiredService<OnnxStarRemover>()));
 
+            // The denoise role carries a third, in-house lane: EnhanceBackend.N2n selects it
+            // explicitly, and Auto rescues an OSC input with it when the SAS AI4 weights are
+            // not installed (see DeferredDenoiser.Pick). Constructed lazily like the others;
+            // its model file resolves on first EnhanceAsync, never at DI build.
             PreferRcAstro<IDenoiseEnhancer, OnnxDenoiser>(services, sp =>
                 new DeferredDenoiser(
                     sp.GetRequiredService<IRcAstroCli>(),
                     () => new RcAstroDenoiser(sp.GetRequiredService<IRcAstroCli>(), sp.GetService<ILogger<RcAstroDenoiser>>()),
-                    () => sp.GetRequiredService<OnnxDenoiser>()));
+                    () => sp.GetRequiredService<OnnxDenoiser>(),
+                    () => new N2nDenoiser(sp.GetRequiredService<IModelResolver>(), sp.GetService<ILogger<N2nDenoiser>>()),
+                    sp.GetRequiredService<IModelResolver>(),
+                    sp.GetService<ILogger<DeferredDenoiser>>()));
 
             PreferRcAstro<INonStellarDeconvolver, OnnxNonStellarDeconvolver>(services, sp =>
                 new DeferredNonStellarDeconvolver(

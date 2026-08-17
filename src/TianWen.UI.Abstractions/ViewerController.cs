@@ -355,12 +355,13 @@ public sealed class ViewerController(
             case ToolbarAction.Enhance:
                 if (reverse)
                 {
-                    // Right-click cycles the preferred backend (Auto -> RC -> SAS); no enhance is kicked.
-                    // The button label reflects the new pick.
+                    // Right-click cycles the preferred backend (Auto -> RC -> SAS -> N2N); no enhance
+                    // is kicked. The button label reflects the new pick.
                     state.PreferredEnhanceBackend = state.PreferredEnhanceBackend switch
                     {
                         EnhanceBackend.Auto => EnhanceBackend.ForceRcAstro,
                         EnhanceBackend.ForceRcAstro => EnhanceBackend.ForceSas,
+                        EnhanceBackend.ForceSas => EnhanceBackend.N2n,
                         _ => EnhanceBackend.Auto,
                     };
                     state.StatusMessage = $"Enhance backend: {state.PreferredEnhanceBackend}";

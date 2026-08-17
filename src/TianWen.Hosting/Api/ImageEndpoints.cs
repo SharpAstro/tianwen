@@ -46,7 +46,7 @@ internal static class ImageEndpoints
                     HostingJsonContext.Default.ResponseEnvelopeString);
             }
 
-            // Same parser the CLI uses (single source of truth for auto/rc/sas + tuning).
+            // Same parser the CLI uses (single source of truth for auto/rc/sas/n2n + tuning).
             if (!EnhanceOptions.TryParse(
                     request.Backend, request.DeblurSharpen, request.DenoiseStrength, request.DenoiseIterations,
                     out var options, out var error))
