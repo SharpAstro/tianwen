@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Text.Json.Serialization;
@@ -8,6 +9,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 
@@ -117,6 +119,105 @@ public static class PlannerPersistence
 
         return dto is not null && TryRestoreFromDto(state, dto, logger);
     }
+
+    /// <summary>
+    /// The CANDIDATE SET of a completed sweep -- target, name, catalog index and object type per
+    /// entry, and nothing else -- so a later run can skip the catalog scan and re-score it for the
+    /// night in question.
+    ///
+    /// <para><b>Only the candidates, deliberately.</b> Scores, altitude profiles and the night window
+    /// are all functions of the date, and <see cref="PlannerActions.RecomputeForDate"/> rebuilds every
+    /// one of them from the target list alone. Persisting them would multiply the payload by the
+    /// profile arrays and then have it thrown away on restore. Measured on the deployed browser build:
+    /// the full sweep is ~1520 ms, of which the catalog scan is the great majority -- the rescore that
+    /// replaces it here is ~170 ms.</para>
+    /// </summary>
+    public static string SerializeTonightsBest(
+        PlannerState state, double siteLatitude, double siteLongitude, DateTimeOffset computedFor)
+    {
+        var candidates = new CandidateDto[state.TonightsBest.Length];
+        for (var i = 0; i < candidates.Length; i++)
+        {
+            var t = state.TonightsBest[i];
+            candidates[i] = new CandidateDto(
+                t.Target.RA, t.Target.Dec, t.Target.Name, (ulong?)t.Target.CatalogIndex, t.ObjectType);
+        }
+
+        var dto = new TonightsBestCacheDto(
+            TonightsBestCacheVersion, siteLatitude, siteLongitude,
+            state.MinHeightAboveHorizon, computedFor, candidates);
+        return System.Text.Json.JsonSerializer.Serialize(dto, PlannerJsonContext.Default.TonightsBestCacheDto);
+    }
+
+    /// <summary>
+    /// Restores a cached candidate set into <see cref="PlannerState.TonightsBest"/> as UNSCORED
+    /// entries. The caller MUST follow with <see cref="PlannerActions.RecomputeForDate"/>, which
+    /// replaces every entry with one scored for the current night -- until it runs, the list carries
+    /// real targets and zero scores.
+    ///
+    /// <para>Refused when the schema version, the minimum altitude or the site (beyond
+    /// <see cref="SiteInvalidationThreshold"/>) differ, or when the cached night is more than
+    /// <see cref="TonightsBestCacheMaxAgeDays"/> from the one being planned.</para>
+    /// </summary>
+    public static bool TryRestoreTonightsBest(
+        PlannerState state, string json,
+        double siteLatitude, double siteLongitude, byte minHeightAboveHorizon,
+        DateTimeOffset plannedFor, ILogger logger)
+    {
+        TonightsBestCacheDto? dto;
+        try
+        {
+            dto = System.Text.Json.JsonSerializer.Deserialize(json, PlannerJsonContext.Default.TonightsBestCacheDto);
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            logger.LogWarning(ex, "PlannerPersistence: discarding unparseable tonight's-best cache");
+            return false;
+        }
+
+        if (dto is null || dto.Version != TonightsBestCacheVersion || dto.Candidates.Length == 0)
+        {
+            return false;
+        }
+
+        if (dto.MinHeightAboveHorizon != minHeightAboveHorizon
+            || Math.Abs(dto.SiteLatitude - siteLatitude) > SiteInvalidationThreshold
+            || Math.Abs(dto.SiteLongitude - siteLongitude) > SiteInvalidationThreshold)
+        {
+            return false;
+        }
+
+        // The candidate set is "what is above the horizon during the dark window", which drifts by
+        // about four minutes of RA a day -- so a week is ~28 minutes, comfortably inside the slack a
+        // hundred-entry list has. Past that the sky genuinely has different things in it and the scan
+        // has to run again.
+        if (Math.Abs((dto.ComputedFor - plannedFor).TotalDays) > TonightsBestCacheMaxAgeDays)
+        {
+            return false;
+        }
+
+        var restored = ImmutableArray.CreateBuilder<ScoredTarget>(dto.Candidates.Length);
+        foreach (var c in dto.Candidates)
+        {
+            var target = new Target(c.RA, c.Dec, c.Name, (CatalogIndex?)c.CatalogIndex);
+            restored.Add(new ScoredTarget(
+                target, Half.Zero, Half.Zero,
+                EmptyElevationProfile, default, TimeSpan.Zero, ObjectType: c.ObjectType));
+        }
+
+        state.TonightsBest = restored.MoveToImmutable();
+        return true;
+    }
+
+    /// <summary>Bumped whenever <see cref="CandidateDto"/> changes shape, so an old payload is
+    /// discarded rather than deserialized into something that no longer means the same thing.</summary>
+    private const int TonightsBestCacheVersion = 1;
+
+    /// <summary>See <see cref="TryRestoreTonightsBest"/> for why a week.</summary>
+    public const double TonightsBestCacheMaxAgeDays = 7.0;
+
+    private static readonly IReadOnlyDictionary<RaDecEventTime, RaDecEventInfo> EmptyElevationProfile
+        = new Dictionary<RaDecEventTime, RaDecEventInfo>();
 
     /// <summary>
     /// Applies a loaded session DTO to the planner state: validates the site, matches saved
@@ -387,7 +488,30 @@ public record ProposalDto(
     double? ObservationTimeMinutes,
     Guid? MosaicGroupId);
 
+/// <summary>
+/// DTO for a cached tonight's-best CANDIDATE SET. Carries the guards it is validated against
+/// (schema version, site, minimum altitude, the night it was computed for) so a stale or
+/// foreign payload is refused rather than silently believed.
+/// </summary>
+public record TonightsBestCacheDto(
+    int Version,
+    double SiteLatitude,
+    double SiteLongitude,
+    byte MinHeightAboveHorizon,
+    DateTimeOffset ComputedFor,
+    CandidateDto[] Candidates);
+
+/// <summary>One swept candidate: everything <see cref="PlannerActions.RecomputeForDate"/> needs to
+/// score it, and nothing that a score or a date would invalidate.</summary>
+public record CandidateDto(
+    double RA,
+    double Dec,
+    string Name,
+    ulong? CatalogIndex,
+    ObjectType ObjectType);
+
 [JsonSerializable(typeof(PlannerSessionDto))]
+[JsonSerializable(typeof(TonightsBestCacheDto))]
 internal partial class PlannerJsonContext : JsonSerializerContext
 {
 }

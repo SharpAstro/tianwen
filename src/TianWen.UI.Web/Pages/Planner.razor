@@ -51,7 +51,7 @@
     <div class="toolbar">
         <label>Lat <input type="number" step="0.1" @bind="_lat" /></label>
         <label>Lon <input type="number" step="0.1" @bind="_lon" /></label>
-        <button @onclick="RecomputeAsync" disabled="@_busy">Recompute</button>
+        <button @onclick="() => RecomputeAsync()" disabled="@_busy">Recompute</button>
         <button @onclick="RelocateAsync" disabled="@_busy" title="Plan for my current location">📍 Locate</button>
         <button @onclick="ToggleFullscreenAsync" title="Fullscreen (Esc to exit)">⛶</button>
     </div>
@@ -452,11 +452,23 @@
         // synchronous block; on the single browser thread nothing repaints while it runs.
         // SetStatusAsync yields first so the status above actually paints before the block starts.
         sw.Restart();
-        if (_state.TonightsBest.Length > 0 && !siteChanged)
+        // Three ways to a scored list, cheapest first. The two rescore paths differ only in where the
+        // candidate set came from -- a live one already in state, or last visit's, restored from
+        // localStorage -- because RecomputeForDate rebuilds everything else from the targets alone.
+        //
+        // The cache lookup is deliberately NOT gated on siteChanged. That flag compares against the
+        // previous IN-MEMORY site, which is NaN on the first compute of a session -- i.e. on exactly
+        // the reload this cache exists for, it always reads "the site moved". The cache validates its
+        // own site (and minimum altitude, and age) against the payload it stored, which is the check
+        // that actually means something here.
+        var fromCache = _state.TonightsBest.Length == 0
+            && await TryRestoreTonightsBestCacheAsync(transform);
+        if (_state.TonightsBest.Length > 0 && (!siteChanged || fromCache))
         {
             await SetStatusAsync("Refreshing tonight's best…");
             PlannerActions.RecomputeForDate(_state, transform);
-            Console.WriteLine($"[tianwen-web] tonight's best (rescore, same site): {sw.ElapsedMilliseconds} ms");
+            Console.WriteLine($"[tianwen-web] tonight's best (rescore, {(fromCache ? "cached candidates" : "same site")}): "
+                + $"{sw.ElapsedMilliseconds} ms");
         }
         else
         {
@@ -465,6 +477,7 @@
                 _state, Db, transform, _state.MinHeightAboveHorizon, CancellationToken.None,
                 onProgress: msg => Console.WriteLine($"[tianwen-web] {msg}"));
             Console.WriteLine($"[tianwen-web] tonight's best (full sweep): {sw.ElapsedMilliseconds} ms");
+            await SaveTonightsBestCacheAsync(transform);
         }
 
         // Resolve the display timezone AFTER the plan computes: CalculateNightWindow initialises the
@@ -496,6 +509,128 @@
     // --- Planner session persistence: pins + sliders survive F5 via localStorage --------------
     // The web analogue of the desktop's PlannerPersistence file store (AppData/Planner/...):
     // same DTO + restore logic (SerializeToJson / TryRestoreFromJson), different storage.
+
+    // --- Tonight's-best candidate cache: skip the catalog scan on a repeat visit ----------------
+    //
+    // The planner's own two costs are the ONLY part of a boot that nothing caches. Measured on the
+    // deployed build, cold and then reloaded: catalog init 1306 -> 1330 ms and the sweep 1507 -> 1482
+    // ms, i.e. unchanged, while the star tiles went 12305 -> 998 ms off IndexedDB. The catalog is
+    // embedded in the assembly, so there is no fetch to cache and its cost is the parse; the sweep is
+    // pure computation, and THAT is cacheable -- not its result, but its candidate set.
+    //
+    // localStorage rather than IndexedDB: the payload is ~100 targets of a few fields, the same store
+    // the pins already use, and a synchronous string get is far simpler than a keyed binary store for
+    // something this small.
+
+    const string TonightsBestCacheKey = "tianwen.planner.tonightsbest";
+
+    /// <summary>The night being planned, which is the cache's freshness axis (see
+    /// <see cref="PlannerPersistence.TonightsBestCacheMaxAgeDays"/>).</summary>
+    DateTimeOffset PlannedForNight()
+        => _state.PlanningDate ?? Time.GetUtcNow().ToOffset(_state.SiteTimeZone);
+
+    async Task<bool> TryRestoreTonightsBestCacheAsync(Transform transform)
+    {
+        try
+        {
+            if (await JS.InvokeAsync<string?>("localStorage.getItem", TonightsBestCacheKey) is not { Length: > 0 } json)
+            {
+                return false;
+            }
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var restored = PlannerPersistence.TryRestoreTonightsBest(
+                _state, json, transform.SiteLatitude, transform.SiteLongitude,
+                _state.MinHeightAboveHorizon, PlannedForNight(), Logger);
+            Console.WriteLine($"[tianwen-web] tonight's best cache: "
+                + $"{(restored ? $"{_state.TonightsBest.Length} candidates restored" : "rejected")} in {sw.ElapsedMilliseconds} ms");
+            return restored;
+        }
+        catch (Exception ex)
+        {
+            // Never fatal: a refused cache just means the full sweep runs, which is the old behaviour.
+            Console.WriteLine($"[tianwen-web] tonight's best cache unavailable: {ex.Message}");
+            return false;
+        }
+    }
+
+    async Task SaveTonightsBestCacheAsync(Transform transform)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("localStorage.setItem", TonightsBestCacheKey,
+                PlannerPersistence.SerializeTonightsBest(
+                    _state, transform.SiteLatitude, transform.SiteLongitude, PlannedForNight()));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] tonight's best cache write failed (non-fatal): {ex.Message}");
+        }
+    }
+
+    // --- Date changes: honour PlannerState.NeedsRecompute ---------------------------------------
+    //
+    // The web host is the only one of the three that never read this flag. ShiftPlanningDate /
+    // ShiftPlanningHours / ResetPlanningDate (PageUp / PageDown / N / T on the sky map) set it and
+    // nothing acted, so the map moved to the new night while every score, night window and altitude
+    // profile stayed on the old one -- silently, since both look perfectly plausible. The desktop's
+    // AppSignalHandler.CheckRecompute is the model; this is its browser counterpart.
+
+    /// <summary>
+    /// Coalescing window for a date change. PageUp autorepeats, and each press is a different night
+    /// costing a ~170 ms synchronous rescore (measured on the deployed build), so firing per press
+    /// would queue the whole autorepeat behind the user's fingers. Long enough to swallow a repeat,
+    /// short enough that a single deliberate press feels immediate.
+    /// </summary>
+    const int RecomputeSettleMs = 250;
+
+    bool _recomputeScheduled;
+
+    /// <summary>
+    /// Arms the settle when the flag is up. Gated on "not already armed" rather than superseding a
+    /// pending one: this is called from every repaint, so a trailing debounce would be pushed back
+    /// indefinitely by an unrelated pan and the recompute would never run.
+    /// </summary>
+    void CheckRecompute()
+    {
+        if (!_state.NeedsRecompute || _recomputeScheduled || _busy)
+        {
+            return;
+        }
+
+        _recomputeScheduled = true;
+        _ = SettleRecomputeAsync();
+    }
+
+    async Task SettleRecomputeAsync()
+    {
+        try
+        {
+            await Task.Delay(RecomputeSettleMs);
+
+            // Wait out any other compute (the toolbar button, a late geolocation fix) rather than
+            // dropping the request. RecomputeAsync no-ops while _busy, and CheckRecompute cannot
+            // re-arm from the repaint that runs INSIDE that compute -- _busy is still set there --
+            // so returning here would strand the flag with nothing left to notice it.
+            while (_busy)
+            {
+                await Task.Delay(RecomputeSettleMs);
+            }
+
+            // Cleared BEFORE the work, so a press that lands during the rescore sets it again and the
+            // next repaint arms a fresh settle, rather than being swallowed by the one in flight.
+            _state.NeedsRecompute = false;
+            await RecomputeAsync(restoreFocus: false);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[tianwen-web] date recompute failed: {ex.Message}");
+        }
+        finally
+        {
+            _recomputeScheduled = false;
+        }
+    }
 
     async Task TryRestorePlannerSessionAsync()
     {
@@ -574,6 +709,19 @@
         transform.SiteLongitude = _lon;
         transform.SiteElevation = SiteElevationMeters;
         transform.DateTime = Time.GetUtcNow().UtcDateTime;
+
+        // Plan for the night the user is LOOKING at, not for tonight. Mirrors the desktop
+        // (AppSignalHandler.CheckRecompute): noon of the planning date, so CalculateNightWindow
+        // resolves the dark window either side of that midnight rather than of the current one.
+        //
+        // Without this the date controls were half-wired -- PageUp/PageDown/N/T moved the sky map
+        // and the planning date, and every score, night window and altitude profile was still
+        // computed for today. Recompute did not fix it either; it built the transform here.
+        if (_state.PlanningDate is { } planningDate)
+        {
+            transform.DateTimeOffset = new DateTimeOffset(planningDate.Date, planningDate.Offset).AddHours(12);
+        }
+
         return transform;
     }
 
@@ -1483,9 +1631,17 @@
         }
     }
 
-    async Task RecomputeAsync()
+    /// <param name="restoreFocus">
+    /// True for the toolbar button, which took the keyboard by being clicked. False for a
+    /// date-change recompute: nothing took focus, so pulling it to the canvas could yank it out of
+    /// whatever the user is actually in.
+    /// </param>
+    async Task RecomputeAsync(bool restoreFocus = true)
     {
-        RestoreCanvasFocus(); // the button click took the keyboard; give it straight back
+        if (restoreFocus)
+        {
+            RestoreCanvasFocus(); // the button click took the keyboard; give it straight back
+        }
         if (_busy || _webGl is null) return;
         _busy = true;
         try
@@ -1612,6 +1768,9 @@
             // completion reaper for the tracked async saves.
             _bus.ProcessPending(_tracker);
             _tracker.ProcessCompletions(Logger);
+            // A date change (PageUp / PageDown / N / T) only sets a flag; this is where it becomes a
+            // rescore. Cheap: a field read, and it arms at most one settle at a time.
+            CheckRecompute();
             busMs = Since(ref phase);
             _webGl.Clear(Background);
             var content = new RectF32(0f, 0f, _metrics.BackingWidth, _metrics.BackingHeight);
