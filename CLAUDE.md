@@ -1307,6 +1307,17 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
 - **SETI Astro (SAS Pro AI4)** -- plain ONNX models loaded in-proc via ONNX Runtime
   (`TianWen.AI.Imaging/Onnx/*`, `AddTianWenAi()`). Models under `%LOCALAPPDATA%\TianWen\models`
   (`tools/tianwen-ai-models-fetch.ps1`).
+- **In-house N2N denoiser** (`N2nDenoiser`, opt-in via `AddTianWenN2nDenoiser` -- deliberately NOT
+  the default `IDenoiseEnhancer`; OSC-only, throws on mono). Its weights ship **in this repo under
+  Git LFS** at `src/TianWen.AI.Imaging/models/` (`*.onnx` rule in `.gitattributes`): the test
+  project copies them to its output so `N2nDenoiserTests`' cross-language parity test runs off the
+  checkout (CI narrow-pulls `*.onnx` for the same reason), and the fetch script's phase 4 hardlinks
+  them into the models dir. `ModelResolver` refuses a Git LFS pointer stub (a clone without
+  git-lfs), so the failure mode is a logged skip, never an ORT protobuf error. The user-facing
+  strength dial is a **blend** (`out = in + a*(den - in)`); the graph's `strength` input is pinned
+  to 1.0 (the conditioning-plane dial was measured and rejected: it saturates, its span varies 4x
+  by target, and fabrication rises toward its gentle end). Design + measurements:
+  `docs/plans/osc-narrowband-denoiser.md` section 1o.
 - **RC-Astro (BlurX/NoiseX/StarXTerminator)** -- `TianWen.AI.Imaging/RcAstro/*`, `AddRcAstroAi()`.
   RC-Astro's `.onnx` files are **encrypted at rest** (only the official binary can decrypt them; the
   license forbids extracting the weights), so they are driven through the `rc-astro` CLI's `--json`

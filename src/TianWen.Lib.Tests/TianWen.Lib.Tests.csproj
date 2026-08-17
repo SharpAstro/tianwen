@@ -47,6 +47,11 @@
   <ItemGroup>
     <None Include="Data\CR2\*.CR2" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Data\CR3\*.CR3" CopyToOutputDirectory="PreserveNewest" />
+    <!-- In-house AI models shipped in the repo under Git LFS. Copied to the output's models/
+         so N2nDenoiserTests resolve the checkout's own weights ahead of the per-user cache;
+         a clone without git-lfs copies the pointer stub, which ModelResolver refuses, and the
+         model-gated tests skip. -->
+    <None Include="..\TianWen.AI.Imaging\models\*.onnx" CopyToOutputDirectory="PreserveNewest" LinkBase="models" />
   </ItemGroup>
 
   <ItemGroup>

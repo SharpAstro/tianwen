@@ -616,6 +616,19 @@ against its own ablations on held-out astro masters and has never been compared 
 AI4 family has a weight bundle. Making it the default would assert a comparison nobody ran, silently,
 on every `--ai-backend sas` run.
 
+**Distribution (decided 2026-08-17): the weights live IN the repo under Git LFS.** At 3.1 MiB the
+model is test-fixture-sized, so it ships like one: `src/TianWen.AI.Imaging/models/` with a `*.onnx`
+LFS rule in `.gitattributes`. Three consumers hang off that one location. The test project copies it
+beside the binaries, so `N2nDenoiserTests` resolve the checkout's own weights ahead of the per-user
+cache -- and CI's test-unit job adds `*.onnx` to its narrow LFS pull, so the cross-language parity
+test runs on every push against exactly the bytes being shipped instead of skipping. End users get it
+through `tools/tianwen-ai-models-fetch.ps1` phase 4, which hardlinks from the checkout into
+`%LOCALAPPDATA%/TianWen/models` (the SAS Pro trick) and falls back to downloading the LFS object from
+`media.githubusercontent.com` when the checkout holds only a pointer stub. `ModelResolver` itself
+refuses a pointer stub (a clone without git-lfs installed) and keeps probing, so that failure mode is
+a logged skip, not an opaque ONNX Runtime protobuf error. The cost accepted knowingly: every retrain
+that ships adds ~3 MiB to LFS storage, which is fine at this size and wrong for anything AI4-sized.
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.
@@ -647,7 +660,7 @@ Ordered by value per unit of work, not by dependency.
 | ~~**N2b**~~ | ~~**PSF conditioning in the trainer.**~~ **PARTLY DONE 2026-08-16 as band conditioning, negative, see 1k.** The cheap tile-measurable proxy (`--cond-bands`, 3 noise-colour planes) does not rescue the 60-session arm and destabilised training. | 1.4 h | Killed the proxy, not the hypothesis: band sigma describes NOISE colour, and 1i is about SIGNAL scale. |
 | ~~**N2e**~~ | ~~**A signal-scale conditioning plane, measurable from ONE tile.**~~ **MOOT per 1l (2026-08-16).** The mechanism is corruption of the TARGETS (time-correlated pair residue), which no input-side plane can describe away; 1k's negative was structural, not a proxy problem. The fix axis is N8's pair selection, not a richer estimator. | - | Withdrawn before any code was written, which is the cheap time to withdraw it. |
 | **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
-| ~~**N4**~~ | ~~**Ship a checkpoint behind a strength dial.**~~ **DONE 2026-08-17, see 1o.** `n2n_v19d_s2` exported to ONNX with the conditioning baked in, wired as an opt-in `IDenoiseEnhancer` (`AddTianWenN2nDenoiser`), pinned by a cross-language parity test. Two things changed on the way: the shipped dial is the BLEND, not `with_sigma`'s `strength` (measured and rejected), and the model needed a per-channel level restore it did not have. Distribution of the `.onnx` is the one piece left. | medium | Done. |
+| ~~**N4**~~ | ~~**Ship a checkpoint behind a strength dial.**~~ **DONE 2026-08-17, see 1o.** `n2n_v19d_s2` exported to ONNX with the conditioning baked in, wired as an opt-in `IDenoiseEnhancer` (`AddTianWenN2nDenoiser`), pinned by a cross-language parity test. Two things changed on the way: the shipped dial is the BLEND, not `with_sigma`'s `strength` (measured and rejected), and the model needed a per-channel level restore it did not have. Distribution (2026-08-17): in-repo under Git LFS, materialized by the fetch script, parity-tested in CI -- see the end of 1o. | medium | Done. |
 | ~~**N8**~~ | ~~**Run v23: the causal test + the which-8 arm.**~~ **DONE 2026-08-16, all three predictions failed, see 1m.** Pair-time moves the operator by -10% to -27% (wrong direction), and armE shows the count claim was never established. | 2 h | Closed the residue pathway and, more valuably, found that 1i had a confound nobody had checked. |
 | ~~**N9**~~ | ~~**armF: a THIRD disjoint 8-session set.**~~ **DONE 2026-08-16, see 1n.** armF does not reproduce armD (0.739 vs 0.825 on Rim), so there is no size recipe; and armD-vs-armF is a tie everywhere except Rim. PF also failed, retiring 1l's surviving half. | 1 h | Closed the recipe question and showed the draw/seed variance exceeds every effect chased since v17. |
 | **N10** | **Ask what armD has on RIM specifically** -- narrowed by 1n from "what is armD like" to a single cell, because armD ties armF on every other observer. Compare armD / armE / armF on per-session PSF width, pixel scale and focal length, sky background and integration depth, from the stores that already hold them (`psf-sessions.jsonl` et al). Descriptive, no training. **The target property must explain faint STARS and not structure**: on Rim armD and armF keep fine structure identically (0.974 both) while differing 0.086 in faint-star amplitude. | small | Optional and bounded. Do NOT widen it back to 65 sessions x N properties -- at that width something always correlates, and 1n has already established the honest headline without it. |
