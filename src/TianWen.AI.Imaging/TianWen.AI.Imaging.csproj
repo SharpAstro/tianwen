@@ -25,6 +25,20 @@
     <None Include="../.editorconfig" Link=".editorconfig" />
   </ItemGroup>
 
+  <!-- The in-house AI models ship in the repo under Git LFS (models/), not via
+       tools/tianwen-ai-models-fetch.ps1, so they must travel with the binary that was built
+       against them. Content rather than None: Content flows to a REFERENCING project's output
+       and publish dir, None stops here - which is why only the test project (with its own copy
+       rule) could load these weights, and every app failed to resolve them. TargetPath lands
+       them in the app-local models/ that ModelResolver probes first. Pack="false" keeps them
+       out of any nupkg built from this project; they are runtime assets, not package content. -->
+  <ItemGroup>
+    <Content Include="models\*.onnx"
+             TargetPath="models\%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             Pack="false" />
+  </ItemGroup>
+
   <!-- Expose internals (e.g. the RcAstro NDJSON event parser) to the test
        project so it can be unit-tested without reflection. -->
   <ItemGroup>

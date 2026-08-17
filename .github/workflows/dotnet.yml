@@ -42,18 +42,25 @@ jobs:
         submodules: recursive
         lfs: false
     # Narrow LFS pull: build needs catalog .lz (TianWen.Lib EmbeddedResource),
-    # milkyway .lz (Gui Content), fonts .ttf (Gui Content), and the prebaked
+    # milkyway .lz (Gui Content), fonts .ttf (Gui Content), the prebaked
     # snapshot .bin.gz files (TianWen.Lib EmbeddedResource - if missing, the
-    # LFS pointer text gets embedded and runtime gzip read fails). Skipping
-    # test fixtures (*.fits.gz) saves ~120 MB per pull -- they're only needed
-    # by the test jobs, not for compilation or the .nupkg artifact.
+    # LFS pointer text gets embedded and runtime gzip read fails), and the
+    # in-repo AI model weights .onnx (TianWen.AI.Imaging Content, copied to
+    # every consuming app's output + publish dir). Skipping test fixtures
+    # (*.fits.gz) saves ~120 MB per pull -- they're only needed by the test
+    # jobs, not for compilation or the .nupkg artifact.
+    #
+    # The .onnx is 3 MB and this job does not itself ship anything, so it is
+    # here to keep this glob IDENTICAL to publish-apps' -- the two share the
+    # lfs-build- cache, and a set that differs between them means the publish
+    # matrix takes a cache miss on the one object it cannot ship without.
     - name: Compute LFS cache key
       id: lfs-key
       run: |
         # Pointer file content (OID + size) changes only when the underlying
         # LFS object changes, so a pointer-hash key reliably identifies which
         # set of LFS objects we'd be pulling. Cache hit -> no LFS bandwidth.
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' | xargs cat | sha256sum | cut -c1-16)
+        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.onnx' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
     - uses: actions/cache@v5
       with:
@@ -68,7 +75,7 @@ jobs:
         restore-keys: |
           lfs-build-
     - name: Fetch required LFS objects
-      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz"
+      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.onnx"
     - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
@@ -417,15 +424,24 @@ jobs:
         submodules: recursive
         lfs: false
     # Narrow LFS pull: AOT publish needs catalogs (TianWen.Lib EmbeddedResource),
-    # fonts and milkyway texture (TianWen.UI.Gui Content). No FITS fixtures --
-    # publish never builds the test projects.
+    # fonts and milkyway texture (TianWen.UI.Gui Content), and the in-repo AI model
+    # weights (TianWen.AI.Imaging Content). No FITS fixtures -- publish never builds
+    # the test projects.
+    #
+    # The .onnx is not optional here and its absence is SILENT: without it the
+    # checkout holds a ~130-byte LFS pointer, Content copies that pointer into the
+    # release tarball's models/ dir, and the shipped binary looks complete while
+    # ModelResolver refuses the stub -- so `--ai-backend n2n` is missing from the
+    # release and nothing in the build says so. Test-unit pulled *.onnx from the day
+    # the weights landed; this job did not, which is the whole failure mode.
+    #
     # Same key as the build job since they pull the same set of LFS objects --
     # the build cache populates and the publish matrix restores from it.
     - name: Compute LFS cache key
       id: lfs-key
       shell: bash
       run: |
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' | xargs cat | sha256sum | cut -c1-16)
+        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.onnx' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
     - uses: actions/cache@v5
       with:
@@ -441,7 +457,25 @@ jobs:
           lfs-build-
     - name: Fetch required LFS objects
       shell: bash
-      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz"
+      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.onnx"
+    # An unmaterialised pointer does not fail anything on its own -- it is a valid ~130-byte
+    # text file, so Content copies it into the tarball, EmbeddedResource embeds it, and the
+    # release looks complete while the feature it backs is quietly missing. This is the only
+    # job whose output ships, so it is the one that must refuse to proceed on a stub. Assert
+    # here rather than at the end: the AOT matrix is the expensive part of a release, and
+    # there is no reason to spend six legs of it on a build that cannot ship.
+    - name: Verify LFS objects materialised
+      shell: bash
+      run: |
+        stubs=0
+        for f in $(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.onnx'); do
+          if [ "$(head -c 23 "$f")" = "version https://git-lfs" ]; then
+            echo "::error file=$f::still a Git LFS pointer after the pull, so it would ship as a stub"
+            stubs=$((stubs + 1))
+          fi
+        done
+        [ "$stubs" -eq 0 ] || exit 1
+        echo "all LFS objects materialised"
     # Same artifact pattern as the test jobs -- avoids re-running the
     # preprocess-catalog.ps1 script on the multi-platform publish matrix
     # (Windows / Linux / macOS).

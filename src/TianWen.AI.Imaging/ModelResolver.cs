@@ -9,12 +9,24 @@ namespace TianWen.AI.Imaging;
 /// <summary>
 /// Default <see cref="IModelResolver"/> -- searches a list of directories in
 /// priority order and returns the first match. The default directory list is
-/// <c>%LOCALAPPDATA%/TianWen/models</c> first (the path written by
-/// <c>tools/tianwen-ai-models-fetch.ps1</c>), then SAS Pro's
+/// the app-local <c>models/</c> beside the running binary first (see
+/// <see cref="AppLocalModelsDir"/>), then <c>%LOCALAPPDATA%/TianWen/models</c>
+/// (the path written by <c>tools/tianwen-ai-models-fetch.ps1</c>), then SAS Pro's
 /// <c>%LOCALAPPDATA%/SASpro/models</c> if it exists (lets a dual-app dev
 /// install share weights). Cross-platform: macOS uses
 /// <c>~/Library/Application Support/TianWen/models</c> and Linux uses
 /// <c>~/.local/share/TianWen/models</c>, mirroring the fetch script.
+///
+/// <para><b>The app-local directory is not optional garnish -- without it the in-house
+/// weights are unreachable outside the test project.</b> They ship in the repo under Git LFS
+/// (<c>src/TianWen.AI.Imaging/models/</c>) rather than being fetched per user, and for a
+/// while only <c>TianWen.Lib.Tests</c> could load them, because it was the one project that
+/// both copied them to its output AND prepended that output to the search list. Every app
+/// did neither, so <c>tianwen image sharpen --ai-backend n2n</c> advertised the model,
+/// ran a five-minute star removal, and then died on a missing file -- pointing at a fetch
+/// script that does not fetch this model. Both halves live in the product now: the copy is a
+/// <c>Content</c> item in this project (so it flows to every consumer's output and publish
+/// dir) and this is the matching probe.</para>
 /// </summary>
 public sealed class ModelResolver : IModelResolver
 {
@@ -47,8 +59,11 @@ public sealed class ModelResolver : IModelResolver
         }
 
         var probed = string.Join(Environment.NewLine + "  ", _searchPaths.Select(p => Path.Combine(p, modelFileName)));
+        // Name BOTH remedies: the third-party weights are fetched per user, the in-house ones
+        // ship in the repo under Git LFS. Naming only the fetch script sends anyone hitting the
+        // in-house case to a script that does not have their model.
         throw new FileNotFoundException(
-            $"AI model '{modelFileName}' not found in any search path. Run tools/tianwen-ai-models-fetch.ps1 to populate. Probed:{Environment.NewLine}  {probed}");
+            $"AI model '{modelFileName}' not found in any search path. Third-party weights are populated by tools/tianwen-ai-models-fetch.ps1; the in-house models ship in the repo under Git LFS, so a checkout that has not materialised them needs 'git lfs pull'. Probed:{Environment.NewLine}  {probed}");
     }
 
     public bool TryResolve(string modelFileName, out string? absolutePath)
@@ -115,8 +130,20 @@ public sealed class ModelResolver : IModelResolver
 
     private static ImmutableArray<string> DefaultSearchPaths()
     {
-        return [TianWenModelsDir(), SasProModelsDir()];
+        return [AppLocalModelsDir(), TianWenModelsDir(), SasProModelsDir()];
     }
+
+    /// <summary>
+    /// The <c>models/</c> directory beside the running binary -- where this project's
+    /// <c>Content</c> item lands the repo's LFS-tracked weights in every consumer's output and
+    /// publish directory.
+    ///
+    /// <para>First in priority because an app-local file is version-matched to the binary that
+    /// shipped with it, whereas the per-user cache below is shared across installs and can be
+    /// older. That ordering only costs anything if the two disagree, and when they do, the one
+    /// built alongside the code is the one to trust.</para>
+    /// </summary>
+    private static string AppLocalModelsDir() => Path.Combine(AppContext.BaseDirectory, "models");
 
     private static string TianWenModelsDir()
     {

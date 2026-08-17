@@ -18,10 +18,11 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Tests for the in-house Noise2Noise denoiser. The model ships in the repo under Git LFS
-/// (<c>src/TianWen.AI.Imaging/models/</c>, copied to the test output's <c>models/</c>), so the
-/// resolver probes that copy first and falls back to the per-user cache dirs. A clone without
-/// git-lfs materializes only the pointer stub, which <see cref="ModelResolver"/> refuses, and the
-/// model-gated tests skip rather than fail.
+/// (<c>src/TianWen.AI.Imaging/models/</c>, copied beside every consumer's binaries as
+/// <c>models/</c> by that project's Content item), so the resolver probes that copy first and
+/// falls back to the per-user cache dirs. A clone without git-lfs materializes only the pointer
+/// stub, which <see cref="ModelResolver"/> refuses, and the model-gated tests skip rather than
+/// fail.
 /// <para>
 /// <b>The parity test is the point of this file.</b> The exported graph is already pinned against
 /// torch by <c>n2n-smoke/ship/n2n_export.py</c> (max |diff| 1.49e-7). What no Python check can
@@ -37,12 +38,16 @@ public class N2nDenoiserTests(ITestOutputHelper output)
     private const string FixtureResource = "TianWen.Lib.Tests.Data.n2n-parity-fixture.json";
 
     /// <summary>
-    /// The checkout's own LFS copy first (copied beside the test binaries by the csproj), then the
-    /// per-user caches -- so CI, which narrow-pulls <c>*.onnx</c> and has no cache, runs the parity
-    /// test against exactly the weights being shipped.
+    /// Deliberately the DEFAULT resolver, not a hand-built search list. Its first entry is now the
+    /// app-local <c>models/</c> -- the checkout's own LFS copy, landed beside the binaries by
+    /// TianWen.AI.Imaging -- then the per-user caches, so CI (which narrow-pulls <c>*.onnx</c> and
+    /// has no cache) still runs the parity test against exactly the weights being shipped.
+    ///
+    /// <para>This used to prepend that directory itself, which is what let the apps' inability to
+    /// find the same file go unnoticed for as long as it did: the suite was green against a search
+    /// path no shipped binary used. Sharing the default is the regression guard.</para>
     /// </summary>
-    private static ModelResolver CreateResolver() => new ModelResolver(
-        [System.IO.Path.Combine(AppContext.BaseDirectory, "models"), .. ModelResolver.DefaultDirectories]);
+    private static ModelResolver CreateResolver() => new ModelResolver();
 
     private static bool HasModel(out string skipMessage)
     {
