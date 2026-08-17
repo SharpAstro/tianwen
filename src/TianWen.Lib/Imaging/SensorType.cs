@@ -47,12 +47,20 @@ public static class SensorTypeEx
                 return (SensorType.Monochrome, 0, 0);
             }
 
-            var (sensorType, sensorOffsetX, sensorOffsetY) = firstNonNull.ToUpperInvariant() switch
+            var (sensorType, sensorOffsetX, sensorOffsetY) = firstNonNull.Trim().ToUpperInvariant() switch
             {
                 "RGGB" => (SensorType.RGGB, 0, 0),
                 "GRBG" => (SensorType.RGGB, 1, 0),
                 "GBRG" => (SensorType.RGGB, 0, 1),
                 "BGGR" => (SensorType.RGGB, 1, 1),
+                // MaxIm DL driving an ASCOM OSC writes BAYERPAT='VALID': an assertion that a Bayer
+                // array EXISTS, not a pattern name. The pattern rides entirely on XBAYROFF/YBAYROFF
+                // against the ASCOM canonical RGGB base (the same model GetBayerPatternMatrix
+                // decodes), so VALID is the base with no extra shift and the file offsets do the
+                // rest. Verified on real data, not just the convention: an iTelescope IMX571 set at
+                // offsets (0,0) measures RGGB from its own CFA subplane statistics (the two greens
+                // match to 0.2%, red is the brighter remaining subplane on a red-dominant sky).
+                "VALID" => (SensorType.RGGB, 0, 0),
                 _ => (SensorType.Unknown, 0, 0)
             };
 
