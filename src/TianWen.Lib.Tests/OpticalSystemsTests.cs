@@ -13,30 +13,38 @@ namespace TianWen.Lib.Tests
     public class OpticalSystemsTests
     {
         [Theory]
-        [InlineData("SH61 EDPH", OpticalSystems.Refractor)]
-        [InlineData("WO ZS61", OpticalSystems.Refractor)]
-        [InlineData("WO RC51", OpticalSystems.Refractor)]
-        [InlineData("Samyang 135 f/2 ED", OpticalSystems.CameraLens)]
+        [InlineData("SH61 EDPH", OpticalSystem.Refractor)]
+        [InlineData("WO ZS61", OpticalSystem.Refractor)]
+        [InlineData("WO RC51", OpticalSystem.Refractor)]
+        [InlineData("Samyang 135 f/2 ED", OpticalSystem.CameraLens)]
         // The raw header spelling classifies via TelescopeAliases, so a classification never has to
         // be entered twice for one physical lens.
-        [InlineData("SAMYANG 135mm", OpticalSystems.CameraLens)]
+        [InlineData("SAMYANG 135mm", OpticalSystem.CameraLens)]
         // No TELESCOP = a camera behind a bare photographic lens; that IS the classification.
-        [InlineData("", OpticalSystems.CameraLens)]
-        [InlineData("   ", OpticalSystems.CameraLens)]
+        [InlineData("", OpticalSystem.CameraLens)]
+        [InlineData("   ", OpticalSystem.CameraLens)]
         // Not in the archive (checked across every store 2026-08-17); stays unclassified until a
         // bake actually surfaces it and someone adds the reviewed table entry.
-        [InlineData("SW8", OpticalSystems.Unclassified)]
-        public void Classify_KnowsTheArchiveAndRefusesToGuess(string telescope, string expected)
+        [InlineData("SW8", OpticalSystem.Unclassified)]
+        public void Classify_KnowsTheArchiveAndRefusesToGuess(string telescope, OpticalSystem expected)
             => OpticalSystems.Classify(telescope).ShouldBe(expected);
 
         [Theory]
-        [InlineData("ZWO ASI533MC Pro / Samyang 135 f/2 ED @ 130mm", OpticalSystems.CameraLens)]
-        [InlineData("SVBONY SV605CC / SH61 EDPH @ 270mm", OpticalSystems.Refractor)]
+        [InlineData("ZWO ASI533MC Pro / Samyang 135 f/2 ED @ 130mm", OpticalSystem.CameraLens)]
+        [InlineData("SVBONY SV605CC / SH61 EDPH @ 270mm", OpticalSystem.Refractor)]
         // A bare-lens label has no telescope slot at all, which parses to an empty telescope.
-        [InlineData("ZWO ASI585MC Pro @ 24mm", OpticalSystems.CameraLens)]
+        [InlineData("ZWO ASI585MC Pro @ 24mm", OpticalSystem.CameraLens)]
         // An unparseable label is NOT a camera-lens claim: we could not read the telescope slot.
-        [InlineData("", OpticalSystems.Unclassified)]
-        public void ClassifyLabel_ReadsTheTelescopeSlotOfATrainLabel(string label, string expected)
+        [InlineData("", OpticalSystem.Unclassified)]
+        public void ClassifyLabel_ReadsTheTelescopeSlotOfATrainLabel(string label, OpticalSystem expected)
             => OpticalSystems.ClassifyLabel(label).ShouldBe(expected);
+
+        [Theory]
+        [InlineData(OpticalSystem.Refractor, "refractor")]
+        [InlineData(OpticalSystem.CameraLens, "camera lens")]
+        [InlineData(OpticalSystem.Newtonian, "Newtonian")]
+        [InlineData(OpticalSystem.Unclassified, "(unclassified)")]
+        public void Label_IsTheWordsTheReportPrints(OpticalSystem kind, string expected)
+            => kind.Label.ShouldBe(expected);
     }
 }
