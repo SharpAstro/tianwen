@@ -152,12 +152,14 @@ jobs:
       with:
         submodules: recursive
         lfs: false
-    # Narrow LFS pull: tests need catalogs (.lz), fonts (.ttf), and FITS test
-    # fixtures (.fits.gz) embedded in TianWen.Lib.Tests.dll.
+    # Narrow LFS pull: tests need catalogs (.lz), fonts (.ttf), FITS test
+    # fixtures (.fits.gz) embedded in TianWen.Lib.Tests.dll, and the in-repo AI
+    # model weights (.onnx) so N2nDenoiserTests' cross-language parity test runs
+    # here instead of skipping.
     - name: Compute LFS cache key
       id: lfs-key
       run: |
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' '*.CR2' '*.CR3' '*.cr2' '*.cr3' | xargs cat | sha256sum | cut -c1-16)
+        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' '*.CR2' '*.CR3' '*.cr2' '*.cr3' '*.onnx' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
     - uses: actions/cache@v5
       with:
@@ -169,7 +171,7 @@ jobs:
       # in .gitattributes; we only ship uppercase today but the include set is
       # exhaustive so a future lowercase-named fixture from a Canon body that
       # emits one doesn't silently skip in CI.
-      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3"
+      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz,*.CR2,*.CR3,*.cr2,*.cr3,*.onnx"
     # Pull in the .gs.gz preprocessed catalogs from the build job so the
     # preprocess-catalog.ps1 script doesn't have to re-run here. Touch them to
     # be newer than .json.lz so MSBuild's Inputs/Outputs check skips the

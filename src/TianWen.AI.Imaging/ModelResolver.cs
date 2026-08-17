@@ -68,6 +68,16 @@ public sealed class ModelResolver : IModelResolver
             var candidate = Path.Combine(dir, modelFileName);
             if (File.Exists(candidate))
             {
+                if (IsLfsPointerStub(candidate))
+                {
+                    // A checkout without git-lfs installed leaves a ~130-byte text pointer where
+                    // the weights should be. Handing that to ONNX Runtime fails with an opaque
+                    // protobuf parse error, so treat it as absent and keep probing.
+                    _logger?.LogWarning(
+                        "'{Path}' is a Git LFS pointer stub, not model weights; skipping it. Run 'git lfs pull' (or tools/tianwen-ai-models-fetch.ps1) to materialize it.",
+                        candidate);
+                    continue;
+                }
                 _logger?.LogDebug("Resolved model '{Name}' to '{Path}'", modelFileName, candidate);
                 absolutePath = candidate;
                 return true;
@@ -76,6 +86,31 @@ public sealed class ModelResolver : IModelResolver
 
         absolutePath = null;
         return false;
+    }
+
+    /// <summary>
+    /// The built-in search directories (TianWen's own models dir first, SAS Pro's second),
+    /// for callers that want to prepend a path of their own without restating these.
+    /// </summary>
+    public static ImmutableArray<string> DefaultDirectories => DefaultSearchPaths();
+
+    private static bool IsLfsPointerStub(string path)
+    {
+        // Pointer files are ~130 bytes of ASCII starting with the spec line below; every real
+        // model is orders of magnitude larger, so gate on size before touching the content.
+        ReadOnlySpan<byte> lfsSignature = "version https://git-lfs"u8;
+        try
+        {
+            using var stream = File.OpenRead(path);
+            if (stream.Length > 1024) return false;
+            Span<byte> head = stackalloc byte[lfsSignature.Length];
+            return stream.ReadAtLeast(head, head.Length, throwOnEndOfStream: false) == head.Length
+                && head.SequenceEqual(lfsSignature);
+        }
+        catch (IOException)
+        {
+            return false;
+        }
     }
 
     private static ImmutableArray<string> DefaultSearchPaths()

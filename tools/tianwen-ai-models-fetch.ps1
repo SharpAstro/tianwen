@@ -1,5 +1,5 @@
-# Fetch + materialize TianWen AI models (AI4, Walking Noise) into
-# %LOCALAPPDATA%\TianWen\models.
+# Fetch + materialize TianWen AI models (AI4, Walking Noise, GraXpert BGE, and
+# TianWen's own in-repo models) into %LOCALAPPDATA%\TianWen\models.
 #
 # Sourcing strategy:
 #   1. Probe %LOCALAPPDATA%\SASpro\models. If SetiAstroSuite Pro has a file we
@@ -10,7 +10,10 @@
 #   2. For files SAS Pro does NOT have, download the upstream zip
 #      (github.com/setiastro/setiastrosuitepro releases, tag benchmarkFIT) into
 #      a cache dir and extract only the missing entries.
-#   3. Idempotent: files already present under TianWen\models are skipped, so
+#   3. TianWen's own models (src/TianWen.AI.Imaging/models/, Git LFS) hardlink
+#      from this checkout; a pointer-stub checkout (no git-lfs installed) falls
+#      back to downloading the LFS object bytes from GitHub's media host.
+#   4. Idempotent: files already present under TianWen\models are skipped, so
 #      re-runs are safe and cheap.
 #
 # When to run this:
@@ -258,15 +261,15 @@ function Materialize-Job {
 
 # Phase 1: download zips (unless -NoDownload).
 if (-not $NoDownload) {
-    Write-Host "[1/3] Downloading model zips" -ForegroundColor Cyan
+    Write-Host "[1/4] Downloading model zips" -ForegroundColor Cyan
     Write-Host ("  cache: {0}" -f $CacheDir) -ForegroundColor DarkGray
     foreach ($job in $jobs) { Download-Job $job }
 } else {
-    Write-Host "[1/3] Download skipped (-NoDownload)" -ForegroundColor DarkGray
+    Write-Host "[1/4] Download skipped (-NoDownload)" -ForegroundColor DarkGray
 }
 
 # Phase 2: materialize into TianWen output dir.
-Write-Host "[2/3] Materializing SAS Pro models into $OutputDir" -ForegroundColor Cyan
+Write-Host "[2/4] Materializing SAS Pro models into $OutputDir" -ForegroundColor Cyan
 foreach ($job in $jobs) { Materialize-Job $job }
 
 # Phase 3: GraXpert background-extraction (BGE) model. Single file, no zip,
@@ -325,13 +328,69 @@ function Materialize-GraXpertBge {
 }
 
 if (-not $NoGraXpert) {
-    Write-Host "[3/3] Materializing GraXpert BGE model" -ForegroundColor Cyan
+    Write-Host "[3/4] Materializing GraXpert BGE model" -ForegroundColor Cyan
     Materialize-GraXpertBge -GraXpertRoot $GraXpertDir -Output $OutputDir | Out-Null
 } else {
-    Write-Host "[3/3] GraXpert skipped (-NoGraXpert)" -ForegroundColor DarkGray
+    Write-Host "[3/4] GraXpert skipped (-NoGraXpert)" -ForegroundColor DarkGray
 }
 
-# Phase 4: optional cache pruning. Hardlinks share inodes with SAS Pro's copy
+# Phase 4: TianWen's own models, shipped IN this repo under Git LFS
+# (src/TianWen.AI.Imaging/models/). Preferred source is the checkout beside this
+# script -- hardlink-else-copy, same as SAS Pro. A clone made without git-lfs
+# holds a ~130-byte pointer stub instead of weights, in which case the LFS
+# object bytes are fetched from GitHub's media host (which serves the real
+# content for a public repo; the plain raw host would serve the stub again).
+$tianwenNativeModels = @('tianwen_denoise_osc_v19d.onnx')
+$tianwenRepoModelsDir = Join-Path $PSScriptRoot '..' 'src' 'TianWen.AI.Imaging' 'models'
+$tianwenLfsMediaBase = 'https://media.githubusercontent.com/media/SharpAstro/tianwen/main/src/TianWen.AI.Imaging/models'
+
+function Test-LfsPointerStub {
+    param([Parameter(Mandatory)][string]$Path)
+    $item = Get-Item -LiteralPath $Path
+    if ($item.Length -gt 1024) { return $false }
+    $head = Get-Content -LiteralPath $Path -TotalCount 1 -ErrorAction SilentlyContinue
+    return $head -is [string] -and $head.StartsWith('version https://git-lfs')
+}
+
+function Materialize-TianWenModel {
+    param([Parameter(Mandatory)][string]$Name)
+    $target = Join-Path $OutputDir $Name
+
+    if (Test-Path -LiteralPath $target) {
+        Write-Host ("  skipped:    {0} (already present)" -f $Name) -ForegroundColor DarkGray
+        return
+    }
+
+    $source = Join-Path $tianwenRepoModelsDir $Name
+    if ((Test-Path -LiteralPath $source -PathType Leaf) -and -not (Test-LfsPointerStub -Path $source)) {
+        if (Try-Hardlink -Source $source -Target $target) {
+            Write-Host ("  hardlinked: {0} (from repo checkout)" -f $Name) -ForegroundColor Green
+        } else {
+            Copy-Item -LiteralPath $source -Destination $target -Force
+            Write-Host ("  copied:     {0} (from repo checkout; hardlink failed)" -f $Name) -ForegroundColor Yellow
+        }
+        return
+    }
+
+    if ($NoDownload) {
+        Write-Host ("  MISSING:    {0} -- checkout has no weights (LFS pointer stub?) and -NoDownload is set. Run 'git lfs pull --include=*.onnx' and re-run." -f $Name) -ForegroundColor Yellow
+        return
+    }
+
+    $url = "$tianwenLfsMediaBase/$Name"
+    Write-Host ("  downloading {0} from {1} ..." -f $Name, $url) -ForegroundColor Cyan
+    Invoke-WebRequest -Uri $url -OutFile $target -ErrorAction Stop
+    if (Test-LfsPointerStub -Path $target) {
+        Remove-Item -LiteralPath $target -Force
+        throw ("Downloaded {0} is itself an LFS pointer stub -- the media host did not resolve it. Run 'git lfs pull --include=*.onnx' in the repo instead." -f $Name)
+    }
+    Write-Host ("  done:       {0} ({1:N1} MB)" -f $Name, ((Get-Item -LiteralPath $target).Length / 1MB)) -ForegroundColor Green
+}
+
+Write-Host "[4/4] Materializing TianWen native models" -ForegroundColor Cyan
+foreach ($name in $tianwenNativeModels) { Materialize-TianWenModel -Name $name }
+
+# Post-phase: optional cache pruning. Hardlinks share inodes with SAS Pro's copy
 # so the bytes survive zip removal; pure-extract files are already independent
 # bytes on disk. Either way the cache is safe to drop once materialization
 # completes successfully.

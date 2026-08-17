@@ -17,10 +17,11 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Tests for the in-house Noise2Noise denoiser, gated on
-/// <c>tianwen_denoise_osc_v19d.onnx</c> being present under
-/// <c>%LOCALAPPDATA%\TianWen\models</c>; they skip silently when it is missing so a fresh clone
-/// stays green.
+/// Tests for the in-house Noise2Noise denoiser. The model ships in the repo under Git LFS
+/// (<c>src/TianWen.AI.Imaging/models/</c>, copied to the test output's <c>models/</c>), so the
+/// resolver probes that copy first and falls back to the per-user cache dirs. A clone without
+/// git-lfs materializes only the pointer stub, which <see cref="ModelResolver"/> refuses, and the
+/// model-gated tests skip rather than fail.
 /// <para>
 /// <b>The parity test is the point of this file.</b> The exported graph is already pinned against
 /// torch by <c>n2n-smoke/ship/n2n_export.py</c> (max |diff| 1.49e-7). What no Python check can
@@ -35,14 +36,22 @@ public class N2nDenoiserTests(ITestOutputHelper output)
 {
     private const string FixtureResource = "TianWen.Lib.Tests.Data.n2n-parity-fixture.json";
 
+    /// <summary>
+    /// The checkout's own LFS copy first (copied beside the test binaries by the csproj), then the
+    /// per-user caches -- so CI, which narrow-pulls <c>*.onnx</c> and has no cache, runs the parity
+    /// test against exactly the weights being shipped.
+    /// </summary>
+    private static ModelResolver CreateResolver() => new ModelResolver(
+        [System.IO.Path.Combine(AppContext.BaseDirectory, "models"), .. ModelResolver.DefaultDirectories]);
+
     private static bool HasModel(out string skipMessage)
     {
-        if (new ModelResolver().TryResolve(N2nDenoiser.ModelFileName, out _))
+        if (CreateResolver().TryResolve(N2nDenoiser.ModelFileName, out _))
         {
             skipMessage = string.Empty;
             return true;
         }
-        skipMessage = $"{N2nDenoiser.ModelFileName} not found; run tools/tianwen-ai-models-fetch.ps1 to enable this test.";
+        skipMessage = $"{N2nDenoiser.ModelFileName} not found (or is an unmaterialized LFS pointer); run 'git lfs pull' or tools/tianwen-ai-models-fetch.ps1 to enable this test.";
         return false;
     }
 
@@ -186,7 +195,7 @@ public class N2nDenoiserTests(ITestOutputHelper output)
         var plate = BuildPlateFrom(fixture);
 
         using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
-        using var enhancer = new N2nDenoiser(new ModelResolver(), factory.CreateLogger<N2nDenoiser>());
+        using var enhancer = new N2nDenoiser(CreateResolver(), factory.CreateLogger<N2nDenoiser>());
         var result = await enhancer.EnhanceAsync(plate, 1.0f, TestContext.Current.CancellationToken);
 
         var (channels, w, h) = result.Shape;
@@ -241,7 +250,7 @@ public class N2nDenoiserTests(ITestOutputHelper output)
         var fixture = LoadFixture();
         var size = fixture.GetProperty("size").GetInt32();
         var plate = BuildPlateFrom(fixture);
-        using var enhancer = new N2nDenoiser(new ModelResolver());
+        using var enhancer = new N2nDenoiser(CreateResolver());
 
         var full = await enhancer.EnhanceAsync(plate, 1.0f, TestContext.Current.CancellationToken);
         var half = await enhancer.EnhanceAsync(plate, 0.5f, TestContext.Current.CancellationToken);
@@ -281,7 +290,7 @@ public class N2nDenoiserTests(ITestOutputHelper output)
 
         var mono = new Image([new float[64, 64]], BitDepth.Float32, 1.0f, 0f, 0f,
             new ImageMeta { SensorType = SensorType.Monochrome });
-        using var enhancer = new N2nDenoiser(new ModelResolver());
+        using var enhancer = new N2nDenoiser(CreateResolver());
 
         var ex = await Should.ThrowAsync<NotSupportedException>(
             async () => await enhancer.EnhanceAsync(mono, TestContext.Current.CancellationToken));
@@ -296,7 +305,7 @@ public class N2nDenoiserTests(ITestOutputHelper output)
         var src = new Image([new float[16, 16], new float[16, 16], new float[16, 16]],
             BitDepth.Float32, maxValue: 65535f, minValue: 0f, pedestal: 0f,
             new ImageMeta { SensorType = SensorType.Color });
-        using var enhancer = new N2nDenoiser(new ModelResolver());
+        using var enhancer = new N2nDenoiser(CreateResolver());
 
         var ex = await Should.ThrowAsync<ArgumentException>(
             async () => await enhancer.EnhanceAsync(src, TestContext.Current.CancellationToken));
@@ -314,7 +323,7 @@ public class N2nDenoiserTests(ITestOutputHelper output)
 
         var src = new Image([new float[16, 16], new float[16, 16], new float[16, 16]],
             BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
-        using var enhancer = new N2nDenoiser(new ModelResolver());
+        using var enhancer = new N2nDenoiser(CreateResolver());
 
         await Should.ThrowAsync<ArgumentOutOfRangeException>(
             async () => await enhancer.EnhanceAsync(src, strength, TestContext.Current.CancellationToken));
@@ -359,7 +368,7 @@ public class N2nDenoiserTests(ITestOutputHelper output)
     {
         var src = new Image([new float[16, 16], new float[16, 16], new float[16, 16]],
             BitDepth.Float32, 1.0f, 0f, 0f, new ImageMeta { SensorType = SensorType.Color });
-        using var enhancer = new N2nDenoiser(new ModelResolver());
+        using var enhancer = new N2nDenoiser(CreateResolver());
 
         await Should.ThrowAsync<ArgumentOutOfRangeException>(
             async () => await enhancer.EnhanceAsync(src, DenoiseVariant.Lite, TestContext.Current.CancellationToken));
