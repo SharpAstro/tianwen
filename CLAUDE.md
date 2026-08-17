@@ -1170,7 +1170,9 @@ free fallback tier; `IStellarSharpener` / `IGradientCorrector` stay SAS (no RC e
 `docs/plans/rc-astro-enhancers.md`.
 
 **CLI flags + viewer Enhance action.** `image sharpen` and `stack --enhance` both take
-`--ai-backend auto|rc|sas|n2n`, `--bxt-sharpen`, `--nxt-denoise`, `--nxt-iterations`, parsed by the
+`--ai-backend auto|rc|sas|n2n`, `--deblur-sharpen`, `--denoise-strength`, `--denoise-iterations`
+(backend-neutral names; each backend maps them to its own dial, e.g. RC's `bxt --sn` / `nxt --dn`
+/ `nxt --it`, N2N's blend), parsed by the
 shared **`EnhanceOptions.TryParse`** (the single source of truth for the `auto`/`rc`/`sas` + tuning
 mapping -- also used by the server endpoint below; never re-inline the switch) and threaded as an
 immutable `EnhanceOptions` (backend + `EnhanceTuning`) through `SharpenPipeline.ProcessAsync` to
@@ -1314,7 +1316,7 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   hardlinks them into the models dir. `ModelResolver` refuses a Git LFS pointer stub (a clone
   without git-lfs), so the failure mode is a logged skip, never an ORT protobuf error. The
   user-facing strength dial is a **blend** (`out = in + a*(den - in)`, mapped from
-  `EnhanceTuning.DenoiseStrength` / `--nxt-denoise`); the graph's `strength` input is pinned to 1.0
+  `EnhanceTuning.DenoiseStrength` / `--denoise-strength`); the graph's `strength` input is pinned to 1.0
   (the conditioning-plane dial was measured and rejected: it saturates, its span varies 4x by
   target, and fabrication rises toward its gentle end). **Three ways in, deliberately tiered:**
   `--ai-backend n2n` (`EnhanceBackend.N2n`) selects it per enhance for the denoise role while every

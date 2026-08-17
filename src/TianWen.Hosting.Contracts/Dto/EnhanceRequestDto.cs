@@ -15,15 +15,15 @@ public sealed class EnhanceRequestDto
     /// <summary>Output FITS path. When null, defaults to <c>&lt;input&gt;_enhanced.fits</c> next to the input.</summary>
     public string? OutputPath { get; init; }
 
-    /// <summary>AI backend: <c>auto</c> (default), <c>rc</c>, or <c>sas</c>. See <see cref="TianWen.Lib.Imaging.Enhancement.EnhanceBackend"/>.</summary>
+    /// <summary>AI backend: <c>auto</c> (default), <c>rc</c>, <c>sas</c>, or <c>n2n</c>. See <see cref="TianWen.Lib.Imaging.Enhancement.EnhanceBackend"/>.</summary>
     public string? Backend { get; init; }
 
-    /// <summary>RC-Astro BlurXTerminator non-stellar sharpen (<c>bxt --sn</c>) in [0, 1]. Null = enhancer default.</summary>
+    /// <summary>Non-stellar deblur/deconvolution sharpen in [0, 1]; RC maps it to <c>bxt --sn</c>. Null = enhancer default.</summary>
     public float? DeblurSharpen { get; init; }
 
-    /// <summary>RC-Astro NoiseXTerminator strength (<c>nxt --dn</c>) in [0, 1]. Null = noise-adaptive auto.</summary>
+    /// <summary>Denoise strength in [0, 1]: RC maps it to <c>nxt --dn</c> (null = noise-adaptive auto); the n2n backend maps it to its blend dial (null = 1.0).</summary>
     public float? DenoiseStrength { get; init; }
 
-    /// <summary>RC-Astro NoiseXTerminator iterations (<c>nxt --it</c>). Null = enhancer default.</summary>
+    /// <summary>Denoiser iterations; RC maps it to <c>nxt --it</c>. Null = enhancer default.</summary>
     public int? DenoiseIterations { get; init; }
 }

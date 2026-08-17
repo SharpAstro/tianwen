@@ -75,7 +75,7 @@ public class RcAstroPhase3Tests
     }
 
     [Fact]
-    public async Task Tuning_OverridesNxtDenoiseAndIterations()
+    public async Task Tuning_MapsDenoiseStrengthAndIterationsToNxtArgs()
     {
         var cli = new FakeRcAstroCli();
         var nxt = new RcAstroDenoiser(cli);

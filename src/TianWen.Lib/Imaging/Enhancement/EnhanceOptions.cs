@@ -35,17 +35,19 @@ public enum EnhanceBackend
 }
 
 /// <summary>
-/// Optional per-product strength overrides for the RC-Astro enhancers. Backend-agnostic
-/// by design: RC-Astro maps each field to a native <c>rc-astro</c> CLI argument; the SAS
-/// ONNX enhancers ignore them (they steer via the pipeline's post-hoc <c>Blend</c> lerp,
-/// not native strength). A <c>null</c> field means "use the enhancer's own default",
-/// which reproduces today's behaviour bit-for-bit.
+/// Optional per-role strength overrides, threaded to whichever backend serves the role.
+/// Backend-agnostic by design: each backend maps a field onto its own native dial --
+/// RC-Astro onto an <c>rc-astro</c> CLI argument, the in-house N2N denoiser onto its blend;
+/// the SAS ONNX enhancers ignore them (they steer via the pipeline's post-hoc <c>Blend</c>
+/// lerp, not native strength). A <c>null</c> field means "use the enhancer's own default",
+/// which reproduces the un-tuned behaviour bit-for-bit.
 /// </summary>
-/// <param name="DeblurSharpen">RC BlurXTerminator non-stellar sharpen (<c>bxt --sn</c>) in
-/// [0, 1]. Applies to both the full-image deblur and the starless-plate deconvolution.</param>
-/// <param name="DenoiseStrength">RC NoiseXTerminator strength (<c>nxt --dn</c>) in [0, 1].
-/// Overrides the noise-adaptive auto value when set.</param>
-/// <param name="DenoiseIterations">RC NoiseXTerminator iterations (<c>nxt --it</c>).</param>
+/// <param name="DeblurSharpen">Non-stellar deblur/deconvolution sharpen in [0, 1], applied
+/// to both the full-image deblur and the starless-plate deconvolution. RC maps it to
+/// <c>bxt --sn</c>.</param>
+/// <param name="DenoiseStrength">Denoise strength in [0, 1]. RC maps it to <c>nxt --dn</c>
+/// (overriding the noise-adaptive auto value); the N2N backend maps it to its blend dial.</param>
+/// <param name="DenoiseIterations">Denoiser iterations; RC maps it to <c>nxt --it</c>.</param>
 public sealed record EnhanceTuning(
     float? DeblurSharpen = null,
     float? DenoiseStrength = null,

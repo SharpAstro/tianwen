@@ -379,7 +379,7 @@ public class N2nDenoiserTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// <c>--nxt-denoise</c> reaches this model: the pipeline calls the variant+options overload,
+    /// <c>--denoise-strength</c> reaches this model: the pipeline calls the variant+options overload,
     /// and <see cref="EnhanceTuning.DenoiseStrength"/> must land on the blend dial -- the same
     /// deterministic path as the direct strength overload, so the two answers are identical.
     /// </summary>
