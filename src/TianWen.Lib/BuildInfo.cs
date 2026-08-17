@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Reflection;
 
@@ -126,15 +127,22 @@ namespace TianWen.Lib
             return new Stamp(assembly.GetName().Name ?? "unknown", version, sha, BuiltUtcOf(assembly));
         }
 
+        // IL3000 warns that Location is always empty under single-file, which is precisely the case
+        // handled here: empty falls through to Environment.ProcessPath. Using ProcessPath alone
+        // would be WORSE, not simpler, because `dotnet path/to/tianwen.dll` makes it the shared
+        // host and the answer silently becomes the SDK's install date.
+        //
+        // The suppression has to be the ATTRIBUTE, not the `#pragma warning disable` that was here
+        // first. IL3000 is raised twice by two different tools: the Roslyn AOT analyzer at compile
+        // time, which a pragma does silence, and ILC/illink at PUBLISH time over the IL, which it
+        // does not -- and only the publish leg builds native. So a plain `dotnet build` looked
+        // clean while every `dotnet publish -r <rid>` still reported it, which is a bad place for a
+        // warning to live: it appears only in the release path, and only on the six-leg AOT matrix.
+        [UnconditionalSuppressMessage("SingleFile", "IL3000:Avoid accessing Assembly file path when publishing as a single file",
+            Justification = "The empty-string return under single-file is the handled case: it falls through to Environment.ProcessPath, which is the correct answer for a single-file app. Reading Location first is what keeps `dotnet <app>.dll` from reporting the shared host's timestamp.")]
         private static DateTime? BuiltUtcOf(Assembly assembly)
         {
-            // IL3000 warns that Location is always empty under single-file, which is precisely the
-            // case handled here: empty falls through to Environment.ProcessPath. Using ProcessPath
-            // alone would be WORSE, not simpler, because `dotnet path/to/tianwen.dll` makes it the
-            // shared host and the answer silently becomes the SDK's install date.
-#pragma warning disable IL3000
             var location = assembly.Location;
-#pragma warning restore IL3000
             var path = location is { Length: > 0 } ? location : Environment.ProcessPath;
 
             try
