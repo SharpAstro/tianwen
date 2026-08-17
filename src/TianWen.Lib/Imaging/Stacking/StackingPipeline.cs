@@ -495,9 +495,7 @@ public sealed class StackingPipeline(
                 maskedCount, options.HotPixelSigma);
         }
 
-        // 3a. Pick reference by composite PSF quality. We bypass
-        // Registrator.PickReferenceAsync because it operates on the raw
-        // FrameInfo without debayer awareness.
+        // 3a. Pick reference by composite PSF quality.
         //
         // Score = StarCount / (max(HFD, 1) * (1 + 4 * Ellipticity)).
         // Picks the frame with the most stars, weighted down by broad
