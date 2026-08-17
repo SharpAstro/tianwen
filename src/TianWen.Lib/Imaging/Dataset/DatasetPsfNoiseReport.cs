@@ -1017,7 +1017,7 @@ public static class DatasetPsfNoiseReport
             // enter the archive announces itself. Filter stated on its own line as well as in the
             // heading, because "(no filter recorded)" must be legible where the numbers are read.
             sb.AppendLine(string.Create(ci,
-                $"- Filter: {(train.Filter.Length > 0 ? train.Filter : "(no filter recorded)")} | Optical system: {OpticalSystems.ClassifyLabel(train.OpticalTrain)}"));
+                $"- Filter: {(train.Filter.Length > 0 ? train.Filter : "(no filter recorded)")} | Optical system: {OpticalSystems.ClassifyLabel(train.OpticalTrain).Label}"));
             // Only when an alias actually merged something: on the ordinary single-spelling train
             // this line would be noise repeating the heading.
             if (train.RecordedAs.Length > 1)
