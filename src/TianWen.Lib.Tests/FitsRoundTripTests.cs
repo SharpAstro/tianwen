@@ -249,4 +249,77 @@ public class FitsRoundTripTests(ITestOutputHelper testOutput)
         hdu.ShouldNotBeNull();
         hdu.Header.GetStringValue("OPTSYS").ShouldBe(expectedKind);
     }
+
+    [Fact]
+    public void BayerOffsetsRoundTripOnTheStandardSpelling_AndTheLegacySpellingStaysReadable()
+    {
+        // given: a raw RGGB frame whose Bayer offset is NOT (0,0), so a dropped card is visible
+        // as a wrong value rather than as the correct default
+        var imageMeta = new ImageMeta(
+            Instrument: "Test Camera",
+            ExposureStartTime: new DateTimeOffset(2026, 8, 17, 22, 0, 0, TimeSpan.Zero),
+            ExposureDuration: TimeSpan.FromSeconds(30),
+            FrameType: FrameType.Light,
+            Telescope: "",
+            PixelSizeX: 3.76f,
+            PixelSizeY: 3.76f,
+            FocalLength: 270,
+            FocusPos: -1,
+            Filter: Filter.None,
+            BinX: 1,
+            BinY: 1,
+            CCDTemperature: float.NaN,
+            SensorType: SensorType.RGGB,
+            BayerOffsetX: 1,
+            BayerOffsetY: 1,
+            RowOrder: RowOrder.TopDown,
+            Latitude: float.NaN,
+            Longitude: float.NaN);
+        var image = new Image([new float[8, 8]], BitDepth.Int16, maxValue: 100f, minValue: 0f, pedestal: 0f, imageMeta);
+
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "bayeroffsets.fits");
+        image.WriteToFitsFile(fitsPath);
+
+        // then: the writer emits the MaxIm/N.I.N.A. spelling and no Atik-legacy card
+        using (var bf = new nom.tam.util.BufferedFile(fitsPath, FileAccess.Read, FileShare.Read, 1024))
+        using (var fits = new nom.tam.fits.Fits(bf, false))
+        {
+            var hdu = fits.ReadHDUHeaderOnly();
+            hdu.ShouldNotBeNull();
+            hdu.Header.GetIntValue("XBAYROFF", -999).ShouldBe(1);
+            hdu.Header.GetIntValue("YBAYROFF", -999).ShouldBe(1);
+            hdu.Header.GetIntValue("BAYOFFX", -999).ShouldBe(-999);
+            hdu.Header.GetIntValue("BAYOFFY", -999).ShouldBe(-999);
+        }
+
+        // and: the offsets survive the round trip
+        Image.TryReadFitsFile(fitsPath, out var reloaded).ShouldBeTrue();
+        reloaded.ShouldNotBeNull();
+        reloaded.ImageMeta.BayerOffsetX.ShouldBe(1);
+        reloaded.ImageMeta.BayerOffsetY.ShouldBe(1);
+
+        // and: a file carrying only the Atik-legacy spelling (what TianWen itself wrote until
+        // 2026-08-17) still reads. Renaming the 8-byte keyword field in place keeps every other
+        // byte of the file valid, so this IS a legacy TianWen file, not a synthetic approximation.
+        var legacyPath = Path.Combine(testDir, "bayeroffsets_legacy.fits");
+        var bytes = File.ReadAllBytes(fitsPath);
+        ReplaceAsciiOnce(bytes, "XBAYROFF", "BAYOFFX ");
+        ReplaceAsciiOnce(bytes, "YBAYROFF", "BAYOFFY ");
+        File.WriteAllBytes(legacyPath, bytes);
+        Image.TryReadFitsFile(legacyPath, out var legacy).ShouldBeTrue();
+        legacy.ShouldNotBeNull();
+        legacy.ImageMeta.BayerOffsetX.ShouldBe(1);
+        legacy.ImageMeta.BayerOffsetY.ShouldBe(1);
+    }
+
+    private static void ReplaceAsciiOnce(byte[] bytes, string find, string replace)
+    {
+        var findBytes = System.Text.Encoding.ASCII.GetBytes(find);
+        var replaceBytes = System.Text.Encoding.ASCII.GetBytes(replace);
+        replaceBytes.Length.ShouldBe(findBytes.Length);
+        var idx = bytes.AsSpan().IndexOf(findBytes);
+        idx.ShouldBeGreaterThanOrEqualTo(0);
+        replaceBytes.CopyTo(bytes, idx);
+    }
 }
