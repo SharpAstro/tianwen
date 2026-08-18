@@ -28,6 +28,9 @@
 *.fits binary
 *.fit binary
 *.fts binary
+# fpack tile-compressed FITS. Auto-detection calls this one TEXT -- the compressed payload
+# contains 0x0A bytes -- so without this, text=auto rewrites line endings inside a binary.
+*.fz binary
 *.dll binary
 *.exe binary
 *.nupkg binary

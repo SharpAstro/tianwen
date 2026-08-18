@@ -21,7 +21,8 @@ public partial class Image
     /// <item><b>Canon CR2</b> (.cr2) and <b>Canon CR3</b> (.cr3) via FC.SDK.Raw's
     /// pure-managed decoder. Populates <see cref="ImageMeta.CameraToSrgbMatrix"/> via
     /// the spectral (SASP) or dcraw factory lookup; null when neither matches.</item>
-    /// <item><b>FITS</b> (.fits / .fit / .fts) via <see cref="TryReadFitsFile(string, out Image?)"/>.</item>
+    /// <item><b>FITS</b> (.fits / .fit / .fts, and .fz for fpack tile compression) via
+    /// <see cref="TryReadFitsFile(string, out Image?)"/>.</item>
     /// <item><b>PNG / JPEG / JPEG XR / OpenEXR / JPEG XL</b> via the <c>SharpAstro.Codecs</c>
     /// facade (<see cref="TryReadViaCodecs"/>): the raster formats tianwen writes (PNG previews,
     /// EXR/JXR HDR masters) but has no bespoke reader for, so an exported frame can be reopened.</item>
@@ -46,7 +47,10 @@ public partial class Image
             // the downstream preprocess / matrix / ImageMeta wiring is shared.
             return TryReadCanonRaw(fileName, out image);
         }
-        if (ext is ".fits" or ".fit" or ".fts")
+        // .fz is fpack tile compression, which FITS.Lib decodes as an ordinary image, so it
+        // goes down the same path. Path.GetExtension("x.fit.fz") is ".fz", so matching that
+        // alone covers .fit.fz and .fits.fz too.
+        if (ext is ".fits" or ".fit" or ".fts" or ".fz")
         {
             return TryReadFitsFile(fileName, out image);
         }

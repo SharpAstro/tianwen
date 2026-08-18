@@ -26,8 +26,9 @@ public sealed class AstroImageDocument : IPreviewSource
 {
     /// <summary>Supported file extensions for the image viewer. <c>.ser</c> is a multi-frame planetary
     /// video handled by <see cref="SerPreviewSource"/> (not this document's file loader), but it is listed
-    /// here so folder scan / drag-drop / the file dialog accept it; <see cref="ViewerController"/> routes it.</summary>
-    public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".tif", ".tiff", ".cr2", ".cr3", ".ser"];
+    /// here so folder scan / drag-drop / the file dialog accept it; <see cref="ViewerController"/> routes it.
+    /// <c>.fz</c> is an fpack tile-compressed FITS and loads through the same FITS path as the rest.</summary>
+    public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".fz", ".tif", ".tiff", ".cr2", ".cr3", ".ser"];
 
     /// <summary>Glob patterns matching all supported file extensions (for folder scanning).</summary>
     public static readonly ImmutableArray<string> SupportedPatterns = [.. SupportedExtensions.Select(ext => "*" + ext)];
@@ -35,7 +36,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>File dialog filter definitions.</summary>
     public static readonly (string Name, string[] Extensions)[] FileDialogFilters =
     [
-        ("FITS files", [".fits", ".fit", ".fts"]),
+        ("FITS files", [".fits", ".fit", ".fts", ".fz"]),
         ("TIFF files", [".tif", ".tiff"]),
         ("Canon RAW", [".cr2", ".cr3"]),
         ("SER video", [".ser"]),
@@ -246,7 +247,8 @@ public sealed class AstroImageDocument : IPreviewSource
 
         if (ext.Equals(".fits", StringComparison.OrdinalIgnoreCase)
             || ext.Equals(".fit", StringComparison.OrdinalIgnoreCase)
-            || ext.Equals(".fts", StringComparison.OrdinalIgnoreCase))
+            || ext.Equals(".fts", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".fz", StringComparison.OrdinalIgnoreCase))
         {
             return await OpenFitsAsync(filePath, algorithm, cancellationToken);
         }

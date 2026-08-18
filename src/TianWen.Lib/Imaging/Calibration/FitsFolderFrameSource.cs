@@ -33,7 +33,7 @@ namespace TianWen.Lib.Imaging.Calibration;
 public sealed class FitsFolderFrameSource : IFrameSource
 {
     /// <summary>Extensions recognized as FITS. Matched case-insensitively.</summary>
-    public static readonly string[] FitsExtensions = [".fits", ".fit", ".fits.gz", ".fit.gz"];
+    public static readonly string[] FitsExtensions = [".fits", ".fit", ".fits.gz", ".fit.gz", ".fz"];
 
     private readonly string _folder;
     private readonly bool _recursive;

@@ -123,7 +123,7 @@ public static class IntegrationFitsWriter
         {
             using var bufferedReader = new BufferedFile(path, FileAccess.Read, FileShare.Read, 4 * 2880);
             using var fitsFile = new Fits(bufferedReader, path.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
-            var hdu = fitsFile.ReadHDUHeaderOnly();
+            var hdu = fitsFile.ReadFirstImageHduHeaderOnly();
             return IsTianWenProduct(hdu?.Header?.GetStringValue("SWCREATE"));
         }
         catch
