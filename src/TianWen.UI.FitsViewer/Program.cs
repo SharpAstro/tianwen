@@ -288,9 +288,12 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
 
 loop.Run(cts.Token);
 
-// Cleanup
+// Cleanup. The window and the Vulkan context can only be destroyed on THIS thread, so the drain
+// below must neither be awaited (the continuation would land on a pool thread and the teardown
+// from there deadlocks) nor blocked on (the window would stop responding for the duration).
+// ShutdownDrain keeps the loop pumping instead; see its remarks for what each spelling breaks.
 cts.Cancel();
-await controller.ShutdownAsync();
+ShutdownDrain.PumpUntilComplete(loop, controller.ShutdownAsync(), logger);
 imageRenderer.Dispose();
 renderer.Dispose();
 ctx.Dispose();

@@ -797,21 +797,31 @@ cts.Cancel();
 // Drain completes quickly: warm-up already finished while the loop was alive. Bound it anyway so a
 // straggler that won't cancel (e.g. a slow network discovery) can't leave the window Not Responding while
 // the process exits -- the timeout the comment above always promised but never actually had.
-try
+// One drain, pumped rather than awaited or blocked on. The window and the Vulkan context can only
+// be destroyed on THIS thread: awaiting here resumes the disposals on whichever thread finished the
+// last task (a deadlock, since this thread is blocked inside async Main waiting for it), and
+// blocking instead would leave the window Not Responding for the whole drain -- which is exactly
+// the failure the 5s timeout below was reaching for and could not fix on its own.
+async Task DrainShutdownAsync()
 {
-    // Bounded via the injected TimeProvider (FakeTimeProvider-controllable), not the raw system clock.
-    await tracker.DrainAsync().WaitAsync(TimeSpan.FromSeconds(5), timeProvider.System);
-}
-catch (TimeoutException)
-{
-    logger.LogWarning("Shutdown: background tasks did not drain within 5s; abandoning them.");
+    try
+    {
+        // Bounded via the injected TimeProvider (FakeTimeProvider-controllable), not the raw system clock.
+        await tracker.DrainAsync().WaitAsync(TimeSpan.FromSeconds(5), timeProvider.System);
+    }
+    catch (TimeoutException)
+    {
+        logger.LogWarning("Shutdown: background tasks did not drain within 5s; abandoning them.");
+    }
+
+    // Stop + dispose the planetary capture (cancels the capture loop; bounded drain of any in-flight stack).
+    await planetaryCapture.DisposeAsync();
+
+    // Say bye so peers drop us promptly (expiry is the fallback for an unclean exit).
+    await lanDiscovery.SendByeAsync();
 }
 
-// Stop + dispose the planetary capture (cancels the capture loop; bounded drain of any in-flight stack).
-await planetaryCapture.DisposeAsync();
-
-// Say bye so peers drop us promptly (expiry is the fallback for an unclean exit).
-await lanDiscovery.SendByeAsync();
+ShutdownDrain.PumpUntilComplete(loop, DrainShutdownAsync(), logger);
 lanDiscovery.Dispose();
 
 guiRenderer.Dispose();
