@@ -372,7 +372,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// image is already denormalized or not in Float32 bit depth, the original image is returned unchanged.</returns>
     public Image ScaleFloatValues(float newMaxValue, float missingValue = float.NaN)
     {
-        if (BitDepth != BitDepth.Float32 || (newMaxValue != MaxValue && MaxValue > 1.0f + float.Epsilon))
+        if (BitDepth != BitDepth.Float32 || (newMaxValue != MaxValue && !HasUnitScalePeak))
         {
             return ScaleFloatValuesToUnit().ScaleFloatValues(newMaxValue);
         }
@@ -405,7 +405,9 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     public Image ScaleFloatValuesToUnit(float missingValue = float.NaN)
     {
         // NO-OP for already normalized images
-        if (MaxValue <= 1.0f)
+        // Already unit-referred: return the image untouched rather than paying a full pass to divide
+        // by something indistinguishable from 1. On a 25 MP master that pass is not free.
+        if (HasUnitScalePeak)
         {
             return this;
         }
@@ -437,6 +439,53 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     internal float UnitScaleDivisor => imageMeta.SensorFullScaleAdu is { } adu ? MathF.Max(adu, MaxValue) : MaxValue;
 
     /// <summary>
+    /// How far above 1.0 a peak may sit and still count as unit-referred.
+    /// </summary>
+    /// <remarks>
+    /// A tolerance is required, not merely nice: the exact maximum is not a property of the SCALE, it
+    /// is one pixel. A quantized <c>.fz</c> decode is 1-ulp noisy, so a master written normalised reads
+    /// back a hair over one -- and on the frame that exposed this, exactly ONE pixel of 24.9 million
+    /// exceeded 1.0, by 15 ulps, in the BLUE channel, while <see cref="MaxValue"/> is image-wide, so it
+    /// changed how the RED channel was measured. This bound sits four orders of magnitude above that
+    /// noise and five below the nearest competing scale (8-bit, 255), so it cannot confuse the two.
+    /// </remarks>
+    private const float UnitScaleTolerance = 1e-3f;
+
+    /// <summary>
+    /// Is the peak at or near 1.0 -- i.e. are the samples unit-referred rather than ADU?
+    /// </summary>
+    /// <remarks>
+    /// The ONE answer to that question. It used to be asked in two places in two spellings --
+    /// <c>Image.Histogram</c>'s <c>MaxValue &lt;= 1.0f</c> and
+    /// <c>AstroImageDocument.AdoptImageAsync</c>'s <c>MaxValue &gt; 1.0f + float.Epsilon</c> -- which
+    /// agreed only because they were exact complements of an exact test. Give a tolerance to one and
+    /// not the other and a band opens up where an image is left un-normalised AND refused the histogram
+    /// rescale, which fails the way described on <see cref="IsUnitScaledFloat"/>.
+    /// </remarks>
+    internal bool HasUnitScalePeak => IsUnitScalePeak(MaxValue);
+
+    /// <summary>
+    /// <see cref="HasUnitScalePeak"/> for a peak that has been passed around on its own.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="StretchSolver"/> receives the max value rather than the image, and its answer has to
+    /// match the image's: it produces the shader's NormFactor, while <see cref="Histogram"/> picks the
+    /// divisor the CPU statistics are expressed in. The two disagreeing is a display that does not
+    /// match its own histogram.
+    /// </remarks>
+    internal static bool IsUnitScalePeak(float maxValue) => maxValue <= 1.0f + UnitScaleTolerance;
+
+    /// <summary>
+    /// Float data already in <c>[0, 1]</c>, so a histogram may bin it into 65535 buckets.
+    /// </summary>
+    /// <remarks>
+    /// Getting this wrong is silent and total: [0,1] samples binned at face value land in TWO bins, so
+    /// <see cref="Background"/> reports a background of 0, so <c>FindStarsAsync</c> takes its "abnormal
+    /// file" path and returns NO stars. No error, no warning, an empty list.
+    /// </remarks>
+    internal bool IsUnitScaledFloat => BitDepth is BitDepth.Float32 && HasUnitScalePeak;
+
+    /// <summary>
     /// Convenience over <see cref="ImageMeta.Rescale"/> (the single implementation): rescales the
     /// scale-dependent metadata by the same factor applied to the pixel values. Without this,
     /// writing a normalised image to FITS would stamp a stale ADU-scale SATURATE against [0,1] data.
@@ -454,7 +503,9 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// <remarks>Internal only: callers must ensure the source image is not retained elsewhere.</remarks>
     internal Image ScaleFloatValuesToUnitInPlace(float missingValue = float.NaN)
     {
-        if (MaxValue <= 1.0f)
+        // Already unit-referred: return the image untouched rather than paying a full pass to divide
+        // by something indistinguishable from 1. On a 25 MP master that pass is not free.
+        if (HasUnitScalePeak)
         {
             return this;
         }

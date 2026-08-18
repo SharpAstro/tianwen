@@ -38,7 +38,7 @@ public partial class Image
         float? rescaledMaxValue;
         float scaleFactor;
         float effectiveMaxValue;
-        if (BitDepth is BitDepth.Float32 && MaxValue <= 1.0f)
+        if (IsUnitScaledFloat)
         {
             rescaledMaxValue = ushort.MaxValue;
             scaleFactor = ushort.MaxValue;
@@ -349,7 +349,7 @@ public partial class Image
         // a normalised peak was guaranteed to be exactly 1.0 (full-scale normalisation via
         // SensorFullScaleAdu can leave the observed peak below 1.0). ADU images (MaxValue > 1)
         // keep the observed-peak divisor, matching the shader's NormFactor = 1/MaxValue.
-        var unitDivisor = MaxValue > 1f ? MaxValue : 1f;
+        var unitDivisor = HasUnitScalePeak ? 1f : MaxValue;
         var pedestal = MinValue / unitDivisor;
         var maxSamples = ((width / pixelStride) + 1) * ((height / pixelStride) + 1);
         var samples = new float[maxSamples];

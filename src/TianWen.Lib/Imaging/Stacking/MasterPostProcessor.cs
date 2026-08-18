@@ -78,7 +78,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         //    a 59k-bin histogram for pixel data living entirely in
         //    bin 0). Wrap the same data arrays in a new Image record
         //    with MaxValue=1; no pixel mutation.
-        if (master.MaxValue > 1.0f + float.Epsilon)
+        if (!master.HasUnitScalePeak)
         {
             var data = new float[master.ChannelCount][,];
             for (var c = 0; c < master.ChannelCount; c++)

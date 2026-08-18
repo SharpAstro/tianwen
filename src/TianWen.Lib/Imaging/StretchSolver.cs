@@ -62,7 +62,7 @@ public static class StretchSolver
             { LumaWeights = weights, WhiteBalance = shaderWb };
         }
 
-        var normFactor = imageMaxValue > 1.0f + float.Epsilon ? 1f / imageMaxValue : 1f;
+        var normFactor = Image.IsUnitScalePeak(imageMaxValue) ? 1f : 1f / imageMaxValue;
         var factor = parameters.Factor;
         var clipping = parameters.ShadowsClipping;
         var wb = whiteBalance ?? (1f, 1f, 1f);

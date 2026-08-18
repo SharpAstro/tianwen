@@ -208,18 +208,20 @@ public sealed class AstroImageDocument : IPreviewSource
         DebayerAlgorithm actualAlgorithm;
         if (image.ImageMeta.SensorType is SensorType.RGGB && algorithm is not DebayerAlgorithm.None)
         {
-            // Normalize to [0,1] but don't debayer: GPU shader handles debayer.
-            viewImage = image.MaxValue > 1.0f + float.Epsilon
-                ? image.ScaleFloatValuesToUnitInPlace()
-                : image;
+            // Normalize to [0,1] but don't debayer: GPU shader handles debayer. Asks Image for the
+            // verdict rather than re-spelling it, so this and the histogram's float path cannot
+            // disagree about what counts as already-normalised.
+            viewImage = image.HasUnitScalePeak
+                ? image
+                : image.ScaleFloatValuesToUnitInPlace();
             actualAlgorithm = algorithm;
         }
         else
         {
             // Mono/color: normalize in place (no extra allocation)
-            viewImage = image.MaxValue > 1.0f + float.Epsilon
-                ? image.ScaleFloatValuesToUnitInPlace()
-                : image;
+            viewImage = image.HasUnitScalePeak
+                ? image
+                : image.ScaleFloatValuesToUnitInPlace();
             actualAlgorithm = DebayerAlgorithm.None;
         }
 

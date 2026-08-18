@@ -63,7 +63,7 @@ public partial class Image
         // image that still carries an ADU-domain SensorFullScaleAdu (e.g. a third-party float FITS
         // whose SATURATE card was never rescaled with the data) must pass through unscaled rather
         // than be divided again into a near-black TIFF.
-        var scale = source.MaxValue > 1f && source.UnitScaleDivisor > 0f ? 1f / source.UnitScaleDivisor : 1f;
+        var scale = !source.HasUnitScalePeak && source.UnitScaleDivisor > 0f ? 1f / source.UnitScaleDivisor : 1f;
 
         // Interleave channel-planar → pixel-interleaved for the TIFF strip. Each
         // pixel is `outChannels` consecutive floats; readers expecting RGB-RGB-RGB

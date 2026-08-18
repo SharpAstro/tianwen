@@ -716,7 +716,11 @@ public partial class Image
         // (ADU/e- = 1); see https://en.wikipedia.org/wiki/Signal-to-noise_ratio_(imaging) .
         // For [0,1]-normalised images, flux and sd are scaled back to the ADU range first, or the
         // shot-noise term would be meaningless.
-        var aduScale = MaxValue > 1.0f + float.Epsilon ? 1.0f : ushort.MaxValue;
+        // Scale-invariant SNR: unit-referred samples are lifted to ADU so the thresholds below mean
+        // the same thing on a [0,1] master as on a raw ADU frame. Asks Image for the verdict -- this
+        // was a THIRD spelling of it, and being the one inside AnalyseStar it is the one that decides
+        // whether a star survives, so a frame could pass the histogram gate and still detect nothing.
+        var aduScale = HasUnitScalePeak ? ushort.MaxValue : 1.0f;
         var aduFlux = flux * aduScale;
         var aduSdBg = sd_bg * aduScale;
         var snr = aduFlux / MathF.Sqrt(aduFlux + r_aperture * r_aperture * MathF.PI * aduSdBg * aduSdBg);
