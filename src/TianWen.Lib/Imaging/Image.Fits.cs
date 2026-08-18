@@ -78,7 +78,7 @@ public partial class Image
         {
             using var bufferedReader = new BufferedFile(fileName, FileAccess.Read, FileShare.Read, 4 * 2880);
             using var fitsFile = new Fits(bufferedReader, fileName.EndsWith(".gz"));
-            var hdu = fitsFile.ReadHDUHeaderOnly();
+            var hdu = fitsFile.ReadFirstImageHduHeaderOnly();
             if (hdu?.Axes?.Length is not { } axisLength
                 || hdu.Data is not ImageData
                 || !(BitDepth.FromValue(hdu.BitPix) is { } bitDepth))
@@ -411,7 +411,9 @@ public partial class Image
     public static bool TryReadFitsFile(Fits fitsFile, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled)
     {
         wcs = null;
-        var hdu = fitsFile.ReadHDU();
+        // Not ReadHDU: the image need not be in HDU 0, and in a tile-compressed file it never
+        // is -- see FitsHduExtensions.
+        var hdu = fitsFile.ReadFirstImageHdu();
         if (hdu?.Axes?.Length is not { } axisLength
             || hdu.Data is not ImageData imageData
             || imageData.DataArray is not Array dataArray

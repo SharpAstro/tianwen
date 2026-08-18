@@ -12,7 +12,7 @@ namespace TianWen.UI.FitsViewer
 
         private static readonly Dictionary<string, string[]> ExtensionGroups = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["FITS"] = [".fit", ".fits", ".fts"]
+            ["FITS"] = [".fit", ".fits", ".fts", ".fz"]
         };
 
         internal static int Register(string group, ILogger logger)

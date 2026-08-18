@@ -261,7 +261,7 @@ public sealed class MasterCache(string mastersDir, ILogger? logger = null)
         {
             using var reader = new BufferedFile(masterPath, FileAccess.Read, FileShare.Read, 4 * 2880);
             using var fits = new Fits(reader, masterPath.EndsWith(".gz", StringComparison.OrdinalIgnoreCase));
-            var header = fits.ReadHDUHeaderOnly()?.Header;
+            var header = fits.ReadFirstImageHduHeaderOnly()?.Header;
             var fingerprint = header?.GetStringValue(FingerprintCard);
             if (fingerprint is null)
             {

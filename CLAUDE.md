@@ -1701,6 +1701,29 @@ Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → ca
   live frame correctly lands below 1.0). A source without `SensorFullScaleAdu` falls back to the
   prior observed-peak behaviour unchanged.
 
+### The image is not necessarily in HDU 0
+
+`Fits.ReadFirstImageHdu()` / `ReadFirstImageHduHeaderOnly()` (`FitsHduExtensions`) walk to the
+first HDU that carries an image, and **every reader of an image file uses them** --
+`Image.TryReadFitsFile`, `Image.TryReadFitsHeader`, `MasterCache.ReadFingerprint`,
+`IntegrationFitsWriter.IsTianWenMaster`. A bare `ReadHDU()` on the read path is a regression.
+
+- **A tile-compressed (`.fz`) image can never be in HDU 0.** It is a binary table, which is only
+  legal as an extension, so an fpack file always opens with an empty primary (`NAXIS = 0`) and
+  carries the pixels in HDU 1. FITS.Lib 5.0 surfaces that extension as an `ImageHDU` with the
+  header translated back to the image's own `BITPIX`/`NAXIS`/`NAXISn`, so nothing downstream
+  knows the difference -- but a reader that stops at HDU 0 finds `Axes == null` and rejects the
+  file. Ordinary multi-extension FITS from other capture software has the same shape by choice,
+  and was equally unreadable before the walk.
+- **`WCS.FromFits` deliberately keeps its single `ReadHDU`.** A plate solver's `.wcs` output is a
+  header with `NAXIS = 0` and no data at all; walking past it to find an image would find none
+  and return null, which silently breaks plate solving. Reading that first header IS the point
+  there.
+- **`.fz` is matched on `.fz` alone**, in `Image.Import.cs`, `AstroImageDocument`
+  (`SupportedExtensions` + `FileDialogFilters` + the `OpenAsync` dispatch),
+  `FitsFolderFrameSource.FitsExtensions` and `FileAssociationRegistrar`.
+  `Path.GetExtension("x.fit.fz")` returns `.fz`, so a `.fit.fz` entry would be dead code.
+
 ### Image Mutability: Almost-Immutable with In-Place Escape Hatches
 
 `Image` is logically immutable: there is no public setter, the `data` arrays live as a
