@@ -191,10 +191,34 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     // and before that shipped MouseUp(0, 0)). Presses go through the bespoke dispatch below
     // (toolbar dropdowns + DI-dependent actions); move/release/wheel flow straight into the
     // shared viewer input path.
-    OnPointerInput = evt => evt switch
+    OnPointerInput = evt =>
     {
-        InputEvent.MouseDown down => HandleMouseDown(down),
-        _ => imageRenderer.HandleInput(evt),
+        var handled = evt switch
+        {
+            InputEvent.MouseDown down => HandleMouseDown(down),
+            _ => imageRenderer.HandleInput(evt),
+        };
+
+        // Cursor feedback happens HERE, on the move, and not at the end of OnRender where it used to
+        // live. OnRender is gated by CheckNeedsRedraw, and a move that changes no pixel requests no
+        // redraw -- so on that path the cursor was simply never recomputed and the pointer kept whatever
+        // kind it last had. The dead zone is every part of the window that repaints for nothing: the
+        // letterbox around the image, empty file-list space, the gap beside a panel.
+        //
+        // That is what made the file-list divider look unresizable. Unless the image happens to sit
+        // flush against the divider, the approach to the handle crosses letterbox, no frame is drawn,
+        // no resize cursor appears -- and a handle with no cursor reads as not being a handle. The PRESS
+        // worked the whole time (HandleMouseDown hit-tests directly), which is why it came alive "once
+        // I started dragging it".
+        //
+        // Setting a system cursor needs no frame at all, and the regions it asks are last frame's --
+        // exactly what the query wants. This is the shape TianWen.UI.Gui already uses.
+        if (evt is InputEvent.MouseMove)
+        {
+            UpdateCursor();
+        }
+
+        return handled;
     },
 
     OnDropFile = (path) => { if (path is not null) ViewerActions.HandleFileDrop(state, path); },
@@ -229,24 +253,9 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
         imageRenderer.Render(controller.Source, state);
 
-        // Cursor feedback, asked of the regions painted last frame rather than computed from geometry.
-        // What this replaces: an X-band test around the file-list edge, plus a "not while a dropdown is
-        // open" term because the dropdown draws over that band. That is one term per overlay, and every
-        // overlay added later silently invalidated it (see DIR.Lib's CursorKind remarks) -- the region
-        // list already knows what is on top, so both terms are gone. A region that states its own kind
-        // wins (a text field carries the I-beam itself); the Split's divider states none, since
-        // Layout.Builder.Split has no cursor parameter yet, so its hit maps here. An open dropdown's
-        // full-viewport backdrop is registered above everything, so it answers the hit and the handle
-        // underneath correctly stops claiming the pointer.
-        //
-        // The drag is the one genuine state term: once the grab starts the cursor stays the resize
-        // cursor wherever the pointer travels, which no region under it can express.
-        var (mx, my) = state.MouseScreenPosition;
-        var cursor = state.IsResizingFileList
-            ? CursorKind.ResizeEW
-            : imageRenderer.HitTestCursor(mx, my)
-                ?? (imageRenderer.HitTest(mx, my) is ResizeHandleHit ? CursorKind.ResizeEW : CursorKind.Default);
-        sdlWindow.SetSystemCursor(cursor.ToSystemCursor);
+        // Also after a paint, not only on move: a repaint can change which regions sit under a
+        // STATIONARY pointer (a dropdown opening over the handle, a panel toggled by a key).
+        UpdateCursor();
     },
 
     OnPostFrame = () =>
@@ -302,6 +311,27 @@ return 0;
 
 // --- Event handlers ---
 
+// Asked of the regions painted last frame rather than computed from geometry. What this replaces: an
+// X-band test around the file-list edge, plus a "not while a dropdown is open" term because the dropdown
+// draws over that band. That is one term per overlay, and every overlay added later silently invalidated
+// it (see DIR.Lib's CursorKind remarks) -- the region list already knows what is on top, so both terms
+// are gone. A region that states its own kind wins (a text field carries the I-beam itself); the Split's
+// divider states none, since Layout.Builder.Split has no cursor parameter yet, so its hit maps here. An
+// open dropdown's full-viewport backdrop is registered above everything, so it answers the hit and the
+// handle underneath correctly stops claiming the pointer.
+//
+// The drag is the one genuine state term: once the grab starts the cursor stays the resize cursor
+// wherever the pointer travels, which no region under it can express.
+void UpdateCursor()
+{
+    var (mx, my) = state.MouseScreenPosition;
+    var cursor = state.IsResizingFileList
+        ? CursorKind.ResizeEW
+        : imageRenderer.HitTestCursor(mx, my)
+            ?? (imageRenderer.HitTest(mx, my) is ResizeHandleHit ? CursorKind.ResizeEW : CursorKind.Default);
+    sdlWindow.SetSystemCursor(cursor.ToSystemCursor);
+}
+
 bool HandleMouseDown(InputEvent.MouseDown down)
 {
     var (px, py) = (down.X, down.Y);
@@ -327,7 +357,8 @@ bool HandleMouseDown(InputEvent.MouseDown down)
 
             // Base handles pure state; controller handles DI-dependent actions
             var reverse = down.Button == MouseButton.Right;
-            if (!ViewerActions.HandleToolbarAction(state, controller.Document, toolbarAction, reverse))
+            if (!ViewerActions.HandleToolbarAction(state, controller.Document, toolbarAction, reverse,
+                    split: imageRenderer.Split, hasBeforePixels: imageRenderer.HasBeforeImageTextures))
             {
                 controller.HandleToolbarAction(toolbarAction, reverse, cts.Token);
             }
