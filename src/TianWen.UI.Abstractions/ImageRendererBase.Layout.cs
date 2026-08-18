@@ -76,6 +76,15 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         protected RectF32 ImageAreaRect => _layout.ImageArea;
 
+        /// <summary>The arranged file-list rect. Test seam: the file-list width the user actually sees is
+        /// what the Split GRANTED, which is not the same as the width that was requested.</summary>
+        internal RectF32 FileListRect => _layout.FileList;
+
+        /// <summary>The arranged info-panel rect. Test seam: pinning that it never reaches back over the
+        /// split divider, which an unclamped dock strip used to let it do -- painting over a sibling and
+        /// leaving the fill pane a negative width.</summary>
+        internal RectF32 InfoPanelRect => _layout.InfoPanel;
+
         /// <summary>Design-unit thickness of the file-list resize divider (the Split divider IS the grab bar).</summary>
         private const float BaseFileListDividerWidth = 6f;
 
