@@ -95,8 +95,6 @@ namespace TianWen.UI.Abstractions
             var tb = _layout.Toolbar;
             FillRect(tb.X, tb.Y, tb.Width, tb.Height, ViewerTheme.ToolbarBg);
 
-            // Recompute button bounds every frame: labels can change width
-            // (e.g. "Stars" -> "Stars: 5893") which shifts later buttons.
             _toolbarButtonBounds.Clear();
             // Cleared per frame and refilled from the SAME rect the button paints, so the tooltip can
             // never point somewhere the button is not. No ViewerState field: the toolbar already
@@ -110,16 +108,155 @@ namespace TianWen.UI.Abstractions
             }
 
             LayOutToolbarButtons(tb, document, state);
-            PaintToolbarButtons(tb, state);
+            PaintToolbarButtons(state);
         }
 
         /// <summary>One toolbar button, already positioned.</summary>
         private readonly record struct ToolbarButtonBox(
             string Label, ToolbarAction Action, float SwatchWidth, RectF32 Rect, bool Enabled, bool Active);
 
-        // Per-frame scratch, reused: this runs every frame on the render thread and nothing in it
+        /// <summary>
+        /// A button whose label and width are known but whose position is not yet. Measured once per
+        /// frame, then read by both the wrap walk and the placement pass -- so the run is walked twice
+        /// but no label is ever measured twice.
+        /// </summary>
+        private readonly record struct ToolbarMeasure(
+            string Label, ToolbarAction Action, int Group, float SwatchWidth, float Width);
+
+        // Per-frame scratch, all reused: this runs every frame on the render thread and nothing in it
         // outlives the frame.
         private readonly List<ToolbarButtonBox> _toolbarBoxes = new();
+        private readonly List<ToolbarMeasure> _toolbarLeftRun = new();
+        private readonly List<ToolbarMeasure> _toolbarRightRun = new();
+
+        /// <summary>Where the wrap walk put each <see cref="_toolbarLeftRun"/> entry, by index. Shorter
+        /// than the run when buttons had to be dropped.</summary>
+        private readonly List<(int Row, float X)> _toolbarSlots = new();
+
+        /// <summary>
+        /// Rows the toolbar occupies this frame. 1 unless the run did not fit, which is the whole point:
+        /// a narrow window wraps rather than silently dropping the buttons that did not fit.
+        /// </summary>
+        private int _toolbarRows = 1;
+
+        /// <summary>
+        /// How far the run may wrap. Two, because that is what a narrow window needs and because the band
+        /// is taken out of the image pane -- an unbounded wrap turns a small window into a toolbar with a
+        /// picture attached. Past this the tail is still dropped, and at that width the open question is
+        /// which panel should yield instead (docs/todo/ui.md), not how tall the toolbar may grow.
+        /// </summary>
+        private const int MaxToolbarRows = 2;
+
+        /// <summary>
+        /// Measures the toolbar run and decides how many rows it needs, BEFORE the layout pass, because
+        /// the band height is an input to that pass. Nothing is positioned here -- positions derive from
+        /// the arranged band, which does not exist yet.
+        /// </summary>
+        private void PrepareToolbarLayout(AstroImageDocument? document, ViewerState state)
+        {
+            _toolbarLeftRun.Clear();
+            _toolbarRightRun.Clear();
+            _toolbarSlots.Clear();
+            _toolbarRows = 1;
+
+            // No toolbar at all (an embedded chromeless preview), or no font to measure with -- in which
+            // case RenderToolbar bails before laying anything out. Either way the band keeps its one-row
+            // height, so an unconfigured widget is byte-identical to before.
+            if (state.HideChrome || string.IsNullOrEmpty(FontPath))
+            {
+                return;
+            }
+
+            var buttons = ToolbarButtons;
+            var rightAligned = RightAlignedToolbarActions;
+            for (var i = 0; i < buttons.Length; i++)
+            {
+                var entry = buttons[i];
+                var (label, swatchW, width) = MeasureToolbarButton(entry, document, state);
+                var measured = new ToolbarMeasure(label, entry.Action, entry.Group, swatchW, width);
+                (rightAligned.Contains(entry.Action) ? _toolbarRightRun : _toolbarLeftRun).Add(measured);
+            }
+
+            // The toolbar is a Top dock at the root, so its band is as wide as the whole content region.
+            _toolbarRows = WalkToolbarRows(ContentRegion.Width, MaxToolbarRows);
+        }
+
+        /// <summary>Width the right-aligned block reserves, including the gaps between its members.</summary>
+        private float RightBlockWidth()
+        {
+            var width = 0f;
+            foreach (var measure in _toolbarRightRun)
+            {
+                width += measure.Width;
+            }
+            if (_toolbarRightRun.Count > 1)
+            {
+                width += ButtonSpacing * (_toolbarRightRun.Count - 1);
+            }
+            return width;
+        }
+
+        /// <summary>
+        /// Walks the left run over <paramref name="bandWidth"/>, filling <see cref="_toolbarSlots"/> with
+        /// each button row and band-relative x, and returns the rows used.
+        /// </summary>
+        /// <remarks>
+        /// Pure arithmetic over the already-measured widths, which is what lets the row COUNT be asked
+        /// before the layout pass and the POSITIONS be derived after it from the arranged band, without
+        /// measuring twice or letting the two answers drift. <paramref name="maxRows"/> is the cap: the
+        /// placement pass passes the rows that were actually reserved, so it can never paint a row the
+        /// band has no room for.
+        /// </remarks>
+        private int WalkToolbarRows(float bandWidth, int maxRows)
+        {
+            _toolbarSlots.Clear();
+
+            var rightWidth = RightBlockWidth();
+            // The right block sits on the first row, so only that row must stop short of it.
+            var firstRowLimit = _toolbarRightRun.Count > 0
+                ? bandWidth - PanelPadding - rightWidth - ButtonGroupSpacing
+                : bandWidth - PanelPadding;
+            var wrappedRowLimit = bandWidth - PanelPadding;
+
+            var row = 0;
+            var x = PanelPadding;
+            var prevGroup = -1;
+
+            for (var i = 0; i < _toolbarLeftRun.Count; i++)
+            {
+                var measure = _toolbarLeftRun[i];
+                var limit = row == 0 ? firstRowLimit : wrappedRowLimit;
+                var gap = prevGroup >= 0 && measure.Group != prevGroup ? ButtonGroupSpacing : 0f;
+
+                // Out of room on this row. Wrap -- unless the row is still empty, in which case the
+                // button fits no row at all and another one would not help.
+                if (x + gap + measure.Width > limit && row + 1 < maxRows && x > PanelPadding)
+                {
+                    row++;
+                    x = PanelPadding;
+                    limit = wrappedRowLimit;
+                    // No leading group gap: a wrapped row starts flush under the one above, and the row
+                    // break already says everything the gap would have.
+                    gap = 0f;
+                }
+
+                x += gap;
+                prevGroup = measure.Group;
+
+                // Out of rows as well as out of room. Drop it entirely -- no paint, no hit -- rather than
+                // let it slide under the right block, where it would still be registered and would eat
+                // the click aimed at what is drawn over it. Everything after is further along, so stop.
+                if (x + measure.Width > limit)
+                {
+                    break;
+                }
+
+                _toolbarSlots.Add((row, x));
+                x += measure.Width + ButtonSpacing;
+            }
+
+            return row + 1;
+        }
 
         /// <summary>
         /// The ONE pass that decides where each toolbar button goes. The paint reads these rects and
@@ -132,85 +269,38 @@ namespace TianWen.UI.Abstractions
         {
             _toolbarBoxes.Clear();
 
-            var btnH = tb.Height - ButtonSpacing * 2;
-            var btnY = tb.Y + ButtonSpacing;
-            var buttons = ToolbarButtons;
-            var rightAligned = RightAlignedToolbarActions;
+            // Capped at the rows PrepareToolbarLayout reserved, so a band narrower than the region it was
+            // measured against drops the tail rather than painting outside itself.
+            WalkToolbarRows(tb.Width, _toolbarRows);
 
-            // Measure the right block FIRST: the left run needs to know where it must stop, and a
-            // right-aligned button cannot be placed until its own width is known.
-            var rightWidth = 0f;
-            var rightCount = 0;
-            for (var i = 0; i < buttons.Length; i++)
+            var rowH = tb.Height / Math.Max(_toolbarRows, 1);
+            var btnH = rowH - ButtonSpacing * 2;
+
+            for (var i = 0; i < _toolbarSlots.Count; i++)
             {
-                if (!rightAligned.Contains(buttons[i].Action))
-                {
-                    continue;
-                }
-                rightWidth += MeasureToolbarButton(buttons[i], document, state).Width;
-                rightCount++;
-            }
-            if (rightCount > 1)
-            {
-                rightWidth += ButtonSpacing * (rightCount - 1);
+                var (row, x) = _toolbarSlots[i];
+                var measure = _toolbarLeftRun[i];
+                var y = tb.Y + row * rowH + ButtonSpacing;
+                AddToolbarBox(measure, new RectF32(tb.X + x, y, measure.Width, btnH), document, state);
             }
 
-            var rightStart = tb.Right - PanelPadding - rightWidth;
-            var leftLimit = rightCount > 0 ? rightStart - ButtonGroupSpacing : tb.Right - PanelPadding;
-
-            var x = tb.X + PanelPadding;
-            var prevGroup = -1;
-            for (var i = 0; i < buttons.Length; i++)
+            // The right block, in the table own order, on the FIRST row from the start its measured width
+            // reserved. Deliberately not the last row: help earns a fixed corner, and a corner that moves
+            // down whenever the wrap count changes is the drift the pin exists to prevent.
+            var rx = tb.Right - PanelPadding - RightBlockWidth();
+            var ry = tb.Y + ButtonSpacing;
+            foreach (var measure in _toolbarRightRun)
             {
-                var entry = buttons[i];
-                if (rightAligned.Contains(entry.Action))
-                {
-                    continue;
-                }
-
-                if (prevGroup >= 0 && entry.Group != prevGroup)
-                {
-                    x += ButtonGroupSpacing;
-                }
-                prevGroup = entry.Group;
-
-                var (label, swatchW, btnW) = MeasureToolbarButton(entry, document, state);
-
-                // Out of room. Drop it entirely -- no paint, no hit -- rather than let it slide under
-                // the right block, where it would still be registered and would eat the click aimed at
-                // what is drawn on top. Everything after this is further right, so stop. The real fix
-                // for a narrow window is wrapping to a second row, which needs the band height decided
-                // in ComputeLayout; see docs/todo/ui.md.
-                if (x + btnW > leftLimit)
-                {
-                    break;
-                }
-
-                AddToolbarBox(entry.Action, label, swatchW, new RectF32(x, btnY, btnW, btnH), document, state);
-                x += btnW + ButtonSpacing;
-            }
-
-            // The right block, in the table's own order, from the start its measured width reserved.
-            var rx = rightStart;
-            for (var i = 0; i < buttons.Length; i++)
-            {
-                var entry = buttons[i];
-                if (!rightAligned.Contains(entry.Action))
-                {
-                    continue;
-                }
-
-                var (label, swatchW, btnW) = MeasureToolbarButton(entry, document, state);
-                AddToolbarBox(entry.Action, label, swatchW, new RectF32(rx, btnY, btnW, btnH), document, state);
-                rx += btnW + ButtonSpacing;
+                AddToolbarBox(measure, new RectF32(rx, ry, measure.Width, btnH), document, state);
+                rx += measure.Width + ButtonSpacing;
             }
         }
 
-        private void AddToolbarBox(ToolbarAction action, string label, float swatchWidth, in RectF32 rect,
+        private void AddToolbarBox(in ToolbarMeasure measure, in RectF32 rect,
             AstroImageDocument? document, ViewerState state)
-            => _toolbarBoxes.Add(new ToolbarButtonBox(label, action, swatchWidth, rect,
-                IsToolbarButtonEnabled(action, document),
-                IsToolbarButtonActive(action, document, state)));
+            => _toolbarBoxes.Add(new ToolbarButtonBox(measure.Label, measure.Action, measure.SwatchWidth, rect,
+                IsToolbarButtonEnabled(measure.Action, document),
+                IsToolbarButtonActive(measure.Action, document, state)));
 
         /// <summary>Resolves a button's label and the width it needs. The one place a button width is
         /// computed.</summary>
@@ -222,14 +312,16 @@ namespace TianWen.UI.Abstractions
             return (label, swatchW, MeasureText(label, ToolbarFontSize) + swatchW + ButtonPaddingH * 2);
         }
 
-        private void PaintToolbarButtons(in RectF32 tb, ViewerState state)
+        private void PaintToolbarButtons(ViewerState state)
         {
             var mouse = state.MouseScreenPosition;
-            var textY = tb.Y + (tb.Height - ToolbarFontSize) / 2f;
 
             foreach (var box in _toolbarBoxes)
             {
                 var r = box.Rect;
+                // Centred in the button OWN rect, not in the band: with a wrapped toolbar the band holds
+                // two rows and its centre is the gap between them.
+                var textY = r.Y + (r.Height - ToolbarFontSize) / 2f;
                 var hovered = box.Enabled && !state.OverlayOwnsPointer && r.Contains(mouse.X, mouse.Y);
 
                 if (!box.Enabled)

@@ -116,7 +116,7 @@ namespace TianWen.UI.Abstractions
                 ? middle
                 : Layout.Builder.Dock(
                     middle,
-                    Layout.Builder.Top(Layout.Builder.Fill(key: "toolbar"), BaseToolbarHeight),
+                    Layout.Builder.Top(Layout.Builder.Fill(key: "toolbar"), BaseToolbarHeight * _toolbarRows),
                     Layout.Builder.Bottom(Layout.Builder.Fill(key: "statusBar"), BaseStatusBarHeight));
 
             _layoutArranged = ArrangeLayout(root, ContentRegion);
