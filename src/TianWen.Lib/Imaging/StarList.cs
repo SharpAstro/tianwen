@@ -19,6 +19,31 @@ public class StarList(ConcurrentBag<ImagedStar> stars, BitMatrix? starMask = nul
     /// </summary>
     public BitMatrix? StarMask => starMask;
 
+    /// <summary>
+    /// This list with every centroid translated by (<paramref name="dx"/>, <paramref name="dy"/>).
+    /// </summary>
+    /// <remarks>
+    /// For converting between pixel grids -- the mono debayer detection runs on samples the mosaic
+    /// half a pixel off the grid it indexes, so a mosaic detection shifts back into mosaic
+    /// coordinates. Only the centroids move: HFD, FWHM, ellipticity and flux are grid-independent,
+    /// and <see cref="StarMask"/> is deliberately NOT translated, since it indexes the pixels the
+    /// measurement actually ran on and a shifted mask would no longer correspond to any image.
+    /// </remarks>
+    public StarList ShiftedBy(float dx, float dy)
+    {
+        if (dx == 0f && dy == 0f)
+        {
+            return this;
+        }
+
+        var shifted = new ConcurrentBag<ImagedStar>();
+        foreach (var star in stars)
+        {
+            shifted.Add(star with { XCentroid = star.XCentroid + dx, YCentroid = star.YCentroid + dy });
+        }
+        return new StarList(shifted, starMask);
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public float MapReduceStarProperty(SampleKind kind, AggregationMethod aggregationMethod)
     {

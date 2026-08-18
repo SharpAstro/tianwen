@@ -97,6 +97,25 @@ public partial class Image
         Volatile.Write(ref _starListCacheValue, null);
     }
 
+    /// <summary>
+    /// Mosaic offset of the <see cref="DebayerAlgorithm.BilinearMono"/> grid, in pixels on both axes.
+    /// </summary>
+    /// <remarks>
+    /// <para>That debayer stores, at output index <c>(y, x)</c>, the mean of the 2x2 quad whose
+    /// TOP-LEFT is <c>(y, x)</c>. The quad's centre is mosaic <c>(y + 0.5, x + 0.5)</c>, so the mono
+    /// image samples the mosaic half a pixel down-right of where it indexes it -- and a centroid
+    /// measured on it therefore reads half a pixel SMALL in mosaic coordinates.</para>
+    /// <para>Measured, not reasoned: a synthetic mosaic with stars planted at known sub-pixel
+    /// positions returns dx = dy = -0.5000 on every star, while the same field as mono returns
+    /// 0.0000 (<c>BayerCentroidGroundTruthTests</c>). It showed up as star-detection rings sitting
+    /// up-left of their blobs in the viewer, and only visibly so when zoomed in -- at 1:1 half a
+    /// pixel is nothing, at 4x it is a clear two.</para>
+    /// <para>Corrected here rather than by re-centring the debayer: this moves no pixel values, so
+    /// star counts, HFDs and every byte-pinned detector expectation are untouched. Re-centring would
+    /// average a different set of neighbours and change all of them.</para>
+    /// </remarks>
+    internal const float BilinearMonoGridOffset = 0.5f;
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int minStars = -1, int maxRetries = 2, ILogger? logger = null, CancellationToken cancellationToken = default)
     {
@@ -164,9 +183,13 @@ public partial class Image
         }
         if (imageMeta.SensorType is SensorType.RGGB && ChannelCount is 1)
         {
-            // debayer to mono
+            // Detection cannot run on a CFA mosaic, so measure on a mono debayer -- but return
+            // centroids in MOSAIC coordinates, because that is the space every caller consumes them
+            // in (the viewer's star overlay draws them straight onto the displayed mosaic, and a
+            // solver-built WCS is expressed in them).
             var monoImage = await DebayerAsync(DebayerAlgorithm.BilinearMono, cancellationToken: cancellationToken);
-            return await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, logger, cancellationToken);
+            var monoStars = await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, logger, cancellationToken);
+            return monoStars.ShiftedBy(BilinearMonoGridOffset, BilinearMonoGridOffset);
         }
 
         var bgStart = logger is not null ? Stopwatch.GetTimestamp() : 0L;
