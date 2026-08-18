@@ -31,7 +31,7 @@ public partial class Image
         return await Task.Run(() =>
         {
             var (_, width, height) = Shape;
-            var needsNorm = MaxValue > 1.0f + float.Epsilon;
+            var needsNorm = !HasUnitScalePeak;
             var normFactor = 1.0f / MaxValue;
 
             var lumaChannel = new float[height, width];

@@ -173,7 +173,7 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // The scale-at-all gate stays keyed on the frame's ACTUAL pixel range (MaxValue > 1), not the
         // metadata: an already-[0,1] source (SER, or a frame normalised upstream that still carries a
         // stale ADU-domain SensorFullScaleAdu) must pass through unscaled rather than be divided again.
-        var scale = src.MaxValue > 1f ? 1f / src.UnitScaleDivisor : 1f;
+        var scale = src.HasUnitScalePeak ? 1f : 1f / src.UnitScaleDivisor;
         for (var c = 0; c < channels; c++)
         {
             var plane = src.GetChannelArray(c);
