@@ -20,17 +20,26 @@ namespace TianWen.AI.Imaging.RcAstro
     public readonly record struct RcAstroProgress(double PercentDone, double MegapixelsPerSecond, double EtaSeconds);
 
     /// <summary>
-    /// One parsed line of RC-Astro's NDJSON event stream (schemaVersion 3): a
+    /// One parsed line of RC-Astro's NDJSON event stream (schemaVersion 3 and 4): a
     /// flattened union of the fields across the
     /// status/device/progress/warning/error/info event types. Consumers switch
     /// on <see cref="Kind"/> and read only the fields relevant to that kind.
     /// </summary>
     /// <remarks>
-    /// Parsed with <see cref="JsonDocument"/> (no reflection / no source-gen
+    /// <para>Parsed with <see cref="JsonDocument"/> (no reflection / no source-gen
     /// context) so it stays AOT- and trim-clean. Unknown event types and
     /// unknown keys are tolerated per the protocol's forward-compatibility
     /// rules: an unrecognised <see cref="Kind"/> is simply ignored by callers,
-    /// and extra keys are never read.
+    /// and extra keys are never read.</para>
+    ///
+    /// <para><b>The compute device is reported as an <c>info</c> event carrying
+    /// <c>topic: "device"</c></b>, not as an event kind of its own:
+    /// <c>{"event":"info","topic":"device","device":"cpu","id":"cpu","name":"",
+    /// "provider":"CPU","runtime":"onnxruntime 1.23.2"}</c>. Reading it as a
+    /// <c>device</c> KIND -- which schema 3 was believed to use -- silently
+    /// produced null, so every run logged "completed on ?" and a silent GPU
+    /// fallback was invisible for as long as it had been happening. Both
+    /// spellings are accepted here so an older CLI keeps working.</para>
     /// </remarks>
     internal sealed record RcAstroEvent(
         string Kind,
@@ -64,18 +73,28 @@ namespace TianWen.AI.Imaging.RcAstro
                     return null;
                 }
 
+                // An info event that carries topic "device" IS the device report; normalising it
+                // here keeps the one switch in RcAstroCli honest about what it is looking at.
+                var topic = GetString(root, "topic");
+                if (kind == "info" && topic == "device")
+                {
+                    kind = "device";
+                }
+
                 return new RcAstroEvent(
                     Kind: kind,
                     Phase: GetString(root, "phase"),
                     Message: GetString(root, "message"),
                     Output: GetString(root, "output"),
-                    Device: GetString(root, "device"),
+                    // "device" is the schema 4 spelling ("cpu"/"gpu"); "id" is its identifier
+                    // ("cpu"/"gpu"/"gpu1"), which is what an older CLI reported instead.
+                    Device: GetString(root, "device") ?? GetString(root, "id"),
                     DeviceName: GetString(root, "name"),
                     Provider: GetString(root, "provider"),
                     Done: GetDouble(root, "done"),
                     MpPerSec: GetDouble(root, "mpPerSec"),
                     Eta: GetDouble(root, "eta"),
-                    Topic: GetString(root, "topic"));
+                    Topic: topic);
             }
             catch (JsonException)
             {
