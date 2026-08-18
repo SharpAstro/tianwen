@@ -23,4 +23,11 @@ public enum ToolbarAction
     BackgroundNeutralize,
     SpccCalibrate,
     Enhance,
+
+    /// <summary>Toggle the before/after split. Right-click re-pins the current display settings.</summary>
+    Compare,
+
+    /// <summary>Open the full keyboard-shortcut list. The home for every shortcut that has no button
+    /// of its own to carry it in a tooltip.</summary>
+    Shortcuts,
 }

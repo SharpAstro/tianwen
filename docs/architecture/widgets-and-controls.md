@@ -44,7 +44,7 @@ DebugInspector routes through the same methods -- synthesized input can never dr
 | `NotificationsTab` | UI.Abstractions | list | none |
 | `GuiderTab` | UI.Abstractions | none (`HandleInput => false`) | none |
 | `SkyMapTab` | UI.Abstractions | map pan + click-vs-drag, wheel/pinch FOV zoom, F3 search modal | none (click-vs-drag on `TapOrDragGesture`, P5); FOV zoom stays custom by design (unproject-based, not pixel pan-zoom) |
-| `ImageRendererBase` -> `VkImageRenderer` | UI.Abstractions -> UI.Shared | file list, WB/wavelet/scrub sliders, viewport pan/zoom, resize divider, toolbar dropdown, histogram | none (pan/zoom on `PanZoomController`, P5) |
+| `ImageRendererBase` -> `VkImageRenderer` | UI.Abstractions -> UI.Shared | file list, WB/wavelet/scrub sliders, viewport pan/zoom, resize divider, before/after split divider, toolbar dropdown, histogram | file-list divider drag + the WB / wavelet / scrub drag flags (see the drag-flag note below); the split divider is on `SplitCompareController` |
 | `VkPlanetaryTab` (extends `VkImageRenderer`) | UI.Gui | PiP ROI drag + inherited viewer surfaces | PiP drag (drag-to-position; gesture adoption optional) |
 | `PixelMenuWidget` | DIR.Lib | dropdown menu list | clip-only by design |
 | `TuiPlanner/Equipment/Session/LiveSession/Notifications/GuiderTab`, `TuiTabBar` | Cli/Tui | keyboard | n/a (pointer primitives do not apply) |
@@ -67,6 +67,7 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
 | `PlannerSearchInteraction` | tianwen (UI.Abstractions) | planner search box | callback wiring over `TextInputState`; candidate subclass of a DIR.Lib search base |
 | sky-map F3 search (`SkyMapSearchState` + `SkyMapTab.Search`) | tianwen (UI.Abstractions) | sky map | same shape as planner search (input + results + selected index + key-nav + commit); second subclass candidate |
 | `PlannerSliderInteraction` | tianwen (UI.Abstractions) | planner handoff sliders | click-to-place semantics; deliberately NOT on `TapOrDragGesture` |
+| `SplitCompareController` | tianwen (UI.Abstractions) | viewer before/after split | owns divider position + drag + mode + pinned settings; arms its own drag from the region it paints. DIR.Lib promotion candidate (the drag half has no domain dependency) |
 | `AltitudeChartRenderer`, `GuideGraphRenderer` | tianwen (UI.Abstractions) | planner, guider | display-only |
 | `ScrollableList` | Console.Lib | TUI tabs | keyboard row scroller; thumb formula already unified into `ListScrollController` at P1 |
 
@@ -74,6 +75,21 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
 
 1. **Widgets delegate; controls implement.** A widget carrying inline scroll/drag/tap/pan-zoom math is a
    defect of layering -- adopt (or create) a control.
+
+   **A drag is not just math, it is state plus three handler branches, and that is the part that bites.**
+   The shape to avoid is a flag on the shared view state (`IsResizingFileList`, `WhiteBalanceDragChannel`,
+   `WaveletDragBand`, `IsScrubbing`) plus a press, a move and a release branch. It costs more than it
+   looks, because **the viewer has TWO press dispatchers** -- the embedded host routes through
+   `HandleInput`, and `tianwen-fits`'s `Program.cs` has its own for dropdowns and DI-backed actions -- so
+   every such branch has to be written twice and nothing connects the copies. The before/after split
+   divider was added to one of them and silently did nothing in the other: it drew, it stated a resize
+   cursor, and it could not be dragged.
+
+   **A control avoids the press branch entirely.** Register the region with an `onClick` that arms the
+   control's own drag (`RegisterClickable(..., onClick: _ => Split.BeginDrag(), cursor: ...)`), from the
+   same rect the control painted -- so "draw == hit" (rule 3) extends to "draw == drag". Only motion and
+   release are routed, in ONE line, in the one place both hosts already forward to. `SplitCompareController`
+   is the reference consumer; the four drag flags above predate it and are the remaining conversions.
 2. **Generic controls live in DIR.Lib** (the widget-framework layering rule): if a control has no
    TianWen domain dependency, it belongs next to `PixelWidgetBase`/`TextInputState`. Domain-specific
    interaction glue (planner slider placement, catalog search resolution) stays in UI.Abstractions --

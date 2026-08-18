@@ -19,7 +19,7 @@ namespace TianWen.UI.Abstractions
         // Full toolbar button set (label, action, group) -- the standalone FITS viewer (tianwen-fits) shows
         // all of these. Group breaks insert extra spacing: 0 file, 1 stretch, 2 channel/debayer/curves,
         // 3 zoom, 4 astrometry/stars/colour.
-        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> DefaultToolbarButtons =
+        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> CoreToolbarButtons =
         [
             ("Open", ToolbarAction.Open, 0),
             ("STF", ToolbarAction.StretchToggle, 1),
@@ -29,9 +29,10 @@ namespace TianWen.UI.Abstractions
             ("Debayer", ToolbarAction.Debayer, 2),
             ("Boost", ToolbarAction.CurvesBoost, 2),
             ("HDR", ToolbarAction.Hdr, 2),
+            ("A/B", ToolbarAction.Compare, 2),
             ("Fit", ToolbarAction.ZoomFit, 3),
             ("1:1", ToolbarAction.ZoomActual, 3),
-            ("Plate Solve", ToolbarAction.PlateSolve, 4),
+            ("Solve", ToolbarAction.PlateSolve, 4),
             ("Grid", ToolbarAction.Grid, 4),
             ("Objects", ToolbarAction.Overlays, 4),
             ("Stars", ToolbarAction.Stars, 4),
@@ -40,11 +41,17 @@ namespace TianWen.UI.Abstractions
             ("SPCC", ToolbarAction.SpccCalibrate, 4),
         ];
 
+        // The default set: the core plus the trailing help button. "?" is appended HERE rather than
+        // living in the core table so every variant below can keep it last -- see the Enhance table,
+        // which used to Add() past it and so ran group 5 before group 4.
+        private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> DefaultToolbarButtons =
+            CoreToolbarButtons.Add(("?", ToolbarAction.Shortcuts, 5));
+
         // The full set plus the AI "Enhance" button (group 4). A separate static array (not an
         // append-per-frame) keeps the per-frame render + hit-test loops allocation-free. Selected by
         // ToolbarButtons when the host sets EnhanceAvailable.
         private static readonly ImmutableArray<(string Label, ToolbarAction Action, int Group)> DefaultToolbarButtonsWithEnhance =
-            DefaultToolbarButtons.Add(("Enhance", ToolbarAction.Enhance, 4));
+            CoreToolbarButtons.Add(("Enhance", ToolbarAction.Enhance, 4)).Add(("?", ToolbarAction.Shortcuts, 5));
 
         /// <summary>
         /// Set by the host when an AI <see cref="TianWen.Lib.Imaging.Enhancement.SharpenPipeline"/> is wired
@@ -63,6 +70,21 @@ namespace TianWen.UI.Abstractions
         protected virtual ImmutableArray<(string Label, ToolbarAction Action, int Group)> ToolbarButtons =>
             EnhanceAvailable ? DefaultToolbarButtonsWithEnhance : DefaultToolbarButtons;
 
+        /// <summary>
+        /// Actions pulled out of the left-to-right run and laid out from the RIGHT edge instead, in
+        /// visual order.
+        /// </summary>
+        /// <remarks>
+        /// <para>Help earns a fixed corner. Its x must not depend on how wide "AI: Auto" or
+        /// "Stars: 5893" happened to render this frame, or the one button whose whole job is to be
+        /// findable becomes the one that moves whenever something else relabels.</para>
+        /// <para>The block is <b>measured before the left run is placed</b>, so the left run stops
+        /// short of it. An overlapped button is worse than an absent one: it is still registered, so
+        /// it silently takes the click that was aimed at whatever is drawn on top of it.</para>
+        /// </remarks>
+        protected virtual ImmutableArray<ToolbarAction> RightAlignedToolbarActions { get; } =
+            [ToolbarAction.Shortcuts];
+
 
         // -----------------------------------------------------------------------
         // Toolbar
@@ -76,75 +98,184 @@ namespace TianWen.UI.Abstractions
             // Recompute button bounds every frame: labels can change width
             // (e.g. "Stars" -> "Stars: 5893") which shifts later buttons.
             _toolbarButtonBounds.Clear();
+            // Cleared per frame and refilled from the SAME rect the button paints, so the tooltip can
+            // never point somewhere the button is not. No ViewerState field: the toolbar already
+            // derives `hovered` per button per frame (it drives the highlight), so the tooltip is a
+            // by-product of that, not new state to keep in sync.
+            _hoveredTooltip = null;
 
             if (string.IsNullOrEmpty(FontPath))
             {
                 return;
             }
 
-            var mouseX = state.MouseScreenPosition.X;
-            var mouseY = state.MouseScreenPosition.Y;
+            LayOutToolbarButtons(tb, document, state);
+            PaintToolbarButtons(tb, state);
+        }
 
-            var x = tb.X + PanelPadding;
+        /// <summary>One toolbar button, already positioned.</summary>
+        private readonly record struct ToolbarButtonBox(
+            string Label, ToolbarAction Action, float SwatchWidth, RectF32 Rect, bool Enabled, bool Active);
+
+        // Per-frame scratch, reused: this runs every frame on the render thread and nothing in it
+        // outlives the frame.
+        private readonly List<ToolbarButtonBox> _toolbarBoxes = new();
+
+        /// <summary>
+        /// The ONE pass that decides where each toolbar button goes. The paint reads these rects and
+        /// re-derives nothing, and <see cref="HitTestToolbar"/> answers from the rects that were
+        /// actually painted -- so "draw == hit" holds by construction rather than by two loops being
+        /// kept in step by hand. The second loop is what let the RGGB swatch widen a button in the
+        /// paint while the hover query still measured the old width.
+        /// </summary>
+        private void LayOutToolbarButtons(in RectF32 tb, AstroImageDocument? document, ViewerState state)
+        {
+            _toolbarBoxes.Clear();
+
             var btnH = tb.Height - ButtonSpacing * 2;
             var btnY = tb.Y + ButtonSpacing;
-            var textY = tb.Y + (tb.Height - ToolbarFontSize) / 2f;
-            var prevGroup = -1;
+            var buttons = ToolbarButtons;
+            var rightAligned = RightAlignedToolbarActions;
 
-            for (var i = 0; i < ToolbarButtons.Length; i++)
+            // Measure the right block FIRST: the left run needs to know where it must stop, and a
+            // right-aligned button cannot be placed until its own width is known.
+            var rightWidth = 0f;
+            var rightCount = 0;
+            for (var i = 0; i < buttons.Length; i++)
             {
-                var (label, action, group) = ToolbarButtons[i];
+                if (!rightAligned.Contains(buttons[i].Action))
+                {
+                    continue;
+                }
+                rightWidth += MeasureToolbarButton(buttons[i], document, state).Width;
+                rightCount++;
+            }
+            if (rightCount > 1)
+            {
+                rightWidth += ButtonSpacing * (rightCount - 1);
+            }
 
-                if (prevGroup >= 0 && group != prevGroup)
+            var rightStart = tb.Right - PanelPadding - rightWidth;
+            var leftLimit = rightCount > 0 ? rightStart - ButtonGroupSpacing : tb.Right - PanelPadding;
+
+            var x = tb.X + PanelPadding;
+            var prevGroup = -1;
+            for (var i = 0; i < buttons.Length; i++)
+            {
+                var entry = buttons[i];
+                if (rightAligned.Contains(entry.Action))
+                {
+                    continue;
+                }
+
+                if (prevGroup >= 0 && entry.Group != prevGroup)
                 {
                     x += ButtonGroupSpacing;
                 }
-                prevGroup = group;
+                prevGroup = entry.Group;
 
-                var displayLabel = GetToolbarButtonLabel(label, action, document, state);
-                var textWidth = MeasureText(displayLabel, ToolbarFontSize);
-                var btnW = textWidth + ButtonPaddingH * 2;
-                var enabled = IsToolbarButtonEnabled(action, document);
-                var active = IsToolbarButtonActive(action, document, state);
+                var (label, swatchW, btnW) = MeasureToolbarButton(entry, document, state);
 
-                var hovered = enabled && !state.OverlayOwnsPointer && mouseX >= x && mouseX < x + btnW && mouseY >= btnY && mouseY < btnY + btnH;
-
-                if (!enabled)
+                // Out of room. Drop it entirely -- no paint, no hit -- rather than let it slide under
+                // the right block, where it would still be registered and would eat the click aimed at
+                // what is drawn on top. Everything after this is further right, so stop. The real fix
+                // for a narrow window is wrapping to a second row, which needs the band height decided
+                // in ComputeLayout; see docs/todo/ui.md.
+                if (x + btnW > leftLimit)
                 {
-                    FillRect(x, btnY, btnW, btnH, ToolbarButtonDisabledBg);
+                    break;
                 }
-                else if (active && hovered)
+
+                AddToolbarBox(entry.Action, label, swatchW, new RectF32(x, btnY, btnW, btnH), document, state);
+                x += btnW + ButtonSpacing;
+            }
+
+            // The right block, in the table's own order, from the start its measured width reserved.
+            var rx = rightStart;
+            for (var i = 0; i < buttons.Length; i++)
+            {
+                var entry = buttons[i];
+                if (!rightAligned.Contains(entry.Action))
+                {
+                    continue;
+                }
+
+                var (label, swatchW, btnW) = MeasureToolbarButton(entry, document, state);
+                AddToolbarBox(entry.Action, label, swatchW, new RectF32(rx, btnY, btnW, btnH), document, state);
+                rx += btnW + ButtonSpacing;
+            }
+        }
+
+        private void AddToolbarBox(ToolbarAction action, string label, float swatchWidth, in RectF32 rect,
+            AstroImageDocument? document, ViewerState state)
+            => _toolbarBoxes.Add(new ToolbarButtonBox(label, action, swatchWidth, rect,
+                IsToolbarButtonEnabled(action, document),
+                IsToolbarButtonActive(action, document, state)));
+
+        /// <summary>Resolves a button's label and the width it needs. The one place a button width is
+        /// computed.</summary>
+        private (string Label, float SwatchWidth, float Width) MeasureToolbarButton(
+            (string Label, ToolbarAction Action, int Group) entry, AstroImageDocument? document, ViewerState state)
+        {
+            var label = GetToolbarButtonLabel(entry.Label, entry.Action, document, state);
+            var swatchW = BayerSwatchWidth(entry.Action);
+            return (label, swatchW, MeasureText(label, ToolbarFontSize) + swatchW + ButtonPaddingH * 2);
+        }
+
+        private void PaintToolbarButtons(in RectF32 tb, ViewerState state)
+        {
+            var mouse = state.MouseScreenPosition;
+            var textY = tb.Y + (tb.Height - ToolbarFontSize) / 2f;
+
+            foreach (var box in _toolbarBoxes)
+            {
+                var r = box.Rect;
+                var hovered = box.Enabled && !state.OverlayOwnsPointer && r.Contains(mouse.X, mouse.Y);
+
+                if (!box.Enabled)
+                {
+                    FillRect(r.X, r.Y, r.Width, r.Height, ToolbarButtonDisabledBg);
+                }
+                else if (box.Active && hovered)
                 {
                     // Active + hover = the brightest selection blue (matches ViewerTheme's selected role).
-                    FillRect(x, btnY, btnW, btnH, ViewerTheme.Palette.Selection);
+                    FillRect(r.X, r.Y, r.Width, r.Height, ViewerTheme.Palette.Selection);
                 }
-                else if (active)
+                else if (box.Active)
                 {
-                    FillRect(x, btnY, btnW, btnH, ToolbarButtonActiveBg);
+                    FillRect(r.X, r.Y, r.Width, r.Height, ToolbarButtonActiveBg);
                 }
                 else if (hovered)
                 {
-                    FillRect(x, btnY, btnW, btnH, ToolbarButtonHoverBg);
+                    FillRect(r.X, r.Y, r.Width, r.Height, ToolbarButtonHoverBg);
                 }
                 else
                 {
-                    FillRect(x, btnY, btnW, btnH, ToolbarButtonBg);
+                    FillRect(r.X, r.Y, r.Width, r.Height, ToolbarButtonBg);
                 }
 
-                var textBrightness = enabled ? 0.9f : 0.45f;
-                DrawText(displayLabel, x + ButtonPaddingH, textY, ToolbarFontSize,
+                if (box.SwatchWidth > 0f)
+                {
+                    DrawBayerSwatch(r.X + ButtonPaddingH, r.Y, r.Height);
+                }
+
+                var textBrightness = box.Enabled ? 0.9f : 0.45f;
+                DrawText(box.Label, r.X + ButtonPaddingH + box.SwatchWidth, textY, ToolbarFontSize,
                     RGBAColor32.FromFloat(textBrightness, textBrightness, textBrightness, 1f));
 
-                if (enabled)
+                if (hovered && GetToolbarButtonTooltip(box.Action, state) is { Length: > 0 } tip)
                 {
-                    RegisterClickable(x, btnY, btnW, btnH, new HitResult.ButtonHit(action.ToString()));
+                    _hoveredTooltip = (tip, r.X, r.Bottom);
+                }
+
+                if (box.Enabled)
+                {
+                    RegisterClickable(r.X, r.Y, r.Width, r.Height, new HitResult.ButtonHit(box.Action.ToString()));
                     // Capture rect so left-click can anchor the dropdown beneath the
                     // button (see OpenToolbarDropdown). Only enabled buttons can be
                     // clicked, so we only need their bounds.
-                    _toolbarButtonBounds[action] = new RectF32(x, btnY, btnW, btnH);
+                    _toolbarButtonBounds[box.Action] = r;
                 }
-
-                x += btnW + ButtonSpacing;
             }
         }
 
@@ -155,6 +286,27 @@ namespace TianWen.UI.Abstractions
         /// <summary>Captured bounds of each enabled toolbar button this frame; 
         /// used as the anchor when opening that button's dropdown.</summary>
         private readonly Dictionary<ToolbarAction, RectF32> _toolbarButtonBounds = new();
+
+        /// <summary>
+        /// The rect a toolbar button was PAINTED at this frame. Test seam (InternalsVisibleTo), because
+        /// alignment is the one thing a pixel assertion cannot check: a rendered bar cannot tell a
+        /// button that merely sits near the right edge from one that is pinned to it, nor prove that it
+        /// stayed put when a neighbour relabelled.
+        /// </summary>
+        internal bool TryGetPaintedToolbarRect(ToolbarAction action, out RectF32 rect)
+            => _toolbarButtonBounds.TryGetValue(action, out rect);
+
+        /// <summary>Every button placed this frame, in layout order. Test seam.</summary>
+        internal IEnumerable<(ToolbarAction Action, RectF32 Rect)> PaintedToolbarButtons
+        {
+            get
+            {
+                foreach (var box in _toolbarBoxes)
+                {
+                    yield return (box.Action, box.Rect);
+                }
+            }
+        }
 
         /// <summary>Cycle order + dropdown order for the stretch-mode selector.
         /// Mirrors <see cref="ViewerActions.StretchLinkModes"/> 1:1 so the click
@@ -241,6 +393,13 @@ namespace TianWen.UI.Abstractions
 
             switch (action)
             {
+                case ToolbarAction.Shortcuts:
+                    // A list, not a menu: selecting a row does nothing. The dropdown is reused because
+                    // it already solves the two hard parts -- painting over everything, and scrolling
+                    // when the list outgrows the window (DIR.Lib 6.19).
+                    OpenDropdown(state, bounds, ShortcutLines, (_, _) => { });
+                    return true;
+
                 case ToolbarAction.StretchLink:
                     OpenDropdown(state, bounds, StretchLinkModeLabels, (idx, _) =>
                     {
@@ -386,8 +545,14 @@ namespace TianWen.UI.Abstractions
             // is the label and the index comes from the array. Open seeds the highlight with the current
             // selection directly -- it used to be assigned straight afterwards to undo Open resetting it.
             var items = labels.Select(DropdownItem.Text).ToImmutableArray();
+            // Keep the menu on screen. The help button is pinned to the right EDGE and its menu is far
+            // wider than the button, so anchoring on bounds.X alone put most of every line past the
+            // window. Only x is clamped: the menu scrolls itself when it is too tall, so lifting y would
+            // fight that.
+            var x = OverlayPlacement.ClampX(bounds.X, width, Width);
+
             state.ToolbarDropdown.Open(
-                bounds.X,
+                x,
                 bounds.Y + bounds.Height,
                 width,
                 items,
@@ -426,6 +591,11 @@ namespace TianWen.UI.Abstractions
             // Only in the button set when EnhanceAvailable, so the gate here is just "have an image".
             // Re-click while a pass runs is harmless -- the controller guards on IsEnhancing.
             ToolbarAction.Enhance => document is not null,
+            // Pixels, not a document: the pinned-settings comparison is just as useful on a SER
+            // sequence (which has no document at all) as on a still.
+            ToolbarAction.Compare => ImageWidth > 0,
+            // Always available: it documents keys that work with nothing loaded (F11, Esc, L, I).
+            ToolbarAction.Shortcuts => true,
             _ => true,
         };
 
@@ -451,9 +621,152 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.ZoomFit => state.ZoomToFit,
                 ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
                 ToolbarAction.Enhance => state.IsEnhancing,
+                ToolbarAction.Compare => Split.IsOn,
+
                 _ => false,
             };
         }
+
+        // The hovered button's tooltip and the anchor to hang it from, captured during the toolbar
+        // paint. Render-thread only, rebuilt every frame.
+        private (string Text, float X, float Y)? _hoveredTooltip;
+
+        /// <summary>
+        /// Draws the hovered toolbar button's tooltip. Called LAST in the frame so it paints over every
+        /// other piece of chrome -- a tooltip that the file list or the info panel draws over is worse
+        /// than none, because it looks like a rendering fault rather than a missing feature.
+        /// </summary>
+        private void RenderToolbarTooltip(ViewerState state)
+        {
+            // An open dropdown owns the pointer, so the button underneath must not also explain itself.
+            // Stated ONCE on the state (see ViewerState.OverlayOwnsPointer) rather than as a term here,
+            // which is how the cursor predicate this codebase retired went wrong.
+            if (_hoveredTooltip is not { } tip || state.OverlayOwnsPointer || string.IsNullOrEmpty(FontPath))
+            {
+                return;
+            }
+
+            var fontSize = ToolbarFontSize;
+            var textWidth = MeasureText(tip.Text, fontSize);
+            var placed = OverlayPlacement.Place(OverlayPlacement.Anchor.Below, tip.X, tip.Y,
+                textWidth, fontSize, DpiScale, Width, Height);
+            var box = placed.Box;
+
+            FillRect(box.X - 1f, box.Y - 1f, box.Width + 2f, box.Height + 2f, ViewerTheme.Palette.SeparatorStrong);
+            FillRect(box.X, box.Y, box.Width, box.Height, ViewerTheme.Palette.PanelBg);
+            DrawText(tip.Text.AsSpan(), FontPath, placed.TextX, box.Y, box.Width, box.Height,
+                fontSize, ViewerTheme.Palette.BodyText, TextAlign.Near, TextAlign.Center);
+        }
+
+        /// <summary>Design-unit edge of the Bayer swatch, sized to the toolbar text beside it.</summary>
+        private const float BaseBayerSwatchSize = 13f;
+
+        // Extra width the Debayer button needs for its CFA swatch, or 0 when there is nothing to show.
+        // The swatch is only meaningful for an actual Bayer mosaic; a mono or already-colour source
+        // would get a picture of a pattern its pixels do not have.
+        private float BayerSwatchWidth(ToolbarAction action)
+            => action is ToolbarAction.Debayer && _source?.SensorType is SensorType.RGGB
+                ? BaseBayerSwatchSize * DpiScale + ButtonPaddingH
+                : 0f;
+
+        /// <summary>
+        /// Draws the sensor's colour-filter-array quad: four cells in the phase the frame actually has.
+        /// </summary>
+        /// <remarks>
+        /// <para>This is the one toolbar action whose meaning IS a picture, and the picture says something
+        /// the old "Debayer: AHD" label could not say at all: which quadrant carries red. That is
+        /// <see cref="ImageRendererBase{TSurface}.BayerOffsetX"/> / <c>BayerOffsetY</c>, and getting it
+        /// wrong swaps the red and blue channels of the whole image -- so having it visible on the button
+        /// is a correctness affordance, not decoration.</para>
+        /// <para>Drawn here rather than promoted to a DIR.Lib <c>IconKind</c>, on that enum's own rule:
+        /// a kind "earns its place by having a consumer on both" surfaces, and a terminal cannot say
+        /// red/green/green/blue in one glyph. Its doc names the alternative -- "a one-off pictogram
+        /// belongs in a Content.Fill the app draws itself". The colour here is not styling, it is the
+        /// information, which is exactly why the single-colour icon model cannot carry it.</para>
+        /// </remarks>
+        private void DrawBayerSwatch(float x, float btnY, float btnH)
+        {
+            var size = BaseBayerSwatchSize * DpiScale;
+            var cell = size / 2f;
+            var y = btnY + (btnH - size) / 2f;
+
+            for (var cy = 0; cy < 2; cy++)
+            {
+                for (var cx = 0; cx < 2; cx++)
+                {
+                    // Phase in SENSOR coordinates, so the swatch rotates with the frame's CFA offset
+                    // instead of always drawing a nominal RGGB.
+                    var sx = (cx + BayerOffsetX) & 1;
+                    var sy = (cy + BayerOffsetY) & 1;
+                    var color = (sx, sy) switch
+                    {
+                        (0, 0) => BayerSwatchRed,
+                        (1, 1) => BayerSwatchBlue,
+                        _ => BayerSwatchGreen,
+                    };
+                    FillRect(x + cx * cell, y + cy * cell, cell, cell, color);
+                }
+            }
+        }
+
+        // Muted rather than saturated: the swatch sits in a row of text and must read as a label, not
+        // as an alert.
+        private static readonly RGBAColor32 BayerSwatchRed = RGBAColor32.FromFloat(0.78f, 0.28f, 0.28f, 1f);
+        private static readonly RGBAColor32 BayerSwatchGreen = RGBAColor32.FromFloat(0.36f, 0.70f, 0.36f, 1f);
+        private static readonly RGBAColor32 BayerSwatchBlue = RGBAColor32.FromFloat(0.34f, 0.46f, 0.82f, 1f);
+
+        /// <summary>
+        /// What a button does and the key that does it. Declared beside the label because it is the other
+        /// half of the same statement -- and it is what makes the short labels above safe: "RGB" alone is
+        /// terse, "RGB" plus "Channel view (C cycles)" on hover is not.
+        /// </summary>
+        private static string? GetToolbarButtonTooltip(ToolbarAction action, ViewerState state) => action switch
+        {
+            ToolbarAction.Open => "Open a FITS / TIFF / SER file",
+            ToolbarAction.StretchToggle => "Screen transfer function on / off (T)",
+            ToolbarAction.StretchLink => "Stretch mode: unlinked, linked or luma",
+            ToolbarAction.StretchParams => "Stretch strength preset (+ / -)",
+            ToolbarAction.Channel => "Channel view: RGB or one channel (C cycles)",
+            ToolbarAction.Debayer => "Demosaic algorithm; the swatch is the sensor's CFA phase (D cycles)",
+            ToolbarAction.CurvesBoost => "Curves boost; right-click switches curve mode (B / Shift+B)",
+            ToolbarAction.Hdr => "HDR highlight compression (H cycles)",
+            ToolbarAction.Compare => "Before / after split; right-click re-pins (A / Shift+A)",
+            ToolbarAction.ZoomFit => "Fit the image to the window (F / Ctrl+0)",
+            ToolbarAction.ZoomActual => "Zoom to 1:1 (R / Ctrl+1)",
+            ToolbarAction.PlateSolve => "Plate solve this frame (P)",
+            ToolbarAction.Grid => "WCS coordinate grid (G)",
+            ToolbarAction.Overlays => "Deep-sky object overlays (O)",
+            ToolbarAction.Stars => "Detect stars and show HFD / FWHM (S)",
+            ToolbarAction.ColorCalibrate => "Photometric colour calibration (W)",
+            ToolbarAction.BackgroundNeutralize => "Neutralise the background (N)",
+            ToolbarAction.SpccCalibrate => "Spectrophotometric colour calibration (W)",
+            ToolbarAction.Enhance => "AI enhance; right-click cycles the backend (E)",
+            ToolbarAction.Shortcuts => "All keyboard shortcuts",
+            _ => null,
+        };
+
+        /// <summary>
+        /// Every shortcut with no button of its own to carry it in a tooltip. This is the residue the
+        /// tooltips do not cover, and it is why deleting the info panel's Controls block needed a home
+        /// rather than just a delete: zoom ratios, playback and the panel toggles are otherwise
+        /// undiscoverable.
+        /// </summary>
+        private static readonly ImmutableArray<string> ShortcutLines =
+        [
+            "Wheel / Ctrl+Wheel   Zoom",
+            "Ctrl + / -           Zoom in / out",
+            "Ctrl+2 .. Ctrl+9     Zoom 1:N",
+            "V / Shift+V          Histogram / log scale",
+            "I                    Info panel",
+            "L                    File list",
+            "K                    Raw / stacked view (sequence)",
+            "Space                Play / pause (sequence)",
+            "Left / Right         Step one frame",
+            "Home / End           First / last frame",
+            "Up / Down            Previous / next file",
+            "F11                  Fullscreen",
+            "Esc                  Quit",
+        ];
 
         private string GetToolbarButtonLabel(string baseLabel, ToolbarAction action, AstroImageDocument? document, ViewerState state)
         {
@@ -467,9 +780,9 @@ namespace TianWen.UI.Abstractions
                     _ => "Unlinked"
                 },
                 ToolbarAction.StretchParams => $"{state.StretchParameters}",
-                ToolbarAction.Channel => $"Channel: {(state.ChannelView is ChannelView.Composite ? "RGB" : state.ChannelView)}",
-                ToolbarAction.Debayer => $"Debayer: {state.DebayerAlgorithm.DisplayName}",
-                ToolbarAction.CurvesBoost => $"Boost: {state.CurvesBoost:P0}",
+                ToolbarAction.Channel => state.ChannelView is ChannelView.Composite ? "RGB" : $"{state.ChannelView}",
+                ToolbarAction.Debayer => state.DebayerAlgorithm.DisplayName,
+                ToolbarAction.CurvesBoost => state.CurvesBoost > 0f ? $"Boost {state.CurvesBoost:P0}" : "Boost",
                 ToolbarAction.Hdr => state.HdrAmount > 0f ? $"HDR: {state.HdrAmount:F1}" : "HDR",
                 ToolbarAction.ZoomFit => "Fit",
                 ToolbarAction.ZoomActual => "1:1",
@@ -486,52 +799,43 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.SpccCalibrate when state.ColorCalibrationEnabled => $"SPCC: {document?.ColorCalibration?.R:F2}/{document?.ColorCalibration?.B:F2}",
                 ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
                 ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
-                ToolbarAction.Enhance when state.IsEnhancing => $"Enhancing {state.EnhanceProgressPct:F0}%",
+                ToolbarAction.Enhance when state.IsEnhancing => $"AI {state.EnhanceProgressPct:F0}%",
                 // Show the selected backend (right-click cycles it); left-click runs the enhance.
                 ToolbarAction.Enhance => state.PreferredEnhanceBackend switch
                 {
-                    EnhanceBackend.ForceRcAstro => "Enhance (RC)",
-                    EnhanceBackend.ForceSas => "Enhance (SAS)",
-                    EnhanceBackend.N2n => "Enhance (N2N)",
-                    _ => "Enhance (Auto)",
+                    EnhanceBackend.ForceRcAstro => "AI: RC",
+                    EnhanceBackend.ForceSas => "AI: SAS",
+                    EnhanceBackend.N2n => "AI: N2N",
+                    _ => "AI: Auto",
                 },
+                // No ":Pinned" suffix: pinned settings are the DEFAULT comparison, so the activated
+                // highlight already says it. "Before" stays named, because that is a different thing
+                // being compared (the pre-enhance pixels) rather than the same thing at other settings.
+                ToolbarAction.Compare when Split.ComparesPixels && Split.IsOn => "A/B: Before",
                 _ => baseLabel,
             };
         }
 
         /// <summary>
-        /// Hit-tests the toolbar using actual rendered button widths for the current state.
+        /// The enabled toolbar button under a point, or null.
         /// </summary>
-        public ToolbarAction? HitTestToolbar(float screenX, float screenY, AstroImageDocument? document, ViewerState state)
+        /// <remarks>
+        /// Answers from <see cref="_toolbarButtonBounds"/> -- the rects the buttons were PAINTED at this
+        /// frame -- so it cannot disagree with what is on screen. It used to re-run the whole sizing
+        /// walk (label, text width, swatch, group spacing) as a second implementation, which is the
+        /// draw-vs-hit split the widget taxonomy's rule 3 forbids; right-aligning a button would have
+        /// needed the alignment mirrored there too. Only enabled buttons are registered, so an empty
+        /// answer covers "over a disabled button" and "over no button" alike -- both mean nothing to
+        /// hover.
+        /// </remarks>
+        public ToolbarAction? HitTestToolbar(float screenX, float screenY)
         {
-            var tb = _layout.Toolbar;
-            if (screenY < tb.Y + ButtonSpacing || screenY >= tb.Y + tb.Height - ButtonSpacing || string.IsNullOrEmpty(FontPath))
+            foreach (var (action, bounds) in _toolbarButtonBounds)
             {
-                return null;
-            }
-
-            var x = tb.X + PanelPadding;
-            var prevGroup = -1;
-
-            for (var i = 0; i < ToolbarButtons.Length; i++)
-            {
-                var (label, action, group) = ToolbarButtons[i];
-
-                if (prevGroup >= 0 && group != prevGroup)
+                if (bounds.Contains(screenX, screenY))
                 {
-                    x += ButtonGroupSpacing;
+                    return action;
                 }
-                prevGroup = group;
-
-                var displayLabel = GetToolbarButtonLabel(label, action, document, state);
-                var textWidth = MeasureText(displayLabel, ToolbarFontSize);
-                var btnW = textWidth + ButtonPaddingH * 2;
-
-                if (screenX >= x && screenX < x + btnW)
-                {
-                    return IsToolbarButtonEnabled(action, document) ? action : null;
-                }
-                x += btnW + ButtonSpacing;
             }
 
             return null;

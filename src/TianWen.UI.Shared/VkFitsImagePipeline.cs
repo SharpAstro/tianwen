@@ -25,6 +25,22 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     private const int StretchUboSize = 416;
 
     /// <summary>
+    /// How many independent StretchUBO slots the stretch buffer holds.
+    /// <para><b>Two, and this is load-bearing for the before/after split.</b> The split records TWO
+    /// image draws into ONE command buffer, and the GPU reads a UBO at EXECUTE time, not at record
+    /// time. With a single region the sequence write-A / draw / write-B / draw would hand BOTH draws
+    /// whatever was written last, so the "before" half would render with the after's settings and the
+    /// comparison would show no difference at all -- a silent wrong answer, not a crash.</para>
+    /// </summary>
+    private const int StretchUboSlots = 2;
+
+    /// <summary>Slot 0 of the stretch UBO: the live rendition (the only slot a non-split draw uses).</summary>
+    public const int UboSlotPrimary = 0;
+
+    /// <summary>Slot 1 of the stretch UBO: the comparison ("before") rendition.</summary>
+    public const int UboSlotComparison = 1;
+
+    /// <summary>
     /// std140 HistogramUBO: 4 x int/float fields = 16 bytes.
     /// </summary>
     private const int HistogramUboSize = 16;
@@ -45,10 +61,13 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     // Descriptor pool
     private VkDescriptorPool _descriptorPool;
 
-    // Descriptor sets: [0] = image UBO, [1] = histogram UBO, [2] = image samplers, [3] = histogram samplers
+    // Descriptor sets: image UBO (slot 0) + image UBO (slot 1, the comparison rendition) + histogram
+    // UBO + image samplers + before-image samplers + histogram samplers.
     private VkDescriptorSet _imageUboSet;
+    private VkDescriptorSet _imageUboSetComparison;
     private VkDescriptorSet _histogramUboSet;
     private VkDescriptorSet _imageSamplerSet;
+    private VkDescriptorSet _beforeSamplerSet;
     private VkDescriptorSet _histogramSamplerSet;
 
     // Shared pipeline layout
@@ -79,15 +98,27 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     private readonly int[] _channelWidth = new int[ChannelCount];
     private readonly int[] _channelHeight = new int[ChannelCount];
 
+    // Retained pre-enhance channel textures (the "before" half of the split). Populated ONLY by
+    // TryRetainChannelsAsBefore, which MOVES the live handles here rather than copying any pixels --
+    // see that method for why that is free.
+    private readonly VkImage[] _beforeImages = new VkImage[ChannelCount];
+    private readonly VkDeviceMemory[] _beforeMemories = new VkDeviceMemory[ChannelCount];
+    private readonly VkImageView[] _beforeViews = new VkImageView[ChannelCount];
+    private readonly int[] _beforeWidth = new int[ChannelCount];
+    private readonly int[] _beforeHeight = new int[ChannelCount];
+    private long _beforeChannelBytes;
+
     // Histogram textures (3x R32F stored as 512×1 2D)
     private readonly VkImage[] _histImages = new VkImage[ChannelCount];
     private readonly VkDeviceMemory[] _histMemories = new VkDeviceMemory[ChannelCount];
     private readonly VkImageView[] _histViews = new VkImageView[ChannelCount];
 
-    // Stretch UBO buffer (persistently mapped)
+    // Stretch UBO buffer (persistently mapped). Holds StretchUboSlots slots, each aligned up to the
+    // device's minUniformBufferOffsetAlignment so a descriptor can address a slot by offset.
     private VkBuffer _stretchUboBuffer;
     private VkDeviceMemory _stretchUboMemory;
     private byte* _stretchUboMapped;
+    private int _stretchUboSlotStride;
 
     // Histogram UBO buffer (persistently mapped)
     private VkBuffer _histogramUboBuffer;
@@ -219,13 +250,169 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         if (_channelWidth[channel] != width || _channelHeight[channel] != height)
         {
             DestroyChannelTexture(channel);
-            CreateChannelTexture(channel, width, height);
+            CreateChannelTextureOrFreeBefore(channel, width, height);
             BindChannelSampler(channel, _channelViews[channel], _imageSamplerSet);
+            if (!HasBeforeChannels)
+            {
+                // Keep the before set pointing at live views while nothing is retained, so it can
+                // never reference the view this recreation just destroyed.
+                BindChannelSampler(channel, _channelViews[channel], _beforeSamplerSet);
+            }
         }
 
         UploadToImage(_channelImages[channel], (uint)width, (uint)height, byteSize, VkFormat.R32Sfloat);
         _channelWidth[channel] = width;
         _channelHeight[channel] = height;
+    }
+
+    /// <summary>
+    /// True while pre-enhance channel textures are retained for the before/after split's left half.
+    /// </summary>
+    public bool HasBeforeChannels { get; private set; }
+
+    /// <summary>
+    /// Device memory currently held by the retained before textures, in bytes. Reported so the host
+    /// can declare it to the GC (<c>GC.AddMemoryPressure</c>): a <c>VkImage</c> is invisible to
+    /// <c>GC.GetGCMemoryInfo().MemoryLoadBytes</c>, so without this the runtime under-estimates how
+    /// tight memory is by exactly the amount this cache is costing.
+    /// </summary>
+    public long BeforeChannelBytes => _beforeChannelBytes;
+
+    /// <summary>
+    /// Moves the CURRENT channel textures into the before slot, so the next upload allocates fresh
+    /// ones and the pre-upload pixels stay available for the split's left half.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>This copies nothing.</b> <see cref="UploadChannelTexture"/> reuses a same-size
+    /// texture and writes over it, so at the moment an enhanced frame is applied the pre-enhance
+    /// pixels are ALREADY resident on the GPU. Retaining them is therefore not a capture but a
+    /// decision not to overwrite: three handles move aside and the replacement allocates. No
+    /// readback, no host copy, no second upload, no added latency on the apply -- the only cost is
+    /// the deferred free.</para>
+    /// <para>Call on the render thread, OUTSIDE command-buffer recording (the same position in the
+    /// frame as a texture upload). Returns false when there is nothing worth retaining.</para>
+    /// </remarks>
+    public bool TryRetainChannelsAsBefore()
+    {
+        // A 1x1 placeholder is not a "before" -- retaining it would light up the split affordance
+        // for a comparison that shows one interpolated pixel.
+        var haveRealTexture = false;
+        for (var i = 0; i < ChannelCount; i++)
+        {
+            if (_channelImages[i] != VkImage.Null && _channelWidth[i] > 1 && _channelHeight[i] > 1)
+            {
+                haveRealTexture = true;
+                break;
+            }
+        }
+        if (!haveRealTexture)
+        {
+            return false;
+        }
+
+        ReleaseBeforeChannels();
+
+        long bytes = 0;
+        for (var i = 0; i < ChannelCount; i++)
+        {
+            _beforeImages[i] = _channelImages[i];
+            _beforeMemories[i] = _channelMemories[i];
+            _beforeViews[i] = _channelViews[i];
+            _beforeWidth[i] = _channelWidth[i];
+            _beforeHeight[i] = _channelHeight[i];
+            bytes += (long)_channelWidth[i] * _channelHeight[i] * sizeof(float);
+
+            // Vacate the live slot WITHOUT destroying anything: zeroing the dimensions is what
+            // makes the next UploadChannelTexture take its create-fresh branch instead of writing
+            // over the pixels just retained.
+            _channelImages[i] = VkImage.Null;
+            _channelMemories[i] = VkDeviceMemory.Null;
+            _channelViews[i] = VkImageView.Null;
+            _channelWidth[i] = 0;
+            _channelHeight[i] = 0;
+
+            if (_beforeViews[i] != VkImageView.Null)
+            {
+                BindChannelSampler(i, _beforeViews[i], _beforeSamplerSet);
+            }
+        }
+
+        _beforeChannelBytes = bytes;
+        HasBeforeChannels = true;
+
+        // Declare it: a VkImage is invisible to the GC, so without this the runtime believes it has
+        // ~100 MB more headroom than it does -- and the weak-reference DocumentCache goes on keeping
+        // stale documents alive at exactly the moment this cache made memory scarce.
+        GC.AddMemoryPressure(bytes);
+        return true;
+    }
+
+    /// <summary>
+    /// Frees the retained before textures. Safe to call when nothing is retained. Call on the render
+    /// thread, outside command-buffer recording.
+    /// </summary>
+    public void ReleaseBeforeChannels()
+    {
+        if (!HasBeforeChannels)
+        {
+            return;
+        }
+
+        var api = _ctx.DeviceApi;
+        for (var i = 0; i < ChannelCount; i++)
+        {
+            if (_beforeViews[i] != VkImageView.Null)
+            {
+                api.vkDestroyImageView(_beforeViews[i]);
+                _beforeViews[i] = VkImageView.Null;
+            }
+            if (_beforeImages[i] != VkImage.Null)
+            {
+                api.vkDestroyImage(_beforeImages[i]);
+                _beforeImages[i] = VkImage.Null;
+            }
+            if (_beforeMemories[i] != VkDeviceMemory.Null)
+            {
+                api.vkFreeMemory(_beforeMemories[i]);
+                _beforeMemories[i] = VkDeviceMemory.Null;
+            }
+            _beforeWidth[i] = 0;
+            _beforeHeight[i] = 0;
+        }
+
+        if (_beforeChannelBytes > 0)
+        {
+            GC.RemoveMemoryPressure(_beforeChannelBytes);
+        }
+        _beforeChannelBytes = 0;
+        HasBeforeChannels = false;
+
+        // Re-point the (still bindable) before set at the live views, so it can never reference the
+        // views just destroyed.
+        for (var i = 0; i < ChannelCount; i++)
+        {
+            if (_channelViews[i] != VkImageView.Null)
+            {
+                BindChannelSampler(i, _channelViews[i], _beforeSamplerSet);
+            }
+        }
+    }
+
+    // Creates a live channel texture, and if the device is out of memory, frees the retained before
+    // set and tries once more. The before textures are a CACHE: the live image is what the user is
+    // looking at, so it always wins the memory. Without this the enhance apply would surface an
+    // allocation failure as a broken viewer rather than as a quietly-dropped comparison.
+    private void CreateChannelTextureOrFreeBefore(int channel, int width, int height)
+    {
+        try
+        {
+            CreateChannelTexture(channel, width, height);
+        }
+        catch (VkException) when (HasBeforeChannels)
+        {
+            ReleaseBeforeChannels();
+            CreateChannelTexture(channel, width, height);
+        }
     }
 
     /// <summary>
@@ -292,9 +479,13 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         (float Shadow, float Midtones, float Rescale) lumaStretch = default,
         float lumaBlend = 1f,
         float normalizeScale = 1f,
-        int debayerMode = 1)
+        int debayerMode = 1,
+        int slot = UboSlotPrimary)
     {
-        var p = _stretchUboMapped;
+        if ((uint)slot >= StretchUboSlots)
+            throw new ArgumentOutOfRangeException(nameof(slot));
+
+        var p = _stretchUboMapped + slot * _stretchUboSlotStride;
 
         WriteInt(p, 0, channelCount);
         WriteInt(p, 4, stretchMode);
@@ -437,19 +628,35 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// Records the image quad draw into <paramref name="cmd"/>.
     /// Binds the image pipeline, descriptor sets, push constants, quad vertices, and calls vkCmdDraw.
     /// </summary>
+    /// <param name="uboSlot">Which stretch-UBO slot supplies the display parameters:
+    /// <see cref="UboSlotPrimary"/> for the live rendition, <see cref="UboSlotComparison"/> for the
+    /// before/after split's comparison rendition.</param>
+    /// <param name="sampleBeforeChannels">Sample the retained pre-enhance textures instead of the live
+    /// ones. Ignored (falls back to the live textures) when nothing is retained, so a caller can never
+    /// bind a set whose views were freed underneath it.</param>
+    /// <remarks>
+    /// This method does NOT touch the scissor. The split's two halves are clipped by the caller through
+    /// DIR.Lib's clip stack, which owns the intersect-with-parent rule and the restore -- a scissor set
+    /// here would REPLACE the enclosing clip rather than narrow it, and nothing would put it back.
+    /// </remarks>
     public void RecordImageDraw(
         VkCommandBuffer cmd,
         VulkanContext ctx,
         float left, float top, float right, float bottom,
-        float projW, float projH)
+        float projW, float projH,
+        int uboSlot = UboSlotPrimary,
+        bool sampleBeforeChannels = false)
     {
+        if ((uint)uboSlot >= StretchUboSlots)
+            throw new ArgumentOutOfRangeException(nameof(uboSlot));
+
         var api = ctx.DeviceApi;
 
         api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _imagePipeline);
 
         // Bind set 0 (UBO) and set 1 (samplers)
-        var uboSet = _imageUboSet;
-        var samplerSet = _imageSamplerSet;
+        var uboSet = uboSlot == UboSlotComparison ? _imageUboSetComparison : _imageUboSet;
+        var samplerSet = sampleBeforeChannels && HasBeforeChannels ? _beforeSamplerSet : _imageSamplerSet;
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
             0, 1, &uboSet, 0, null);
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
@@ -519,7 +726,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         if (_linearSampler != VkSampler.Null)
             api.vkDestroySampler(_linearSampler);
 
-        // Channel textures
+        // Channel textures (incl. any retained before set)
+        ReleaseBeforeChannels();
         for (var i = 0; i < ChannelCount; i++)
         {
             DestroyChannelTexture(i);
@@ -593,22 +801,23 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     {
         var api = _ctx.DeviceApi;
 
-        // 2 UBO descriptors (image + histogram) + 6 sampler descriptors (3 image + 3 histogram)
+        // 3 UBO descriptors (image slot 0 + image slot 1 + histogram) + 9 sampler descriptors
+        // (3 image + 3 before-image + 3 histogram).
         var poolSizes = stackalloc VkDescriptorPoolSize[2];
         poolSizes[0] = new VkDescriptorPoolSize
         {
             type = VkDescriptorType.UniformBuffer,
-            descriptorCount = 2
+            descriptorCount = 3
         };
         poolSizes[1] = new VkDescriptorPoolSize
         {
             type = VkDescriptorType.CombinedImageSampler,
-            descriptorCount = 6
+            descriptorCount = 3 * ChannelCount
         };
 
         VkDescriptorPoolCreateInfo dpCI = new()
         {
-            maxSets = 4, // imageUBO + histUBO + imageSamplers + histSamplers
+            maxSets = 6, // imageUBO + imageUBO(comparison) + histUBO + imageSamplers + beforeSamplers + histSamplers
             poolSizeCount = 2,
             pPoolSizes = poolSizes
         };
@@ -619,26 +828,31 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     {
         var api = _ctx.DeviceApi;
 
-        // Allocate all 4 sets at once
-        var layouts = stackalloc VkDescriptorSetLayout[4];
-        layouts[0] = _uboSetLayout;       // image UBO
-        layouts[1] = _uboSetLayout;       // histogram UBO
-        layouts[2] = _samplerSetLayout;   // image samplers
-        layouts[3] = _samplerSetLayout;   // histogram samplers
+        // Allocate all 6 sets at once
+        const int SetCount = 6;
+        var layouts = stackalloc VkDescriptorSetLayout[SetCount];
+        layouts[0] = _uboSetLayout;       // image UBO, slot 0 (live)
+        layouts[1] = _uboSetLayout;       // image UBO, slot 1 (comparison)
+        layouts[2] = _uboSetLayout;       // histogram UBO
+        layouts[3] = _samplerSetLayout;   // image samplers
+        layouts[4] = _samplerSetLayout;   // before-image samplers
+        layouts[5] = _samplerSetLayout;   // histogram samplers
 
-        var sets = stackalloc VkDescriptorSet[4];
+        var sets = stackalloc VkDescriptorSet[SetCount];
         VkDescriptorSetAllocateInfo dsAI = new()
         {
             descriptorPool = _descriptorPool,
-            descriptorSetCount = 4,
+            descriptorSetCount = SetCount,
             pSetLayouts = layouts
         };
         api.vkAllocateDescriptorSets(&dsAI, sets).CheckResult();
 
         _imageUboSet = sets[0];
-        _histogramUboSet = sets[1];
-        _imageSamplerSet = sets[2];
-        _histogramSamplerSet = sets[3];
+        _imageUboSetComparison = sets[1];
+        _histogramUboSet = sets[2];
+        _imageSamplerSet = sets[3];
+        _beforeSamplerSet = sets[4];
+        _histogramSamplerSet = sets[5];
     }
 
     private void CreatePipelineLayout()
@@ -702,11 +916,23 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     private void CreateUboBuffers()
     {
-        CreateMappedBuffer(StretchUboSize, out _stretchUboBuffer, out _stretchUboMemory, out _stretchUboMapped);
+        // A descriptor addresses a slot by byte offset, and Vulkan requires that offset to be a
+        // multiple of minUniformBufferOffsetAlignment (256 on plenty of real hardware), so the slot
+        // stride is the UBO size rounded UP to that -- never StretchUboSize itself.
+        _ctx.InstanceApi.vkGetPhysicalDeviceProperties(_ctx.PhysicalDevice, out var deviceProps);
+        var alignment = (int)Math.Max(1UL, deviceProps.limits.minUniformBufferOffsetAlignment);
+        _stretchUboSlotStride = (StretchUboSize + alignment - 1) / alignment * alignment;
+
+        CreateMappedBuffer(_stretchUboSlotStride * StretchUboSlots,
+            out _stretchUboBuffer, out _stretchUboMemory, out _stretchUboMapped);
         CreateMappedBuffer(HistogramUboSize, out _histogramUboBuffer, out _histogramUboMemory, out _histogramUboMapped);
 
-        // Write initial UBO descriptors
-        BindUboDescriptor(_imageUboSet, _stretchUboBuffer, StretchUboSize);
+        // Write initial UBO descriptors. The two image sets differ ONLY in which slot of the same
+        // buffer they address; `range` stays StretchUboSize because that is what the shader declares.
+        BindUboDescriptor(_imageUboSet, _stretchUboBuffer, StretchUboSize,
+            offset: UboSlotPrimary * _stretchUboSlotStride);
+        BindUboDescriptor(_imageUboSetComparison, _stretchUboBuffer, StretchUboSize,
+            offset: UboSlotComparison * _stretchUboSlotStride);
         BindUboDescriptor(_histogramUboSet, _histogramUboBuffer, HistogramUboSize);
     }
 
@@ -741,13 +967,13 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         new Span<byte>(ptr, size).Clear();
     }
 
-    private void BindUboDescriptor(VkDescriptorSet set, VkBuffer buffer, int size)
+    private void BindUboDescriptor(VkDescriptorSet set, VkBuffer buffer, int size, int offset = 0)
     {
         var api = _ctx.DeviceApi;
         VkDescriptorBufferInfo bufInfo = new()
         {
             buffer = buffer,
-            offset = 0,
+            offset = (ulong)offset,
             range = (ulong)size
         };
         VkWriteDescriptorSet write = new()
@@ -777,6 +1003,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             _channelWidth[i] = 1;
             _channelHeight[i] = 1;
             BindChannelSampler(i, _channelViews[i], _imageSamplerSet);
+            // The before set must hold VALID descriptors from the start: it is a bindable set, and
+            // Vulkan forbids binding one that references a destroyed view even if the shader never
+            // samples it. With no before retained it simply mirrors the live views.
+            BindChannelSampler(i, _channelViews[i], _beforeSamplerSet);
 
             CreateHistogramTexture(i);
             UploadToImage(_histImages[i], HistogramBins, 1, byteSize, VkFormat.R32Sfloat);

@@ -25,6 +25,10 @@ namespace TianWen.UI.Abstractions
         // viewer's historical behaviour (floor 0.01, step 1.15, no upper clamp).
         private readonly PanZoomController _panZoom = new PanZoomController();
 
+        // Which toolbar button the pointer was last over, so a move that changes it can ask for the
+        // repaint that hover chrome needs. Derived, render-thread only -- not view state.
+        private ToolbarAction? _lastHoveredToolbarButton;
+
         /// <summary>
         /// Begin a viewport pan drag. Public for hosts with bespoke press dispatch (the standalone
         /// viewer's <c>Program.cs</c>); the embedded <see cref="HandleInput"/> path calls it internally.
@@ -40,15 +44,30 @@ namespace TianWen.UI.Abstractions
             _panZoom.BeginPan(x, y);
         }
 
-        public override bool HandleInput(InputEvent evt) => evt switch
+        public override bool HandleInput(InputEvent evt)
         {
-            InputEvent.KeyDown(var key, var modifiers) => HandleViewerKey(key, modifiers),
-            InputEvent.MouseDown(var px, var py, _, _, _) => HandleViewerMouseDown(px, py, evt),
-            InputEvent.MouseMove(var px, var py) => HandleViewerMouseMove(px, py, evt),
-            InputEvent.MouseUp(_, _, _) => HandleViewerMouseUp(evt),
-            InputEvent.Scroll(var delta, var mx, var my, _) => HandleViewerScroll(delta, mx, my),
-            _ => false
-        };
+            // The split divider's drag. Its PRESS armed it from the region it painted, so only motion
+            // and release are routed -- and only here, which both hosts already forward to. A control
+            // that owns its state costs one line, not a branch in each of three handlers.
+            if (Split.HandleInput(evt))
+            {
+                if (_state is { } dragState)
+                {
+                    dragState.NeedsRedraw = true;
+                }
+                return true;
+            }
+
+            return evt switch
+            {
+                InputEvent.KeyDown(var key, var modifiers) => HandleViewerKey(key, modifiers),
+                InputEvent.MouseDown(var px, var py, _, _, _) => HandleViewerMouseDown(px, py, evt),
+                InputEvent.MouseMove(var px, var py) => HandleViewerMouseMove(px, py, evt),
+                InputEvent.MouseUp(_, _, _) => HandleViewerMouseUp(evt),
+                InputEvent.Scroll(var delta, var mx, var my, _) => HandleViewerScroll(delta, mx, my),
+                _ => false
+            };
+        }
 
         private bool HandleViewerKey(InputKey key, InputModifier modifiers)
         {
@@ -157,6 +176,18 @@ namespace TianWen.UI.Abstractions
                     {
                         ViewerActions.CycleCurvesBoost(state);
                     }
+                    return true;
+                case InputKey.A:
+                    // A/B compare. Shift re-pins the current settings without leaving the split.
+                    if (shift)
+                    {
+                        Split.RequestPin();
+                    }
+                    else
+                    {
+                        Split.Toggle(HasBeforeImageTextures);
+                    }
+                    state.NeedsRedraw = true;
                     return true;
                 case InputKey.G:
                     state.ShowGrid = !state.ShowGrid;
@@ -345,12 +376,16 @@ namespace TianWen.UI.Abstractions
 
             state.MouseScreenPosition = (px, py);
 
-            // Unified hit test: OnClick handlers fire for self-contained actions (e.g. HistogramLog)
+            // Unified hit test: OnClick handlers fire for self-contained actions (e.g. HistogramLog).
+            // A control that arms its OWN drag from the region it painted (the split divider) has
+            // already done so by the time this returns -- which is why there is no branch for it below,
+            // in either of the viewer's two press dispatchers.
             var hit = HitTestAndDispatch(px, py);
 
             if (hit is HitResult.ButtonHit { Action: var action } && Enum.TryParse<ToolbarAction>(action, out var toolbarAction))
             {
-                ViewerActions.HandleToolbarAction(state, _document, toolbarAction);
+                ViewerActions.HandleToolbarAction(state, _document, toolbarAction,
+                    split: Split, hasBeforePixels: HasBeforeImageTextures);
                 if (toolbarAction is ToolbarAction.ColorCalibrate or ToolbarAction.SpccCalibrate)
                 {
                     TryStartColorCalibration(state);
@@ -422,6 +457,21 @@ namespace TianWen.UI.Abstractions
             }
 
             state.MouseScreenPosition = (px, py);
+
+            // Hover-driven toolbar chrome -- the button highlight AND its tooltip -- changes with the
+            // pointer, but a move over the TOOLBAR changes no image pixel, so this method used to
+            // return false and no frame was painted. The highlight was quietly stale the whole time;
+            // the tooltip made it obvious, appearing only when some unrelated event forced a repaint.
+            // Gated on the toolbar band because the hit test measures every label, and a move over the
+            // image must stay free.
+            var tb = _layout.Toolbar;
+            var overToolbar = tb.Height > 0f && py >= tb.Y && py < tb.Bottom;
+            var hoveredButton = overToolbar ? HitTestToolbar(px, py) : null;
+            if (hoveredButton != _lastHoveredToolbarButton)
+            {
+                _lastHoveredToolbarButton = hoveredButton;
+                state.NeedsRedraw = true;
+            }
 
             // File-list drag-to-scroll / thumb drag in progress (returns false when its gesture is idle,
             // so ordinary moves fall through to the branches below).

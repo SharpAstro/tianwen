@@ -101,9 +101,14 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     }
 
     protected override void RenderImageQuad(IPreviewSource? source, ViewerState state,
-        StretchUniforms stretch, WCS? gridWcs,
-        float left, float top, float right, float bottom, uint projW, uint projH)
+        in DisplayRendition rendition, WCS? gridWcs,
+        float left, float top, float right, float bottom, uint projW, uint projH,
+        RenditionSlot slot, bool sampleBeforeChannels)
     {
+        // Everything below reads the RENDITION, never state.Curves*/Hdr* directly: the split's
+        // comparison half is a pinned snapshot of those dials, so reading state here would leak the
+        // live values into the pinned half and the two would differ only in stretch.
+        var stretch = rendition.Stretch;
         var bgLevel = source is not null
             ? stretch.ComputePostStretchBackground(source.PerChannelBackground, source.LumaBackground)
             : 0.15f;
@@ -158,10 +163,10 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             channelCount: ChannelTextureCount,
             stretchMode: (int)stretch.Mode,
             normFactor: stretch.NormFactor,
-            curvesBoost: state.CurvesBoost,
+            curvesBoost: rendition.CurvesBoost,
             curvesMidpoint: bgLevel,
-            hdrAmount: state.HdrAmount,
-            hdrKnee: state.HdrKnee,
+            hdrAmount: rendition.HdrAmount,
+            hdrKnee: rendition.HdrKnee,
             pedestal: (stretch.Pedestal.R, stretch.Pedestal.G, stretch.Pedestal.B),
             shadows: (stretch.Shadows.R, stretch.Shadows.G, stretch.Shadows.B),
             midtones: (stretch.Midtones.R, stretch.Midtones.G, stretch.Midtones.B),
@@ -169,8 +174,8 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             rescale: (stretch.Rescale.R, stretch.Rescale.G, stretch.Rescale.B),
             whiteBalance: (stretch.WhiteBalance.R, stretch.WhiteBalance.G, stretch.WhiteBalance.B),
             bgNeutralization: (stretch.BackgroundNeutralization.R, stretch.BackgroundNeutralization.G, stretch.BackgroundNeutralization.B),
-            curvesMode: state.CurvesMode,
-            curveData: state.CurveData.AsSpan(),
+            curvesMode: rendition.CurvesMode,
+            curveData: rendition.CurveSpan,
             gridEnabled: gridEnabled,
             gridSpacingRA: gridSpacingRA,
             gridSpacingDec: gridSpacingDec,
@@ -189,7 +194,8 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             lumaStretch: (stretch.LumaStretch.Shadow, stretch.LumaStretch.Midtones, stretch.LumaStretch.Rescale),
             lumaBlend: stretch.LumaBlend,
             normalizeScale: stretch.NormalizeScale,
-            debayerMode: RawBayerDebayerMode);
+            debayerMode: RawBayerDebayerMode,
+            slot: (int)slot);
 
         _fitsPipeline.RecordImageDraw(
             cmd,
@@ -199,8 +205,22 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             right: right,
             bottom: bottom,
             projW: projW,
-            projH: projH);
+            projH: projH,
+            uboSlot: (int)slot,
+            sampleBeforeChannels: sampleBeforeChannels);
     }
+
+    /// <inheritdoc/>
+    public override bool HasBeforeImageTextures => _fitsPipeline.HasBeforeChannels;
+
+    /// <inheritdoc/>
+    public override long BeforeImageTextureBytes => _fitsPipeline.BeforeChannelBytes;
+
+    /// <inheritdoc/>
+    public override bool TryRetainImageTexturesAsBefore() => _fitsPipeline.TryRetainChannelsAsBefore();
+
+    /// <inheritdoc/>
+    public override void ReleaseBeforeImageTextures() => _fitsPipeline.ReleaseBeforeChannels();
 
     protected override void RenderHistogramQuad(StretchUniforms stretch,
         HistogramDisplay histogram, ViewerState state,

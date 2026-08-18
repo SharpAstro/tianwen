@@ -364,7 +364,13 @@ public static class ViewerActions
     /// must handle it (e.g. <see cref="ToolbarAction.Open"/> or <see cref="ToolbarAction.PlateSolve"/>
     /// which require DI services).
     /// </summary>
-    public static bool HandleToolbarAction(ViewerState state, AstroImageDocument? document, ToolbarAction action, bool reverse = false)
+    /// <param name="split">The viewer's before/after split control, which owns its own state; null in a
+    /// host with no viewer widget, where <see cref="ToolbarAction.Compare"/> is simply inert.</param>
+    /// <param name="hasBeforePixels">Whether the backend is holding pre-enhance pixels, which decides
+    /// which comparison <see cref="ToolbarAction.Compare"/> turns on. Passed in rather than read from
+    /// state because it is a property of the GPU backend, not of the view state.</param>
+    public static bool HandleToolbarAction(ViewerState state, AstroImageDocument? document, ToolbarAction action, bool reverse = false,
+        SplitCompareController? split = null, bool hasBeforePixels = false)
     {
         switch (action)
         {
@@ -421,6 +427,21 @@ public static class ViewerActions
                 return true;
             case ToolbarAction.SpccCalibrate:
                 state.ColorCalibrationEnabled = !state.ColorCalibrationEnabled;
+                state.NeedsRedraw = true;
+                return true;
+            case ToolbarAction.Shortcuts:
+                // The list is opened by the host's dropdown path; nothing to mutate here, but it must
+                // report handled so it does not fall through to the DI-backed action handler.
+                return true;
+            case ToolbarAction.Compare:
+                if (reverse)
+                {
+                    split?.RequestPin();
+                }
+                else
+                {
+                    split?.Toggle(hasBeforePixels);
+                }
                 state.NeedsRedraw = true;
                 return true;
             case ToolbarAction.ZoomFit:
