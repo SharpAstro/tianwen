@@ -244,9 +244,16 @@ namespace TianWen.UI.Abstractions
         /// <summary>
         /// Renders the image quad with stretch uniforms, optional WCS grid, and viewport placement.
         /// </summary>
+        /// <param name="rendition">How to display the frame. The split passes a DIFFERENT rendition
+        /// per half, which is the whole point of it being a parameter rather than read from state.</param>
+        /// <param name="slot">Which display-parameter slot the backend should read. The split's two
+        /// draws share one command buffer, so they must not share a slot.</param>
+        /// <param name="sampleBeforeChannels">Sample the retained pre-enhance pixels rather than the
+        /// live ones. A backend with nothing retained must fall back to the live pixels.</param>
         protected abstract void RenderImageQuad(IPreviewSource? source, ViewerState state,
-            StretchUniforms stretch, WCS? wcs,
-            float left, float top, float right, float bottom, uint projW, uint projH);
+            in DisplayRendition rendition, WCS? wcs,
+            float left, float top, float right, float bottom, uint projW, uint projH,
+            RenditionSlot slot, bool sampleBeforeChannels);
 
         /// <summary>
         /// Renders the histogram quad with the given stretch uniforms.
@@ -293,6 +300,64 @@ namespace TianWen.UI.Abstractions
         /// Returns the histogram display, or null if not yet initialized.
         /// </summary>
         protected abstract HistogramDisplay? GetHistogramDisplay();
+
+        /// <summary>
+        /// Whether to skip caching the before pixels because memory is short. The cache is worth ~100 MB
+        /// of device memory on a large frame, and on a shared-memory (UMA) box that is the same pool the
+        /// image decode competes for -- so the point is to avoid BEING the reason the machine runs out.
+        /// </summary>
+        /// <param name="bytes">Estimated size of the retention, so the question can be "would THIS push
+        /// us over" rather than "are we near the line already".</param>
+        /// <remarks>
+        /// <para>Overridable because the default reads machine-global state that moves underneath it: two
+        /// runs of the same action minutes apart legitimately answer differently, which is untestable and,
+        /// worse, unexplainable to a user. A test pins it.</para>
+        /// <para>Two things the obvious spelling gets wrong, both found by testing rather than by reading:
+        /// <see cref="GC.GetGCMemoryInfo()"/> returns ZEROES until the first collection, so a
+        /// freshly-started process reads 0 bytes of load against a real threshold and concludes there is
+        /// room whatever the truth; and comparing the CURRENT load against the threshold refuses a 100 MB
+        /// cache on a box with 1.4 GiB of headroom, because it answers a question nobody asked.</para>
+        /// <para>It stays a pre-check, never a prediction. The authoritative answer is the allocation
+        /// attempt, which the backend catches and falls back from.</para>
+        /// </remarks>
+        protected virtual bool ShouldSkipBeforePixelCache(long bytes)
+        {
+            var info = GC.GetGCMemoryInfo();
+            if (info.MemoryLoadBytes <= 0 || info.HighMemoryLoadThresholdBytes <= 0)
+            {
+                // No reading yet -- which is NOT the same as "plenty of room". Defer to the allocation.
+                return false;
+            }
+
+            return info.MemoryLoadBytes + bytes >= info.HighMemoryLoadThresholdBytes;
+        }
+
+        // What retaining the current channel textures would cost, from the geometry already uploaded.
+        private long EstimatedBeforePixelBytes =>
+            (long)ImageWidth * ImageHeight * Math.Max(1, ChannelTextureCount) * sizeof(float);
+
+        /// <summary>
+        /// Whether pre-enhance pixels are currently retained for the split's left half.
+        /// </summary>
+        /// <remarks>
+        /// Virtual with a no-op default rather than abstract: a backend without a before slot (an
+        /// offline raster renderer hosting this chrome for a layout test) is still a legitimate host,
+        /// and the split degrades to unavailable on its own. Nothing here is a shim -- a backend that
+        /// answers false is answering correctly.
+        /// </remarks>
+        public virtual bool HasBeforeImageTextures => false;
+
+        /// <summary>Device memory held by the retained before pixels, in bytes; 0 when none.</summary>
+        public virtual long BeforeImageTextureBytes => 0;
+
+        /// <summary>
+        /// Retains the current image textures as the split's before pixels, so the next upload leaves
+        /// them intact. Returns false when the backend cannot or has nothing worth retaining.
+        /// </summary>
+        public virtual bool TryRetainImageTexturesAsBefore() => false;
+
+        /// <summary>Frees any retained before pixels. Safe when none are held.</summary>
+        public virtual void ReleaseBeforeImageTextures() { }
 
         // -----------------------------------------------------------------------
         // Public API
@@ -360,6 +425,17 @@ namespace TianWen.UI.Abstractions
         {
             state.NeedsTextureUpdate = false;
             state.StatusMessage = "Preparing display...";
+
+            // Retain the OUTGOING pixels before anything overwrites them. This is the only moment they
+            // are still resident, which is why the request is consumed here and not where it was made.
+            if (state.RetainBeforePixelsRequested)
+            {
+                state.RetainBeforePixelsRequested = false;
+                Split.PixelsGeneration =
+                    !ShouldSkipBeforePixelCache(EstimatedBeforePixelBytes) && TryRetainImageTexturesAsBefore()
+                        ? state.SourceGeneration
+                        : null;
+            }
 
             var pixelWidth = source.Width;
             var pixelHeight = source.Height;
@@ -576,6 +652,12 @@ namespace TianWen.UI.Abstractions
                     viewportWidth: Width,
                     viewportHeight: Height);
             }
+
+            // Last of all, so it paints over every other piece of chrome.
+            if (!state.HideChrome)
+            {
+                RenderToolbarTooltip(state);
+            }
         }
 
         // -----------------------------------------------------------------------
@@ -587,8 +669,79 @@ namespace TianWen.UI.Abstractions
             // Placement (fit/zoom/pan/centering) was computed once in ComputeImagePlacement
             // from the arranged image-pane rect -- read it rather than recompute the formula.
             var p = _placement;
-            RenderImageQuad(source, state, stretch, gridWcs,
-                p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height);
+            var live = DisplayRendition.FromState(stretch, state);
+
+            // Restate the track, settle the pin against the rendition being shown right now (the one
+            // place the live uniforms exist), and drop a comparison whose source has been replaced.
+            Split.SetTrack(_layout.ImageArea);
+            Split.ConsumePinRequest(live);
+            if (Split.DropIfStale(state.SourceGeneration))
+            {
+                ReleaseBeforeImageTextures();
+            }
+
+            if (Split.ResolveDividerX(HasBeforeImageTextures, DpiScale) is not { } splitX)
+            {
+                RenderImageQuad(source, state, live, gridWcs,
+                    p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,
+                    RenditionSlot.Live, sampleBeforeChannels: false);
+                return;
+            }
+
+            var area = _layout.ImageArea;
+            var comparesPixels = Split.ComparesPixels;
+            var comparison = Split.ComparisonRendition(live);
+
+            // Both halves draw the WHOLE quad and are cut down by the clip, so the two renditions stay
+            // in identical pan/zoom/projection space and features line up across the divider.
+            //
+            // Clipping goes through DIR.Lib's stack, which intersects with whatever the host already
+            // clipped and restores it on pop. Two reasons it must not be a raw scissor: the quad extends
+            // BEYOND the image area when zoomed in (ConfineToViewport lets it cover the pane rather than
+            // sit inside it), and a scissor set here would REPLACE an enclosing clip instead of narrowing
+            // it, with nothing to put it back.
+            PushClip(area.X, area.Y, splitX - area.X, area.Height);
+            RenderImageQuad(source, state, comparison, gridWcs,
+                p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,
+                RenditionSlot.Comparison, sampleBeforeChannels: comparesPixels);
+            PopClip();
+
+            PushClip(splitX, area.Y, area.Right - splitX, area.Height);
+            RenderImageQuad(source, state, live, gridWcs,
+                p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,
+                RenditionSlot.Live, sampleBeforeChannels: false);
+            PopClip();
+
+            RenderSplitDivider(area, splitX);
+        }
+
+        /// <summary>
+        /// The before/after split (docs/plans/before-after-slider.md). A control that owns its whole
+        /// state, so nothing about it lives on <see cref="ViewerState"/> and no host dispatcher needs a
+        /// branch for it.
+        /// </summary>
+        public SplitCompareController Split { get; } = new SplitCompareController();
+
+        /// <summary>Design-unit width of the drawn before/after divider.</summary>
+        private const float BaseSplitDividerWidth = 2f;
+
+        /// <summary>Design-unit width of the divider's grab band -- wider than the line it draws, so the
+        /// thing is actually catchable with a mouse.</summary>
+        private const float BaseSplitGrabWidth = 12f;
+
+        // The divider line plus its grab band, registered from the SAME rect it painted -- so the grab
+        // is the line by construction, and the press ARMS THE DRAG from here through the region's own
+        // onClick. That is what keeps the press out of every host's dispatcher: the viewer has two of
+        // them, and a branch added to one of them alone is invisible in the other.
+        private void RenderSplitDivider(RectF32 area, float splitX)
+        {
+            var lineW = MathF.Max(1f, BaseSplitDividerWidth * DpiScale);
+            var grabW = MathF.Max(lineW, BaseSplitGrabWidth * DpiScale);
+            var color = Split.IsDragging ? ResizeHandleActiveColor : ResizeHandleIdleColor;
+
+            FillRect(splitX - lineW / 2f, area.Y, lineW, area.Height, color);
+            RegisterClickable(splitX - grabW / 2f, area.Y, grabW, area.Height,
+                new ResizeHandleHit("Split"), onClick: _ => Split.BeginDrag(), cursor: CursorKind.ResizeEW);
         }
         // -----------------------------------------------------------------------
         // Text helpers

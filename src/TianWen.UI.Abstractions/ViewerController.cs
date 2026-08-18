@@ -173,6 +173,9 @@ public sealed class ViewerController(
                     Document = null;
                     _rawSource = serSource;
                     _liveSource = liveSource;
+                    // Stamped at ADOPTION, never at request: a superseded or failed load must not
+                    // invalidate a comparison that is still valid for what is on screen.
+                    state.NotifySourceReplaced();
                     state.ShowStacked = false; // a fresh file starts on the raw view (its stack has no master yet)
                     state.IsSequence = true;
                     state.FrameCount = serSource.FrameCount;
@@ -237,6 +240,7 @@ public sealed class ViewerController(
                 Document = newDoc;
                 _rawSource = newDoc;
                 _liveSource = null;
+                state.NotifySourceReplaced();
                 state.ShowStacked = false; // stacking is a sequence-only mode
                 state.IsSequence = false;
                 state.IsPlaying = false;
@@ -414,6 +418,12 @@ public sealed class ViewerController(
             _rawSource = enhancedDoc;
             _liveSource = null;
             state.IsSequence = false;
+            state.NotifySourceReplaced();
+            // Keep the pre-enhance pixels for the before/after split. Requested rather than done
+            // here: this runs on the render thread but OUTSIDE the texture path, and the pixels are
+            // still resident only until the next upload overwrites them -- which is where the renderer
+            // consumes this. Costs no copy at all (see VkFitsImagePipeline.TryRetainChannelsAsBefore).
+            state.RetainBeforePixelsRequested = true;
             state.NeedsTextureUpdate = true;
         }
         else if (task.IsFaulted)

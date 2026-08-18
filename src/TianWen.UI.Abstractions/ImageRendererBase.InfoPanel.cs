@@ -73,16 +73,6 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            if (state.CursorPixelInfo is not null)
-            {
-                y += FontSize;
-                DrawTextLine(ref y, x, "-- Cursor --", ViewerTheme.Palette.HeaderText);
-                foreach (var line in InfoPanelData.GetCursorLines(state))
-                {
-                    DrawTextLine(ref y, x, line, ViewerTheme.Palette.BodyText);
-                }
-            }
-
             // Manual white-balance sliders -- only meaningful for a colour source (3 channels, or a raw
             // Bayer mosaic the GPU debayers into colour). Captures per-channel track rects for the drag.
             var isColour = source.ChannelCount >= 3 || source.SensorType is SensorType.RGGB;
@@ -111,54 +101,25 @@ namespace TianWen.UI.Abstractions
                 }
             }
 
-            // Controls help at bottom of panel
-            ReadOnlySpan<string> controlLabels =
-            [
-                "-- Controls --",
-                "T: Cycle stretch",
-                "S: Toggle stars",
-                "+/-: Stretch factor",
-                "C: Cycle channel",
-                "D: Cycle debayer",
-                "W: Color calibrate (SPCC)",
-                "N: Toggle neut. background",
-                "H: Cycle HDR",
-                "G: Toggle grid",
-                "V/Shift+V: Histogram/Log",
-                "P: Plate solve",
-                "Wheel/Ctrl+Wheel: Zoom",
-                "Ctrl++/-: Zoom in/out",
-                "F/Ctrl+0: Zoom to fit",
-                "R/Ctrl+1: Zoom 1:1",
-                "Ctrl+2..9: Zoom 1:N",
-                "I: Toggle info panel",
-                "L: Toggle file list",
-                "F11: Fullscreen",
-                "Esc: Quit",
-            ];
-
-            // Footer pins to the bottom of the info-panel pane (= top of the arranged status bar), not the
-            // outer window bottom, so it lands correctly when the viewer is embedded in a content rect.
-            var panelBottom = _layout.StatusBar.Height > 0 ? _layout.StatusBar.Y : Height - StatusBarHeight;
-            var lineHeight = FontSize + 2f;
-            var availableLines = (int)((panelBottom - PanelPadding - y - lineHeight) / lineHeight);
-            if (availableLines >= 2)
+            // Cursor readout goes LAST, and that placement is the point: it only exists while the
+            // pointer is over the image, so anywhere above the sliders it shoves them up and down as
+            // the pointer enters and leaves -- a control that moves under the hand about to grab it.
+            // A section whose presence varies belongs after every section whose does not.
+            if (state.CursorPixelInfo is not null)
             {
-                var clipped = availableLines < controlLabels.Length;
-                var linesToDraw = clipped ? availableLines - 1 : controlLabels.Length;
-                var totalLines = clipped ? linesToDraw + 1 : linesToDraw;
-                y = panelBottom - lineHeight * totalLines - PanelPadding;
-                for (var i = 0; i < linesToDraw; i++)
+                y += FontSize;
+                DrawTextLine(ref y, x, "-- Cursor --", ViewerTheme.Palette.HeaderText);
+                foreach (var line in InfoPanelData.GetCursorLines(state))
                 {
-                    var isHeader = i == 0;
-                    DrawTextLine(ref y, x, controlLabels[i],
-                        isHeader ? ViewerTheme.Palette.HeaderText : ViewerTheme.Palette.DimText);
-                }
-                if (clipped)
-                {
-                    DrawTextLine(ref y, x, "...", ViewerTheme.Palette.DimText);
+                    DrawTextLine(ref y, x, line, ViewerTheme.Palette.BodyText);
                 }
             }
+
+            // The keyboard-shortcut list used to sit here: nineteen static rows, the tallest block in the
+            // info panel. It is gone. Every shortcut that has a button now rides that button's hover
+            // tooltip, and the ones that do not (zoom ratios, playback, the panel toggles) live behind the
+            // toolbar's "?" list. A tooltip puts the key where the user's pointer already is, which a
+            // block pinned to the bottom of a side panel cannot.
         }
 
         // -----------------------------------------------------------------------

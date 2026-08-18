@@ -321,6 +321,58 @@ public sealed class ViewerState
     /// <summary>Screen position of the mouse cursor, updated each frame.</summary>
     public (float X, float Y) MouseScreenPosition { get; set; }
 
+    // --- Before/after split (docs/plans/before-after-slider.md) ---
+
+    /// <summary>
+    /// Divider position as a fraction (0..1) of the image area's width, or <c>null</c> when the
+    /// before/after split is off. The renderer clamps it so neither half can collapse to nothing.
+    /// </summary>
+    public float? SplitFraction { get; set; }
+
+    /// <summary>True while the user is dragging the split divider. Mirrors
+    /// <see cref="IsResizingFileList"/>.</summary>
+    public bool IsDraggingSplit { get; set; }
+
+    /// <summary>What the split's left half shows.</summary>
+    public SplitCompare SplitCompare { get; set; } = SplitCompare.PinnedSettings;
+
+    /// <summary>
+    /// The pinned display settings the split compares against in
+    /// <see cref="SplitCompare.PinnedSettings"/> mode, or <c>null</c> when nothing is pinned.
+    /// </summary>
+    public DisplayRendition? PinnedRendition { get; set; }
+
+    /// <summary>
+    /// One-shot request to pin the CURRENT display settings, consumed by the next render. A one-shot
+    /// rather than a direct assignment because the live <see cref="StretchUniforms"/> are solved per
+    /// frame during rendering and are not stored here -- so an input handler has nothing to copy.
+    /// Same convention as <see cref="RequestedFrame"/>.
+    /// </summary>
+    public bool PinRenditionRequested { get; set; }
+
+    /// <summary>
+    /// One-shot request to retain the current image textures as the split's "before" pixels, consumed
+    /// by the next <c>UploadDocumentTextures</c> -- which is the one choke point where textures change,
+    /// and therefore the only place the retention can happen before they are overwritten.
+    /// </summary>
+    public bool RetainBeforePixelsRequested { get; set; }
+
+    /// <summary>
+    /// Bumped every time the DISPLAYED source is replaced (a file opened, a sequence swapped, an
+    /// enhance applied). Retained before-pixels record the generation they belong to, so a stale
+    /// comparison becomes unrepresentable rather than something every swap path has to remember to
+    /// clear -- there are eight such paths, and two of them already forget to reset
+    /// <see cref="ShowStacked"/>.
+    /// </summary>
+    public int SourceGeneration { get; private set; }
+
+    /// <summary>
+    /// Records that the displayed source has been replaced. Call from wherever the swap is adopted
+    /// (never from the request), so a superseded or failed load does not invalidate a still-valid
+    /// comparison.
+    /// </summary>
+    public void NotifySourceReplaced() => SourceGeneration++;
+
     /// <summary>Set to true when the UI needs to be redrawn. Cleared after each render.</summary>
     public bool NeedsRedraw { get; set; } = true;
 }
