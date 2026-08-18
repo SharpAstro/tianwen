@@ -134,8 +134,25 @@ namespace TianWen.AI.Imaging.RcAstro
                         case "device":
                             device = ev.Device;
                             provider = ev.Provider;
-                            _logger?.LogDebug("RC-Astro {Product} on {Device} ({Provider} {Name})",
-                                productKey, ev.Device, ev.Provider, ev.DeviceName);
+                            // We ask for no device, so the CLI picks: it reports "gpu" when it got
+                            // one and "cpu" when it did not. The fallback is otherwise SILENT --
+                            // RC-Astro only warns when a device was explicitly REQUESTED and denied,
+                            // so with our default this event is the only sign, and a GPU that stops
+                            // working (a cached "adapter failed every DirectML strategy" verdict, a
+                            // driver change) would just look like a slow machine. Say it out loud.
+                            if (string.Equals(ev.Device, "cpu", StringComparison.OrdinalIgnoreCase))
+                            {
+                                _logger?.LogWarning(
+                                    "RC-Astro {Product} is running on the CPU ({Provider}); no GPU was available to it. "
+                                    + "Run 'rc-astro --device' to see what it can find, and "
+                                    + "'rc-astro --device-default auto' to clear a cached GPU verdict.",
+                                    productKey, ev.Provider);
+                            }
+                            else
+                            {
+                                _logger?.LogInformation("RC-Astro {Product} on {Device} ({Provider} {Name})",
+                                    productKey, ev.Device, ev.Provider, ev.DeviceName);
+                            }
                             break;
 
                         case "progress":
