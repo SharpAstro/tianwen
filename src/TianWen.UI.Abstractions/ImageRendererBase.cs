@@ -168,7 +168,12 @@ namespace TianWen.UI.Abstractions
         // Scaled accessors
         private float InfoPanelWidth => BaseInfoPanelWidth * DpiScale;
         private float StatusBarHeight => BaseStatusBarHeight * DpiScale;
-        private float ToolbarHeight => BaseToolbarHeight * DpiScale;
+        /// <summary>Height of ONE toolbar row. The band is this times the rows the run needed.</summary>
+        private float ToolbarRowHeight => BaseToolbarHeight * DpiScale;
+        // The band as it actually stands this frame, so every consumer of it (the histogram's
+        // pre-arrangement fallback, GetImageAreaSize, the public ScaledToolbarHeight the GPU grid reads)
+        // follows a wrap instead of assuming one row.
+        private float ToolbarHeight => ToolbarRowHeight * _toolbarRows;
         private float TransportHeight => BaseTransportHeight * DpiScale;
         // Honor the user-resizable width when state is bound; fall back to the
         // historical 300px constant when state hasn't been attached yet (e.g.
@@ -549,6 +554,12 @@ namespace TianWen.UI.Abstractions
                     TryStartColorCalibration(state);
                 }
             }
+
+            // The toolbar band's HEIGHT is an input to the layout pass below, and what decides it is the
+            // measured labels (which change: "Stars" -> "Stars: 5893") against the window width. So the
+            // toolbar is measured FIRST and the widths are kept; the placement pass inside RenderToolbar
+            // re-walks arithmetic only, and no label is measured twice.
+            PrepareToolbarLayout(document, state);
 
             // Single layout pass: every pane rect (file list / image / info panel) and the image
             // placement below derive from this ONE arrangement -- no per-consumer recomputation.
