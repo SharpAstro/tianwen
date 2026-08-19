@@ -37,7 +37,7 @@ $recipeDir = Split-Path -Parent (Resolve-Path $Recipe)
 
 $settings = @{}
 $glyphs = [ordered]@{}
-$known = @('font', 'output', 'namespace', 'sizes', 'levels', 'class', 'access')
+$known = @('font', 'output', 'namespace', 'sizes', 'levels', 'class', 'access', 'baker')
 
 foreach ($line in Get-Content $Recipe) {
     # Strip trailing comments, then blanks. A '#' inside a value would be a codepoint, never a comment.
@@ -61,7 +61,7 @@ foreach ($line in Get-Content $Recipe) {
     }
 }
 
-foreach ($required in 'font', 'output', 'namespace') {
+foreach ($required in 'font', 'output', 'namespace', 'baker') {
     if (-not $settings.ContainsKey($required)) { throw "recipe is missing '$required'" }
 }
 if ($glyphs.Count -eq 0) { throw 'recipe declares no glyphs' }
@@ -79,8 +79,8 @@ foreach ($opt in 'sizes', 'levels', 'class', 'access') {
 }
 foreach ($name in $glyphs.Keys) { $toolArgs += @('--glyph', "$name=$($glyphs[$name])") }
 
-Write-Host "baking $($glyphs.Count) glyphs from $(Split-Path -Leaf $fontPath)"
-& dotnet dnx DIR.Lib.IconBaker --yes -- @toolArgs
+Write-Host "baking $($glyphs.Count) glyphs from $(Split-Path -Leaf $fontPath) with baker $($settings['baker'])"
+& dotnet dnx DIR.Lib.IconBaker --version $settings['baker'] --yes -- @toolArgs
 if ($LASTEXITCODE -ne 0) { throw "bake-icons failed with exit code $LASTEXITCODE" }
 
 if ($Verify) {
