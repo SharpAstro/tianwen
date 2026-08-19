@@ -2,203 +2,170 @@ using System.Globalization;
 using System.Text;
 using DIR.Lib;
 
-// Bakes glyphs into rectangle runs the app draws with plain FillRect. See BakeIcons.csproj for why.
+// A thin wrapper over DIR.Lib's IconBaker: it owns the baking, this owns the file format. Everything
+// about WHICH glyphs is an argument, so nothing app-specific lives here and the tool can serve a second
+// consumer -- it is meant to be packed and run via `dnx`, the way SdlVulkan.Renderer.Inspector already is.
 //
-// Usage: dotnet run --project tools/BakeIcons -- <font.ttf> <output.g.cs>
+//   bake-icons --font <path> --out <file.g.cs> --namespace <ns>
+//              --glyph Name=U+1F300 [--glyph ...]
+//              [--class BakedIcons] [--sizes 13,16,20] [--levels 4] [--access internal]
+//
+// Emits DATA ONLY, typed as DIR.Lib.IconBaker.CoverageMask. An earlier version re-emitted the run/mask
+// types and the size picker into every generated file, which is a copy of a library type per consumer.
+//
+// Hand-rolled argument parsing so the tool's only dependency is the rasteriser and it can be packed
+// without dragging a CLI framework along.
 
-if (args.Length < 2)
+var fontPath = "";
+var outputPath = "";
+var ns = "";
+var className = "BakedIcons";
+var access = "internal";
+// The size ladder is DPI SCALES, not round numbers: a mark is BaseToolbarMarkSize (13 design units)
+// times the scale, so these are 13 at 1.0, 1.25, 1.5, 1.75, 2.0, 2.5 and 3.0. Chosen that way because
+// the caller scales the nearest bake, and a ladder of pretty numbers leaves gaps exactly where common
+// hosts sit -- 13/16/20/26/39 forced 1.75x to resample by 14% and 2.5x by 25%, while this keeps every
+// common scale within about 2%. Each extra size is ~200 runs, so closing the gaps is nearly free.
+int[] sizes = [13, 16, 20, 23, 26, 33, 39];
+var levels = IconBaker.DefaultAlphaLevels;
+var icons = new List<(string Name, int Codepoint)>();
+
+for (var i = 0; i < args.Length; i++)
 {
-    Console.Error.WriteLine("usage: BakeIcons <source-font> <output-file>");
-    return 2;
+    var next = i + 1 < args.Length ? args[i + 1] : null;
+    switch (args[i])
+    {
+        case "--font" when next is not null: fontPath = next; i++; break;
+        case "--out" when next is not null: outputPath = next; i++; break;
+        case "--namespace" when next is not null: ns = next; i++; break;
+        case "--class" when next is not null: className = next; i++; break;
+        case "--access" when next is not null: access = next; i++; break;
+        case "--levels" when next is not null:
+            levels = int.Parse(next, CultureInfo.InvariantCulture);
+            i++;
+            break;
+        case "--sizes" when next is not null:
+            sizes = [.. next.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(s => int.Parse(s, CultureInfo.InvariantCulture))];
+            i++;
+            break;
+        case "--glyph" when next is not null:
+            {
+                var parts = next.Split('=', 2);
+                if (parts.Length != 2)
+                {
+                    Console.Error.WriteLine($"bake-icons: --glyph wants Name=U+XXXX, got '{next}'");
+                    return 2;
+                }
+                // U+XXXX, 0xXXXX and bare hex all mean the same. A bare DECIMAL codepoint is deliberately
+                // not accepted: it would be ambiguous with hex and silently bake the wrong glyph.
+                var raw = parts[1].Trim();
+                if (raw.StartsWith("U+", StringComparison.OrdinalIgnoreCase)
+                    || raw.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                {
+                    raw = raw[2..];
+                }
+                if (!int.TryParse(raw, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var cp))
+                {
+                    Console.Error.WriteLine($"bake-icons: '{parts[1]}' is not a hex codepoint");
+                    return 2;
+                }
+                icons.Add((parts[0].Trim(), cp));
+                i++;
+                break;
+            }
+        default:
+            Console.Error.WriteLine($"bake-icons: unknown argument '{args[i]}'");
+            return 2;
+    }
 }
 
-var fontPath = args[0];
-var outputPath = args[1];
+if (fontPath.Length == 0 || outputPath.Length == 0 || ns.Length == 0 || icons.Count == 0)
+{
+    Console.Error.WriteLine(
+        "usage: bake-icons --font <path> --out <file.g.cs> --namespace <ns> --glyph Name=U+XXXX ...");
+    return 2;
+}
 
 if (!File.Exists(fontPath))
 {
-    Console.Error.WriteLine($"BakeIcons: source font not found: {fontPath}");
+    Console.Error.WriteLine($"bake-icons: source font not found: {fontPath}");
     return 2;
 }
 
-// The manifest. Deliberately a literal here rather than a data file: it is three lines, it changes
-// about never, and a separate manifest format would be more machinery than the thing it describes.
-//
-// LICENSING: the source font must be one whose licence permits redistributing glyph shapes, because
-// that is exactly what baking does. Noto is OFL. Do NOT point this at a proprietary system face --
-// C:\Windows\Fonts\seguiemj.ttf is Microsoft's, and the fact that the RUNTIME emoji probe legitimately
-// falls back to it does not make its outlines ours to commit.
-(string Name, int Codepoint, string Meaning)[] icons =
-[
-    ("Spiral", 0x1F300, "deep-sky object overlays"),
-];
-
-// The sizes the toolbar actually asks for: BaseToolbarMarkSize (13) times the DPI scales in use.
-// Baked per size rather than scaled from one master, because a run is a row of pixels -- scaling the
-// rows either overlaps them or leaves gaps, and both show at this size.
-int[] sizes = [13, 16, 20, 26, 39];
-
-// Alpha levels. One bit would be chunky against the antialiased text beside it; four levels is enough
-// to keep an edge readable and costs only a few more runs.
-const int AlphaLevels = 4;
+// LICENSING cannot be checked here, so it is stated where whoever adds a glyph will read it: baking
+// redistributes GLYPH SHAPES. Point this at a face whose licence permits that (Noto is OFL). A
+// proprietary system face is not a valid source, and a runtime emoji probe legitimately falling back to
+// one does not make its outlines redistributable.
 
 using var rasterizer = new ManagedFontRasterizer();
 var sb = new StringBuilder();
 
 sb.AppendLine("// <auto-generated>");
-sb.AppendLine("//     Generated by tools/BakeIcons. Do not edit by hand -- re-run the tool and commit.");
+sb.AppendLine("//     Generated by bake-icons. Do not edit by hand: re-run the tool and commit.");
 sb.AppendLine($"//     Source font: {Path.GetFileName(fontPath)}");
 sb.AppendLine("// </auto-generated>");
 sb.AppendLine("#nullable enable");
 sb.AppendLine();
-sb.AppendLine("using System;");
 sb.AppendLine("using System.Collections.Immutable;");
+sb.AppendLine("using DIR.Lib;");
 sb.AppendLine();
-sb.AppendLine("namespace TianWen.UI.Abstractions");
+sb.AppendLine($"namespace {ns}");
 sb.AppendLine("{");
-sb.AppendLine("    /// <summary>");
-sb.AppendLine("    /// Glyphs baked to rectangle runs at build-host time, so an icon needs no font at runtime.");
-sb.AppendLine("    /// </summary>");
+sb.AppendLine("    /// <summary>Glyph coverage baked at build time, drawn via PixelWidgetBase.DrawCoverageMask.</summary>");
 sb.AppendLine("    /// <remarks>");
-sb.AppendLine("    /// <para>Three things this buys over drawing the glyph from an installed face, each of which the");
-sb.AppendLine("    /// font path actually cost: it works where no emoji face exists (a Linux host resolved none, so");
-sb.AppendLine("    /// every emoji mark silently drew NOTHING); it is monochrome, so a mark tints and dims with the");
-sb.AppendLine("    /// label beside it, which a COLRv1 glyph carrying its own palette cannot; and it is identical on");
-sb.AppendLine("    /// every machine, where the runtime path varied with whichever face the host resolved.</para>");
-sb.AppendLine("    /// <para>A run is one horizontal span of constant alpha, so drawing is a loop of FillRect and");
-sb.AppendLine("    /// needs no new member on the renderer seam -- the same reason DIR.Lib's own IconKind painter is");
-sb.AppendLine("    /// built from rectangles.</para>");
+sb.AppendLine("    /// Baked because a mark drawn from a font at runtime is absent where the face is not installed,");
+sb.AppendLine("    /// cannot be tinted when the face is colour, and varies with whichever face the host resolved.");
+sb.AppendLine("    /// See <see cref=\"IconBaker\"/>, which also bakes at RUNTIME for marks not known ahead of time.");
 sb.AppendLine("    /// </remarks>");
-sb.AppendLine("    internal static class BakedIcons");
+sb.AppendLine($"    {access} static class {className}");
 sb.AppendLine("    {");
-sb.AppendLine("        /// <summary>One horizontal span of constant coverage, in mask pixels.</summary>");
-sb.AppendLine("        internal readonly record struct Run(byte X, byte Y, byte Width, byte Alpha);");
-sb.AppendLine();
-sb.AppendLine("        /// <summary>One baked size of one icon.</summary>");
-sb.AppendLine("        internal readonly record struct Mask(int Size, ImmutableArray<Run> Runs);");
-sb.AppendLine();
 
-var totalRuns = 0;
+var total = 0;
 
-foreach (var (name, codepoint, meaning) in icons)
+foreach (var (name, codepoint) in icons)
 {
-    var rune = new System.Text.Rune(codepoint);
-    var masks = new List<(int Size, List<(int X, int Y, int W, int A)> Runs)>();
+    var masks = IconBaker.Bake(rasterizer, fontPath, new System.Text.Rune(codepoint), sizes, levels);
 
-    foreach (var size in sizes)
+    if (masks.Any(m => m.IsEmpty))
     {
-        var bmp = rasterizer.RasterizeGlyph(fontPath, size, rune);
-        if (bmp.Width <= 0 || bmp.Height <= 0 || bmp.Rgba.Length == 0)
-        {
-            Console.Error.WriteLine(
-                $"BakeIcons: {name} (U+{codepoint:X4}) did not rasterise at {size}px from " +
-                $"{Path.GetFileName(fontPath)} -- the face may not cover it.");
-            return 1;
-        }
-
-        // Centre the glyph in a square mask of the requested size. The rasteriser returns the ink box
-        // plus bearings; the mark is drawn into a square, so centring the INK is what makes a row of
-        // different marks look aligned (bearing-relative placement puts each one wherever its own font
-        // metrics say, which is right for text and wrong for an icon).
-        var runs = new List<(int X, int Y, int W, int A)>();
-        var offX = (size - bmp.Width) / 2;
-        var offY = (size - bmp.Height) / 2;
-
-        for (var row = 0; row < bmp.Height; row++)
-        {
-            var y = offY + row;
-            if (y < 0 || y >= size)
-            {
-                continue;
-            }
-
-            var runStart = -1;
-            var runLevel = 0;
-
-            for (var col = 0; col <= bmp.Width; col++)
-            {
-                var level = 0;
-                var x = offX + col;
-                if (col < bmp.Width && x >= 0 && x < size)
-                {
-                    // Alpha is the coverage regardless of whether the face is colour or outline: a
-                    // COLRv1 emoji rasterises its paint tree into RGBA, and the shape we want is its
-                    // silhouette, which is exactly the alpha channel.
-                    var alpha = bmp.Rgba[(row * bmp.Width + col) * 4 + 3];
-                    level = alpha * AlphaLevels / 256;
-                }
-
-                if (level != runLevel)
-                {
-                    if (runLevel > 0 && runStart >= 0)
-                    {
-                        // Quantised level back to an 8-bit alpha. The TOP bucket must map to 255: an
-                        // interior pixel is fully covered, and a bucket-centre mapping put it at 223,
-                        // which made the whole mark read visibly greyer than the text and the other
-                        // marks beside it. Saturating the top bucket costs nothing at the edges.
-                        var a = Math.Min(255, (runLevel + 1) * 255 / AlphaLevels);
-                        runs.Add((runStart, y, offX + col - runStart, a));
-                    }
-                    runStart = offX + col;
-                    runLevel = level;
-                }
-            }
-        }
-
-        masks.Add((size, runs));
-        totalRuns += runs.Count;
+        var missing = string.Join(", ", masks.Where(m => m.IsEmpty).Select(m => $"{m.Size}px"));
+        Console.Error.WriteLine(
+            $"bake-icons: {name} (U+{codepoint:X4}) produced NO coverage at {missing} from " +
+            $"{Path.GetFileName(fontPath)}. The face probably does not carry it.");
+        return 1;
     }
 
-    sb.AppendLine($"        /// <summary>U+{codepoint:X4} -- {meaning}.</summary>");
-    sb.AppendLine($"        internal static readonly ImmutableArray<Mask> {name} =");
+    sb.AppendLine($"        /// <summary>U+{codepoint:X4}, baked from {Path.GetFileName(fontPath)}.</summary>");
+    sb.AppendLine($"        {access} static readonly ImmutableArray<IconBaker.CoverageMask> {name} =");
     sb.AppendLine("        [");
-    foreach (var (size, runs) in masks)
+    foreach (var mask in masks)
     {
-        sb.Append(CultureInfo.InvariantCulture, $"            new Mask({size}, [");
-        for (var i = 0; i < runs.Count; i++)
+        sb.Append(CultureInfo.InvariantCulture, $"            new IconBaker.CoverageMask({mask.Size}, [");
+        for (var i = 0; i < mask.Runs.Length; i++)
         {
-            var (x, y, w, a) = runs[i];
-            sb.Append(CultureInfo.InvariantCulture, $"new({x},{y},{w},{a})");
-            if (i < runs.Count - 1)
+            var r = mask.Runs[i];
+            sb.Append(CultureInfo.InvariantCulture, $"new({r.X},{r.Y},{r.Width},{r.Alpha})");
+            if (i < mask.Runs.Length - 1)
             {
                 sb.Append(", ");
             }
         }
         sb.AppendLine("]),");
+        total += mask.Runs.Length;
     }
     sb.AppendLine("        ];");
     sb.AppendLine();
 
-    Console.WriteLine($"BakeIcons: {name} U+{codepoint:X4} -> {masks.Count} sizes, " +
-        string.Join(", ", masks.Select(m => $"{m.Size}px:{m.Runs.Count}")));
+    Console.WriteLine($"bake-icons: {name} U+{codepoint:X4} -> " +
+        string.Join(", ", masks.Select(m => $"{m.Size}px:{m.Runs.Length}")));
 }
 
-sb.AppendLine("        /// <summary>The baked size nearest <paramref name=\"pixels\"/>.</summary>");
-sb.AppendLine("        /// <remarks>");
-sb.AppendLine("        /// Nearest rather than exact: DpiScale is continuous, so an exact match would need a bake per");
-sb.AppendLine("        /// possible scale. Rows are drawn at the mask's own resolution and scaled by the caller, which");
-sb.AppendLine("        /// is why picking the CLOSEST size matters -- a distant one scales visibly.");
-sb.AppendLine("        /// </remarks>");
-sb.AppendLine("        internal static Mask NearestSize(ImmutableArray<Mask> masks, float pixels)");
-sb.AppendLine("        {");
-sb.AppendLine("            var best = masks[0];");
-sb.AppendLine("            var bestDelta = MathF.Abs(best.Size - pixels);");
-sb.AppendLine("            foreach (var mask in masks)");
-sb.AppendLine("            {");
-sb.AppendLine("                var delta = MathF.Abs(mask.Size - pixels);");
-sb.AppendLine("                if (delta < bestDelta)");
-sb.AppendLine("                {");
-sb.AppendLine("                    best = mask;");
-sb.AppendLine("                    bestDelta = delta;");
-sb.AppendLine("                }");
-sb.AppendLine("            }");
-sb.AppendLine("            return best;");
-sb.AppendLine("        }");
 sb.AppendLine("    }");
 sb.AppendLine("}");
 
 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outputPath))!);
 File.WriteAllText(outputPath, sb.ToString().ReplaceLineEndings("\r\n"));
 
-Console.WriteLine($"BakeIcons: wrote {outputPath} ({totalRuns} runs total)");
+Console.WriteLine($"bake-icons: wrote {outputPath} ({total} runs)");
 return 0;

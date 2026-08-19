@@ -925,18 +925,8 @@ namespace TianWen.UI.Abstractions
         private void DrawGalaxyMark(float x, float btnY, float btnH, RGBAColor32 ink)
         {
             var size = BaseToolbarMarkSize * DpiScale;
-            var mask = BakedIcons.NearestSize(BakedIcons.Spiral, size);
-            var scale = size / mask.Size;
-            var y = btnY + (btnH - size) / 2f;
-
-            foreach (var run in mask.Runs)
-            {
-                // The run's own coverage modulates the ink's alpha rather than replacing it, so a
-                // disabled mark dims exactly as its label does and the baked antialiasing survives.
-                var alpha = (byte)(ink.Alpha * run.Alpha / 255);
-                FillRect(x + run.X * scale, y + run.Y * scale, run.Width * scale, scale,
-                    new RGBAColor32(ink.Red, ink.Green, ink.Blue, alpha));
-            }
+            DrawCoverageMask(IconBaker.NearestSize(BakedIcons.Spiral, size),
+                x, btnY + (btnH - size) / 2f, size, ink);
         }
 
         /// <summary>
