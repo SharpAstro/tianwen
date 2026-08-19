@@ -233,6 +233,16 @@ namespace TianWen.UI.Abstractions
                 case InputKey.R:
                     ViewerActions.ZoomToActual(state);
                     return true;
+                case InputKey.Z:
+                    // Opens the MENU rather than cycling a zoom, because the menu is the only way to
+                    // reach 1:N without already knowing which Ctrl+digit each ratio is -- and a
+                    // keyboard user could not open it at all before. F and R keep their direct fit and
+                    // 1:1, so the fast paths are untouched; this is the discoverable one.
+                    //
+                    // Returns the open result rather than a bare true: with no document the Zoom button
+                    // is not painted, so there are no bounds to anchor a menu to, and claiming the key
+                    // there would swallow it for nothing.
+                    return OpenToolbarDropdown(state, ToolbarAction.Zoom);
                 case InputKey.Up:
                     if (state.SelectedFileIndex > 0)
                     {

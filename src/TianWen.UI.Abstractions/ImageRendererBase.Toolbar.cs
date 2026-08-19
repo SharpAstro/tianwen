@@ -547,7 +547,16 @@ namespace TianWen.UI.Abstractions
                         {
                             ViewerActions.ZoomTo(state, 1f / idx);
                         }
-                        state.StatusMessage = $"Zoom: {ZoomMenuLabels[idx]}";
+                        // Deliberately NO status message, and this is the ONE dropdown without one --
+                        // StretchLink and Channel both set theirs, so the omission is a choice rather
+                        // than an oversight. Two reasons. The status bar is the last-ACTION slot, and it
+                        // persists until something replaces it, so "Zoom: 1:4" is still sitting there
+                        // after the wheel has moved the zoom somewhere else; that is tolerable for a
+                        // mode whose control is a word, but this control's label is the live value, so
+                        // the message can contradict the button an inch above it. And putting a zoom
+                        // string in the bottom row is the thing removing the zoom readout from the
+                        // status bar was for -- the button is the readout now, and the image visibly
+                        // rescaling is the confirmation a message would otherwise be giving.
                         state.NeedsRedraw = true;
                     }, CurrentZoomMenuIndex(state));
                     return true;
@@ -566,7 +575,6 @@ namespace TianWen.UI.Abstractions
                         if ((uint)idx < (uint)modes.Length)
                         {
                             state.StretchMode = modes[idx];
-                            state.StatusMessage = $"Stretch: {state.StretchMode}";
                             state.NeedsRedraw = true;
                         }
                     }, Array.IndexOf(ViewerActions.StretchLinkModes, state.StretchMode));
@@ -579,7 +587,6 @@ namespace TianWen.UI.Abstractions
                         {
                             state.ChannelView = ChannelViewOrder[idx];
                             state.NeedsTextureUpdate = true;
-                            state.StatusMessage = $"Channel: {state.ChannelView}";
                         }
                     }, Array.IndexOf(ChannelViewOrder, state.ChannelView));
                     return true;
@@ -594,7 +601,6 @@ namespace TianWen.UI.Abstractions
                             // UploadDocumentTextures, so the bilinear<->MHC switch is live; a CPU-debayered
                             // colour FITS is unaffected (it was demosaiced at load).
                             state.NeedsTextureUpdate = true;
-                            state.StatusMessage = $"Debayer: {state.DebayerAlgorithm.DisplayName}";
                         }
                     }, Array.IndexOf(DebayerAlgorithmOrder, state.DebayerAlgorithm));
                     return true;
@@ -608,7 +614,6 @@ namespace TianWen.UI.Abstractions
                             state.StretchPresetIndex = idx;
                             state.StretchParameters = presets[idx];
                             state.NeedsRedraw = true;
-                            state.StatusMessage = $"Stretch: {state.StretchParameters}";
                         }
                     }, state.StretchPresetIndex);
                     return true;
@@ -622,9 +627,6 @@ namespace TianWen.UI.Abstractions
                             state.CurvesBoostIndex = idx;
                             state.CurvesBoost = presets[idx];
                             state.NeedsRedraw = true;
-                            state.StatusMessage = state.CurvesBoost > 0f
-                                ? $"Curves Boost: {UiFormat.Percent0(state.CurvesBoost)}"
-                                : "Curves Boost: Off";
                         }
                     }, state.CurvesBoostIndex);
                     return true;
@@ -639,9 +641,6 @@ namespace TianWen.UI.Abstractions
                             state.HdrAmount = presets[idx].Amount;
                             state.HdrKnee = presets[idx].Knee;
                             state.NeedsRedraw = true;
-                            state.StatusMessage = presets[idx].Amount > 0f
-                                ? $"HDR: {presets[idx].Amount:F1} (knee {presets[idx].Knee:F2})"
-                                : "HDR: Off";
                         }
                     }, state.HdrPresetIndex);
                     return true;
@@ -786,6 +785,10 @@ namespace TianWen.UI.Abstractions
                 // the A/B button follows).
                 ToolbarAction.Enhance => state.IsEnhancing || state.IsEnhanced,
                 ToolbarAction.Compare => Split.IsOn,
+                // A solution is a RESULT rather than a toggle, but it is the state the eye looks
+                // for first: whether this frame has a WCS decides what the grid and the object
+                // overlay can draw at all, so it is worth carrying across the bar as a highlight.
+                ToolbarAction.PlateSolve => document?.IsPlateSolved == true,
 
                 _ => false,
             };
@@ -858,6 +861,9 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Overlays => true,
             ToolbarAction.Stars => true,
             ToolbarAction.Enhance => true,
+            // The telescope says which button this is, so the label spends itself entirely on the
+            // state -- "?" / an ellipsis / a tick, instead of "Solve" / "Solving..." / "Solved".
+            ToolbarAction.PlateSolve => true,
             // The mark is what makes the tri-state label affordable: "Fit" / "1:1" / "43%" needs no word
             // saying it is a zoom, so the label spends all its width on the value.
             ToolbarAction.Zoom => true,
@@ -876,6 +882,7 @@ namespace TianWen.UI.Abstractions
                 case ToolbarAction.Stars: DrawStarMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Enhance: DrawBakedMark(BakedIcons.Sparkles, x, btnY, btnH, ink); break;
                 case ToolbarAction.Zoom: DrawBakedMark(BakedIcons.Magnifier, x, btnY, btnH, ink); break;
+                case ToolbarAction.PlateSolve: DrawBakedMark(BakedIcons.Telescope, x, btnY, btnH, ink); break;
             }
         }
 
@@ -1134,8 +1141,8 @@ namespace TianWen.UI.Abstractions
             // Fitting is the only state whose label is a word, so the tooltip is where its actual scale
             // lives -- it is the reason the status bar no longer needs a zoom readout at all.
             ToolbarAction.Zoom when state.ZoomToFit =>
-                $"Zoom: fitting at {UiFormat.Percent0(state.Zoom)} -- click to pick 1:1 or 1:N, right-click for 1:1 (F, R, Ctrl+0..9)",
-            ToolbarAction.Zoom => "Zoom: click to pick fit / 1:1 / 1:N, right-click fits (F, R, Ctrl+0..9)",
+                $"Zoom: fitting at {UiFormat.Percent0(state.Zoom)} -- click or Z to pick 1:1 / 1:N, right-click for 1:1 (F, R, Ctrl+0..9)",
+            ToolbarAction.Zoom => "Zoom: click or Z to pick fit / 1:1 / 1:N, right-click fits (F, R, Ctrl+0..9)",
             ToolbarAction.PlateSolve => "Plate solve this frame (P)",
             ToolbarAction.Grid => "WCS coordinate grid (G)",
             ToolbarAction.Overlays => "Deep-sky object overlays (O)",
@@ -1161,6 +1168,7 @@ namespace TianWen.UI.Abstractions
             "Wheel / Ctrl+Wheel   Zoom",
             "Ctrl + / -           Zoom in / out",
             "Ctrl+2 .. Ctrl+9     Zoom 1:N",
+            "Z                    Zoom menu (fit / 1:1 / 1:N)",
             "V / Shift+V          Histogram / log scale",
             "I                    Info panel",
             "L                    File list",
@@ -1196,8 +1204,15 @@ namespace TianWen.UI.Abstractions
                 // Tri-state, and the third state is the point: at any zoom that is neither fit nor 1:1
                 // the old pair of buttons showed nothing at all, so the one number a zoom control exists
                 // to report was the one thing the toolbar could not say.
+                //
+                // The button and its menu speak ONE vocabulary. A zoom that is exactly a menu ratio
+                // names itself with that ratio, so picking "1:4" reads back as "1:4" rather than as
+                // "25%" -- the same value in a different language, which reads as the control having
+                // ignored the choice. Only a zoom with no ratio (the wheel) falls through to a
+                // percentage. This also folds 1:1 in as just the n=1 case instead of a special branch.
                 ToolbarAction.Zoom when state.ZoomToFit => "Fit",
-                ToolbarAction.Zoom when MathF.Abs(state.Zoom - 1f) < ZoomMatchTolerance => "1:1",
+                ToolbarAction.Zoom when CurrentZoomMenuIndex(state) is var zoomRow && zoomRow > 0 =>
+                    ZoomMenuLabels[zoomRow],
                 ToolbarAction.Zoom => UiFormat.Percent0(state.Zoom),
                 // Mark-only, like Channel: the point of a mark on this toolbar is the WIDTH it gives
                 // back, and a mark sitting beside the word it replaces gives back nothing. The tooltip
@@ -1220,8 +1235,18 @@ namespace TianWen.UI.Abstractions
                         ? $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)}"
                         : $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)} {UiFormat.Percent0(state.BackgroundNeutralizationStrength)}",
                 ToolbarAction.SpccCalibrate when state.ColorCalibrationEnabled => $"SPCC: {document?.ColorCalibration?.R:F2}/{document?.ColorCalibration?.B:F2}",
-                ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
-                ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
+                // The mark says WHAT this button is, so the label is free to say only the state --
+                // and the state is the whole question a plate solve answers. The tick is paired
+                // with the activated highlight deliberately: whether this frame carries a WCS
+                // decides what the grid and the object overlay can draw at all, so it is worth
+                // saying twice rather than leaving it to a highlight that every other button
+                // also uses for "on".
+                ToolbarAction.PlateSolve when state.IsPlateSolving => "\u2026",
+                ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "\u2714",
+                // Unsolved is a QUESTION, because that is what an unsolved frame is -- and this
+                // button is what answers it. The word "Solve" is gone because the telescope mark
+                // says which button this is and the tooltip names the action.
+                ToolbarAction.PlateSolve => "?",
                 // The sparkles mark says "AI enhance", so the label is free to say only the part it
                 // cannot: which backend, or how far along. This is the Channel rule again -- a mark that
                 // sits beside the word it replaces gives no width back.
