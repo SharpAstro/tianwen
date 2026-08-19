@@ -1,4 +1,6 @@
 using System;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Numerics;
@@ -295,46 +297,76 @@ namespace TianWen.UI.Abstractions
             {
                 state.StatusMessage = "Calibrating color...";
                 state.NeedsRedraw = true;
-                var docForTask = _document;
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        var db = CelestialObjectDB is { IsValueCreated: true } lazy
-                            ? await lazy.WithCancellation(CancellationToken.None)
-                            : null!;
 
-                        // Try SPCC first, fall back to sky-background method.
-                        // Capture-by-local (docForTask) so the task always
-                        // clears the in-flight flag on the doc it started for,
-                        // even if the user has navigated away in the meantime.
-                        var (matched, diag) = await docForTask.ComputeSpccColorCalibrationAsync(db);
-                        if (matched <= 0)
-                            (matched, diag) = await docForTask.ComputeColorCalibrationAsync(db);
-                        if (docForTask.ColorCalibration is { } wb)
-                        {
-                            state.ColorCalibrationEnabled = true;
-                            if (state.StretchMode is StretchMode.Unlinked)
-                            {
-                                state.StretchMode = StretchMode.Linked;
-                            }
-                            System.Console.Error.WriteLine($"[ColorCal] {diag}");
-                            state.StatusMessage = matched > 0
-                                ? $"WB ({matched}★): R={wb.Item1:F3} G=1.000 B={wb.Item3:F3}"
-                                : null;
-                        }
-                        else
-                        {
-                            System.Console.Error.WriteLine($"[ColorCal] FAIL: {diag}");
-                            state.StatusMessage = $"Calibration failed: {diag}";
-                        }
-                    }
-                    finally
-                    {
-                        docForTask.EndColorCalibration();
-                        state.NeedsRedraw = true;
-                    }
-                });
+                // Capture-by-local so the work always clears the in-flight flag on the document it
+                // started for, even if the user has navigated away in the meantime.
+                var docForTask = _document;
+
+                // Guarded, and tracked when the host supplied a tracker. This used to be a DISCARDED
+                // Task.Run with a try/finally and no catch, which failed three ways at once: a throw
+                // became an unobserved task exception so nothing logged it, the status line kept
+                // saying "Calibrating color..." with no way out, and shutdown abandoned the work
+                // instead of draining it. RunGuardedAsync is exposed static for exactly the
+                // no-tracker case, so the error routing is identical on both paths.
+                var logger = Logger ?? NullLogger.Instance;
+                if (Tracker is { } tracker)
+                {
+                    tracker.RunGuarded(
+                        ct => CalibrateColorAsync(docForTask, state, ct),
+                        AppToken, logger, "Colour calibration",
+                        onError: ex => state.StatusMessage = $"Calibration failed: {ex.Message}",
+                        onFinally: () => EndColorCalibration(docForTask, state));
+                }
+                else
+                {
+                    _ = BackgroundTaskTracker.RunGuardedAsync(
+                        ct => CalibrateColorAsync(docForTask, state, ct),
+                        AppToken, logger, "Colour calibration",
+                        onError: ex => state.StatusMessage = $"Calibration failed: {ex.Message}",
+                        onFinally: () => EndColorCalibration(docForTask, state));
+                }
+            }
+        }
+
+        private static void EndColorCalibration(AstroImageDocument document, ViewerState state)
+        {
+            document.EndColorCalibration();
+            state.NeedsRedraw = true;
+        }
+
+        private async Task CalibrateColorAsync(AstroImageDocument document, ViewerState state, CancellationToken cancellationToken)
+        {
+            var db = CelestialObjectDB is { IsValueCreated: true } lazy
+                ? await lazy.WithCancellation(cancellationToken)
+                : null!;
+
+            // SPCC first, sky-background as the fallback.
+            var (matched, diag) = await document.ComputeSpccColorCalibrationAsync(db);
+            if (matched <= 0)
+            {
+                (matched, diag) = await document.ComputeColorCalibrationAsync(db);
+            }
+
+            if (document.ColorCalibration is { } wb)
+            {
+                state.ColorCalibrationEnabled = true;
+                if (state.StretchMode is StretchMode.Unlinked)
+                {
+                    state.StretchMode = StretchMode.Linked;
+                }
+
+                // To the logger, not Console.Error. Stderr is only a channel for whoever thought to
+                // redirect it, so these lines were absent from the app log where anyone looking for
+                // them would go.
+                Logger?.LogDebug("Colour calibration: {Diagnostics}", diag);
+                state.StatusMessage = matched > 0
+                    ? $"WB ({matched}★): R={wb.Item1:F3} G=1.000 B={wb.Item3:F3}"
+                    : null;
+            }
+            else
+            {
+                Logger?.LogWarning("Colour calibration found no solution: {Diagnostics}", diag);
+                state.StatusMessage = $"Calibration failed: {diag}";
             }
         }
 
@@ -353,7 +385,8 @@ namespace TianWen.UI.Abstractions
             {
                 state.BackgroundNeutralizationEnabled = true;
                 state.NeedsRedraw = true;
-                System.Console.Error.WriteLine($"[BgNeut/{state.BackgroundNeutralizationMethod}] R={g.R:F3} G={g.G:F3} B={g.B:F3}");
+                Logger?.LogDebug("Background neutralisation {Method}: R={R:F3} G={G:F3} B={B:F3}",
+                    state.BackgroundNeutralizationMethod, g.R, g.G, g.B);
             }
         }
 
