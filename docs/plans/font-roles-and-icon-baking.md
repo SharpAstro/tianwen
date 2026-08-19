@@ -1,0 +1,89 @@
+# Font roles and icon baking
+
+Raised by the user 2026-08-19, out of the FITS-viewer toolbar mark work: *"we should have one common
+font resolving that supports symbols + emoji + OS fallback, the whole shebang. and we should be able to
+prebake icons."*
+
+Two asks, and they meet in the middle: the bake needs a resolver good enough to **find a licensed source
+face**, and a baked icon needs no font at runtime at all.
+
+## Read this first: most of it already exists
+
+The reason this plan opens with an inventory is that the emoji half of it was written **twice by
+accident** in a single afternoon -- once inline in `VkGuiRenderer.ResolveFontPath`, then again as
+`TianWen.UI.Abstractions/EmojiFonts.cs` -- and a third, much larger duplicate (a whole fallback
+resolver) was one step from being started before `DIR.Lib.FontFallbackResolver` was found. The tell each
+time was searching for *the thing about to be written* rather than for *the problem it solves*.
+
+| Already shipped | Where | What it does |
+|---|---|---|
+| `FontFallbackResolver.FromRoles` | DIR.Lib | primary -> symbol -> emoji -> per-script chain, **per-codepoint coverage read from each face's cmap** (`OpenTypeFont.GetGlyphId`), lazy face loading, `CanRender(Rune)`, `TryResolveFont(Rune)`, `CoverageRuns`, backend-generic `Measure`/`Draw`/`FitEllipsis` |
+| `FontResolver` | DIR.Lib | `ResolveSystemFont` (monospace default), `ResolveSystemScriptFonts(extra)` (CJK/Indic/Arabic), `ResolveInstalledFace`, `EnumerateInstalledFonts` incl. per-user dirs |
+| `tools/BakeShaders` | tianwen | the bake PRECEDENT: build-host-time generation, output committed AND embedded, warning `TWSH0001` when a source is newer than its baked artifact |
+| `ManagedFontRasterizer` | DIR.Lib | glyph rasterisation, already the engine behind `Renderer.DrawText` |
+| `IconKind` + pixel painter | DIR.Lib | 11 procedural marks built from rectangles, with a cell-surface counterpart in `CellLayout` |
+
+`FontFallbackResolver`'s own doc already carries the reasoning a new design would have had to
+rediscover: the role order is primary -> symbol -> emoji -> script **because** several script faces
+incidentally carry a few symbols (the Noto CJK faces cover the caret glyphs), so without the symbol face
+ahead of them a caret is drawn from a multi-megabyte CJK font.
+
+## The actual gaps
+
+1. **`FontResolver` has no symbol or emoji candidate tables.** It knows about monospace defaults and
+   per-script families; the emoji probe was hand-rolled inline in a host, which is why it got duplicated
+   rather than found. Both inline versions were **Windows-only**, so a Linux or macOS host resolved no
+   emoji face at all and every emoji mark silently drew nothing.
+2. **Nobody passes `symbolFontPath`.** Even the GUI, the one consumer of `FromRoles`, omits the symbol
+   role -- so the ordering its doc argues for has never actually been exercised.
+3. **The FITS viewer does not use the fallback resolver at all.** `ImageRendererBase.DrawText` passes one
+   `FontPath` straight to `Renderer.DrawText`, so a codepoint the UI face lacks draws `.notdef`.
+4. **Existence is not coverage.** `EmojiFonts.Resolve` checks that a *file* exists. Whether that face
+   contains U+1F300 needs its cmap -- which `CanRender(Rune)` already answers. Today the Objects mark can
+   resolve `seguiemj.ttf`, conclude it has an emoji face, and draw nothing.
+5. **A mark at 13-20 design units cannot be reliably hand-drawn.** Three attempts at a spiral failed (see
+   the toolbar entry in [`docs/todo/ui.md`](../todo/ui.md)); a font designer has already solved it at that
+   size. But a colour emoji **cannot be tinted**, so it cannot dim on a disabled button -- the exact bug
+   that had just been fixed for the Channel bars.
+
+## Phases
+
+| Phase | Work | Repo | Notes |
+|---|---|---|---|
+| **F1** | `FontResolver.ResolveEmojiFont(extra)` + `ResolveSymbolFont(extra)` with per-OS tables; `""` on miss, matching `ResolveSystemFont` | DIR.Lib | Windows `seguiemj`/`seguisym`; macOS Apple Color Emoji / Apple Symbols; Linux Noto Color Emoji + DejaVu. Bundled assets arrive via `extra`, so DIR.Lib needs no knowledge of a caller's layout |
+| **F2** | Delete `EmojiFonts.cs`; both hosts call F1; GUI passes `symbolFontPath:` to `FromRoles` | tianwen | Needs the DIR.Lib release F1 ships in |
+| **F3** | Viewer builds a `FontFallbackResolver` and routes `DrawText` through it; emoji marks gate on `CanRender(Rune)` rather than file existence | tianwen | This is what makes the mark fallback correct rather than lucky |
+| **B1** | `tools/BakeIcons`: manifest -> rasterise via `ManagedFontRasterizer` -> coverage mask -> **rect runs** -> one generated C# file | tianwen | Mirror `BakeShaders` incl. the staleness warning |
+| **B2** | Toolbar marks consume baked icons; drop the emoji draw and the hand-drawn spiral | tianwen | Baked icons are single-channel, so they tint and dim like any other ink |
+| **B3** | Consider upstreaming the monochrome, stateless marks as `IconKind` members | DIR.Lib | Only if a cell surface can say them; see the open question below |
+
+F1-F3 and B1-B3 are independent. **Nothing else is blocked on either**: the toolbar marks shipped
+without them, using the interim resolver plus a geometric fallback.
+
+## Traps
+
+- **Licensing gates the bake.** Baking glyph *shapes* redistributes them. Noto is OFL -- fine, and
+  already bundled by the GUI. **`seguiemj.ttf` is Microsoft-proprietary and must never be a bake
+  source**, even though it is what the runtime probe legitimately falls back to on Windows. Runtime use
+  of an installed system font and committing its outlines are different acts.
+- **Rects, not a raster.** A tinted-bitmap primitive would need a new member on the abstract renderer
+  seam; rect runs draw through the `FillRect` that is already there, which is also how DIR.Lib's own
+  `IconKind` painter works. A 16x16 mask is typically 10-40 rects.
+- **Bake resolution is a decision, not a detail.** Rects are a fixed grid, so either bake the DPI steps
+  that matter (1x / 1.5x / 2x -> 13 / 20 / 26 px) or bake one oversampled mask and snap. Baking an SDF
+  instead is tempting until you notice it re-invents what the font already gave you.
+- **Judge a mark at its real pixel size, and get the real pixels.** The `sdl-ui-inspector` screenshot is
+  DOWNSCALED (a 2902 px framebuffer arrived as ~1999, a factor of 0.69), which destroys exactly the
+  sub-pixel detail an icon is made of -- a correctly tapered star arrived as a plain `+` and was judged
+  broken. Use a DPI-aware `PrintWindow` capture (`SetThreadDpiAwarenessContext(-4)`, or PowerShell
+  virtualises the coordinates and downscales too) plus nearest-neighbour magnification.
+- **A colour mark dims by losing brightness, not by taking grey ink**, because its hue is the
+  information. Anything baked is monochrome and sidesteps this entirely -- which is half the point.
+
+## Open question
+
+**Where does baked output live?** App-local in tianwen is simpler and has the only consumer today. DIR.Lib
+`IconKind` is the shared home, but its contract is that a kind "earns its place by having a consumer on
+both surfaces", and a 40-rect emoji-derived mask means nothing to a terminal -- `CellLayout` would pick a
+glyph instead. So B3 is likely only for marks that BOTH surfaces can say, which the spiral is probably
+not. Decide before generating anything, since it changes where the generator writes.
