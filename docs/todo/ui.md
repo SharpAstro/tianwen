@@ -164,8 +164,17 @@ state through the terminal is a small addition that follows an existing pattern:
   monochrome and geometric, so `CellLayout` can pick a glyph for it, which is the bar the enum's own doc
   sets ("a consumer on both" surfaces). Same category: a split light/dark rectangle for A/B (lets that
   label go too) and a folder for Open. Needs a DIR.Lib release, so it is deliberately a second wave;
-  wave 1 is pure TianWen and shipped without one. Leave NeutBg, SPCC, Calibrate and Solve as text -- no
-  mark reads at 13 px, and for the three colour ops the word is the information.
+  wave 1 is pure TianWen and shipped without one (and DIR.Lib 8.5 is already cut, so wave 2 needs 8.6).
+  Leave NeutBg, SPCC, Calibrate and Solve as text -- no mark reads at 13 px, and for the three colour ops
+  the word is the information.
+  **Procedural is right for these three for a second reason now: they are not bakeable.** The baked-glyph
+  route added in wave 1 takes the glyph's ALPHA silhouette, so an emoji whose structure is drawn in colour
+  rather than in transparency collapses to a solid rectangle -- measured at 20 px, `FolderOpen` U+1F4C2
+  (Open), `DoubleUp` U+23EB (Boost) and `Crosshair` U+1F3AF are all fully inked, no hole anywhere. So
+  there is no shortcut here: Open, A/B and Boost need drawn geometry, exactly as this entry assumed.
+  Two glyphs that DO bake cleanly if a mark is wanted for them: `Sparkles` U+2728 (a candidate for
+  Enhance) and `Magnifier` U+1F50D (Zoom). Verify any candidate by baking it and printing the mask, not
+  by looking at the emoji -- every failure above looks fine in a colour preview.
 - [ ] Rename HDR button/label to "Compress Highlights"
 - [x] Remove debug `Console.Error.WriteLine` WCS output from `Program.cs` DONE (2026-06-02): none present in `TianWen.UI.FitsViewer/Program.cs` (all logging via `ILogger`).
 - [x] Support rec601/rec2020 luminance weighting options in luma stretch (2026-05-11); see Stretch / Image Processing section.
