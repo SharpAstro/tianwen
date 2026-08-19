@@ -49,5 +49,25 @@
     <PackageReference Include="SharpAstro.Png" />
     <PackageReference Include="SharpAstro.Color.Icc" />
   </ItemGroup>
+  <!-- Icon marks are baked from font glyphs into BakedIcons.g.cs (committed) by tools/bake-icons.ps1,
+       driven by icons.recipe. Baked rather than drawn from a font at runtime because a missing glyph
+       draws NOTHING rather than a placeholder, a colour glyph cannot be tinted so it cannot dim with its
+       label, and the runtime result varies with whichever face the host resolved.
+       Mirrors the shader bake in TianWen.UI.Shared, including the warning below. -->
+  <ItemGroup>
+    <IconRecipe Include="icons.recipe" />
+  </ItemGroup>
+
+  <!-- Warn (never fail) when the recipe is newer than the table it generates, so an edit that forgets to
+       re-bake is caught in the build log instead of silently shipping a stale mark. A timestamp is the
+       weaker of the two available checks: the bake is byte-reproducible, so CI can run
+       'pwsh tools/bake-icons.ps1 -Verify' and catch a HAND-EDITED table too, which a timestamp cannot.
+       This one is here because it costs nothing and needs neither the tool nor the network. -->
+  <Target Name="WarnStaleBakedIcons" BeforeTargets="CoreCompile"
+          Inputs="@(IconRecipe)"
+          Outputs="BakedIcons.g.cs">
+    <Warning Code="TWIC0001"
+             Text="icons.recipe is newer than BakedIcons.g.cs; re-run 'pwsh tools/bake-icons.ps1' and commit the regenerated table." />
+  </Target>
 
 </Project>
