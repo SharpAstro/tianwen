@@ -78,6 +78,17 @@ Embedded data
   terms of their upstream sources (Tycho-2, OpenNGC, SIMBAD, Pickles); see the
   fetch scripts beside them for the origin of each.
 
+  Fonts bundled by the GUI (`TianWen.UI.Gui/Fonts/`): Noto colour emoji, Copyright
+  2022 Google Inc., under the SIL Open Font License 1.1; and DejaVu Sans, Copyright
+  2003 Bitstream Inc. and 2006 Tavmjong Bah, under the Bitstream Vera licence.
+  Both are REDISTRIBUTED in every published binary rather than merely used, and both
+  licences require the copyright and licence notice to travel with the font, so the
+  full text of each ships beside this file in FONT-LICENSES.txt -- extracted verbatim
+  from the fonts' own OpenType name tables by `tools/extract-font-licences.py`, so it
+  is what those exact files declare. Neither of the other two notices could carry
+  them: THIRD-PARTY-NOTICES.txt is generated from the NuGet graph and cannot see a
+  bundled Content file, and this file is attribution rather than licence text.
+
 
 External programs, invoked and never linked
 -------------------------------------------

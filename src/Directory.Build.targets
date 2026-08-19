@@ -48,6 +48,8 @@
              Link="LICENSE.EXCEPTION" CopyToPublishDirectory="PreserveNewest" Visible="false" />
     <Content Include="$(MSBuildThisFileDirectory)..\NOTICE"
              Link="NOTICE" CopyToPublishDirectory="PreserveNewest" Visible="false" />
+    <Content Include="$(MSBuildThisFileDirectory)..\FONT-LICENSES.txt"
+             Link="FONT-LICENSES.txt" CopyToPublishDirectory="PreserveNewest" Visible="false" />
     <Content Include="$(MSBuildThisFileDirectory)..\THIRD-PARTY-NOTICES.txt"
              Link="THIRD-PARTY-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" Visible="false" />
     <Content Include="$(MSBuildThisFileDirectory)..\astap-readme.txt"
