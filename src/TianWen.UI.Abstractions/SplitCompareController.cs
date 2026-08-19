@@ -272,23 +272,46 @@ namespace TianWen.UI.Abstractions
         /// listing them would be longer than the pane. What the user needs to know is that the left
         /// half stopped following the controls, which is what "Pinned" says.</para>
         /// </remarks>
-        public (string Left, string Right) HalfLabels(in DisplayControls live)
+        /// <param name="pixelsEnhanced">
+        /// Whether the pixels BOTH halves are drawing have an enhancement applied. Only consulted in
+        /// <see cref="SplitCompare.PinnedSettings"/> mode, where it is the one fact the labels otherwise
+        /// cannot state: the enhance is common to both halves, so it is not a difference between them and
+        /// the delta label correctly stays silent about it -- leaving nothing at all to say the image is
+        /// enhanced. Reachable when the before-pixel cache was skipped under memory pressure, so there
+        /// were no pre-enhance pixels to switch to.
+        /// </param>
+        public (string Left, string Right) HalfLabels(in DisplayControls live, bool pixelsEnhanced = false)
         {
             if (Mode is SplitCompare.BeforePixels)
             {
                 // Pixel comparison: the display settings are IDENTICAL on both halves by construction
-                // (ComparisonRendition hands the live rendition to both), so there is nothing to name.
+                // (ComparisonRendition hands the live rendition to both), so there is nothing to name --
+                // and the enhance IS the difference here, which is what these two words already say.
                 return ("Before", "After");
             }
 
-            if (_labelLive is not { } cached || !live.Equals(cached) || !PinnedControls.Equals(_labelPinned))
+            if (_labelLive is not { } cached || !live.Equals(cached) || !PinnedControls.Equals(_labelPinned)
+                || pixelsEnhanced != _labelEnhanced)
             {
                 _labelLive = live;
                 _labelPinned = PinnedControls;
+                _labelEnhanced = pixelsEnhanced;
                 (_pinnedLabel, _liveLabel) = DisplayControls.Labels(PinnedControls, live, _labelScratch);
+
+                if (pixelsEnhanced)
+                {
+                    // On BOTH halves, deliberately. A fact that is true of both, stated on one, reads as
+                    // a difference -- which is the exact error the delta label was built to avoid. Saying
+                    // it twice is the honest shape: it is a property of the pixels underneath, not of
+                    // either side of the divider.
+                    _pinnedLabel += EnhancedSuffix;
+                    _liveLabel += EnhancedSuffix;
+                }
             }
             return (_pinnedLabel, _liveLabel);
         }
+
+        private const string EnhancedSuffix = " + AI";
 
         // Memoised on the live controls: this is asked once per painted frame and the answer only
         // moves when a control does. DisplayControls is a record struct, so the check is a field
@@ -300,6 +323,7 @@ namespace TianWen.UI.Abstractions
         // placeholder rather than the computed one.
         private DisplayControls? _labelLive;
         private DisplayControls _labelPinned;
+        private bool _labelEnhanced;
         private string _pinnedLabel = "Pinned";
         private string _liveLabel = "Live";
         private readonly List<string> _labelScratch = new();

@@ -900,79 +900,42 @@ namespace TianWen.UI.Abstractions
         /// polyline here, and it needs enough segments not to show its corners (two segments is what made
         /// the graticule read as a hexagon).</para>
         /// </remarks>
+        /// <summary>
+        /// A spiral, baked from a glyph at build time (see <c>tools/BakeIcons</c>).
+        /// </summary>
+        /// <remarks>
+        /// <para>Baked rather than drawn, because a spiral is past what this many pixels can carry as
+        /// geometry and a font designer had already solved it. Three attempts failed first and the two
+        /// interesting failures are worth not repeating: an OUTLINE with anything inside it reads as an
+        /// eye -- iris in a lid -- whatever the inner shape is; and filling that outline by
+        /// over-thickening its stroke does not work either, because a stroke inks half its thickness
+        /// either side of the path, so it closes along the minor axis but leaves a lens-shaped hole along
+        /// the MAJOR one, which is a ring with a dark middle, i.e. an eye again. Only a shape swept from
+        /// CIRCLES fills, since the trick needs both radii equal.</para>
+        /// <para>Baked rather than drawn from the font AT RUNTIME for three reasons the runtime path
+        /// actually cost: no emoji face is bundled here, so a Linux host resolved none and the mark drew
+        /// NOTHING; a COLRv1 glyph carries its own palette and so cannot be tinted, meaning it could not
+        /// dim on a disabled button the way every other mark does; and the drawn result varied with
+        /// whichever face the host happened to resolve.</para>
+        /// <para>Runs are horizontal spans of constant coverage, so this is a loop of
+        /// <see cref="ImageRendererBase{TSurface}.FillRect"/> and needs nothing new on the renderer seam.
+        /// The mask is picked at the nearest baked size and scaled, so rows stay contiguous (they tile by
+        /// construction) and a fractional scale cannot open gaps between them.</para>
+        /// </remarks>
         private void DrawGalaxyMark(float x, float btnY, float btnH, RGBAColor32 ink)
         {
             var size = BaseToolbarMarkSize * DpiScale;
+            var mask = BakedIcons.NearestSize(BakedIcons.Spiral, size);
+            var scale = size / mask.Size;
             var y = btnY + (btnH - size) / 2f;
 
-            // The emoji when a colour face resolved, the drawn form when none did. NOT a preference
-            // between two equal options: a spiral is past what this many pixels can carry as geometry
-            // (three attempts -- an outlined ellipse reads as an EYE, a solid one as a capsule, a barred
-            // spiral as the letter sigma), whereas a font designer has already solved it at icon size.
-            // The fallback stays because the emoji face is not bundled with this project and simply is
-            // not there on a Linux host, and a missing glyph draws nothing at all.
-            if (EmojiFontPath is { Length: > 0 } emoji)
+            foreach (var run in mask.Runs)
             {
-                // U+1F300 CYCLONE, a bare codepoint with no VS16 -- the chrome's own tab-icon rule,
-                // because the VS16 forms render inconsistently through the bundled emoji face.
-                DrawGlyphCentred("\U0001F300", emoji, x, y, size, size, size, ink);
-                return;
-            }
-
-            DrawGalaxyGeometry(x, btnY, btnH, ink);
-        }
-
-        /// <summary>
-        /// The drawn barred spiral: a central bar with two arms, for hosts with no colour-emoji face.
-        /// </summary>
-        /// <remarks>
-        /// <para>Three shapes were tried here and the two rejected ones are worth not repeating. An
-        /// OUTLINE with anything inside it reads as an eye -- iris in a lid -- whatever the inner shape
-        /// is, so nothing here is a stroked closed curve. And the trick of filling an ellipse by
-        /// over-thickening its stroke only works where both radii are EQUAL, because a stroke inks half
-        /// its thickness either side of the path and so leaves a lens-shaped hole along the major axis;
-        /// that hole is what brought the eye back the second time.</para>
-        /// <para>The bar is what makes a spiral legible small: a plain two-arm spiral collapses into a
-        /// comma, whereas a bar reads as an object with structure hanging off it. It is still marginal at
-        /// 13 design units, which is why the emoji is preferred when one is available.</para>
-        /// </remarks>
-        private void DrawGalaxyGeometry(float x, float btnY, float btnH, RGBAColor32 ink)
-        {
-            var size = BaseToolbarMarkSize * DpiScale;
-            var cx = x + size / 2f;
-            var cy = btnY + btnH / 2f;
-            var t = MathF.Max(1f, DpiScale);
-
-            const float Tilt = -0.5f;
-            var barHalf = size * 0.19f;
-            var (sinT, cosT) = MathF.SinCos(Tilt);
-
-            DrawLineOverlay(cx - barHalf * cosT, cy - barHalf * sinT,
-                cx + barHalf * cosT, cy + barHalf * sinT, ink, MathF.Max(1.5f, size * 0.13f));
-
-            const int Segments = 9;
-            const float Sweep = 2.1f;
-            var outer = size * 0.46f;
-            var growth = MathF.Log(outer / barHalf) / Sweep;
-
-            for (var arm = 0; arm < 2; arm++)
-            {
-                var phase = Tilt + (arm == 0 ? 0f : MathF.PI);
-                var px = cx + barHalf * MathF.Cos(phase);
-                var py = cy + barHalf * MathF.Sin(phase);
-
-                for (var s = 1; s <= Segments; s++)
-                {
-                    var phi = Sweep * s / Segments;
-                    var r = barHalf * MathF.Exp(growth * phi);
-                    var ang = phase + phi;
-                    var nx = cx + r * MathF.Cos(ang);
-                    var ny = cy + r * MathF.Sin(ang);
-                    var thick = MathF.Max(1f, t * 1.5f * (1f - 0.55f * s / Segments));
-                    DrawLineOverlay(px, py, nx, ny, ink, thick);
-                    px = nx;
-                    py = ny;
-                }
+                // The run's own coverage modulates the ink's alpha rather than replacing it, so a
+                // disabled mark dims exactly as its label does and the baked antialiasing survives.
+                var alpha = (byte)(ink.Alpha * run.Alpha / 255);
+                FillRect(x + run.X * scale, y + run.Y * scale, run.Width * scale, scale,
+                    new RGBAColor32(ink.Red, ink.Green, ink.Blue, alpha));
             }
         }
 

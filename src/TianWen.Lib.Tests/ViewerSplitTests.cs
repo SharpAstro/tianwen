@@ -728,13 +728,12 @@ namespace TianWen.Lib.Tests
         [Fact]
         public void Case3b_WhenTheBeforeCacheIsSkippedTheSplitStaysOnSettings()
         {
-            // The honest limit of the Case 3 fix. Retention is budget-gated, so on a large frame under
-            // memory pressure there ARE no pre-enhance pixels to compare -- and a pixel split with
-            // nothing retained draws no divider at all, which is worse than comparing settings. So the
-            // split stays where it is, and the residual gap is real: both halves are enhanced and only
-            // the toolbar's AI button says so. Tracked as the before-pixel reload item in
-            // docs/todo/ui.md rather than papered over with a label that would be wrong in every other
-            // case.
+            // Retention is budget-gated, so on a large frame under memory pressure there ARE no
+            // pre-enhance pixels to compare -- and a pixel split with nothing retained draws no divider
+            // at all, which is worse than comparing settings. So the split stays on settings, and the
+            // labels have to state the enhance themselves: it is true of BOTH halves, so the delta label
+            // correctly says nothing about it, which would otherwise leave the image visibly enhanced and
+            // nothing on screen admitting it.
             using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
             var viewer = NewViewer(renderer);
             var state = NewState();
@@ -751,6 +750,32 @@ namespace TianWen.Lib.Tests
             viewer.Split.Mode.ShouldBe(SplitCompare.PinnedSettings);
             viewer.Draws.Count.ShouldBe(2, "a settings comparison still has two halves to draw");
             viewer.Draws[0].SampleBefore.ShouldBeFalse();
+
+            var (left, right) = viewer.Split.HalfLabels(DisplayControls.FromState(state),
+                pixelsEnhanced: true);
+            left.ShouldEndWith(" + AI");
+            // On BOTH: a fact true of both halves, stated on one, reads as a difference.
+            right.ShouldEndWith(" + AI");
+        }
+
+        [Fact]
+        public void APixelSplitDoesNotRepeatTheEnhanceInItsLabels()
+        {
+            // Before/After already IS the enhance, so appending it would say the same thing twice and
+            // imply it is additionally true of the "Before" half, which is exactly false.
+            var split = new SplitCompareController { Mode = SplitCompare.BeforePixels };
+            split.HalfLabels(DisplayControls.Defaults, pixelsEnhanced: true)
+                .ShouldBe(("Before", "After"));
+        }
+
+        [Fact]
+        public void TheEnhanceSuffixAppearsOnlyWhileTheEnhanceIsApplied()
+        {
+            // Memoisation guard: the label cache keys on the controls, and the enhance flag is not one
+            // of them -- so without it in the key, toggling the enhance off would keep the stale suffix.
+            var split = PinnedAt(DisplayControls.Defaults);
+            split.HalfLabels(DisplayControls.Defaults, pixelsEnhanced: true).Left.ShouldEndWith(" + AI");
+            split.HalfLabels(DisplayControls.Defaults, pixelsEnhanced: false).Left.ShouldNotEndWith(" + AI");
         }
 
         [Fact]

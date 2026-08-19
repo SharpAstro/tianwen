@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Build-host tool: bakes a handful of glyphs into rectangle runs the toolbar draws with plain
+         FillRect, so an icon needs NO font at runtime. Three things that buys, each of which the
+         runtime font path actually cost. It works where no emoji face is installed (any Linux host
+         resolved none, so every emoji mark silently drew nothing). It is monochrome, so a mark tints
+         and DIMS with the label beside it, which a COLRv1 glyph carrying its own palette cannot. And
+         it renders identically on every machine, where the runtime path varied with whichever face
+         the host happened to resolve.
+
+         Run when the manifest changes, then commit the generated file. Never referenced by the app.
+         Mirrors tools/BakeShaders, including living outside src/'s central package management.
+
+         LICENSING: the source font must permit redistributing glyph shapes, because that is what
+         baking does. Noto is OFL. A proprietary system face is not a valid source, and the runtime
+         probe legitimately falling back to one does not make its outlines ours to commit. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The rasteriser the renderer already uses for text, so a baked mark is the same shape the
+         runtime draw produced, with no second glyph pipeline to disagree with the first. -->
+    <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -846,7 +846,8 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var (leftText, rightText) = Split.HalfLabels(DisplayControls.FromState(state));
+            var (leftText, rightText) = Split.HalfLabels(DisplayControls.FromState(state),
+                pixelsEnhanced: state.IsEnhanced);
             var fontSize = ToolbarFontSize;
             var gap = BaseSplitLabelGap * DpiScale;
             var top = area.Y + PanelPadding;
