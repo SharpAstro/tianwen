@@ -58,7 +58,7 @@ namespace TianWen.UI.Abstractions
 
             if (document is not null)
             {
-                DrawTextLine(ref y, x, "-- Metadata --", ViewerTheme.Palette.HeaderText);
+                DrawSectionHeading(ref y, x, "Metadata", maxTextWidth);
                 foreach (var line in InfoPanelData.GetMetadataLines(document))
                 {
                     DrawWrappedTextLine(ref y, x, line, maxTextWidth, ViewerTheme.Palette.BodyText);
@@ -66,7 +66,7 @@ namespace TianWen.UI.Abstractions
 
                 y += FontSize;
 
-                DrawTextLine(ref y, x, "-- Statistics --", ViewerTheme.Palette.HeaderText);
+                DrawSectionHeading(ref y, x, "Statistics", maxTextWidth);
                 foreach (var line in InfoPanelData.GetStatisticsLines(document))
                 {
                     DrawTextLine(ref y, x, line, ViewerTheme.Palette.BodyText);
@@ -108,7 +108,7 @@ namespace TianWen.UI.Abstractions
             if (state.CursorPixelInfo is not null)
             {
                 y += FontSize;
-                DrawTextLine(ref y, x, "-- Cursor --", ViewerTheme.Palette.HeaderText);
+                DrawSectionHeading(ref y, x, "Cursor", maxTextWidth);
                 foreach (var line in InfoPanelData.GetCursorLines(state))
                 {
                     DrawTextLine(ref y, x, line, ViewerTheme.Palette.BodyText);
@@ -134,7 +134,7 @@ namespace TianWen.UI.Abstractions
 
         private void RenderWhiteBalanceControls(ViewerState state, ref float y, float x, float panelWidth)
         {
-            DrawTextLine(ref y, x, "-- White Balance --", ViewerTheme.Palette.HeaderText);
+            DrawSectionHeading(ref y, x, "White Balance", panelWidth);
 
             // Name the active calibration. The sliders show only the MANUAL triple, so with a
             // photometric calibration applied they sit at 1.00 while the image is visibly colour
@@ -281,7 +281,7 @@ namespace TianWen.UI.Abstractions
 
         private void RenderWaveletControls(ViewerState state, ref float y, float x, float panelWidth)
         {
-            DrawTextLine(ref y, x, "-- Wavelet Sharpen --", ViewerTheme.Palette.HeaderText);
+            DrawSectionHeading(ref y, x, "Wavelet Sharpen", panelWidth);
 
             var gap = 6f * DpiScale;
             var btnH = FontSize + gap;
