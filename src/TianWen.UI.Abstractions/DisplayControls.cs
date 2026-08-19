@@ -106,13 +106,15 @@ public readonly record struct DisplayControls(
         // The curve mode only reaches the pixels through the boost, so at zero boost it is invisible
         // and naming it would point at a difference the picture cannot show.
         Slot.Curves when CurvesBoost > 0f =>
-            CurvesMode == 0 ? $"Boost {CurvesBoost:P0}" : $"Boost {CurvesBoost:P0} spline",
+            CurvesMode == 0
+                ? $"Boost {UiFormat.Percent0(CurvesBoost)}"
+                : $"Boost {UiFormat.Percent0(CurvesBoost)} spline",
         Slot.Hdr when HdrAmount > 0f => $"HDR {HdrAmount:F1}",
         Slot.Calibration when ColorCalibrationEnabled => "Calibrate",
         Slot.BackgroundNeutralization when BackgroundNeutralizationEnabled =>
             BackgroundNeutralizationStrength >= 0.9999f
                 ? $"NeutBg {BackgroundNeutralizationMethod.ShortName}"
-                : $"NeutBg {BackgroundNeutralizationMethod.ShortName} {BackgroundNeutralizationStrength:P0}",
+                : $"NeutBg {BackgroundNeutralizationMethod.ShortName} {UiFormat.Percent0(BackgroundNeutralizationStrength)}",
         Slot.WhiteBalance when ManualWhiteBalance != Defaults.ManualWhiteBalance =>
             $"WB {ManualWhiteBalance.R:F2}/{ManualWhiteBalance.G:F2}/{ManualWhiteBalance.B:F2}",
         _ => null,
