@@ -450,6 +450,18 @@ public static class ViewerActions
             case ToolbarAction.ZoomActual:
                 ZoomToActual(state);
                 return true;
+            // Left-click opens the menu, so this is the RIGHT-click path: a straight fit/actual toggle,
+            // which is the one-click gesture the old pair of buttons gave and a menu cannot.
+            case ToolbarAction.Zoom:
+                if (state.ZoomToFit)
+                {
+                    ZoomToActual(state);
+                }
+                else
+                {
+                    ZoomToFit(state);
+                }
+                return true;
             default:
                 return false;
         }

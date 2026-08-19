@@ -15,6 +15,19 @@ public enum ToolbarAction
     Hdr,
     ZoomFit,
     ZoomActual,
+
+    /// <summary>
+    /// The viewer's single zoom control: it SHOWS the current zoom and opens a menu to change it.
+    /// </summary>
+    /// <remarks>
+    /// Replaces a Fit button beside a 1:1 button. Two buttons could only ever say which of two zooms was
+    /// active, so every other zoom -- the whole range the wheel reaches -- was invisible on a toolbar that
+    /// had run out of room saying it. One button that reads "Fit" / "1:1" / "43%" says strictly more in
+    /// less space, and its menu carries the 1:N ratios that were keyboard-only (Ctrl+2..9) and so
+    /// undiscoverable. <see cref="ZoomFit"/> and <see cref="ZoomActual"/> remain as ACTIONS -- the
+    /// keyboard and the planetary tab's own toolbar still dispatch them.
+    /// </remarks>
+    Zoom,
     Grid,
     Overlays,
     PlateSolve,

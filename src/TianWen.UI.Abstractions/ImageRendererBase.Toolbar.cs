@@ -30,8 +30,9 @@ namespace TianWen.UI.Abstractions
             ("Boost", ToolbarAction.CurvesBoost, 2),
             ("HDR", ToolbarAction.Hdr, 2),
             ("A/B", ToolbarAction.Compare, 2),
-            ("Fit", ToolbarAction.ZoomFit, 3),
-            ("1:1", ToolbarAction.ZoomActual, 3),
+            // One control, not two: the label is computed per frame (Fit / 1:1 / a percentage), so the
+            // text here is only the measurement seed and the widest state it has to fit.
+            ("Fit", ToolbarAction.Zoom, 3),
             ("Solve", ToolbarAction.PlateSolve, 4),
             ("Grid", ToolbarAction.Grid, 4),
             ("Objects", ToolbarAction.Overlays, 4),
@@ -75,7 +76,7 @@ namespace TianWen.UI.Abstractions
         /// visual order.
         /// </summary>
         /// <remarks>
-        /// <para>Help earns a fixed corner. Its x must not depend on how wide "AI: Auto" or
+        /// <para>Help earns a fixed corner. Its x must not depend on how wide "Auto" or
         /// "Stars: 5893" happened to render this frame, or the one button whose whole job is to be
         /// findable becomes the one that moves whenever something else relabels.</para>
         /// <para>The block is <b>measured before the left run is placed</b>, so the left run stops
@@ -484,6 +485,37 @@ namespace TianWen.UI.Abstractions
             return ImmutableArray.Create(arr);
         }
 
+        // Fit plus every ratio Ctrl+1..Ctrl+9 reaches. The index is the denominator (entry 3 is "1:3"),
+        // which is what lets the select handler be arithmetic instead of a parallel table that can drift
+        // out of step with these strings.
+        private static readonly ImmutableArray<string> ZoomMenuLabels =
+            ["Fit", "1:1", "1:2", "1:3", "1:4", "1:5", "1:6", "1:7", "1:8", "1:9"];
+
+        // Zoom is a float, so "am I at 1:3" is a near-comparison. Tight enough that a wheel notch away
+        // from a ratio does not claim to BE it -- ZoomStepFactor is 1.15, so the nearest neighbour is
+        // 15% off and this is nowhere near catching it.
+        private const float ZoomMatchTolerance = 0.001f;
+
+        /// <summary>
+        /// Which <see cref="ZoomMenuLabels"/> row the current zoom is, or -1 for a zoom that is none of
+        /// them (a wheel zoom), so the menu highlights nothing rather than the nearest row.
+        /// </summary>
+        private static int CurrentZoomMenuIndex(ViewerState state)
+        {
+            if (state.ZoomToFit)
+            {
+                return 0;
+            }
+            for (var n = 1; n < ZoomMenuLabels.Length; n++)
+            {
+                if (MathF.Abs(state.Zoom - (1f / n)) < ZoomMatchTolerance)
+                {
+                    return n;
+                }
+            }
+            return -1;
+        }
+
         /// <summary>
         /// Opens the appropriate dropdown overlay for <paramref name="action"/>
         /// anchored below its toolbar button. Returns <c>true</c> if a dropdown
@@ -500,6 +532,26 @@ namespace TianWen.UI.Abstractions
 
             switch (action)
             {
+                case ToolbarAction.Zoom:
+                    // Index IS the ratio denominator, so "1:N" selects ZoomTo(1/N) with no lookup table
+                    // and entry 0 is the one special case. Same set the keyboard reaches, deliberately:
+                    // a menu offering zooms no shortcut has (or missing ones it does) would be a second
+                    // vocabulary for one control.
+                    OpenDropdown(state, bounds, ZoomMenuLabels, (idx, _) =>
+                    {
+                        if (idx == 0)
+                        {
+                            ViewerActions.ZoomToFit(state);
+                        }
+                        else if (idx > 0 && idx < ZoomMenuLabels.Length)
+                        {
+                            ViewerActions.ZoomTo(state, 1f / idx);
+                        }
+                        state.StatusMessage = $"Zoom: {ZoomMenuLabels[idx]}";
+                        state.NeedsRedraw = true;
+                    }, CurrentZoomMenuIndex(state));
+                    return true;
+
                 case ToolbarAction.Shortcuts:
                     // A list, not a menu: selecting a row does nothing. The dropdown is reused because
                     // it already solves the two hard parts -- painting over everything, and scrolling
@@ -694,7 +746,7 @@ namespace TianWen.UI.Abstractions
                 && (document.UnstretchedImage.ChannelCount >= 3
                     || document.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB),
             ToolbarAction.PlateSolve => document is not null && !document.IsPlateSolved,
-            ToolbarAction.ZoomFit or ToolbarAction.ZoomActual => document is not null,
+            ToolbarAction.ZoomFit or ToolbarAction.ZoomActual or ToolbarAction.Zoom => document is not null,
             // Only in the button set when EnhanceAvailable, so the gate here is just "have an image".
             // Re-click while a pass runs is harmless -- the controller guards on IsEnhancing.
             ToolbarAction.Enhance => document is not null,
@@ -725,8 +777,8 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.ColorCalibrate => state.ColorCalibrationEnabled,
                 ToolbarAction.BackgroundNeutralize => state.BackgroundNeutralizationEnabled,
                 ToolbarAction.SpccCalibrate => state.ColorCalibrationEnabled,
-                ToolbarAction.ZoomFit => state.ZoomToFit,
-                ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
+                // Zoom is deliberately absent: it is a mode DISPLAY, like Channel and StretchLink, and
+                // its label already names the state a highlight would be hinting at.
                 // Lit while running AND while an enhanced result is on screen: the highlight is what
                 // says the toggle is ON, which is why the label below does not spell it out (same rule
                 // the A/B button follows).
@@ -803,6 +855,10 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Grid => true,
             ToolbarAction.Overlays => true,
             ToolbarAction.Stars => true,
+            ToolbarAction.Enhance => true,
+            // The mark is what makes the tri-state label affordable: "Fit" / "1:1" / "43%" needs no word
+            // saying it is a zoom, so the label spends all its width on the value.
+            ToolbarAction.Zoom => true,
             _ => false,
         };
 
@@ -816,6 +872,8 @@ namespace TianWen.UI.Abstractions
                 case ToolbarAction.Grid: DrawGraticuleMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Overlays: DrawGalaxyMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Stars: DrawStarMark(x, btnY, btnH, ink); break;
+                case ToolbarAction.Enhance: DrawBakedMark(BakedIcons.Sparkles, x, btnY, btnH, ink); break;
+                case ToolbarAction.Zoom: DrawBakedMark(BakedIcons.Magnifier, x, btnY, btnH, ink); break;
             }
         }
 
@@ -912,6 +970,15 @@ namespace TianWen.UI.Abstractions
         /// either side of the path, so it closes along the minor axis but leaves a lens-shaped hole along
         /// the MAJOR one, which is a ring with a dark middle, i.e. an eye again. Only a shape swept from
         /// CIRCLES fills, since the trick needs both radii equal.</para>
+        /// <para>See <see cref="DrawBakedMark"/> for why a baked glyph rather than a runtime one.</para>
+        /// </remarks>
+        private void DrawGalaxyMark(float x, float btnY, float btnH, RGBAColor32 ink)
+            => DrawBakedMark(BakedIcons.Spiral, x, btnY, btnH, ink);
+
+        /// <summary>
+        /// Draws a baked glyph mark, centred in the button and sized to the DPI.
+        /// </summary>
+        /// <remarks>
         /// <para>Baked rather than drawn from the font AT RUNTIME for three reasons the runtime path
         /// actually cost: no emoji face is bundled here, so a Linux host resolved none and the mark drew
         /// NOTHING; a COLRv1 glyph carries its own palette and so cannot be tinted, meaning it could not
@@ -921,11 +988,17 @@ namespace TianWen.UI.Abstractions
         /// <see cref="ImageRendererBase{TSurface}.FillRect"/> and needs nothing new on the renderer seam.
         /// The mask is picked at the nearest baked size and scaled, so rows stay contiguous (they tile by
         /// construction) and a fractional scale cannot open gaps between them.</para>
+        /// <para><b>Not every glyph survives baking, and the failures all look alike.</b> The bake keeps
+        /// the ALPHA silhouette, so structure drawn in COLOUR is discarded while structure drawn in
+        /// TRANSPARENCY survives -- a folder flap, a target's rings and a double triangle are each colour
+        /// against colour and bake to a solid rectangle. Judge a candidate from the MASK, never from the
+        /// emoji: in any colour preview those all look like perfectly good icons.</para>
         /// </remarks>
-        private void DrawGalaxyMark(float x, float btnY, float btnH, RGBAColor32 ink)
+        private void DrawBakedMark(ImmutableArray<IconBaker.CoverageMask> masks, float x, float btnY,
+            float btnH, RGBAColor32 ink)
         {
             var size = BaseToolbarMarkSize * DpiScale;
-            DrawCoverageMask(IconBaker.NearestSize(BakedIcons.Spiral, size),
+            DrawCoverageMask(IconBaker.NearestSize(masks, size),
                 x, btnY + (btnH - size) / 2f, size, ink);
         }
 
@@ -1056,6 +1129,11 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Compare => "Before / after split; right-click re-pins (A / Shift+A)",
             ToolbarAction.ZoomFit => "Fit the image to the window (F / Ctrl+0)",
             ToolbarAction.ZoomActual => "Zoom to 1:1 (R / Ctrl+1)",
+            // Fitting is the only state whose label is a word, so the tooltip is where its actual scale
+            // lives -- it is the reason the status bar no longer needs a zoom readout at all.
+            ToolbarAction.Zoom when state.ZoomToFit =>
+                $"Zoom: fitting at {state.Zoom:P0} -- click to pick 1:1 or 1:N, right-click for 1:1 (F, R, Ctrl+0..9)",
+            ToolbarAction.Zoom => "Zoom: click to pick fit / 1:1 / 1:N, right-click fits (F, R, Ctrl+0..9)",
             ToolbarAction.PlateSolve => "Plate solve this frame (P)",
             ToolbarAction.Grid => "WCS coordinate grid (G)",
             ToolbarAction.Overlays => "Deep-sky object overlays (O)",
@@ -1113,8 +1191,12 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.Debayer => state.DebayerAlgorithm.DisplayName,
                 ToolbarAction.CurvesBoost => state.CurvesBoost > 0f ? $"Boost {state.CurvesBoost:P0}" : "Boost",
                 ToolbarAction.Hdr => state.HdrAmount > 0f ? $"HDR: {state.HdrAmount:F1}" : "HDR",
-                ToolbarAction.ZoomFit => "Fit",
-                ToolbarAction.ZoomActual => "1:1",
+                // Tri-state, and the third state is the point: at any zoom that is neither fit nor 1:1
+                // the old pair of buttons showed nothing at all, so the one number a zoom control exists
+                // to report was the one thing the toolbar could not say.
+                ToolbarAction.Zoom when state.ZoomToFit => "Fit",
+                ToolbarAction.Zoom when MathF.Abs(state.Zoom - 1f) < ZoomMatchTolerance => "1:1",
+                ToolbarAction.Zoom => $"{state.Zoom:P0}",
                 // Mark-only, like Channel: the point of a mark on this toolbar is the WIDTH it gives
                 // back, and a mark sitting beside the word it replaces gives back nothing. The tooltip
                 // carries the name.
@@ -1138,14 +1220,17 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.SpccCalibrate when state.ColorCalibrationEnabled => $"SPCC: {document?.ColorCalibration?.R:F2}/{document?.ColorCalibration?.B:F2}",
                 ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
                 ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
-                ToolbarAction.Enhance when state.IsEnhancing => $"AI {state.EnhanceProgressPct:F0}%",
+                // The sparkles mark says "AI enhance", so the label is free to say only the part it
+                // cannot: which backend, or how far along. This is the Channel rule again -- a mark that
+                // sits beside the word it replaces gives no width back.
+                ToolbarAction.Enhance when state.IsEnhancing => $"{state.EnhanceProgressPct:F0}%",
                 // Show the selected backend (right-click cycles it); left-click runs the enhance.
                 ToolbarAction.Enhance => state.PreferredEnhanceBackend switch
                 {
-                    EnhanceBackend.ForceRcAstro => "AI: RC",
-                    EnhanceBackend.ForceSas => "AI: SAS",
-                    EnhanceBackend.N2n => "AI: N2N",
-                    _ => "AI: Auto",
+                    EnhanceBackend.ForceRcAstro => "RC",
+                    EnhanceBackend.ForceSas => "SAS",
+                    EnhanceBackend.N2n => "N2N",
+                    _ => "Auto",
                 },
                 // No ":Pinned" suffix: pinned settings are the DEFAULT comparison, so the activated
                 // highlight already says it. "Before" stays named, because that is a different thing
