@@ -46,7 +46,7 @@ public static class Registrator
         {
             cancellationToken.ThrowIfCancellationRequested();
             var image = await frame.LoadFullAsync(cancellationToken);
-            var stars = await image.FindStarsAsync(channel: 0, snrMin: snrMin, cancellationToken: cancellationToken);
+            var stars = await image.FindStarsAsync(channel: image.ReferenceStarChannel, snrMin: snrMin, cancellationToken: cancellationToken);
             onFrameScanned?.Invoke(frame, stars.Count);
             if (stars.Count > bestCount)
             {

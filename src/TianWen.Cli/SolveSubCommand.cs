@@ -180,7 +180,7 @@ internal sealed class SolveSubCommand(
             var snrMin = parseResult.GetValue(snrMinOpt);
             var minStars = parseResult.GetValue(minStarsOpt);
             var maxStars = parseResult.GetValue(maxStarsOpt);
-            var stars = await image.FindStarsAsync(channel: 0, snrMin: snrMin, maxStars: maxStars, minStars: minStars, cancellationToken: ct);
+            var stars = await image.FindStarsAsync(channel: image.ReferenceStarChannel, snrMin: snrMin, maxStars: maxStars, minStars: minStars, cancellationToken: ct);
             consoleHost.WriteScrollable($"[detect] {stars.Count} stars (snr>={snrMin}, max={maxStars})");
 
             // Build the ImageDim hint. "auto" lets the solver fall back to FITS

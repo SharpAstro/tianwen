@@ -461,7 +461,11 @@ public static class DatasetPsfNoiseReport
     /// session of an optical train: a reference that varied per session would band different
     /// sessions on different physical quantities and pool the results as though they agreed.</para>
     /// </summary>
-    internal static int ReferenceChannel(int channelCount) => channelCount >= 3 ? 1 : 0;
+    /// <remarks>Forwards to <see cref="Image.ReferenceStarChannelFor"/>: this was the first place the
+    /// choice was worked out, and for a long time the only place it applied -- the plate solver, the
+    /// viewer overlay and the session all still detected in red. The value lives on
+    /// <see cref="Image"/> now so they share it; this name and its test stay as the guard.</remarks>
+    internal static int ReferenceChannel(int channelCount) => Image.ReferenceStarChannelFor(channelCount);
 
     /// <summary>One star seen in every channel: where it is, the reference channel's flux for it,
     /// and each channel's own measurement of it. Stored column-wise (<c>Fwhm[channel][star]</c>) so

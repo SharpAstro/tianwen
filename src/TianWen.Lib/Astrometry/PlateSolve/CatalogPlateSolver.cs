@@ -249,7 +249,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // through the rung budget. Without retries, a starved frame returns
         // its few real stars and the ramp moves on.
         stageSw.Restart();
-        var detectedStars = await detectionImage.FindStarsAsync(0, snrMin: 5f, maxStars: 500, minStars: 50, maxRetries: 0, logger: _logger, cancellationToken: cancellationToken);
+        var detectedStars = await detectionImage.FindStarsAsync(detectionImage.ReferenceStarChannel, snrMin: 5f, maxStars: 500, minStars: 50, maxRetries: 0, logger: _logger, cancellationToken: cancellationToken);
         _logger.LogDebug("CatalogPlateSolver: FindStarsAsync detected {Count} stars in {Ms}ms ({W}x{H})",
             detectedStars.Count, stageSw.Elapsed.TotalMilliseconds, detectionImage.Width, detectionImage.Height);
 

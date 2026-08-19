@@ -549,7 +549,8 @@ public sealed class AstroImageDocument : IPreviewSource
     public async Task DetectStarsAsync(CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var stars = await UnstretchedImage.FindStarsAsync(channel: 0, snrMin: 10f, maxStars: 2000, cancellationToken: cancellationToken);
+        var stars = await UnstretchedImage.FindStarsAsync(
+            channel: UnstretchedImage.ReferenceStarChannel, snrMin: 10f, maxStars: 2000, cancellationToken: cancellationToken);
         sw.Stop();
 
         Stars = stars;

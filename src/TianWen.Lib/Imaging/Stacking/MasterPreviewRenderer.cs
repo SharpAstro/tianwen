@@ -465,7 +465,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             StarList? statsStars = null;
             try
             {
-                statsStars = await stats.FindStarsAsync(channel: 0, snrMin: 5f, maxStars: 500,
+                statsStars = await stats.FindStarsAsync(channel: stats.ReferenceStarChannel, snrMin: 5f, maxStars: 500,
                     minStars: 50, maxRetries: 0, cancellationToken: ct);
             }
             catch (Exception ex)
