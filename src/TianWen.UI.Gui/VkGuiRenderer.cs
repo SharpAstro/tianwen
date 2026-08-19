@@ -1125,53 +1125,19 @@ namespace TianWen.UI.Gui
             // Assigning FontPath / EmojiFontPath goes through the overridden setters above, which push the
             // resolved fonts to the child tabs (one set-point). The preview + guide-cam viewers and the
             // planetary tab self-resolve their font in their VkImageRenderer ctor, so they are not pushed.
+            //
+            // One resolve covering every role, shared with the FITS viewer. This used to be two probes here
+            // plus a chain built below them, while the viewer ran its own copy of the two probes and none of
+            // the chain -- so the two hosts could disagree about which marks were drawable, and did.
+            var fonts = BundledFonts.Resolve();
 
-            // Emoji font: bundled Noto COLRv1 (a COLRv1 paint tree, rendered by DIR.Lib) preferred, then
-            // whatever the platform ships. One shared probe order with the FITS viewer -- this used to be
-            // an inline Windows-only list here, and the viewer grew a second copy of it.
-            EmojiFontPath = BundledFonts.ResolveEmoji();
-
-            // Bundled DejaVu Sans for regular text, then the system default. Shared with the FITS
-            // viewer through the one probe -- this block used to be the GUI's private copy, and the
-            // viewer's absence of it is what left its labels on whatever face the host installed.
-            var resolved = BundledFonts.ResolveText();
-            if (resolved.Length > 0)
+            EmojiFontPath = fonts.Emoji;
+            if (fonts.Text.Length > 0)
             {
-                FontPath = resolved;
+                FontPath = fonts.Text;
             }
 
-            BuildFontFallback();
-        }
-
-        /// <summary>
-        /// The per-script fallback chain. Without one, ANY codepoint the primary face lacks renders as
-        /// nothing at all -- which is what made the search box look broken for Chinese input: the IME
-        /// committed correctly and the field held the right characters, but DejaVu Sans has no CJK cmap
-        /// entry, so there was nothing to draw and the field simply stayed blank.
-        /// </summary>
-        /// <remarks>
-        /// The per-OS script faces come from <see cref="FontResolver.ResolveSystemScriptFonts"/>, so this
-        /// app carries no font-name knowledge of its own -- every DIR.Lib consumer that draws user-supplied
-        /// text needs the same list, and each working it out separately would get a different, quietly
-        /// incomplete answer. Nothing is bundled for CJK on purpose: a Noto CJK face is ~17 MB each, a full
-        /// set is ~68 MB on every one of six AOT publishes, and binary releases here are already manual
-        /// specifically to stay inside the 1 GB/month LFS budget. Anyone who can TYPE Chinese has a Chinese
-        /// face installed.
-        /// </remarks>
-        private void BuildFontFallback()
-        {
-            if (string.IsNullOrEmpty(FontPath))
-            {
-                return;
-            }
-
-            // The emoji face rides the emoji ROLE, not the script list, so it is consulted ahead of the CJK
-            // faces: several of those incidentally carry the odd pictograph, and drawing one out of a
-            // multi-megabyte face when a dedicated colour font is present is both wrong and heavier.
-            FontFallback = FontFallbackResolver.FromRoles(
-                FontPath,
-                emojiFontPath: string.IsNullOrEmpty(EmojiFontPath) ? null : EmojiFontPath,
-                scriptFontPaths: FontResolver.ResolveSystemScriptFonts());
+            FontFallback = fonts.Fallback;
         }
     }
 }

@@ -501,47 +501,52 @@ namespace TianWen.UI.Abstractions
         // Font resolution
         // -----------------------------------------------------------------------
 
-        protected void ResolveFontPath()
-        {
-            // Only when nothing has given us one. A STANDALONE host (tianwen-fits) is the whole app and has
-            // no chrome to inherit from, so it must resolve a face itself. EMBEDDED in a window that already
-            // has one, keep it: this viewer sits inside that window and should not label itself in a
-            // different face, and it certainly must not overwrite the window's font for everyone else
-            // sharing those settings.
-            if (!string.IsNullOrEmpty(FontPath))
-            {
-                return;
-            }
-
-            // Bundled DejaVu Sans first, exactly as the GUI chrome does -- one shared probe, because two
-            // is how the viewer ended up on the host's monospace default while the GUI had a known face.
-            // That mattered: Consolas carries no check mark, so the plate-solve tick drew nothing at all.
-            var resolved = BundledFonts.ResolveText();
-            if (resolved.Length > 0)
-            {
-                // FontPath is the inherited PixelWidgetBase owner (the layout helpers default to it).
-                FontPath = resolved;
-            }
-
-            ResolveEmojiFontPath();
-        }
-
         /// <summary>
-        /// Resolves a colour-emoji face, or leaves <see cref="PixelWidgetBase{TSurface}.EmojiFontPath"/>
-        /// empty when the host has none.
+        /// Resolves the faces this viewer draws with, for any role a host has not already supplied.
         /// </summary>
         /// <remarks>
-        /// Every caller of an emoji mark must have a non-emoji fallback: an unavailable glyph does not
-        /// draw a placeholder, it draws NOTHING, and a button whose only mark silently disappears is
-        /// worse than one built from rectangles. Not pushed down from <c>VkGuiRenderer</c> on purpose --
-        /// the chrome deliberately does not push its fonts into the preview / guide-cam viewers, so a
-        /// standalone tianwen-fits has to find its own.
+        /// <para>Per ROLE rather than all-or-nothing. A STANDALONE host (tianwen-fits) is the whole app and
+        /// has no chrome to inherit from, so it must resolve everything itself; EMBEDDED in a window that
+        /// already has a face, that face is kept -- this viewer sits inside that window and should not
+        /// label itself differently, and it must certainly not overwrite the window's font for everyone
+        /// else sharing those settings. Guarding each role separately rather than returning early on the
+        /// text face means a host that pushes one role and not another cannot leave the rest unresolved.</para>
+        /// <para>Every caller of an emoji mark still needs a non-emoji fallback: an unavailable glyph does
+        /// not draw a placeholder, it draws NOTHING, and a button whose only mark silently disappears is
+        /// worse than one built from rectangles. <c>VkGuiRenderer</c> deliberately does not push its fonts
+        /// into the preview / guide-cam viewers, which is why this resolves rather than waiting to be told.</para>
         /// </remarks>
-        private void ResolveEmojiFontPath()
+        protected void ResolveFontPath()
         {
+            // The same single resolve the GUI chrome runs, cached process-wide. Two copies of the probe is
+            // how this viewer ended up on the host's monospace default while the GUI had a known face --
+            // and Consolas carries no check mark, so the plate-solve tick drew nothing at all.
+            var fonts = BundledFonts.Resolve();
+
+            if (string.IsNullOrEmpty(FontPath) && fonts.Text.Length > 0)
+            {
+                // FontPath is the inherited PixelWidgetBase owner (the layout helpers default to it).
+                FontPath = fonts.Text;
+            }
+
             if (string.IsNullOrEmpty(EmojiFontPath))
             {
-                EmojiFontPath = BundledFonts.ResolveEmoji();
+                EmojiFontPath = fonts.Emoji;
+            }
+
+            // The viewer had NO coverage chain before this: only the GUI chrome built one, so a codepoint
+            // the primary face lacks drew nothing here while the same string rendered fine in the GUI.
+            //
+            // Adopted only when the face actually in use IS the one the chain was built over. A host that
+            // pushed its own text face would otherwise get coverage answers about a DIFFERENT primary --
+            // the chain would report a rune drawable because the bundled face carries it, while this
+            // viewer draws with the pushed one and shows nothing. Today no host pushes a font here, so
+            // this is a guard against a future one rather than a live bug.
+            if (FontFallback is null
+                && fonts.Fallback is { } chain
+                && string.Equals(FontPath, chain.PrimaryFontPath, StringComparison.Ordinal))
+            {
+                FontFallback = chain;
             }
         }
 
