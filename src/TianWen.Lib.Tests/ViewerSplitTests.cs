@@ -176,7 +176,10 @@ namespace TianWen.Lib.Tests
             var (left, right) = split.HalfLabels(DisplayControls.Defaults);
 
             left.ShouldBe("Pinned: Boost 25%");
-            right.ShouldBe("Live: -Boost 25%");
+            // "No Boost", not "-Boost 25%": a minus in front of a percentage reads as a quantity
+            // (reduced BY 25%, or a negative boost) rather than as absence, and the pinned half
+            // states the lost value one word across the divider anyway.
+            right.ShouldBe("Live: No Boost");
         }
 
         [Fact]
@@ -218,7 +221,7 @@ namespace TianWen.Lib.Tests
 
             left.ShouldStartWith("Pinned: Calibrate");
             left.ShouldEndWith("+1");
-            right.ShouldBe("Live: -Calibrate");
+            right.ShouldBe("Live: No Calibrate");
         }
 
         [Fact]
@@ -275,6 +278,16 @@ namespace TianWen.Lib.Tests
             var live = DisplayControls.Defaults with { CurvesMode = 1 };
 
             split.HalfLabels(live).Right.ShouldBe("Live");
+        }
+
+        [Fact]
+        public void AModeFallingBackToItsDefaultIsNamedByThatDefault()
+        {
+            // Stretch mode has no "off" state -- every mode IS a mode -- so going back to the default
+            // is a CHANGE to Unlinked, not the absence of Linked. "No Linked" would be nonsense.
+            var split = PinnedAt(DisplayControls.Defaults with { StretchMode = StretchMode.Linked });
+
+            split.HalfLabels(DisplayControls.Defaults).ShouldBe(("Pinned: Linked", "Live: Unlinked"));
         }
 
         [Fact]
