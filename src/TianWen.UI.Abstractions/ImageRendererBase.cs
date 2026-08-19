@@ -513,7 +513,10 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var resolved = FontResolver.ResolveSystemFont();
+            // Bundled DejaVu Sans first, exactly as the GUI chrome does -- one shared probe, because two
+            // is how the viewer ended up on the host's monospace default while the GUI had a known face.
+            // That mattered: Consolas carries no check mark, so the plate-solve tick drew nothing at all.
+            var resolved = BundledFonts.ResolveText();
             if (resolved.Length > 0)
             {
                 // FontPath is the inherited PixelWidgetBase owner (the layout helpers default to it).
@@ -538,7 +541,7 @@ namespace TianWen.UI.Abstractions
         {
             if (string.IsNullOrEmpty(EmojiFontPath))
             {
-                EmojiFontPath = EmojiFonts.Resolve();
+                EmojiFontPath = BundledFonts.ResolveEmoji();
             }
         }
 

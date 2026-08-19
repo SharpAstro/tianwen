@@ -34,4 +34,15 @@
 
   <Import Project="..\VCRuntimeRedist.targets" />
 
+  <!-- LINKED, not copied: the file lives in TianWen.UI.Gui/Fonts, and a second copy in the repo would be
+       a second thing to keep in step plus 0.72 MB of duplicate LFS. Bundling it at all is what makes this
+       app's text identical on every host. Without it the viewer resolved the platform monospace, which on
+       Windows is Consolas, and Consolas carries no check mark, so a tick in a label drew NOTHING at all.
+       The licence travels in FONT-LICENSES.txt at the repo root.
+       (No double hyphen anywhere above: XML forbids it inside a comment, which is a build error here.) -->
+  <ItemGroup>
+    <Content Include="..\TianWen.UI.Gui\Fonts\DejaVuSans.ttf" Link="Fonts\DejaVuSans.ttf"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

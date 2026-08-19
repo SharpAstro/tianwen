@@ -1129,22 +1129,15 @@ namespace TianWen.UI.Gui
             // Emoji font: bundled Noto COLRv1 (a COLRv1 paint tree, rendered by DIR.Lib) preferred, then
             // whatever the platform ships. One shared probe order with the FITS viewer -- this used to be
             // an inline Windows-only list here, and the viewer grew a second copy of it.
-            EmojiFontPath = EmojiFonts.Resolve();
+            EmojiFontPath = BundledFonts.ResolveEmoji();
 
-            // Prefer bundled DejaVu Sans for regular text
-            var bundled = Path.Combine(AppContext.BaseDirectory, "Fonts", "DejaVuSans.ttf");
-            if (File.Exists(bundled))
+            // Bundled DejaVu Sans for regular text, then the system default. Shared with the FITS
+            // viewer through the one probe -- this block used to be the GUI's private copy, and the
+            // viewer's absence of it is what left its labels on whatever face the host installed.
+            var resolved = BundledFonts.ResolveText();
+            if (resolved.Length > 0)
             {
-                FontPath = bundled;
-            }
-            else
-            {
-                // Fall back to system fonts
-                var resolved = FontResolver.ResolveSystemFont();
-                if (resolved.Length > 0)
-                {
-                    FontPath = resolved;
-                }
+                FontPath = resolved;
             }
 
             BuildFontFallback();

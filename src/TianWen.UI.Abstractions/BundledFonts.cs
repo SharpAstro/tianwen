@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using DIR.Lib;
 
 namespace TianWen.UI.Abstractions
 {
     /// <summary>
-    /// Resolves a colour-emoji face, for the surfaces that draw emoji marks (the GUI's tab icons and
-    /// Home board, the FITS viewer's toolbar).
+    /// Resolves the app's TEXT and colour-EMOJI faces: bundled first, then whatever the platform ships.
     /// </summary>
     /// <remarks>
     /// <para><b>Why this exists at all:</b> DIR.Lib's <c>FontResolver</c> is the single source of truth
@@ -20,8 +20,13 @@ namespace TianWen.UI.Abstractions
     /// duplication can be removed today without waiting on a sibling publish.</para>
     /// <para>The inline versions were Windows-only, which is the other thing one path fixes: a Linux or
     /// macOS host had no emoji face at all, so every emoji mark silently drew nothing.</para>
+    /// <para><b>The TEXT half was added for the same reason, one host later.</b> The GUI preferred the
+    /// bundled DejaVu Sans and the FITS viewer went straight to the system face, so the viewer's text
+    /// coverage was whatever the host happened to install -- measured on Windows that is Consolas, which
+    /// has no check mark and no ballot box, so a tick in a label rendered as NOTHING. Same failure shape
+    /// as the emoji probe: a difference that is invisible on the machine you develop on.</para>
     /// </remarks>
-    public static class EmojiFonts
+    public static class BundledFonts
     {
         // Colour-emoji faces by platform. Windows ships Segoe UI Emoji; macOS Apple Color Emoji; Linux
         // distros vary, so both common Noto paths are probed.
@@ -42,7 +47,10 @@ namespace TianWen.UI.Abstractions
         /// a system face that lacks a codepoint draws nothing, and "nothing" is indistinguishable from a
         /// broken control. Not every host project bundles it, so this is a probe and not a guarantee.
         /// </remarks>
-        public const string BundledRelativePath = "Fonts/Noto-COLRv1.ttf";
+        public const string BundledEmojiRelativePath = "Fonts/Noto-COLRv1.ttf";
+
+        /// <summary>The app-bundled text face, probed before the system default.</summary>
+        public const string BundledTextRelativePath = "Fonts/DejaVuSans.ttf";
 
         /// <summary>
         /// The first colour-emoji face that exists, or <c>""</c> when the host has none.
@@ -56,7 +64,7 @@ namespace TianWen.UI.Abstractions
         /// An absolute path, or <c>""</c> (never null) -- matching <c>FontResolver.ResolveSystemFont</c>,
         /// whose callers do a length check.
         /// </returns>
-        public static string Resolve(IEnumerable<string>? extra = null)
+        public static string ResolveEmoji(IEnumerable<string>? extra = null)
         {
             if (extra is not null)
             {
@@ -70,7 +78,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var bundled = Path.Combine(AppContext.BaseDirectory,
-                BundledRelativePath.Replace('/', Path.DirectorySeparatorChar));
+                BundledEmojiRelativePath.Replace('/', Path.DirectorySeparatorChar));
             if (File.Exists(bundled))
             {
                 return bundled;
@@ -89,6 +97,35 @@ namespace TianWen.UI.Abstractions
             }
 
             return string.Empty;
+        }
+
+        /// <summary>
+        /// The text face to draw labels with: the bundled one when the host ships it, else the system
+        /// default, else <c>""</c>.
+        /// </summary>
+        /// <remarks>
+        /// Bundled first because it is the only face whose COVERAGE is known. The system default varies
+        /// per host, and a codepoint it lacks draws nothing at all -- which is how a tick in the FITS
+        /// viewer's plate-solve label came out blank on a box whose monospace default is Consolas.
+        /// Falling back is still right: a host that bundles nothing must draw SOMETHING, and losing an
+        /// occasional symbol beats losing every label.
+        /// </remarks>
+        public static string ResolveText(IEnumerable<string>? extra = null)
+        {
+            if (extra is not null)
+            {
+                foreach (var candidate in extra)
+                {
+                    if (!string.IsNullOrEmpty(candidate) && File.Exists(candidate))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+
+            var bundled = Path.Combine(AppContext.BaseDirectory,
+                BundledTextRelativePath.Replace('/', Path.DirectorySeparatorChar));
+            return File.Exists(bundled) ? bundled : FontResolver.ResolveSystemFont();
         }
     }
 }
