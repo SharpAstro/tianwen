@@ -136,6 +136,17 @@ namespace TianWen.UI.Abstractions
         {
             DrawTextLine(ref y, x, "-- White Balance --", ViewerTheme.Palette.HeaderText);
 
+            // Name the active calibration. The sliders show only the MANUAL triple, so with a
+            // photometric calibration applied they sit at 1.00 while the image is visibly colour
+            // corrected -- a panel that reads neutral over an image that is not. The sliders stay
+            // manual-only on purpose (they are the thing the user drags); this line is what stops
+            // their neutrality being read as "no white balance at all".
+            if (state.ColorCalibrationEnabled && _document?.ColorCalibration is { } auto)
+            {
+                DrawTextLine(ref y, x, $"Calibrated R={auto.Item1:F3} B={auto.Item3:F3}",
+                    ViewerTheme.Palette.DimText);
+            }
+
             var wb = state.ManualWhiteBalance;
             ReadOnlySpan<(string Label, float Value, RGBAColor32 Fill)> rows =
             [

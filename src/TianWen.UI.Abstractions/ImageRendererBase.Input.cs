@@ -350,6 +350,22 @@ namespace TianWen.UI.Abstractions
             if (document.ColorCalibration is { } wb)
             {
                 state.ColorCalibrationEnabled = true;
+
+                // The manual triple is dropped, because the pipeline MULTIPLIES the two
+                // (StretchSolver.ComposeWhiteBalance is auto x manual) and what just landed is an
+                // absolute answer measured from star photometry. A relative guess on top of it -- a
+                // hand-dragged slider, or the gray-world "Auto" button, which writes this same manual
+                // slot -- is a second correction applied to an already-corrected image. Pressing Auto
+                // and then SPCC used to do exactly that, silently, with the sliders still reading
+                // 1.00 throughout.
+                //
+                // Reset rather than carry the calibration INTO the sliders, which looks like the
+                // friendlier option and is not: only the auto slot scales the per-channel stats, and
+                // that scaling is what holds the background neutral under an Unlinked or linear
+                // stretch. Moved to the manual slot the triple would stop scaling stats and the
+                // background would drift the moment the stretch left Linked.
+                state.ManualWhiteBalance = (1f, 1f, 1f);
+
                 if (state.StretchMode is StretchMode.Unlinked)
                 {
                     state.StretchMode = StretchMode.Linked;
