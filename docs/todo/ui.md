@@ -113,7 +113,59 @@ state through the terminal is a small addition that follows an existing pattern:
   - **Help stays on the FIRST row**, not the last: a corner that moves down whenever the wrap count changes is exactly the drift the pin exists to prevent, and the wrap count changes with the window. A wrapped row also starts flush under the one above with no leading group gap -- the row break already says what the gap would have.
   - **Two rows is a cap, deliberately.** The band comes out of the image pane, so an unbounded wrap turns a small window into a toolbar with a picture attached; past two rows the tail is still dropped, and at that width the open question is which panel should yield (the item above), not how tall the toolbar may grow.
   - Pinned by `ViewerToolbarLayoutTests`: the wrap keeps every button, the band doubles rather than the second row painting over the image, no two buttons overlap at all (the invariant that replaced "everything is left of help", which stopped being equivalent once rows exist), and every rect stays inside the band. All three were seen to FAIL with `MaxToolbarRows` forced to 1.
-- [ ] **More toolbar icons.** Boost as a double chevron is a genuine `IconKind` candidate for DIR.Lib -- monochrome and geometric, so `CellLayout` can pick a glyph for it, which is the bar the enum's own doc sets ("a consumer on both" surfaces). Same category: a split light/dark rectangle for A/B (lets the label go entirely) and a folder for Open. Staying app-drawn like the RGGB swatch, which is multi-colour and so belongs in a `Content.Fill` by that same doc: a graticule for Grid, a galaxy ellipse for Objects, an RGB triple for Calibrate/SPCC. Leave NeutBg and Solve as text -- no mark reads at 13 px.
+- [x] **Toolbar marks, wave 1 (app-drawn).** The `BayerSwatchWidth`/`DrawBayerSwatch` pair generalised into
+  `ToolbarMarkWidth`/`HasToolbarMark`/`DrawToolbarMark`, plus `MarkGap` as the ONE place the mark-to-label
+  spacing is derived (measure and paint both call it, so a label cannot land a gap away from where its
+  button was sized for it). Three marks, all `Content.Fill`-style because colour is the information:
+  a stateful RGB triple for **Channel**, a 45-degree hash lattice for **Grid**, a spiral for **Objects**
+  and a tapered four-armed star for **Stars**. Channel, Grid and Objects go WITHOUT a text label -- the
+  width is the whole point, and a mark beside the word it replaces gives none back. Stars keeps a label
+  because the label is the COUNT; before the pass has run the word "Stars" stands where the number will
+  be, which is what marks it as not-yet-run.
+    - **Measured**: about 130 design units of text removed. That showed up as four toolbar WRAP tests
+      failing on their own guard assertions, because the fixture width was chosen to be just-too-narrow
+      and the bar no longer was. `OrdinaryWindowW` dropped 1400 -> 1150 and
+      `TheOrdinaryWindowIsStillNarrowerThanTheRun` now pins the premise and reports both numbers, since
+      the four guards could only say "not two rows", never why.
+    - **A colour mark dims by losing BRIGHTNESS, not by taking the label's grey ink** (`DimIfDisabled`),
+      because its hue is the information. Without that a disabled button with no label reads as live,
+      which is exactly what Channel did the moment its text went: a one-channel frame disables channel
+      selection, the button correctly registers no click region at all, and it still painted three fully
+      saturated bars.
+    - **Objects prefers U+1F300 from a colour-emoji face and falls back to the drawn spiral.** A font
+      designer has already solved a spiral at icon size and three attempts at geometry did not (see
+      below). The fallback is not hedging: this project bundles no emoji face, so a Linux host resolves
+      none, and a missing glyph draws NOTHING rather than a placeholder. The emoji cannot dim, so if
+      Objects ever becomes a disableable button the geometry has to win.
+    - **The RGB triple went on Channel, not on Calibrate/SPCC as this entry originally said.** On
+      Calibrate/SPCC the words ARE the differentiator (photometric vs spectrophotometric), so the same
+      mark on two adjacent buttons would make them more confusable and save nothing, since the labels
+      would have to stay. On Channel it replaces the label outright and encodes which channel is live.
+    - **A mark is conditional on the frame having the thing depicted**, following the swatch's own rule:
+      `ChannelView.Channel0..2` are not colours, so those fall back to naming themselves.
+    - Objects keeps a bare `...` while the object DB is unloaded. That is not its name, it is the warning
+      that the first press pays for the load, and a tooltip shows too late to set that expectation.
+    - Failures worth not repeating, none of them visible until the marks were magnified. An **outlined**
+      ellipse with any core reads as an **eye** -- the eye is in the OUTLINE, not the pupil, so elongating
+      the core into a lens along the same axis did not help. Filling that ellipse by over-thickening its
+      stroke does not work either: a stroke inks half its thickness either side of the path, so it fills
+      along the minor axis and leaves a lens-shaped hole along the MAJOR one, which is a ring with a dark
+      middle -- the eye again. Only a shape swept from CIRCLES fills, because the trick needs both radii
+      equal. And a bowed graticule cannot work at this size at all: a tenth of the width of bow is ONE
+      pixel, while sampling the bow with two segments puts a kink on the mark's own midline and reads as
+      a hexagon.
+    - **Judge a mark at its real pixel size, and get the real pixels.** The `sdl-ui-inspector`
+      screenshot is DOWNSCALED (a 2902 px framebuffer arrived as ~1999 px, a factor of 0.69), which
+      silently destroys exactly the sub-pixel detail an icon is made of -- a tapered star arrived as a
+      plain `+` and was judged broken when it was fine. Use a DPI-aware `PrintWindow` capture
+      (`SetThreadDpiAwarenessContext(-4)`, or PowerShell virtualises the coordinates and downscales too)
+      plus nearest-neighbour magnification.
+- [ ] **Toolbar marks, wave 2 (DIR.Lib `IconKind`).** Boost as a double chevron is a genuine candidate --
+  monochrome and geometric, so `CellLayout` can pick a glyph for it, which is the bar the enum's own doc
+  sets ("a consumer on both" surfaces). Same category: a split light/dark rectangle for A/B (lets that
+  label go too) and a folder for Open. Needs a DIR.Lib release, so it is deliberately a second wave;
+  wave 1 is pure TianWen and shipped without one. Leave NeutBg, SPCC, Calibrate and Solve as text -- no
+  mark reads at 13 px, and for the three colour ops the word is the information.
 - [ ] Rename HDR button/label to "Compress Highlights"
 - [x] Remove debug `Console.Error.WriteLine` WCS output from `Program.cs` DONE (2026-06-02): none present in `TianWen.UI.FitsViewer/Program.cs` (all logging via `ILogger`).
 - [x] Support rec601/rec2020 luminance weighting options in luma stretch (2026-05-11); see Stretch / Image Processing section.

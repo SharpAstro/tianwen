@@ -113,7 +113,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>One toolbar button, already positioned.</summary>
         private readonly record struct ToolbarButtonBox(
-            string Label, ToolbarAction Action, float SwatchWidth, RectF32 Rect, bool Enabled, bool Active);
+            string Label, ToolbarAction Action, float MarkWidth, RectF32 Rect, bool Enabled, bool Active);
 
         /// <summary>
         /// A button whose label and width are known but whose position is not yet. Measured once per
@@ -121,7 +121,7 @@ namespace TianWen.UI.Abstractions
         /// but no label is ever measured twice.
         /// </summary>
         private readonly record struct ToolbarMeasure(
-            string Label, ToolbarAction Action, int Group, float SwatchWidth, float Width);
+            string Label, ToolbarAction Action, int Group, float MarkWidth, float Width);
 
         // Per-frame scratch, all reused: this runs every frame on the render thread and nothing in it
         // outlives the frame.
@@ -172,8 +172,8 @@ namespace TianWen.UI.Abstractions
             for (var i = 0; i < buttons.Length; i++)
             {
                 var entry = buttons[i];
-                var (label, swatchW, width) = MeasureToolbarButton(entry, document, state);
-                var measured = new ToolbarMeasure(label, entry.Action, entry.Group, swatchW, width);
+                var (label, markW, width) = MeasureToolbarButton(entry, document, state);
+                var measured = new ToolbarMeasure(label, entry.Action, entry.Group, markW, width);
                 (rightAligned.Contains(entry.Action) ? _toolbarRightRun : _toolbarLeftRun).Add(measured);
             }
 
@@ -298,19 +298,32 @@ namespace TianWen.UI.Abstractions
 
         private void AddToolbarBox(in ToolbarMeasure measure, in RectF32 rect,
             AstroImageDocument? document, ViewerState state)
-            => _toolbarBoxes.Add(new ToolbarButtonBox(measure.Label, measure.Action, measure.SwatchWidth, rect,
+            => _toolbarBoxes.Add(new ToolbarButtonBox(measure.Label, measure.Action, measure.MarkWidth, rect,
                 IsToolbarButtonEnabled(measure.Action, document),
                 IsToolbarButtonActive(measure.Action, document, state)));
 
         /// <summary>Resolves a button's label and the width it needs. The one place a button width is
         /// computed.</summary>
-        private (string Label, float SwatchWidth, float Width) MeasureToolbarButton(
+        private (string Label, float MarkWidth, float Width) MeasureToolbarButton(
             (string Label, ToolbarAction Action, int Group) entry, AstroImageDocument? document, ViewerState state)
         {
             var label = GetToolbarButtonLabel(entry.Label, entry.Action, document, state);
-            var swatchW = BayerSwatchWidth(entry.Action);
-            return (label, swatchW, MeasureText(label, ToolbarFontSize) + swatchW + ButtonPaddingH * 2);
+            var markW = ToolbarMarkWidth(entry.Action, state);
+            return (label, markW,
+                markW + MarkGap(markW, label) + MeasureText(label, ToolbarFontSize) + ButtonPaddingH * 2);
         }
+
+        /// <summary>
+        /// The space between a mark and the label after it, which exists only when there is both.
+        /// </summary>
+        /// <remarks>
+        /// Derived here rather than folded into the mark width, because a mark that REPLACES its label
+        /// (Channel) would otherwise carry a trailing gap and sit visibly off-centre in its own button.
+        /// Measure and paint both call this, so the two cannot drift -- the class of bug that puts a
+        /// label one gap away from where its button was sized for it.
+        /// </remarks>
+        private float MarkGap(float markWidth, string label)
+            => markWidth > 0f && label.Length > 0 ? ButtonPaddingH : 0f;
 
         private void PaintToolbarButtons(ViewerState state)
         {
@@ -346,14 +359,16 @@ namespace TianWen.UI.Abstractions
                     FillRect(r.X, r.Y, r.Width, r.Height, ToolbarButtonBg);
                 }
 
-                if (box.SwatchWidth > 0f)
+                var textBrightness = box.Enabled ? 0.9f : 0.45f;
+                var inkColor = RGBAColor32.FromFloat(textBrightness, textBrightness, textBrightness, 1f);
+
+                if (box.MarkWidth > 0f)
                 {
-                    DrawBayerSwatch(r.X + ButtonPaddingH, r.Y, r.Height);
+                    DrawToolbarMark(box.Action, r.X + ButtonPaddingH, r.Y, r.Height, state, inkColor, box.Enabled);
                 }
 
-                var textBrightness = box.Enabled ? 0.9f : 0.45f;
-                DrawText(box.Label, r.X + ButtonPaddingH + box.SwatchWidth, textY, ToolbarFontSize,
-                    RGBAColor32.FromFloat(textBrightness, textBrightness, textBrightness, 1f));
+                DrawText(box.Label, r.X + ButtonPaddingH + box.MarkWidth + MarkGap(box.MarkWidth, box.Label),
+                    textY, ToolbarFontSize, inkColor);
 
                 if (hovered && GetToolbarButtonTooltip(box.Action, state) is { Length: > 0 } tip)
                 {
@@ -753,16 +768,255 @@ namespace TianWen.UI.Abstractions
                 fontSize, ViewerTheme.Palette.BodyText, TextAlign.Near, TextAlign.Center);
         }
 
-        /// <summary>Design-unit edge of the Bayer swatch, sized to the toolbar text beside it.</summary>
-        private const float BaseBayerSwatchSize = 13f;
+        /// <summary>Design-unit edge of a toolbar mark, sized to the toolbar text beside it.</summary>
+        /// <remarks>
+        /// One size for every mark, so a row of them shares a baseline and an optical weight. 13 units
+        /// against a ToolbarFontSize label is roughly its cap height, which is what stops a mark from
+        /// standing taller than the words it sits among.
+        /// </remarks>
+        private const float BaseToolbarMarkSize = 13f;
 
-        // Extra width the Debayer button needs for its CFA swatch, or 0 when there is nothing to show.
-        // The swatch is only meaningful for an actual Bayer mosaic; a mono or already-colour source
-        // would get a picture of a pattern its pixels do not have.
-        private float BayerSwatchWidth(ToolbarAction action)
-            => action is ToolbarAction.Debayer && _source?.SensorType is SensorType.RGGB
-                ? BaseBayerSwatchSize * DpiScale + ButtonPaddingH
-                : 0f;
+        /// <summary>
+        /// The ink width a button's mark needs, or 0 for a button that has none.
+        /// </summary>
+        /// <remarks>
+        /// <para>Each of these is a picture because the picture says something its label could not, which
+        /// is the bar the Bayer swatch set. They stay app-drawn rather than becoming DIR.Lib
+        /// <c>IconKind</c>s on that enum's own rule -- a kind earns its place by having a consumer on
+        /// both surfaces, and colour is the information in all of them, which the single-colour icon
+        /// model cannot carry.</para>
+        /// <para>Every one is <b>conditional on the frame actually having the thing depicted</b>. A CFA
+        /// swatch over a mono sensor, or an RGB triple over Channel1 of a multi-channel stack, is a
+        /// picture of something the pixels do not have -- so those cases fall back to the text label,
+        /// which can say what the mark cannot.</para>
+        /// </remarks>
+        private float ToolbarMarkWidth(ToolbarAction action, ViewerState state)
+            => HasToolbarMark(action, state) ? BaseToolbarMarkSize * DpiScale : 0f;
+
+        private bool HasToolbarMark(ToolbarAction action, ViewerState state) => action switch
+        {
+            ToolbarAction.Debayer => _source?.SensorType is SensorType.RGGB,
+            // Composite / R / G / B are the three bars and which of them is lit. Channel0..2 are not
+            // colours at all, so the mark would be inventing one.
+            ToolbarAction.Channel => state.ChannelView
+                is ChannelView.Composite or ChannelView.Red or ChannelView.Green or ChannelView.Blue,
+            ToolbarAction.Grid => true,
+            ToolbarAction.Overlays => true,
+            ToolbarAction.Stars => true,
+            _ => false,
+        };
+
+        private void DrawToolbarMark(ToolbarAction action, float x, float btnY, float btnH,
+            ViewerState state, RGBAColor32 ink, bool enabled)
+        {
+            switch (action)
+            {
+                case ToolbarAction.Debayer: DrawBayerSwatch(x, btnY, btnH, enabled); break;
+                case ToolbarAction.Channel: DrawChannelBars(x, btnY, btnH, state, enabled); break;
+                case ToolbarAction.Grid: DrawGraticuleMark(x, btnY, btnH, ink); break;
+                case ToolbarAction.Overlays: DrawGalaxyMark(x, btnY, btnH, ink); break;
+                case ToolbarAction.Stars: DrawStarMark(x, btnY, btnH, ink); break;
+            }
+        }
+
+        /// <summary>
+        /// Three bars in R / G / B, with the inactive ones dimmed: the channel view, and which channel.
+        /// </summary>
+        /// <remarks>
+        /// This mark REPLACES its label rather than sitting beside one, which is what earns it its place
+        /// -- "Channel: RGB" is a dozen characters saying what three bars say at a glance, on a toolbar
+        /// that had already run out of room and wrapped to a second row. The unlit bars are drawn rather
+        /// than omitted so the mark keeps ONE silhouette in every state: the eye then reads a colour
+        /// change, which is quick, instead of a shape change, which is a re-read.
+        /// </remarks>
+        private void DrawChannelBars(float x, float btnY, float btnH, ViewerState state, bool enabled)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var y = btnY + (btnH - size) / 2f;
+            var barW = size / 4f;
+            var gap = (size - barW * 3f) / 2f;
+
+            for (var i = 0; i < 3; i++)
+            {
+                // Red = 1, Green = 2, Blue = 3 in ChannelView, so the enum's own order indexes the bars.
+                var lit = state.ChannelView is ChannelView.Composite || (int)state.ChannelView == i + 1;
+                var color = lit
+                    ? i switch { 0 => BayerSwatchRed, 1 => BayerSwatchGreen, _ => BayerSwatchBlue }
+                    : ChannelBarUnlit;
+                FillRect(x + i * (barW + gap), y, barW, size, DimIfDisabled(color, enabled));
+            }
+        }
+
+        // Dark enough to read as "off" against the button, but not invisible -- the unlit bars are what
+        // keep the mark the same shape in every state.
+        private static readonly RGBAColor32 ChannelBarUnlit = RGBAColor32.FromFloat(0.28f, 0.30f, 0.33f, 1f);
+
+        /// <summary>
+        /// A hash rotated 45 degrees: a diamond lattice, for the celestial coordinate grid.
+        /// </summary>
+        /// <remarks>
+        /// <para>Deliberately NOT DIR.Lib's <c>IconKind.Grid</c>, which is a 2x2 of FILLED squares meaning
+        /// "lay these out as tiles". The rotation is what separates the two ideas at a glance, and it also
+        /// separates this from an upright hash, which is either a tile grid or a hashtag to most readers.</para>
+        /// <para>Four straight lines, after two attempts at drawing real meridians failed in opposite
+        /// directions: a tenth of the width of bow is ONE pixel at 13 design units, so the curve was
+        /// invisible and it read as a hash anyway; and sampling the bow with two segments puts an angular
+        /// kink on the mark's own midline, so it read as a hexagon. At this size a straight line is the
+        /// only primitive that survives, so the mark is built from the thing that renders crisply rather
+        /// than from the thing that is astronomically literal.</para>
+        /// </remarks>
+        private void DrawGraticuleMark(float x, float btnY, float btnH, RGBAColor32 ink)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var y = btnY + (btnH - size) / 2f;
+            var t = MathF.Max(1f, DpiScale);
+            var third = size / 3f;
+
+            // Two parallels each way, struck corner-to-corner so both families reach the mark's edges
+            // and the lattice reads as continuous rather than as a floating cross.
+            DrawLineOverlay(x + third, y, x + size, y + size - third, ink, t);
+            DrawLineOverlay(x, y + third, x + size - third, y + size, ink, t);
+            DrawLineOverlay(x + size - third, y, x, y + size - third, ink, t);
+            DrawLineOverlay(x + size, y + third, x + third, y + size, ink, t);
+        }
+
+        /// <summary>
+        /// A barred spiral: a central bar with two arms sweeping off its ends.
+        /// </summary>
+        /// <remarks>
+        /// <para>The bar is what makes this legible at icon size. A plain two-arm spiral collapses into a
+        /// pinwheel or a comma once the arms get short, whereas a bar reads as a definite object with
+        /// structure hanging off it, and it carries the inclination the way the earlier solid lens did.
+        /// Arms are point-symmetric about the centre, which is what real barred spirals do and what stops
+        /// the mark reading as a single hook.</para>
+        /// <para>Two things this must not become, both learned by drawing them: an OUTLINE with anything
+        /// inside it reads as an eye -- iris in a lid -- so nothing here is a stroked closed curve; and
+        /// the trick of filling an ellipse by over-thickening its stroke only works when both radii are
+        /// equal, because a stroke inks half its thickness either side of the path and so leaves a
+        /// lens-shaped hole along the MAJOR axis. That hole is what brought the eye back the second time.
+        /// The bar is therefore a thick straight stroke, not a filled ellipse.</para>
+        /// <para>The arms are a logarithmic spiral, r = r0.exp(b.phi), sampled as a polyline and tapering
+        /// outward -- the abstract renderer seam offers lines and ellipses, so a curve is always a
+        /// polyline here, and it needs enough segments not to show its corners (two segments is what made
+        /// the graticule read as a hexagon).</para>
+        /// </remarks>
+        private void DrawGalaxyMark(float x, float btnY, float btnH, RGBAColor32 ink)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var y = btnY + (btnH - size) / 2f;
+
+            // The emoji when a colour face resolved, the drawn form when none did. NOT a preference
+            // between two equal options: a spiral is past what this many pixels can carry as geometry
+            // (three attempts -- an outlined ellipse reads as an EYE, a solid one as a capsule, a barred
+            // spiral as the letter sigma), whereas a font designer has already solved it at icon size.
+            // The fallback stays because the emoji face is not bundled with this project and simply is
+            // not there on a Linux host, and a missing glyph draws nothing at all.
+            if (EmojiFontPath is { Length: > 0 } emoji)
+            {
+                // U+1F300 CYCLONE, a bare codepoint with no VS16 -- the chrome's own tab-icon rule,
+                // because the VS16 forms render inconsistently through the bundled emoji face.
+                DrawGlyphCentred("\U0001F300", emoji, x, y, size, size, size, ink);
+                return;
+            }
+
+            DrawGalaxyGeometry(x, btnY, btnH, ink);
+        }
+
+        /// <summary>
+        /// The drawn barred spiral: a central bar with two arms, for hosts with no colour-emoji face.
+        /// </summary>
+        /// <remarks>
+        /// <para>Three shapes were tried here and the two rejected ones are worth not repeating. An
+        /// OUTLINE with anything inside it reads as an eye -- iris in a lid -- whatever the inner shape
+        /// is, so nothing here is a stroked closed curve. And the trick of filling an ellipse by
+        /// over-thickening its stroke only works where both radii are EQUAL, because a stroke inks half
+        /// its thickness either side of the path and so leaves a lens-shaped hole along the major axis;
+        /// that hole is what brought the eye back the second time.</para>
+        /// <para>The bar is what makes a spiral legible small: a plain two-arm spiral collapses into a
+        /// comma, whereas a bar reads as an object with structure hanging off it. It is still marginal at
+        /// 13 design units, which is why the emoji is preferred when one is available.</para>
+        /// </remarks>
+        private void DrawGalaxyGeometry(float x, float btnY, float btnH, RGBAColor32 ink)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var cx = x + size / 2f;
+            var cy = btnY + btnH / 2f;
+            var t = MathF.Max(1f, DpiScale);
+
+            const float Tilt = -0.5f;
+            var barHalf = size * 0.19f;
+            var (sinT, cosT) = MathF.SinCos(Tilt);
+
+            DrawLineOverlay(cx - barHalf * cosT, cy - barHalf * sinT,
+                cx + barHalf * cosT, cy + barHalf * sinT, ink, MathF.Max(1.5f, size * 0.13f));
+
+            const int Segments = 9;
+            const float Sweep = 2.1f;
+            var outer = size * 0.46f;
+            var growth = MathF.Log(outer / barHalf) / Sweep;
+
+            for (var arm = 0; arm < 2; arm++)
+            {
+                var phase = Tilt + (arm == 0 ? 0f : MathF.PI);
+                var px = cx + barHalf * MathF.Cos(phase);
+                var py = cy + barHalf * MathF.Sin(phase);
+
+                for (var s = 1; s <= Segments; s++)
+                {
+                    var phi = Sweep * s / Segments;
+                    var r = barHalf * MathF.Exp(growth * phi);
+                    var ang = phase + phi;
+                    var nx = cx + r * MathF.Cos(ang);
+                    var ny = cy + r * MathF.Sin(ang);
+                    var thick = MathF.Max(1f, t * 1.5f * (1f - 0.55f * s / Segments));
+                    DrawLineOverlay(px, py, nx, ny, ink, thick);
+                    px = nx;
+                    py = ny;
+                }
+            }
+        }
+
+        /// <summary>
+        /// A four-armed star with a bright core: detected stars.
+        /// </summary>
+        /// <remarks>
+        /// <para>The arms TAPER, and that is the whole difference between a star and a crosshair. Two
+        /// crossing lines of even thickness is a reticle -- the mark for "aim here" -- which is the wrong
+        /// meaning on a button that counts what it found. Thickness falling from the core outward reads as
+        /// light spilling from a point source, which is also what a bright star looks like through a
+        /// telescope, so the mark is drawn from the subject rather than from an icon set.</para>
+        /// <para>Tapered by stacking segments of decreasing thickness, because the abstract renderer seam
+        /// offers lines and ellipses and no triangle -- DIR.Lib 7.26 added <c>DrawTriangles</c> to the
+        /// Renderer, but <see cref="ImageRendererBase{TSurface}"/> does not expose it, and widening that
+        /// seam for one toolbar mark would be the tail wagging the dog.</para>
+        /// </remarks>
+        private void DrawStarMark(float x, float btnY, float btnH, RGBAColor32 ink)
+        {
+            var size = BaseToolbarMarkSize * DpiScale;
+            var cx = x + size / 2f;
+            var cy = btnY + btnH / 2f;
+            var t = MathF.Max(1f, DpiScale);
+            var arm = size * 0.46f;
+
+            // Four arms, each three segments thick-to-thin from the centre out.
+            const int Steps = 3;
+            for (var dir = 0; dir < 4; dir++)
+            {
+                var dx = dir == 0 ? 1f : dir == 1 ? -1f : 0f;
+                var dy = dir == 2 ? 1f : dir == 3 ? -1f : 0f;
+                for (var s = 0; s < Steps; s++)
+                {
+                    var r0 = arm * s / Steps;
+                    var r1 = arm * (s + 1) / Steps;
+                    var thick = t * (Steps - s) / Steps * 1.6f;
+                    DrawLineOverlay(cx + dx * r0, cy + dy * r0, cx + dx * r1, cy + dy * r1,
+                        ink, MathF.Max(1f, thick));
+                }
+            }
+
+            // The core, filled: an ellipse whose stroke exceeds its radii inks solid.
+            DrawEllipseOverlay(cx, cy, size * 0.1f, size * 0.1f, 0f, ink, size * 0.12f);
+        }
 
         /// <summary>
         /// Draws the sensor's colour-filter-array quad: four cells in the phase the frame actually has.
@@ -779,9 +1033,30 @@ namespace TianWen.UI.Abstractions
         /// belongs in a Content.Fill the app draws itself". The colour here is not styling, it is the
         /// information, which is exactly why the single-colour icon model cannot carry it.</para>
         /// </remarks>
-        private void DrawBayerSwatch(float x, float btnY, float btnH)
+        /// <summary>The factor a colour-carrying mark is scaled by when its button is disabled.</summary>
+        /// <remarks>
+        /// A monochrome mark just takes the dimmed ink the label takes. A colour mark cannot -- its hue is
+        /// the information, so it has to dim by losing brightness rather than by losing hue. The ratio is
+        /// the label's own (0.45 / 0.9), so a disabled mark and a disabled word fade together.
+        /// <para>Without this a disabled button with NO label reads as live, which is exactly what the
+        /// Channel button did the moment its text was removed: a one-channel frame disables channel
+        /// selection (there is no red to pick out of a mono image), the button correctly registers no
+        /// click region at all, and it still painted three fully saturated bars.</para>
+        /// </remarks>
+        private const float DisabledMarkScale = 0.5f;
+
+        private static RGBAColor32 DimIfDisabled(RGBAColor32 c, bool enabled)
+            => enabled
+                ? c
+                : new RGBAColor32(
+                    (byte)(c.Red * DisabledMarkScale),
+                    (byte)(c.Green * DisabledMarkScale),
+                    (byte)(c.Blue * DisabledMarkScale),
+                    c.Alpha);
+
+        private void DrawBayerSwatch(float x, float btnY, float btnH, bool enabled)
         {
-            var size = BaseBayerSwatchSize * DpiScale;
+            var size = BaseToolbarMarkSize * DpiScale;
             var cell = size / 2f;
             var y = btnY + (btnH - size) / 2f;
 
@@ -799,7 +1074,7 @@ namespace TianWen.UI.Abstractions
                         (1, 1) => BayerSwatchBlue,
                         _ => BayerSwatchGreen,
                     };
-                    FillRect(x + cx * cell, y + cy * cell, cell, cell, color);
+                    FillRect(x + cx * cell, y + cy * cell, cell, cell, DimIfDisabled(color, enabled));
                 }
             }
         }
@@ -877,18 +1152,32 @@ namespace TianWen.UI.Abstractions
                     _ => "Unlinked"
                 },
                 ToolbarAction.StretchParams => $"{state.StretchParameters}",
-                ToolbarAction.Channel => state.ChannelView is ChannelView.Composite ? "RGB" : $"{state.ChannelView}",
+                // Empty when the bars are drawn: the mark IS the label. Channel0..2 get no mark (they
+                // are not colours), so they still name themselves.
+                ToolbarAction.Channel => HasToolbarMark(ToolbarAction.Channel, state)
+                    ? string.Empty
+                    : $"{state.ChannelView}",
                 ToolbarAction.Debayer => state.DebayerAlgorithm.DisplayName,
                 ToolbarAction.CurvesBoost => state.CurvesBoost > 0f ? $"Boost {state.CurvesBoost:P0}" : "Boost",
                 ToolbarAction.Hdr => state.HdrAmount > 0f ? $"HDR: {state.HdrAmount:F1}" : "HDR",
                 ToolbarAction.ZoomFit => "Fit",
                 ToolbarAction.ZoomActual => "1:1",
-                ToolbarAction.Grid => "Grid",
-                ToolbarAction.Overlays when CelestialObjectDB is { IsValueCreated: false } => "Objects...",
-                ToolbarAction.Overlays => "Objects",
-                ToolbarAction.Stars when document?.Stars is null => "Stars...",
-                ToolbarAction.Stars when document?.Stars is { Count: > 0 } s => $"Stars: {s.Count}",
-                ToolbarAction.Stars => "Stars: 0",
+                // Mark-only, like Channel: the point of a mark on this toolbar is the WIDTH it gives
+                // back, and a mark sitting beside the word it replaces gives back nothing. The tooltip
+                // carries the name.
+                ToolbarAction.Grid => string.Empty,
+                // The ellipsis survives on its own, because it is not the button's NAME -- it is the
+                // warning that the first press pays for loading the object database. Three characters
+                // keeps a signal that the mark cannot draw and the tooltip only shows on hover, which
+                // is too late for something whose whole job is to set an expectation before the click.
+                ToolbarAction.Overlays when CelestialObjectDB is { IsValueCreated: false } => "...",
+                ToolbarAction.Overlays => string.Empty,
+                // The mark says what these are, so the label only has to say how many. Before the pass
+                // has run there is no number, and the WORD standing where a count will be is what marks
+                // it as not-yet-run -- which is why this drops the "..." that Objects keeps: Objects is a
+                // toggle with no count to switch to, so there the ellipsis is the only such signal.
+                ToolbarAction.Stars when document?.Stars is null => "Stars",
+                ToolbarAction.Stars when document?.Stars is { } s => $"{s.Count}",
                 ToolbarAction.BackgroundNeutralize when state.BackgroundNeutralizationEnabled =>
                     state.BackgroundNeutralizationStrength >= 0.9999f
                         ? $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)}"
