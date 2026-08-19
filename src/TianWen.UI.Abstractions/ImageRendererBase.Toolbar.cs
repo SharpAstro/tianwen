@@ -877,7 +877,7 @@ namespace TianWen.UI.Abstractions
             {
                 case ToolbarAction.Debayer: DrawBayerSwatch(x, btnY, btnH, enabled); break;
                 case ToolbarAction.Channel: DrawChannelBars(x, btnY, btnH, state, enabled); break;
-                case ToolbarAction.Grid: DrawGraticuleMark(x, btnY, btnH, ink); break;
+                case ToolbarAction.Grid: DrawBakedMark(BakedIcons.Globe, x, btnY, btnH, ink); break;
                 case ToolbarAction.Overlays: DrawGalaxyMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Stars: DrawStarMark(x, btnY, btnH, ink); break;
                 case ToolbarAction.Enhance: DrawBakedMark(BakedIcons.Sparkles, x, btnY, btnH, ink); break;
@@ -917,35 +917,6 @@ namespace TianWen.UI.Abstractions
         // Dark enough to read as "off" against the button, but not invisible -- the unlit bars are what
         // keep the mark the same shape in every state.
         private static readonly RGBAColor32 ChannelBarUnlit = RGBAColor32.FromFloat(0.28f, 0.30f, 0.33f, 1f);
-
-        /// <summary>
-        /// A hash rotated 45 degrees: a diamond lattice, for the celestial coordinate grid.
-        /// </summary>
-        /// <remarks>
-        /// <para>Deliberately NOT DIR.Lib's <c>IconKind.Grid</c>, which is a 2x2 of FILLED squares meaning
-        /// "lay these out as tiles". The rotation is what separates the two ideas at a glance, and it also
-        /// separates this from an upright hash, which is either a tile grid or a hashtag to most readers.</para>
-        /// <para>Four straight lines, after two attempts at drawing real meridians failed in opposite
-        /// directions: a tenth of the width of bow is ONE pixel at 13 design units, so the curve was
-        /// invisible and it read as a hash anyway; and sampling the bow with two segments puts an angular
-        /// kink on the mark's own midline, so it read as a hexagon. At this size a straight line is the
-        /// only primitive that survives, so the mark is built from the thing that renders crisply rather
-        /// than from the thing that is astronomically literal.</para>
-        /// </remarks>
-        private void DrawGraticuleMark(float x, float btnY, float btnH, RGBAColor32 ink)
-        {
-            var size = BaseToolbarMarkSize * DpiScale;
-            var y = btnY + (btnH - size) / 2f;
-            var t = MathF.Max(1f, DpiScale);
-            var third = size / 3f;
-
-            // Two parallels each way, struck corner-to-corner so both families reach the mark's edges
-            // and the lattice reads as continuous rather than as a floating cross.
-            DrawLineOverlay(x + third, y, x + size, y + size - third, ink, t);
-            DrawLineOverlay(x, y + third, x + size - third, y + size, ink, t);
-            DrawLineOverlay(x + size - third, y, x, y + size - third, ink, t);
-            DrawLineOverlay(x + size, y + third, x + third, y + size, ink, t);
-        }
 
         /// <summary>
         /// A barred spiral: a central bar with two arms sweeping off its ends.
