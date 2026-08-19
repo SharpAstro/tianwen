@@ -7,6 +7,24 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 - [ ] `PlanetaryCaptureControllerTests.Auto_recenter_off_leaves_the_roi_window_fixed`: hit its 60s test timeout in 2 of 3 full-suite runs on 2026-07-03 (win-arm64 dev box under load); all 7 tests in the class pass in isolation in 10s. Suspected thread-pool starvation under `maxParallelThreads: 4` (the capture loop runs on `Task.Run` like the Session tests did before they were serialized). **Recurred 2026-07-06** (1 of 4 full-suite runs, same signature: timeout before/at first frame, 7/7 green in isolation in 7s). The originally-prescribed own-`[Collection]` fix is **moot, the class already sits in `[Collection("Session")]`**; the remaining suspects are the wall-clock poll loops (`5000×`/`600×` iterations of `Tick(); await Task.Delay(2)`, under contention each 2 ms delay stretches to ~15-30 ms timer granularity, and a starved capture `Task.Run` never sets `FramesReceived`) racing the `[Fact(Timeout = 60_000)]`. Proper fix: condition-based waits (wait for `FramesReceived >= N` with the timeout as the only bound, drop the fixed iteration counts) and/or pumping the capture loop off `FakeTimeProvider` instead of real 2 ms sleeps.
 - [x] `SessionObservationLoopTests.GivenRefocusOnNewTargetWhenSwitchingTargetsThenBaselineStoredPerTarget`: fixed: cooperative time pump, `[Collection("Session")]` serialization, removed wall-clock timeouts
 
+## CI
+
+- [ ] **REVERT the n2n model out of plain git and back into LFS** (added 2026-08-19, expected to revert 2026-09,
+  when the replacement model lands). `src/TianWen.AI.Imaging/models/*.onnx` carries an `!filter !diff !merge`
+  exception in `.gitattributes` so `tianwen_denoise_osc_v19d.onnx` is stored as an ordinary 3.1 MB blob.
+  **Why:** the repo's LFS budget is exhausted (2026-08-17, enforcement rather than fresh usage -- see
+  `f1764364`), so CI cannot fetch a single new object and every run dies in `Fetch required LFS objects`.
+  This file was the ONLY object missing from the runners' cache, verified by reproducing the workflow's
+  own cache key across main: the cached set hashes `db37df0e2057d6cf` (32 files, at `237d7515`) and the
+  wanted set `718e3fd94981c9ba` (33 files, from `69218529`), and this is the file that differs. Storing it
+  as a blob therefore restores CI completely, because every remaining LFS object rides the cache.
+  **To revert:** delete the `.gitattributes` block, then `git rm --cached` + `git add` the file so the
+  general `*.onnx` rule takes it back. Note the 3.1 MB stays in history either way (removal does not
+  reclaim it without a rewrite); it is 0.3% of a 976 MB `.git`, which is why that was accepted rather
+  than worked around.
+  **Do not** treat this as a template for other LFS objects: the catalogs (`*.lz`) and snapshots
+  (`*.bin.gz`) are far larger, and unlike this file they are already cached, so they need no exception.
+
 ## Code Quality / Architecture
 
 - [x] **Async transport layer: `ConnectSerialDevice` is async at heart now.** Done: `DeviceBase.ConnectSerialDeviceAsync` returns `ValueTask<ISerialConnection?>`; `IExternal.OpenSerialDeviceAsync` wraps the synchronous BCL `SerialPort.Open` in `Task.Run` so no driver thread blocks; `TcpSerialConnection.CreateAsync` awaits `TcpClient.ConnectAsync` cooperatively with a cancellable 3 s timeout; every override (`MeadeDevice` via base, `OnStepDevice`, `SkywatcherDevice`, `FakeDevice`, `IOptronDevice`) and every caller (`MeadeLX200ProtocolMountDriverBase`, `SgpMountDriverBase`, `SkywatcherMountDriverBase`, `QHYFocuserDriver`, `QHYSerialControlledFilterWheelDriver`, 5 device-source scanners) updated in one commit.
