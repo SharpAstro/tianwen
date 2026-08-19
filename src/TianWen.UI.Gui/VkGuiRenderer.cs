@@ -1126,16 +1126,10 @@ namespace TianWen.UI.Gui
             // resolved fonts to the child tabs (one set-point). The preview + guide-cam viewers and the
             // planetary tab self-resolve their font in their VkImageRenderer ctor, so they are not pushed.
 
-            // Emoji font: bundled Noto COLRv1 (uses COLRv1 paint tree, rendered by DIR.Lib)
-            var emojiPath = Path.Combine(AppContext.BaseDirectory, "Fonts", "Noto-COLRv1.ttf");
-            if (File.Exists(emojiPath))
-            {
-                EmojiFontPath = emojiPath;
-            }
-            else if (OperatingSystem.IsWindows() && File.Exists(@"C:\Windows\Fonts\seguiemj.ttf"))
-            {
-                EmojiFontPath = @"C:\Windows\Fonts\seguiemj.ttf";
-            }
+            // Emoji font: bundled Noto COLRv1 (a COLRv1 paint tree, rendered by DIR.Lib) preferred, then
+            // whatever the platform ships. One shared probe order with the FITS viewer -- this used to be
+            // an inline Windows-only list here, and the viewer grew a second copy of it.
+            EmojiFontPath = EmojiFonts.Resolve();
 
             // Prefer bundled DejaVu Sans for regular text
             var bundled = Path.Combine(AppContext.BaseDirectory, "Fonts", "DejaVuSans.ttf");

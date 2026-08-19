@@ -39,6 +39,7 @@
 //   - TianWen.UI.Abstractions/ViewerState.cs: add ImageContentDirty property
 
 using System;
+using System.IO;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -509,6 +510,48 @@ namespace TianWen.UI.Abstractions
                 // FontPath is the inherited PixelWidgetBase owner (the layout helpers default to it).
                 FontPath = resolved;
             }
+
+            ResolveEmojiFontPath();
+        }
+
+        /// <summary>
+        /// Resolves a colour-emoji face, or leaves <see cref="PixelWidgetBase{TSurface}.EmojiFontPath"/>
+        /// empty when the host has none.
+        /// </summary>
+        /// <remarks>
+        /// Every caller of an emoji mark must have a non-emoji fallback: an unavailable glyph does not
+        /// draw a placeholder, it draws NOTHING, and a button whose only mark silently disappears is
+        /// worse than one built from rectangles. Not pushed down from <c>VkGuiRenderer</c> on purpose --
+        /// the chrome deliberately does not push its fonts into the preview / guide-cam viewers, so a
+        /// standalone tianwen-fits has to find its own.
+        /// </remarks>
+        private void ResolveEmojiFontPath()
+        {
+            if (string.IsNullOrEmpty(EmojiFontPath))
+            {
+                EmojiFontPath = EmojiFonts.Resolve();
+            }
+        }
+
+        /// <summary>
+        /// Draws one glyph from a named face, centred in the given box. Used for the emoji marks, whose
+        /// face is not <see cref="PixelWidgetBase{TSurface}.FontPath"/>.
+        /// </summary>
+        protected void DrawGlyphCentred(string glyph, string fontPath, float x, float y,
+            float boxW, float boxH, float fontSize, RGBAColor32 color)
+        {
+            if (string.IsNullOrEmpty(fontPath) || string.IsNullOrEmpty(glyph))
+            {
+                return;
+            }
+
+            // Clipped to the box, unlike DrawText's full-surface-width rect: a colour emoji's advance is
+            // wider than its ink and must not spill into the label beside it.
+            var rect = new RectInt(
+                new PointInt((int)(x + boxW), (int)(y + boxH)),
+                new PointInt((int)x, (int)y));
+            Renderer.DrawText(glyph.AsSpan(), fontPath, fontSize, color, rect,
+                TextAlign.Center, TextAlign.Center);
         }
 
         // -----------------------------------------------------------------------
