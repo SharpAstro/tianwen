@@ -442,6 +442,15 @@ namespace TianWen.UI.Abstractions
                     !ShouldSkipBeforePixelCache(EstimatedBeforePixelBytes) && TryRetainImageTexturesAsBefore()
                         ? state.SourceGeneration
                         : null;
+
+                if (Split.PixelsGeneration is not null)
+                {
+                    // An enhance that lands while the split is already up switches it to comparing
+                    // pixels. Only here, because this is the one place that knows the retention actually
+                    // SUCCEEDED -- it can be skipped on memory pressure, and a split that flipped to a
+                    // pixel comparison with nothing retained would draw no divider at all.
+                    Split.AdoptBeforePixels();
+                }
             }
 
             var pixelWidth = source.Width;

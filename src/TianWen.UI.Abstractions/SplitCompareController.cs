@@ -136,6 +136,29 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
+        /// Adopts freshly-retained pre-enhance pixels, switching an already-open split over to comparing
+        /// PIXELS.
+        /// </summary>
+        /// <remarks>
+        /// <para><see cref="Toggle"/> states the rule -- retained pixels win, because a user who just
+        /// enhanced wants to compare pixels, "which also makes the mode a consequence of what exists
+        /// rather than a setting to learn". That rule was only ever applied at the moment A/B was
+        /// pressed, so enhancing while the split was ALREADY up left it comparing settings: both halves
+        /// then draw enhanced pixels, differing only by a frozen set of dials, and NOTHING on screen says
+        /// an enhance happened. Reported as "the after side doesn't show that we did AI".</para>
+        /// <para>A consequence of what exists has to be re-evaluated when what exists changes, which is
+        /// what this is. <see cref="RequestPin"/> (Shift+A) remains the explicit way back to comparing
+        /// settings, so the switch costs the user nothing they cannot undo.</para>
+        /// </remarks>
+        public void AdoptBeforePixels()
+        {
+            if (IsOn && Mode is SplitCompare.PinnedSettings)
+            {
+                Mode = SplitCompare.BeforePixels;
+            }
+        }
+
+        /// <summary>
         /// Pins the current display settings as what the split compares against, turning it on if it was
         /// off. The "pin, then fiddle" gesture: pin what you have, then move the dials and watch the
         /// difference.

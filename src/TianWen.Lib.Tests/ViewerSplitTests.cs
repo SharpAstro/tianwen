@@ -597,5 +597,180 @@ namespace TianWen.Lib.Tests
                 float bgNeutralizationStrength = 1f, (float R, float G, float B)? manualWhiteBalance = null)
                 => new StretchUniforms(mode, 1f, default, default, default, default, default);
         }
+
+        // ---- The sequence matrix -------------------------------------------------------------------
+        //
+        // The split has two things it can compare and the user reaches them by SEQUENCE, not by a
+        // setting, so the bug class here is "the halves show one thing and the labels say another".
+        // Each case below drives the presses in order and asserts BOTH: which pixels each half sampled,
+        // and what the labels claim. Asserting only one of them is what let the mismatch ship.
+        //
+        //   #  sequence                                   left pixels   labels
+        //   1  A/B, nothing enhanced                      live          Pinned / Live
+        //   2  enhance, A/B                               before        Before / After
+        //   3  A/B, THEN enhance                          before        Before / After   <- was wrong
+        //   4  enhance, A/B, revert                        --            split down
+        //   5  enhance, A/B, move a slider                before        Before / After
+        //   6  A/B, enhance, A/B off, A/B on              before        Before / After
+
+        /// <summary>Simulates an enhance landing: a new source, and the outgoing pixels kept.</summary>
+        private static void ApplyEnhance(RecordingViewer viewer, ViewerState state)
+        {
+            state.NotifySourceReplaced();
+            state.RetainBeforePixelsRequested = true;
+            viewer.UploadDocumentTextures(new StubSource(), state);
+        }
+
+        [Fact]
+        public void Case1_SplitWithNothingEnhanced_ComparesSettingsOnLivePixels()
+        {
+            using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+
+            viewer.Split.Toggle(viewer.HasBeforeImageTextures);
+            viewer.Render(null, state);
+
+            viewer.Split.Mode.ShouldBe(SplitCompare.PinnedSettings);
+            viewer.Draws.Count.ShouldBe(2);
+            viewer.Draws[0].SampleBefore.ShouldBeFalse("nothing was retained, so both halves are live pixels");
+            viewer.Split.HalfLabels(DisplayControls.FromState(state)).Left.ShouldStartWith("Pinned");
+        }
+
+        [Fact]
+        public void Case2_EnhanceThenSplit_ComparesPixels()
+        {
+            using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+
+            ApplyEnhance(viewer, state);
+            viewer.Split.Toggle(viewer.HasBeforeImageTextures);
+            viewer.Draws.Clear();
+            viewer.Render(null, state);
+
+            viewer.Split.Mode.ShouldBe(SplitCompare.BeforePixels);
+            viewer.Draws[0].SampleBefore.ShouldBeTrue();
+            viewer.Split.HalfLabels(DisplayControls.FromState(state)).ShouldBe(("Before", "After"));
+        }
+
+        [Fact]
+        public void Case3_SplitThenEnhance_AlsoComparesPixels()
+        {
+            // The reported bug. Toggle's rule -- "when pre-enhance pixels are retained those win,
+            // because a user who just enhanced wants to compare PIXELS" -- was only applied at the
+            // moment of pressing A/B, so enhancing while the split was ALREADY up left it comparing
+            // settings. Both halves then draw enhanced pixels and nothing on screen says an enhance
+            // happened, which is exactly what was reported.
+            using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+
+            viewer.Split.Toggle(viewer.HasBeforeImageTextures);
+            viewer.Render(null, state);
+            viewer.Split.Mode.ShouldBe(SplitCompare.PinnedSettings);
+
+            ApplyEnhance(viewer, state);
+            viewer.Draws.Clear();
+            viewer.Render(null, state);
+
+            viewer.Split.Mode.ShouldBe(SplitCompare.BeforePixels,
+                "the mode is a consequence of what exists, not of when the button was pressed");
+            viewer.Draws.Count.ShouldBe(2);
+            viewer.Draws[0].SampleBefore.ShouldBeTrue("the left half is the pre-enhance frame");
+            viewer.Draws[1].SampleBefore.ShouldBeFalse();
+            viewer.Split.HalfLabels(DisplayControls.FromState(state)).ShouldBe(("Before", "After"));
+        }
+
+        [Fact]
+        public void Case4_RevertingTheEnhanceTakesThePixelSplitDown()
+        {
+            using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+
+            ApplyEnhance(viewer, state);
+            viewer.Split.Toggle(viewer.HasBeforeImageTextures);
+            viewer.Render(null, state);
+
+            // Toggling the enhance off restores the original source: same invalidation path as opening
+            // another document, because the retained pixels are the before of a frame that is gone.
+            state.NotifySourceReplaced();
+            viewer.Draws.Clear();
+            viewer.Render(null, state);
+
+            viewer.HasBeforeImageTextures.ShouldBeFalse();
+            viewer.Split.Fraction.ShouldBeNull("a pixel split with nothing retained must not draw a divider");
+            viewer.Draws.Count.ShouldBe(1);
+        }
+
+        [Fact]
+        public void Case5_MovingASliderUnderAPixelSplitMovesBothHalvesTogether()
+        {
+            using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+
+            ApplyEnhance(viewer, state);
+            viewer.Split.Toggle(viewer.HasBeforeImageTextures);
+
+            state.CurvesBoost = 1.5f;
+            viewer.Draws.Clear();
+            viewer.Render(null, state);
+
+            // Only the PIXELS differ: both halves take the live rendition, so a slider is not a
+            // difference between them and the labels must not imply one.
+            viewer.Draws[0].CurvesBoost.ShouldBe(viewer.Draws[1].CurvesBoost);
+            viewer.Draws[0].SampleBefore.ShouldBeTrue();
+            viewer.Split.HalfLabels(DisplayControls.FromState(state)).ShouldBe(("Before", "After"));
+        }
+
+        [Fact]
+        public void Case3b_WhenTheBeforeCacheIsSkippedTheSplitStaysOnSettings()
+        {
+            // The honest limit of the Case 3 fix. Retention is budget-gated, so on a large frame under
+            // memory pressure there ARE no pre-enhance pixels to compare -- and a pixel split with
+            // nothing retained draws no divider at all, which is worse than comparing settings. So the
+            // split stays where it is, and the residual gap is real: both halves are enhanced and only
+            // the toolbar's AI button says so. Tracked as the before-pixel reload item in
+            // docs/todo/ui.md rather than papered over with a label that would be wrong in every other
+            // case.
+            using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+
+            viewer.Split.Toggle(viewer.HasBeforeImageTextures);
+            viewer.Render(null, state);
+
+            viewer.PretendMemoryIsShort = true;
+            ApplyEnhance(viewer, state);
+            viewer.Draws.Clear();
+            viewer.Render(null, state);
+
+            viewer.HasBeforeImageTextures.ShouldBeFalse();
+            viewer.Split.Mode.ShouldBe(SplitCompare.PinnedSettings);
+            viewer.Draws.Count.ShouldBe(2, "a settings comparison still has two halves to draw");
+            viewer.Draws[0].SampleBefore.ShouldBeFalse();
+        }
+
+        [Fact]
+        public void Case6_ClosingAndReopeningTheSplitAfterAnEnhanceComparesPixels()
+        {
+            using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+
+            viewer.Split.Toggle(viewer.HasBeforeImageTextures);
+            ApplyEnhance(viewer, state);
+            viewer.Split.Toggle(viewer.HasBeforeImageTextures);   // off
+            viewer.Split.IsOn.ShouldBeFalse();
+            viewer.Split.Toggle(viewer.HasBeforeImageTextures);   // on again
+
+            viewer.Draws.Clear();
+            viewer.Render(null, state);
+
+            viewer.Split.Mode.ShouldBe(SplitCompare.BeforePixels);
+            viewer.Draws[0].SampleBefore.ShouldBeTrue();
+        }
     }
 }
