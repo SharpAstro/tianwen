@@ -352,7 +352,7 @@ public sealed class ViewerController(
             case ToolbarAction.PlateSolve:
                 if (Document is not null && !state.IsPlateSolving && !Document.IsPlateSolved)
                 {
-                    _backgroundTask = ViewerActions.PlateSolveAsync(Document, state, plateSolverFactory, appToken);
+                    _backgroundTask = ViewerActions.PlateSolveAsync(Document, state, plateSolverFactory, logger, appToken);
                 }
                 break;
 

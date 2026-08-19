@@ -947,6 +947,21 @@ namespace TianWen.UI.Abstractions
         {
             _appState.AppendNotification(_timeProvider.GetUtcNow(), severity, message);
             _appState.NeedsRedraw = true;
+
+            // Also LOG anything that went wrong. The notification feed is in-memory and dies with the
+            // process, so routing the only account of a failure through it means that by the time
+            // anyone reads a log to find out what happened -- which is what a log is for -- there is
+            // nothing there. A plate solve that failed overnight is the case that motivated this.
+            // Info stays feed-only: those are routine progress messages and would just be noise.
+            switch (severity)
+            {
+                case NotificationSeverity.Error:
+                    _logger.LogError("{Message}", message);
+                    break;
+                case NotificationSeverity.Warning:
+                    _logger.LogWarning("{Message}", message);
+                    break;
+            }
         }
 
         /// <summary>

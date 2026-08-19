@@ -79,47 +79,104 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
             throw new ArgumentOutOfRangeException(nameof(range), range, "Range must be greater than 0");
         }
 
-        var normalisedFilePath = await NormaliseFilePathAsync(fitsFile, cancellationToken).ConfigureAwait(false);
-
-        var solveFieldArgs = FormatSolveProcessArgs(normalisedFilePath, FormatImageDimenstions(imageDim, range), FormatSearchPosition(searchOrigin, searchRadius));
-        var solveFieldProc = StartRedirectedProcess(CommandFile, solveFieldArgs);
-        if (solveFieldProc is null)
-        {
-            return new PlateSolveResult(null, sw.Elapsed);
-        }
-
-        var outputLines = new ConcurrentQueue<string>();
-        solveFieldProc.OutputDataReceived += (sender, e) => { if (e.Data is string data) { outputLines.Enqueue(data); } };
-        solveFieldProc.ErrorDataReceived += (sender, e) => { if (e.Data is string data) { outputLines.Enqueue(data); } };
-
-        solveFieldProc.BeginOutputReadLine();
-        solveFieldProc.BeginErrorReadLine();
-
-        await solveFieldProc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-
-        var axyFile = Path.ChangeExtension(fitsFile, ".axy");
-        if (File.Exists(axyFile))
-        {
-            File.Delete(axyFile);
-        }
-
-        var wcsFile = Path.ChangeExtension(fitsFile, ".wcs");
-        var hasWCSFile = File.Exists(wcsFile);
-        if (solveFieldProc.ExitCode != 0 || !hasWCSFile)
-        {
-            throw new PlateSolverException($"Failed to solve {normalisedFilePath} file, exit code {solveFieldProc.ExitCode}, has WCS: {hasWCSFile}, log: {string.Join('\n', outputLines)}");
-        }
-
+        // An external solver opens the file itself, so it can only be handed a format it understands.
+        // ASTAP reads plain FITS; a tile-compressed .fz or a .tif is not plain FITS, and handing one
+        // over produces a generic non-zero exit that reads like "could not solve this field" rather
+        // than "could not open this file" -- which is how a .fz master looked like an unsolvable frame.
+        var (solveFilePath, isConverted) = await MaterialiseSolvableFileAsync(fitsFile, cancellationToken).ConfigureAwait(false);
         try
         {
-            using var wcsReader = new BufferedFile(wcsFile, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
-            using var wcs = new Fits(wcsReader);
-            return new PlateSolveResult(WCS.FromFits(wcs), sw.Elapsed);
+            var normalisedFilePath = await NormaliseFilePathAsync(solveFilePath, cancellationToken).ConfigureAwait(false);
+
+            var solveFieldArgs = FormatSolveProcessArgs(normalisedFilePath, FormatImageDimenstions(imageDim, range), FormatSearchPosition(searchOrigin, searchRadius));
+            var solveFieldProc = StartRedirectedProcess(CommandFile, solveFieldArgs);
+            if (solveFieldProc is null)
+            {
+                return new PlateSolveResult(null, sw.Elapsed);
+            }
+
+            var outputLines = new ConcurrentQueue<string>();
+            solveFieldProc.OutputDataReceived += (sender, e) => { if (e.Data is string data) { outputLines.Enqueue(data); } };
+            solveFieldProc.ErrorDataReceived += (sender, e) => { if (e.Data is string data) { outputLines.Enqueue(data); } };
+
+            solveFieldProc.BeginOutputReadLine();
+            solveFieldProc.BeginErrorReadLine();
+
+            await solveFieldProc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+
+            // Derived from the file the solver was actually GIVEN. The tool writes its sidecars beside
+            // its input, so deriving them from the original would look for them next to a file the solver
+            // never saw whenever a conversion happened.
+            var axyFile = Path.ChangeExtension(solveFilePath, ".axy");
+            if (File.Exists(axyFile))
+            {
+                File.Delete(axyFile);
+            }
+
+            var wcsFile = Path.ChangeExtension(solveFilePath, ".wcs");
+            var hasWCSFile = File.Exists(wcsFile);
+            if (solveFieldProc.ExitCode != 0 || !hasWCSFile)
+            {
+                throw new PlateSolverException($"Failed to solve {normalisedFilePath} file, exit code {solveFieldProc.ExitCode}, has WCS: {hasWCSFile}, log: {string.Join('\n', outputLines)}");
+            }
+
+            try
+            {
+                using var wcsReader = new BufferedFile(wcsFile, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
+                using var wcs = new Fits(wcsReader);
+                return new PlateSolveResult(WCS.FromFits(wcs), sw.Elapsed);
+            }
+            finally
+            {
+                File.Delete(wcsFile);
+            }
         }
         finally
         {
-            File.Delete(wcsFile);
+            if (isConverted && File.Exists(solveFilePath))
+            {
+                File.Delete(solveFilePath);
+            }
         }
+    }
+
+    /// <summary>
+    /// Extensions this tool can open directly. Anything else is converted to a plain FITS first.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately the conservative set. Over-claiming costs a confusing failure (the tool exits
+    /// non-zero with no useful message), while under-claiming costs one temp file and a write, so the
+    /// asymmetry says to list only what is certain.
+    /// </remarks>
+    protected virtual string[] NativeFileExtensions => [".fits", ".fit", ".fts"];
+
+    /// <summary>
+    /// Returns a path the external tool can open, converting the input if necessary, and whether the
+    /// result is a temporary that the caller must delete.
+    /// </summary>
+    /// <remarks>
+    /// Conversion rather than refusal: a .fz master IS solvable -- TianWen reads it, and the catalog
+    /// solver solves it -- so declining it here would remove a capability to fix a bug. It mirrors
+    /// <c>IPlateSolver.SolveImageAsync</c>, which already writes a temp FITS for exactly this reason.
+    /// </remarks>
+    protected virtual async Task<(string Path, bool IsConverted)> MaterialiseSolvableFileAsync(
+        string inputFile, CancellationToken cancellationToken = default)
+    {
+        var ext = Path.GetExtension(inputFile).ToLowerInvariant();
+        if (Array.IndexOf(NativeFileExtensions, ext) >= 0)
+        {
+            return (inputFile, false);
+        }
+
+        if (!Image.TryReadImageFile(inputFile, out var image))
+        {
+            throw new PlateSolverException(
+                $"{Name} cannot read {ext} and it could not be converted: {inputFile}");
+        }
+
+        var converted = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".fits");
+        await Task.Run(() => image.WriteToFitsFile(converted), cancellationToken).ConfigureAwait(false);
+        return (converted, true);
     }
 
     protected abstract string FormatImageDimenstions(ImageDim? imageDim, float range);
