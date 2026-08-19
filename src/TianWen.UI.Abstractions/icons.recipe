@@ -42,6 +42,16 @@ Spiral     = U+1F300   # Objects overlay. Three hand-drawn attempts failed first
 Sparkles   = U+2728    # AI enhance. Lets the label drop its "AI: " prefix and show only the backend.
 Magnifier  = U+1F50D   # Zoom. What makes the tri-state Fit / 1:1 / 43% label affordable.
 Telescope  = U+1F52D   # Plate solve: work out where this frame is pointing.
+Globe      = U+1F310   # Coordinate grid. A GLOBE WITH MERIDIANS is a graticule, which is what the
+                       # overlay draws, and it survives the bake because its lines are separated by
+                       # gaps. It replaced a hand-drawn 45-degree hash, whose two failed predecessors
+                       # are the reason a baked glyph won: real meridians drawn as curves need a bow of
+                       # a tenth of the width, which is ONE pixel at 13 units, so the curve was invisible
+                       # and it read as a plain hash; and sampling that bow with two segments puts an
+                       # angular kink on the mark's own midline, so it read as a hexagon. At this size a
+                       # straight line was the only primitive that survived, which is exactly the
+                       # constraint a font designer has already solved. Compass U+1F9ED and card-index
+                       # U+1F5C3 were tried first and both bake solid.
 HeavyCheck = U+2714    # Kept baked as a FALLBACK for a solved plate solve. The label draws this as text
                        # now that the viewer bundles DejaVu Sans, which carries it; before that it
                        # resolved Consolas, which has no check mark, so the tick drew nothing. Note
