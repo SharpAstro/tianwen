@@ -442,7 +442,12 @@ public sealed class ViewerController(
             state.IsSequence = false;
             state.NotifySourceReplaced();
             state.NeedsTextureUpdate = true;
-            state.StatusMessage = "Enhance off";
+            // Deliberately no status message. The upload path clears StatusMessage once the pixels
+            // are on screen (that is how "Loading ..." is dismissed), so anything set here is wiped
+            // by the very frame that draws the reverted image -- a line that reads as feedback and
+            // delivers none. The swap is instant and visible, and the button's highlight going out
+            // is the state, so there is nothing left to caption. The Reload branch below DOES set
+            // one, because there the wait is real and the frame that clears it is seconds away.
             state.NeedsRedraw = true;
             return;
         }
