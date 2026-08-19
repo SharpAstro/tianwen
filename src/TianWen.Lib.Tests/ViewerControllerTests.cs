@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using DIR.Lib;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using Shouldly;
@@ -30,7 +31,8 @@ public class ViewerControllerTests
         var factory = Substitute.For<IPlateSolverFactory>();
         var timeProvider = new FakeTimeProviderWrapper();
         var logger = NullLogger<ViewerController>.Instance;
-        var controller = new ViewerController(state, cache, dialog, factory, timeProvider, logger);
+        var tracker = new BackgroundTaskTracker();
+        var controller = new ViewerController(state, cache, dialog, factory, timeProvider, tracker, logger);
         return (controller, state, cache, dialog, factory);
     }
 

@@ -39,6 +39,7 @@
 //   - TianWen.UI.Abstractions/ViewerState.cs: add ImageContentDirty property
 
 using System;
+using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
@@ -733,6 +734,21 @@ namespace TianWen.UI.Abstractions
         /// branch for it.
         /// </summary>
         public SplitCompareController Split { get; } = new SplitCompareController();
+
+        /// <summary>
+        /// Tracker for background work the viewer starts, set by the host. Null leaves the work
+        /// guarded but untracked, so it is still logged and still cannot fault silently -- it just is
+        /// not drained at shutdown.
+        /// </summary>
+        public BackgroundTaskTracker? Tracker { get; set; }
+
+        /// <summary>Logger for background work and diagnostics, set by the host.</summary>
+        public ILogger? Logger { get; set; }
+
+        /// <summary>
+        /// The host's lifetime token, so background work the viewer starts ends when the app does.
+        /// </summary>
+        public CancellationToken AppToken { get; set; }
 
         /// <summary>Design-unit width of the drawn before/after divider.</summary>
         private const float BaseSplitDividerWidth = 2f;

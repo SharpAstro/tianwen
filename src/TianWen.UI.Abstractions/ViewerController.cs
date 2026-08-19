@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
@@ -23,10 +24,10 @@ public sealed class ViewerController(
     IFileDialogHelper fileDialog,
     IPlateSolverFactory plateSolverFactory,
     ITimeProvider timeProvider,
+    BackgroundTaskTracker tracker,
     ILogger<ViewerController> logger)
 {
     private Task? _loadTask;
-    private Task? _backgroundTask;
     private Task? _starDetectionTask;
     private Task<AstroImageDocument?>? _enhanceTask;
     private CancellationTokenSource? _starDetectionCts;
@@ -313,7 +314,7 @@ public sealed class ViewerController(
         {
             case ToolbarAction.Open:
                 state.StatusMessage = "Opening file dialog...";
-                _backgroundTask = Task.Run(async () =>
+                tracker.RunGuarded(async _ =>
                 {
                     var filters = AstroImageDocument.FileDialogFilters
                         .ToDictionary(f => f.Name, f => (IReadOnlyList<string>)f.Extensions);
@@ -341,13 +342,46 @@ public sealed class ViewerController(
                         }
                         state.RequestedFilePath = picked;
                     }
-                }, appToken);
+                },
+                appToken,
+                logger,
+                "Open file dialog",
+                onError: ex => state.StatusMessage = $"Open failed: {ex.Message}",
+                onFinally: () => state.NeedsRedraw = true);
                 break;
 
             case ToolbarAction.PlateSolve:
-                if (Document is not null && !state.IsPlateSolving && !Document.IsPlateSolved)
+                if (Document is { } solveDoc && !state.IsPlateSolving && !solveDoc.IsPlateSolved)
                 {
-                    _backgroundTask = ViewerActions.PlateSolveAsync(Document, state, plateSolverFactory, logger, appToken);
+                    // Claim the slot HERE, on the render thread, before the work leaves it. The flag is
+                    // what stops a second press starting a second solve, and once the body runs on the
+                    // pool the gap between testing it and setting it is wide enough for a double-click.
+                    state.IsPlateSolving = true;
+                    state.StatusMessage = "Plate solving...";
+
+                    // Task.Run, not a bare call. HandleToolbarAction runs ON the render thread, and a
+                    // solve is mostly synchronous CPU work: the catalog init alone (Tycho-2 bulk decode)
+                    // is a one-off several hundred ms, and downsample / star detection / SIP fit all run
+                    // inline -- only the two proximity-matching branches are on the pool. Awaiting that
+                    // from the render thread froze the UI for the whole solve. Measured on the Bubble
+                    // master: 4.8 s between the factory naming the file and it trying the first solver,
+                    // then ~1.4 s solving.
+                    //
+                    // Which is more than sluggish. Frames stop being submitted while it blocks, and the
+                    // renderer reads that as a GPU that has stopped answering -- the fence wait times
+                    // out, recovery escalates, and a wedge is declared over work the GPU was never
+                    // given. A crash was observed immediately after exactly this solve.
+                    tracker.RunGuarded(
+                        ct => ViewerActions.PlateSolveAsync(solveDoc, state, plateSolverFactory, logger, ct),
+                        appToken,
+                        logger,
+                        "Plate solve",
+                        onError: ex => state.StatusMessage = $"Plate solve error: {ex.Message}",
+                        onFinally: () =>
+                        {
+                            state.IsPlateSolving = false;
+                            state.NeedsRedraw = true;
+                        });
                 }
                 break;
 
@@ -661,7 +695,6 @@ public sealed class ViewerController(
     {
         if (_loadTask is { IsCompleted: true }) _loadTask = null;
         if (_starDetectionTask is { IsCompleted: true }) _starDetectionTask = null;
-        if (_backgroundTask is { IsCompleted: true }) _backgroundTask = null;
 
         // Dispose sources replaced by a newer load, post-frame, so no render still references them. Never
         // release a memory-mapped SER reader while a background decode (SerPreviewSource) or window stack
@@ -714,10 +747,9 @@ public sealed class ViewerController(
         {
             try { await _loadTask; } catch (OperationCanceledException) { logger.LogDebug("Load task cancelled during shutdown"); }
         }
-        if (_backgroundTask is not null)
-        {
-            try { await _backgroundTask; } catch (OperationCanceledException) { logger.LogDebug("Background task cancelled during shutdown"); }
-        }
+        // Everything the tracker holds, in one await. It already swallows and logs, so a failed
+        // background operation cannot take the shutdown down with it.
+        await tracker.DrainAsync();
         if (_enhanceTask is not null)
         {
             try { await _enhanceTask; } catch (OperationCanceledException) { logger.LogDebug("Enhance task cancelled during shutdown"); }

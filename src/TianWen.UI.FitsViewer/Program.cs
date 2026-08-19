@@ -30,12 +30,14 @@ services
     // RC-preferred AI enhancers (sxt/nxt/bxt when the rc-astro CLI is installed + licensed, else the
     // SETI Astro ONNX baseline). Registers SharpenPipeline for the viewer's Enhance action.
     .AddRcAstroAi()
+    .AddSingleton<BackgroundTaskTracker>()
     .AddSingleton<ViewerController>();
 
 var sp = services.BuildServiceProvider();
 var state = sp.GetRequiredService<ViewerState>();
 var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TianWen.UI.FitsViewer");
 var controller = sp.GetRequiredService<ViewerController>();
+var tracker = sp.GetRequiredService<BackgroundTaskTracker>();
 // Wire the AI enhance pipeline so the Enhance toolbar button (+ 'E' shortcut) is active.
 controller.EnhancePipeline = sp.GetRequiredService<SharpenPipeline>();
 
@@ -170,13 +172,26 @@ var imageRenderer = new VkImageRenderer(renderer, (uint)pixW, (uint)pixH)
     Bus = bus,
     DpiScale = sdlWindow.DisplayScale,
     CelestialObjectDB = celestialObjectDB,
+    // The viewer starts its own background work (colour calibration): give it the same tracker and
+    // logger the controller uses, so it is drained at shutdown and its failures reach the app log.
+    Tracker = tracker,
+    Logger = logger,
     // SharpenPipeline is registered (AddRcAstroAi above), so surface the Enhance toolbar button.
     EnhanceAvailable = true
 };
 
-// Kick off DB init eagerly so it's ready when user toggles overlays
 var cts = new CancellationTokenSource();
-_ = celestialObjectDB.WithCancellation(cts.Token);
+imageRenderer.AppToken = cts.Token;
+
+// Kick off DB init eagerly so it is ready when the user toggles overlays. Tracked rather than
+// discarded: the catalog decode is the slowest thing the viewer starts, and a discarded task that
+// throws (a missing or corrupt catalog) would leave the overlays permanently and silently empty.
+tracker.RunGuarded(
+    async ct => await celestialObjectDB.WithCancellation(ct),
+    cts.Token,
+    logger,
+    "Celestial object DB init",
+    onError: _ => state.StatusMessage = "Object catalog unavailable");
 
 // Wire title update from controller
 controller.FileLoaded += name => SetWindowTitle(sdlWindow.Handle, Path.GetFileName(name));
@@ -242,6 +257,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnRender = () =>
     {
+        // Retire finished background work (the file dialog, a plate solve) and log anything that
+        // faulted. Deliberately NOT gated on tracker.HasPending in CheckNeedsRedraw: that would spin
+        // the render loop for the whole of a multi-second solve on a GPU we want quiet. Each guarded
+        // operation flags a redraw in its onFinally instead, so the loop wakes exactly once, here.
+        tracker.ProcessCompletions(logger);
+
         controller.HandleFileRequest(cts.Token);
 
         // Apply a finished AI-enhance result (swaps in the enhanced document + flags a texture

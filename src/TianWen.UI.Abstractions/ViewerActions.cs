@@ -1,3 +1,4 @@
+using DIR.Lib;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -138,36 +139,26 @@ public static class ViewerActions
     /// <summary>
     /// Initiates plate solving in the background.
     /// </summary>
+    /// <remarks>
+    /// The CALLER claims <see cref="ViewerState.IsPlateSolving"/> before handing this to the tracker
+    /// and clears it in the tracker's onFinally. Claiming it here instead would leave the check and the
+    /// set on opposite sides of a thread hand-off, which is exactly wide enough for a second press to
+    /// slip through and start a concurrent solve. Exceptions and cancellation are routed by
+    /// <see cref="BackgroundTaskTracker.RunGuarded"/>, so this body only handles the solver answering
+    /// "not solved", which is a result rather than a fault.
+    /// </remarks>
     public static async Task PlateSolveAsync(AstroImageDocument document, ViewerState state, IPlateSolverFactory solverFactory, ILogger? logger = null, CancellationToken cancellationToken = default)
     {
-        if (state.IsPlateSolving)
-        {
-            return;
-        }
-
-        state.IsPlateSolving = true;
-        state.StatusMessage = "Plate solving...";
-
-        try
-        {
-            var solved = await document.PlateSolveAsync(solverFactory, cancellationToken);
-            state.StatusMessage = solved ? "Plate solved" : "Plate solve failed";
-            if (!solved)
-            {
-                logger?.LogWarning("Plate solve failed for {File}", document.FilePath);
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        var solved = await document.PlateSolveAsync(solverFactory, cancellationToken);
+        state.StatusMessage = solved ? "Plate solved" : "Plate solve failed";
+        if (!solved)
         {
             // Logged, not just shown. A StatusMessage is transient -- the next status overwrites it --
             // so routing the only account of a failure through it means that by the time anyone looks
             // for the reason it is gone, and the log has no record that a solve was even attempted.
-            state.StatusMessage = $"Plate solve error: {ex.Message}";
-            logger?.LogWarning(ex, "Plate solve failed for {File}", document.FilePath);
-        }
-        finally
-        {
-            state.IsPlateSolving = false;
+            // A THROWN failure is logged by the tracker instead; this branch is the solver answering
+            // "no", which is not an exception.
+            logger?.LogWarning("Plate solve failed for {File}", document.FilePath);
         }
     }
 
