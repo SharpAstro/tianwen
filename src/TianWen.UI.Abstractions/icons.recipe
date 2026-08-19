@@ -1,0 +1,48 @@
+# Baked icon recipe -- the single source of truth for BakedIcons.g.cs.
+#
+# Regenerate with:  pwsh tools/bake-icons.ps1
+#
+# WHY THIS FILE EXISTS
+# The generated .g.cs carries a "re-run the tool" banner, but the ARGUMENTS are the part that matters
+# and they lived only in a shell history. So the table could not actually be regenerated without
+# knowing which glyphs, from which font, at which sizes. It is data rather than script so the build can
+# watch it (warning TWIC0001 fires when this file is newer than the generated table) and so a future
+# generator could read the same thing.
+#
+# WHY BAKE AT ALL
+# A mark drawn from a font at RUNTIME is absent where the face is not installed, and a missing glyph
+# draws NOTHING rather than a placeholder, so a button's only mark silently disappears. It also cannot
+# be tinted when the face is colour, so it cannot dim with the label beside it. Baked coverage is
+# monochrome and identical on every host.
+#
+# NOT EVERY GLYPH SURVIVES, AND THE FAILURES ALL LOOK THE SAME: a solid rectangle. The bake keeps the
+# ALPHA silhouette, so a glyph whose structure is drawn in COLOUR collapses. Measured at 13 px against
+# this font, all of these came out fully inked and were rejected:
+#     U+1F4C2 folder      U+1F3AF crosshair    U+1F9EE abacus
+#     U+1F522 input-nums  U+23EB  double-up
+# Verify a candidate by baking it and printing the mask. In a colour preview every one of the above
+# looks like a perfectly good icon.
+#
+# LICENSING: baking redistributes glyph OUTLINES, so the font below must permit that. Noto is OFL. A
+# proprietary system face (seguiemj) is never a valid source, even though a runtime probe may
+# legitimately fall back to one.
+
+# Settings. Paths are relative to THIS file, so the recipe is self-contained.
+font      = ../TianWen.UI.Gui/Fonts/Noto-COLRv1.ttf
+output    = BakedIcons.g.cs
+namespace = TianWen.UI.Abstractions
+
+# Sizes are deliberately omitted: the tool's default ladder is one bake per common DPI scale for a
+# 13-unit mark, and restating it here would be a second copy free to drift from it.
+
+# Glyphs. Name => codepoint; the name becomes the generated field. Each says what it is FOR, because a
+# bare codepoint records nothing about why it earned a bake.
+Spiral     = U+1F300   # Objects overlay. Three hand-drawn attempts failed first: an outline with
+                       # anything inside it reads as an EYE at 13 px, whatever the inner shape is.
+Sparkles   = U+2728    # AI enhance. Lets the label drop its "AI: " prefix and show only the backend.
+Magnifier  = U+1F50D   # Zoom. What makes the tri-state Fit / 1:1 / 43% label affordable.
+Telescope  = U+1F52D   # Plate solve: work out where this frame is pointing.
+HeavyCheck = U+2714    # Kept baked as a FALLBACK for a solved plate solve. The label draws this as text
+                       # now that the viewer bundles DejaVu Sans, which carries it; before that it
+                       # resolved Consolas, which has no check mark, so the tick drew nothing. Note
+                       # U+2713 (plain check) is absent from Noto, so heavy check is the one in both.
