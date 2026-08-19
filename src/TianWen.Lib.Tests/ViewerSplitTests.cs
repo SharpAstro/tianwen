@@ -140,8 +140,6 @@ namespace TianWen.Lib.Tests
             return viewer;
         }
 
-        // A pin taken with everything at its default, which is what the viewer pins when nothing has
-        // been touched yet.
         private static SplitCompareController PinnedAt(DisplayControls controls)
         {
             var split = new SplitCompareController { Mode = SplitCompare.PinnedSettings };
@@ -150,9 +148,12 @@ namespace TianWen.Lib.Tests
             return split;
         }
 
+        private static DisplayControls Boosted(float boost)
+            => DisplayControls.Defaults with { CurvesBoost = boost };
+
         [Theory]
         [InlineData(SplitCompare.BeforePixels, "Before", "After")]
-        [InlineData(SplitCompare.PinnedSettings, "Pinned", "Live (no change)")]
+        [InlineData(SplitCompare.PinnedSettings, "Pinned", "Live (same)")]
         public void EachHalfIsNamedForWhatItActuallyShows(SplitCompare mode, string left, string right)
         {
             // The complaint this answers: after pressing a few buttons it is not clear WHAT the two
@@ -160,93 +161,120 @@ namespace TianWen.Lib.Tests
             // under frozen display SETTINGS on the other. Neither is derivable from the picture.
             var split = new SplitCompareController { Mode = mode };
 
-            split.HalfLabels(default).ShouldBe((left, right));
+            split.HalfLabels(DisplayControls.Defaults).ShouldBe((left, right));
         }
 
         [Fact]
-        public void TheLiveHalfNamesWhatActuallyDiffers()
+        public void TheValueStaysOnTheSideThatActuallyHoldsIt()
         {
-            var split = PinnedAt(default);
+            // The bug this is here for. Pin with a boost, then switch the boost off: the LEFT half is
+            // the boosted one and the right is plain. A label naming only the control that differs
+            // ("Live: Boost") sits over the half with no boost in it and reads as the opposite of the
+            // truth -- correct about the control, backwards about the side.
+            var split = PinnedAt(Boosted(0.25f));
 
-            var live = default(DisplayControls) with { HdrPresetIndex = 2 };
+            var (left, right) = split.HalfLabels(DisplayControls.Defaults);
 
-            split.HalfLabels(live).Right.ShouldBe("Live: HDR");
+            left.ShouldBe("Pinned: Boost 25%");
+            right.ShouldBe("Live: -Boost 25%");
         }
 
         [Fact]
-        public void DifferencesStackAndAreNamedTogether()
+        public void SomethingSwitchedOnSinceThePinReadsAsAnAddition()
         {
-            var split = PinnedAt(default);
+            var split = PinnedAt(DisplayControls.Defaults);
 
-            var live = default(DisplayControls) with
+            var live = DisplayControls.Defaults with { ColorCalibrationEnabled = true };
+
+            split.HalfLabels(live).ShouldBe(("Pinned", "Live: +Calibrate"));
+        }
+
+        [Fact]
+        public void AChangedValueIsNamedByItsNewValueWithNoSign()
+        {
+            // Neither added nor removed: both halves have a boost, they disagree about how much. The
+            // number carries the whole statement, and the pinned half beside it holds the old one.
+            var split = PinnedAt(Boosted(0.25f));
+
+            split.HalfLabels(Boosted(1.5f)).ShouldBe(("Pinned: Boost 25%", "Live: Boost 150%"));
+        }
+
+        [Fact]
+        public void TheContestedControlIsNamedBeforeTheSharedOnes()
+        {
+            // Measured against a real session: the halves differed by the colour calibration, and in
+            // plain declaration order two SHARED controls filled the two-name quota and collapsed the
+            // one that actually differed into "+1" -- hiding the only thing the split was open to
+            // show. A control both halves share is context; one they disagree about is the point.
+            var pinned = DisplayControls.Defaults with
             {
-                HdrPresetIndex = 2,
-                ManualWhiteBalance = (1.2f, 1f, 0.9f),
+                StretchMode = StretchMode.Linked,
+                StretchParameters = new StretchParameters(0.15, -5.0),
+                ColorCalibrationEnabled = true,
             };
+            var live = pinned with { ColorCalibrationEnabled = false };
 
-            split.HalfLabels(live).Right.ShouldBe("Live: HDR, WB");
+            var (left, right) = PinnedAt(pinned).HalfLabels(live);
+
+            left.ShouldStartWith("Pinned: Calibrate");
+            left.ShouldEndWith("+1");
+            right.ShouldBe("Live: -Calibrate");
         }
 
         [Fact]
-        public void TheOrderOfTheNamesDoesNotDependOnTheOrderOfTheClicks()
+        public void ChangingSomethingBackMakesTheHalvesAgreeAgain()
         {
-            // The label describes two STATES, not the sequence that produced them. If it were built in
-            // change order it would reshuffle while the user works, and the same picture would carry
-            // two different labels depending on how it was reached.
-            var split = PinnedAt(default);
+            var split = PinnedAt(DisplayControls.Defaults);
 
-            var hdrThenWb = default(DisplayControls) with { HdrPresetIndex = 2 };
-            hdrThenWb = hdrThenWb with { ManualWhiteBalance = (1.2f, 1f, 0.9f) };
+            split.HalfLabels(Boosted(0.25f)).Right.ShouldBe("Live: +Boost 25%");
 
-            var wbThenHdr = default(DisplayControls) with { ManualWhiteBalance = (1.2f, 1f, 0.9f) };
-            wbThenHdr = wbThenHdr with { HdrPresetIndex = 2 };
-
-            split.HalfLabels(hdrThenWb).Right.ShouldBe(split.HalfLabels(wbThenHdr).Right);
-        }
-
-        [Fact]
-        public void ChangingSomethingBackStopsItBeingNamed()
-        {
-            var split = PinnedAt(default);
-
-            split.HalfLabels(default(DisplayControls) with { CurvesBoostIndex = 3 }).Right
-                .ShouldBe("Live: Boost");
-
-            // Back to the pinned value: the halves genuinely agree again, and saying so is the point --
+            // Back to the pinned value: the halves genuinely agree, and saying so is the point --
             // two identical halves with a line between them is the one state that reads as a bug.
-            split.HalfLabels(default).Right.ShouldBe("Live (no change)");
+            split.HalfLabels(DisplayControls.Defaults).Right.ShouldBe("Live (same)");
         }
 
         [Fact]
         public void ALongListCollapsesIntoACount()
         {
-            var split = PinnedAt(default);
+            var split = PinnedAt(DisplayControls.Defaults);
 
-            var live = default(DisplayControls) with
+            var live = DisplayControls.Defaults with
             {
-                StretchPresetIndex = 1,
-                CurvesBoostIndex = 2,
-                HdrPresetIndex = 3,
+                StretchMode = StretchMode.Linked,
+                CurvesBoost = 0.5f,
+                HdrAmount = 1.5f,
                 ColorCalibrationEnabled = true,
             };
 
-            // Named in declaration order, then a count -- a label that grew without bound would run off
-            // its own half of the pane.
-            split.HalfLabels(live).Right.ShouldBe("Live: Strength, Boost +2");
+            // A label that grew without bound would run off its own half of the pane.
+            split.HalfLabels(live).Right.ShouldBe("Live: +Linked, +Boost 50% +2");
         }
 
         [Fact]
         public void WhiteBalanceAloneDoesNotAlsoReportTheStretch()
         {
-            // The reason this diffs CONTROLS and not the rendition. ComputeStretchUniforms scales the
+            // The reason this reads CONTROLS and not the rendition. ComputeStretchUniforms scales the
             // per-channel stats by white balance before deriving shadows/midtones/rescale, so a
             // rendition diff would report the stretch moving too -- naming a control the user never
             // pressed.
-            var split = PinnedAt(default);
+            var split = PinnedAt(DisplayControls.Defaults);
 
-            var live = default(DisplayControls) with { ManualWhiteBalance = (1.3f, 1f, 0.8f) };
+            var live = DisplayControls.Defaults with { ManualWhiteBalance = (1.3f, 1f, 0.8f) };
 
-            split.HalfLabels(live).Right.ShouldBe("Live: WB");
+            split.HalfLabels(live).Right.ShouldBe("Live: +WB 1.30/1.00/0.80");
+        }
+
+        [Fact]
+        public void TheCurveModeIsSilentWhileTheBoostIsOff()
+        {
+            // The curve mode only reaches the pixels through the boost, so at zero boost the two
+            // halves render identically and naming a difference would send the reader hunting for
+            // something the picture cannot show.
+            var split = PinnedAt(DisplayControls.Defaults);
+
+            var live = DisplayControls.Defaults with { CurvesMode = 1 };
+
+            split.HalfLabels(live).Right.ShouldBe("Live");
         }
 
         [Fact]
@@ -256,8 +284,7 @@ namespace TianWen.Lib.Tests
             // construction and naming any would be a lie.
             var split = new SplitCompareController { Mode = SplitCompare.BeforePixels };
 
-            split.HalfLabels(default(DisplayControls) with { HdrPresetIndex = 2 })
-                .ShouldBe(("Before", "After"));
+            split.HalfLabels(Boosted(0.25f)).ShouldBe(("Before", "After"));
         }
 
         [Fact]
@@ -265,8 +292,9 @@ namespace TianWen.Lib.Tests
         {
             // Both sides share one grey on purpose, so the labels stay descriptive. The pair below must
             // also stay distinguishable: telling the two MODES apart is the whole point.
-            var pixels = new SplitCompareController { Mode = SplitCompare.BeforePixels }.HalfLabels(default);
-            var pinned = new SplitCompareController { Mode = SplitCompare.PinnedSettings }.HalfLabels(default);
+            var d = DisplayControls.Defaults;
+            var pixels = new SplitCompareController { Mode = SplitCompare.BeforePixels }.HalfLabels(d);
+            var pinned = new SplitCompareController { Mode = SplitCompare.PinnedSettings }.HalfLabels(d);
 
             pixels.Left.ShouldNotBe(pixels.Right);
             pinned.Left.ShouldNotBe(pinned.Right);

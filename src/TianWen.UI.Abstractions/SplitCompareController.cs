@@ -165,7 +165,12 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>The user-facing controls as they stood when the pin was taken.</summary>
-        public DisplayControls PinnedControls { get; private set; }
+        /// <remarks>
+        /// Starts at <see cref="DisplayControls.Defaults"/>, never <c>default</c>: an all-zero struct
+        /// describes a white balance of (0,0,0) and a stretch of (0, -0), so a controller with no pin
+        /// yet would label its own untouched half with settings no viewer has ever displayed.
+        /// </remarks>
+        public DisplayControls PinnedControls { get; private set; } = DisplayControls.Defaults;
 
         /// <summary>
         /// Drops retained before-pixels that no longer belong to what is displayed, and takes the split
@@ -257,9 +262,9 @@ namespace TianWen.UI.Abstractions
             {
                 _labelLive = live;
                 _labelPinned = PinnedControls;
-                _liveLabel = DisplayControls.DescribeLive(PinnedControls, live, _labelScratch);
+                (_pinnedLabel, _liveLabel) = DisplayControls.Labels(PinnedControls, live, _labelScratch);
             }
-            return ("Pinned", _liveLabel);
+            return (_pinnedLabel, _liveLabel);
         }
 
         // Memoised on the live controls: this is asked once per painted frame and the answer only
@@ -272,6 +277,7 @@ namespace TianWen.UI.Abstractions
         // placeholder rather than the computed one.
         private DisplayControls? _labelLive;
         private DisplayControls _labelPinned;
+        private string _pinnedLabel = "Pinned";
         private string _liveLabel = "Live";
         private readonly List<string> _labelScratch = new();
     }
