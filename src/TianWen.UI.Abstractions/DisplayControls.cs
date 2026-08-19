@@ -126,6 +126,31 @@ public readonly record struct DisplayControls(
     };
 
     /// <summary>
+    /// What to call a slot that is switched OFF, for slots that have an off state at all.
+    /// </summary>
+    /// <remarks>
+    /// Null for the two slots that are always a value rather than a toggle: every stretch mode IS a
+    /// mode and every stretch parameter pair IS a pair, so there is nothing to be "off" and
+    /// <see cref="DescribeDefault"/> names the value they fell back to instead.
+    /// </remarks>
+    private static string? OffName(Slot slot) => slot switch
+    {
+        Slot.Curves => "Boost",
+        Slot.Hdr => "HDR",
+        Slot.Calibration => "Calibrate",
+        Slot.BackgroundNeutralization => "NeutBg",
+        Slot.WhiteBalance => "WB",
+        _ => null,
+    };
+
+    /// <summary>How an always-a-value slot reads when it sits at its default.</summary>
+    private static string DescribeDefault(Slot slot) => slot switch
+    {
+        Slot.StretchMode => Defaults.StretchMode.ToString(),
+        _ => $"Stretch {Defaults.StretchParameters}",
+    };
+
+    /// <summary>
     /// Names what this snapshot has that is not a default, CONTESTED controls first.
     /// </summary>
     /// <remarks>
@@ -166,11 +191,14 @@ public readonly record struct DisplayControls(
     /// <para>A delta, not a self-description, because the pinned half beside it already states the
     /// baseline in full -- repeating it would make the reader compare two long lists to find the one
     /// token that moved.</para>
-    /// <para>Signed, which is the part a plain difference list cannot express. Naming the control
-    /// alone reads as an attribute of whichever half carries the label: pin with a boost, turn it
-    /// off, and an unsigned "Boost" sits over the half that no longer has any. "-Boost 25%" says the
-    /// boost is what went away, and carries the pinned value so the reader does not have to look
-    /// across the divider for it. A changed value needs no sign; the new number IS the statement.</para>
+    /// <para>Directional, which is the part a plain difference list cannot express. Naming the control
+    /// alone reads as an attribute of whichever half carries the label: pin with a boost, turn it off,
+    /// and a bare "Boost" sits over the half that no longer has any.</para>
+    /// <para>A switched-off control reads "No Boost", NOT "-Boost 25%". A minus in front of a
+    /// percentage reads as a quantity -- boost reduced BY 25%, or a negative boost -- which is a
+    /// different claim from the one being made, and the pinned half states the lost value one word
+    /// across the divider anyway. A changed value needs no marker at all; the new number IS the
+    /// statement.</para>
     /// </remarks>
     private string DeltaLabel(string prefix, in DisplayControls pinned, List<string> scratch)
     {
@@ -188,7 +216,7 @@ public readonly record struct DisplayControls(
             scratch.Add((mine, theirs) switch
             {
                 ({ } added, null) => "+" + added,
-                (null, { } removed) => "-" + removed,
+                (null, _) => OffName(slot) is { } off ? "No " + off : DescribeDefault(slot),
                 var (changed, _) => changed!,
             });
         }
