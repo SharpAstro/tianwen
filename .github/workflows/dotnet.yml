@@ -58,10 +58,11 @@ jobs:
     # (*.fits.gz) saves ~120 MB per pull -- they're only needed by the test
     # jobs, not for compilation or the .nupkg artifact.
     #
-    # The .onnx is 3 MB and this job does not itself ship anything, so it is
-    # here to keep this glob IDENTICAL to publish-apps' -- the two share the
-    # lfs-build- cache, and a set that differs between them means the publish
-    # matrix takes a cache miss on the one object it cannot ship without.
+    # The .onnx in this glob is a leftover and a no-op: the weights are a plain git
+    # blob now, so checkout already carries them and `git lfs pull` has nothing to do
+    # for them. It is kept only so the glob still matches the cache key computed above.
+    # (It used to be here to keep this glob identical to publish-apps', which shared the
+    # lfs-build- cache; that job takes the lfs-payload artifact instead now.)
     - name: Compute LFS cache key
       id: lfs-key
       run: |
@@ -84,6 +85,30 @@ jobs:
           lfs-build-
     - name: Fetch required LFS objects
       run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.onnx"
+    # Hand the materialised files to the publish matrix as an artifact so those legs never
+    # touch LFS at all. They used to restore the lfs-build- cache this job saves, which a
+    # Windows runner cannot read (actions/cache segregates Windows from POSIX entries unless
+    # enableCrossOsArchive is set), so both Windows legs always fell through to a live
+    # `git lfs pull` -- merely costly while the LFS budget held, fatal once it ran dry.
+    # Artifacts cross OSes freely, so the publish legs stop depending on the budget at all.
+    #
+    # Tar rather than handing upload-artifact a path list: it roots paths at their least
+    # common ancestor, which would flatten src/TianWen.Lib/... and src/TianWen.UI.Gui/...
+    # into one tree. The tar keeps repo-relative paths, so a leg unpacks it over its own
+    # checkout and every file lands where the csproj expects it.
+    #
+    # *.onnx is absent on purpose: it is a plain git blob now, so checkout carries it.
+    - name: Package LFS payload for the publish matrix
+      run: |
+        git ls-files '*.lz' '*.ttf' '*.bin.gz' > lfs-payload.list
+        tar -czf lfs-payload.tar.gz -T lfs-payload.list
+        echo "packaged $(wc -l < lfs-payload.list) files, $(du -h lfs-payload.tar.gz | cut -f1)"
+    - uses: actions/upload-artifact@v7
+      with:
+        name: lfs-payload
+        path: lfs-payload.tar.gz
+        if-no-files-found: error
+        retention-days: 1
     - uses: actions/setup-dotnet@v5
       with:
         dotnet-version: 10.0.x
@@ -446,41 +471,34 @@ jobs:
       with:
         submodules: recursive
         lfs: false
-    # Narrow LFS pull: AOT publish needs catalogs (TianWen.Lib EmbeddedResource),
-    # fonts and milkyway texture (TianWen.UI.Gui Content), and the in-repo AI model
-    # weights (TianWen.AI.Imaging Content). No FITS fixtures -- publish never builds
-    # the test projects.
+    # These legs do NOT touch LFS. The build job materialises the same set (catalogs .lz for
+    # TianWen.Lib EmbeddedResource, fonts + milkyway texture for TianWen.UI.Gui Content) and
+    # hands it over as the lfs-payload artifact. No FITS fixtures -- publish never builds the
+    # test projects.
     #
-    # The .onnx is not optional here and its absence is SILENT: without it the
-    # checkout holds a ~130-byte LFS pointer, Content copies that pointer into the
-    # release tarball's models/ dir, and the shipped binary looks complete while
-    # ModelResolver refuses the stub -- so `--ai-backend n2n` is missing from the
-    # release and nothing in the build says so. Test-unit pulled *.onnx from the day
-    # the weights landed; this job did not, which is the whole failure mode.
+    # Why not the lfs-build- cache this used to restore: actions/cache segregates Windows from
+    # POSIX entries unless enableCrossOsArchive is set, so the two Windows legs could not read
+    # the entry the ubuntu build job saves -- not by key, not by the restore-keys prefix -- and
+    # always fell through to a live `git lfs pull`. That merely cost bandwidth while the budget
+    # held, then failed outright once it ran dry: release run #1311 computed the SAME key on all
+    # six legs, all four POSIX legs hit it, and both Windows legs reported "Cache not found".
+    # They could not bootstrap an entry of their own either, since actions/cache saves only when
+    # the job succeeds and this one could not get that far.
     #
-    # Same key as the build job since they pull the same set of LFS objects --
-    # the build cache populates and the publish matrix restores from it.
-    - name: Compute LFS cache key
-      id: lfs-key
+    # The .onnx is not in the payload because it is a plain git blob now, so the checkout above
+    # carries it. It stays in the verify step below, because its absence is SILENT: a ~130-byte
+    # pointer is a valid file, Content copies it into the release tarball's models/ dir, and the
+    # binary looks complete while ModelResolver refuses the stub -- so `--ai-backend n2n` would
+    # go missing from a release with nothing in the build saying so.
+    - name: Download LFS payload
+      uses: actions/download-artifact@v8
+      with:
+        name: lfs-payload
+    - name: Unpack LFS payload
       shell: bash
       run: |
-        HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.onnx' | xargs cat | sha256sum | cut -c1-16)
-        echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v5
-      with:
-        path: .git/lfs
-        key: ${{ steps.lfs-key.outputs.key }}
-        # A changed key (any LFS pointer added or updated) restores the newest previous
-        # object set so `git lfs pull` fetches only the delta. Without this, adding one
-        # 3 MB file meant a full cold re-pull of every object in the glob per leg --
-        # which is what turned the 2026-08-17 LFS-budget refusal into a hard CI failure.
-        # (The budget itself was spent by non-CI pulls; every sampled run that month rode
-        # a cache hit and transferred nothing.)
-        restore-keys: |
-          lfs-build-
-    - name: Fetch required LFS objects
-      shell: bash
-      run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.onnx"
+        tar -xzf lfs-payload.tar.gz
+        rm lfs-payload.tar.gz
     # An unmaterialised pointer does not fail anything on its own -- it is a valid ~130-byte
     # text file, so Content copies it into the tarball, EmbeddedResource embeds it, and the
     # release looks complete while the feature it backs is quietly missing. This is the only
