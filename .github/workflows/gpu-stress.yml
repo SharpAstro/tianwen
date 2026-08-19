@@ -28,6 +28,7 @@ permissions:
 
 jobs:
   stress:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       # Same lavapipe software-Vulkan stack (+ lldb) as the unit-test job -- reproduce the exact

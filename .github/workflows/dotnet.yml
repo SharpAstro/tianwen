@@ -20,6 +20,14 @@ env:
 
 jobs:
   build:
+    # Every job in this repo is bounded. GitHub's default is SIX HOURS, and that is not a
+    # theoretical ceiling: an unreachable apt archive parked a sibling repo's job on it for a whole
+    # morning on 2026-08-19, and a hung step gates everything downstream of it while burning runner
+    # minutes. Healthy durations are noted per job; the limits are generous multiples of them, so a
+    # job over its limit is stuck rather than slow. publish-apps has no measured figure (it only
+    # runs on workflow_dispatch and none is recent), so its bound is a guess sized to catch a hang
+    # rather than to be tight.
+    timeout-minutes: 20   # healthy 3m18s
     runs-on: ubuntu-latest
     # Published for the downstream jobs. $GITHUB_ENV is PER-JOB, so the `echo >> $GITHUB_ENV` step
     # that single-job repos use (Lzip.Lib, the reference implementation) would set VERSION_PREFIX
@@ -154,6 +162,7 @@ jobs:
       working-directory: src
 
   test-unit:
+    timeout-minutes: 25   # healthy ~6m
     needs: build
     env:
       VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
@@ -324,6 +333,7 @@ jobs:
         retention-days: 14
 
   test-functional:
+    timeout-minutes: 20   # healthy 4m24s
     needs: build
     runs-on: ubuntu-latest
     env:
@@ -392,6 +402,7 @@ jobs:
   # which used to blow through the 1 GB/month free tier on every push to main).
   # Use the /release-tianwen skill to invoke a release.
   publish-apps:
+    timeout-minutes: 90   # six AOT RIDs; NOT measured, see the note above
     needs: build
     if: github.event_name == 'workflow_dispatch'
     env:
@@ -553,6 +564,7 @@ jobs:
   # target-platform publishes succeeded. Workflow_dispatch only -- piggybacks
   # off publish-apps, which is also dispatch-gated.
   release:
+    timeout-minutes: 15   # uploads only
     needs: [build, test-unit, test-functional, publish-apps]
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
@@ -586,6 +598,7 @@ jobs:
   # NuGet push still gates on tests -- once a version is pushed to nuget.org
   # we can't take it back, so being on the safer side is worth the serial wait.
   publish-nuget:
+    timeout-minutes: 15   # one push
     needs: [test-unit, test-functional]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'

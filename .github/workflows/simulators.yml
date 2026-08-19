@@ -40,6 +40,7 @@ jobs:
   # decoded by the managed lzip decoder (Lzip.Lib), so no external `lzip` binary is installed; this
   # also spares the Windows leg from pulling the catalog LFS objects itself.
   catalogs:
+    timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -80,6 +81,7 @@ jobs:
         retention-days: 1
 
   alpaca-sim:
+    timeout-minutes: 30
     needs: catalogs
     # Runs on the weekly schedule (inputs.suite is empty there) and on a dispatch selecting alpaca/both.
     if: ${{ github.event_name == 'schedule' || github.event.inputs.suite == 'both' || github.event.inputs.suite == 'alpaca' }}
@@ -152,6 +154,7 @@ jobs:
         retention-days: 7
 
   ascom-sim:
+    timeout-minutes: 45   # installs the ASCOM Platform
     needs: catalogs
     if: ${{ github.event.inputs.suite == 'both' || github.event.inputs.suite == 'ascom' }}
     runs-on: windows-latest

@@ -1,0 +1,104 @@
+name: Install apt packages (cached)
+description: >
+  Install Debian packages from a cache of their .deb files, reaching the archive only when that
+  cache misses. A hit needs no network at all, which is the point: bounding a hung apt-get stops
+  it costing hours, but not needing apt-get is what stops it happening. A miss is bounded and
+  retried, so the worst case is the same as before this cache existed.
+
+  Why not cache-apt-pkgs-action, which this repo already uses in `test`: that action installs only
+  the packages it is named, without their dependencies, so mesa-vulkan-drivers arrived without the
+  driver libs its ICD needs and Vulkan reported "found no drivers". `apt-get install
+  --download-only` resolves the full dependency closure and downloads it, so `dpkg -i` over the
+  result installs the same set a plain apt-get would -- caching AND dependencies, which is what
+  made a cache usable here at all.
+
+  Shared with drawboard/pdf-viewer (where it was written) and SharpAstro/SdlVulkan.Renderer; keep
+  the copies in step. If a fourth consumer appears, promote it to a versioned org-level action
+  instead of copying it again.
+
+inputs:
+  packages:
+    description: Space-separated package names, exactly as apt-get install would take them.
+    required: true
+  cache-name:
+    description: Short name for this package set's cache entry (one per distinct set).
+    required: true
+
+runs:
+  using: composite
+  steps:
+  - name: Compute the apt cache key
+    id: key
+    shell: bash
+    run: |
+      set -euo pipefail
+      # The runner image version is part of the key, and that is load-bearing: --download-only
+      # fetches only what the image LACKS, so a set of .debs is valid for the image that produced
+      # it and no other. Without this, a new runner image silently restores a set whose implicit
+      # dependencies are gone, and dpkg fails in a way that reads like a broken package list.
+      # The package hash means editing `packages` re-keys the cache on its own.
+      hash=$(printf '%s' '${{ inputs.packages }}' | tr ' ' '\n' | sort | sha256sum | cut -c1-16)
+      echo "key=apt-${{ inputs.cache-name }}-${ImageOS:-unknown}-${ImageVersion:-unknown}-${hash}" >> "$GITHUB_OUTPUT"
+
+  - uses: actions/cache@v6
+    with:
+      path: ~/apt-archives
+      key: ${{ steps.key.outputs.key }}
+
+  - name: Install ${{ inputs.cache-name }}
+    shell: bash
+    run: |
+      set -euo pipefail
+      pkgs='${{ inputs.packages }}'
+      archives="$HOME/apt-archives"
+
+      # ForceIPv4 with explicit timeouts: the usual cause of a hang is an AAAA route to the
+      # archive that black-holes rather than refuses, and a bare apt-get waits that out forever.
+      apt_opts="-o Acquire::ForceIPv4=true -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3"
+
+      # `timeout` kills a stall, the loop retries it, and the third failure fails the step rather
+      # than the afternoon. Healthy is seconds; these limits only ever catch a wedged mirror.
+      retry() {
+        local limit="$1"; shift
+        local attempt
+        for attempt in 1 2 3; do
+          sudo timeout "$limit" "$@" && return 0
+          echo "::warning::${1} stalled or failed (attempt ${attempt}/3)"
+          [ "$attempt" = 3 ] && return 1
+          sleep 15
+        done
+      }
+
+      download_and_install() {
+        rm -rf "$archives"
+        mkdir -p "$archives/partial"
+        retry 300 apt-get $apt_opts update || return 1
+        retry 600 apt-get $apt_opts install -y --download-only \
+          -o Dir::Cache::archives="$archives" $pkgs || return 1
+        # actions/cache tars this as the runner user, so hand the root-owned downloads back.
+        sudo chown -R "$(id -u):$(id -g)" "$archives"
+        # Nothing downloaded means the image already had every package, so there is nothing to
+        # dpkg either — an unmatched glob would otherwise reach dpkg as a literal path.
+        if ! ls "$archives"/*.deb >/dev/null 2>&1; then
+          echo "Every package was already present on the image; nothing to install."
+          return 0
+        fi
+        sudo dpkg -i "$archives"/*.deb && return 0
+        # dpkg refusing a freshly-downloaded set means the set is incomplete, not stale. Let apt
+        # resolve it the ordinary way — the network is known good at this point, we just used it.
+        echo "::warning::dpkg could not install the downloaded set; falling back to a plain apt-get install"
+        sudo apt-get $apt_opts install -y $pkgs
+      }
+
+      if ls "$archives"/*.deb >/dev/null 2>&1; then
+        echo "Restored $(ls "$archives"/*.deb | wc -l) .deb files; installing without touching the archive."
+        if sudo dpkg -i "$archives"/*.deb; then
+          exit 0
+        fi
+        # A restored set that dpkg rejects is a stale cache — an image change the key did not
+        # catch, or a partial upload. Discard it and take the slow path.
+        echo "::warning::the cached .deb set did not satisfy this image; re-downloading"
+      else
+        echo "No cached .deb files; downloading."
+      fi
+      download_and_install

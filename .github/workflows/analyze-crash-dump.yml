@@ -30,6 +30,7 @@ permissions:
 
 jobs:
   analyze:
+    timeout-minutes: 20
     # x64 Linux so the DAC/runtime matches the ubuntu-latest test host that produced the dump.
     runs-on: ubuntu-latest
     steps:
@@ -38,11 +39,19 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      - name: Install native + managed dump tooling
+      # Cached + bounded rather than a bare apt-get. This workflow is the one you reach for when
+      # something has already gone wrong, so it is the worst place for the install itself to hang:
+      # a wedged mirror on a bare apt-get waits out the job's whole limit and the dump goes
+      # unanalysed. See .github/actions/apt-install.
+      - name: Install native dump tooling
+        uses: ./.github/actions/apt-install
+        with:
+          cache-name: lldb
+          packages: lldb
+
+      - name: Install managed dump tooling
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y lldb
           dotnet tool install -g dotnet-dump
           echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
