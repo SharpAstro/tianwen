@@ -1020,9 +1020,24 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             // Vulkan forbids binding one that references a destroyed view even if the shader never
             // samples it. With no before retained it simply mirrors the live views.
             BindChannelSampler(i, _channelViews[i], _beforeSamplerSet);
+        }
 
+        // The histogram placeholders are FULL-WIDTH (HistogramBins x 1), unlike the 1x1 channel
+        // placeholders above, so they need their own staging of HistogramBins zero floats -- staged
+        // once, uploaded three times (UploadToImage is synchronous, so the reuse is safe). Reusing
+        // the 1-float staging recorded a 2048-byte copy against a 4-byte buffer on every startup: a
+        // GPU read 2044 bytes past the end of the allocation, once per channel
+        // (VUID-vkCmdCopyBufferToImage-pRegions-00171), which a desktop driver absorbs silently and
+        // a mobile part is entitled to fault on.
+        var histPlaceholder = new float[HistogramBins];
+        var histByteSize = (ulong)(histPlaceholder.Length * sizeof(float));
+        EnsureStagingBuffer(histByteSize);
+        CopyToStaging(histPlaceholder.AsSpan(), histByteSize);
+
+        for (var i = 0; i < ChannelCount; i++)
+        {
             CreateHistogramTexture(i);
-            UploadToImage(_histImages[i], HistogramBins, 1, byteSize, VkFormat.R32Sfloat);
+            UploadToImage(_histImages[i], HistogramBins, 1, histByteSize, VkFormat.R32Sfloat);
             BindChannelSampler(i, _histViews[i], _histogramSamplerSet);
         }
     }
