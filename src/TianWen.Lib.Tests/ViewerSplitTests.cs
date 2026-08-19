@@ -140,6 +140,139 @@ namespace TianWen.Lib.Tests
             return viewer;
         }
 
+        // A pin taken with everything at its default, which is what the viewer pins when nothing has
+        // been touched yet.
+        private static SplitCompareController PinnedAt(DisplayControls controls)
+        {
+            var split = new SplitCompareController { Mode = SplitCompare.PinnedSettings };
+            split.RequestPin();
+            split.ConsumePinRequest(default, controls);
+            return split;
+        }
+
+        [Theory]
+        [InlineData(SplitCompare.BeforePixels, "Before", "After")]
+        [InlineData(SplitCompare.PinnedSettings, "Pinned", "Live (no change)")]
+        public void EachHalfIsNamedForWhatItActuallyShows(SplitCompare mode, string left, string right)
+        {
+            // The complaint this answers: after pressing a few buttons it is not clear WHAT the two
+            // halves are, and the answer differs by mode -- pre-enhance PIXELS on one, the same pixels
+            // under frozen display SETTINGS on the other. Neither is derivable from the picture.
+            var split = new SplitCompareController { Mode = mode };
+
+            split.HalfLabels(default).ShouldBe((left, right));
+        }
+
+        [Fact]
+        public void TheLiveHalfNamesWhatActuallyDiffers()
+        {
+            var split = PinnedAt(default);
+
+            var live = default(DisplayControls) with { HdrPresetIndex = 2 };
+
+            split.HalfLabels(live).Right.ShouldBe("Live: HDR");
+        }
+
+        [Fact]
+        public void DifferencesStackAndAreNamedTogether()
+        {
+            var split = PinnedAt(default);
+
+            var live = default(DisplayControls) with
+            {
+                HdrPresetIndex = 2,
+                ManualWhiteBalance = (1.2f, 1f, 0.9f),
+            };
+
+            split.HalfLabels(live).Right.ShouldBe("Live: HDR, WB");
+        }
+
+        [Fact]
+        public void TheOrderOfTheNamesDoesNotDependOnTheOrderOfTheClicks()
+        {
+            // The label describes two STATES, not the sequence that produced them. If it were built in
+            // change order it would reshuffle while the user works, and the same picture would carry
+            // two different labels depending on how it was reached.
+            var split = PinnedAt(default);
+
+            var hdrThenWb = default(DisplayControls) with { HdrPresetIndex = 2 };
+            hdrThenWb = hdrThenWb with { ManualWhiteBalance = (1.2f, 1f, 0.9f) };
+
+            var wbThenHdr = default(DisplayControls) with { ManualWhiteBalance = (1.2f, 1f, 0.9f) };
+            wbThenHdr = wbThenHdr with { HdrPresetIndex = 2 };
+
+            split.HalfLabels(hdrThenWb).Right.ShouldBe(split.HalfLabels(wbThenHdr).Right);
+        }
+
+        [Fact]
+        public void ChangingSomethingBackStopsItBeingNamed()
+        {
+            var split = PinnedAt(default);
+
+            split.HalfLabels(default(DisplayControls) with { CurvesBoostIndex = 3 }).Right
+                .ShouldBe("Live: Boost");
+
+            // Back to the pinned value: the halves genuinely agree again, and saying so is the point --
+            // two identical halves with a line between them is the one state that reads as a bug.
+            split.HalfLabels(default).Right.ShouldBe("Live (no change)");
+        }
+
+        [Fact]
+        public void ALongListCollapsesIntoACount()
+        {
+            var split = PinnedAt(default);
+
+            var live = default(DisplayControls) with
+            {
+                StretchPresetIndex = 1,
+                CurvesBoostIndex = 2,
+                HdrPresetIndex = 3,
+                ColorCalibrationEnabled = true,
+            };
+
+            // Named in declaration order, then a count -- a label that grew without bound would run off
+            // its own half of the pane.
+            split.HalfLabels(live).Right.ShouldBe("Live: Strength, Boost +2");
+        }
+
+        [Fact]
+        public void WhiteBalanceAloneDoesNotAlsoReportTheStretch()
+        {
+            // The reason this diffs CONTROLS and not the rendition. ComputeStretchUniforms scales the
+            // per-channel stats by white balance before deriving shadows/midtones/rescale, so a
+            // rendition diff would report the stretch moving too -- naming a control the user never
+            // pressed.
+            var split = PinnedAt(default);
+
+            var live = default(DisplayControls) with { ManualWhiteBalance = (1.3f, 1f, 0.8f) };
+
+            split.HalfLabels(live).Right.ShouldBe("Live: WB");
+        }
+
+        [Fact]
+        public void APixelComparisonNamesNoSettings()
+        {
+            // Both halves share the live rendition in pixel mode, so the settings are identical by
+            // construction and naming any would be a lie.
+            var split = new SplitCompareController { Mode = SplitCompare.BeforePixels };
+
+            split.HalfLabels(default(DisplayControls) with { HdrPresetIndex = 2 })
+                .ShouldBe(("Before", "After"));
+        }
+
+        [Fact]
+        public void TheTwoLabelsNeverReadAsOneBeingBetter()
+        {
+            // Both sides share one grey on purpose, so the labels stay descriptive. The pair below must
+            // also stay distinguishable: telling the two MODES apart is the whole point.
+            var pixels = new SplitCompareController { Mode = SplitCompare.BeforePixels }.HalfLabels(default);
+            var pinned = new SplitCompareController { Mode = SplitCompare.PinnedSettings }.HalfLabels(default);
+
+            pixels.Left.ShouldNotBe(pixels.Right);
+            pinned.Left.ShouldNotBe(pinned.Right);
+            pixels.ShouldNotBe(pinned);
+        }
+
         [Fact]
         public void WithTheSplitOff_ItDrawsOnceFromTheLiveSlot()
         {
