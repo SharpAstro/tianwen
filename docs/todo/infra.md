@@ -9,6 +9,22 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 ## CI
 
+- [ ] **Set `enableCrossOsArchive: true` on the LFS cache steps** (deferred 2026-08-20; do it once the
+  LFS budget resets in 2026-09). `actions/cache` segregates Windows entries from POSIX ones unless this
+  is set, so a Windows job can never restore the `lfs-build-` entry the ubuntu `build` job saves -- not
+  by key, not by the `restore-keys` prefix -- and cannot bootstrap one of its own, because a cache is
+  saved only when the job succeeds. Measured on release run #1311: all six `publish-apps` legs computed
+  the same key `lfs-build-5dcb5df07512d63d`, both Linux legs AND both macOS legs hit it, and only the two
+  Windows legs reported `Cache not found`. macOS restoring a Linux-saved entry is what rules out a
+  generic per-OS scoping story -- the split is specifically Windows, which is what the flag exists for.
+  **Why deferred:** the flag changes the computed cache *version*, so enabling it invalidates every
+  existing `lfs-build-*` and `lfs-tests-*` entry. While the budget is dry a miss means a live
+  `git lfs pull` that gets refused, so turning it on today would take the currently-green `build`,
+  `test-unit` and `test-functional` jobs red -- including the ~197 MB test-fixture pull. After the reset
+  the same change costs one cheap re-save.
+  **Not blocking:** `publish-apps` no longer reads that cache at all (it takes its files from the
+  `lfs-payload` artifact), so this is about the remaining cache users and any future Windows job.
+
 - [ ] **REVERT the n2n model out of plain git and back into LFS** (added 2026-08-19, expected to revert 2026-09,
   when the replacement model lands). `src/TianWen.AI.Imaging/models/*.onnx` carries an `!filter !diff !merge`
   exception in `.gitattributes` so `tianwen_denoise_osc_v19d.onnx` is stored as an ordinary 3.1 MB blob.
