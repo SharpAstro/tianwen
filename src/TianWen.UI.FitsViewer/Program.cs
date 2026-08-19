@@ -16,7 +16,14 @@ using static SDL3.SDL;
 // DI setup, before args processing so logger is available for early errors
 var services = new ServiceCollection();
 services
+    // Debug in a Debug build: the viewer was the ONLY app not to state a level, so it ran at the
+    // factory default (Information) while the GUI, CLI and server all ask for more. Every per-solver
+    // plate-solve line is Debug, so a failed solve left nothing in the file to read.
+#if DEBUG
+    .AddFileLogging("FitsViewer", LogLevel.Debug)
+#else
     .AddFileLogging("FitsViewer")
+#endif
     .AddFitsViewer()
     .AddExternal()
     .AddAstrometry()

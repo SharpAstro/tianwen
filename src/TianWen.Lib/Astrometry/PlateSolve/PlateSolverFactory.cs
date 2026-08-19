@@ -66,6 +66,7 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers, ILog
         logger.LogInformation("PlateSolve file: {File}, imageDim={ImageDim}, searchOrigin={SearchOrigin}, searchRadius={SearchRadius}",
             fitsFile, imageDim, searchOrigin, searchRadius);
 
+        var attempts = new List<string>();
         foreach (var solver in await EnsureSolversAsync(cancellationToken).ConfigureAwait(false))
         {
             try
@@ -80,15 +81,22 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers, ILog
                 }
                 else
                 {
+                    attempts.Add($"{solver.Name}: no solution");
                     logger.LogDebug("Solver {SolverName} returned no solution", solver.Name);
                 }
             }
             catch (PlateSolverException ex)
             {
+                attempts.Add($"{solver.Name}: {Summarise(ex.Message)}");
                 logger.LogDebug(ex, "Solver {SolverName} failed", solver.Name);
             }
         }
 
+        // ONE warning naming every solver and what it said. The per-solver lines above are Debug, which
+        // is right for detail, but it left a failed solve with no record at all at the default level --
+        // while a SUCCESSFUL one logged at Information. That asymmetry is backwards: failure is exactly
+        // when the reason is wanted, and a status string in the UI is gone by the time anyone looks.
+        logger.LogWarning("No plate solver could solve the image. Tried: {Attempts}", string.Join(" | ", attempts));
         throw new PlateSolverException("No plate solver could solve the image");
     }
 
@@ -97,6 +105,7 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers, ILog
         logger.LogInformation("PlateSolve image: {Width}x{Height}, imageDim={ImageDim}, searchOrigin={SearchOrigin}, searchRadius={SearchRadius}",
             image.Width, image.Height, imageDim, searchOrigin, searchRadius);
 
+        var attempts = new List<string>();
         foreach (var solver in await EnsureSolversAsync(cancellationToken).ConfigureAwait(false))
         {
             try
@@ -111,16 +120,35 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers, ILog
                 }
                 else
                 {
+                    attempts.Add($"{solver.Name}: no solution");
                     logger.LogDebug("Solver {SolverName} returned no solution", solver.Name);
                 }
             }
             catch (PlateSolverException ex)
             {
+                attempts.Add($"{solver.Name}: {Summarise(ex.Message)}");
                 logger.LogDebug(ex, "Solver {SolverName} failed", solver.Name);
             }
         }
 
+        // ONE warning naming every solver and what it said. The per-solver lines above are Debug, which
+        // is right for detail, but it left a failed solve with no record at all at the default level --
+        // while a SUCCESSFUL one logged at Information. That asymmetry is backwards: failure is exactly
+        // when the reason is wanted, and a status string in the UI is gone by the time anyone looks.
+        logger.LogWarning("No plate solver could solve the image. Tried: {Attempts}", string.Join(" | ", attempts));
         throw new PlateSolverException("No plate solver could solve the image");
+    }
+
+    /// <summary>Keeps one solver's failure readable in a joined summary line.</summary>
+    private static string Summarise(string message)
+    {
+        var firstLine = message.AsSpan();
+        var newline = firstLine.IndexOfAny('\r', '\n');
+        if (newline >= 0)
+        {
+            firstLine = firstLine[..newline];
+        }
+        return firstLine.Length > 200 ? string.Concat(firstLine[..200], "...") : firstLine.ToString();
     }
 
     private async ValueTask<IPlateSolver[]> EnsureSolversAsync(CancellationToken cancellationToken)

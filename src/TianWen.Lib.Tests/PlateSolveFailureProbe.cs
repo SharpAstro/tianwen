@@ -1,10 +1,15 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Extensions;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
+using Shouldly;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -94,6 +99,120 @@ public class PlateSolveFailureProbe(ITestOutputHelper output)
             {
                 sw.Stop();
                 output.WriteLine($"{label,-10} THREW after {sw.ElapsedMilliseconds}ms: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ReportWhatTheFactoryChainDoes()
+    {
+        var path = Environment.GetEnvironmentVariable(PathVar);
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(path), $"{PathVar} not set");
+        Assert.SkipUnless(System.IO.File.Exists(path), $"{PathVar} does not exist: {path}");
+
+        var ct = TestContext.Current.CancellationToken;
+
+        // The REAL chain, as the viewer resolves it -- not the bare CatalogPlateSolver. The viewer
+        // goes through PlateSolverFactory, which walks every supported solver in priority order, and
+        // this box has astap_cli installed, so the catalog solver is not necessarily the one that ran.
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddLogging(b => b
+            .AddProvider(new OutputLoggerProvider(output))
+            .SetMinimumLevel(LogLevel.Trace));
+        services.AddExternal().AddAstrometry();
+        var sp = services.BuildServiceProvider();
+
+        var factory = sp.GetRequiredService<IPlateSolverFactory>();
+        output.WriteLine($"supported  {await factory.CheckSupportAsync(ct)}");
+        output.WriteLine($"selected   {factory.SelectedPlateSolver?.Name ?? "(none)"}");
+
+        Image.TryReadFitsFile(path!, out var image, out var fileWcs);
+        var dim = image?.GetImageDim();
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = await factory.SolveFileAsync(path!, dim, searchOrigin: fileWcs, cancellationToken: ct);
+            sw.Stop();
+            output.WriteLine(result.Solution is { } s
+                ? $"FACTORY SOLVED in {sw.ElapsedMilliseconds}ms: RA={s.CenterRA:F4}h Dec={s.CenterDec:F3}"
+                : $"FACTORY NO SOLUTION after {sw.ElapsedMilliseconds}ms");
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            output.WriteLine($"FACTORY THREW after {sw.ElapsedMilliseconds}ms: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    [Fact]
+    public async Task ReportWhetherAstapCanTakeTheFileAtAll()
+    {
+        var path = Environment.GetEnvironmentVariable(PathVar);
+        Assert.SkipWhen(string.IsNullOrWhiteSpace(path), $"{PathVar} not set");
+        Assert.SkipUnless(System.IO.File.Exists(path), $"{PathVar} does not exist: {path}");
+
+        var ct = TestContext.Current.CancellationToken;
+
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddLogging(b => b.AddProvider(new OutputLoggerProvider(output)).SetMinimumLevel(LogLevel.Trace));
+        services.AddExternal().AddAstrometry();
+        var sp = services.BuildServiceProvider();
+
+        // The external solver specifically, not the factory -- the catalog solver would answer first
+        // and this is about whether ASTAP can be handed a .fz at all.
+        var astap = sp.GetServices<IPlateSolver>().FirstOrDefault(s => s.Name.Contains("ASTAP", StringComparison.OrdinalIgnoreCase));
+        if (astap is null)
+        {
+            output.WriteLine("ASTAP solver not registered");
+            return;
+        }
+
+        var supported = await astap.CheckSupportAsync(ct);
+        output.WriteLine($"astap supported: {supported}");
+        Assert.SkipUnless(supported, "astap_cli not installed");
+
+        Image.TryReadFitsFile(path!, out var image, out var fileWcs);
+        var dim = image?.GetImageDim();
+
+        var sw = Stopwatch.StartNew();
+        try
+        {
+            var result = await astap.SolveFileAsync(path!, dim, searchOrigin: fileWcs, cancellationToken: ct);
+            sw.Stop();
+            output.WriteLine(result.Solution is { } s
+                ? $"ASTAP SOLVED in {sw.ElapsedMilliseconds}ms: RA={s.CenterRA:F4}h Dec={s.CenterDec:F3}"
+                : $"ASTAP NO SOLUTION after {sw.ElapsedMilliseconds}ms");
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            output.WriteLine($"ASTAP THREW after {sw.ElapsedMilliseconds}ms: {ex.GetType().Name}");
+            output.WriteLine($"  {ex.Message[..Math.Min(400, ex.Message.Length)]}");
+        }
+    }
+
+    private sealed class OutputLoggerProvider(ITestOutputHelper output) : ILoggerProvider
+    {
+        public ILogger CreateLogger(string categoryName) => new CategoryLogger(output, categoryName);
+
+        public void Dispose() { }
+
+        private sealed class CategoryLogger(ITestOutputHelper output, string category) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                var shortCategory = category[(category.LastIndexOf('.') + 1)..];
+                output.WriteLine($"  [{logLevel}] {shortCategory}: {formatter(state, exception)}");
+                if (exception is not null)
+                {
+                    output.WriteLine($"    !! {exception.GetType().Name}: {exception.Message}");
+                }
             }
         }
     }

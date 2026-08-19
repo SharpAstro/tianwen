@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -137,7 +138,7 @@ public static class ViewerActions
     /// <summary>
     /// Initiates plate solving in the background.
     /// </summary>
-    public static async Task PlateSolveAsync(AstroImageDocument document, ViewerState state, IPlateSolverFactory solverFactory, CancellationToken cancellationToken = default)
+    public static async Task PlateSolveAsync(AstroImageDocument document, ViewerState state, IPlateSolverFactory solverFactory, ILogger? logger = null, CancellationToken cancellationToken = default)
     {
         if (state.IsPlateSolving)
         {
@@ -151,10 +152,18 @@ public static class ViewerActions
         {
             var solved = await document.PlateSolveAsync(solverFactory, cancellationToken);
             state.StatusMessage = solved ? "Plate solved" : "Plate solve failed";
+            if (!solved)
+            {
+                logger?.LogWarning("Plate solve failed for {File}", document.FilePath);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // Logged, not just shown. A StatusMessage is transient -- the next status overwrites it --
+            // so routing the only account of a failure through it means that by the time anyone looks
+            // for the reason it is gone, and the log has no record that a solve was even attempted.
             state.StatusMessage = $"Plate solve error: {ex.Message}";
+            logger?.LogWarning(ex, "Plate solve failed for {File}", document.FilePath);
         }
         finally
         {
