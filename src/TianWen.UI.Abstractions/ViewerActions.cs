@@ -22,7 +22,6 @@ public static class ViewerActions
         state.StretchMode = state.StretchMode is StretchMode.None ? StretchMode.Unlinked : StretchMode.None;
         state.HistogramLogScale = state.StretchMode is StretchMode.None;
         state.NeedsRedraw = true;
-        state.StatusMessage = state.StretchMode is StretchMode.None ? "Stretch: Off" : "Stretch: On";
     }
 
     // Cycle order for stretch link: excludes None. Internal so the dropdown
@@ -38,7 +37,6 @@ public static class ViewerActions
         idx = (idx + (reverse ? len - 1 : 1)) % len;
         state.StretchMode = StretchLinkModes[idx];
         state.NeedsRedraw = true;
-        state.StatusMessage = $"Stretch: {state.StretchMode}";
     }
 
     public static void CycleChannelView(ViewerState state, int channelCount)
@@ -61,7 +59,6 @@ public static class ViewerActions
             state.ChannelView = (ChannelView)ch;
         }
         state.NeedsTextureUpdate = true;
-        state.StatusMessage = $"Channel: {state.ChannelView}";
     }
 
     private const int DebayerAlgorithmCount = 5; // None, BilinearMono, VNG, AHD, MHC (contiguous enum values)
@@ -74,7 +71,6 @@ public static class ViewerActions
         // RawBayer (SER / raw Bayer FITS) re-derives the GPU demosaic mode in UploadDocumentTextures,
         // so the bilinear<->MHC switch is live (a CPU-debayered colour FITS is unaffected).
         state.NeedsTextureUpdate = true;
-        state.StatusMessage = $"Debayer: {state.DebayerAlgorithm.DisplayName}";
     }
 
     public static void CycleCurvesBoost(ViewerState state, bool reverse = false)
@@ -85,9 +81,6 @@ public static class ViewerActions
             : (state.CurvesBoostIndex + 1) % len;
         state.CurvesBoost = ViewerState.CurvesBoostPresets[state.CurvesBoostIndex];
         state.NeedsRedraw = true;
-        state.StatusMessage = state.CurvesBoost > 0f
-            ? $"Curves Boost: {UiFormat.Percent0(state.CurvesBoost)}"
-            : "Curves Boost: Off";
     }
 
     /// <summary>Cycles between power-law boost (mode 0) and spline LUT (mode 1).</summary>
@@ -125,7 +118,6 @@ public static class ViewerActions
             : (state.StretchPresetIndex + 1) % presets.Length;
         state.StretchParameters = presets[state.StretchPresetIndex];
         state.NeedsRedraw = true;
-        state.StatusMessage = $"Stretch: {state.StretchParameters}";
     }
 
     /// <summary>
