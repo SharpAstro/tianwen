@@ -53,12 +53,36 @@ ahead of them a caret is drawn from a multi-megabyte CJK font.
 | **F1** | `FontResolver.ResolveEmojiFont(extra)` + `ResolveSymbolFont(extra)` with per-OS tables; `""` on miss, matching `ResolveSystemFont` | DIR.Lib | Windows `seguiemj`/`seguisym`; macOS Apple Color Emoji / Apple Symbols; Linux Noto Color Emoji + DejaVu. Bundled assets arrive via `extra`, so DIR.Lib needs no knowledge of a caller's layout |
 | **F2** | Delete `EmojiFonts.cs`; both hosts call F1; GUI passes `symbolFontPath:` to `FromRoles` | tianwen | Needs the DIR.Lib release F1 ships in |
 | **F3** | Viewer builds a `FontFallbackResolver` and routes `DrawText` through it; emoji marks gate on `CanRender(Rune)` rather than file existence | tianwen | This is what makes the mark fallback correct rather than lucky |
-| **B1** | `tools/BakeIcons`: manifest -> rasterise via `ManagedFontRasterizer` -> coverage mask -> **rect runs** -> one generated C# file | tianwen | Mirror `BakeShaders` incl. the staleness warning |
-| **B2** | Toolbar marks consume baked icons; drop the emoji draw and the hand-drawn spiral | tianwen | Baked icons are single-channel, so they tint and dim like any other ink |
+| **B1** | **DONE** (DIR.Lib 8.5). `IconBaker` (glyph -> coverage runs) + `PixelWidgetBase.DrawCoverageMask`, and the `DIR.Lib.IconBaker` tool over them | DIR.Lib | Landed UPSTREAM, not as `tools/BakeIcons`: see the note below. `dnx DIR.Lib.IconBaker` |
+| **B2** | **DONE**. The Objects mark is the baked `Spiral` (U+1F300); the emoji draw and the hand-drawn spiral are both gone | tianwen | Baked icons are single-channel, so they tint and dim like any other ink |
 | **B3** | Consider upstreaming the monochrome, stateless marks as `IconKind` members | DIR.Lib | Only if a cell surface can say them; see the open question below |
 
 F1-F3 and B1-B3 are independent. **Nothing else is blocked on either**: the toolbar marks shipped
 without them, using the interim resolver plus a geometric fallback.
+
+### Where the bake actually landed, and why not here
+
+B1 was planned as `tools/BakeIcons` in this repo, mirroring `tools/BakeShaders`. It shipped in **DIR.Lib**
+instead, split in two, and the split is the part worth keeping straight:
+
+- **`IconBaker` is a library API**, not a build step, because a build-time bake cannot serve every case: a
+  theme that turns the whole UI one colour (Night) wants its normally-full-colour emoji as tintable
+  coverage, and which emoji those are is not known until the app draws them. Runtime callers cache per
+  (codepoint, size).
+- **`DIR.Lib.IconBaker` is the tool**, consumed via `dnx DIR.Lib.IconBaker`. It owns only the generated-file
+  format and the argument parsing. It ships from the library's repo because nothing in it is
+  app-specific -- which glyphs, at which sizes, into which namespace are all arguments -- so leaving it in
+  the first app that needed it would have produced a vendored copy the moment a second app wanted icons.
+
+The generated data stays app-local (`src/TianWen.UI.Abstractions/BakedIcons.g.cs`, committed), which also
+answers the plan's open question below for the DATA even though B3 (upstreaming the marks as `IconKind`)
+is still open.
+
+**The `TWSH0001`-style staleness warning was NOT built, deliberately.** A timestamp check is the weaker
+tool here: `ManagedFontRasterizer` is pure managed, so a re-bake is byte-reproducible on any host (verified
+by re-baking `BakedIcons.g.cs` with the moved tool and diffing -- identical). That admits a CI step that
+**re-bakes and compares**, which catches a hand-edited or half-committed table, where a timestamp only
+catches a *forgotten* re-bake. Still outstanding.
 
 ## Traps
 
