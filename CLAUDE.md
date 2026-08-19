@@ -2278,6 +2278,35 @@ varying value to constants and reintroduce the threading). The two **static, non
 `fontFamily`/`fontPath`/`emojiFontPath` parameters and are fed the caller's `FontPath`/`EmojiFontPath`.
 Plan + full breakdown: [`docs/plans/dpi-scale.md`](docs/plans/dpi-scale.md).
 
+**Which FACE those properties get is one decision, in one place: `BundledFonts.Resolve()`.** It returns
+`(Text, Emoji, Fallback)` **together** -- app policy is "prefer the file we ship, per role", and DIR.Lib's
+`FontResolver` owns every platform role behind it (`ResolveSystemFont` / `ResolveSystemScriptFonts` /
+`ResolveEmojiFont`, the last added in 8.7). All three hosts call it: `VkGuiRenderer`, `ImageRendererBase`,
+`TuiFontPath`. **A direct `FontResolver.` call in production code is a regression** (tests are exempt and
+should keep using it -- a layout test wants a deterministic always-present face, not the bundled-first
+policy). Four things this shape is load-bearing for:
+
+- **Resolving a SUBSET is the bug it prevents.** Both UI hosts used to resolve the roles themselves in the
+  same order, and only the GUI chrome went on to build the coverage chain -- so the viewer had faces but no
+  `FontFallback`, could not ask `CanRender`, and therefore gated marks on file existence. Every missing
+  glyph was then found visually, per glyph, by a human looking at the toolbar (the blank plate-solve tick
+  and the flat-topped globe both).
+- **The per-process `Lazy<FontSet>` cache is not an optimisation.** `ResolveSystemScriptFonts` looks up ~14
+  family NAMES, i.e. enumerates installed fonts. One chrome object resolves for every GUI tab, but the
+  viewer is constructed several times over (preview, guide-cam, planetary), so an uncached shared entry
+  point would multiply that by widget count.
+- **Adopt a shared chain only when its primary IS the face in use.** `ImageRendererBase` checks
+  `FontPath == chain.PrimaryFontPath`. A host that pushed its own text face would otherwise get coverage
+  answers about a different primary: the chain calls a rune drawable because the bundled face carries it,
+  while the widget draws with the pushed one and shows nothing.
+- **Bundled first, because a bundled face is the only one whose COVERAGE is known.** A system face that
+  lacks a codepoint draws NOTHING, which is indistinguishable from a broken control -- the Windows
+  monospace default is Consolas, which carries no check mark. Falling back to the platform is still right:
+  a host that bundles nothing must draw something.
+
+Outstanding (`docs/plans/font-roles-and-icon-baking.md` F1-F3, PARTLY DONE): no `ResolveSymbolFont` yet, so
+`symbolFontPath:` is not passed; and marks still gate on file existence rather than `CanRender(Rune)`.
+
 ### Signal Handler Pattern: Route, Don't Implement
 
 The lightweight `SignalBus` is our alternative to MediatR/MVVM. `AppSignalHandler.cs` subscribe
