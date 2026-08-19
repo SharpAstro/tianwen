@@ -71,6 +71,7 @@ concurrency:
 
 jobs:
   build:
+    timeout-minutes: 45   # mono AOT wasm publish
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -202,6 +203,7 @@ jobs:
           path: publish/wwwroot
 
   deploy:
+    timeout-minutes: 10
     needs: build
     runs-on: ubuntu-latest
     environment:
