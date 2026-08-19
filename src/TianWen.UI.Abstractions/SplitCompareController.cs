@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DIR.Lib;
 
 namespace TianWen.UI.Abstractions
@@ -150,14 +151,21 @@ namespace TianWen.UI.Abstractions
         /// Consumes a pending pin request against the rendition being displayed right now. Called from
         /// the paint, the one place the live uniforms exist.
         /// </summary>
-        public void ConsumePinRequest(in DisplayRendition live)
+        public void ConsumePinRequest(in DisplayRendition live, in DisplayControls liveControls)
         {
             if (_pinRequested)
             {
                 Pinned = live;
+                // The controls are pinned WITH the rendition, because the label has to answer "what
+                // differs" and a rendition cannot: its fields are derived and coupled, so a diff of
+                // them names controls the user never touched.
+                PinnedControls = liveControls;
                 _pinRequested = false;
             }
         }
+
+        /// <summary>The user-facing controls as they stood when the pin was taken.</summary>
+        public DisplayControls PinnedControls { get; private set; }
 
         /// <summary>
         /// Drops retained before-pixels that no longer belong to what is displayed, and takes the split
@@ -224,5 +232,47 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Whether the left half samples the retained pixels rather than the live ones.</summary>
         public bool ComparesPixels => Mode is SplitCompare.BeforePixels;
+
+        /// <summary>What each half is, named for the user.</summary>
+        /// <remarks>
+        /// <para>A split with no labels does not say what it is COMPARING, and here that is not
+        /// derivable from the picture: the left half is either pre-enhance pixels or the same pixels
+        /// under a frozen set of display settings, and after a few button presses the difference on
+        /// screen looks the same either way.</para>
+        /// <para>"Pinned" rather than naming the settings themselves: a rendition is a stretch mode,
+        /// parameters, white balance, curves, HDR and background neutralisation at once, and a label
+        /// listing them would be longer than the pane. What the user needs to know is that the left
+        /// half stopped following the controls, which is what "Pinned" says.</para>
+        /// </remarks>
+        public (string Left, string Right) HalfLabels(in DisplayControls live)
+        {
+            if (Mode is SplitCompare.BeforePixels)
+            {
+                // Pixel comparison: the display settings are IDENTICAL on both halves by construction
+                // (ComparisonRendition hands the live rendition to both), so there is nothing to name.
+                return ("Before", "After");
+            }
+
+            if (_labelLive is not { } cached || !live.Equals(cached) || !PinnedControls.Equals(_labelPinned))
+            {
+                _labelLive = live;
+                _labelPinned = PinnedControls;
+                _liveLabel = DisplayControls.DescribeLive(PinnedControls, live, _labelScratch);
+            }
+            return ("Pinned", _liveLabel);
+        }
+
+        // Memoised on the live controls: this is asked once per painted frame and the answer only
+        // moves when a control does. DisplayControls is a record struct, so the check is a field
+        // compare and the string is rebuilt a handful of times per session rather than 60 times a
+        // second.
+        // NULLABLE, so "nothing cached yet" is distinguishable from "cached the default value". A
+        // non-nullable key starts equal to a perfectly valid query -- default controls, which is
+        // exactly the state a fresh pin is compared against -- and the first answer is then the
+        // placeholder rather than the computed one.
+        private DisplayControls? _labelLive;
+        private DisplayControls _labelPinned;
+        private string _liveLabel = "Live";
+        private readonly List<string> _labelScratch = new();
     }
 }

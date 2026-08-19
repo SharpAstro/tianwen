@@ -685,7 +685,7 @@ namespace TianWen.UI.Abstractions
             // Restate the track, settle the pin against the rendition being shown right now (the one
             // place the live uniforms exist), and drop a comparison whose source has been replaced.
             Split.SetTrack(_layout.ImageArea);
-            Split.ConsumePinRequest(live);
+            Split.ConsumePinRequest(live, DisplayControls.FromState(state));
             if (Split.DropIfStale(state.SourceGeneration))
             {
                 ReleaseBeforeImageTextures();
@@ -724,6 +724,7 @@ namespace TianWen.UI.Abstractions
             PopClip();
 
             RenderSplitDivider(area, splitX);
+            RenderSplitLabels(area, splitX, state);
         }
 
         /// <summary>
@@ -735,6 +736,13 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Design-unit width of the drawn before/after divider.</summary>
         private const float BaseSplitDividerWidth = 2f;
+
+        /// <summary>Design-unit gap between the divider and the label on either side of it.</summary>
+        private const float BaseSplitLabelGap = 10f;
+
+        // Both halves get the SAME grey, deliberately. Colouring them differently would read as one
+        // side being the good one, and the entire point of the control is to let the eye decide that.
+        private static readonly RGBAColor32 SplitLabelText = RGBAColor32.FromFloat(0.78f, 0.78f, 0.78f, 1f);
 
         /// <summary>Design-unit width of the divider's grab band -- wider than the line it draws, so the
         /// thing is actually catchable with a mouse.</summary>
@@ -753,6 +761,62 @@ namespace TianWen.UI.Abstractions
             FillRect(splitX - lineW / 2f, area.Y, lineW, area.Height, color);
             RegisterClickable(splitX - grabW / 2f, area.Y, grabW, area.Height,
                 new ResizeHandleHit("Split"), onClick: _ => Split.BeginDrag(), cursor: CursorKind.ResizeEW);
+        }
+
+        /// <summary>
+        /// Names the two halves, on the side of the divider each one occupies.
+        /// </summary>
+        /// <remarks>
+        /// Drawn AFTER the divider so it is never overdrawn, and at the top of the image pane rather
+        /// than beside the handle, so the labels do not move while the divider is being dragged --
+        /// text that slides under the cursor is harder to read at exactly the moment it is wanted.
+        /// </remarks>
+        private void RenderSplitLabels(in RectF32 area, float splitX, ViewerState state)
+        {
+            if (string.IsNullOrEmpty(FontPath))
+            {
+                return;
+            }
+
+            var (leftText, rightText) = Split.HalfLabels(DisplayControls.FromState(state));
+            var fontSize = ToolbarFontSize;
+            var gap = BaseSplitLabelGap * DpiScale;
+            var top = area.Y + PanelPadding;
+
+            // Right-aligned into the left half, left-aligned into the right half, so each label sits
+            // against the divider it belongs to and reads as attached to its own side.
+            //
+            // A label is DROPPED when its own half is too narrow to hold it, rather than clamped into
+            // the pane. Clamping alone put the left label across the divider, where the right label's
+            // backing then painted over its tail and left a fragment ("Pi | Live") that reads as a
+            // rendering fault. Half a name is worse than no name: the whole point is to say which side
+            // is which, and a truncated one says something else.
+            var leftW = LabelWidth(leftText, fontSize);
+            if (splitX - gap - leftW >= area.X + PanelPadding)
+            {
+                DrawSplitLabel(leftText, area, splitX - gap - leftW, top, fontSize);
+            }
+
+            if (splitX + gap + LabelWidth(rightText, fontSize) <= area.Right - PanelPadding)
+            {
+                DrawSplitLabel(rightText, area, splitX + gap, top, fontSize);
+            }
+        }
+
+        private float LabelWidth(string text, float fontSize) => MeasureText(text, fontSize) + PanelPadding * 2f;
+
+        private void DrawSplitLabel(string text, in RectF32 area, float desiredX, float top, float fontSize)
+        {
+            var w = LabelWidth(text, fontSize);
+            var h = fontSize + PanelPadding;
+            // A floor only -- the caller has already refused to draw a label that does not fit its own
+            // half, so this just guarantees a sane rect for the degenerate pane sizes.
+            var x = Math.Clamp(desiredX, area.X + PanelPadding, MathF.Max(area.X + PanelPadding, area.Right - w - PanelPadding));
+
+            // Same backing as the toolbar tooltip -- a label over a bright star field is unreadable
+            // without one, and matching an existing surface keeps it from looking like new chrome.
+            FillRect(x, top, w, h, ViewerTheme.Palette.PanelBg);
+            DrawText(text, x + PanelPadding, top + (h - fontSize) / 2f, fontSize, SplitLabelText);
         }
         // -----------------------------------------------------------------------
         // Text helpers
