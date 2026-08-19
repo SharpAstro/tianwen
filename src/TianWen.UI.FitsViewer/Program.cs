@@ -246,7 +246,7 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
         // Apply a finished AI-enhance result (swaps in the enhanced document + flags a texture
         // re-upload). No-op until the background enhance task completes.
-        controller.TryApplyPendingEnhance();
+        controller.TryApplyPendingEnhance(cts.Token);
 
         if (state.NeedsReprocess)
         {
