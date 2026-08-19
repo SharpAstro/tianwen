@@ -68,6 +68,18 @@ public sealed class ViewerState
     /// Drives the toolbar button's "Enhancing N%" label + active highlight.</summary>
     public bool IsEnhancing { get; set; }
 
+    /// <summary>
+    /// Whether an enhanced result is currently being displayed, so the Enhance button is a TOGGLE
+    /// rather than a one-shot.
+    /// </summary>
+    /// <remarks>
+    /// Without this a second press ran the pipeline again on its own output -- deblurring an already
+    /// deblurred image and denoising an already denoised one -- with nothing in the UI to say so,
+    /// since the button read identically on both presses. As a toggle that is unreachable: the second
+    /// press means "off".
+    /// </remarks>
+    public bool IsEnhanced { get; set; }
+
     /// <summary>Progress of the in-flight enhance pass in [0, 100]. Updated from the background
     /// enhance task via the SharpenPipeline progress sink; only meaningful while <see cref="IsEnhancing"/>.</summary>
     public float EnhanceProgressPct { get; set; }

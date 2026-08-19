@@ -712,7 +712,10 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.SpccCalibrate => state.ColorCalibrationEnabled,
                 ToolbarAction.ZoomFit => state.ZoomToFit,
                 ToolbarAction.ZoomActual => !state.ZoomToFit && MathF.Abs(state.Zoom - 1f) < 0.001f,
-                ToolbarAction.Enhance => state.IsEnhancing,
+                // Lit while running AND while an enhanced result is on screen: the highlight is what
+                // says the toggle is ON, which is why the label below does not spell it out (same rule
+                // the A/B button follows).
+                ToolbarAction.Enhance => state.IsEnhancing || state.IsEnhanced,
                 ToolbarAction.Compare => Split.IsOn,
 
                 _ => false,
@@ -832,6 +835,8 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.ColorCalibrate => "Photometric colour calibration (W)",
             ToolbarAction.BackgroundNeutralize => "Neutralise the background (N)",
             ToolbarAction.SpccCalibrate => "Spectrophotometric colour calibration (W)",
+            ToolbarAction.Enhance when state.IsEnhancing => "Cancel this enhance (E)",
+            ToolbarAction.Enhance when state.IsEnhanced => "Turn the enhancement off (E); right-click cycles the backend",
             ToolbarAction.Enhance => "AI enhance; right-click cycles the backend (E)",
             ToolbarAction.Shortcuts => "All keyboard shortcuts",
             _ => null,

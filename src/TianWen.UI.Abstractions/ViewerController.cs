@@ -31,6 +31,17 @@ public sealed class ViewerController(
     private Task<AstroImageDocument?>? _enhanceTask;
     private CancellationTokenSource? _starDetectionCts;
 
+    // Per-RUN enhance cancellation, so pressing the button while it computes stops THAT run. It used
+    // to be started on the app token alone, which meant the only way to stop an enhance was to quit.
+    private CancellationTokenSource? _enhanceCts;
+
+    // The pre-enhance document, kept only when EnhanceRevertPolicy says it is worth the memory. Null
+    // while Enhance is off, and null when the policy chose to re-read the file on revert instead.
+    private AstroImageDocument? _preEnhanceDocument;
+
+    // The file to re-open when reverting without a retained document.
+    private string? _preEnhancePath;
+
     // Per-load cancellation: a load in flight is cancelled when the user navigates to a different file,
     // so a slow open (e.g. a large SER off a spinning disk) doesn't pin the load slot and stall the
     // switch. _loadingPath is the file the in-flight _loadTask is opening.
@@ -126,6 +137,9 @@ public sealed class ViewerController(
 
         state.RequestedFilePath = null;
         _loadingPath = requestedPath;
+        // A new file is not an enhanced view of the old one. Done here rather than on the completion
+        // path so a load that is later superseded still clears the toggle it invalidated.
+        ForgetEnhanceState();
         state.StatusMessage = $"Loading {Path.GetFileName(requestedPath)}...";
 
         // Cancel any in-progress star detection from previous image
@@ -279,26 +293,7 @@ public sealed class ViewerController(
                 FileLoaded?.Invoke(Path.GetFileName(requestedPath));
 
                 // Kick off star detection in the background
-                var sdCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
-                _starDetectionCts = sdCts;
-                _starDetectionTask = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await newDoc.DetectStarsAsync(sdCts.Token);
-                        logger.LogInformation("Detected {StarCount} stars in {Duration:F1}s (HFR={HFR:F2}, FWHM={FWHM:F2})",
-                            newDoc.Stars?.Count ?? 0, newDoc.StarDetectionDuration.TotalSeconds, newDoc.AverageHFR, newDoc.AverageFWHM);
-                        state.NeedsRedraw = true;
-                    }
-                    catch (OperationCanceledException) { logger.LogDebug("Star detection cancelled"); }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning(ex, "Star detection failed");
-                        newDoc.Stars = StarList.Empty;
-                        state.StatusMessage = "Star detection failed";
-                        state.NeedsRedraw = true;
-                    }
-                }, sdCts.Token);
+                StartStarDetection(newDoc, appToken);
             }
             else
             {
@@ -372,8 +367,27 @@ public sealed class ViewerController(
                     state.NeedsRedraw = true;
                     break;
                 }
+                // Pressing while a run is in flight CANCELS it. The pipeline threads the token all
+                // the way into RcAstroCli, which kills the child process tree, so this stops the work
+                // rather than merely abandoning it.
+                if (state.IsEnhancing || _enhanceTask is not null)
+                {
+                    _enhanceCts?.Cancel();
+                    state.StatusMessage = "Cancelling enhance...";
+                    state.NeedsRedraw = true;
+                    break;
+                }
+
+                // Pressing while enhanced turns it OFF, which is what makes a second press incapable
+                // of stacking another pass onto the first one's output.
+                if (state.IsEnhanced)
+                {
+                    RevertEnhance();
+                    break;
+                }
+
                 if (Document is { } enhanceDoc && EnhancePipeline is { } pipeline
-                    && !state.IsEnhancing && _enhanceTask is null)
+                    && _enhanceTask is null)
                 {
                     state.IsEnhancing = true;
                     state.EnhanceProgressPct = 0f;
@@ -386,13 +400,124 @@ public sealed class ViewerController(
                     // AI work all run on the pool, so the render loop never hitches (important on integrated
                     // GPUs where the AI work itself contends for the GPU -- we do NOT spin-render meanwhile).
                     // The ContinueWith wakes the loop once on completion so TryApplyPendingEnhance applies it.
+                    // Decide the revert route BEFORE the run, while the source document is
+                    // indisputably the original: afterwards Document is the enhanced one and the
+                    // question cannot be asked again.
+                    _preEnhancePath = enhanceDoc.FilePath;
+                    var revert = EnhanceRevertPolicy.Decide(
+                        enhanceDoc.UnstretchedImage, canReload: !string.IsNullOrEmpty(enhanceDoc.FilePath));
+                    _preEnhanceDocument = revert is EnhanceRevert.Retained ? enhanceDoc : null;
+                    logger.LogDebug("Enhance: revert route {Revert} ({Bytes} MB source)",
+                        revert, EnhanceRevertPolicy.FootprintBytes(enhanceDoc.UnstretchedImage) / (1024 * 1024));
+
+                    _enhanceCts?.Dispose();
+                    _enhanceCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
+                    var enhanceToken = _enhanceCts.Token;
                     _enhanceTask = Task.Run(
-                        () => EnhanceActions.EnhanceAsync(enhanceDoc, state, pipeline, options, debayer, appToken),
-                        appToken);
+                        () => EnhanceActions.EnhanceAsync(enhanceDoc, state, pipeline, options, debayer, enhanceToken),
+                        enhanceToken);
                     _ = _enhanceTask.ContinueWith(_ => state.NeedsRedraw = true, TaskScheduler.Default);
                 }
                 break;
         }
+    }
+
+    /// <summary>
+    /// Turns Enhance off, restoring the pre-enhance view by whichever route
+    /// <see cref="EnhanceRevertPolicy"/> chose when the run started.
+    /// </summary>
+    private void RevertEnhance()
+    {
+        state.IsEnhanced = false;
+        state.EnhanceProgressPct = 0f;
+
+        if (_preEnhanceDocument is { } retained)
+        {
+            // A reference swap: nothing is copied, and the document was never mutated by the run
+            // (the pipeline consumes its own outputs, never the caller's buffers).
+            _preEnhanceDocument = null;
+            Document = retained;
+            _rawSource = retained;
+            _liveSource = null;
+            state.IsSequence = false;
+            state.NotifySourceReplaced();
+            state.NeedsTextureUpdate = true;
+            state.StatusMessage = "Enhance off";
+            state.NeedsRedraw = true;
+            return;
+        }
+
+        if (!string.IsNullOrEmpty(_preEnhancePath))
+        {
+            // Over the retain budget, so the original was not held. Ask for it through the SAME
+            // request the file list uses -- HandleFileRequest already owns cancelling an in-flight
+            // load, swapping the source, stats and star detection, none of which is worth a
+            // second implementation for this one caller.
+            state.StatusMessage = "Enhance off \u2014 reloading\u2026";
+            state.NeedsRedraw = true;
+            state.RequestedFilePath = _preEnhancePath;
+            return;
+        }
+
+        // Neither route available. Say so rather than silently leaving the enhanced view up while the
+        // button claims to be off.
+        state.StatusMessage = "Cannot revert: the original is no longer available";
+        state.IsEnhanced = true;
+        state.NeedsRedraw = true;
+    }
+
+    /// <summary>
+    /// Detects stars on <paramref name="document"/> in the background, superseding any detection
+    /// already running.
+    /// </summary>
+    /// <remarks>
+    /// Shared by the load path and the enhance path. An enhanced image needs its OWN detection: it is
+    /// a different raster, and after a deblur the HFD and FWHM are exactly what changed -- so carrying
+    /// the old list over would report the pre-deblur figures against post-deblur pixels. Before this
+    /// existed nothing re-detected at all, which left Stars null on the enhanced document and silently
+    /// disabled every control gated on it: Boost, Calibrate, SPCC and the star overlay all went dead
+    /// after an enhance with nothing saying why.
+    /// </remarks>
+    private void StartStarDetection(AstroImageDocument document, CancellationToken appToken)
+    {
+        _starDetectionCts?.Cancel();
+        _starDetectionCts?.Dispose();
+        var sdCts = CancellationTokenSource.CreateLinkedTokenSource(appToken);
+        _starDetectionCts = sdCts;
+        _starDetectionTask = Task.Run(async () =>
+        {
+            try
+            {
+                await document.DetectStarsAsync(sdCts.Token);
+                logger.LogInformation("Detected {StarCount} stars in {Duration:F1}s (HFR={HFR:F2}, FWHM={FWHM:F2})",
+                    document.Stars?.Count ?? 0, document.StarDetectionDuration.TotalSeconds, document.AverageHFR, document.AverageFWHM);
+                state.NeedsRedraw = true;
+            }
+            catch (OperationCanceledException) { logger.LogDebug("Star detection cancelled"); }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Star detection failed");
+                document.Stars = StarList.Empty;
+                state.StatusMessage = "Star detection failed";
+                state.NeedsRedraw = true;
+            }
+        }, sdCts.Token);
+    }
+
+    /// <summary>
+    /// Forgets the enhance toggle and anything retained for it. Called when the displayed image is
+    /// replaced by something that is not an enhance result.
+    /// </summary>
+    /// <remarks>
+    /// Without this, opening a second file and pressing Enhance-off would revert to the FIRST file --
+    /// the retained document outlives the document it was the original of.
+    /// </remarks>
+    private void ForgetEnhanceState()
+    {
+        state.IsEnhanced = false;
+        state.EnhanceProgressPct = 0f;
+        _preEnhanceDocument = null;
+        _preEnhancePath = null;
     }
 
     /// <summary>
@@ -403,7 +528,12 @@ public sealed class ViewerController(
     /// failure it just clears the flag -- <see cref="EnhanceActions"/> already wrote the reason to the
     /// status line.
     /// </summary>
-    public void TryApplyPendingEnhance()
+    /// <remarks>
+    /// Also starts star detection on the enhanced raster and, on any non-success path, drops whatever
+    /// the revert route retained -- a run that produced no document leaves nothing to revert TO.
+    /// </remarks>
+    /// <param name="appToken">Ties the star detection it starts to the app's lifetime.</param>
+    public void TryApplyPendingEnhance(CancellationToken appToken = default)
     {
         if (_enhanceTask is not { IsCompleted: true } task)
         {
@@ -411,9 +541,21 @@ public sealed class ViewerController(
         }
         _enhanceTask = null;
         state.IsEnhancing = false;
+        _enhanceCts?.Dispose();
+        _enhanceCts = null;
+
+        // A run that did not produce a document leaves nothing to revert TO, so the retained original
+        // is just memory held for a state that never happened. Cleared on every non-success path
+        // below; a cancelled enhance is the common one now that the button can cancel.
+        if (!task.IsCompletedSuccessfully || task.Result is null)
+        {
+            _preEnhanceDocument = null;
+            _preEnhancePath = null;
+        }
 
         if (task.IsCompletedSuccessfully && task.Result is { } enhancedDoc)
         {
+            state.IsEnhanced = true;
             Document = enhancedDoc;
             _rawSource = enhancedDoc;
             _liveSource = null;
@@ -425,6 +567,11 @@ public sealed class ViewerController(
             // consumes this. Costs no copy at all (see VkFitsImagePipeline.TryRetainChannelsAsBefore).
             state.RetainBeforePixelsRequested = true;
             state.NeedsTextureUpdate = true;
+
+            // The enhanced raster is a different image, so it needs its own star list -- and after a
+            // deblur the HFD/FWHM it reports are the point. Without this every star-gated control
+            // (Boost, Calibrate, SPCC, the overlay) went dead the moment an enhance finished.
+            StartStarDetection(enhancedDoc, appToken);
         }
         else if (task.IsFaulted)
         {
