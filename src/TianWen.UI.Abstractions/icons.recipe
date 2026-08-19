@@ -32,6 +32,12 @@ font      = ../TianWen.UI.Gui/Fonts/Noto-COLRv1.ttf
 output    = BakedIcons.g.cs
 namespace = TianWen.UI.Abstractions
 
+# The baker is pinned, because the generated table is COMPARED against a fresh bake in CI. Unpinned, a
+# DIR.Lib release that changes bake output would turn this repo's build red with no change here -- which
+# is exactly what 8.6 did, by fixing a truncation that had been shaving every mark's edges. Bump this
+# deliberately, re-bake, and commit the table in the same change.
+baker     = 8.7.*
+
 # Sizes are deliberately omitted: the tool's default ladder is one bake per common DPI scale for a
 # 13-unit mark, and restating it here would be a second copy free to drift from it.
 
