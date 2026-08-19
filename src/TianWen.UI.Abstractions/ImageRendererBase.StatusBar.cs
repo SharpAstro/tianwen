@@ -38,11 +38,10 @@ namespace TianWen.UI.Abstractions
                 statusParts.Add($"WCS: {label} ({scale:F2}\"/px)  RA {ra}  Dec {dec}");
             }
 
-            if (document is not null)
-            {
-                var zoomPct = state.Zoom * 100f;
-                statusParts.Add($"Zoom: {zoomPct:F0}%");
-            }
+            // No zoom readout here any more: the toolbar's Zoom button IS the readout (it reads "Fit",
+            // "1:1" or the percentage), so a second copy down here said the same thing a screen-height
+            // away from the control that changes it. Fit mode is the one case the button shows a word
+            // rather than a number, and the button's tooltip carries the number for it.
 
             if (document?.Stars is { Count: > 0 } detectedStars)
             {

@@ -95,6 +95,11 @@ namespace TianWen.Lib.Tests
             var viewer = new ToolbarViewer(renderer);
             // Gives the widget an image without a source, so the buttons gated on one are enabled.
             viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, 400, 300);
+            // The WIDEST button set, which is the only one worth wrapping tests around -- and the one
+            // tianwen-fits actually ships (Program.cs sets this). Left at its default false, these tests
+            // measured a bar with no Enhance button, i.e. a configuration no shipped app draws, so the
+            // wrap assertions were made against a narrower bar than any user sees.
+            viewer.EnhanceAvailable = true;
             return viewer;
         }
 
