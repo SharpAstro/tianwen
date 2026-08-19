@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using TianWen.Lib.Imaging;
 
@@ -100,7 +100,7 @@ public readonly record struct DisplayControls(
     /// </remarks>
     private string? Describe(Slot slot) => slot switch
     {
-        Slot.StretchMode when StretchMode != Defaults.StretchMode => StretchMode.ToString(),
+        Slot.StretchMode when StretchMode != Defaults.StretchMode => StretchMode.DisplayName,
         Slot.StretchParameters when !StretchParameters.Equals(Defaults.StretchParameters) =>
             $"Stretch {StretchParameters}",
         // The curve mode only reaches the pixels through the boost, so at zero boost it is invisible
@@ -111,18 +111,11 @@ public readonly record struct DisplayControls(
         Slot.Calibration when ColorCalibrationEnabled => "Calibrate",
         Slot.BackgroundNeutralization when BackgroundNeutralizationEnabled =>
             BackgroundNeutralizationStrength >= 0.9999f
-                ? $"NeutBg {ShortMethod(BackgroundNeutralizationMethod)}"
-                : $"NeutBg {ShortMethod(BackgroundNeutralizationMethod)} {BackgroundNeutralizationStrength:P0}",
+                ? $"NeutBg {BackgroundNeutralizationMethod.ShortName}"
+                : $"NeutBg {BackgroundNeutralizationMethod.ShortName} {BackgroundNeutralizationStrength:P0}",
         Slot.WhiteBalance when ManualWhiteBalance != Defaults.ManualWhiteBalance =>
             $"WB {ManualWhiteBalance.R:F2}/{ManualWhiteBalance.G:F2}/{ManualWhiteBalance.B:F2}",
         _ => null,
-    };
-
-    private static string ShortMethod(BackgroundNeutralizationMethod m) => m switch
-    {
-        BackgroundNeutralizationMethod.GreenPivot => "Green",
-        BackgroundNeutralizationMethod.MinPivot => "Min",
-        _ => "Mean",
     };
 
     /// <summary>
@@ -146,7 +139,7 @@ public readonly record struct DisplayControls(
     /// <summary>How an always-a-value slot reads when it sits at its default.</summary>
     private static string DescribeDefault(Slot slot) => slot switch
     {
-        Slot.StretchMode => Defaults.StretchMode.ToString(),
+        Slot.StretchMode => Defaults.StretchMode.DisplayName,
         _ => $"Stretch {Defaults.StretchParameters}",
     };
 
@@ -257,5 +250,34 @@ public readonly record struct DisplayControls(
         var left = pinned.SelfLabel("Pinned", live, scratch);
         var right = pinned.Equals(live) ? "Live (same)" : live.DeltaLabel("Live", pinned, scratch);
         return (left, right);
+    }
+}
+
+/// <summary>
+/// User-facing names for the display-control enums, worded like the toolbar buttons the labels sit
+/// beside. Extension members so a call site reads as the value naming itself.
+/// </summary>
+internal static class DisplayControlNames
+{
+    extension(StretchMode mode)
+    {
+        /// <summary>
+        /// The name a split label shows. <see cref="StretchMode.None"/> reads "Linear": "None" names
+        /// the implementation (no transfer function applied), while what the reader is looking at is
+        /// the linear rendition -- "Live: +None" reads as "nothing differs", the opposite of what the
+        /// label exists to say.
+        /// </summary>
+        public string DisplayName => mode == StretchMode.None ? "Linear" : mode.ToString();
+    }
+
+    extension(BackgroundNeutralizationMethod method)
+    {
+        /// <summary>The one-word form the NeutBg button uses.</summary>
+        public string ShortName => method switch
+        {
+            BackgroundNeutralizationMethod.GreenPivot => "Green",
+            BackgroundNeutralizationMethod.MinPivot => "Min",
+            _ => "Mean",
+        };
     }
 }
