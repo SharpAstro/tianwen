@@ -34,7 +34,13 @@ namespace TianWen.Lib.Tests
 
         // An ordinary desktop window, and narrower than the run -- the wrap case in normal use rather
         // than at a contrived size.
-        private const uint OrdinaryWindowW = 1400;
+        //
+        // It has to be re-lowered whenever the bar gets more compact, and it silently stopped wrapping
+        // once the toolbar swapped four text labels for marks (Channel, Grid, Objects and the Stars
+        // count), which is about 130 design units of text gone. That showed up as FOUR wrap tests failing
+        // on their own guard assertions, which does not name the cause, so
+        // TheOrdinaryWindowIsStillNarrowerThanTheRun now pins the premise itself and reports both numbers.
+        private const uint OrdinaryWindowW = 1150;
 
         // The toolbar spans the full content width and the layout insets it by PanelPadding (6 design
         // units) at DpiScale 1. Restated rather than read off the widget: a test that sources the constant
@@ -212,6 +218,29 @@ namespace TianWen.Lib.Tests
             {
                 Overlaps(rect, help).ShouldBeFalse($"{action} runs into the help button");
             }
+        }
+
+        [Fact]
+        public void TheOrdinaryWindowIsStillNarrowerThanTheRun()
+        {
+            // Every wrap test below opens with a "guard the guard" row-count assertion, and those guards
+            // can only say "this is not two rows" -- not WHY. This says why: the fixture width is only a
+            // wrap case for as long as the bar is wider than it, and the bar gets narrower every time a
+            // label becomes a mark. When this fails, lower OrdinaryWindowW past the width reported here.
+            using var wideRenderer = new RgbaImageRenderer(SurfaceW, SurfaceH);
+            var wide = NewViewer(wideRenderer);
+            wide.Render(null, NewState());
+
+            var placed = wide.PaintedToolbarButtons.ToArray();
+            placed.Select(b => MathF.Round(b.Rect.Y)).Distinct().Count()
+                .ShouldBe(1, "the wide baseline must be one row for its right edge to mean the run width");
+
+            // The left run only, so the help button parked at the right edge is not mistaken for its end.
+            var runRight = placed.Where(b => b.Action != ToolbarAction.Shortcuts).Max(b => b.Rect.Right);
+
+            ((float)OrdinaryWindowW).ShouldBeLessThan(runRight,
+                $"OrdinaryWindowW is {OrdinaryWindowW} but the run now ends at {runRight:F0}, so it fits " +
+                "on one row and every wrap test below is asserting against a bar that never wrapped");
         }
 
         [Fact]
