@@ -389,6 +389,19 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         // Re-point the (still bindable) before set at the live views, so it can never reference the
         // views just destroyed.
+        //
+        // NOT during teardown. Dispose destroys the descriptor pool (which frees every set, this one
+        // included) and the sampler BEFORE it releases the before channels, so re-pointing there
+        // writes a freed descriptor set with a destroyed sampler -- an access violation inside
+        // vkUpdateDescriptorSets that takes the process down with exit 139 on window close. Guarding
+        // on _disposed rather than reordering Dispose: the flag is set before anything is destroyed,
+        // so this holds no matter how the teardown sequence is later rearranged, and there is nothing
+        // to re-point at when every descriptor is about to be freed anyway.
+        if (_disposed)
+        {
+            return;
+        }
+
         for (var i = 0; i < ChannelCount; i++)
         {
             if (_channelViews[i] != VkImageView.Null)
