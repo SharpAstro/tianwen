@@ -60,7 +60,7 @@ public class FitsTools
         if (!File.Exists(path)) return $"ERROR: file not found: {path}";
         if (!Image.TryReadFitsFile(path, out var image)) return $"ERROR: not a FITS file: {path}";
 
-        var stars = await image.FindStarsAsync(channel: 0, snrMin: snrMin, maxStars: maxStars, cancellationToken: ct);
+        var stars = await image.FindStarsAsync(channel: image.ReferenceStarChannel, snrMin: snrMin, maxStars: maxStars, cancellationToken: ct);
         var sb = new StringBuilder(64 + 64 * stars.Count);
         sb.AppendLine($"Detected {stars.Count} stars (snrMin={snrMin}, maxStars={maxStars}):");
         foreach (var s in stars) sb.AppendLine(s.ToString());

@@ -486,6 +486,28 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     internal bool IsUnitScaledFloat => BitDepth is BitDepth.Float32 && HasUnitScalePeak;
 
     /// <summary>
+    /// The channel to detect stars in: green on a 3-channel image, channel 0 otherwise.
+    /// </summary>
+    /// <remarks>
+    /// <para>Green because it carries twice the CFA sampling of red or blue, so it detects the most
+    /// stars -- and because red is where the emission lives. An Ha-bright target puts most of its
+    /// nebulosity in red, whose structure the detector reports as stars: measured on a Bubble Nebula
+    /// master, red's MAD is 12.2 against 6.2 and 6.4 for green and blue, and a plate solve from red
+    /// matched 1 of 102 detections to the catalog (rejected as noise) while green matched 10 of 109
+    /// and blue 11 of 116, agreeing on the answer to about an arcsecond.</para>
+    /// <para>Luminance is NOT the answer despite being 71% green by weight -- the same frame solves
+    /// from green and blue and fails from a Rec.709 luma at 0 of 109, so the red term is enough to
+    /// poison it. Measured, not assumed.</para>
+    /// <para>Returns 0 for anything under 3 channels, which is what makes routing every caller through
+    /// this safe: a mono frame or a Bayer MOSAIC (1 channel, debayered inside
+    /// <see cref="FindStarsAsync"/>) is unaffected.</para>
+    /// </remarks>
+    public int ReferenceStarChannel => ReferenceStarChannelFor(ChannelCount);
+
+    /// <inheritdoc cref="ReferenceStarChannel"/>
+    public static int ReferenceStarChannelFor(int channelCount) => channelCount >= 3 ? 1 : 0;
+
+    /// <summary>
     /// Convenience over <see cref="ImageMeta.Rescale"/> (the single implementation): rescales the
     /// scale-dependent metadata by the same factor applied to the pixel values. Without this,
     /// writing a normalised image to FITS would stamp a stale ADU-scale SATURATE against [0,1] data.

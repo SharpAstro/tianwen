@@ -294,7 +294,7 @@ internal partial record Session
                 {
                     _lastCapturedImages[i] = image;
 
-                    var stars = await image.FindStarsAsync(0, snrMin: 15, cancellationToken: cancellationToken);
+                    var stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 15, cancellationToken: cancellationToken);
 
                     _currentActivity = $"Stars: {stars.Count}/15 (exposure {expTimesSec[i]}s)";
                     _logger.LogInformation("RoughFocus: telescope #{TelescopeNumber} exposure {ExpTime}s focPos={FocusPosition} → {StarCount} stars detected (need ≥15)",
@@ -621,7 +621,7 @@ internal partial record Session
                 }
 
                 // Star detection on the raw image
-                var stars = await image.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
+                var stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 10, cancellationToken: cancellationToken);
                 if (stars.Count > 3)
                 {
                     var hfd = stars.MapReduceStarProperty(SampleKind.HFD, AggregationMethod.Median);
@@ -714,7 +714,7 @@ internal partial record Session
 
             if (verifyImage is { Width: > 0, Height: > 0 })
             {
-                var verifyStars = await verifyImage.FindStarsAsync(0, snrMin: 10, cancellationToken: cancellationToken);
+                var verifyStars = await verifyImage.FindStarsAsync(verifyImage.ReferenceStarChannel, snrMin: 10, cancellationToken: cancellationToken);
                 verifyImage.Release();
                 if (verifyStars.Count > 3)
                 {

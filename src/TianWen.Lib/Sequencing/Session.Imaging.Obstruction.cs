@@ -457,7 +457,7 @@ internal partial record Session
             // maxStars high enough that a dense field's detected count is not clipped below the
             // first-scout oracle's absolute catalog expectation (a 200-cap would falsely depress the
             // detected/expected ratio in the Milky Way and flag a clear field as obstructed).
-            var stars = await image.FindStarsAsync(0, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
+            var stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
             var gain = await ResilientInvokeAsync(camera, camera.GetGainAsync, ResilientCallOptions.IdempotentRead, cancellationToken);
 
             // Preserve exposure on 0-star results: see TakeScoutFrameAsync rationale.
