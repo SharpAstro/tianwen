@@ -110,6 +110,18 @@ jobs:
         echo "VERSION_PREFIX=${MM}.${{ github.run_number }}" >> "$GITHUB_ENV"
         echo "prefix=${MM}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
         echo "Resolved VERSION_PREFIX=${MM}.${{ github.run_number }}"
+    # The baked icon table is generated from src/TianWen.UI.Abstractions/icons.recipe and committed. The
+    # build already warns (TWIC0001) when the recipe is NEWER than the table, but a timestamp only ever
+    # catches a forgotten re-bake -- it cannot see a table that was hand-edited, or one committed from a
+    # different font. Re-baking and comparing can, because the bake is byte-reproducible:
+    # ManagedFontRasterizer is pure managed, so the same recipe and font give identical output on any
+    # host. Runs before restore because it needs neither the solution nor its packages, only `dnx`.
+    #
+    # Fails the run rather than warning: unlike a stale-timestamp warning this cannot fire spuriously --
+    # a mismatch means the committed table does not correspond to the recipe beside it, and the marks
+    # that ship would not be the ones the recipe describes.
+    - name: Verify the baked icon table matches its recipe
+      run: pwsh tools/bake-icons.ps1 -Verify
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src
