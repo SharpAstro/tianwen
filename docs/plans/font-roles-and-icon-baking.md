@@ -103,6 +103,21 @@ catches a *forgotten* re-bake. Still outstanding.
   virtualises the coordinates and downscales too) plus nearest-neighbour magnification.
 - **A colour mark dims by losing brightness, not by taking grey ink**, because its hue is the
   information. Anything baked is monochrome and sidesteps this entirely -- which is half the point.
+- **Not every emoji is bakeable, and the ones that fail fail identically: as a solid blob.** The bake
+  takes the glyph's ALPHA silhouette, so structure carried by COLOUR contrast is discarded while
+  structure carried by GAPS survives. Measured at 20 px against the bundled Noto: `Sparkles` U+2728 and
+  `Magnifier` U+1F50D read clearly (distinct forms separated by transparency, and the magnifier's lens
+  interior sits at lower alpha than its rim); `FolderOpen` U+1F4C2, `Crosshair` U+1F3AF and `DoubleUp`
+  U+23EB come out as **fully inked rectangles** -- a folder's flap, a target's rings and a double
+  triangle are all drawn as colour against colour, with no hole anywhere. The spiral works for exactly
+  the complementary reason: its arms are separated by gaps, not by hue.
+  **So test a candidate by rendering the MASK, never by looking at the emoji.** In a text editor or a
+  colour preview every one of the failures above looks like a perfectly good icon. Bake it at 20 px and
+  print the runs as ASCII (a dozen lines of script over the generated table); a blob is unmistakable and
+  costs one command to find. This is the same error as judging a mark from the downscaled inspector
+  screenshot, one level down: the artifact being looked at is not the artifact that ships.
+  Corollary: a mark whose meaning needs an outline (Open, A/B compare, Boost) is better PROCEDURAL than
+  baked, which is what B3 already assumed for a different reason.
 
 ## Open question
 
