@@ -85,7 +85,9 @@ public static class ViewerActions
             : (state.CurvesBoostIndex + 1) % len;
         state.CurvesBoost = ViewerState.CurvesBoostPresets[state.CurvesBoostIndex];
         state.NeedsRedraw = true;
-        state.StatusMessage = state.CurvesBoost > 0f ? $"Curves Boost: {state.CurvesBoost:P0}" : "Curves Boost: Off";
+        state.StatusMessage = state.CurvesBoost > 0f
+            ? $"Curves Boost: {UiFormat.Percent0(state.CurvesBoost)}"
+            : "Curves Boost: Off";
     }
 
     /// <summary>Cycles between power-law boost (mode 0) and spline LUT (mode 1).</summary>

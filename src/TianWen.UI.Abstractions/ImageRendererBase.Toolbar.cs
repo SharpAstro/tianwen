@@ -446,7 +446,7 @@ namespace TianWen.UI.Abstractions
 
         /// <summary>Curves-boost preset labels: 0/25/50/100/150 %.</summary>
         private static readonly ImmutableArray<string> CurvesBoostLabels = BuildLabels(
-            ViewerState.CurvesBoostPresets, b => b > 0f ? $"{b:P0}" : "Off");
+            ViewerState.CurvesBoostPresets, b => b > 0f ? UiFormat.Percent0(b) : "Off");
 
         /// <summary>HDR preset labels: "Off" + 4 (amount, knee) combos.</summary>
         private static readonly ImmutableArray<string> HdrLabels = BuildLabels(
@@ -622,7 +622,9 @@ namespace TianWen.UI.Abstractions
                             state.CurvesBoostIndex = idx;
                             state.CurvesBoost = presets[idx];
                             state.NeedsRedraw = true;
-                            state.StatusMessage = state.CurvesBoost > 0f ? $"Curves Boost: {state.CurvesBoost:P0}" : "Curves Boost: Off";
+                            state.StatusMessage = state.CurvesBoost > 0f
+                                ? $"Curves Boost: {UiFormat.Percent0(state.CurvesBoost)}"
+                                : "Curves Boost: Off";
                         }
                     }, state.CurvesBoostIndex);
                     return true;
@@ -1132,7 +1134,7 @@ namespace TianWen.UI.Abstractions
             // Fitting is the only state whose label is a word, so the tooltip is where its actual scale
             // lives -- it is the reason the status bar no longer needs a zoom readout at all.
             ToolbarAction.Zoom when state.ZoomToFit =>
-                $"Zoom: fitting at {state.Zoom:P0} -- click to pick 1:1 or 1:N, right-click for 1:1 (F, R, Ctrl+0..9)",
+                $"Zoom: fitting at {UiFormat.Percent0(state.Zoom)} -- click to pick 1:1 or 1:N, right-click for 1:1 (F, R, Ctrl+0..9)",
             ToolbarAction.Zoom => "Zoom: click to pick fit / 1:1 / 1:N, right-click fits (F, R, Ctrl+0..9)",
             ToolbarAction.PlateSolve => "Plate solve this frame (P)",
             ToolbarAction.Grid => "WCS coordinate grid (G)",
@@ -1189,14 +1191,14 @@ namespace TianWen.UI.Abstractions
                     ? string.Empty
                     : $"{state.ChannelView}",
                 ToolbarAction.Debayer => state.DebayerAlgorithm.DisplayName,
-                ToolbarAction.CurvesBoost => state.CurvesBoost > 0f ? $"Boost {state.CurvesBoost:P0}" : "Boost",
+                ToolbarAction.CurvesBoost => state.CurvesBoost > 0f ? $"Boost {UiFormat.Percent0(state.CurvesBoost)}" : "Boost",
                 ToolbarAction.Hdr => state.HdrAmount > 0f ? $"HDR: {state.HdrAmount:F1}" : "HDR",
                 // Tri-state, and the third state is the point: at any zoom that is neither fit nor 1:1
                 // the old pair of buttons showed nothing at all, so the one number a zoom control exists
                 // to report was the one thing the toolbar could not say.
                 ToolbarAction.Zoom when state.ZoomToFit => "Fit",
                 ToolbarAction.Zoom when MathF.Abs(state.Zoom - 1f) < ZoomMatchTolerance => "1:1",
-                ToolbarAction.Zoom => $"{state.Zoom:P0}",
+                ToolbarAction.Zoom => UiFormat.Percent0(state.Zoom),
                 // Mark-only, like Channel: the point of a mark on this toolbar is the WIDTH it gives
                 // back, and a mark sitting beside the word it replaces gives back nothing. The tooltip
                 // carries the name.
@@ -1216,7 +1218,7 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.BackgroundNeutralize when state.BackgroundNeutralizationEnabled =>
                     state.BackgroundNeutralizationStrength >= 0.9999f
                         ? $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)}"
-                        : $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)} {state.BackgroundNeutralizationStrength:P0}",
+                        : $"NeutBg: {ShortMethodLabel(state.BackgroundNeutralizationMethod)} {UiFormat.Percent0(state.BackgroundNeutralizationStrength)}",
                 ToolbarAction.SpccCalibrate when state.ColorCalibrationEnabled => $"SPCC: {document?.ColorCalibration?.R:F2}/{document?.ColorCalibration?.B:F2}",
                 ToolbarAction.PlateSolve when state.IsPlateSolving => "Solving...",
                 ToolbarAction.PlateSolve when document?.IsPlateSolved == true => "Solved",
