@@ -900,7 +900,85 @@ namespace TianWen.UI.Abstractions
             // Near/Near + a generous width preserves the old left-aligned, non-clipped behaviour.
             // The inherited DrawText no-ops on an empty FontPath, so no null-forgiving is needed.
             DrawText(text.AsSpan(), FontPath, x, y, Width - x, FontSize * 1.3f, FontSize, color, TextAlign.Near, TextAlign.Near);
-            y += FontSize + 2f;
+            y += TextLineAdvance;
+        }
+
+        // Cached per (face, size) rather than per line: the extent is a property of the font, and this
+        // runs once per text line in a panel that can hold thirty of them.
+        private float _lineAdvance;
+        private float _lineAdvanceForSize = -1f;
+        private string _lineAdvanceForFont = string.Empty;
+
+        /// <summary>
+        /// How far down to step for the next line of panel text.
+        /// </summary>
+        /// <remarks>
+        /// <para>Derived from the FACE's own ascender-to-descender extent, not from the font size plus a
+        /// constant. It used to be <c>FontSize + 2f</c>, which is a gap tuned to exactly one font: at
+        /// size 13 Consolas measures 12 px tall and DejaVu Sans measures 13, so bundling DejaVu left one
+        /// pixel of leading and the info panel visibly crammed. A face-derived advance cannot acquire
+        /// that bug again when the face changes.</para>
+        /// <para>The old value is kept as a FLOOR so no existing layout can tighten, only loosen.
+        /// Measured with "Mgjq" because it spans cap height and descender; measuring the actual line
+        /// would make the step depend on whether that line happens to contain a descender, so
+        /// consecutive lines would sit at uneven distances.</para>
+        /// </remarks>
+        private float TextLineAdvance
+        {
+            get
+            {
+                if (_lineAdvanceForSize != FontSize
+                    || !string.Equals(_lineAdvanceForFont, FontPath, StringComparison.Ordinal))
+                {
+                    var floor = FontSize + 2f;
+                    if (FontPath.Length == 0)
+                    {
+                        // No face resolved: DrawText no-ops anyway, so any advance is arbitrary. Keep the
+                        // historical one rather than asking the renderer to measure with no font.
+                        _lineAdvance = floor;
+                    }
+                    else
+                    {
+                        var extent = Renderer.MeasureText("Mgjq".AsSpan(), FontPath, FontSize).Height;
+                        _lineAdvance = MathF.Max(floor, extent + MathF.Round(FontSize * 0.3f));
+                    }
+                    _lineAdvanceForSize = FontSize;
+                    _lineAdvanceForFont = FontPath;
+                }
+                return _lineAdvance;
+            }
+        }
+
+        /// <summary>
+        /// A panel section heading: the name, then a hairline rule across the remaining width.
+        /// </summary>
+        /// <remarks>
+        /// The headings used to be written as <c>"-- Statistics --"</c>, which spends four characters and
+        /// two spaces of a narrow panel on decoration that the heading COLOUR already provides, and reads
+        /// as ASCII art next to real text. A drawn rule is also font-independent: the tidier characters
+        /// for the job (an em dash, box-drawing U+2500) are exactly the kind of codepoint a host face can
+        /// lack, and a missing glyph here would draw nothing at all.
+        /// </remarks>
+        private void DrawSectionHeading(ref float y, float x, string title, float availableWidth)
+        {
+            var color = ViewerTheme.Palette.HeaderText;
+            var titleWidth = MeasureText(title, FontSize);
+            DrawText(title.AsSpan(), FontPath, x, y, Width - x, FontSize * 1.3f, FontSize, color,
+                TextAlign.Near, TextAlign.Near);
+
+            // Sits on the text's optical middle rather than its baseline, so the rule reads as continuing
+            // through the words instead of underlining them.
+            var ruleY = MathF.Round(y + FontSize * 0.5f);
+            var ruleStart = x + titleWidth + FontSize * 0.5f;
+            var ruleEnd = x + availableWidth;
+            if (ruleEnd - ruleStart >= FontSize)
+            {
+                // Dimmed: a rule at full heading strength competes with the heading it is separating.
+                var rule = new RGBAColor32(color.Red, color.Green, color.Blue, (byte)(color.Alpha / 2));
+                DrawLine(ruleStart, ruleY, ruleEnd, ruleY, rule);
+            }
+
+            y += TextLineAdvance;
         }
 
         private void DrawWrappedTextLine(ref float y, float x, string text, float maxWidth, RGBAColor32 color)
