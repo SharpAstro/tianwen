@@ -52,8 +52,12 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
-          cache: true
-          cache-dependency-path: src/Directory.Packages.props
+        # NuGet caching deliberately OFF here, unlike the push/PR jobs. This job only runs on
+        # workflow_dispatch, so the cache it saves is paid for on every pin change and collected
+        # almost never -- and setup-dotnet keys per OS, so these legs were the ONLY source of the
+        # Windows and macOS entries (1.4 GB per pin bump) while every push/PR job runs on Linux.
+        # A miss costs a nuget.org restore, which is free and cannot refuse; the repo cache budget
+        # is 10 GB and the lfs-* entries in it are the ones whose miss actually fails a build.
 
       - name: Build test project (Release, matches CI)
         run: dotnet build TianWen.Lib.Tests -c Release
