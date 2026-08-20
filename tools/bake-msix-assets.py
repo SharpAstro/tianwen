@@ -47,12 +47,31 @@ ASSETS = {
     "Square44x44Logo.png": 44,
     "Square44x44Logo.scale-200.png": 88,
     # targetsize variants are what the shell uses for the file-type association icon and the
-    # taskbar, at the exact sizes it asks for. 256 is the one Explorer's extra-large view wants.
+    # taskbar, at the exact sizes it asks for. 96 is Explorer's large-icons view, 256 its
+    # extra-large one.
     "Square44x44Logo.targetsize-16.png": 16,
     "Square44x44Logo.targetsize-24.png": 24,
     "Square44x44Logo.targetsize-32.png": 32,
     "Square44x44Logo.targetsize-48.png": 48,
+    "Square44x44Logo.targetsize-96.png": 96,
     "Square44x44Logo.targetsize-256.png": 256,
+    # altform-unplated is not a nicety, it is what makes the icon the SIZE of the box it was asked
+    # for. A targetsize asset with no unplated sibling exists only in the PLATED form, so the shell
+    # draws a plate of BackgroundColor at the requested size and insets the artwork inside it --
+    # an icon that reads as a fraction of every unpackaged app's icon beside it, which is what
+    # "the file type icon is too small" is. The taskbar and title bar take the unplated form too.
+    # Resolution is by qualifier, so nothing in AppxManifest.xml names these: shipping the files
+    # IS the change.
+    #
+    # altform-lightunplated is deliberately absent. It falls back to unplated, and since this art
+    # is opaque full-bleed it carries its own background on either theme, so a light variant would
+    # be byte-identical.
+    "Square44x44Logo.targetsize-16_altform-unplated.png": 16,
+    "Square44x44Logo.targetsize-24_altform-unplated.png": 24,
+    "Square44x44Logo.targetsize-32_altform-unplated.png": 32,
+    "Square44x44Logo.targetsize-48_altform-unplated.png": 48,
+    "Square44x44Logo.targetsize-96_altform-unplated.png": 96,
+    "Square44x44Logo.targetsize-256_altform-unplated.png": 256,
     "Square71x71Logo.png": 71,
     "Square71x71Logo.scale-200.png": 142,
     "Square150x150Logo.png": 150,
