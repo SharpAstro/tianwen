@@ -280,30 +280,42 @@ pass itself. Lowering `minStars` to 200 on that frame saves ~40 ms and costs **6
 (3,014 -> 1,127). Not a trade worth taking; the call site keeps 2000 and the parameter doc now says
 plainly that it caps nothing.
 
-### The real cost of a document open is `Statistics`, not detection
+### The real cost of a document open, and a retracted measurement
 
-Same probe, 6000x4000x3 (24 MP), planes touched first so page faults are not charged to whichever
-stage runs first -- which is what made the first run of this probe read 2.2 s for `Statistics`:
+**This section first reported `Statistics` as the dominant traversal at ~14 ns/px. That was a DEBUG
+measurement and is withdrawn.** `dotnet test` defaults to Debug and this library's inner loops run
+~7x slower there, so the number characterised the test configuration, not the product. Quote the
+configuration alongside any timing in this file.
 
-| stage | 24 MP | scaled to 124 MP |
-|---|---|---|
-| `Statistics(c)` x3 | 1,028-1,195 ms | ~5.3-6.2 s |
-| `GetStarMaskedMedianAndMADScaledToUnit(c)` x3 | 557-755 ms | ~2.9-3.9 s |
-| `Background` (inside `FindStars`) | 138-362 ms | ~0.7-1.9 s |
-| detection passes | 38-114 ms each | ~0.2-0.6 s each |
-| `ScanBackgroundRegion` x2 | 20-98 ms each | ~0.1-0.5 s each |
+Re-measured in **Release**, 6000x4000x3 (24 MP), planes touched first so page faults are not
+charged to whichever stage runs first:
 
-**A document open therefore performs 10-12 full traversals of the pixels, and the per-channel
-histogram pair dominates.** ~340 ms per 24 MP channel is ~14 ns/px for a bin-and-increment loop,
-which is slow enough to be worth its own look (2-D `[y, x]` indexing, per-pixel `MathF.Round` +
-`Math.Clamp`, no vectorisation). Filed separately -- it is orthogonal to memory, and it is the
-answer to "why is opening a big TIFF slow", which this plan had assumed was the same question as
-"why does it cost 2.2 GB". It is not.
+| stage | Release before | Release after | scaled to 124 MP (after) |
+|---|---|---|---|
+| `Statistics(c)` x3 | 130-177 ms | 120-150 ms | ~0.6-0.8 s |
+| `GetStarMaskedMedianAndMADScaledToUnit(c)` x3 | 412-632 ms | **23-70 ms** | ~0.1-0.4 s |
+| `Background` (inside `FindStars`) | 18-56 ms | 16-56 ms | ~0.1-0.3 s |
+| detection passes | 22-69 ms each | 23-65 ms each | ~0.1-0.3 s each |
+| `ScanBackgroundRegion` x2 | 4-26 ms each | 4-44 ms each | negligible |
 
-Of those traversals exactly one -- the decode -- is fused with anything. `Background`'s histogram and
-its ~5,000-sample noise grid are both accumulative and could fold into the decode sink for free; the
-detection scan cannot, because its threshold is a global property of the whole frame and the first
-trigger comparison needs the last strip.
+A document open still performs 10-12 full traversals, but the one that dominated was the
+**star-masked median**, and for an algorithmic reason: two full `Array.Sort` calls over ~1.5 M
+samples per channel to extract two medians. Selection replaced sorting
+(`StatisticsHelper.NthSmallest` over the existing `QuickSelect`), bit-identically, and the pair
+dropped ~7x. The histogram loop went 50 -> 32 ms per 24 MP channel via a flat span and a
+float-domain clamp; a further 32 -> 8 ms is available by parallelising row bands and is filed
+rather than taken, because it reorders the `total_value` summation that feeds the detection
+threshold.
+
+The wider point for this plan: **"why is opening a big TIFF slow" is a different question from
+"why does it cost 2.2 GB", and this plan had assumed they were the same.** The timing question is
+now largely answered and is orthogonal to the memory milestones below.
+
+Of those traversals exactly one -- the decode -- is fused with anything. `Background`'s histogram
+and its ~5,000-sample noise grid are both accumulative and could fold into the decode sink for
+free; the detection scan cannot, because its threshold is a global property of the whole frame and
+the first trigger comparison needs the last strip.
+
 
 ### The two things that will actually bite
 

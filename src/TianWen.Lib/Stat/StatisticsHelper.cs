@@ -96,6 +96,32 @@ public static class StatisticsHelper
     }
 
     /// <summary>
+    /// Returns the <paramref name="k"/>-th smallest value (0-based) via quickselect -- expected
+    /// <c>O(n)</c>, no full sort. Exactly equivalent to <c>sorted[k]</c>: the k-th order statistic
+    /// is a property of the multiset, so this is BIT-IDENTICAL to sorting and indexing, which is
+    /// what makes it a safe replacement for an <see cref="System.Array.Sort(System.Array)"/>-then-index
+    /// pair rather than merely a close one.
+    /// <para>Prefer <see cref="MedianFast(Span{float})"/> for a median. This overload exists for
+    /// callers that must preserve an existing <c>sorted[n / 2]</c> convention: for even <c>n</c> that
+    /// is the UPPER median, whereas <c>MedianFast</c> averages the two middle values, so the two are
+    /// not interchangeable. <see cref="Image.GetStarMaskedMedianAndMADScaledToUnit"/> is such a
+    /// caller -- its median and MAD feed the stretch, so changing the convention would move every
+    /// rendered pixel slightly for no stated reason.</para>
+    /// <para>The span is permuted in place but not sorted.</para>
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static float NthSmallest(Span<float> values, int k)
+    {
+        var n = values.Length;
+        if (n == 0) return float.NaN;
+        if (n == 1) return values[0];
+
+        k = Math.Clamp(k, 0, n - 1);
+        QuickSelect(values, k);
+        return values[k];
+    }
+
+    /// <summary>
     /// Double-precision counterpart to <see cref="MedianFast(Span{float})"/>.
     /// Same algorithm, same trade-offs.
     /// </summary>
