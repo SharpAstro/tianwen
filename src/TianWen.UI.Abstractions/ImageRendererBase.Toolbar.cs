@@ -373,7 +373,7 @@ namespace TianWen.UI.Abstractions
 
                 if (hovered && GetToolbarButtonTooltip(box.Action, state) is { Length: > 0 } tip)
                 {
-                    _hoveredTooltip = (tip, r.X, r.Bottom);
+                    _hoveredTooltip = (tip, r.X, r.Bottom, null);
                 }
 
                 if (box.Enabled)
@@ -796,14 +796,24 @@ namespace TianWen.UI.Abstractions
 
         // The hovered button's tooltip and the anchor to hang it from, captured during the toolbar
         // paint. Render-thread only, rebuilt every frame.
-        private (string Text, float X, float Y)? _hoveredTooltip;
+        /// <summary>
+        /// The hover tooltip for this frame: its text, its anchor, and -- for a tooltip belonging to a
+        /// LIST ROW -- that row's height.
+        ///
+        /// The row case is placed differently on purpose. A tooltip dropped below its anchor lands
+        /// exactly on top of the NEXT row, so a full file name appears against a different file's
+        /// position and reads as that file's name. Given the row's height it is instead drawn over the
+        /// row itself, left edge and text inset matching, which reads as the row widening to fit its
+        /// own name -- the thing the reader actually asked for.
+        /// </summary>
+        private (string Text, float X, float Y, float? RowHeight)? _hoveredTooltip;
 
         /// <summary>
         /// Draws the hovered toolbar button's tooltip. Called LAST in the frame so it paints over every
         /// other piece of chrome -- a tooltip that the file list or the info panel draws over is worse
         /// than none, because it looks like a rendering fault rather than a missing feature.
         /// </summary>
-        private void RenderToolbarTooltip(ViewerState state)
+        private void RenderHoverTooltip(ViewerState state)
         {
             // An open dropdown owns the pointer, so the button underneath must not also explain itself.
             // Stated ONCE on the state (see ViewerState.OverlayOwnsPointer) rather than as a term here,
@@ -813,16 +823,47 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var fontSize = ToolbarFontSize;
+            // A row tooltip stands in for the row's own text, so it must use the LIST's font size and
+            // the list's baseline -- at the toolbar's size it sat a couple of pixels off and the
+            // underscores in a file name doubled up against the row beneath.
+            var fontSize = tip.RowHeight is null ? ToolbarFontSize : FontSize;
             var textWidth = MeasureText(tip.Text, fontSize);
-            var placed = OverlayPlacement.Place(OverlayPlacement.Anchor.Below, tip.X, tip.Y,
-                textWidth, fontSize, DpiScale, Width, Height);
-            var box = placed.Box;
+
+            RectF32 box;
+            float textX;
+            if (tip.RowHeight is { } rowHeight)
+            {
+                // Over the row, not below it. PanelPadding rather than the tooltip's own padding so
+                // the revealed text starts at the same x as the truncated text it replaces -- a
+                // different inset would make the name appear to jump sideways on hover.
+                var width = textWidth + PanelPadding * 2f;
+                var x = OverlayPlacement.ClampX(tip.X, width, Width);
+                var y = OverlayPlacement.ClampY(tip.Y, rowHeight, Height);
+                box = new RectF32(x, y, width, rowHeight);
+                textX = x + PanelPadding;
+            }
+            else
+            {
+                var placed = OverlayPlacement.Place(OverlayPlacement.Anchor.Below, tip.X, tip.Y,
+                    textWidth, fontSize, DpiScale, Width, Height);
+                box = placed.Box;
+                textX = placed.TextX;
+            }
 
             FillRect(box.X - 1f, box.Y - 1f, box.Width + 2f, box.Height + 2f, ViewerTheme.Palette.SeparatorStrong);
             FillRect(box.X, box.Y, box.Width, box.Height, ViewerTheme.Palette.PanelBg);
-            DrawText(tip.Text.AsSpan(), FontPath, placed.TextX, box.Y, box.Width, box.Height,
-                fontSize, ViewerTheme.Palette.BodyText, TextAlign.Near, TextAlign.Center);
+            if (tip.RowHeight is { } rowTextHeight)
+            {
+                // Top-aligned at the same +2 inset RenderFileList uses, NOT vertically centred in the
+                // box: centring is what put it off the row's baseline. Same helper, same offset, so
+                // the revealed name lands exactly where the truncated one was.
+                DrawText(tip.Text, textX, RowTextY(box.Y, rowTextHeight), fontSize, ViewerTheme.Palette.BodyText);
+            }
+            else
+            {
+                DrawText(tip.Text.AsSpan(), FontPath, textX, box.Y, box.Width, box.Height,
+                    fontSize, ViewerTheme.Palette.BodyText, TextAlign.Near, TextAlign.Center);
+            }
         }
 
         /// <summary>Design-unit edge of a toolbar mark, sized to the toolbar text beside it.</summary>

@@ -214,7 +214,15 @@ namespace TianWen.UI.Abstractions
             FillRect(resetX, y, resetW, btnH, ToolbarButtonBg);
             DrawText(resetLabel, resetX + gap, y + gap / 2f, FontSize, ViewerTheme.Palette.BodyText);
             RegisterClickable(resetX, y, resetW, btnH, new HitResult.ButtonHit("ResetWhiteBalance"),
-                _ => { state.ManualWhiteBalance = (1f, 1f, 1f); state.NeedsRedraw = true; });
+                _ =>
+                {
+                    state.ManualWhiteBalance = (1f, 1f, 1f);
+                    // Drop the parked triple too: the user has just said explicitly that identity is
+                    // what they want, so resurrecting a pre-calibration value later would override a
+                    // more recent instruction with an older one.
+                    state.ManualWhiteBalanceBeforeCalibration = null;
+                    state.NeedsRedraw = true;
+                });
             y += btnH + FontSize;
         }
 

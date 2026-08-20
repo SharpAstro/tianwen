@@ -518,7 +518,15 @@ bool HandleMouseDown(InputEvent.MouseDown down)
             return true;
         }
 
-        if (hit is not null)
+        // A file-list row registers a region (so it has a cursor, a hover tooltip and is visible to
+        // the inspector) but must NOT be claimed here: the press has to continue to the scroll
+        // controller below, which owns drag-to-scroll and fires selection on the tap RELEASE.
+        //
+        // This is the SECOND copy of this dispatcher -- ImageRendererBase.HandleViewerMouseDown is the
+        // embedded one -- and fixing only that one is why single-click selection stayed broken here:
+        // the standalone viewer never runs it. Any new hit type that needs to fall through has to be
+        // excluded in both.
+        if (hit is not null && hit is not HitResult.ListItemHit { ListId: ImageRendererBase<VkTexture>.FileListId })
         {
             return true; // OnClick already handled it (e.g. HistogramLog, PlayPause)
         }

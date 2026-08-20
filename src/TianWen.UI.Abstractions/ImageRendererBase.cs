@@ -728,7 +728,7 @@ namespace TianWen.UI.Abstractions
             // Last of all, so it paints over every other piece of chrome.
             if (!state.HideChrome)
             {
-                RenderToolbarTooltip(state);
+                RenderHoverTooltip(state);
             }
         }
 

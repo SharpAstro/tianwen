@@ -324,7 +324,7 @@ namespace TianWen.UI.Abstractions
                     tracker.RunGuarded(
                         ct => CalibrateColorAsync(docForTask, state, ct),
                         AppToken, logger, "Colour calibration",
-                        onError: ex => state.StatusMessage = $"Calibration failed: {ex.Message}",
+                        onError: ex => state.StatusMessage = $"Calibration failed: {StatusText.FromException(ex)}",
                         onFinally: () => EndColorCalibration(docForTask, state));
                 }
                 else
@@ -332,7 +332,7 @@ namespace TianWen.UI.Abstractions
                     _ = BackgroundTaskTracker.RunGuardedAsync(
                         ct => CalibrateColorAsync(docForTask, state, ct),
                         AppToken, logger, "Colour calibration",
-                        onError: ex => state.StatusMessage = $"Calibration failed: {ex.Message}",
+                        onError: ex => state.StatusMessage = $"Calibration failed: {StatusText.FromException(ex)}",
                         onFinally: () => EndColorCalibration(docForTask, state));
                 }
             }
@@ -359,7 +359,7 @@ namespace TianWen.UI.Abstractions
 
             if (document.ColorCalibration is { } wb)
             {
-                state.ColorCalibrationEnabled = true;
+                ViewerActions.SetColorCalibrationEnabled(state, true);
 
                 // The manual triple is dropped, because the pipeline MULTIPLIES the two
                 // (StretchSolver.ComposeWhiteBalance is auto x manual) and what just landed is an
@@ -369,12 +369,8 @@ namespace TianWen.UI.Abstractions
                 // and then SPCC used to do exactly that, silently, with the sliders still reading
                 // 1.00 throughout.
                 //
-                // Reset rather than carry the calibration INTO the sliders, which looks like the
-                // friendlier option and is not: only the auto slot scales the per-channel stats, and
-                // that scaling is what holds the background neutral under an Unlinked or linear
-                // stretch. Moved to the manual slot the triple would stop scaling stats and the
-                // background would drift the moment the stretch left Linked.
-                state.ManualWhiteBalance = (1f, 1f, 1f);
+                // The reset itself now lives in ViewerActions.SetColorCalibrationEnabled above, which
+                // also REMEMBERS the triple so switching the calibration off restores it.
 
                 if (state.StretchMode is StretchMode.Unlinked)
                 {
@@ -481,7 +477,12 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
-            if (hit is not null)
+            // A file-list row is registered as a region but is NOT claimed here: it carries no OnClick,
+            // and the press has to continue to the scroll controller below or drag-to-scroll dies and
+            // nothing ever selects (the tap is taken on RELEASE). Excluded by TYPE rather than by
+            // rebuilding the pane's geometry here -- the whole reason the row registers a region is so
+            // that this file does not own a second copy of where the rows are.
+            if (hit is not null && hit is not HitResult.ListItemHit { ListId: FileListId })
             {
                 return true; // OnClick already handled it (e.g. HistogramLog, PlayPause)
             }
@@ -508,6 +509,9 @@ namespace TianWen.UI.Abstractions
             return false;
         }
 
+        /// <summary>Last hovered file-list row (-1 = the header, int.MinValue = not over the pane).</summary>
+        private int _lastHoveredFileListRow = int.MinValue;
+
         private bool HandleViewerMouseMove(float px, float py, InputEvent evt)
         {
             if (_state is not { } state)
@@ -529,6 +533,25 @@ namespace TianWen.UI.Abstractions
             if (hoveredButton != _lastHoveredToolbarButton)
             {
                 _lastHoveredToolbarButton = hoveredButton;
+                state.NeedsRedraw = true;
+            }
+
+            // The same reasoning as the toolbar above, for the file list: the row highlight, a row's
+            // hover tooltip and the header's full-path tooltip are ALL hover-driven, and a move over
+            // the pane changes no image pixel -- so without this the pane repainted only when some
+            // unrelated event forced a frame, which is exactly why the tooltip looked like it needed a
+            // click to appear.
+            //
+            // Keyed on the hovered row (the header is index -1) so this costs one repaint per row
+            // crossed rather than one per mouse-move. Read from the REGIONS the pane registered last
+            // frame, not from re-derived geometry -- HitTest does not dispatch, and the point of the
+            // rows being regions is that nothing else has to know where they are.
+            var fileListHover = HitTest(px, py) is HitResult.ListItemHit { ListId: FileListId, Index: var hoverRow }
+                ? hoverRow
+                : int.MinValue;
+            if (fileListHover != _lastHoveredFileListRow)
+            {
+                _lastHoveredFileListRow = fileListHover;
                 state.NeedsRedraw = true;
             }
 

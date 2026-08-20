@@ -121,6 +121,17 @@ public sealed class ViewerState
     /// set on change, never <see cref="NeedsTextureUpdate"/>.</summary>
     public (float R, float G, float B) ManualWhiteBalance { get; set; } = (1f, 1f, 1f);
 
+    /// <summary>
+    /// The manual triple as it stood before an automatic calibration took over, so switching the
+    /// calibration back off can restore it. Null whenever no calibration is holding the manual slot.
+    ///
+    /// This exists because the two slots are NOT independent: the pipeline multiplies them
+    /// (auto x manual), so an absolute star-photometry answer has to clear the relative one or the
+    /// image is corrected twice. Clearing it is right; forgetting it was not -- turning the
+    /// calibration off then left the sliders at 1.00 with the user's own adjustment gone for good.
+    /// </summary>
+    public (float R, float G, float B)? ManualWhiteBalanceBeforeCalibration { get; set; }
+
     /// <summary>Channel (0=R, 1=G, 2=B) of the WB slider currently being dragged, or -1 when idle. Mirrors
     /// the <see cref="IsScrubbing"/> transport-drag pattern: a press begins the drag, mouse-move tracks it,
     /// release clears it.</summary>

@@ -7,6 +7,7 @@ using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.InteropServices;
+using TianWen.Lib.Astrometry;
 using CodecSampleFormat = SharpAstro.Codecs.Abstractions.SampleFormat;
 
 namespace TianWen.Lib.Imaging;
@@ -32,7 +33,21 @@ public partial class Image
     /// into <see cref="ImageMeta"/> where present.
     /// </summary>
     public static bool TryReadImageFile(string fileName, [NotNullWhen(true)] out Image? image)
+        => TryReadImageFile(fileName, out image, out _);
+
+    /// <summary>
+    /// As <see cref="TryReadImageFile(string, out Image?)"/>, additionally yielding the file's own WCS when it
+    /// carries one. Only the FITS branch can: every other format here has nowhere to put one, so
+    /// <paramref name="wcs"/> is null for them rather than absent.
+    ///
+    /// This overload exists so a caller that wants BOTH does not have to re-derive which extensions
+    /// are FITS. A plate solver needs exactly that pair -- pixels to solve, plus a header WCS to seed
+    /// the search -- and the previous shape pushed it to call TryReadFitsFile directly, which THROWS
+    /// on a non-FITS file instead of returning false.
+    /// </summary>
+    public static bool TryReadImageFile(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs)
     {
+        wcs = null;
         var ext = Path.GetExtension(fileName).ToLowerInvariant();
 
         if (ext is ".tif" or ".tiff")
@@ -52,7 +67,7 @@ public partial class Image
         // alone covers .fit.fz and .fits.fz too.
         if (ext is ".fits" or ".fit" or ".fts" or ".fz")
         {
-            return TryReadFitsFile(fileName, out image);
+            return TryReadFitsFile(fileName, out image, out wcs);
         }
         if (ext is ".png" or ".jpg" or ".jpeg" or ".jxr" or ".wdp" or ".exr" or ".jxl")
         {
@@ -176,9 +191,28 @@ public partial class Image
             var page = doc.Pages[0];
             var width = page.Width;
             var height = page.Height;
+
+            // The photometric interpretation decides what the samples MEAN, and ignoring it is not a
+            // graceful degradation -- it renders a confidently wrong picture. A Separated (CMYK)
+            // print export read as RGB comes out as a colour-shifted NEGATIVE, because a high CMYK
+            // value is more ink, i.e. darker. That is worse than refusing the file, since nothing on
+            // screen says the interpretation was guessed.
+            if (page.Photometric is not (TiffPhotometric.Rgb or TiffPhotometric.MinIsBlack
+                or TiffPhotometric.MinIsWhite or TiffPhotometric.Cmyk))
+            {
+                // Palette / YCbCr / CIELab need a colour transform this reader does not carry. Refuse
+                // rather than reinterpret; the caller reports that it could not read the file.
+                image = null;
+                return false;
+            }
+
+            // CMYK is the one case where the output channel count is not the input's: K is needed to
+            // convert and then discarded, so decode 4 and emit 3.
+            var isSeparated = page.Photometric == TiffPhotometric.Cmyk && page.SamplesPerPixel >= 4;
             // Drop alpha / extras: Image carries mono (1) or RGB (3); the prior Magick path
             // also extracted only R/G/B from interleaved RGBA strides.
-            var outChannels = page.SamplesPerPixel >= 3 ? 3 : 1;
+            var decodeChannels = isSeparated ? 4 : page.SamplesPerPixel >= 3 ? 3 : 1;
+            var outChannels = isSeparated ? 3 : decodeChannels;
             var bitDepth = (page.SampleFormat, page.BitsPerSample) switch
             {
                 (TiffSampleFormat.IeeeFloat, _) => BitDepth.Float32,
@@ -187,8 +221,19 @@ public partial class Image
                 _ => BitDepth.Float32,
             };
 
-            var channels = CreateChannelData(outChannels, height, width);
-            DecodeTiffPixels(page, channels, outChannels);
+            var channels = CreateChannelData(decodeChannels, height, width);
+            DecodeTiffPixels(page, channels, decodeChannels);
+
+            if (page.Photometric == TiffPhotometric.MinIsWhite)
+            {
+                // Zero means WHITE for this photometric (scanners and fax), so the stored samples are
+                // a negative of the intensity every consumer downstream assumes.
+                InvertSamplesInPlace(channels);
+            }
+            else if (isSeparated)
+            {
+                channels = ConvertSeparatedToRgb(channels, width, height);
+            }
 
             var exif = ExifReader.FromTiff(bytes);
             var imageMeta = BuildImageMetaFromExif(exif, page.FileIsLittleEndian);
@@ -297,6 +342,52 @@ public partial class Image
             image = null;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Flip sample polarity for <see cref="TiffPhotometric.MinIsWhite"/>, where 0 means white.
+    /// Samples are already normalised to [0, 1] by the decode, so the inversion is 1 - v.
+    /// </summary>
+    private static void InvertSamplesInPlace(float[][,] channels)
+    {
+        foreach (var plane in channels)
+        {
+            var flat = MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length);
+            for (var i = 0; i < flat.Length; i++)
+            {
+                flat[i] = 1f - flat[i];
+            }
+        }
+    }
+
+    /// <summary>
+    /// Naive Separated (CMYK) -> RGB: <c>R = (1-C)(1-K)</c> and so on, with all four samples already
+    /// normalised to [0, 1] and 0 meaning no ink (the TIFF 6.0 Separated convention).
+    ///
+    /// Deliberately naive, and the limitation is worth stating: an accurate conversion needs the
+    /// embedded ICC output profile, because CMYK is device-dependent in a way RGB is not -- these
+    /// files do carry one. What this buys is the part that was unambiguously WRONG rather than merely
+    /// imprecise: the polarity. A print export now reads as a positive with roughly right hues
+    /// instead of a negative. Anyone colour-managing a proof should not be doing it here.
+    /// </summary>
+    private static float[][,] ConvertSeparatedToRgb(float[][,] cmyk, int width, int height)
+    {
+        var rgb = CreateChannelData(3, height, width);
+        var c = cmyk[0];
+        var m = cmyk[1];
+        var y = cmyk[2];
+        var k = cmyk[3];
+        for (var row = 0; row < height; row++)
+        {
+            for (var col = 0; col < width; col++)
+            {
+                var ink = 1f - k[row, col];
+                rgb[0][row, col] = (1f - c[row, col]) * ink;
+                rgb[1][row, col] = (1f - m[row, col]) * ink;
+                rgb[2][row, col] = (1f - y[row, col]) * ink;
+            }
+        }
+        return rgb;
     }
 
     private static void DecodeTiffPixels(TiffPage page, float[][,] channels, int outChannels)
