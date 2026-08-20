@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  MSIX manifest for tianwen-fits, shipped through the Microsoft Store as "Astro Photo Viewer".
+
+  $VERSION$ and $ARCH$ are stamped by build-msix.ps1; this file is a template and is not a valid
+  manifest on its own. That is deliberate, so nobody hand-edits a version into it and ships a
+  package whose number disagrees with the run that built it.
+
+  The three Identity values below are NOT ours to choose. They are assigned by Partner Center for
+  the reserved app (Store ID 9PMDZP16TGBG) and must match byte for byte, or the upload is rejected
+  with an identity mismatch that does not say which field was wrong.
+-->
+
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="SharpAstro.AstroPhotoViewer"
+    Publisher="CN=122BD22F-D2B3-495A-80BD-1B05280ADEBF"
+    Version="$VERSION$"
+    ProcessorArchitecture="$ARCH$" />
+
+  <Properties>
+    <DisplayName>Astro Photo Viewer</DisplayName>
+    <PublisherDisplayName>SharpAstro</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <!--
+      19041 is Windows 10 2004, which is the floor for the Store's current MSIX handling and well
+      below anything this app can actually run on: it needs Vulkan and a driver to match.
+    -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <!--
+      EntryPoint Windows.FullTrustApplication is what makes this a packaged Win32 app rather than a
+      UWP one: the exe is launched normally, keeps its own process, and the shell hands it the file
+      path as an ordinary command line argument. That is why no activation plumbing is needed here,
+      and why FolderInstanceGate can read the path from args exactly as it does unpackaged.
+    -->
+    <Application Id="AstroPhotoViewer"
+                 Executable="tianwen-fits.exe"
+                 EntryPoint="Windows.FullTrustApplication">
+
+      <uap:VisualElements
+        DisplayName="Astro Photo Viewer"
+        Description="View and inspect astronomical images: FITS, SER video, TIFF and Canon RAW."
+        BackgroundColor="#0B1020"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Square71x71Logo="Assets\Square71x71Logo.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!--
+          The five formats where this app is the obvious handler. TIFF and Canon RAW are opened by
+          the viewer too, but are left unregistered on purpose: they are already owned by general
+          purpose photo tools, and every association here adds an "Open with" entry whether or not
+          anyone wants one.
+
+          What this does and does not do: it registers the app as a CANDIDATE. It cannot make itself
+          the default, because the shell keeps that choice in a per user UserChoice key sealed with a
+          hash it will not accept from a package. The user assigns it in Settings, Apps, Default
+          apps. That is the same end state the unpackaged FileAssociationRegistrar reaches by writing
+          four registry locations; MSIX just declares it in one place instead.
+        -->
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="astroimage">
+            <uap:DisplayName>Astronomical image</uap:DisplayName>
+            <uap:InfoTip>Open with Astro Photo Viewer</uap:InfoTip>
+            <uap:Logo>Assets\Square44x44Logo.png</uap:Logo>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.fits</uap:FileType>
+              <uap:FileType>.fit</uap:FileType>
+              <uap:FileType>.fts</uap:FileType>
+              <uap:FileType>.fz</uap:FileType>
+              <uap:FileType>.ser</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!--
+      The only capability a packaged desktop app needs. It is what grants ordinary Win32 rights:
+      reading the user's image folders, spawning the RC Astro CLI, opening COM ports for the device
+      layer. Without it the process is confined to the UWP sandbox and none of that works.
+    -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+</Package>
