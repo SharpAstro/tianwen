@@ -77,7 +77,7 @@ public class N2nSeamProbe(ITestOutputHelper output)
         for (var c = 0; c < channels; c++)
         {
             var (median, mad) = MedianMad(input.GetChannelSpan(c));
-            output.WriteLine($"  ch{c}   input median={median:F6} MAD={mad:F6}  (the net trained near 0.26)");
+            output.WriteLine($"  ch{c}   input median={median:F6} MAD={mad:F6}  (trained on single-sub noise, MAD near 0.01)");
         }
 
         using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
