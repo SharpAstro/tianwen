@@ -156,3 +156,67 @@ locally before paying for cloud GPU" lane on this box is what TianWen's own AI s
 out: ONNX inference via **DirectML → native Adreno GPU** (RC-Astro/SAS enhancers), good for
 sanity-checking a trained model's inference and small-scale smoke runs, not for the actual training
 job (which the main plan already scopes to rented cloud GPU, RunPod RTX 4090).
+
+## 10. Calibration coverage census (2026-08-17)
+
+**This supersedes the estimates in sections 6 and 7 for the 2025-2026 lights**, because it is not a
+folder-listing aggregate: it is `tianwen dataset coverage` resolving every light through the
+**production** calibration matcher, so a "has a dark" column means the same thing the stacker means
+by it. 60 sessions / 7,161 lights over `D:\Astro-Pics\2025` + `2026`, N.I.N.A. lights only, strict
+gain gate. Outputs live outside the repo, at `D:\Astro-Reports\calibration-coverage.tsv` + `.md`.
+
+Re-run (~12 min, USB-disk-bound):
+
+```
+tianwen dataset coverage --archive-root D:\Astro-Pics\2025 --archive-root D:\Astro-Pics\2026 --out D:\Astro-Reports --software "*N.I.N.A.*"
+```
+
+| Result | Count | Note |
+|---|---|---|
+| Darks resolved | 57 / 60 | all gain-matched; the 3 misses have ZERO candidates, not rejected ones |
+| Flats resolved | 60 / 60 | |
+| Sessions carrying a `FILTER` header | **0 / 60** | and no sidecar exists |
+
+Two findings worth keeping separate from the numbers:
+
+- **No session in the source archive carries a `FILTER` header, and no sidecar exists.** The
+  dual-band identity lives in folder names only; `D:\Astro-Organized` carries the tags instead. This
+  is what the filter-inference work exists for (see [filter-inference.md](filter-inference.md)).
+- **A candidate COUNT beside every resolved-or-not column is what makes the report actionable.** It
+  turns "no dark" into either "shoot a library" (0 candidates) or "a gate refused them" (>0) with no
+  further investigation. Keep that column if the report is ever reshaped.
+
+### 10.1 QHY294 dark shopping list (the only real coverage hole)
+
+Read off the stranded sessions' own lights, so this is a capture spec rather than a guess. Shooting
+it un-drops **193 lights across 3 targets**.
+
+| Setting | Value |
+|---|---|
+| Exposure | 60 s |
+| Gain / offset | 1600 / 40 |
+| Sensor temp | -5 C |
+| Binning | 1x1 |
+| Readout mode | **11M MODE** |
+| Frame size | 4164 x 2795 |
+| Subs | ~20-30 |
+
+Plus either ~4 s dark-flats (those sessions' flats metered 4.05 s) or a gain-1600 / offset-40 bias
+set.
+
+### 10.2 Organized-archive gap
+
+A name-diff against `D:\Astro-Organized` shows **every non-ASI533 / non-SV605CC session is absent**:
+
+| Session | Lights | Camera |
+|---|---|---|
+| Helix | 317 | ASI585 |
+| Rim | 264 | ASI585 |
+| Lagoon | 56 | ASI585 |
+| eta Car LUM | 243 | ASI1600MM |
+| SW8Q trio | 193 | QHY294 |
+| **Total** | **1,073** | no organized counterpart |
+
+The SharpCap / EAA exclusions are by design and are NOT part of this gap. Closing it is the archive
+re-organisation task in [../todo/imaging.md](../todo/imaging.md).
+
