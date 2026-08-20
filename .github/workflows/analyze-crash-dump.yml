@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Match the runtime the crashed test host ran on, so dotnet-dump resolves the right DAC.
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 

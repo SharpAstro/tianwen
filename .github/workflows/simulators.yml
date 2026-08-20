@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 25
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
         lfs: false
@@ -56,7 +56,7 @@ jobs:
       run: |
         HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v5
+    - uses: actions/cache@v6
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
@@ -64,7 +64,7 @@ jobs:
           lfs-build-
     - name: Fetch catalog LFS objects
       run: git lfs pull --include="*.lz,*.bin.gz"
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
         cache: true
@@ -87,11 +87,11 @@ jobs:
     if: ${{ github.event_name == 'schedule' || github.event.inputs.suite == 'both' || github.event.inputs.suite == 'alpaca' }}
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
         lfs: false
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
         cache: true
@@ -159,11 +159,11 @@ jobs:
     if: ${{ github.event.inputs.suite == 'both' || github.event.inputs.suite == 'ascom' }}
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
         lfs: false
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
         cache: true
