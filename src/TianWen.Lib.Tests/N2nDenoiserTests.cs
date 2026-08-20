@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
@@ -17,12 +18,15 @@ using Xunit;
 namespace TianWen.Lib.Tests;
 
 /// <summary>
-/// Tests for the in-house Noise2Noise denoiser. The model ships in the repo under Git LFS
-/// (<c>src/TianWen.AI.Imaging/models/</c>, copied beside every consumer's binaries as
+/// Tests for the in-house Noise2Noise denoiser. The model ships IN the repo at
+/// <c>src/TianWen.AI.Imaging/models/</c> (copied beside every consumer's binaries as
 /// <c>models/</c> by that project's Content item), so the resolver probes that copy first and
-/// falls back to the per-user cache dirs. A clone without git-lfs materializes only the pointer
-/// stub, which <see cref="ModelResolver"/> refuses, and the model-gated tests skip rather than
-/// fail.
+/// falls back to the per-user cache dirs. At 3.1 MiB it is committed as a plain git blob rather
+/// than an LFS object -- <c>.gitattributes</c> exempts that directory from the repo-wide
+/// <c>*.onnx</c> LFS rule, to keep infrequent clones off the LFS bandwidth budget -- so a checkout
+/// has the real weights whether or not git-lfs is installed. <see cref="ModelResolver"/> still
+/// refuses a pointer stub, which is what keeps the model-gated tests skipping rather than failing
+/// if that ever changes back.
 /// <para>
 /// <b>The parity test is the point of this file.</b> The exported graph is already pinned against
 /// torch by <c>n2n-smoke/ship/n2n_export.py</c> (max |diff| 1.49e-7). What no Python check can
@@ -410,5 +414,108 @@ public class N2nDenoiserTests(ITestOutputHelper output)
 
         viaOptions.Release();
         direct.Release();
+    }
+
+    /// <summary>
+    /// The end-to-end guard for the tile seams, and the one test here that stitches at all: the
+    /// parity plate is 160 px against a 256 px tile, so it is a SINGLE chunk and every defect in
+    /// the join is invisible to it. This plate is 512 px, which is 9 chunks.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The background is deliberately far below the training level.</b> The net carries a
+    /// learned sky-level prior and <c>RestoreLevel</c> corrects the resulting drag per chunk, so the
+    /// SIZE of the per-chunk disagreement grows as the input level departs from what it was trained
+    /// on. At an in-distribution 0.26 the disagreement is small enough that an unweighted stitch
+    /// looks fine and this test would pass while asserting nothing. 0.002 is the level of the real
+    /// master this was reported on.</para>
+    ///
+    /// <para>The seam positions are derived, not guessed: chunks step <c>tile - overlap</c> and keep
+    /// <c>tile - 2 * border</c>, so consecutive retained regions share <c>overlap - 2 * border</c>
+    /// px starting at each multiple of the stride.</para>
+    /// </remarks>
+    [Theory]
+    [InlineData(64)]
+    [InlineData(128)]
+    public async Task TheChunkSeamsDoNotShowInTheStitchedOutput(int overlap)
+    {
+        if (!HasModel(out var skip)) { Assert.Skip(skip); return; }
+
+        // Big enough that INTERIOR chunks dominate at every geometry under test. At 512 with a
+        // 128 stride only four chunks fit and two of them are outer ones, so the documented
+        // outer-chunk residual below would set the median all by itself.
+        const int size = 1024;
+        const int tile = 256;
+        const float background = 0.002f;
+        var border = AiNafnetInputs.StitchBorderPx;
+        var stride = tile - overlap;
+        var band = overlap - 2 * border;
+
+        var plate = BuildPlate(size, channels: 3, background: background,
+            noiseAmplitude: 0.0006f, starCount: 25, seed: 20260820u);
+        using var enhancer = new N2nDenoiser(CreateResolver(), overlap: overlap);
+        var denoised = await enhancer.EnhanceAsync(plate, 1.0f, TestContext.Current.CancellationToken);
+
+        var worst = 0.0;
+        var allRatios = new List<double>();
+        for (var c = 0; c < plate.ChannelCount; c++)
+        {
+            var src = plate.GetChannelSpan(c);
+            var dst = denoised.GetChannelSpan(c);
+
+            // Column means of the CORRECTION, which removes the plate and leaves the per-chunk DC.
+            var profile = new double[size];
+            for (var y = 0; y < size; y++)
+            {
+                for (var x = 0; x < size; x++) profile[x] += dst[y * size + x] - src[y * size + x];
+            }
+            for (var x = 0; x < size; x++) profile[x] /= size;
+
+            // Structure yardstick: the typical column-to-column change away from any seam edge.
+            var offSeam = new List<double>();
+            for (var x = 1; x < size; x++)
+            {
+                var phase = x % stride;
+                if (phase <= band + 2 || phase >= stride - 2) continue;
+                offSeam.Add(Math.Abs(profile[x] - profile[x - 1]));
+            }
+            offSeam.Sort();
+            var baseline = offSeam[offSeam.Count / 2];
+
+            for (var seam = stride; seam < size - 1; seam += stride)
+            {
+                foreach (var edge in new[] { seam, seam + band })
+                {
+                    if (edge < 1 || edge >= size) continue;
+                    var ratio = Math.Abs(profile[edge] - profile[edge - 1]) / Math.Max(baseline, 1e-12);
+                    output.WriteLine($"ch{c} x={edge}: step={Math.Abs(profile[edge] - profile[edge - 1]):E2} = {ratio:F1}x local");
+                    worst = Math.Max(worst, ratio);
+                    allRatios.Add(ratio);
+                }
+            }
+        }
+
+        allRatios.Sort();
+        var medianRatio = allRatios[allRatios.Count / 2];
+        output.WriteLine($"median seam-edge step {medianRatio:F1}x local structure, worst {worst:F1}x");
+
+        // The MEDIAN, deliberately, and not the worst. Unweighted stitching makes EVERY seam edge
+        // detectable -- measured on a real master, 38 of 38 edges sat at >=3x and the median was
+        // 52x -- so a median near 1x is exactly the property the blend establishes, and it collapses
+        // to the tens the moment the feather is removed.
+        //
+        // The worst is deliberately NOT asserted tightly, because a known residual survives at the
+        // bands touching the OUTERMOST chunks and it is not the blend's to fix: AddBorder fills the
+        // outer margin with the plane median and a clipped edge chunk is replicate-padded, so an
+        // outer tile's input carries synthetic, noiseless pixels. This net measures its sigma
+        // conditioning over the WHOLE tile (see N2nLinearRunner), so an outer chunk is conditioned
+        // on a diluted sigma and denoises with different STRENGTH than its neighbour -- a
+        // disagreement in character, which no reweighting of a convex combination can remove. It
+        // moves with the stride (so it is chunk-related, not structure) and stays local to the first
+        // and last bands.
+        medianRatio.ShouldBeLessThan(5.0,
+            "the stride positions must be statistically indistinguishable from anywhere else");
+
+        denoised.Release();
+        plate.Release();
     }
 }

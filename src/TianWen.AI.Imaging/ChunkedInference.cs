@@ -87,19 +87,40 @@ public static class ChunkedInference
     /// Stitch <paramref name="chunks"/> back into <paramref name="destPlane"/>
     /// (row-major, length = <paramref name="width"/> * <paramref name="height"/>).
     /// Each chunk's inner region -- with a border of <paramref name="borderSize"/>
-    /// pixels dropped on each side -- is summed into the destination; per-pixel
-    /// weights are tracked separately so overlapping inner regions average to
-    /// the mean. Caller is responsible for zeroing <paramref name="destPlane"/>
+    /// pixels dropped on each side -- is accumulated into the destination and then
+    /// divided by the summed weight, so overlapping inner regions combine to a
+    /// weighted mean. Caller is responsible for zeroing <paramref name="destPlane"/>
     /// before the call; this method writes into it directly.
     /// </summary>
+    /// <param name="featherPx">
+    /// Width, in pixels, of the raised-cosine ramp applied to each retained region's
+    /// edges. <c>0</c> (the default) weights every contribution equally, which is SAS
+    /// Pro's <c>stitch_chunks_ignore_border</c> behaviour and what the AI4 NAFNet path
+    /// is pinned against; pass the retained-region overlap
+    /// (<c>overlap - 2 * borderSize</c>) to blend across the join instead.
+    /// <para><b>Why a caller wants a ramp.</b> Equal weights make the per-pixel weight
+    /// a STEP: 1 where one chunk contributes, 2 where two do. So if neighbouring
+    /// chunks disagree by a constant -- which any per-chunk level correction
+    /// guarantees, see <see cref="Onnx.N2nLinearRunner"/> -- a difference of D does not
+    /// become a transition, it becomes TWO hard edges of D/2 at the band's boundaries.
+    /// Measured through the N2N denoiser on a real master, those edges reached 1.0x the
+    /// background sigma and 111x the local column-to-column variation: a visible grid
+    /// at the chunk stride. A ramp makes the crossover continuous, so the same
+    /// disagreement lands as a slow gradient instead of an edge.</para>
+    /// <para>The ramp is not a correctness device and cannot be one -- the divide by
+    /// accumulated weight is what reconstructs a constant field exactly, at an
+    /// unmatched image edge as much as in an overlap.</para>
+    /// </param>
     public static void Stitch(
         IReadOnlyList<Chunk> chunks,
         Span<float> destPlane, int width, int height,
-        int borderSize)
+        int borderSize,
+        int featherPx = 0)
     {
         if (destPlane.Length != width * height)
             throw new ArgumentException($"destPlane length ({destPlane.Length}) must equal width * height ({width * height})", nameof(destPlane));
         if (borderSize < 0) throw new ArgumentOutOfRangeException(nameof(borderSize));
+        if (featherPx < 0) throw new ArgumentOutOfRangeException(nameof(featherPx));
 
         var weights = new float[width * height];
         destPlane.Clear();
@@ -132,27 +153,71 @@ public static class ChunkedInference
             var sy0 = bh + (yy0 - y0);
             var sx0 = bw + (xx0 - x0);
 
+            // Ramps span the FULL retained region, then are indexed by the offset the
+            // clip started at -- a chunk trimmed by the destination bounds must keep the
+            // weights its untrimmed pixels would have had, or its share of the overlap
+            // changes and the join reopens.
+            var wx = FeatherProfile(x1 - x0, featherPx);
+            var wy = FeatherProfile(y1 - y0, featherPx);
+            var rxOffset = xx0 - x0;
+            var ryOffset = yy0 - y0;
+
             var data = chunk.Data;
             for (var ry = 0; ry < yy1 - yy0; ry++)
             {
                 var srcOff = (sy0 + ry) * w + sx0;
                 var dstOff = (yy0 + ry) * width + xx0;
+                var rowWeight = wy[ryOffset + ry];
                 var span = xx1 - xx0;
                 for (var rx = 0; rx < span; rx++)
                 {
-                    destPlane[dstOff + rx] += data[srcOff + rx];
-                    weights[dstOff + rx] += 1f;
+                    var weight = rowWeight * wx[rxOffset + rx];
+                    destPlane[dstOff + rx] += data[srcOff + rx] * weight;
+                    weights[dstOff + rx] += weight;
                 }
             }
         }
 
-        // Divide by weight (clamped at 1 -- unweighted pixels stay at the zero
-        // we cleared; the clamp matches SAS Pro's np.maximum(weights, 1.0)).
+        // Divide by the accumulated weight. Pixels no chunk reached keep the zero we
+        // cleared, and dividing by an exactly-1 weight is the identity, so featherPx = 0
+        // reproduces the old unweighted mean bit for bit (SAS Pro's
+        // np.maximum(weights, 1.0) had the same two cases).
         for (var i = 0; i < destPlane.Length; i++)
         {
             var weight = weights[i];
-            if (weight > 1f) destPlane[i] /= weight;
+            if (weight > 0f) destPlane[i] /= weight;
         }
+    }
+
+    /// <summary>
+    /// Raised-cosine ramp weights along one axis of a retained region of
+    /// <paramref name="length"/> pixels: rising over the first
+    /// <paramref name="feather"/>, flat 1 across the middle, falling over the last
+    /// <paramref name="feather"/>. Ascending and descending halves sum to exactly 1 at
+    /// matching offsets, so two chunks meeting in a band contribute one whole pixel
+    /// between them.
+    /// </summary>
+    /// <remarks>
+    /// Raised cosine rather than a straight line because a triangular ramp is
+    /// continuous but its SLOPE is not, and a slope break at a fixed stride is itself
+    /// something the eye can find on a smooth background. The offset is taken at pixel
+    /// centres (<c>(i + 0.5) / f</c>) so no weight is ever exactly zero: a zero-weight
+    /// column at an unmatched edge would be a hole for <see cref="Stitch"/>'s divide to
+    /// leave at the cleared zero.
+    /// </remarks>
+    private static float[] FeatherProfile(int length, int feather)
+    {
+        var profile = new float[length];
+        if (length <= 0) return profile;
+        profile.AsSpan().Fill(1f);
+        var f = Math.Min(feather, length / 2);
+        for (var i = 0; i < f; i++)
+        {
+            var ramp = (float)(0.5 - 0.5 * Math.Cos(Math.PI * ((i + 0.5) / f)));
+            profile[i] = ramp;
+            profile[length - 1 - i] = ramp;
+        }
+        return profile;
     }
 
     /// <summary>
