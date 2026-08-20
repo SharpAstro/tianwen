@@ -58,7 +58,7 @@ So M1 changes what the process holds forever, M2 changes how high it spikes, and
 for the one consumer that does not need the float model. They are independent and land in that order
 of increasing cost.
 
-## M1. Release the staging buffer when a burst of uploads ends
+## M1. Release the staging buffer when a burst of uploads ends -- SHIPPED
 
 `tianwen`: `src/TianWen.UI.Shared/VkFitsImagePipeline.cs` plus one call site. Nothing in `Codecs`.
 
@@ -80,6 +80,24 @@ placeholder-upload loop -- so releasing immediately after it returns needs no fe
 
 **Effect: 472 MiB (4 B/px) off the steady state, and the high-water mark stops following the process
 around.** Peak during load is unchanged; the buffer is genuinely in use at that moment.
+
+**MEASURED, A/B on the same document and the same build otherwise: 3948 MB without the trim, 3399 MB
+with it -- 549 MB back**, a little more than the 495 MB predicted (the buffer is sized to the padded
+memory requirement, not to the pixel bytes). The absolute figures are higher than the 2.5 GB recorded
+above because this box has a shared-memory GPU and a Debug build, which is the ~3.57 GiB case the
+device-memory note predicts.
+
+**What ships is gated on `ViewerState.SourceGeneration`, not on the upload itself.** That distinction
+is the whole implementation: `UploadDocumentTextures` is ALSO the per-frame path for a live camera
+feed (`LiveSessionTab`, `GuiderTab`), so trimming on every call would be the alloc/free-per-frame
+regression this section warns about one paragraph up. `SourceGeneration` already increments on each
+source replacement in `ViewerController` and is untouched by the live path, so it separates "a
+document loaded" from "another frame arrived" without adding a flag. Pinned by
+`ViewerUploadScratchTrimTests`, whose load-bearing cases are the ones asserting NO trim -- ten live
+frames and three re-uploads of one document -- both of which fail against an unconditional trim. The
+release itself is pinned on a real device by
+`GpuStretchPipelineTests.TrimmingTheStagingBufferReleasesItAndTheNextUploadStillWorks`, which also
+covers re-uploading afterwards and a double trim.
 
 ## M2. Decode strips straight into the float planes
 
@@ -136,7 +154,7 @@ a law, and so the reason it is viewer-local is written down.
 
 | Phase | Items | Rationale |
 |-------|-------|-----------|
-| A | M1 | Self-contained, one repo, no API design. Fixes the cost that persists across documents -- the one a user experiences as "it got slow after I opened that file". |
+| A | **DONE** -- M1 | Self-contained, one repo, no API design. Fixes the cost that persists across documents -- the one a user experiences as "it got slow after I opened that file". |
 | B | M2 in `Codecs` | A new public API on `SharpAstro.Tiff` plus a release. Second, so A has shipped by the time the pin moves. |
 | C | M2 in `tianwen` | Follows B's release; the codec family floats per minor, so the pin edit is one line. |
 | D | M3 design | Needs a decision on what `AstroImageDocument` holds and how Enhance / plate solve get floats. Do not start it as an implementation. |
@@ -146,9 +164,11 @@ a law, and so the reason it is viewer-local is written down.
 **Measure, do not reason.** All three are invisible to a functional test -- the picture is identical
 either way, which is exactly why none of this was noticed.
 
-- **M1**: open the document, close it, open a small FITS, reading the process working set at each
-  step. Before, the 472 MiB persists past the close; after, it is gone. Assertable headlessly by
-  exposing `_stagingSize` and checking it is zero after the trim.
+- **M1** -- DONE. The A/B above (same document, trim on vs off) is the measurement: 549 MB. Done that
+  way rather than "open, close, open a small FITS" because with the trim in place the buffer is
+  already gone by the end of the first load, so the small-FITS step has nothing left to reveal; the
+  comparison has to be against a build without the trim. Headless assertions as planned, via the now
+  public `StagingBufferSize`.
 - **M2**: peak working set during the load of the same file, before and after; expect ~354 MiB lower.
   A unit test asserts the shape rather than the bytes: the decode-into path must produce a
   byte-identical `Image` to `Read`-then-convert for a predictor file, a `MinIsWhite` file and a CMYK

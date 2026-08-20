@@ -51,6 +51,13 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
         _fitsPipeline.UploadChannelTexture(data, channel, imageWidth, imageHeight);
     }
 
+    /// <summary>Hands the pipeline's staging buffer back after a document load. See
+    /// <see cref="VkFitsImagePipeline.TrimStagingBuffer"/> for why this is caller-driven.</summary>
+    protected override void TrimUploadScratch()
+    {
+        _fitsPipeline.TrimStagingBuffer();
+    }
+
     public override void UploadHistogramData(IPreviewSource source)
     {
         var stats = source.ChannelStatistics;
