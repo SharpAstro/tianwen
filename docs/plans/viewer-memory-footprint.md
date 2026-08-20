@@ -136,10 +136,17 @@ writer cannot apply.
 
 Two things this deliberately does not fix:
 
-- **`File.ReadAllBytes` still reads the file whole.** That is 5.7 MB here and irrelevant, but an
-  *uncompressed* TIFF of these dimensions is 354 MB on disk and the streaming win is then cancelled by
-  the file buffer. A stream- or mmap-based reader is the complement and is a much larger change to
-  `SharpAstro.Tiff`'s entry points.
+- ~~**`File.ReadAllBytes` still reads the file whole.**~~ **DONE, and it was not the large change this
+  predicted.** `TiffReader` already had a `Read(ReadOnlySpan<byte>)` overload whose own doc recommended
+  mapping the file, so no `SharpAstro.Tiff` entry point had to move: `TryReadTiff` maps the file and
+  passes the view. It matters exactly where predicted -- an uncompressed TIFF of these dimensions is
+  354 MB on disk, so `ReadAllBytes` was handing back a byte[] as large as the raster M2 had just
+  removed, trading one term for the other. Measured on the allocation test: the uncompressed case went
+  19,444,760 B (raster + file) -> 16,204,608 B (M2, file only) -> **12,965,424 B**, against float
+  planes of 12,960,000 B. The decode now allocates its own output plus 5.4 KB. Scaled to this
+  document, that is 371 MB of raster plus 371 MB of file gone, leaving only the 1,485 MB of planes.
+  The test's ceiling was tightened to exclude the file bytes and was seen to fail against the
+  `ReadAllBytes` version, so it measures the mapping rather than assuming it.
 - `ExifReader.FromTiff(bytes)` needs the header bytes, so it keeps its current input.
 
 ## M3. Let the viewer hold the source bit depth

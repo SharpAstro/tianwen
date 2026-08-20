@@ -66,20 +66,20 @@ public class TiffStreamingDecodeAllocationTests
             image.Width.ShouldBe(Width);
             image.Height.ShouldBe(Height);
 
-            // File.ReadAllBytes is still in this path, and for an UNCOMPRESSED page the file is
-            // raster-sized -- so it has to be in the ceiling or this test fails for a reason that has
-            // nothing to do with the change. My first version omitted it and failed exactly there,
-            // which is the plan's own warning arriving as a test result: M2 removes the raster, and
-            // for uncompressed input the file buffer then becomes the dominant term. Closing THAT is
-            // the memory-mapping milestone, not this one.
+            // The float planes are the ONLY large term left. This ceiling deliberately excludes the
+            // file: it used to have to include it, because File.ReadAllBytes returned a byte[] as big
+            // as the raster for an uncompressed page -- M2 removed the raster and simply traded it for
+            // the file buffer. The file is now memory-mapped, so there is no array for it at all, and
+            // the bound can say so.
             var fileBytes = new FileInfo(path).Length;
 
-            // Half a raster of headroom above the unavoidable terms: comfortably clear of the
-            // per-strip scratch, comfortably below "a whole raster got allocated".
-            var ceiling = floatPlaneBytes + fileBytes + rasterBytes / 2;
+            // Half a raster of headroom above the output: comfortably clear of the per-strip scratch,
+            // comfortably below either "a raster got allocated" or "the file got slurped".
+            var ceiling = floatPlaneBytes + rasterBytes / 2;
             allocated.ShouldBeLessThan(ceiling,
-                $"allocated {allocated:N0} B; float planes {floatPlaneBytes:N0} B + file {fileBytes:N0} B " +
-                $"are unavoidable here, and a raster would add {rasterBytes:N0} B");
+                $"allocated {allocated:N0} B; the float planes are {floatPlaneBytes:N0} B and are the only " +
+                $"large term that should remain -- a raster would add {rasterBytes:N0} B, slurping the " +
+                $"file would add {fileBytes:N0} B");
         }
         finally
         {
