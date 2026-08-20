@@ -25,7 +25,7 @@
     <None Include="../.editorconfig" Link=".editorconfig" />
   </ItemGroup>
 
-  <!-- The in-house AI models ship in the repo under Git LFS (models/), not via
+  <!-- The in-house AI models ship in the repo (models/), not via
        tools/tianwen-ai-models-fetch.ps1, so they must travel with the binary that was built
        against them. Content rather than None: Content flows to a REFERENCING project's output
        and publish dir, None stops here - which is why only the test project (with its own copy

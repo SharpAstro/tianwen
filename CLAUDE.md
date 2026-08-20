@@ -1310,11 +1310,15 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   (`TianWen.AI.Imaging/Onnx/*`, `AddTianWenAi()`). Models under `%LOCALAPPDATA%\TianWen\models`
   (`tools/tianwen-ai-models-fetch.ps1`).
 - **In-house N2N denoiser** (`N2nDenoiser`; OSC-only, throws on mono). Its weights ship **in this
-  repo under Git LFS** at `src/TianWen.AI.Imaging/models/` (`*.onnx` rule in `.gitattributes`): the
-  test project copies them to its output so `N2nDenoiserTests`' cross-language parity test runs off
-  the checkout (CI narrow-pulls `*.onnx` for the same reason), and the fetch script's phase 4
-  hardlinks them into the models dir. `ModelResolver` refuses a Git LFS pointer stub (a clone
-  without git-lfs), so the failure mode is a logged skip, never an ORT protobuf error. The
+  repo** at `src/TianWen.AI.Imaging/models/`: the test project copies them to its output so
+  `N2nDenoiserTests`' cross-language parity test runs off the checkout, and the fetch script's
+  phase 4 hardlinks them into the models dir. They are a **plain git blob, not an LFS object** --
+  `.gitattributes` exempts that directory from the repo-wide `*.onnx` rule, because the LFS budget
+  was exhausted and this was the only file missing from the runners' cached object set, so a blob was
+  the whole fix. A checkout therefore has the real weights with or without git-lfs, and the `.onnx`
+  in CI's narrow-pull glob is a no-op leftover (it still feeds the LFS cache key). The exemption
+  carries a revert note for when the replacement model lands. `ModelResolver` still refuses a pointer
+  stub, so the failure mode stays a logged skip rather than an ORT protobuf error. The
   user-facing strength dial is a **blend** (`out = in + a*(den - in)`, mapped from
   `EnhanceTuning.DenoiseStrength` / `--denoise-strength`); the graph's `strength` input is pinned to 1.0
   (the conditioning-plane dial was measured and rejected: it saturates, its span varies 4x by

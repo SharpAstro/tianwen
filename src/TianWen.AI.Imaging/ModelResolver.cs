@@ -18,7 +18,7 @@ namespace TianWen.AI.Imaging;
 /// <c>~/.local/share/TianWen/models</c>, mirroring the fetch script.
 ///
 /// <para><b>The app-local directory is not optional garnish -- without it the in-house
-/// weights are unreachable outside the test project.</b> They ship in the repo under Git LFS
+/// weights are unreachable outside the test project.</b> They ship in the repo
 /// (<c>src/TianWen.AI.Imaging/models/</c>) rather than being fetched per user, and for a
 /// while only <c>TianWen.Lib.Tests</c> could load them, because it was the one project that
 /// both copied them to its output AND prepended that output to the search list. Every app
@@ -60,10 +60,13 @@ public sealed class ModelResolver : IModelResolver
 
         var probed = string.Join(Environment.NewLine + "  ", _searchPaths.Select(p => Path.Combine(p, modelFileName)));
         // Name BOTH remedies: the third-party weights are fetched per user, the in-house ones
-        // ship in the repo under Git LFS. Naming only the fetch script sends anyone hitting the
-        // in-house case to a script that does not have their model.
+        // ship in the repo. Naming only the fetch script sends anyone hitting the in-house case to
+        // a script that does not have their model. The in-house weights are currently a plain git
+        // blob (a .gitattributes exemption from the *.onnx LFS rule), so a checkout has them
+        // outright and 'git lfs pull' would be the wrong advice; it is named only as the remedy for
+        // the pointer-stub case, which is what a revert of that exemption would reintroduce.
         throw new FileNotFoundException(
-            $"AI model '{modelFileName}' not found in any search path. Third-party weights are populated by tools/tianwen-ai-models-fetch.ps1; the in-house models ship in the repo under Git LFS, so a checkout that has not materialised them needs 'git lfs pull'. Probed:{Environment.NewLine}  {probed}");
+            $"AI model '{modelFileName}' not found in any search path. Third-party weights are populated by tools/tianwen-ai-models-fetch.ps1; the in-house models ship in the repo under src/TianWen.AI.Imaging/models/, so a checkout should already have them (if one is a ~130-byte LFS pointer stub instead, run 'git lfs pull'). Probed:{Environment.NewLine}  {probed}");
     }
 
     public bool TryResolve(string modelFileName, out string? absolutePath)
