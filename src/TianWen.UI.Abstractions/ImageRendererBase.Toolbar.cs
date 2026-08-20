@@ -488,8 +488,22 @@ namespace TianWen.UI.Abstractions
         // Fit plus every ratio Ctrl+1..Ctrl+9 reaches. The index is the denominator (entry 3 is "1:3"),
         // which is what lets the select handler be arithmetic instead of a parallel table that can drift
         // out of step with these strings.
-        private static readonly ImmutableArray<string> ZoomMenuLabels =
-            ["Fit", "1:1", "1:2", "1:3", "1:4", "1:5", "1:6", "1:7", "1:8", "1:9"];
+        //
+        // BUILT from ViewerActions.MaxZoomRatioDenominator rather than written out, because the wheel
+        // steps the same ladder (ViewerActions.StepZoomRatio) and a hand-written list here could offer a
+        // rung the wheel cannot reach, or stop short of one it can. One number, three consumers.
+        private static readonly ImmutableArray<string> ZoomMenuLabels = BuildZoomMenuLabels();
+
+        private static ImmutableArray<string> BuildZoomMenuLabels()
+        {
+            var builder = ImmutableArray.CreateBuilder<string>(ViewerActions.MaxZoomRatioDenominator + 1);
+            builder.Add("Fit");
+            for (var n = 1; n <= ViewerActions.MaxZoomRatioDenominator; n++)
+            {
+                builder.Add($"1:{n}");
+            }
+            return builder.MoveToImmutable();
+        }
 
         // Zoom is a float, so "am I at 1:3" is a near-comparison. Tight enough that a wheel notch away
         // from a ratio does not claim to BE it -- ZoomStepFactor is 1.15, so the nearest neighbour is

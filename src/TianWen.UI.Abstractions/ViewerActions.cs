@@ -39,23 +39,37 @@ public static class ViewerActions
         state.NeedsRedraw = true;
     }
 
-    public static void CycleChannelView(ViewerState state, int channelCount)
+    public static void CycleChannelView(ViewerState state, int channelCount, bool reverse = false)
     {
         if (channelCount >= 3)
         {
-            state.ChannelView = state.ChannelView switch
-            {
-                ChannelView.Composite => ChannelView.Red,
-                ChannelView.Red => ChannelView.Green,
-                ChannelView.Green => ChannelView.Blue,
-                ChannelView.Blue => ChannelView.Composite,
-                _ => ChannelView.Composite
-            };
+            state.ChannelView = reverse
+                ? state.ChannelView switch
+                {
+                    ChannelView.Composite => ChannelView.Blue,
+                    ChannelView.Blue => ChannelView.Green,
+                    ChannelView.Green => ChannelView.Red,
+                    ChannelView.Red => ChannelView.Composite,
+                    _ => ChannelView.Composite
+                }
+                : state.ChannelView switch
+                {
+                    ChannelView.Composite => ChannelView.Red,
+                    ChannelView.Red => ChannelView.Green,
+                    ChannelView.Green => ChannelView.Blue,
+                    ChannelView.Blue => ChannelView.Composite,
+                    _ => ChannelView.Composite
+                };
         }
         else if (channelCount > 1)
         {
+            // The exact inverse of the forward walk rather than a re-derivation: forward climbs to
+            // `last` then wraps to Composite, so reverse descends to Composite then wraps to `last`.
+            var last = (int)ChannelView.Channel0 + channelCount - 1;
             var ch = (int)state.ChannelView;
-            ch = ch < (int)ChannelView.Channel0 + channelCount - 1 ? ch + 1 : (int)ChannelView.Composite;
+            ch = reverse
+                ? (ch > (int)ChannelView.Composite ? ch - 1 : last)
+                : (ch < last ? ch + 1 : (int)ChannelView.Composite);
             state.ChannelView = (ChannelView)ch;
         }
         state.NeedsTextureUpdate = true;
@@ -73,14 +87,24 @@ public static class ViewerActions
         state.NeedsTextureUpdate = true;
     }
 
+    /// <summary>
+    /// Applies a curves-boost preset by index, CLAMPED to the preset range. The single place that
+    /// writes the boost state, so a wrapping caller (a click, which has no direction) and a clamping
+    /// one (a wheel notch, which does) cannot drift in what else they update.
+    /// </summary>
+    public static void SetCurvesBoostIndex(ViewerState state, int index)
+    {
+        state.CurvesBoostIndex = Math.Clamp(index, 0, ViewerState.CurvesBoostPresets.Length - 1);
+        state.CurvesBoost = ViewerState.CurvesBoostPresets[state.CurvesBoostIndex];
+        state.NeedsRedraw = true;
+    }
+
     public static void CycleCurvesBoost(ViewerState state, bool reverse = false)
     {
         var len = ViewerState.CurvesBoostPresets.Length;
-        state.CurvesBoostIndex = reverse
+        SetCurvesBoostIndex(state, reverse
             ? (state.CurvesBoostIndex - 1 + len) % len
-            : (state.CurvesBoostIndex + 1) % len;
-        state.CurvesBoost = ViewerState.CurvesBoostPresets[state.CurvesBoostIndex];
-        state.NeedsRedraw = true;
+            : (state.CurvesBoostIndex + 1) % len);
     }
 
     /// <summary>Cycles between power-law boost (mode 0) and spline LUT (mode 1).</summary>
@@ -97,17 +121,24 @@ public static class ViewerActions
         state.StatusMessage = state.CurvesMode == 1 ? "Curve: Spline LUT" : "Curve: Boost";
     }
 
-    public static void CycleHdr(ViewerState state, bool reverse = false)
+    /// <summary>Applies an HDR preset by index, CLAMPED to the preset range. Counterpart of
+    /// <see cref="SetCurvesBoostIndex"/> and the single writer of the HDR state.</summary>
+    public static void SetHdrPresetIndex(ViewerState state, int index)
     {
-        var len = ViewerState.HdrPresets.Length;
-        state.HdrPresetIndex = reverse
-            ? (state.HdrPresetIndex - 1 + len) % len
-            : (state.HdrPresetIndex + 1) % len;
+        state.HdrPresetIndex = Math.Clamp(index, 0, ViewerState.HdrPresets.Length - 1);
         var (amount, knee) = ViewerState.HdrPresets[state.HdrPresetIndex];
         state.HdrAmount = amount;
         state.HdrKnee = knee;
         state.NeedsRedraw = true;
         state.StatusMessage = amount > 0f ? $"HDR: {amount:F1} (knee {knee:F2})" : "HDR: Off";
+    }
+
+    public static void CycleHdr(ViewerState state, bool reverse = false)
+    {
+        var len = ViewerState.HdrPresets.Length;
+        SetHdrPresetIndex(state, reverse
+            ? (state.HdrPresetIndex - 1 + len) % len
+            : (state.HdrPresetIndex + 1) % len);
     }
 
     public static void CycleStretchPreset(ViewerState state, bool reverse = false)
@@ -395,6 +426,157 @@ public static class ViewerActions
     /// <param name="hasBeforePixels">Whether the backend is holding pre-enhance pixels, which decides
     /// which comparison <see cref="ToolbarAction.Compare"/> turns on. Passed in rather than read from
     /// state because it is a property of the GPU backend, not of the view state.</param>
+    /// <summary>
+    /// The largest denominator the zoom ladder reaches, i.e. 1:9. This is the shared vocabulary of the
+    /// zoom control -- the keyboard's Ctrl+1..Ctrl+9, the dropdown's rows, and the wheel all speak it,
+    /// and the dropdown's label list is BUILT from this so a change here cannot leave them disagreeing.
+    /// </summary>
+    public const int MaxZoomRatioDenominator = 9;
+
+    /// <summary>A zoom counts as being ON a ladder rung within this much of it. Loose enough to survive
+    /// float division, far tighter than the 15% gap to the neighbouring rung.</summary>
+    private const float ZoomRatioSnapTolerance = 0.001f;
+
+    /// <summary>
+    /// Steps the zoom along the 1:1 .. 1:<see cref="MaxZoomRatioDenominator"/> ladder, where a POSITIVE
+    /// step means zoom IN.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The axis runs backwards from every other cycler here</b>, which is the whole reason this
+    /// is not a plain index step: the rung is the DENOMINATOR, so zooming in means a smaller number.
+    /// Up therefore subtracts.</para>
+    ///
+    /// <para><b>Fit is deliberately not a rung.</b> It is a mode, not a magnification: for a large image
+    /// it sits below 1:9 and for a small one above 1:1, so it has no fixed place on the ladder, and
+    /// <see cref="ZoomToFit"/> does not even write <see cref="ViewerState.Zoom"/> (the renderer derives
+    /// the fit scale), so there is no number to step from. Up out of Fit lands on 1:1 -- the one rung
+    /// that means something absolute -- and down stays put rather than guessing. Fit remains one click
+    /// or right-click away.</para>
+    ///
+    /// <para><b>An off-rung zoom snaps toward the direction of travel, and that snap IS the notch.</b>
+    /// The wheel over the IMAGE zooms by a 1.15 factor, so it readily leaves the zoom between rungs
+    /// (43%); one notch up from there should land on the next rung up (1:2 = 50%), not jump two.</para>
+    ///
+    /// <para><b>A zoom already past 1:1 must not be clamped down onto it.</b> The image can be magnified
+    /// beyond 100% by the wheel, and clamping an up-notch to the top rung would zoom OUT in answer to a
+    /// zoom-IN request -- the same class of surprise the ramps clamp to avoid.</para>
+    /// </remarks>
+    private static void StepZoomRatio(ViewerState state, int steps)
+    {
+        if (steps == 0)
+        {
+            return;
+        }
+
+        if (state.ZoomToFit)
+        {
+            if (steps > 0)
+            {
+                ZoomTo(state, 1f);
+            }
+            return;
+        }
+
+        // Already magnified past the top rung: an up-notch has nowhere to go, and must not land on 1:1.
+        if (steps > 0 && state.Zoom > 1f + ZoomRatioSnapTolerance)
+        {
+            return;
+        }
+
+        var exact = 1f / MathF.Max(state.Zoom, ZoomRatioSnapTolerance);
+        var rounded = (int)MathF.Round(exact);
+        int rung;
+        var remaining = steps;
+        if (rounded >= 1 && MathF.Abs(exact - rounded) < ZoomRatioSnapTolerance)
+        {
+            rung = rounded;
+        }
+        else
+        {
+            rung = steps > 0 ? (int)MathF.Floor(exact) : (int)MathF.Ceiling(exact);
+            remaining -= steps > 0 ? 1 : -1;
+        }
+
+        // Up subtracts: see the remark above on the axis running backwards.
+        ZoomTo(state, 1f / Math.Clamp(rung - remaining, 1, MaxZoomRatioDenominator));
+    }
+
+    /// <summary>
+    /// A wheel notch over a multi-option toolbar button steps that button's options: up = forward,
+    /// down = back. Returns <c>false</c> for a button the wheel does not drive, so the caller can fall
+    /// through rather than swallowing the event.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why this is not simply <see cref="HandleToolbarAction"/> with
+    /// <c>reverse: !up</c>.</b> Three actions overload <c>reverse</c> to mean a DIFFERENT action
+    /// rather than the same cycle backwards, so routing the wheel through the click dispatcher would
+    /// hand each of them a gesture nobody asked for: a scroll down on Compare would RE-PIN the before
+    /// image (silently discarding the comparison baseline), on Boost it would switch the curve MODE, and
+    /// on Zoom it would toggle Fit/1:1 instead of stepping the ratio ladder. This lists only the genuine
+    /// cyclers -- Zoom among them, but through its own stepper -- and calls their cycle
+    /// helper directly. A button added later is opt-in: absent from this switch it keeps ignoring the
+    /// wheel, which is the safe default for an action whose reverse means something else.</para>
+    ///
+    /// <para><b>Intensity ramps clamp; sets wrap.</b> Boost and HDR are ascending ladders, so wrapping
+    /// would mean one notch past the top silently turns the effect OFF -- the exact opposite of what
+    /// "scroll up" asked for, and indistinguishable from a bug. The rest (stretch link, stretch preset,
+    /// channel, debayer) are unordered sets, where wrapping is natural and clamping would strand the
+    /// user at an end with no way onward.</para>
+    ///
+    /// <para><b><paramref name="steps"/> is a signed WHOLE-notch count, and may be 0.</b> The caller
+    /// accumulates the raw wheel delta, because a trackpad delivers many sub-1.0 deltas (the file-list
+    /// scroller in this same viewer accumulates them for exactly that reason) and one option per event
+    /// would race through a five-entry list on a single gentle swipe. A 0-step call still reports
+    /// handled: the return value says "the wheel drives this button", not "something changed", which is
+    /// what lets the caller reset its accumulator on the buttons it does not drive.</para>
+    ///
+    /// <para>An end-of-ramp notch still reports handled. It is a no-op the user asked for, and
+    /// returning false there would fall through to whatever claims the event next.</para>
+    /// </remarks>
+    public static bool TryHandleToolbarWheel(ViewerState state, AstroImageDocument? document, ToolbarAction action, int steps)
+    {
+        var reverse = steps < 0;
+        var count = Math.Abs(steps);
+        switch (action)
+        {
+            // Ramps take the step count as an index offset, so the clamp does the bounding once
+            // regardless of how big a delta arrived.
+            case ToolbarAction.CurvesBoost:
+                SetCurvesBoostIndex(state, state.CurvesBoostIndex + steps);
+                return true;
+            case ToolbarAction.Hdr:
+                SetHdrPresetIndex(state, state.HdrPresetIndex + steps);
+                return true;
+            // Wrapping cyclers step one at a time: the mapping is a cycle, not an index, and
+            // CycleChannelView's is not even arithmetic, so repeating the helper is the only form that
+            // cannot disagree with what a click does.
+            case ToolbarAction.StretchLink:
+                for (var i = 0; i < count; i++) CycleStretchLink(state, reverse);
+                return true;
+            case ToolbarAction.StretchParams:
+                for (var i = 0; i < count; i++) CycleStretchPreset(state, reverse);
+                return true;
+            case ToolbarAction.Debayer:
+                for (var i = 0; i < count; i++) CycleDebayerAlgorithm(state, reverse);
+                return true;
+            case ToolbarAction.Channel:
+                if (document is not null)
+                {
+                    var channels = document.UnstretchedImage.ChannelCount;
+                    for (var i = 0; i < count; i++) CycleChannelView(state, channels, reverse);
+                }
+                return true;
+            // Its own stepper, because the rung is a DENOMINATOR (so up subtracts) and Fit is not a
+            // rung at all. See StepZoomRatio.
+            case ToolbarAction.Zoom:
+                StepZoomRatio(state, steps);
+                state.NeedsRedraw = true;
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public static bool HandleToolbarAction(ViewerState state, AstroImageDocument? document, ToolbarAction action, bool reverse = false,
         SplitCompareController? split = null, bool hasBeforePixels = false)
     {

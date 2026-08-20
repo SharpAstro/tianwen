@@ -368,4 +368,275 @@ public class ViewerActionsTests
     // File-list scroll clamping / wheel accumulation now lives in the DIR.Lib ListScrollController (the
     // renderer owns the offset); ScrollFileList + FileListScrollOffset were removed, and the clamp/accumulate
     // coverage moved to DIR.Lib.Tests.ListScrollControllerTests.
+    // --- Wheel over a multi-option toolbar button (TryHandleToolbarWheel) ---
+
+    /// <summary>
+    /// The gesture as asked for: scroll up on the boost button boosts UP. The presets are an ascending
+    /// ladder ([0, 0.25, 0.50, 1.0, 1.5]), so the direction has a meaning the click does not have.
+    /// </summary>
+    [Fact]
+    public void ToolbarWheel_UpOnBoost_StepsToTheNextStrongerPreset()
+    {
+        var state = new ViewerState();
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.CurvesBoost, steps: 1).ShouldBeTrue();
+
+        state.CurvesBoostIndex.ShouldBe(1);
+        state.CurvesBoost.ShouldBe(ViewerState.CurvesBoostPresets[1]);
+        state.NeedsRedraw.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// The reason the ramps clamp instead of wrapping, and the case worth pinning: one notch past the
+    /// top must NOT land back on zero. A wrap there turns the effect off in response to a request for
+    /// more of it, which reads as a broken control rather than as a cycle.
+    /// </summary>
+    [Fact]
+    public void ToolbarWheel_UpAtTheStrongestBoost_StaysThereRatherThanWrappingToOff()
+    {
+        var top = ViewerState.CurvesBoostPresets.Length - 1;
+        var state = new ViewerState();
+        ViewerActions.SetCurvesBoostIndex(state, top);
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.CurvesBoost, steps: 1).ShouldBeTrue();
+
+        state.CurvesBoostIndex.ShouldBe(top);
+        state.CurvesBoost.ShouldBe(ViewerState.CurvesBoostPresets[top]);
+    }
+
+    [Fact]
+    public void ToolbarWheel_DownAtZeroBoost_StaysAtZero()
+    {
+        var state = new ViewerState();
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.CurvesBoost, steps: -1).ShouldBeTrue();
+
+        state.CurvesBoostIndex.ShouldBe(0);
+        state.CurvesBoost.ShouldBe(ViewerState.CurvesBoostPresets[0]);
+    }
+
+    /// <summary>HDR is the other ascending ladder, so it clamps for the same reason.</summary>
+    [Fact]
+    public void ToolbarWheel_UpAtTheStrongestHdr_StaysThereRatherThanWrappingToOff()
+    {
+        var top = ViewerState.HdrPresets.Length - 1;
+        var state = new ViewerState();
+        ViewerActions.SetHdrPresetIndex(state, top);
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Hdr, steps: 1).ShouldBeTrue();
+
+        state.HdrPresetIndex.ShouldBe(top);
+        state.HdrAmount.ShouldBe(ViewerState.HdrPresets[top].Amount);
+    }
+
+    /// <summary>
+    /// An unordered set wraps, because clamping would strand the user at an end with no way onward.
+    /// Three modes, so a fourth notch returns to the first.
+    /// </summary>
+    [Fact]
+    public void ToolbarWheel_OnStretchLink_WrapsThroughEveryMode()
+    {
+        var state = new ViewerState { StretchMode = ViewerActions.StretchLinkModes[0] };
+
+        for (var i = 0; i < ViewerActions.StretchLinkModes.Length; i++)
+        {
+            ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.StretchLink, steps: 1).ShouldBeTrue();
+        }
+
+        state.StretchMode.ShouldBe(ViewerActions.StretchLinkModes[0]);
+    }
+
+    /// <summary>
+    /// Scrolling down must undo scrolling up exactly, for every starting point. This is what the added
+    /// reverse branch has to satisfy, and asserting the round trip pins it without restating the
+    /// forward order in the test (which would just be the implementation written twice).
+    /// </summary>
+    [Theory]
+    [InlineData(ChannelView.Composite)]
+    [InlineData(ChannelView.Red)]
+    [InlineData(ChannelView.Green)]
+    [InlineData(ChannelView.Blue)]
+    public void CycleChannelView_ReverseIsTheExactInverseOfForward(ChannelView start)
+    {
+        var state = new ViewerState { ChannelView = start };
+
+        ViewerActions.CycleChannelView(state, channelCount: 3);
+        ViewerActions.CycleChannelView(state, channelCount: 3, reverse: true);
+
+        state.ChannelView.ShouldBe(start);
+    }
+
+    /// <summary>
+    /// The whole reason this is not <c>HandleToolbarAction(reverse: !up)</c>. These three overload
+    /// <c>reverse</c> to mean a different action, so the wheel must not reach them: a scroll down on
+    /// Compare would re-pin the before image and discard the comparison baseline, on Zoom it would
+    /// toggle Fit/1:1, and Grid is a plain toggle with no cycle to step. Reporting NOT handled is what
+    /// leaves the event for whatever claims it next.
+    /// </summary>
+    [Theory]
+    [InlineData(ToolbarAction.Compare)]
+    [InlineData(ToolbarAction.Grid)]
+    [InlineData(ToolbarAction.Open)]
+    [InlineData(ToolbarAction.Enhance)]
+    public void ToolbarWheel_OnAnActionWhoseReverseMeansSomethingElse_IsNotHandled(ToolbarAction action)
+    {
+        // NeedsRedraw defaults to TRUE (a fresh state wants its first paint), so it has to be cleared
+        // for the assertion below to mean anything -- asserting it false on a fresh state would be
+        // checking a default rather than an effect.
+        var state = new ViewerState { NeedsRedraw = false };
+        var boostBefore = state.CurvesBoostIndex;
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, action, steps: -1).ShouldBeFalse();
+
+        state.ShowGrid.ShouldBeFalse();
+        state.CurvesBoostIndex.ShouldBe(boostBefore);
+        state.NeedsRedraw.ShouldBeFalse();
+    }
+    /// <summary>A single event carrying several notches moves several options, rather than one.</summary>
+    [Fact]
+    public void ToolbarWheel_WithAMultiNotchDelta_StepsThatManyOptions()
+    {
+        var state = new ViewerState();
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.CurvesBoost, steps: 3).ShouldBeTrue();
+
+        state.CurvesBoostIndex.ShouldBe(3);
+    }
+
+    /// <summary>
+    /// The partial-notch case a trackpad produces: the caller has accumulated less than one notch, so it
+    /// passes 0. That must be reported HANDLED (the wheel does drive this button, so the event is claimed
+    /// and must not fall through to the image zoom) while changing nothing.
+    /// </summary>
+    [Fact]
+    public void ToolbarWheel_WithZeroSteps_IsHandledAndChangesNothing()
+    {
+        var state = new ViewerState { NeedsRedraw = false };
+        ViewerActions.SetCurvesBoostIndex(state, 2);
+        state.NeedsRedraw = false;
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.CurvesBoost, steps: 0).ShouldBeTrue();
+
+        state.CurvesBoostIndex.ShouldBe(2);
+    }
+
+    /// <summary>Multi-notch on a WRAPPING cycler applies the cycle repeatedly, so a full lap returns to
+    /// the start rather than landing somewhere an index-offset would have put it.</summary>
+    [Fact]
+    public void ToolbarWheel_MultiNotchOnStretchLink_WrapsRatherThanClamping()
+    {
+        var len = ViewerActions.StretchLinkModes.Length;
+        var state = new ViewerState { StretchMode = ViewerActions.StretchLinkModes[0] };
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.StretchLink, steps: len).ShouldBeTrue();
+
+        state.StretchMode.ShouldBe(ViewerActions.StretchLinkModes[0]);
+    }
+    // --- Wheel over the Zoom button: a ratio ladder whose axis runs backwards ---
+
+    /// <summary>Up means zoom IN, which on this control means a SMALLER denominator. Getting the sign
+    /// wrong is invisible in a build and obvious in the hand.</summary>
+    [Fact]
+    public void ToolbarWheel_UpOnZoom_MovesTowardOneToOne()
+    {
+        var state = new ViewerState { ZoomToFit = false, Zoom = 1f / 4f };
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: 1).ShouldBeTrue();
+
+        state.Zoom.ShouldBe(1f / 3f, 0.0001f);
+        state.ZoomToFit.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void ToolbarWheel_DownOnZoom_MovesAwayFromOneToOne()
+    {
+        var state = new ViewerState { ZoomToFit = false, Zoom = 1f / 4f };
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: -1).ShouldBeTrue();
+
+        state.Zoom.ShouldBe(1f / 5f, 0.0001f);
+    }
+
+    [Theory]
+    [InlineData(1, 1)]                                             // at 1:1, up stays
+    [InlineData(9, -1)]                                            // at 1:9, down stays
+    public void ToolbarWheel_AtEitherEndOfTheZoomLadder_Clamps(int denominator, int steps)
+    {
+        var state = new ViewerState { ZoomToFit = false, Zoom = 1f / denominator };
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps).ShouldBeTrue();
+
+        state.Zoom.ShouldBe(1f / denominator, 0.0001f);
+    }
+
+    /// <summary>
+    /// The wheel over the IMAGE zooms by a 1.15 factor, so the zoom is routinely BETWEEN rungs. One
+    /// notch from there must land on the adjacent rung in the direction asked for, not skip past it:
+    /// 43% up is 1:2 (50%), and 43% down is 1:3 (33%).
+    /// </summary>
+    [Theory]
+    [InlineData(1, 2)]
+    [InlineData(-1, 3)]
+    public void ToolbarWheel_FromAnOffRungZoom_SnapsTowardTheDirectionOfTravel(int steps, int expectedDenominator)
+    {
+        var state = new ViewerState { ZoomToFit = false, Zoom = 0.43f };
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps).ShouldBeTrue();
+
+        state.Zoom.ShouldBe(1f / expectedDenominator, 0.0001f);
+    }
+
+    /// <summary>
+    /// A zoom magnified past 1:1 is above the ladder, so an up-notch must do NOTHING. Clamping to the
+    /// top rung would zoom OUT in answer to a zoom-IN request -- the same surprise the boost ramp clamps
+    /// to avoid, in the one place where the clamp itself would cause it.
+    /// </summary>
+    [Fact]
+    public void ToolbarWheel_UpFromAZoomBeyondOneToOne_DoesNotClampBackDownToIt()
+    {
+        var state = new ViewerState { ZoomToFit = false, Zoom = 2f };
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: 1).ShouldBeTrue();
+
+        state.Zoom.ShouldBe(2f, 0.0001f);
+    }
+
+    /// <summary>Down from a magnified zoom DOES rejoin the ladder at the top rung, which is the correct
+    /// direction and the reason the guard above is one-sided.</summary>
+    [Fact]
+    public void ToolbarWheel_DownFromAZoomBeyondOneToOne_RejoinsTheLadderAtOneToOne()
+    {
+        var state = new ViewerState { ZoomToFit = false, Zoom = 2f };
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: -1).ShouldBeTrue();
+
+        state.Zoom.ShouldBe(1f, 0.0001f);
+    }
+
+    /// <summary>
+    /// Fit is a mode, not a rung: it has no number to step from (ZoomToFit does not write Zoom at all --
+    /// the renderer derives the fit scale) and no fixed place on the ladder, since for a large image it
+    /// sits below 1:9 and for a small one above 1:1. So up leaves it for the one rung that means
+    /// something absolute, and down stays put rather than guessing.
+    /// </summary>
+    [Fact]
+    public void ToolbarWheel_UpFromFit_LandsOnOneToOne()
+    {
+        var state = new ViewerState { ZoomToFit = true };
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: 1).ShouldBeTrue();
+
+        state.ZoomToFit.ShouldBeFalse();
+        state.Zoom.ShouldBe(1f, 0.0001f);
+    }
+
+    [Fact]
+    public void ToolbarWheel_DownFromFit_StaysOnFit()
+    {
+        var state = new ViewerState { ZoomToFit = true };
+
+        ViewerActions.TryHandleToolbarWheel(state, document: null, ToolbarAction.Zoom, steps: -1).ShouldBeTrue();
+
+        state.ZoomToFit.ShouldBeTrue();
+    }
 }
