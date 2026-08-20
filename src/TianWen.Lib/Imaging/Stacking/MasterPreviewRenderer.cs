@@ -381,7 +381,7 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         {
             data[c] = img.GetChannelArray(c);
         }
-        return new Image(data, img.BitDepth, img.MaxValue, 0f, 0f, img.ImageMeta);
+        return new Image(data, img.BitDepth, img.MaxValue, 0f, 0f, img.ImageMeta, img.SamplesAreUnitReferred);
     }
 
     /// <summary>

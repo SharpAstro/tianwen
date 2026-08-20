@@ -203,7 +203,11 @@ public sealed class LiveCameraFrameStream : IPlanetaryFrameStream
         // Keep SensorFullScaleAdu in the same units as the (rescaled) pixels -- after a
         // divide-by-full-scale it reads 1.0. Single implementation: ImageMeta.Rescale.
         var meta = src.ImageMeta.Rescale(scale);
-        return new Image(dst, bitDepth, maxValue, src.MinValue * scale, src.Pedestal * scale, meta);
+        // A scale other than 1 divided by full scale, so the result is unit-referred by construction;
+        // at scale 1 nothing moved, so whatever the source said still holds. Forwarded because
+        // bitDepth above may keep an INTEGER container width, which on its own no longer implies ADU.
+        return new Image(dst, bitDepth, maxValue, src.MinValue * scale, src.Pedestal * scale, meta,
+            samplesAreUnitReferred: scale != 1f || src.SamplesAreUnitReferred);
     }
 
     /// <inheritdoc/>

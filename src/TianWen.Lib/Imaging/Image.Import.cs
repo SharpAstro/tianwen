@@ -267,7 +267,7 @@ public partial class Image
                 var imageMeta = BuildImageMetaFromExif(exif, page.FileIsLittleEndian);
 
                 // Values are now in [0, 1] (DecodeTiffPixels normalises by sample-format max).
-                image = new Image(channels, bitDepth, 1.0f, 0f, 0f, imageMeta);
+                image = new Image(channels, bitDepth, 1.0f, 0f, 0f, imageMeta, samplesAreUnitReferred: true);
                 return true;
             }
             finally
@@ -373,7 +373,7 @@ public partial class Image
             // empty instrument). Values are already [0, 1] for integer sources and follow the
             // [0, 1] convention for float, so maxValue = 1 mirrors TryReadTiff.
             var meta = BuildImageMetaFromExif(null, fileIsLittleEndian: true);
-            image = new Image(channels, bitDepth, 1.0f, 0f, 0f, meta);
+            image = new Image(channels, bitDepth, 1.0f, 0f, 0f, meta, samplesAreUnitReferred: true);
             return true;
         }
         catch

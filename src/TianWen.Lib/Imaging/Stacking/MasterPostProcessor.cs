@@ -582,7 +582,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             data[c] = src.GetChannelArray(c);
         }
         var meta = src.ImageMeta with { FocalLength = focalLengthMm };
-        return new Image(data, src.BitDepth, src.MaxValue, src.MinValue, src.Pedestal, meta);
+        return new Image(data, src.BitDepth, src.MaxValue, src.MinValue, src.Pedestal, meta, src.SamplesAreUnitReferred);
     }
 
     private static Image CropImage(Image src, Rectangle rect)

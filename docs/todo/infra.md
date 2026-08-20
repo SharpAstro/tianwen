@@ -4,6 +4,13 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 ## Flaky Tests
 
+- [ ] **TWIC0001 (and its shader-bake twin) warn on a fresh clone.** The staleness check is an MSBuild
+  `Inputs`/`Outputs` mtime comparison, and a git checkout writes `icons.recipe` and `BakedIcons.g.cs`
+  in directory order -- measured 19 ms apart on this box, recipe last -- so it fires on a clean tree
+  whose table is byte-correct (`pwsh tools/bake-icons.ps1 -Verify` answers "matches its recipe"). A
+  warning that cries wolf after every clone trains people to ignore the log; CI already runs the
+  authoritative `-Verify`. Either drop the mtime target in favour of that, or give it a tolerance.
+
 - [ ] `PlanetaryCaptureControllerTests.Auto_recenter_off_leaves_the_roi_window_fixed`: hit its 60s test timeout in 2 of 3 full-suite runs on 2026-07-03 (win-arm64 dev box under load); all 7 tests in the class pass in isolation in 10s. Suspected thread-pool starvation under `maxParallelThreads: 4` (the capture loop runs on `Task.Run` like the Session tests did before they were serialized). **Recurred 2026-07-06** (1 of 4 full-suite runs, same signature: timeout before/at first frame, 7/7 green in isolation in 7s). The originally-prescribed own-`[Collection]` fix is **moot, the class already sits in `[Collection("Session")]`**; the remaining suspects are the wall-clock poll loops (`5000×`/`600×` iterations of `Tick(); await Task.Delay(2)`, under contention each 2 ms delay stretches to ~15-30 ms timer granularity, and a starved capture `Task.Run` never sets `FramesReceived`) racing the `[Fact(Timeout = 60_000)]`. Proper fix: condition-based waits (wait for `FramesReceived >= N` with the timeout as the only bound, drop the fixed iteration counts) and/or pumping the capture loop off `FakeTimeProvider` instead of real 2 ms sleeps.
 - [x] `SessionObservationLoopTests.GivenRefocusOnNewTargetWhenSwitchingTargetsThenBaselineStoredPerTarget`: fixed: cooperative time pump, `[Collection("Session")]` serialization, removed wall-clock timeouts
 

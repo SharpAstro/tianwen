@@ -130,6 +130,7 @@ public static class WaveletSharpen
             }
         }
 
-        return new Image(data, source.BitDepth, source.MaxValue, source.MinValue, source.Pedestal, source.ImageMeta);
+        return new Image(data, source.BitDepth, source.MaxValue, source.MinValue, source.Pedestal, source.ImageMeta,
+            source.SamplesAreUnitReferred);
     }
 }

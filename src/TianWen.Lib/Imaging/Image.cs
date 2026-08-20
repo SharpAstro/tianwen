@@ -13,7 +13,8 @@ namespace TianWen.Lib.Imaging;
 /// The image-wide <see cref="MaxValue"/>/<see cref="MinValue"/> are derived across the channels;
 /// the raw-array constructor overload wraps legacy <c>float[][,]</c> call sites.
 /// </summary>
-public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, float pedestal, ImageMeta imageMeta)
+public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, float pedestal, ImageMeta imageMeta,
+    bool samplesAreUnitReferred = false)
 {
     public int Width
     {
@@ -38,6 +39,29 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     public BitDepth BitDepth => bitDepth;
 
     /// <summary>
+    /// The samples are unit-referred (1.0 is full scale) even though <see cref="BitDepth"/> names an
+    /// INTEGER container -- set by an importer that normalised integer samples on read.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Two independent facts were riding on one field, and the collision was silent.</b>
+    /// <see cref="BitDepth"/> is a statement about the SOURCE (see
+    /// <c>BitDepthEx.CarriesDisplayDataOnly</c>, "a statement about FILES"), so a 16-bit PNG must keep
+    /// saying Int16. But the importer also normalises its samples to <c>[0, 1]</c>, and
+    /// <see cref="IsUnitScaledFloat"/> used to infer THAT from the same field by requiring
+    /// <see cref="BitDepth.Float32"/>. So every PNG, JPEG and 8/16-bit TIFF read into the viewer was
+    /// classified as ADU data, binned into TWO histogram buckets, and detected ZERO stars -- with no
+    /// error anywhere, because the star overlay, HFD/FWHM, Boost, Calibrate and SPCC are all gated on
+    /// a non-empty star list and simply went quiet. Measured on a 16-bit PNG carrying 40 planted
+    /// Gaussian stars: 0 detected before, 40 after (<c>UnitReferredImportStarDetectionTests</c>).</para>
+    /// <para>The rescalers could not paper over it: both early-return <c>this</c> when the peak is
+    /// already at or under 1, so an image that arrives normalised never passes through the code that
+    /// stamps <see cref="BitDepth.Float32"/>.</para>
+    /// <para>A site that forwards another image BitDepth must forward this too -- it is copying "what
+    /// scale is this data in", and that answer now has two halves.</para>
+    /// </remarks>
+    public bool SamplesAreUnitReferred => samplesAreUnitReferred;
+
+    /// <summary>
     /// Image-wide full-scale value, derived as the maximum over the channels' <see cref="Channel.MaxValue"/>.
     /// Legacy raw-array constructions stamp the same image-wide value on every channel, so this reads
     /// back exactly what was passed in; channel-typed constructions keep per-channel maxima intact
@@ -54,8 +78,9 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// no buffers). Prefer the <see cref="ImmutableArray{T}"/>-of-<see cref="Channel"/> constructor
     /// for new code: it keeps per-channel min/max and lets a camera buffer travel with its channel.
     /// </summary>
-    public Image(float[][,] data, BitDepth bitDepth, float maxValue, float minValue, float pedestal, ImageMeta imageMeta)
-        : this(WrapRawPlanes(data, minValue, maxValue), bitDepth, pedestal, imageMeta)
+    public Image(float[][,] data, BitDepth bitDepth, float maxValue, float minValue, float pedestal, ImageMeta imageMeta,
+        bool samplesAreUnitReferred = false)
+        : this(WrapRawPlanes(data, minValue, maxValue), bitDepth, pedestal, imageMeta, samplesAreUnitReferred)
     {
     }
 
@@ -423,7 +448,8 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
             MultiplyScalar(src, invMax, dst);
         }
 
-        return new Image(normalized, BitDepth.Float32, MaxValue * invMax, MinValue * invMax, pedestal * invMax, RescaleMeta(invMax));
+        return new Image(normalized, BitDepth.Float32, MaxValue * invMax, MinValue * invMax, pedestal * invMax, RescaleMeta(invMax),
+            samplesAreUnitReferred: true);
     }
 
     /// <summary>
@@ -483,7 +509,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// <see cref="Background"/> reports a background of 0, so <c>FindStarsAsync</c> takes its "abnormal
     /// file" path and returns NO stars. No error, no warning, an empty list.
     /// </remarks>
-    internal bool IsUnitScaledFloat => BitDepth is BitDepth.Float32 && HasUnitScalePeak;
+    internal bool IsUnitScaledFloat => HasUnitScalePeak && (BitDepth is BitDepth.Float32 || samplesAreUnitReferred);
 
     /// <summary>
     /// The channel to detect stars in: green on a 3-channel image, channel 0 otherwise.
@@ -557,6 +583,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
             });
         }
 
-        return new Image(rescaled.MoveToImmutable(), BitDepth.Float32, pedestal * invMax, RescaleMeta(invMax));
+        return new Image(rescaled.MoveToImmutable(), BitDepth.Float32, pedestal * invMax, RescaleMeta(invMax),
+            samplesAreUnitReferred: true);
     }
 }

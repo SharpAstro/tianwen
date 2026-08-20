@@ -57,12 +57,20 @@ public partial class Image
     /// </summary>
     /// <param name="channel">Channel</param>
     /// <param name="snrMin">S/N ratio threshold for star detection</param>
-    /// <param name="maxStars">Upper-bound target for the retry loop. The first detection pass
-    /// runs at a high threshold; if fewer than <paramref name="maxStars"/> stars
-    /// are found and <paramref name="maxRetries"/> remain, the threshold is
-    /// lowered and the entire 61 MP frame is rescanned. On a 9576x6388 frame
-    /// each pass costs ~30 s, so a <paramref name="maxStars"/> ceiling that's
-    /// far above the actual star density triples wall time for nothing.</param>
+    /// <param name="maxStars"><b>Caps nothing.</b> Its ONLY effect is to supply the default for
+    /// <paramref name="minStars"/>, i.e. the retry loop target, so passing it alone reads as "cap the
+    /// list here" and means "keep rescanning until you find this many". The returned
+    /// <see cref="StarList"/> is never truncated to it. Prefer stating
+    /// <paramref name="minStars"/> explicitly; this parameter is retained only because ~50 call sites
+    /// pass it.
+    /// <para><b>The cost of overshooting it is one extra pass, not a multiple.</b>
+    /// <paramref name="maxRetries"/> is decremented BEFORE the loop condition is re-tested, so the
+    /// default 2 yields at most TWO passes, and the <c>detection_level &lt;= 7 * noise</c> guard
+    /// usually stops it at one. Measured (Debug, per-pass log): on the 3008x3008 RGGB fixture pass 1
+    /// costs 29-82 ms and pass 2 costs 57 ms, against 166-175 ms for the <c>Background</c> call that
+    /// precedes both -- so the retry chain is the CHEAPEST part of a detection, and lowering this
+    /// number to save it trades 63% of the star list (3,014 -> 1,127 on that frame) for ~40 ms.
+    /// An earlier version of this doc claimed a pass rescan "triples wall time"; it does not.</para></param>
     /// <param name="minStars">Early-termination threshold: stop retrying as
     /// soon as <c>starList.Count &gt;= minStars</c>. Callers that only need
     /// a handful of well-detected stars (plate solving needs ~6, focus

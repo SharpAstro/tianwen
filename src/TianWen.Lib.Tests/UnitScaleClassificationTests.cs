@@ -167,4 +167,56 @@ public class UnitScaleClassificationTests
         // not be binned into 65535 buckets.
         image.IsUnitScaledFloat.ShouldBeFalse();
     }
+
+    /// <summary>
+    /// The other half of the rule above: an integer container whose importer ALREADY normalised its
+    /// samples is unit-referred, and only the importer can know that.
+    /// </summary>
+    /// <remarks>
+    /// These two facts used to share <see cref="Image.BitDepth"/>, so the test above was enforcing
+    /// "never" over a population that includes every PNG, JPEG and 8/16-bit TIFF -- all of which
+    /// silently detected zero stars. See <see cref="Image.SamplesAreUnitReferred"/> and the
+    /// end-to-end <c>UnitReferredImportStarDetectionTests</c>.
+    /// </remarks>
+    [Fact]
+    public void AnIntegerContainerThatWasNormalisedOnImportIsUnitScaled()
+    {
+        var planes = new float[1][,] { new float[2, 2] };
+        planes[0][0, 0] = 1.0f;
+        var image = new Image(planes, BitDepth.Int16, 1.0f, 0f, 0f, Meta(), samplesAreUnitReferred: true);
+
+        image.SamplesAreUnitReferred.ShouldBeTrue();
+        image.IsUnitScaledFloat.ShouldBeTrue();
+        // The container width is still the SOURCE width -- that is what CarriesDisplayDataOnly and the
+        // GPU upload format read, so the flag must not have quietly rewritten it.
+        image.BitDepth.ShouldBe(BitDepth.Int16);
+    }
+
+    /// <summary>A peak well past the tolerance is ADU data whatever an importer claims: the flag says
+    /// "1.0 is my full scale", and a sample at 255 contradicts that outright.</summary>
+    [Fact]
+    public void TheFlagDoesNotOverrideAPeakThatIsPlainlyNotUnitScale()
+    {
+        var planes = new float[1][,] { new float[2, 2] };
+        planes[0][0, 0] = 255f;
+        var image = new Image(planes, BitDepth.Int8, 255f, 0f, 0f, Meta(), samplesAreUnitReferred: true);
+
+        image.IsUnitScaledFloat.ShouldBeFalse();
+    }
+
+    /// <summary>Normalising an ADU image yields unit-referred data by construction, so it says so
+    /// rather than relying on the Float32 stamp that happens to accompany it.</summary>
+    [Fact]
+    public void NormalisingStampsTheScaleFactAndNotOnlyTheContainer()
+    {
+        var planes = new float[1][,] { new float[2, 2] };
+        planes[0][0, 0] = 4000f;
+        var adu = new Image(planes, BitDepth.Int16, 4000f, 0f, 0f, Meta());
+        adu.SamplesAreUnitReferred.ShouldBeFalse();
+
+        var unit = adu.ScaleFloatValuesToUnit();
+        unit.ShouldNotBeSameAs(adu);
+        unit.SamplesAreUnitReferred.ShouldBeTrue();
+        unit.IsUnitScaledFloat.ShouldBeTrue();
+    }
 }
