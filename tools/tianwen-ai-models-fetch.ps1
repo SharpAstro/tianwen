@@ -334,11 +334,14 @@ if (-not $NoGraXpert) {
     Write-Host "[3/4] GraXpert skipped (-NoGraXpert)" -ForegroundColor DarkGray
 }
 
-# Phase 4: TianWen's own models, shipped IN this repo under Git LFS
+# Phase 4: TianWen's own models, shipped IN this repo
 # (src/TianWen.AI.Imaging/models/). Preferred source is the checkout beside this
-# script -- hardlink-else-copy, same as SAS Pro. A clone made without git-lfs
-# holds a ~130-byte pointer stub instead of weights, in which case the LFS
-# object bytes are fetched from GitHub's media host (which serves the real
+# script -- hardlink-else-copy, same as SAS Pro. Those weights are currently a
+# plain git blob (a .gitattributes exemption from the *.onnx LFS rule), so a
+# checkout holds them outright; the pointer-stub path below still matters, both
+# for any other LFS-tracked model and for a revert of that exemption. A clone
+# made without git-lfs holds a ~130-byte pointer stub instead of weights, in
+# which case the LFS object bytes are fetched from GitHub's media host (which serves the real
 # content for a public repo; the plain raw host would serve the stub again).
 $tianwenNativeModels = @('tianwen_denoise_osc_v19d.onnx')
 $tianwenRepoModelsDir = Join-Path $PSScriptRoot '..' 'src' 'TianWen.AI.Imaging' 'models'
