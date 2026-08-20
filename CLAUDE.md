@@ -635,82 +635,29 @@ holds an `ILogger`).
 
 ### Comet & Small-Body Ephemeris (`TianWen.Lib.Astrometry.Comets`)
 
-JPL comets are a **dynamic, ephemeris-computed catalog** -- a comet's RA/Dec AND brightness are
+JPL comets are a **dynamic, ephemeris-computed catalog**: a comet's RA/Dec AND brightness are
 functions of time, computed locally from cached orbital elements, alongside the VSOP87 planets.
-Full design + phasing: [`docs/plans/comet-ephemeris.md`](docs/plans/comet-ephemeris.md).
+`Catalog.Comet` + `ObjectType.Comet`, covered by `CatalogIndex.IsSolarSystemObject` so the sky-map
+live-position path applies for free. One keyless bulk SBDB fetch (~4000 comets) IS the database,
+cached to `AppData/SmallBodies/comets.json`; position and magnitude are then pure local computation,
+offline. Consumed by the sky map, the planner and `tianwen-mcp catalog.lookup`.
 
-- **Identity:** `Catalog.Comet` + `ObjectType.Comet`; `CatalogIndex.IsSolarSystemObject` covers it (so
-  the sky-map live-position path applies for free). Designation packing is **structured Base91 bit
-  fields** (`CometDesignation`, same mechanism as `Tycho2`/`PSR`): a 1-bit numbered/provisional
-  discriminant + kind + fragment + either a periodic number or (year + half-month letters + order),
-  100% catalog coverage, `ToCanonical` round-trips to `C/2024 A1`. `CometElements.DisplayName` is the
-  single source of truth for the human label: provisional -> `C/2026 A1 (PANSTARRS)`, periodic ->
-  `10P/Tempel`.
-- **Math** (`CometEphemeris`): universal-variable (Stumpff) two-body Kepler propagation from the
-  perihelion state -- one path for elliptic/parabolic/hyperbolic -- Earth from `VSOP87a`, light-time
-  corrected, rotated to J2000 with the planet matrix. Magnitude is the IAU total law
-  `m = M1 + 5·log10(delta) + K1·log10(r)` (Horizons' T-mag). Arcminute-class near the element epoch;
-  no non-grav / perturbations. Horizons-pinned tests (12P, C/2023 A3).
-- **Data** (`SbdbCometSource` + `CometRepository`): one keyless bulk fetch from the JPL SBDB query API
-  (~4000 comets) IS the database; cached to `AppData/SmallBodies/comets.json` (weather-pattern TTL 7d +
-  stale fallback, `FetchedUtc` envelope, `ITimeProvider`-driven). Position + magnitude at any time are
-  then **pure local computation, offline**. `ICometRepository.TryGetPosition` / `TryGet`. DI in
-  `AddAstrometry`. AOT-safe via `SbdbJsonContext` + `CometDesignationJsonConverter`.
-- **A failed per-object Horizons fetch MUST be remembered, and `ApparitionRetryCooldown` is what does
-  it.** `RequestCurrentApparition` is called per drawn marker per frame, and its single-flight key is
-  released in the `finally` while only SUCCESS writes an entry -- so before the cooldown nothing recorded
-  that the last attempt failed, and an endpoint that can never answer was retried at whatever rate the
-  request settled. Measured on the deployed web build: **45 requests and 50 s of cumulative request time
-  in one four-minute session, all for comet 5D**. An offline desktop and a JPL outage take the same path.
-  The comment "calling it per drawn marker per frame is free" (`SkyMapTab`) is true only once a fetch
-  *can* succeed.
-- **JPL sends no CORS headers from EITHER comet host, so the browser bakes BOTH.** SBDB (bulk) was baked
-  long ago; **Horizons (the per-object apparition refinement) is a different host reached from a
-  different class**, and was missed -- which is what the retry storm above actually was.
-  `tools/bake-comets` writes `comets-sbdb.json` (verbatim query response) **and**
-  `comets-apparitions.json` (the overlay, resolved on the runner) into `wwwroot`;
-  `AddAstrometry(cometQueryUri:, apparitionSeedUri:)` takes both as plain same-origin URLs.
-  **Nothing detects the host** -- a dev server 404s both and degrades along the identical path, which is
-  the point: a host check would make dev diverge from production exactly where the bug lived.
-  - **`ApparitionCacheFile.NoRemoteRefresh` is a POLICY ("do not ask"), not a completeness claim.** As a
-    completeness claim it would need a hash guard tying it to the bulk snapshot (the
-    `SimbadMergeSnapshot` pattern) and a missing comet would be a correctness bug; as policy, an unbaked
-    comet just keeps its bulk record and stays flagged approximate. That is what lets the bake be
-    partial, which it must be: **518 of 4,071 comets are stale enough to warrant an upgrade.**
-  - **The bake is incremental and seeds from the LIVE SITE**, so the published assets are their own CI
-    state (no `actions/cache` to be evicted between infrequent deploys). Per-comet TTL tiered on
-    peak-ish magnitude `M1 + K1*log10(q)` -- the planner's own gate, not a new threshold: daily <=12,
-    weekly <=15, monthly <=18, once beyond. ~30 requests per deploying day. **The tiers are a relevance
-    budget, not physics** -- osculating elements decay with time, not with brightness.
-- **Invariant -- comets are NOT in `ICelestialObjectDB`** (which is immutable after init). Every
-  consumer augments at its own layer from `ICometRepository`: the sky-map F3 search merges comet keys
-  into its index (`SkyMapSearchActions.BuildSearchIndex` + `SkyMapSearchState.CometEntries`); the
-  planner sweeps the repository directly (`ObservationScheduler.TonightsBest`); the planner-tab search
-  threads the repo into `PlannerActions.SearchTargets`/`CommitSuggestion`. Never try to inject comets
-  into the DB.
-- **Consuming surfaces (all shipped, inspector-validated):**
-  - **Sky map** (`SkyMapState`/`SkyMapTab`): dynamic markers (coma dot + ring + anti-solar tail + label,
-    zoom-aware mag limit), `com[e]t` (E key) toggle, click -> info panel with LIVE alt-az/rise-set + a
-    vmag sparkline; **F3 search** by designation or common name; **selection path** (`GetSelectedPathCached`,
-    body-appropriate window Moon 5d / comet 45d / planet 120d) annotated with **orbital events**
-    (`SkyPathEventDetector`: station R/D, greatest-elongation GE, opposition Opp, perihelion q).
-  - **Planner** (`ObservationScheduler.TonightsBest`, gated on an `ICometRepository?`): comets sweep in
-    after the DB/circumpolar sweeps, with a cheap static candidacy gate (peak-ish `M1 + K1*log10(q)`),
-    resolved at astro-midnight, scored via `ScoreTarget(ObjectType.Comet, ...)` with a **vmag-driven
-    bonus** (`(CometPlannerMagnitudeFloor 15 - m) * CometBonusScale 30`, so a naked-eye comet ~300).
-  - **MCP** (`tianwen-mcp catalog.lookup`): a comet designation resolves to a LIVE ephemeris + (with
-    lat/lon) tonight's dark window + a ~6-month best-night outlook, via the pure `CometObservability`.
-- **Cache invariant:** the path + sparkline caches key on `(index, time-BUCKET)` -- Moon 6h / comet 1d /
-  planet 10d ticks -- and **must hit regardless of sample count** (an all-failed-to-solve empty result
-  must still cache, or it re-samples ~49 ephemerides every frame). The planet path costs ~10 ms to
-  rebuild (49 x VSOP series, per `EphemerisBenchmarks`), so the coarse bucket keeps a day-scrub from
-  rebuilding it every frame. The path solve additionally runs OFF the render thread (task #26):
-  `GetSelectedPathCached` dispatches a background `Task<SelectedPath>` and draws the last adopted
-  snapshot until it lands (VSOP87a/CometEphemeris are pure -- stackalloc over static-readonly tables --
-  so it races nothing). The vmag sparkline stays synchronous (comet-only, ~0.7 ms).
-- **Deferred:** per-object Horizons ephemeris for a pinned comet (sub-arcsec + non-sidereal rates);
-  bright asteroids (`sb-kind=a` + H/G law); a dedicated planner-tab vmag *chart* (the sky-map info-panel
-  sparkline already covers the vmag curve).
+**Design, math, the bake, and the shipped operational invariants (with the measurements behind them):
+[`docs/plans/comet-ephemeris.md`](docs/plans/comet-ephemeris.md).** Read it before touching this area.
+Four rules that bite before you get there:
+
+- **Comets are NOT in `ICelestialObjectDB`** (immutable after init). Every consumer augments at its
+  own layer from `ICometRepository`. Never try to inject them into the DB.
+- **A failed per-object Horizons fetch must be remembered** (`ApparitionRetryCooldown`).
+  `RequestCurrentApparition` runs per drawn marker per frame, so without it an endpoint that can never
+  answer is retried forever: 45 requests / 50 s in one four-minute session, measured on the deployed
+  web build.
+- **JPL sends no CORS headers from EITHER comet host, so the browser bakes BOTH** (SBDB *and*
+  Horizons, which is a different host reached from a different class -- missing it was that retry
+  storm). Nothing detects the host, deliberately.
+- **The path and sparkline caches key on `(index, time-BUCKET)` and must hit regardless of sample
+  count** -- an all-failed-to-solve empty result still caches, or it re-samples ~49 ephemerides every
+  frame.
 
 ### Planner Pin Identity (a pinned planet is not its position)
 
@@ -946,25 +893,13 @@ through the **same** `Calibrator` path with no branching. The **same routines ar
   in `AddDevices()`, so a stored `CoverCalibrator://ManualCoverDevice/manual` (or manual filter wheel) URI
   reconstructs through `DeviceHub.TryGetDeviceFromUri` (the path `SessionFactory` uses) instead of throwing.
   `MaxBrightness => 255`, matching the Gemini panel.
-- **Native Gemini FlatPanel Lite driver** (`TianWen.Lib/Devices/Gemini/`, `AddGemini()`): an **ASCOM-free**
-  serial `ICoverDriver` for the Gemini FlatPanel Lite (a driver-controlled panel, no flap -> reports
-  `CoverStatus.NotPresent`). `GeminiFlatPanelProtocol` is the pure `>x#` wire codec (H/V/S/J queries, L/D/B
-  actions) over `ISerialConnection`, reused by the driver, the probe, and the tests. `GeminiFlatPanelSerialProbe`
-  (`ProbeFraming.HashTerminated`, 9600 baud, shares the LX200 probe group) auto-discovers it by matching the
-  `>HGeminiFlatPanelLite#` handshake. Wire spec: `docs/architecture/gemini-flatpanel-lite-protocol.md`.
-  **DTR/RTS:** the controller needs DTR+RTS asserted on open, so `GeminiDevice.ConnectSerialDeviceAsync` opens
-  via the new **opt-in** `IExternal.OpenSerialDeviceAsync(..., assertControlLines: true)` (default false ->
-  `SerialConnection` sets `DtrEnable`/`RtsEnable` before `Open()`; every other device is byte-for-byte
-  unchanged). **Discovery does NOT assert DTR** (the probe service opens one shared handle per COM port for
-  all 9600 probes; asserting DTR there could reset a DTR-triggered controller -- e.g. some OnStep boards --
-  on a *different* port). So if a panel needs DTR to answer `>H#`, auto-discovery may miss it; assigning the
-  device manually still works because the driver's own connect asserts DTR. Only the connect path is
-  hardware-validated by design intent -- probe-time DTR is a deferred, hardware-gated refinement
-  (tracked in `docs/todo/drivers.md`). **Reconnect liveness:** `SerialPort.IsOpen` is not a liveness
-  signal (a dead/unplugged CH341 keeps reporting open), so `ConnectAsync` re-verifies a nominally-open
-  connection with the cheap `>H#` handshake and rebuilds it (TryClose -> reopen; the close also evicts
-  it from `IExternal`'s per-address cache) when the panel goes silent -- otherwise `ResilientCall`'s
-  reconnect would no-op against a dead handle forever.
+- **Native Gemini FlatPanel Lite driver** (`TianWen.Lib/Devices/Gemini/`, `AddGemini()`): an
+  **ASCOM-free** serial `ICoverDriver` for a driver-controlled panel with no flap (reports
+  `CoverStatus.NotPresent`), auto-discovered by a `>HGeminiFlatPanelLite#` handshake. Wire spec AND
+  the driver's two silent traps -- probe-time DTR (discovery deliberately does not assert it, so a
+  panel needing DTR to answer may be missed; assigning it manually still works) and `SerialPort.IsOpen`
+  not being a liveness signal -- are in
+  [`docs/architecture/gemini-flatpanel-lite-protocol.md`](docs/architecture/gemini-flatpanel-lite-protocol.md).
 - **On-demand surface** (`Session.FlatsOnDemand.cs`, `ISession.RunFlatsOnlyAsync(TwilightPeriod, ct)`):
   a self-contained connect -> cool -> capture -> finalise cycle **outside** `RunAsync` (no wait-for-dark /
   focus / guider / observation loop). Same try/catch/finally + phase shape as `RunAsync`. `ConnectForFlatsAsync`
@@ -1001,29 +936,15 @@ through the **same** `Calibrator` path with no branching. The **same routines ar
   when a Cover slot is the active assignment (`AssignManualCoverSignal` assigns the non-discoverable
   `ManualCoverDevice` URI) -- a plain text button, no icon. The 💡 glyph belongs to the **Live Session
   sidebar icon for Flats mode**, not to that button.
-- **Session→UI user-prompt channel (general; flats now, darks later).** `ISession.PromptRequested` +
-  `SessionPromptEventArgs.Respond(bool)` + `Session.RequestUserConfirmationAsync`. A subscriber (the GUI)
-  awaits the user's Continue/Cancel, bounded by the session token (cancel → decline). **With no subscriber
-  the session answers `SessionConfiguration.UnattendedPromptResponse`, which defaults to `Decline` -- it
-  skips the gated step rather than proceeding.** Proceeding would assert a *physical* act ("the panel is on",
-  "the scope is covered") that demonstrably nobody performed; flats survive that lie only because
-  `FlatExposureSolver` fails the metering, and a dark-frame prompt has no such backstop -- light-leaked
-  darks would be written as valid calibration. Blocking forever is equally unsafe: the await sits inside
-  `RunAsync`'s try, whose finally parks the mount / warms cameras / closes covers, and a prompt nothing
-  answers never returns (it does not throw), so the rig would sit exposed at dawn. **Operator-invoked** flat
-  runs (`tianwen flats`, `POST /api/v1/session/flats`) therefore opt into `Proceed` in their own config --
-  a human asked for the run and may have switched the panel on before walking back inside. Prompts also
-  carry `RequiresPhysicalPresence`, so a UI can warn that answering from elsewhere asserts something the
-  operator cannot see (it crosses the wire on `PendingPromptDto` for exactly that reason). GUI: `LiveSessionState.PendingPrompt` → `RenderSessionPrompt` centred overlay
-  (Continue/Cancel + Enter/Escape) → `RespondSessionPromptSignal`. The **cover-capability model** has two
-  independent axes: the motorised-cover axis is queried via `GetCoverStateAsync == NotPresent`, and the
-  brightness axis is the new **`ICoverDriver.CanControlBrightness`** (default `true`; `false` only for
-  `ManualCoverDriver`). The flat routine prompts **only** on a present-but-`!CanControlBrightness` calibrator
-  (case D: hand-switched panel → "switch it on, then Continue"; declining skips that OTA); driver-controlled
-  panels never prompt. A future dark-frame flow reuses the same channel gated on `CoverStatus.NotPresent`
-  ("cover the scope"). Pinned by `SessionFlatsTests` (prompt Continue/Cancel + both unattended
-  policies) + `ManualCoverDriverTests` (`CanControlBrightness`) + `EventBroadcasterPromptTests` (the hosted
-  hold/liveness rules).
+- **Session->UI user-prompt channel** (`ISession.PromptRequested` + `SessionPromptEventArgs`;
+  general, flats now and darks later). **With no subscriber the session answers
+  `SessionConfiguration.UnattendedPromptResponse`, which defaults to `Decline`** -- it skips the gated
+  step rather than proceeding, because proceeding would assert a *physical* act nobody performed, and
+  blocking forever would leave the rig exposed at dawn. Operator-invoked flat runs opt into `Proceed`.
+  The flat routine prompts **only** on a present-but-`!CanControlBrightness` calibrator (a
+  hand-switched panel). Full reasoning, the `RequiresPhysicalPresence` flag and the hosted
+  hold/liveness rules:
+  [`docs/plans/flat-frame-automation.md`](docs/plans/flat-frame-automation.md).
 - **Deferred:** live-thumbnail publishing for the **sky-flat** path (calibrator path publishes frames; sky
   shows only a status line); the **dark-frame** capture flow itself (channel + capability ready); a
   per-filter progress *bar* (flats don't flow through `TotalFramesWritten`, so the panel shows a text
@@ -1241,61 +1162,18 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   (Debug + WARN): live-control-applied, a capture heartbeat (every 250 frames), and per-stack start/done +
   duration with a long-running-stack WARN; the trail to diagnose a future stall (pair with the inspector
   `render_liveness` watchdog above).
-- **Concrete `IVideoCameraDriver` implementers.** `FakeCameraDriver` (synthetic drifting disk, full ROI-jog).
-  `CanonCameraDriver` (**Phase E core, shipped**): FC.SDK Live View (EVF) streaming, each EVF JPEG frame
-  decodes straight from the SDK `byte[]` via `Image.TryDecodeRaster` (the in-memory core of
-  `TryReadViaCodecs`, no temp-file round-trip) into a **3-channel [0,1] RGB `Image`** (EVF is camera-processed,
-  not raw CFA), single-stream gated + mutually exclusive with the single-shot CR2 path, ISO live-tunable via
-  `ApplyVideoControlsAsync`. **The 5x/10x EVF-zoom planetary regime and its pannable crop are SHIPPED** on
-  FC.SDK `3.0.751`: `NumX` snaps to a zoom level (`ZoomForWindow`), `VideoRoi` reports the body's own crop, and
-  `CanJogRoi` / `JogRoiAsync` pan it via `SetEvfZoomPositionAsync`. `CanJogRoi` is true **exactly while the crop
-  is magnified and the body advertises the pan operation**, so at 1x the recenter loop falls back to mount jog,
-  which is correct rather than a limitation: at 1x the crop is the whole frame and the accepted pan range
-  collapses to a point. Five things this path must keep right, every one of which fails silently:
-  (1) the zoom factor is a **threshold, not a value** (1-4 give 1x, 5-8 give 5x, 10+ give 10x), so the level
-  thresholds sit *between* the nominal factors, or feeding back the body's own 1104 px crop of a 5472 px sensor
-  answers `Fit` and the stream drops out of magnification on its first resize check; (2) `Evf_AFMode = LiveFace`
-  silently blocks magnification while ACKing the zoom, so `Live` is written first, but **only when actually
-  magnifying**, since it is a setting the user sees in the body's own menus; (3) `Factor` is **4.96** for a
-  nominal 5x, so pixel scale comes from the rect, never the level asked for; (4) a zoom takes ~1 s during which
-  the body streams PRE-zoom frames, so level changes use `verify: true` while the per-frame **pan** uses
-  `verify: false` (a second of polling on the capture loop is the thing to avoid) and updates the cached window
-  from the clamped request; (5) a pan coordinate past `[0, sensor - crop]` is **discarded**, not clamped, by the
-  body, so the far corner is computed host-side. **`VideoRoi` is sensor px and deliberately NOT the yielded
-  frame size** (the EVF renders a 1104x736 crop as ~1024x680, so one frame px is ~1.08 sensor px at 5x): the
-  recenter loop under-corrects by that ratio, which a damped loop absorbs as lower gain, whereas frame px would
-  break the `sensorWidth - roi.Width` pan-range arithmetic it cannot get wrong. Pinned by `CanonEvfZoomTests`.
-  **The old blocker note was wrong twice, in two different ways, and both are the lesson.** It was first dated
-  on a version ("pending FC.SDK 1.5") and 1.5, 1.6 and 1.7 all shipped without it. It was then restated as
-  pending "a point/rect property accessor", which could never arrive: over PTP there is **no**
-  `Evf_ZoomPosition` or `Evf_ZoomRect` property at all. Those are EDSDK's model of the feature; the camera takes
-  zoom and pan as *operations* (0x9158 / 0x9159) and reports the crop in a live-view frame record. **So do not
-  date a blocker on a release, and state it in terms of the protocol rather than of a wrapper's shape**, or the
-  note describes something that cannot happen. `DALCameraDriver` (ZWO/QHY native raw video) is Phase D, not yet
-  implemented.
-- **COM recenter loop** (Phase C, hold the planet centred): `PlanetaryRecenterController.Decide` (pure, in
-  `TianWen.Lib/Imaging/Planetary/`) takes the disk centre of mass + the readout-window geometry and returns a
-  `RecenterDecision`, a **per-axis-deadband** (not distance, a big offset on one axis must not drag the other
-  centred axis) damped ROI jog toward the disk on each axis with pan range, plus a coarse mount nudge (sized
-  `offset × pixelScaleArcsec`, capped) on any axis that is edge-blocked (window at the sensor edge / no pan
-  range / camera can't `JogRoi`). `PlanetaryCaptureController.MaybeRecenterAsync` runs it on the capture loop
-  per frame (`BoundingBox`+`CenterOfMass` on the live frame) and actuates: a staged `JogRoi` (drained the same
-  iteration) and/or a **single-flight, fired-non-blocking** mount pulse. The new `IVideoCameraDriver.VideoRoi`
-  exposes the live window so the loop knows its remaining pan range. **One mount actuator**:
-  `MountActions.PulseGuideArcsecAsync` (arcsec → guide-rate-sized capped `PulseGuideAsync`) serves both the auto
-  loop and the manual `JogMountSignal` (RECENTER panel N/S/E/W buttons, focuser-jog routing model). Auto-recenter
-  defaults ON (ROI-only, zero mount disturbance; a no-disk frame → centred COM → no jog); mount jog is opt-in OFF.
-  The mount **sign is uncalibrated** (`FlipRa`/`FlipDec` + the per-axis cap bound a wrong guess; a guider-style
-  calibration is the deferred refinement). `ConfigureRecenter`/`AttachMount` stage config + the mount on Start.
-- **Live viewer integration** (`LiveStackPreviewSource : IPreviewSource`, in `.UI.Abstractions`): a RAW/STACK
-  toggle (transport-bar button + `K`) and Registax-style 6-layer wavelet sliders (under the WB sliders) in
-  `tianwen-fits` and the GUI viewer tab (shared `ViewerState`). **Follow-the-playhead**: the raw
-  `SerPreviewSource` stays the playback driver; the live stack shows the window ending at the current frame.
-  All stacking/sharpening is **off the render thread** with **sharpen-priority** (a wavelet-slider change
-  re-sharpens the cached master immediately, ~30 ms, and defers the slower re-stack) and **per-request
-  cancellation** (a per-work CTS lets a slider preempt an in-flight stack; `StackToAsync` invalidates the
-  window on cancel so the next call rebuilds cleanly). `_rawMaster`/`_doc` are render-thread-only (the
-  background task hands results back through its `Task<T>`; the project's lock-free hand-off).
+- **Live-capture drivers + the COM recenter loop are SHIPPED**, and their detail now lives in the
+  plan doc: `FakeCameraDriver` (synthetic drifting disk, full ROI-jog), `CanonCameraDriver` (FC.SDK
+  Live View, including the 5x/10x EVF-zoom regime and its pannable crop), and
+  `PlanetaryRecenterController.Decide` (pure per-axis-deadband damped ROI jog, plus a coarse mount
+  nudge on an edge-blocked axis via the one actuator `MountActions.PulseGuideArcsecAsync`).
+  `DALCameraDriver` (ZWO/QHY native raw video) is Phase D, not implemented. **Read
+  [`docs/plans/planetary-stacking.md`](docs/plans/planetary-stacking.md) before touching the Canon
+  path** -- it is a list of five things that fail SILENTLY (the zoom factor is a threshold not a
+  value; `Evf_AFMode = LiveFace` blocks magnification while ACKing the zoom; `Factor` is 4.96 for a
+  nominal 5x; a zoom takes ~1 s of PRE-zoom frames; an out-of-range pan is discarded, not clamped),
+  plus why `VideoRoi` is sensor px and deliberately not the yielded frame size. Auto-recenter defaults
+  ON (ROI-only, zero mount disturbance); mount jog is opt-in OFF and its **sign is uncalibrated**.
 - **Benchmarks/profiling**: `TianWen.UI.Benchmarks` `PlanetaryStackBenchmarks` / `PlanetaryMasterBenchmarks`,
   and `dotnet run --project TianWen.UI.Benchmarks -- profile planetary [--frames N]` prints a per-stage
   breakdown (load/grade/align/fold + wavelet/adopt) and tight-loops for `dotnet-trace`.
@@ -1507,98 +1385,19 @@ blocks a rig *indefinitely* and was otherwise visible only on the rig you happen
 **TUI renders the same tree** (`TuiHomeTab`, `CellMeasureContext.PixelAuthored`) -- the one tree shared
 across surface kinds, so a change to the card lands on both surfaces or neither.
 
-- **`HomeBoard.BuildCards` is the pure projection; `HomeTab<TSurface>` only draws.** The tab renders the
-  `ImmutableArray<RigCard>` snapshot published on `GuiAppState.HomeCards` and never touches
-  `RemoteRigRegistry` or a `LiveSessionState` -- same shape as `EquipmentTabState.BoundRigs`, and it also
-  makes it impossible to paint a card from a session being mutated underneath the frame.
-- **Read-only with respect to hardware.** A card click changes which rig you *look at*, via the same
-  `SelectRemoteRigSignal` / `SelectLocalContextSignal` the profile picker posts. Nothing on this screen
-  connects a driver, commands anything, or takes a lease.
-- **Zero device I/O**, and structurally so: cards are built in the pre-gate part of `PollPreviewTelemetry`
-  and the board is **not** added to that method's `ActiveTab` gate (which exists to guard polling
-  already-connected *drivers*). Previews stay **off** -- N mirrors each pulling JPEGs is the failure mode
-  `RemoteSessionMirror.Previews` was made opt-in for.
-- **The rig section is content-sized** (a `Grid(columns).WithAutoRows()` plus a trailing `Spacer`), never
-  Star-filled, because multi-night progress is the intended neighbour on that screen and a Star-sized
-  section would have to be reworked to admit it. A grid rather than a `WrapH` flow because fixed-width
-  cards in a flow leave ragged right-edge space and do not line up as a board.
-- **A card is as tall as the rows it built, and every card shares the tallest one's box.** Rows past the
-  first three are all conditional, so `CardHeight` is a **floor**, not the height -- it used to be exact
-  and had to be raised by hand whenever a row was added, which silently clipped the last row when it was
-  not. One shared height (computed in `Body`, not per card) is what keeps it a board: per-card heights
-  read as ragged rows, and an idle rig's card would resize the moment its rig started a run.
-- **The flip countdown is an instant, resolved at render time.** `ISessionTelemetry.MeridianFlipUtc` →
-  `SessionStateDto.MeridianFlipUtc` → `RigCard.TimeToMeridianFlip(now)`, which is why `HomeBoardLayout`
-  takes a `now`. Same rule as the prompt's `RaisedUtc`, for the same reason: a stored duration is only
-  true when it was computed, so on a rig polled every 30 s it steps in 30 s jumps and reads as broken.
-  The session computes it (`MeridianFlipDecision.TimeUntilFlip`, stamped from the same HA read the flip
-  decision uses) because the answer needs the flip config and the destination pier side.
-- **Cooling reports the camera furthest from setpoint, and "settled" is gated on the session's phase.**
-  A rig is ready when its *last* camera is. The ramp's real completion test is cooler power plus a
-  consecutive-sample count (`CameraCoolingState`) and is **not** on the wire, so the 1 °C figure in
-  `RigCardCooling.SetpointToleranceC` is a display threshold and `Phase is Cooling` overrides it --
-  reporting "finished" early is the one thing this row must not do.
-- **Progress is per target, and `PlannedFrameCount` is why it has one path.** `target 2/3 · frame 23/100`
-  needs a denominator, so `ObservationDto.PlannedFrameCount` crosses the wire and
-  `RemoteSessionMirror.ToScheduled` rebuilds the plan carrying that total -- so
-  `ScheduledObservation.PlannedFrameCount` answers identically for a local session and a mirror instead of
-  the card branching on which it is. Frames-done counts **backwards** from the exposure-log tail (the run
-  images one target at a time, so they are the tail) because this runs per card per frame.
-- **Two shapes, selected in the header** (`HomeBoardView`: `Auto` / `Cards` / `Table`, posted as
-  `SetHomeBoardViewSignal`). Auto is the default and the only value that reacts to the window: it swaps the
-  cards for a one-row-per-rig table when the grid would not fit, and the header **says why** ("window too
-  small for cards") -- a shape that changes with no explanation reads as a glitch, whereas a named one is
-  the nudge to enlarge. An explicit Cards is never second-guessed. The rejected alternative was a stack of
-  overlapping cards: it hides rigs behind other rigs, and the prompt badge is the one thing that must never
-  be hidden (two rigs can be waiting, so only one could be at the front). Both shapes are `Layout.Node`
-  projections over the same `RigCard` data in `HomeBoardLayout`, so the shared tree costs nothing here --
-  it is a description language, not a fixed shape, and both surfaces get the table for free.
-- **The header's two controls are icon segments plus a four-state theme cycler**, and both are shared-tree
-  nodes rather than per-surface chrome. The shape selector is three `Layout.Content.Icon` leaves
-  (DIR.Lib 7.18): the pixel painter builds each from rectangles and `CellLayout` picks a block-element
-  glyph, which is why an icon names its MEANING (`Grid` / `List` / `Auto`) and not its drawing -- a `Text`
-  run carrying a symbol character would be .notdef on a pixel surface missing that face, and rectangles do
-  not exist on a cell one. **Auto keeps a visible segment**: it is the default state, so lighting nothing
-  would leave the board's commonest configuration unlabelled, and the camera-convention bracketed `A` is
-  what makes it sayable at icon size. The theme cycler beside it advances System -> Light -> Dark -> Night
-  (`CycleUiThemeSignal` -> `GuiTheme.CycleTheme`) and shows a MARK PLUS THE WORD, selected by
-  `ThemeControlStyle` (a code-level choice, not a user setting). Icon-only is a real option and the wrong
-  default: three marks cover four states because Night IS a dark scheme and takes the same crescent as Dark,
-  and inside Night the whole UI is red, so the colour that would separate them says nothing -- on the one
-  control whose job is telling an observer at the mount which scheme they are in. Cycling into Night records
-  where it came from, so a later F12 restores that rather than a stale toggle memory.
-- **`.RowH(h)` sets `Width = Star` and silently eats a `.WFixed(w)` before it.** It means "a full-width row
-  of fixed height", which is right for a card and wrong for a button. The view segments were built that way
-  from the start, so `ViewButtonWidth` was inert for their whole life and three buttons sprawled across the
-  bar; use `.WFixed(w).HFixed(h)` for anything that is genuinely fixed on both axes. Neither a build nor a
-  screenshot review catches this -- only an arranged rect does, which is what
-  `HomeTabLayoutTests.TheSegmentsKeepTheirFixedWidthInsteadOfSharingTheHeader` asserts.
-- **A `Stack` places children at the cross-axis START, so centring a row's controls needs
-  `.CrossCenter()`** (`Layout.CrossAlign`, DIR.Lib 7.21). Without it a `HFixed` control in a taller bar hugs
-  the top and its centre sits half the slack high -- which the header did, visibly, and which reads as a
-  styling bug rather than a layout one. Do **not** re-solve it by padding the container or wrapping each
-  child in a spacer sandwich: both worked, and both re-derive at the call site a position the engine already
-  knows, the padding version also insetting the row's label horizontally as a side effect. The Home header
-  is the reference consumer, pinned by `EveryHeaderControlSharesOneTopAndBottom_CentredInTheBar`.
-- **An icon draws at the size it DECLARES and every kind inks that full square** (DIR.Lib 7.20 + 7.21).
-  Before 7.20 `Content.Icon.Size` was a measure-time hint only, so a 13-unit mark in a 20-unit cell painted
-  at 20 and stood a third taller than the label beside it; before 7.21 the kinds inked between 63% and 100%
-  of their declared size, so a row of different marks was ragged whatever the alignment. Both were measured
-  from rendered ink rather than eyeballed, which is the only way to see either. Consequence for a consumer:
-  **size a mark to the text it sits beside** (about 13 units against a 13 px label's ~10 units of cap
-  height), and size it independently where it stands alone in a button.
-- **`Build` takes the viewport, not a resolved column count.** Columns, card detail and cards-vs-table are
-  all decided inside it; both hosts previously ran the same `ColumnsFor` -> `ColumnWidth` -> `DetailFor`
-  arithmetic, and every new input had to be threaded through both again.
-- **`ColumnsFor` clamps to the rig count.** Without it a 200-column terminal resolves to six columns for
-  four rigs: two empty, and the four real cards squeezed under `FullDetailCardWidth` -- so the cards got
-  *narrower the wider the window was*.
-- **Two layout-engine traps this surface hit, both silent.** A `Node`'s default `Width` is `Sizing.Auto`,
-  so a container whose children are all Star measures to a near-zero intrinsic width and arranges to
-  nothing -- the table needs an explicit `.WStar()`. And `.CollapseBelow(u)` must **not** be paired with a
-  Star *minimum* on the same node: a min-clamped Star holds its floor and overflows, so the threshold is
-  never reached. The engine also prunes every under-threshold child in ONE pass rather than shedding the
-  least important first, so a column that must survive takes **no** threshold rather than a small one.
+- **The Home tab is a read-only projection, and its full design reasoning is in the plan doc.**
+  `HomeBoard.BuildCards` is the pure projection and `HomeTab<TSurface>` only draws it, from the
+  `ImmutableArray<RigCard>` snapshot on `GuiAppState.HomeCards` -- it never touches
+  `RemoteRigRegistry` or a `LiveSessionState`, which is what makes painting a card from a
+  concurrently-mutated session impossible. A card click changes which rig you *look at*; nothing on
+  the screen connects a driver, commands anything, or takes a lease, and previews stay **off** (N
+  mirrors each pulling JPEGs is the failure mode `RemoteSessionMirror.Previews` is opt-in for). Zero
+  device I/O, structurally: cards are built in the pre-gate part of `PollPreviewTelemetry`. Two
+  shapes (`HomeBoardView` Auto / Cards / Table), and Auto **says why** it swapped, because a shape
+  that changes with no explanation reads as a glitch. The TUI renders the same tree. Card-height,
+  cooling, progress and flip-countdown rules, the shape selector, the theme cycler and the five
+  silent layout-engine traps this surface hit:
+  [`docs/plans/remote-profile.md`](docs/plans/remote-profile.md).
 - **A prompt's age is the raising node's truth.** `SessionPromptEventArgs.RaisedUtc` /
   `PendingPromptDto.RaisedUtc` (nullable, and deliberately **not** `required` -- a nullable wire member
   that is also required cannot round-trip). Never substitute "when this client first saw it": that dates
@@ -2060,6 +1859,21 @@ construction; no second hit-rect arithmetic that can drift). The full engine + D
   `PlannerTab.BuildFrameLayout` (landscape = left-list dock, portrait = chart / collapsible compact
   details / list stack), pinned by `PlannerTabLayoutTests` (arranged rects + an offline `RgbaImageRenderer`
   pixel render at phone + desktop resolutions, the chess `PixelGameDisplayLayoutTests` pattern).
+- **Five silent traps, all found on the Home board; the measured detail is in
+  [`docs/plans/remote-profile.md`](docs/plans/remote-profile.md).** (1) `.RowH(h)` sets
+  `Width = Star` and silently eats a `.WFixed(w)` before it -- it means "a full-width row of fixed
+  height", so anything genuinely fixed on both axes needs `.WFixed(w).HFixed(h)`. (2) A `Stack`
+  places children at the cross-axis START, so centring a row's controls needs `.CrossCenter()`; do
+  NOT re-solve it with container padding or spacer sandwiches, which re-derive at the call site a
+  position the engine already knows. (3) A `Node`'s default `Width` is `Sizing.Auto`, so a container
+  whose children are all Star measures to a near-zero intrinsic width and arranges to nothing --
+  state `.WStar()` explicitly. (4) `.CollapseBelow(u)` must **not** be paired with a Star *minimum*
+  on the same node (a min-clamped Star holds its floor and overflows, so the threshold never trips),
+  and the engine prunes every under-threshold child in ONE pass rather than shedding the least
+  important first, so a child that must survive takes **no** threshold rather than a small one.
+  (5) An icon draws at the size it DECLARES and every kind inks that full square (DIR.Lib 7.20 +
+  7.21), so size a mark to the text it sits beside; both of those were measured from rendered ink,
+  which is the only way to see either.
 - **A mark is an `Icon`, never a symbol character in a `Text` run.** `Layout.Content.Icon` names a
   MEANING and each surface constructs what it can draw (the GPU fills rows of rectangles, `CellLayout`
   picks a block element), whereas a `▾` in a label asks whichever face the host resolved to have

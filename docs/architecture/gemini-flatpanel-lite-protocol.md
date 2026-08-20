@@ -126,3 +126,29 @@ the URI and the driver's own connect asserts DTR + boot-waits.
 > **Known gap:** the pinned-port *verification* tier (`VerifyPinnedPortsAsync`) runs on the shared handle
 > (no DTR), so it skips a pinned Gemini and falls through to Stage 2. Direct URI connect of a pinned panel
 > works regardless. Fix tracked in [../plans/soft-discovery.md](../plans/soft-discovery.md).
+
+## Driver integration notes (moved out of CLAUDE.md, 2026-08-20)
+
+The wire spec is above; this is how the driver sits in TianWen, including the two things that
+fail silently (probe-time DTR, and `IsOpen` not being a liveness signal).
+
+- **Native Gemini FlatPanel Lite driver** (`TianWen.Lib/Devices/Gemini/`, `AddGemini()`): an **ASCOM-free**
+  serial `ICoverDriver` for the Gemini FlatPanel Lite (a driver-controlled panel, no flap -> reports
+  `CoverStatus.NotPresent`). `GeminiFlatPanelProtocol` is the pure `>x#` wire codec (H/V/S/J queries, L/D/B
+  actions) over `ISerialConnection`, reused by the driver, the probe, and the tests. `GeminiFlatPanelSerialProbe`
+  (`ProbeFraming.HashTerminated`, 9600 baud, shares the LX200 probe group) auto-discovers it by matching the
+  `>HGeminiFlatPanelLite#` handshake. Wire spec: `docs/architecture/gemini-flatpanel-lite-protocol.md`.
+  **DTR/RTS:** the controller needs DTR+RTS asserted on open, so `GeminiDevice.ConnectSerialDeviceAsync` opens
+  via the new **opt-in** `IExternal.OpenSerialDeviceAsync(..., assertControlLines: true)` (default false ->
+  `SerialConnection` sets `DtrEnable`/`RtsEnable` before `Open()`; every other device is byte-for-byte
+  unchanged). **Discovery does NOT assert DTR** (the probe service opens one shared handle per COM port for
+  all 9600 probes; asserting DTR there could reset a DTR-triggered controller -- e.g. some OnStep boards --
+  on a *different* port). So if a panel needs DTR to answer `>H#`, auto-discovery may miss it; assigning the
+  device manually still works because the driver's own connect asserts DTR. Only the connect path is
+  hardware-validated by design intent -- probe-time DTR is a deferred, hardware-gated refinement
+  (tracked in `docs/todo/drivers.md`). **Reconnect liveness:** `SerialPort.IsOpen` is not a liveness
+  signal (a dead/unplugged CH341 keeps reporting open), so `ConnectAsync` re-verifies a nominally-open
+  connection with the cheap `>H#` handshake and rebuilds it (TryClose -> reopen; the close also evicts
+  it from `IExternal`'s per-address cache) when the panel goes silent -- otherwise `ResilientCall`'s
+  reconnect would no-op against a dead handle forever.
+
