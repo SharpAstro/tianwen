@@ -99,7 +99,7 @@ release itself is pinned on a real device by
 `GpuStretchPipelineTests.TrimmingTheStagingBufferReleasesItAndTheNextUploadStillWorks`, which also
 covers re-uploading afterwards and a double trim.
 
-## M2. Decode strips straight into the float planes
+## M2. Decode strips straight into the float planes -- SHIPPED (tianwen half pending the pin)
 
 `Codecs`: `src/SharpAstro.Tiff/TiffReader.cs` -- a decode-into entry point beside `Read`, handing the
 caller each decoded strip (page index, first row, row count, `ReadOnlySpan<byte>` of samples) instead
@@ -112,6 +112,27 @@ converter writing into the already-allocated `float[h,w]` planes. Existing behav
 as now.
 
 **Effect: 354 MiB (3 B/px) off the peak**, scaling with the document rather than being fixed overhead.
+
+**MEASURED DETERMINISTICALLY, and not the way this section first tried.** A working-set A/B said
+"1564 MB off the peak" and was noise: the SAME unmodified build then measured 3362 MB steady in one
+run and 2143 MB in another, so run-to-run variance exceeds 1200 MB and cannot resolve a 371 MB
+change. `GC.GetAllocatedBytesForCurrentThread` around the decode can:
+`TiffStreamingDecodeAllocationTests` shows the removed allocation is **exactly one raster** --
+3,240,000 B at test size against a 12,960,000 B float-plane output, with the rest accounted for to
+within 5 KB. Scaled to the document above that is 371 MB. The test fails when the whole-raster path
+is restored, so it measures the change rather than restating it.
+
+**`File.ReadAllBytes` is now the dominant term for uncompressed input**, which the note below
+predicted and the test had to encode in its ceiling: for an uncompressed page the file IS
+raster-sized, so M2 alone trades one for the other there. Closing it is the memory-mapping item.
+
+**One bug found on the way, in `TiffWriter`.** It stamped the requested compression into the IFD while
+its encoder switch fell through to the raw bytes, so asking for LZW wrote unlabelled-as-what-it-is
+data: a file whose content and label disagree, which no reader can decode. It surfaced only because
+the pixel-equality test above read 50 where it had written 3 -- two test suites had LZW cases passing
+over it, since a corrupt file decodes to the same garbage through both readers and an equivalence
+assertion then holds while asserting nothing. Fixed in SharpAstro.Tiff 3.11 by refusing what the
+writer cannot apply.
 
 Two things this deliberately does not fix:
 
@@ -155,8 +176,8 @@ a law, and so the reason it is viewer-local is written down.
 | Phase | Items | Rationale |
 |-------|-------|-----------|
 | A | **DONE** -- M1 | Self-contained, one repo, no API design. Fixes the cost that persists across documents -- the one a user experiences as "it got slow after I opened that file". |
-| B | M2 in `Codecs` | A new public API on `SharpAstro.Tiff` plus a release. Second, so A has shipped by the time the pin moves. |
-| C | M2 in `tianwen` | Follows B's release; the codec family floats per minor, so the pin edit is one line. |
+| B | **DONE** -- M2 in `Codecs` (3.11) | A new public API on `SharpAstro.Tiff` plus a release. Second, so A has shipped by the time the pin moves. |
+| C | **CODE DONE**, pin held until 3.11 publishes -- M2 in `tianwen` | Follows B's release; the codec family floats per minor, so the pin edit is one line. |
 | D | M3 design | Needs a decision on what `AstroImageDocument` holds and how Enhance / plate solve get floats. Do not start it as an implementation. |
 
 ## Verification
