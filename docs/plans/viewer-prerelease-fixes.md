@@ -9,18 +9,22 @@ release blockers rather than backlog.
 Everything below was reproduced on
 `C:\Users\<user>\OneDrive\Pictures\Astro\My` and `..\Tests` (15 TIFFs, 3 FITS).
 
+**Eight of ten are fixed** (P1-P8). What remains is P9 and P10, both recorded UNCONFIRMED: each was
+seen once in a screenshot, and neither is worth chasing without a reproduction. P1, P2 and P5 are in
+`Codecs` and need a NuGet release to reach CI; the rest are in this repo.
+
 ## Status
 
 | # | Item | State |
 |---|------|-------|
 | P1 | TIFF Predictor 2 never inverted -> images decode to their own derivative | **FIXED**, awaiting NuGet release |
 | P2 | TIFF reader allocated per strip (2k-5.5k strips per file) | **FIXED** with P1 |
-| P3 | Plate solve of a non-FITS document fails, and aborts the solver chain | NOT STARTED |
-| P4 | CMYK TIFF renders as a negative | **BACKLOGGED** -> [todo/imaging](../todo/imaging.md) |
-| P5 | LZW TIFF unsupported | NOT STARTED |
-| P6 | Un-clicking Calibrate does not restore the previous / slider WB | NOT STARTED |
-| P7 | File list is imperative: no declared regions, no cursor, no tooltip | NOT STARTED |
-| P8 | A solver exception puts raw binary in the status bar | NOT STARTED |
+| P3 | Plate solve of a non-FITS document fails, and aborts the solver chain | **FIXED** |
+| P4 | CMYK TIFF renders as a negative | **FIXED** (was briefly backlogged) |
+| P5 | LZW TIFF unsupported | **FIXED**, awaiting NuGet release |
+| P6 | Un-clicking Calibrate does not restore the previous / slider WB | **FIXED** |
+| P7 | File list is imperative: no declared regions, no cursor, no tooltip | **FIXED** |
+| P8 | A solver exception puts raw binary in the status bar | **FIXED** |
 | P9 | Stray text fragment at the left edge (needs confirmation) | UNCONFIRMED |
 | P10 | Hand-off may select the adjacent row (needs confirmation) | UNCONFIRMED |
 
@@ -221,10 +225,10 @@ with nothing else touching the window, and assert the selected index.
 | Phase | Items | Rationale |
 |-------|-------|-----------|
 | A | P1, P2 | Done. Blocked only on a `SharpAstro.Tiff` release; TianWen's codec pin is a wildcard within the minor, so CI picks it up without a pin edit. |
-| B | P3, P8 | Same user-visible failure, and P8 is the reason P3 looked like a parse bug rather than a solver-chain bug. |
-| C | P7 | Self-contained, and it unblocks UI testing of everything else in the viewer. |
-| D | P6 | Correctness of presentation. (P4 was here; backlogged 2026-08-20.) |
-| E | P5 | Genuine feature work (an LZW decoder), and the only item whose absence is already documented scope. |
+| B | P3, P8 | DONE. Same user-visible failure, and P8 is the reason P3 looked like a parse bug rather than a solver-chain bug. |
+| C | P7 | DONE. Self-contained, and it unblocks UI testing of everything else in the viewer. |
+| D | P4, P6 | DONE. Correctness of presentation. P4 was briefly backlogged, then done anyway once P1 made the file decode at all. |
+| E | P5 | DONE. An LZW decoder; the only item whose absence was already documented scope. |
 | F | P9, P10 | Reproduce first; do not fix from a single screenshot. |
 
 ## Verification

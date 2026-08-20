@@ -151,16 +151,16 @@ Open gaps:
   (the facade owns the sniff table, which is real shared logic -- though note the ORIGINAL reason for
   the facade, version skew from cherry-picking, is now handled by the single
   `$(SharpAstroCodecsVersion)` property, so that argument is weaker than it was).
-- [ ] **CMYK / Separated TIFF renders as a negative.** A `Photometric = 5` TIFF with 4 samples per
+- [x] **CMYK / Separated TIFF renders as a negative (DONE 2026-08-20).** A `Photometric = 5` TIFF with 4 samples per
   pixel (a print export, e.g. GraXpert's `..._printer.tiff`) has its C/M/Y read as R/G/B with K
   dropped, and since a high CMYK value means MORE ink the polarity inverts: white sky, dark stars,
   cyan cast. `SharpAstro.Tiff.TiffImageDecoder` already declares this out of scope
   (`page.Photometric is not (MinIsBlack or Rgb)` -> refuse), but `Image.Import.cs` calls
   `TiffReader.Read(bytes)` **directly** and bypasses that guard. Two options: honour the guard so the
   file fails to open with a clear message (consistent with a decision the codec layer already made),
-  or convert CMYK->RGB -- accurately needs the embedded ICC profile, which these files carry, while
+  or convert CMYK->RGB. Converted, in `Image.Import.cs`: accurate conversion needs the embedded ICC
   the naive `R = (1-C)(1-K)` form is what most viewers do and would at least fix the polarity.
-  Backlogged 2026-08-20 out of [`../plans/viewer-prerelease-fixes.md`](../plans/viewer-prerelease-fixes.md)
+  Backlogged and then done the same day, out of [`../plans/viewer-prerelease-fixes.md`](../plans/viewer-prerelease-fixes.md)
   (was P4): a printer proof is a print export, not a working frame, so it does not gate a release.
   Note it only became *visible* once the Predictor 2 fix made the file decode to structure at all.
 - [x] **Gain-map JPEG export during stacking / rendering (DONE).** Emits Ultra HDR (hdrgm 1.0 / Android
