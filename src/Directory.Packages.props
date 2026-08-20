@@ -4,7 +4,7 @@
 
     <CentralPackageFloatingVersionsEnabled>true</CentralPackageFloatingVersionsEnabled>
 
-    <SharpAstroCodecsVersion>3.8.*</SharpAstroCodecsVersion>
+    <SharpAstroCodecsVersion>3.9.*</SharpAstroCodecsVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="5.3.0" />
