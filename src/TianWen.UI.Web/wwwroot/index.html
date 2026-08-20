@@ -125,7 +125,69 @@
         };
     </script>
 
-    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+    <!-- autostart="false" so the boot can go through loadBootResource below. Everything else about
+         the tag, including the fingerprint placeholder, is unchanged. -->
+    <script src="_framework/blazor.webassembly#[.{fingerprint}].js" autostart="false"></script>
+    <!-- Retry a failed asset fetch before giving up.
+
+         GitHub Pages occasionally answers 503 for a single asset, and a cold Blazor load requests
+         about a hundred of them. One failure is fatal: the runtime has no retry, so the page dies on
+         "An unhandled error has occurred" and the console blames the wrong thing entirely -- with SRI
+         enabled the integrity check hashes the ERROR PAGE body, so it reports a digest mismatch on a
+         file that is perfectly fine on the next request. That was observed on the deployed site with
+         no deployment in flight and the asset serving 200 seconds later.
+
+         Two details this must not get wrong:
+
+         The integrity string is passed STRAIGHT THROUGH to fetch, so SRI still applies to every
+         retry. Dropping it would "fix" the symptom by disabling the check that makes a tampered
+         asset detectable, which is not a trade worth making for a transient 503.
+
+         A 503 arrives in TWO shapes and both need catching: with integrity set the promise REJECTS
+         (the error-page body fails the digest), and without it the promise resolves with ok=false.
+         Handling only the rejection would leave half the cases dead.
+
+         dotnetjs is deliberately not intercepted -- that resource must resolve to a URI the runtime
+         can import(), not a Response, so returning null leaves it on the default path. It is the
+         loader itself; if it fails there is nothing to retry into. -->
+    <script>
+        Blazor.start({
+            loadBootResource: function (type, name, defaultUri, integrity) {
+                if (type === "dotnetjs") return null;
+
+                // The FIRST attempt uses default caching, so a warm repeat visit still serves ~100
+                // assets from the browser cache. Only a RETRY forces revalidation, which is what
+                // clears a poisoned cache entry -- the shape that explains the same URL failing
+                // repeatedly in one browser while another loads it fine, since the caches are
+                // separate. Sending no-cache on every asset every boot would trade a hundred
+                // conditional requests for a fault that happens rarely.
+                var base = integrity ? { integrity: integrity } : {};
+                var reload = integrity ? { integrity: integrity, cache: "reload" } : { cache: "reload" };
+                // 0 then ~200 ms then ~600 ms: enough for a CDN edge to settle, short enough that a
+                // genuinely missing asset still fails fast rather than hanging the boot spinner.
+                var delays = [0, 200, 600];
+
+                var attempt = function (i) {
+                    return fetch(defaultUri, i === 0 ? base : reload).then(function (response) {
+                        if (response.ok || i >= delays.length - 1) return response;
+                        return retry(i + 1, response.status + " " + response.statusText);
+                    }, function (err) {
+                        if (i >= delays.length - 1) throw err;
+                        return retry(i + 1, err);
+                    });
+                };
+
+                var retry = function (i, reason) {
+                    console.warn("Retrying " + name + " (attempt " + (i + 1) + "):", reason);
+                    return new Promise(function (resolve) {
+                        setTimeout(function () { resolve(attempt(i)); }, delays[i]);
+                    });
+                };
+
+                return attempt(0);
+            }
+        });
+    </script>
 </body>
 
 </html>
