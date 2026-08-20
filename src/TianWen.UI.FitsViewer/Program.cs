@@ -424,6 +424,12 @@ bool PumpInstanceGate()
         // The same entry point a drag and drop uses, so a handed-off file and a dropped one
         // cannot diverge: it scans the folder, selects the file and flags a redraw.
         ViewerActions.HandleFileDrop(state, request.Payload);
+        // Restore BEFORE raising, and not only for tidiness: SDL_RaiseWindow moves focus without
+        // un-minimising, so a minimised window became the foreground window while still parked
+        // off-screen at -21333,-21333 (measured). Keyboard input then goes somewhere the user
+        // cannot see, which is worse than the taskbar flash this is meant to replace. Restore is a
+        // no-op when the window is merely behind another one, which is the common case.
+        sdlWindow.Restore();
         sdlWindow.Raise();
         applied = true;
     }
