@@ -12,6 +12,7 @@ using TianWen.AI.Imaging.RcAstro;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using static SDL3.SDL;
+using SharpAstro.AppShell;
 
 // DI setup, before args processing so logger is available for early errors
 var services = new ServiceCollection();
@@ -55,16 +56,25 @@ var registerOption = new Option<string?>("--register")
     Arity = ArgumentArity.ZeroOrOne
 };
 
+// Forces a new window even when an instance already has this folder open, for the times the
+// whole point is to compare two views of one directory side by side.
+var newWindowOption = new Option<bool>("--new-window")
+{
+    Description = "Open a new window even if an instance already has this folder open"
+};
+
 var rootCommand = new RootCommand("TianWen FITS Image Viewer")
 {
     pathArg,
-    registerOption
+    registerOption,
+    newWindowOption
 };
 
 // SetAction captures parsed values; --help/--version bypass this action automatically
 var actionCalled = false;
 string? registerGroup = null;
 string? inputArg = null;
+var newWindow = false;
 
 rootCommand.SetAction((parseResult, _) =>
 {
@@ -78,6 +88,7 @@ rootCommand.SetAction((parseResult, _) =>
     }
 
     inputArg = parseResult.GetValue(pathArg);
+    newWindow = parseResult.GetValue(newWindowOption);
     return Task.CompletedTask;
 });
 
@@ -151,6 +162,34 @@ if (initialFilePath is not null)
 {
     // Defer loading so the window appears immediately with a status message
     state.RequestedFilePath = initialFilePath;
+}
+
+// --- One instance per folder ---
+// A double-click in the shell starts a fresh process, so a folder the user is already looking
+// at would get a second window onto it. The channel is keyed on the FOLDER rather than the app:
+// a file in a folder already on screen goes to that window, a file anywhere else gets its own.
+//
+// Every other outcome falls through and opens here -- no folder, --new-window, the opt-out, or a
+// hand-off that failed -- because an extra window is a poor outcome and a double-click that does
+// nothing is not an acceptable one.
+const string GateScope = "tianwen-fits";
+const string SingleInstanceEnvVar = "TIANWEN_FITS_SINGLE_INSTANCE";
+InstanceGate? instanceGate = null;
+var gateFolder = folderPath;
+if (folderPath is not null && !newWindow
+    && !string.Equals(Environment.GetEnvironmentVariable(SingleInstanceEnvVar), "0", StringComparison.Ordinal))
+{
+    var channel = InstanceGate.ChannelFor(GateScope, InstanceGate.NormalizePathIdentity(folderPath));
+    instanceGate = InstanceGate.TryClaim(channel, logger);
+    if (instanceGate is null)
+    {
+        var handoff = initialFilePath ?? folderPath;
+        if (InstanceGate.TryHandOff(channel, handoff, TimeSpan.FromSeconds(5), logger))
+        {
+            logger.LogInformation("Handed {Path} to the instance already showing {Folder}", handoff, folderPath);
+            return 0;
+        }
+    }
 }
 
 // --- SDL3 + Vulkan init ---
@@ -251,9 +290,16 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
     // frame should actually be shown now (or a seek is resolving); between frames it returns false so
     // the loop idles and the GPU/disk go quiet (mirroring the standalone viewer's low-idle behaviour).
     CheckNeedsRedraw = () =>
-        controller.TickPlayback()
-        || state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
-        || controller.IsLoadPending,
+    {
+        // BOTH of these must run on EVERY iteration, so neither may sit on the right of a ||:
+        // TickPlayback paces SER playback (see the note above), and the gate pump is the only
+        // place a hand-off from a later launch is noticed. Evaluate them, then combine.
+        var handedOff = PumpInstanceGate();
+        var playback = controller.TickPlayback();
+        return handedOff || playback
+            || state.NeedsRedraw || state.NeedsTextureUpdate || state.RequestedFilePath is not null
+            || controller.IsLoadPending;
+    },
 
     OnRender = () =>
     {
@@ -331,11 +377,59 @@ loop.Run(cts.Token);
 // ShutdownDrain keeps the loop pumping instead; see its remarks for what each spelling breaks.
 cts.Cancel();
 ShutdownDrain.PumpUntilComplete(loop, controller.ShutdownAsync(), logger);
+instanceGate?.Dispose();
 imageRenderer.Dispose();
 renderer.Dispose();
 ctx.Dispose();
 
 return 0;
+
+// Drains hand-offs from later launches, and keeps the claimed channel pointing at the folder
+// the window is actually showing.
+//
+// The folder is NOT fixed for the life of the process: the open dialog and a file drop both
+// rescan. Rather than have each of those tell the gate, this polls ViewerState.CurrentFolder,
+// which ScanFolder sets as its first statement, so every path that can change folders is
+// covered, including ones added later, and nothing in TianWen.UI.Abstractions knows a gate exists.
+//
+// Re-binding disposes synchronously, which joins the accept thread. That is milliseconds in
+// practice (Dispose wakes it by connecting to itself) and it keeps the release strictly before
+// the next claim; doing it off-thread would let a fast A to B to A trip over its own release and
+// silently run ungated.
+bool PumpInstanceGate()
+{
+    if (instanceGate is null)
+    {
+        return false;
+    }
+
+    var folder = state.CurrentFolder;
+    if (folder is not null && !string.Equals(folder, gateFolder, StringComparison.Ordinal))
+    {
+        gateFolder = folder;
+        instanceGate.Dispose();
+        instanceGate = InstanceGate.TryClaim(
+            InstanceGate.ChannelFor(GateScope, InstanceGate.NormalizePathIdentity(folder)), logger);
+        if (instanceGate is null)
+        {
+            // Another window already owns the folder we just moved to. Running ungated is right:
+            // claiming nothing is honest, and the other window keeps answering for it.
+            return false;
+        }
+    }
+
+    var applied = false;
+    while (instanceGate.TryDequeue(out var request))
+    {
+        // The same entry point a drag and drop uses, so a handed-off file and a dropped one
+        // cannot diverge: it scans the folder, selects the file and flags a redraw.
+        ViewerActions.HandleFileDrop(state, request.Payload);
+        sdlWindow.Raise();
+        applied = true;
+    }
+
+    return applied;
+}
 
 // --- Event handlers ---
 

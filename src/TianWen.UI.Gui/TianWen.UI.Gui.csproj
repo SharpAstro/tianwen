@@ -25,6 +25,14 @@
     <None Include="Resources\milkyway.bgra.lz" CopyToOutputDirectory="PreserveNewest" Link="milkyway.bgra.lz" />
   </ItemGroup>
 
+  <!-- The single-instance gate, shared with the FITS viewer rather than written twice. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\AppShell\src\SharpAstro.AppShell\SharpAstro.AppShell.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="SharpAstro.AppShell" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
     <ProjectReference Include="..\..\..\DIR.Lib\src\DIR.Lib\DIR.Lib.csproj" />
     <ProjectReference Include="..\..\..\SdlVulkan.Renderer\src\SdlVulkan.Renderer\SdlVulkan.Renderer.csproj" />
