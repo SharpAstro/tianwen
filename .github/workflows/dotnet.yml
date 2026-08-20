@@ -45,7 +45,7 @@ jobs:
     # the managed lzip decoder (Lzip.Lib) and writing the .gs.gz output via .NET
     # GZipStream -- no external `lzip` binary is needed. *.gs.gz is gitignored,
     # so a fresh checkout regenerates it during build.
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
         lfs: false
@@ -71,7 +71,7 @@ jobs:
         # set of LFS objects we'd be pulling. Cache hit -> no LFS bandwidth.
         HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.onnx' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-build-${HASH}" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v5
+    - uses: actions/cache@v6
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
@@ -109,7 +109,7 @@ jobs:
         path: lfs-payload.tar.gz
         if-no-files-found: error
         retention-days: 1
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
         cache: true
@@ -237,7 +237,7 @@ jobs:
     # a round trip when debugging.
     - name: Vulkan ICD summary
       run: vulkaninfo --summary || true
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
         lfs: false
@@ -250,7 +250,7 @@ jobs:
       run: |
         HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' '*.CR2' '*.CR3' '*.cr2' '*.cr3' '*.onnx' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v5
+    - uses: actions/cache@v6
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
@@ -282,7 +282,7 @@ jobs:
         path: src/TianWen.Lib/Astrometry/Catalogs/
     - name: Refresh preprocessed catalog mtimes
       run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
         cache: true
@@ -382,7 +382,7 @@ jobs:
       with:
         packages: astrometry.net astrometry-data-2mass-08-19
         version: 1.0
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
         lfs: false
@@ -392,7 +392,7 @@ jobs:
       run: |
         HASH=$(git ls-files '*.lz' '*.ttf' '*.bin.gz' '*.fits.gz' | xargs cat | sha256sum | cut -c1-16)
         echo "key=lfs-tests-${HASH}" >> $GITHUB_OUTPUT
-    - uses: actions/cache@v5
+    - uses: actions/cache@v6
       with:
         path: .git/lfs
         key: ${{ steps.lfs-key.outputs.key }}
@@ -415,7 +415,7 @@ jobs:
         path: src/TianWen.Lib/Astrometry/Catalogs/
     - name: Refresh preprocessed catalog mtimes
       run: touch src/TianWen.Lib/Astrometry/Catalogs/*.gs.gz
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
         cache: true
@@ -467,7 +467,7 @@ jobs:
       if: runner.os == 'Windows'
       shell: pwsh
       run: Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE", "$env:RUNNER_TEMP", "$env:USERPROFILE\.nuget"
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
         lfs: false
@@ -532,7 +532,7 @@ jobs:
       run: |
         Get-ChildItem -Path src/TianWen.Lib/Astrometry/Catalogs/ -Filter *.gs.gz |
           ForEach-Object { $_.LastWriteTime = Get-Date }
-    - uses: actions/setup-dotnet@v5
+    - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
         cache: true

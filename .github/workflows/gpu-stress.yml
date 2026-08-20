@@ -42,14 +42,14 @@ jobs:
       - name: Vulkan ICD summary
         run: vulkaninfo --summary || true
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}     # the code under stress -- decoupled from this workflow file (on main)
           submodules: recursive
           lfs: false
       - name: Fetch required LFS objects
         run: git lfs pull --include="*.lz,*.ttf,*.bin.gz,*.fits.gz"
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
           cache: true
