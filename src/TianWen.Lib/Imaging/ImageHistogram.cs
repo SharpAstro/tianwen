@@ -9,7 +9,10 @@ namespace TianWen.Lib.Imaging;
 /// <param name="Channel">Which channel this histogram was generated for</param>
 /// <param name="Histogram">histogram values</param>
 /// <param name="Mean"></param>
-/// <param name="Total"></param>
+/// <param name="Total">Number of pixels that landed in the histogram. A COUNT, so an integer
+/// type: as a <c>float</c> it was quantised above 2^24, which a 24 MP frame already exceeds.
+/// <c>long</c> converts implicitly to <c>float</c>/<c>double</c>, so consumers doing fractional
+/// arithmetic on it are unaffected.</param>
 /// <param name="Threshold"></param>
 /// <param name="ThresholdPct">Percentage of pixels above the threshold</param>
 /// <param name="RescaledMaxValue">when not null, specifies the max pixel value the image was rescaled to</param>
@@ -21,7 +24,7 @@ public record ImageHistogram(
     int Channel,
     ImmutableArray<uint> Histogram,
     float Mean,
-    float Total,
+    long Total,
     float Threshold,
     byte ThresholdPct,
     float? RescaledMaxValue,

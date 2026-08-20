@@ -177,18 +177,44 @@ the calibration temporal/tolerance work and shipped with it.
 
 ## Imaging
 
-- [ ] **`Image.Histogram` is the cost of a document open, and it is ~14 ns/px.** Measured with
-  `TIANWEN_DOC_OPEN_COST_PROBE=1 dotnet test --filter DocumentOpenCostProbe` (6000x4000x3, planes
-  pre-touched so page faults are not charged to the first stage): `Statistics(c)` x3 = 1,028-1,195 ms
-  and `GetStarMaskedMedianAndMADScaledToUnit(c)` x3 = 557-755 ms, against 38-114 ms for a whole star
-  detection pass. Scaled to the 13228x9354 reference document that is **~6 s + ~3.5 s**, and it is
-  the actual answer to "why is opening a big TIFF slow" -- which is a different question from "why
-  does it cost 2.2 GB" (see `docs/plans/viewer-memory-footprint.md`). A document open makes 10-12
-  full traversals of the pixels; these two account for most of the time. Candidates, none verified:
-  the bin loop uses 2-D `[y, x]` indexing rather than a flat span, does a `MathF.Round` +
-  `Math.Clamp` per pixel, and is scalar. `pixelStride` already exists for the live mini-viewer and a
-  stride on the DOCUMENT path would change stretch statistics, so it is not a free win -- measure
-  first whether flattening + vectorising the existing exact loop is enough.
+- [x] **DONE 2026-08-21. Document-open traversal cost, and a correction to how it was first
+  reported.** The original entry here quoted `Statistics(c)` x3 = 1,028-1,195 ms and called it the
+  dominant cost. **Those were DEBUG numbers.** `dotnet test` defaults to Debug, and this library's
+  inner loops are ~7x slower there, so the figure described the test configuration rather than the
+  product. Re-measured in Release on the same 6000x4000x3 probe (planes pre-touched so page faults
+  are not charged to the first stage), the ranking inverts:
+
+  | stage | Debug (as filed) | Release before | Release after |
+  |---|---|---|---|
+  | `Statistics(c)` x3 | 1,028-1,195 ms | 130-177 ms | 120-150 ms |
+  | `GetStarMaskedMedianAndMADScaledToUnit(c)` x3 | 557-755 ms | 412-632 ms | **23-70 ms** |
+
+  So the real hot spot was the star-masked median, not the histogram, and its cause was algorithmic
+  rather than micro: **two full `Array.Sort` calls over ~1.5 M samples per channel to extract two
+  medians.** A median needs selection, not a sort. Fixed by `StatisticsHelper.NthSmallest` (a public
+  wrapper over the private `QuickSelect` that was already there), reusing one buffer for both
+  passes. `Normalizer.MedianViaQuickSelect` had already made exactly this trade for the stacking hot
+  path -- and `Image.Histogram.cs` already had `using static StatisticsHelper` while still sorting.
+
+  The histogram loop was improved too, 50 -> 32 ms per 24 MP channel, by two changes that a code
+  reading would rank the wrong way round: a flat span instead of `float[,] [h, w]` indexing (50 ->
+  36) and a float-domain clamp instead of `Math.Clamp`, whose `(float, int, uint)` call binds the
+  **double** overload and so ran float -> double -> clamp -> double -> int per pixel (36 -> 32).
+  Every change is bit-identical, pinned by `HistogramSelectionParityTests` (which reimplements the
+  pre-change algorithm as an oracle) plus `NthSmallestTests`.
+
+  Two lessons worth keeping: **quote the configuration with any timing**, and note that the parity
+  test could NOT distinguish `MedianFast` from the upper median on any real fixture (swapping it in
+  left every assertion green), because a quantised background ties the two middle samples. That
+  convention is pinned on synthetic distinct values instead.
+- [ ] **`Image.Histogram` still has one measured lever left: parallel row bands, 32 -> 8 ms per
+  24 MP channel.** Deliberately not taken. It needs per-band bin arrays plus a merge, and it
+  reorders the `total_value` double summation, which feeds `hist_mean` -> `Background()`'s mode
+  search -> the star-detection threshold. The reordering is almost certainly invisible at float
+  precision, but "almost certainly" is not the bit-identical claim the other three changes carry,
+  so it wants its own change with its own evidence. Reproduce with
+  `TIANWEN_HISTOGRAM_PROBE=1 dotnet test -c Release --filter HistogramCostDecompositionProbe`
+  (note `-c Release`).
 - [ ] **`FindStarsAsync(maxStars:)` caps nothing -- delete the parameter.** Its only effect is to
   default `minStars`, so a call passing it alone reads as "cap the list" and means "rescan until you
   find this many". The doc now says so (2026-08-21) but the name still lies. Deleting it is

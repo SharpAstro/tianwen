@@ -123,7 +123,7 @@ public class GhsConvergenceTests
         var bins = new uint[65536];
         var hist = new ImageHistogram(
             Channel: 0, Histogram: ImmutableArray.Create(bins),
-            Mean: 0f, Total: 0f, Threshold: 0f, ThresholdPct: 91,
+            Mean: 0f, Total: 0L, Threshold: 0f, ThresholdPct: 91,
             RescaledMaxValue: 65535f, Median: 0f, MAD: 0f, IgnoreBlack: false);
 
         var result = Image.ConvergeGhsStretchFactor(hist, sp: 0.05);

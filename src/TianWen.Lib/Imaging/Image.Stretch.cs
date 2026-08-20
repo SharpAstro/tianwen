@@ -1786,8 +1786,9 @@ public partial class Image
         var bins = histogram.Histogram;
         var binMax = (float)(histogram.RescaledMaxValue ?? 65535f);
         var invBinMax = 1f / binMax;
-        float totalF = histogram.Total;
-        var halfTotal = totalF * 0.5f;
+        // Half of a pixel COUNT. Kept in double so the cumulative comparison below stays
+        // exact -- see the accumulator note there.
+        var halfTotal = histogram.Total * 0.5;
 
         // Apply WB to convergence stats so shadow/midtones/rescale match the post-WB rendering.
         var wbMedian = median * whiteBalance;
@@ -1811,8 +1812,16 @@ public partial class Image
             var (shadows, m, highlights, rescale) = ComputeStretchParameters(wbMedian, wbMad, factor, shadowsClipping);
             midtones = m;
 
-            // Walk histogram bins, accumulate stretched counts to find post-stretch median
-            var cumulative = 0f;
+            // Walk histogram bins, accumulate stretched counts to find post-stretch median.
+            // The accumulator is a COUNT and must be integral: as a float it saturated at
+            // 2^24 = 16,777,216, which every modern full-frame sensor exceeds (a 24 MP frame
+            // is 24,000,000 px), after which `+= bins[i]` silently rounded small bins away.
+            // Benign on a background-dominated astro frame, where halfTotal is reached in the
+            // first few bins; wrong on an image whose median bin is late (a photo or a drawing,
+            // where most pixels sit near white spread over many bins), which shifted the
+            // post-stretch median index and therefore the converged stretch. Same failure mode
+            // the total_value comment in Image.Histogram.cs documents.
+            var cumulative = 0L;
             var medianIdx = -1;
             for (var i = 0; i < bins.Length; i++)
             {
@@ -1958,7 +1967,7 @@ public partial class Image
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxLnD - minLnD);
 
-        if (histogram.Total <= 0f)
+        if (histogram.Total <= 0)
         {
             return new GhsConvergence(1.30, double.NaN, double.NaN, double.NaN, Converged: false);
         }
@@ -1967,8 +1976,7 @@ public partial class Image
         Span<float> lut = new float[LutSize];
         var bins = histogram.Histogram;
         var binCount = bins.Length;
-        var totalF = histogram.Total;
-        var halfTotal = totalF * 0.5f;
+        var halfTotal = histogram.Total * 0.5;
         var binMax = histogram.RescaledMaxValue ?? 65535f;
         var invBinMax = 1f / binMax;
 
@@ -2025,7 +2033,7 @@ public partial class Image
             postBins ??= new uint[binCount];
             lastMode = ComputePostStretchMode(lut, bins, invBinMax, postBins);
         }
-        var rSquared = ComputeLogSlopeRSquared(lut, bins, totalF, invBinMax);
+        var rSquared = ComputeLogSlopeRSquared(lut, bins, invBinMax);
 
         return new GhsConvergence(lnD, lastMedian, lastMode, rSquared, converged);
     }
@@ -2039,10 +2047,11 @@ public partial class Image
     /// post-stretch value; cumulative bin counts find the 50th percentile.
     /// </summary>
     private static double ComputePostStretchMedian(
-        ReadOnlySpan<float> lut, ImmutableArray<uint> bins, float halfTotal, float invBinMax)
+        ReadOnlySpan<float> lut, ImmutableArray<uint> bins, double halfTotal, float invBinMax)
     {
         var binCount = bins.Length;
-        var cumulative = 0f;
+        // A count, so integral -- see the note in ConvergeStretchFactor.
+        var cumulative = 0L;
         for (var i = 0; i < binCount; i++)
         {
             cumulative += bins[i];
@@ -2120,7 +2129,7 @@ public partial class Image
     /// the peak to fit a line (e.g. all pixels collapse to a single
     /// bin under an extreme stretch).</returns>
     private static double ComputeLogSlopeRSquared(
-        ReadOnlySpan<float> lut, ImmutableArray<uint> bins, float total, float invBinMax)
+        ReadOnlySpan<float> lut, ImmutableArray<uint> bins, float invBinMax)
     {
         var binCount = bins.Length;
         // Project input histogram into a post-stretch histogram by

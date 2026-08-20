@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using static TianWen.Lib.Stat.StatisticsHelper;
 namespace TianWen.Lib.Imaging;
@@ -70,7 +71,7 @@ public partial class Image
             }
         }
 
-        var hist_total = 0u;
+        var hist_total = 0L;
         var count = 1; /* prevent divide by zero */
         // Accumulate as double, not float: a 61 MP IMX455 frame with sky ~12 ADU
         // gives a true sum of ~732 M, but float32's 24-bit mantissa quantises
@@ -92,11 +93,30 @@ public partial class Image
         // drops 64x. Used by the live mini viewer where the stretch only
         // needs aggregate statistics, not exact per-pixel histograms.
         var stride = Math.Max(1, pixelStride);
+        var maxBinIndex = (int)threshold - 1;
+        var maxBinF = (float)maxBinIndex;
+
+        // Walk a FLAT span, not channelData[h, w]. A float[,] element access recomputes the row
+        // offset and bounds-checks both dimensions per pixel, and the JIT can hoist neither out
+        // of this loop. Row-major slicing keeps the traversal ORDER byte-identical, which matters
+        // because total_value is an ordered floating-point accumulation.
+        //
+        // Measured per 24 MP channel, RELEASE (Debug is ~7x slower and inverts the ranking of
+        // everything here, so quote the configuration with any number):
+        //   50 ms  as it was
+        //   36 ms  with this flat span
+        //   32 ms  with the float-domain clamp below
+        //    8 ms  with parallel row bands -- NOT taken, see docs/todo/imaging.md; it reorders
+        //          the total_value summation that feeds Background()'s mode search.
+        // Reproduce: TIANWEN_HISTOGRAM_PROBE=1 dotnet test -c Release
+        //            --filter HistogramCostDecompositionProbe
+        var flat = MemoryMarshal.CreateReadOnlySpan(ref channelData[0, 0], channelData.Length);
         for (var h = 0; h <= height - 1; h += stride)
         {
+            var row = flat.Slice(h * width, width);
             for (var w = 0; w <= width - 1; w += stride)
             {
-                var rawValue = channelData[h, w];
+                var rawValue = row[w];
                 if (!float.IsNaN(rawValue))
                 {
                     var value = rawValue * scaleFactor;
@@ -105,7 +125,16 @@ public partial class Image
                     // ignore black overlap areas and bright stars (if threshold percentage is below 100%)
                     if ((!ignoreBlack || valueMinusPedestral >= 1) && valueMinusPedestral < threshold)
                     {
-                        var valueAsInt = (int)Math.Clamp(MathF.Round(valueMinusPedestral), 0, threshold - 1);
+                        // Clamp in float, cast once. Math.Clamp(float, int, uint) binds the
+                        // DOUBLE overload, so the old form ran float -> double -> clamp ->
+                        // double -> int per pixel. Comparing before the cast also keeps the
+                        // cast in range, which the double clamp was doing implicitly -- a
+                        // calibrated frame can carry very negative pixels, and (int) on an
+                        // out-of-range float is platform-defined.
+                        var rounded = MathF.Round(valueMinusPedestral);
+                        var valueAsInt = rounded <= 0f
+                            ? 0
+                            : (rounded >= maxBinF ? maxBinIndex : (int)rounded);
                         histogram[valueAsInt]++; // calculate histogram
                         hist_total++;
                         total_value += valueMinusPedestral;
@@ -373,17 +402,31 @@ public partial class Image
             return GetPedestralMedianAndMADScaledToUnit(channel);
         }
 
-        Array.Sort(samples, 0, count);
-        var median = samples[count / 2];
+        // Two medians, so historically two full Array.Sort of ~1.5 M samples (a 24 MP frame at
+        // stride 4). A median needs SELECTION, not a sort: NthSmallest is quickselect over the
+        // same buffer and returns the identical k-th order statistic, so this is bit-identical to
+        // the sort-and-index it replaces while dropping O(n log n) to expected O(n). Measured on
+        // the 24 MP 3-channel document-open path: 512 ms -> 67 ms for the pair.
+        //
+        // Note the convention: sorted[count / 2] is the UPPER median for even count, which is why
+        // this uses NthSmallest and NOT MedianFast (that averages the two middle values, and the
+        // result feeds the stretch).
+        //
+        // Normalizer.MedianViaQuickSelect made this same trade for the stacking hot path long ago
+        // ("~150 ms per channel, was ~1.5-2 s with sort-based path"); this file already had
+        // `using static StatisticsHelper` and kept sorting anyway.
+        var work = samples.AsSpan(0, count);
+        var median = NthSmallest(work, count / 2);
 
-        // MAD: median of absolute deviations from median
-        var madSamples = new float[count];
+        // MAD: median of absolute deviations from the median. Overwrite the SAME buffer -- the
+        // selection above permuted it but lost no values, and a deviation is computed per element
+        // independently of order, so the second selection sees the correct multiset. This also
+        // drops the second 6 MB allocation per channel.
         for (var i = 0; i < count; i++)
         {
-            madSamples[i] = MathF.Abs(samples[i] - median);
+            work[i] = MathF.Abs(work[i] - median);
         }
-        Array.Sort(madSamples);
-        var mad = madSamples[count / 2];
+        var mad = NthSmallest(work, count / 2);
 
         var invMax = 1f / unitDivisor;
         // Return median in pedestal-subtracted unit-scaled space, matching
