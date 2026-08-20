@@ -233,7 +233,9 @@ public sealed class ViewerController(
                 return;
             }
 
-            AstroImageDocument? newDoc;
+            AstroImageDocument? newDoc = null;
+            // Kept so the not-opened branch below can say WHY rather than just that it did not open.
+            Exception? loadError = null;
             try
             {
                 newDoc = await documentCache.GetOrLoadAsync(requestedPath, debayerAlgorithm, loadToken);
@@ -242,6 +244,16 @@ public sealed class ViewerController(
             {
                 logger.LogDebug("Image load cancelled (superseded or shutdown): {FilePath}", requestedPath);
                 return;
+            }
+            catch (Exception ex)
+            {
+                // This ran with only the cancellation filter, and a loader that threw instead of
+                // returning false therefore VANISHED: the lambda is inside a Task.Run, so the
+                // exception became an unobserved task fault. No document, no log, no status message --
+                // clicking the file simply did nothing, which is harder to diagnose than a crash.
+                // Recorded rather than rethrown, so the branch that already reports a failed open
+                // handles this too and gets the reason to show.
+                loadError = ex;
             }
 
             if (loadToken.IsCancellationRequested)
@@ -295,6 +307,14 @@ public sealed class ViewerController(
 
                 // Kick off star detection in the background
                 StartStarDetection(newDoc, appToken);
+            }
+            else if (loadError is not null)
+            {
+                logger.LogWarning(loadError, "Failed to open image file: {FilePath}", requestedPath);
+                // Through StatusText, so a parser's exception message cannot put raw bytes or a
+                // multi-line dump in the status bar.
+                state.StatusMessage =
+                    $"Failed to open {Path.GetFileName(requestedPath)}: {StatusText.FromException(loadError)}";
             }
             else
             {
