@@ -37,6 +37,14 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'Bundle')][string]$BundleVersion,
     [Parameter(Mandatory, ParameterSetName = 'Bundle')][string]$BundleOut,
 
+    # Sign mode: put a SELF-SIGNED signature on an already-built .msix/.msixbundle so it can be
+    # installed on this machine. Nothing to do with shipping -- the Store re-signs on
+    # certification and this signature is discarded -- but it is the only way to install one
+    # locally, and -AllowUnsigned is NOT the way (see the README: that flag requires the
+    # publisher to sit in the unsigned namespace, which a Store identity by definition does not,
+    # so it fails 0x80073D2C no matter how much Developer Mode is on).
+    [Parameter(Mandatory, ParameterSetName = 'Sign')][string]$SignPackage,
+
     # Pinned, for the same reason pdf-viewer pins WiX: a build tool whose version is decided by
     # whatever the runner image ships is a build that changes under you without a commit.
     [string]$SdkBuildToolsVersion = '10.0.26100.8249',
@@ -110,7 +118,10 @@ function Test-ManifestAssets {
     if ($problems.Count) { throw ("Asset problems:`n  " + ($problems -join "`n  ")) }
 }
 
-function Resolve-MakeAppx {
+function Resolve-SdkTool {
+    # makeappx for packing, signtool for the local-test signature: one pinned package serves
+    # both, so a second tool cannot drift onto a second version.
+    param([Parameter(Mandatory)][string]$Name)
     $pkgDir = Join-Path $ToolCache "microsoft.windows.sdk.buildtools.$SdkBuildToolsVersion"
     if (-not (Test-Path -LiteralPath $pkgDir)) {
         New-Item -ItemType Directory -Force -Path $ToolCache | Out-Null
@@ -126,11 +137,100 @@ function Resolve-MakeAppx {
     # Prefer the host architecture: an x64 tool runs on arm64 under emulation, but slowly.
     $hostArch = if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq 'Arm64') { 'arm64' } else { 'x64' }
     $candidates = @(
-        Get-ChildItem -Path $pkgDir -Recurse -Filter 'makeappx.exe' -File |
+        Get-ChildItem -Path $pkgDir -Recurse -Filter $Name -File |
             Sort-Object { if ($_.Directory.Name -eq $hostArch) { 0 } elseif ($_.Directory.Name -eq 'x64') { 1 } else { 2 } }
     )
-    if (-not $candidates) { throw "makeappx.exe not found under $pkgDir" }
+    if (-not $candidates) { throw "$Name not found under $pkgDir" }
     return $candidates[0].FullName
+}
+
+function Get-PackagePublisher {
+    # Read the publisher out of the ARTIFACT, never out of AppxManifest.xml beside this script. The
+    # entire failure class here is a subject that does not match the package's publisher byte for
+    # byte -- signtool rejects a mismatch, and a template that has moved on since the package was
+    # built would reintroduce exactly that. A .msix/.msixbundle is a zip; XmlDocument.Load respects
+    # whichever encoding the manifest declares, which differs between the two manifest kinds.
+    param([Parameter(Mandatory)][string]$Path)
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead($Path)
+    try {
+        $entry = $zip.Entries | Where-Object {
+            $_.FullName -eq 'AppxManifest.xml' -or $_.FullName -eq 'AppxMetadata/AppxBundleManifest.xml'
+        } | Select-Object -First 1
+        if (-not $entry) { throw "No AppxManifest.xml or AppxBundleManifest.xml inside $Path" }
+
+        $stream = $entry.Open()
+        try {
+            $xml = New-Object System.Xml.XmlDocument
+            $xml.Load($stream)
+        } finally { $stream.Dispose() }
+
+        $identity = $xml.DocumentElement.SelectSingleNode("*[local-name()='Identity']")
+        if (-not $identity) { throw "No Identity element in $($entry.FullName)" }
+        return [pscustomobject]@{
+            Name      = $identity.GetAttribute('Name')
+            Publisher = $identity.GetAttribute('Publisher')
+            Version   = $identity.GetAttribute('Version')
+        }
+    } finally { $zip.Dispose() }
+}
+
+# ---------------------------------------------------------------------------------------------
+
+if ($PSCmdlet.ParameterSetName -eq 'Sign') {
+    if (-not (Test-Path -LiteralPath $SignPackage)) { throw "No such package: $SignPackage" }
+    $SignPackage = (Resolve-Path -LiteralPath $SignPackage).Path
+
+    $identity = Get-PackagePublisher -Path $SignPackage
+    Write-Host "Package  $($identity.Name) $($identity.Version)"
+    Write-Host "Publisher $($identity.Publisher)"
+
+    # Reuse a matching certificate rather than minting one per run: every new certificate has to be
+    # trusted again by hand (an elevated step), so a script that made one each time would turn a
+    # one-off into a per-build chore.
+    $cert = Get-ChildItem Cert:\CurrentUser\My |
+        Where-Object { $_.Subject -eq $identity.Publisher -and $_.HasPrivateKey -and $_.NotAfter -gt (Get-Date) } |
+        Sort-Object NotAfter -Descending | Select-Object -First 1
+
+    if ($cert) {
+        Write-Host "Reusing certificate $($cert.Thumbprint) (expires $($cert.NotAfter.ToString('yyyy-MM-dd')))"
+    } else {
+        Write-Host 'Creating a self-signed code-signing certificate'
+        # Basic Constraints must say end-entity and the EKU must be code signing (1.3.6.1.5.5.7.3.3):
+        # without both, signtool signs happily and deployment then rejects the signature, which reads
+        # as a broken package rather than a broken certificate.
+        $cert = New-SelfSignedCertificate `
+            -Type Custom -Subject $identity.Publisher `
+            -KeyUsage DigitalSignature -KeyAlgorithm RSA -KeyLength 2048 `
+            -CertStoreLocation 'Cert:\CurrentUser\My' `
+            -FriendlyName "$($identity.Name) local test signing" `
+            -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
+        Write-Host "Created $($cert.Thumbprint)"
+    }
+
+    # /sha1 picks the certificate straight out of the store, so no .pfx and no password ever exist
+    # on disk. /fd SHA256 because SHA-1 file digests are refused by deployment.
+    $signtool = Resolve-SdkTool 'signtool.exe'
+    & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint $SignPackage
+    if ($LASTEXITCODE -ne 0) { throw "signtool failed with exit code $LASTEXITCODE" }
+
+    # The PUBLIC half is what has to be trusted, and exporting it needs no elevation; importing it
+    # into the machine store does. Per-user Trusted People is not consulted by app deployment, so
+    # Cert:\CurrentUser\TrustedPeople is not a way around the elevated step.
+    $cerPath = [IO.Path]::ChangeExtension($SignPackage, '.cer')
+    Export-Certificate -Cert $cert -FilePath $cerPath -Type CERT | Out-Null
+
+    Write-Host ''
+    Write-Host "Signed $SignPackage"
+    Write-Host "Certificate exported to $cerPath"
+    Write-Host ''
+    Write-Host 'Trust it once, from an ELEVATED prompt:'
+    Write-Host "  Import-Certificate -FilePath '$cerPath' -CertStoreLocation Cert:\LocalMachine\TrustedPeople"
+    Write-Host ''
+    Write-Host 'Then install (no elevation, and no -AllowUnsigned -- it is signed now):'
+    Write-Host "  Add-AppxPackage '$SignPackage'"
+    exit 0
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -146,7 +246,7 @@ if ($PSCmdlet.ParameterSetName -eq 'Bundle') {
         New-Item -ItemType Directory -Force -Path $outDir | Out-Null
     }
 
-    $makeappx = Resolve-MakeAppx
+    $makeappx = Resolve-SdkTool 'makeappx.exe'
     & $makeappx bundle /d $BundleDir /p $BundleOut /bv $BundleVersion /o
     if ($LASTEXITCODE -ne 0) { throw "makeappx bundle failed with exit code $LASTEXITCODE" }
 
@@ -203,7 +303,7 @@ try {
         New-Item -ItemType Directory -Force -Path $outDir | Out-Null
     }
 
-    $makeappx = Resolve-MakeAppx
+    $makeappx = Resolve-SdkTool 'makeappx.exe'
     Write-Host "Packing with $makeappx"
     & $makeappx pack /d $stage /p $OutFile /o
     if ($LASTEXITCODE -ne 0) { throw "makeappx failed with exit code $LASTEXITCODE" }
