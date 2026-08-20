@@ -303,6 +303,44 @@ try {
         New-Item -ItemType Directory -Force -Path $outDir | Out-Null
     }
 
+    # Build the resource index BEFORE packing. Without a resources.pri in the package, Windows
+    # cannot resolve a single qualifier, so every scale-*, targetsize-* and altform-unplated asset
+    # is inert payload and the shell uses only the literal path the manifest names -- which is the
+    # 44x44 Square44x44Logo.png. That is why the file-type icon drew at 44px in a 256px cell while
+    # a targetsize-256 sat right beside it in the package, and why ADDING assets changed nothing.
+    # Nothing warns about this: makeappx packs happily, the package installs, the app runs, and the
+    # only symptom is icons at the wrong size.
+    $makepri = Resolve-SdkTool 'makepri.exe'
+    $priConfig = Join-Path ([IO.Path]::GetDirectoryName($stage)) ("priconfig-" + [IO.Path]::GetFileName($stage) + ".xml")
+    try {
+        & $makepri createconfig /cf $priConfig /dq en-US /o | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "makepri createconfig failed with exit code $LASTEXITCODE" }
+
+        # Drop the <packaging> block, which by default carries autoResourcePackage entries for
+        # Language, Scale and DXFeatureLevel. Those split the scale variants out into a SEPARATE
+        # resources.scale-200.pri intended for a resource package in a bundle -- ship the main .pri
+        # alone, as this lane does, and the split-out assets become unresolvable again. Removing the
+        # element rather than emptying it also avoids PRI230, which an empty node warns about.
+        $cfg = [xml](Get-Content -Raw -LiteralPath $priConfig)
+        $packaging = $cfg.resources.SelectSingleNode('packaging')
+        if ($packaging) { $cfg.resources.RemoveChild($packaging) | Out-Null }
+        $cfg.Save($priConfig)
+
+        # /pr is the project root, so it must be the stage: makepri reads AppxManifest.xml from there
+        # to learn which resources are referenced, then indexes candidates by filename qualifier.
+        & $makepri new /pr $stage /cf $priConfig /of (Join-Path $stage 'resources.pri') /o | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "makepri new failed with exit code $LASTEXITCODE" }
+    } finally {
+        # Outside the stage on purpose: a config file inside it would be packed into the msix.
+        if (Test-Path -LiteralPath $priConfig) { Remove-Item -LiteralPath $priConfig -Force }
+    }
+
+    $pri = Join-Path $stage 'resources.pri'
+    if (-not (Test-Path -LiteralPath $pri)) { throw 'makepri reported success but wrote no resources.pri' }
+    $split = @(Get-ChildItem -LiteralPath $stage -Filter 'resources.*.pri' -File)
+    if ($split.Count) { throw ("makepri split resources into {0}; the packaging config was not stripped" -f ($split.Name -join ', ')) }
+    Write-Host ("Indexed resources.pri ({0} bytes)" -f (Get-Item -LiteralPath $pri).Length)
+
     $makeappx = Resolve-SdkTool 'makeappx.exe'
     Write-Host "Packing with $makeappx"
     & $makeappx pack /d $stage /p $OutFile /o
