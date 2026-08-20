@@ -651,11 +651,58 @@ namespace TianWen.UI.Abstractions
             return false;
         }
 
+        /// <summary>Which toolbar button <see cref="_toolbarWheelAccumulator"/> belongs to; null when the
+        /// wheel is not over a wheel-driven button. Moving between buttons resets the accumulation.</summary>
+        private ToolbarAction? _toolbarWheelAction;
+
+        /// <summary>Unconsumed wheel delta over that button, carried between events so a trackpad's
+        /// sub-1.0 deltas add up to a notch instead of each counting as one.</summary>
+        private float _toolbarWheelAccumulator;
+
         private bool HandleViewerScroll(float scrollY, float mouseX, float mouseY)
         {
             if (_state is not { } state)
             {
                 return false;
+            }
+
+            // A wheel notch over a multi-option toolbar button steps that button's options (up = forward),
+            // which is the only gesture the toolbar gives the wheel -- so this is checked before the panes
+            // below even though the toolbar overlaps neither of them.
+            //
+            // HitTest, NOT HitTestAndDispatch: dispatching fires the region's OnClick, so scrolling over a
+            // button would also PRESS it. And going through the region system rather than the toolbar's own
+            // rects is what makes an open dropdown win -- it registers a full-viewport backdrop, so that
+            // answers the hit and the wheel cannot reach a button drawn underneath it.
+            if (HitTest(mouseX, mouseY) is HitResult.ButtonHit { Action: var buttonAction }
+                && Enum.TryParse<ToolbarAction>(buttonAction, out var wheelAction))
+            {
+                // Accumulate, and step only per WHOLE notch. A trackpad delivers many sub-1.0 deltas --
+                // the file-list controller below accumulates them for the same reason -- and stepping
+                // one option per event would run through a five-entry preset list on one gentle swipe.
+                // Moving to a different button starts a fresh accumulation so a leftover fraction from
+                // the neighbour cannot make the first notch land early.
+                if (_toolbarWheelAction != wheelAction)
+                {
+                    _toolbarWheelAction = wheelAction;
+                    _toolbarWheelAccumulator = 0f;
+                }
+                _toolbarWheelAccumulator += scrollY;
+
+                // Truncation toward zero, so the remainder keeps its sign and a slow swipe accumulates
+                // instead of being repeatedly discarded.
+                var steps = (int)_toolbarWheelAccumulator;
+                if (ViewerActions.TryHandleToolbarWheel(state, _document, wheelAction, steps))
+                {
+                    _toolbarWheelAccumulator -= steps;
+                    state.NeedsRedraw = true;
+                    return true;
+                }
+
+                // Not a wheel-driven button: drop the accumulation rather than leaving a fraction to
+                // surprise the next button that is.
+                _toolbarWheelAction = null;
+                _toolbarWheelAccumulator = 0f;
             }
 
             // Scroll file list when hovering over it (pane rect from the single arranged layout). The wheel
