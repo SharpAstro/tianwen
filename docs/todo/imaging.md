@@ -134,6 +134,18 @@ The `SharpAstro.Codecs 3.6.*` facade (sniff → dispatch: PNG/JPEG/TIFF/JXR/EXR/
 fallback (`Image.Import.TryReadViaCodecs`; full arc in [`../plans/image-codecs-facade.md`](../plans/image-codecs-facade.md)).
 Open gaps:
 
+- [ ] **CMYK / Separated TIFF renders as a negative.** A `Photometric = 5` TIFF with 4 samples per
+  pixel (a print export, e.g. GraXpert's `..._printer.tiff`) has its C/M/Y read as R/G/B with K
+  dropped, and since a high CMYK value means MORE ink the polarity inverts: white sky, dark stars,
+  cyan cast. `SharpAstro.Tiff.TiffImageDecoder` already declares this out of scope
+  (`page.Photometric is not (MinIsBlack or Rgb)` -> refuse), but `Image.Import.cs` calls
+  `TiffReader.Read(bytes)` **directly** and bypasses that guard. Two options: honour the guard so the
+  file fails to open with a clear message (consistent with a decision the codec layer already made),
+  or convert CMYK->RGB -- accurately needs the embedded ICC profile, which these files carry, while
+  the naive `R = (1-C)(1-K)` form is what most viewers do and would at least fix the polarity.
+  Backlogged 2026-08-20 out of [`../plans/viewer-prerelease-fixes.md`](../plans/viewer-prerelease-fixes.md)
+  (was P4): a printer proof is a print export, not a working frame, so it does not gate a release.
+  Note it only became *visible* once the Predictor 2 fix made the file decode to structure at all.
 - [x] **Gain-map JPEG export during stacking / rendering (DONE).** Emits Ultra HDR (hdrgm 1.0 / Android
   Ultra HDR v1) gain-map JPEGs from the stacking/render preview path; a broadly-supported HDR delivery
   format (Android / Chrome / Adobe) alongside the existing cICP-PQ PNG HDR previews. Unlike the PQ preview
