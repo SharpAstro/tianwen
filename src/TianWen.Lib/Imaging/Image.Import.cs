@@ -6,6 +6,7 @@ using System;
 using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.IO.MemoryMappedFiles;
 using System.Runtime.InteropServices;
 using TianWen.Lib.Astrometry;
 using CodecSampleFormat = SharpAstro.Codecs.Abstractions.SampleFormat;
@@ -181,55 +182,104 @@ public partial class Image
     /// is what this method allocates, and going through the extension-dispatching entry point would put
     /// unrelated work inside the measured window.
     /// </summary>
-    internal static bool TryReadTiff(string fileName, [NotNullWhen(true)] out Image? image)
+    internal static unsafe bool TryReadTiff(string fileName, [NotNullWhen(true)] out Image? image)
     {
         try
         {
-            var bytes = File.ReadAllBytes(fileName);
+            // MEMORY-MAPPED, not File.ReadAllBytes. With the strip-streaming decode below, the file
+            // buffer became the largest single allocation on this path: an UNCOMPRESSED TIFF is
+            // raster-sized on disk (354 MB for the 13228x9354 page in
+            // docs/plans/viewer-memory-footprint.md), so ReadAllBytes was handing back a byte[] as big
+            // as the raster the streaming decode had just eliminated -- one term traded for another.
+            // A mapping has no such array: the pages are file-backed, so they need no managed heap, no
+            // LOH allocation, and can be evicted under pressure instead of swapped.
+            //
+            // It also completes the zero-copy path. SharpAstro.Tiff hands an uncompressed, unpredicted
+            // strip over as a slice of its INPUT, so with the input being the mapping those samples are
+            // converted straight out of the file with no intermediate copy anywhere.
+            var info = new FileInfo(fileName);
 
-            // ReadInto, not Read: Read returns the page as one assembled raster, so converting it here
-            // means the raster and these float planes are BOTH fully resident. For a 13228x9354 RGB
-            // page that is 354 MiB of intermediate whose only purpose is to be read once, left-to-right
-            // -- see docs/plans/viewer-memory-footprint.md (M2). The sink converts each strip as it
-            // arrives and the raster never exists.
-            var sink = new TiffChannelSink();
-            var doc = TiffReader.ReadInto(bytes, ref sink);
-            if (doc.Pages.Count == 0 || sink.Channels is not { } channels)
+            // Zero length has nothing to map (CreateFromFile rejects a 0-capacity mapping), and past
+            // int.MaxValue a span cannot address it -- academic for this reader, which does not support
+            // BigTIFF and so cannot follow 64-bit offsets anyway, but a wrong answer is worse than a
+            // refusal.
+            if (info.Length is 0 or > int.MaxValue)
             {
-                // No pages, or the sink declined the first one (an unsupported photometric). Either way
-                // the caller is told we could not read it, which is the same answer as before.
                 image = null;
                 return false;
             }
 
-            var page = doc.Pages[0];
-            var width = page.Width;
-            var height = page.Height;
-            var isSeparated = sink.IsSeparated;
-            var bitDepth = sink.BitDepth;
+            // FileShare.Read to match what ReadAllBytes did, so a file another process holds open for
+            // writing is refused exactly as before rather than newly succeeding on a half-written file.
+            using var stream = new FileStream(fileName, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var mapping = MemoryMappedFile.CreateFromFile(stream, mapName: null, capacity: 0,
+                MemoryMappedFileAccess.Read, HandleInheritability.None, leaveOpen: false);
+            using var view = mapping.CreateViewAccessor(0, info.Length, MemoryMappedFileAccess.Read);
 
-            // The photometric interpretation decides what the samples MEAN, and ignoring it is not a
-            // graceful degradation -- it renders a confidently wrong picture. A Separated (CMYK)
-            // print export read as RGB comes out as a colour-shifted NEGATIVE, because a high CMYK
-            // value is more ink, i.e. darker. That is worse than refusing the file, since nothing on
-            // screen says the interpretation was guessed.
-            if (page.Photometric == TiffPhotometric.MinIsWhite)
+            byte* origin = null;
+            try
             {
-                // Zero means WHITE for this photometric (scanners and fax), so the stored samples are
-                // a negative of the intensity every consumer downstream assumes.
-                InvertSamplesInPlace(channels);
+                view.SafeMemoryMappedViewHandle.AcquirePointer(ref origin);
+
+                // PointerOffset, because a view is aligned to an allocation granularity boundary and the
+                // pointer is to that boundary, not to the requested offset. It is 0 for offset 0 on every
+                // platform we run, but reading it is free and assuming it is not.
+                var bytes = new ReadOnlySpan<byte>(origin + view.PointerOffset, (int)info.Length);
+
+                // ReadInto, not Read: Read returns the page as one assembled raster, so converting it here
+                // means the raster and these float planes are BOTH fully resident. For a 13228x9354 RGB
+                // page that is 354 MiB of intermediate whose only purpose is to be read once, left-to-right
+                // -- see docs/plans/viewer-memory-footprint.md (M2). The sink converts each strip as it
+                // arrives and the raster never exists.
+                var sink = new TiffChannelSink();
+                var doc = TiffReader.ReadInto(bytes, ref sink);
+                if (doc.Pages.Count == 0 || sink.Channels is not { } channels)
+                {
+                    // No pages, or the sink declined the first one (an unsupported photometric). Either way
+                    // the caller is told we could not read it, which is the same answer as before.
+                    image = null;
+                    return false;
+                }
+
+                var page = doc.Pages[0];
+                var width = page.Width;
+                var height = page.Height;
+                var isSeparated = sink.IsSeparated;
+                var bitDepth = sink.BitDepth;
+
+                // The photometric interpretation decides what the samples MEAN, and ignoring it is not a
+                // graceful degradation -- it renders a confidently wrong picture. A Separated (CMYK)
+                // print export read as RGB comes out as a colour-shifted NEGATIVE, because a high CMYK
+                // value is more ink, i.e. darker. That is worse than refusing the file, since nothing on
+                // screen says the interpretation was guessed.
+                if (page.Photometric == TiffPhotometric.MinIsWhite)
+                {
+                    // Zero means WHITE for this photometric (scanners and fax), so the stored samples are
+                    // a negative of the intensity every consumer downstream assumes.
+                    InvertSamplesInPlace(channels);
+                }
+                else if (isSeparated)
+                {
+                    channels = ConvertSeparatedToRgb(channels, width, height);
+                }
+
+                var exif = ExifReader.FromTiff(bytes);
+                var imageMeta = BuildImageMetaFromExif(exif, page.FileIsLittleEndian);
+
+                // Values are now in [0, 1] (DecodeTiffPixels normalises by sample-format max).
+                image = new Image(channels, bitDepth, 1.0f, 0f, 0f, imageMeta);
+                return true;
             }
-            else if (isSeparated)
+            finally
             {
-                channels = ConvertSeparatedToRgb(channels, width, height);
+                if (origin is not null)
+                {
+                    // Paired with AcquirePointer. Without it the handle keeps a reference count and the
+                    // mapping is never released, which is a leak that only shows up as a file staying
+                    // locked -- so it presents as "cannot delete that file" long after the decode.
+                    view.SafeMemoryMappedViewHandle.ReleasePointer();
+                }
             }
-
-            var exif = ExifReader.FromTiff(bytes);
-            var imageMeta = BuildImageMetaFromExif(exif, page.FileIsLittleEndian);
-
-            // Values are now in [0, 1] (DecodeTiffPixels normalises by sample-format max).
-            image = new Image(channels, bitDepth, 1.0f, 0f, 0f, imageMeta);
-            return true;
         }
         catch
         {
