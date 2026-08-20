@@ -46,9 +46,36 @@ public partial class Image
     /// </summary>
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image, out WCS? wcs, bool pooled)
     {
-        using var bufferedReader = new BufferedFile(fileName, FileAccess.Read, FileShare.Read, 1000 * 2088);
-        using var fitsFile = new Fits(bufferedReader, fileName.EndsWith(".gz"));
-        return TryReadFitsFile(fitsFile, out image, out wcs, pooled);
+        // A TryX that throws is not a TryX, and this one threw while both its siblings did not:
+        // TryReadFitsHeader (just below) has caught since it was written and TryReadTiff wraps its
+        // whole body. Only the full-image path was bare, so a file the header scanner would merely
+        // SKIP took the viewer's load task down with it -- and silently, because that load runs in a
+        // Task.Run, where an escaping exception becomes an unobserved fault rather than a crash.
+        //
+        // This catch is a QUARANTINE BOUNDARY around FITS.Lib, not general practice. Our own code
+        // should never be the thing throwing a NullReferenceException, and where it does the answer is
+        // to fix it rather than to swallow it. FITS.Lib is the exception: it is a mechanical port of a
+        // Java library whose error handling predates us and does not translate. The bug found here is
+        // the shape of the whole class -- BasicHDU.ObservationDate caught a parse failure, assigned
+        // null, then cast that null to DateTime, so the handler written to tolerate a bad date WAS the
+        // crash. Fixed in FITS.Lib 5.0.401, and there is no reason to believe it was the only one.
+        //
+        // So the boundary deliberately catches everything, including the NRE class that a narrower
+        // filter would let through. Nothing is hidden by it: the caller learns the file is unreadable
+        // and ViewerController logs whatever escaped with its stack, which is how the next one gets
+        // found and fixed upstream instead of vanishing.
+        try
+        {
+            using var bufferedReader = new BufferedFile(fileName, FileAccess.Read, FileShare.Read, 1000 * 2088);
+            using var fitsFile = new Fits(bufferedReader, fileName.EndsWith(".gz"));
+            return TryReadFitsFile(fitsFile, out image, out wcs, pooled);
+        }
+        catch (Exception)
+        {
+            image = null;
+            wcs = null;
+            return false;
+        }
     }
 
     /// <summary>
