@@ -149,34 +149,95 @@ Two things this deliberately does not fix:
   `ReadAllBytes` version, so it measures the mapping rather than assuming it.
 - `ExifReader.FromTiff(bytes)` needs the header bytes, so it keeps its current input.
 
-## M3. Let the viewer hold the source bit depth
+## M3. Let the viewer hold the source bit depth -- DESIGN
 
-The part that makes this tractable: **the shader does not care.** `texture()` on a `R8Unorm` or
-`R16Unorm` sampled image returns a float in [0,1] exactly as `R32Sfloat` does, so `image.frag` and the
-whole stretch chain are untouched -- the sampler performs the normalisation the CPU currently
-materialises 1.4 GiB to precompute. Those formats also have *wider* linear-filtering support than
-`R32Sfloat`, which the pipeline already probes for (`R32SfloatLinearFilterSupported`).
+M1, M2 and the mapping removed everything that was not the data. What is left is the data model, and
+for the reference document it is now the *entire* cost: **1,485 MB of float planes on the CPU and
+1,485 MB of `R32Sfloat` device images**, 2,227 MB of the 2,251 MB measured. Nothing else is material.
 
-So the work is not in the shader, it is in three places:
+The premise from the top of this file still holds -- `TianWen.Lib.Imaging` is right to be float, and
+making `Image` polymorphic over bit depth is not worth it. **The viewer is not the pipeline.** It
+displays; it does not calibrate, integrate or deconvolve. For an 8-bit document it converts 354 MiB
+of samples into 1,416 MiB of floats, uploads them, and asks the GPU to sample them back into
+normalised floats -- which is what an `R8Unorm` texture does for free.
 
-1. **Texture format selection** in `VkFitsImagePipeline`, from the document's `BitDepth`. Per-channel,
-   since `UploadChannelTexture` is already per-channel.
-2. **What `AstroImageDocument` holds.** Today it holds a float `Image` and derives its median/MAD
-   stats from it. Those statistics are computable from 8- or 16-bit samples directly (cheaper, in
-   fact), so the question is whether the document can carry the raw raster plus stats instead of a
-   float `Image` -- and what that does to the paths that legitimately need floats: **Enhance**
-   (`SharpenPipeline` is float end to end) and plate solving.
-3. **A fallback that is not a cliff.** The honest shape is that a display-only document keeps its
-   source depth and materialises floats *on demand* for the operations that need them -- Enhance
-   already writes a temp FITS, so it is closer to that model than it looks.
+### What the design turns on, and it is not the shader
 
-**Effect for this document: 12 B/px -> 3 B/px on the CPU and the same on the GPU**, i.e. 354 MiB
-instead of 1,416 MiB resident, and 354 MiB instead of 1,383 MiB of device memory. For a 16-bit
-astronomical frame it is 6 B/px instead of 12.
+The shader is a non-issue: `texture()` on `R8Unorm` / `R16Unorm` returns a float in [0,1] exactly as
+`R32Sfloat` does, so `image.frag` and the whole stretch chain are untouched, and those formats have
+*wider* linear-filtering support than `R32Sfloat` (which the pipeline already probes for).
 
-**This is the largest win and the least certain scope.** It needs its own design pass before it is
-committed to; the entry here exists so the 12 B/px is recorded as a floor of *this design* rather than
-a law, and so the reason it is viewer-local is written down.
+What it turns on is **who still needs floats, and whether they need them resident**. Auditing the
+consumers of `AstroImageDocument.UnstretchedImage`:
+
+| Consumer | Needs | When |
+|---|---|---|
+| Most of the viewer chrome | metadata only (`ChannelCount`, `SensorType`, Bayer offsets) | always -- no pixels at all |
+| GPU upload (`IPreviewSource.GetChannelData`) | pixels | always -- **but the sampler can normalise, so floats are not required** |
+| Stretch stats (median / MAD / histogram) | pixels | once, at load -- computable from integer samples directly, and *cheaper* |
+| **Star detection (`FindStarsAsync`)** | an `Image` | **automatically at every load** (`ViewerController.StartStarDetection`) |
+| Colour calibration / auto-WB | pixels | on demand |
+| Enhance (`SharpenPipeline`) | float end to end | on demand -- and it already round-trips a temp FITS |
+| Plate solve | detected centroids, not pixels | on demand |
+| Info-panel probe | one pixel | per frame, trivial either way |
+
+**Star detection is the finding that shapes this.** It runs on every document open, not on demand, so
+if it needs a float `Image` then the float planes exist anyway and M3 would save only the device half.
+That single fact is the difference between a 1,114 MB win and a 2,227 MB one, and it is not visible
+from the memory table at all.
+
+### Options, in increasing order of both reward and scope
+
+**D1 -- Floats become transient rather than resident.** The document holds the source raster; the
+float planes are materialised at load for the stats and the star pass, then released. This is exactly
+what M2 did to the decoded raster: demote a resident representation to a transient of the one step
+that needs it.
+
+- Steady state: **3 B/px raster + 3 B/px device = 6 B/px**, against 24 today.
+- Peak: 3 + 12 (transient floats) + 3 = **18 B/px**, against 24.
+- So it wins big on steady state and modestly on peak, which is the right shape -- the complaint this
+  plan exists to answer is "it got slow after I opened that file", which is a steady-state complaint.
+
+**D2 -- Make star detection depth-agnostic**, so no float materialisation happens at all. Peak and
+steady both land at 6 B/px. Bigger change: the detector is `Image`-typed, so this means either
+templating it over the sample type or giving it a span-plus-scale entry point.
+
+**D3 -- Device-only.** Upload the source depth, keep the CPU floats. Saves the 1,114 MB device half
+with no change to what the document holds. Cheapest by far, and worth naming because it is a
+*separable* half rather than a compromise: it can ship before D1 and D1 does not redo it.
+
+### The two things that will actually bite
+
+**`IPreviewSource.GetChannelData` returns `ReadOnlySpan<float>`.** That is the API decision, and it
+has four implementers (`AstroImageDocument`, `LiveFramePreviewSource`, `SerPreviewSource`,
+`LiveStackPreviewSource`). Three of them are live/streaming sources whose frames are genuinely float
+already, so a blanket change would cost them a conversion to save nothing. The shape that fits is a
+sibling member describing the *native* samples (depth + span) with the float accessor kept for
+sources that have floats natively -- not a replacement.
+
+**FITS is the case M3 does NOT pay for, and that is worth stating up front.** A 32-bit float FITS is
+already `R32Sfloat`, so there is nothing to narrow. A 16-bit integer FITS carries `BZERO`/`BSCALE` and
+is signed, so its raw samples are *not* directly uploadable to `R16Unorm` without applying that
+offset -- and applying it is what the float conversion currently does. So the clean win is 8-bit
+display documents: TIFF, PNG, JPEG. Which is precisely the document that motivated this plan (a 5.7 MB
+architectural drawing costing 2.5 GB), and precisely *not* the astronomical frames the app exists for.
+
+That asymmetry is the honest summary of M3's value: **it makes the viewer good at documents it was
+never designed for, and changes nothing for the ones it was.** Worth doing -- opening a big TIFF
+should not cost 2.2 GB -- but it should be sized against that, not against the astro path.
+
+### Recommendation
+
+Ship **D3** first (device-only, self-contained, no API change, half the win), then decide D1 against
+measurements taken with D3 in place. Do not start D2 until star detection has been shown to be the
+thing holding the floats resident -- that is an assumption above, not a measurement, and the whole
+reason this section exists is that the last two attempts to reason about this file's memory were both
+wrong until something deterministic was measured.
+
+**Verification must be allocation- and device-memory-based, never working set.** Established the hard
+way in M2: run-to-run variance on this document exceeds 1,200 MB, which is larger than anything M3
+would deliver. `GC.GetAllocatedBytesForCurrentThread` for the CPU half; the pipeline's own image
+sizes (the `StagingBufferSize` pattern) for the device half.
 
 ## Phasing
 
@@ -185,7 +246,7 @@ a law, and so the reason it is viewer-local is written down.
 | A | **DONE** -- M1 | Self-contained, one repo, no API design. Fixes the cost that persists across documents -- the one a user experiences as "it got slow after I opened that file". |
 | B | **DONE** -- M2 in `Codecs` (3.11) | A new public API on `SharpAstro.Tiff` plus a release. Second, so A has shipped by the time the pin moves. |
 | C | **CODE DONE**, pin held until 3.11 publishes -- M2 in `tianwen` | Follows B's release; the codec family floats per minor, so the pin edit is one line. |
-| D | M3 design | Needs a decision on what `AstroImageDocument` holds and how Enhance / plate solve get floats. Do not start it as an implementation. |
+| D | **DESIGNED** -- M3, split into D1/D2/D3 above | The design is written; D3 (device-only) is the recommended first step and needs no API change. D1 demotes the float planes to a transient. D2 (depth-agnostic star detection) is gated on MEASURING that star detection is what holds them resident. |
 
 ## Verification
 
@@ -201,7 +262,10 @@ either way, which is exactly why none of this was noticed.
   A unit test asserts the shape rather than the bytes: the decode-into path must produce a
   byte-identical `Image` to `Read`-then-convert for a predictor file, a `MinIsWhite` file and a CMYK
   file -- the three cases that post-process whole planes.
-- **M3**: same working-set comparison, plus a pixel-identity check that an 8-bit document renders
-  byte-identically through the `R8Unorm` path and the float path. If it does not, the sampler
-  normalisation and `Image.StretchValue`'s normalisation have diverged, which is a real bug and not a
-  tolerance to widen.
+- **M3**: NOT a working-set comparison -- M2 established that run-to-run variance on this document
+  exceeds 1,200 MB, which is larger than anything M3 delivers. `GC.GetAllocatedBytesForCurrentThread`
+  for the CPU half, the pipeline's own image sizes (the `StagingBufferSize` pattern) for the device
+  half. Plus a pixel-identity check that an 8-bit document renders byte-identically through the
+  `R8Unorm` path and the float path. If it does not, the sampler normalisation and
+  `Image.StretchValue`'s normalisation have diverged, which is a real bug and not a tolerance to
+  widen.
