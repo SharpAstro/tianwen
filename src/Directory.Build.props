@@ -64,7 +64,8 @@
       AND Exists('$(MSBuildThisFileDirectory)..\..\FITS.Lib\CSharpFITS\CSharpFITS.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\SER.Lib\src\SER.Lib\SER.Lib.csproj')
       AND Exists('$(MSBuildThisFileDirectory)..\..\Lzip.Lib\src\Lzip.Lib\Lzip.Lib.csproj')
-      AND Exists('$(MSBuildThisFileDirectory)..\..\LAN.Lib\src\LAN.Lib\LAN.Lib.csproj')">true</UseLocalSiblings>
+      AND Exists('$(MSBuildThisFileDirectory)..\..\LAN.Lib\src\LAN.Lib\LAN.Lib.csproj')
+      AND Exists('$(MSBuildThisFileDirectory)..\..\AppShell\src\SharpAstro.AppShell\SharpAstro.AppShell.csproj')">true</UseLocalSiblings>
   </PropertyGroup>
 
   <!--

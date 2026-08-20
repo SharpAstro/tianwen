@@ -26,6 +26,15 @@
     <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 
+  <!-- The single-instance gate. Shared with the other viewer in the family rather than written
+       twice, which is why it lives in a package and not in this project. -->
+  <ItemGroup Condition="'$(UseLocalSiblings)' == 'true'">
+    <ProjectReference Include="..\..\..\AppShell\src\SharpAstro.AppShell\SharpAstro.AppShell.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(UseLocalSiblings)' != 'true'">
+    <PackageReference Include="SharpAstro.AppShell" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\TianWen.UI.Shared\TianWen.UI.Shared.csproj" />
     <!-- AI enhancers (SAS ONNX + RC-Astro CLI wrappers) for the viewer's Enhance action. -->

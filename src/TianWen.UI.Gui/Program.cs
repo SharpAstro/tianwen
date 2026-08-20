@@ -15,6 +15,7 @@ using TianWen.UI.Abstractions.Extensions;
 using TianWen.UI.Gui;
 using TianWen.UI.Shared;
 using static SDL3.SDL;
+using SharpAstro.AppShell;
 
 // DI setup
 var services = new ServiceCollection();
@@ -109,6 +110,43 @@ else if (args.Length >= 2 && args[0] is "--active" or "-a")
     appState.ActiveProfile = profiles.FirstOrDefault(p =>
         string.Equals(p.DisplayName, name, StringComparison.OrdinalIgnoreCase) ||
         (Guid.TryParse(name, out var id) && p.ProfileId == id));
+}
+
+// --- One instance for the whole application ---
+// Unlike the viewer, this is NOT keyed on anything: a second GUI would poll the same drivers and
+// contend for them, and the multi-rig Home tab already exists so one GUI can watch several rigs.
+// So a second launch activates the running window and exits.
+//
+// The payload is empty because there is no document to hand over, and an empty payload is a
+// request to activate. A second launch passing --active does NOT switch the running profile:
+// that is gated (ProfileSwitchGate refuses while connected or running), so it is logged as
+// ignored rather than silently dropped. Acting on it is deferred.
+const string GuiGateScope = "tianwen-gui";
+const string GuiSingleInstanceEnvVar = "TIANWEN_GUI_SINGLE_INSTANCE";
+InstanceGate? instanceGate = null;
+if (!string.Equals(Environment.GetEnvironmentVariable(GuiSingleInstanceEnvVar), "0", StringComparison.Ordinal))
+{
+    var gateChannel = InstanceGate.ChannelFor(GuiGateScope);
+    instanceGate = InstanceGate.TryClaim(gateChannel, logger);
+    if (instanceGate is null)
+    {
+        if (args.Length >= 2 && args[0] is "--active" or "-a")
+        {
+            logger.LogWarning(
+                "A TianWen GUI is already running; activating it. The requested profile {Profile} is ignored, "
+                + "because switching profiles is refused while a session is connected or running.", args[1]);
+        }
+
+        if (InstanceGate.TryHandOff(gateChannel, string.Empty, TimeSpan.FromSeconds(5), logger))
+        {
+            logger.LogInformation("Activated the running TianWen GUI instead of starting a second one");
+            return 0;
+        }
+
+        // Nobody answered in time. A second GUI is a poor outcome, but a launch that does nothing
+        // at all is worse, so fall through and start.
+        logger.LogWarning("An instance holds the GUI channel but did not answer; starting anyway");
+    }
 }
 
 // SDL3 + Vulkan init. Install the native-library resolver before the first
@@ -316,6 +354,11 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     CheckNeedsRedraw = () =>
     {
+        // First, and above the early returns below: this is the only place a hand-off from a
+        // later launch is noticed, and CheckNeedsRedraw is the one callback that runs on every
+        // loop iteration including the idle polls.
+        PumpInstanceGate();
+
         // Recompute targets when site/date changes (shared logic in AppSignalHandler)
         signalHandler.CheckRecompute();
         // Skip telemetry / preview polls during shutdown: they're pointless while we're
@@ -827,5 +870,21 @@ lanDiscovery.Dispose();
 guiRenderer.Dispose();
 renderer.Dispose();
 ctx.Dispose();
+
+// Raises the window when another launch asks for it. The payload is empty for this app
+// (there is no document to open), so activation is the whole of the work.
+void PumpInstanceGate()
+{
+    if (instanceGate is null)
+    {
+        return;
+    }
+
+    while (instanceGate.TryDequeue(out _))
+    {
+        sdlWindow.Raise();
+        appState.NeedsRedraw = true;
+    }
+}
 
 return 0;
