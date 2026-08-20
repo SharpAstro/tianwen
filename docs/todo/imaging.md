@@ -134,6 +134,23 @@ The `SharpAstro.Codecs 3.6.*` facade (sniff → dispatch: PNG/JPEG/TIFF/JXR/EXR/
 fallback (`Image.Import.TryReadViaCodecs`; full arc in [`../plans/image-codecs-facade.md`](../plans/image-codecs-facade.md)).
 Open gaps:
 
+- [ ] **We ship a JBIG2 decoder we can never use, and trimming cannot remove it.** `SharpAstro.Codecs`
+  is a `static readonly` dispatch array that literally names `Register<Jbig2ImageDecoder>()`, so the
+  decoder is ROOTED -- the trimmer must keep it, in every AOT binary. JBIG2 is bilevel fax/PDF
+  compression; it appears nowhere in this repo (no extension in `Image.Import.cs`'s codec list, no
+  call site, no mention) and no astro tool emits it. Cost: **97,792 bytes of IL**, more once
+  AOT-compiled, across the four shipped binaries. Small against a 58 MB MSIX -- under a percent -- so
+  this is tidiness with a number on it, not urgency.
+  JXL (168,960 B) and JXR (220,672 B) are NOT in the same category: `Image.Import.cs:57` routes
+  `.jxl`/`.jxr`/`.wdp` deliberately, so both are paid for on purpose.
+  Preferred fix is upstream and non-breaking: give the facade a per-decoder trim feature switch
+  (`ILLink.Substitutions.xml` + `RuntimeHostConfigurationOption`, the BCL's `EventSourceSupport`
+  pattern), so a consumer opts out and the decoder is substituted away. That needs no API change, no
+  package split, and leaves every existing consumer byte-identical. Rejected alternatives: splitting
+  the facade into core + `.All` (changes its contract), and having tianwen reference individual codecs
+  (the facade owns the sniff table, which is real shared logic -- though note the ORIGINAL reason for
+  the facade, version skew from cherry-picking, is now handled by the single
+  `$(SharpAstroCodecsVersion)` property, so that argument is weaker than it was).
 - [ ] **CMYK / Separated TIFF renders as a negative.** A `Photometric = 5` TIFF with 4 samples per
   pixel (a print export, e.g. GraXpert's `..._printer.tiff`) has its C/M/Y read as R/G/B with K
   dropped, and since a high CMYK value means MORE ink the polarity inverts: white sky, dark stars,
