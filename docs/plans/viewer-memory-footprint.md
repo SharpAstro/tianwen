@@ -186,25 +186,43 @@ if it needs a float `Image` then the float planes exist anyway and M3 would save
 That single fact is the difference between a 1,114 MB win and a 2,227 MB one, and it is not visible
 from the memory table at all.
 
-### Options, in increasing order of both reward and scope
+### Options -- and the seam is NOT the CPU/GPU boundary
 
-**D1 -- Floats become transient rather than resident.** The document holds the source raster; the
-float planes are materialised at load for the stats and the star pass, then released. This is exactly
-what M2 did to the decoded raster: demote a resident representation to a transient of the one step
-that needs it.
+A first cut of this design split M3 at the CPU/GPU boundary (device-only, then CPU) and claimed the
+device half "can ship before the CPU half and the CPU half does not redo it". **That was wrong**, and
+the reason is worth keeping: to upload 8-bit you need 8-bit samples, and the document currently
+converts to float and DISCARDS them. So a device-only change would have to re-quantise floats back to
+bytes at upload time -- workable, lossless for an 8-bit source, and deleted again the moment the
+document retains its raster. A throwaway mechanism.
 
-- Steady state: **3 B/px raster + 3 B/px device = 6 B/px**, against 24 today.
-- Peak: 3 + 12 (transient floats) + 3 = **18 B/px**, against 24.
-- So it wins big on steady state and modestly on peak, which is the right shape -- the complaint this
-  plan exists to answer is "it got slow after I opened that file", which is a steady-state complaint.
+The seam that actually works is **what the document HOLDS**, in two steps:
 
-**D2 -- Make star detection depth-agnostic**, so no float materialisation happens at all. Peak and
-steady both land at 6 B/px. Bigger change: the detector is `Image`-typed, so this means either
-templating it over the sample type or giving it a span-plus-scale entry point.
+**D3' -- the document retains the source raster and uploads it directly.**
 
-**D3 -- Device-only.** Upload the source depth, keep the CPU floats. Saves the 1,114 MB device half
-with no change to what the document holds. Cheapest by far, and worth naming because it is a
-*separable* half rather than a compromise: it can ship before D1 and D1 does not redo it.
+- Costs +3 B/px to hold, saves 9 B/px of device memory: **net -6 B/px**, with no re-quantise step.
+- No `IPreviewSource` change: the existing float accessor keeps working, because the float planes are
+  still there. Only the upload path and the texture format move.
+- Shippable alone, and it is exactly the data change D1' builds on rather than something D1' undoes.
+
+**D1' -- stop keeping the float planes resident.** Demote them to a transient of the two passes that
+need them at load (stretch stats, star detection), then release. Steady state falls to
+**6 B/px** (raster + device) against 24 today; peak becomes 18 B/px.
+
+**D2 -- remove even that transient** by making star detection depth-agnostic, which takes peak to
+6 B/px as well. Gated: see the recommendation below.
+
+### Where the work lands, concretely
+
+- `VkFitsImagePipeline.UploadChannelTexture` / `CreateChannelImage` / `CreateChannelImageView` --
+  `VkFormat.R32Sfloat` is written at six sites (lines around 263, 1015, 1052, 1085, 1098 plus the
+  format probe at 908). Format becomes per-channel state derived from the document's `BitDepth`.
+- `ImageRendererBase.UploadDocumentTextures` -- picks what to upload; already per-channel.
+- `AstroImageDocument` -- holds `UnstretchedImage` (`AstroImageDocument.cs:51`). D3' adds the retained
+  raster beside it; D1' is what removes the float planes from that field.
+- `Image.BitDepth` already carries the source depth, and `BitDepthEx.CarriesDisplayDataOnly` already
+  answers "is this 8-bit" for the pre-stretch rule -- the same predicate selects `R8Unorm`.
+- `TiffChannelSink` (`Image.Import.cs`) is where an 8-bit raster could be retained during the
+  streaming decode at no extra cost, since the samples pass through it already.
 
 ### The two things that will actually bite
 
