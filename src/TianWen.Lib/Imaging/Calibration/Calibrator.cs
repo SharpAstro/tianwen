@@ -253,7 +253,8 @@ public sealed record Calibrator(
         }
         // Shares no buffer with the source dark, so Buffer stays null and release ownership
         // remains entirely with the caller's original image.
-        return new Image(scaled, dark.BitDepth, dark.MaxValue, dark.MinValue, dark.Pedestal, dark.ImageMeta);
+        return new Image(scaled, dark.BitDepth, dark.MaxValue, dark.MinValue, dark.Pedestal, dark.ImageMeta,
+            dark.SamplesAreUnitReferred);
     }
 
     private static void ValidateRegionInBounds(float[,]? channel, int rx, int ry, int rw, int rh, string name)

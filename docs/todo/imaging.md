@@ -177,6 +177,24 @@ the calibration temporal/tolerance work and shipped with it.
 
 ## Imaging
 
+- [ ] **`Image.Histogram` is the cost of a document open, and it is ~14 ns/px.** Measured with
+  `TIANWEN_DOC_OPEN_COST_PROBE=1 dotnet test --filter DocumentOpenCostProbe` (6000x4000x3, planes
+  pre-touched so page faults are not charged to the first stage): `Statistics(c)` x3 = 1,028-1,195 ms
+  and `GetStarMaskedMedianAndMADScaledToUnit(c)` x3 = 557-755 ms, against 38-114 ms for a whole star
+  detection pass. Scaled to the 13228x9354 reference document that is **~6 s + ~3.5 s**, and it is
+  the actual answer to "why is opening a big TIFF slow" -- which is a different question from "why
+  does it cost 2.2 GB" (see `docs/plans/viewer-memory-footprint.md`). A document open makes 10-12
+  full traversals of the pixels; these two account for most of the time. Candidates, none verified:
+  the bin loop uses 2-D `[y, x]` indexing rather than a flat span, does a `MathF.Round` +
+  `Math.Clamp` per pixel, and is scalar. `pixelStride` already exists for the live mini-viewer and a
+  stride on the DOCUMENT path would change stretch statistics, so it is not a free win -- measure
+  first whether flattening + vectorising the existing exact loop is enough.
+- [ ] **`FindStarsAsync(maxStars:)` caps nothing -- delete the parameter.** Its only effect is to
+  default `minStars`, so a call passing it alone reads as "cap the list" and means "rescan until you
+  find this many". The doc now says so (2026-08-21) but the name still lies. Deleting it is
+  behaviour-preserving at every site (callers that pass both just drop it; callers that pass only
+  `maxStars` rename it to `minStars`), and it is ~50 call sites incl. tests, so it wants its own
+  wave rather than riding on an unrelated branch.
 - [ ] Not sure if `SensorType` LRGB check is correct (`SensorType.cs:54`)
 - [ ] Find bounding box of non-NaN region in `Image.cs` (for stacked images with NaN borders)
 - [ ] Star detection noise robustness: `FindStarsAsync` with `snrMin: 5` picks up false positives from shot noise halos around bright stars (e.g. M42 synthetic field: 49 rendered stars → 64 detected). Consider deblending or a minimum star separation filter to reject noise peaks near bright stars.

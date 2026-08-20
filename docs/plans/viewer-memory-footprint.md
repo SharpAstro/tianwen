@@ -224,6 +224,87 @@ need them at load (stretch stats, star detection), then release. Steady state fa
 - `TiffChannelSink` (`Image.Import.cs`) is where an 8-bit raster could be retained during the
   streaming decode at no extra cost, since the samples pass through it already.
 
+### M3 prerequisite, found by measuring: `BitDepth` was carrying two facts
+
+**`BitDepth` is the SOURCE container width -- and star detection was reading it as a statement about
+sample SCALE. So every 8/16-bit document detected zero stars.** Fixed before D3' rather than
+alongside it, because D3' leans harder on the container meaning (it picks `R8Unorm` from it) and
+would have entrenched the conflation.
+
+The importer normalises integer samples to `[0, 1]` but records the container width, so a 16-bit PNG
+arrives as unit-referred samples labelled `Int16`. `Image.IsUnitScaledFloat` required
+`BitDepth.Float32`, so that image binned into **two** histogram buckets (`threshold = round(1.0 *
+0.91) + 1`), `Background` answered `bg=0 starLevel=1 noise=1.09`, and `FindStarsAsync` took its
+"abnormal file" exit. The two rescalers could not paper over it: both early-return `this` when the
+peak is already <= 1, so an image that arrives normalised never reaches the code that stamps
+`Float32`.
+
+Measured on ONE array of pixels, changing only the declared depth (`DocumentOpenCostProbe`, 6000x4000
+with 3,000 planted Gaussian stars):
+
+| declared `BitDepth` | hist threshold | detection level | stars found |
+|---|---|---|---|
+| `Float32` | 0.910 | 0.303 | **2,532** |
+| `Int16` | 2.000 | 3.191 | **0** |
+| `Int8` | 2.000 | 3.191 | **0** |
+
+End-to-end through a real file (`UnitReferredImportStarDetectionTests`, 16-bit PNG, 40 planted
+stars): **0 before, 38 after.** Nothing reported it -- the star overlay, HFD/FWHM, Boost, Calibrate
+and SPCC are all gated on a non-empty star list, so they went quiet. Same symptom the enhance path
+already has a note about in CLAUDE.md, different cause.
+
+The fix is `Image.SamplesAreUnitReferred`, set by the two importers, forwarded by the five sites that
+copy another image's `BitDepth`. The predicate is a union (`Float32 || flag`) and the peak tolerance
+still gates both, so a sample at 255 cannot be talked into unit scale by a flag. The pre-existing
+`AnIntegerImageIsNeverUnitScaledFloatHoweverSmallItsPeak` still passes: it constructs without the
+flag, which is the ADU case it was written for.
+
+### What the retry loop actually costs, and why `minStars` is not the lever
+
+The theory was that the viewer asking `maxStars: 2000` made the detector rescan the frame up to three
+times. **It does not, and the parameter caps nothing.** `maxStars` has exactly one effect: it
+supplies the default for `minStars`. And `retries` is decremented *before* the loop condition is
+re-tested, so `maxRetries: 2` yields at most **two** passes -- while the `detection_level <= 7 *
+noise` guard usually stops it at one (it fires on two of the three real fixtures).
+
+Per-pass, measured on the 3008x3008 RGGB fixture:
+
+| stage | cost |
+|---|---|
+| `Background` (histogram + iterative noise SD) | 166-175 ms |
+| detection pass 1 | 29-82 ms |
+| detection pass 2 | 57 ms |
+
+So the retry chain is the cheapest part of a detection, and the pass it precedes costs more than the
+pass itself. Lowering `minStars` to 200 on that frame saves ~40 ms and costs **63% of the star list**
+(3,014 -> 1,127). Not a trade worth taking; the call site keeps 2000 and the parameter doc now says
+plainly that it caps nothing.
+
+### The real cost of a document open is `Statistics`, not detection
+
+Same probe, 6000x4000x3 (24 MP), planes touched first so page faults are not charged to whichever
+stage runs first -- which is what made the first run of this probe read 2.2 s for `Statistics`:
+
+| stage | 24 MP | scaled to 124 MP |
+|---|---|---|
+| `Statistics(c)` x3 | 1,028-1,195 ms | ~5.3-6.2 s |
+| `GetStarMaskedMedianAndMADScaledToUnit(c)` x3 | 557-755 ms | ~2.9-3.9 s |
+| `Background` (inside `FindStars`) | 138-362 ms | ~0.7-1.9 s |
+| detection passes | 38-114 ms each | ~0.2-0.6 s each |
+| `ScanBackgroundRegion` x2 | 20-98 ms each | ~0.1-0.5 s each |
+
+**A document open therefore performs 10-12 full traversals of the pixels, and the per-channel
+histogram pair dominates.** ~340 ms per 24 MP channel is ~14 ns/px for a bin-and-increment loop,
+which is slow enough to be worth its own look (2-D `[y, x]` indexing, per-pixel `MathF.Round` +
+`Math.Clamp`, no vectorisation). Filed separately -- it is orthogonal to memory, and it is the
+answer to "why is opening a big TIFF slow", which this plan had assumed was the same question as
+"why does it cost 2.2 GB". It is not.
+
+Of those traversals exactly one -- the decode -- is fused with anything. `Background`'s histogram and
+its ~5,000-sample noise grid are both accumulative and could fold into the decode sink for free; the
+detection scan cannot, because its threshold is a global property of the whole frame and the first
+trigger comparison needs the last strip.
+
 ### The two things that will actually bite
 
 **`IPreviewSource.GetChannelData` returns `ReadOnlySpan<float>`.** That is the API decision, and it
@@ -246,11 +327,16 @@ should not cost 2.2 GB -- but it should be sized against that, not against the a
 
 ### Recommendation
 
-Ship **D3** first (device-only, self-contained, no API change, half the win), then decide D1 against
-measurements taken with D3 in place. Do not start D2 until star detection has been shown to be the
-thing holding the floats resident -- that is an assumption above, not a measurement, and the whole
-reason this section exists is that the last two attempts to reason about this file's memory were both
-wrong until something deterministic was measured.
+Ship **D3'** first (retain the raster + upload it directly: self-contained, no `IPreviewSource`
+change, net -6 B/px), then decide D1' against measurements taken with it in place. Do not start D2
+until star detection has been shown to be the thing holding the floats resident -- that is still an
+assumption above, not a measurement, and the whole reason this section exists is that the last two
+attempts to reason about this file's memory were both wrong until something deterministic was
+measured.
+
+**The `BitDepth` prerequisite above is done and is the order to keep**: it was found by instrumenting
+the open path for D3', it inverts what "slow open" meant, and shipping D3' on top of the conflation
+would have made a correctness bug harder to see rather than easier.
 
 **Verification must be allocation- and device-memory-based, never working set.** Established the hard
 way in M2: run-to-run variance on this document exceeds 1,200 MB, which is larger than anything M3
