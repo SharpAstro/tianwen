@@ -465,3 +465,65 @@ each where one existed):
 - [`multi-source-previewer.md`](multi-source-previewer.md) - SER playback + `IPreviewSource`; the
   live stack displays through it, and `LiveStackPreviewSource` is the push-stream its follow-up
   note anticipated.
+
+## Live-capture drivers and the recenter loop (shipped)
+
+Moved out of `CLAUDE.md` on 2026-08-20, which had accumulated the whole Phase C/E story inline.
+The Canon detail in particular is a list of things that fail SILENTLY, so it is kept verbatim.
+
+- **Concrete `IVideoCameraDriver` implementers.** `FakeCameraDriver` (synthetic drifting disk, full ROI-jog).
+  `CanonCameraDriver` (**Phase E core, shipped**): FC.SDK Live View (EVF) streaming, each EVF JPEG frame
+  decodes straight from the SDK `byte[]` via `Image.TryDecodeRaster` (the in-memory core of
+  `TryReadViaCodecs`, no temp-file round-trip) into a **3-channel [0,1] RGB `Image`** (EVF is camera-processed,
+  not raw CFA), single-stream gated + mutually exclusive with the single-shot CR2 path, ISO live-tunable via
+  `ApplyVideoControlsAsync`. **The 5x/10x EVF-zoom planetary regime and its pannable crop are SHIPPED** on
+  FC.SDK `3.0.751`: `NumX` snaps to a zoom level (`ZoomForWindow`), `VideoRoi` reports the body's own crop, and
+  `CanJogRoi` / `JogRoiAsync` pan it via `SetEvfZoomPositionAsync`. `CanJogRoi` is true **exactly while the crop
+  is magnified and the body advertises the pan operation**, so at 1x the recenter loop falls back to mount jog,
+  which is correct rather than a limitation: at 1x the crop is the whole frame and the accepted pan range
+  collapses to a point. Five things this path must keep right, every one of which fails silently:
+  (1) the zoom factor is a **threshold, not a value** (1-4 give 1x, 5-8 give 5x, 10+ give 10x), so the level
+  thresholds sit *between* the nominal factors, or feeding back the body's own 1104 px crop of a 5472 px sensor
+  answers `Fit` and the stream drops out of magnification on its first resize check; (2) `Evf_AFMode = LiveFace`
+  silently blocks magnification while ACKing the zoom, so `Live` is written first, but **only when actually
+  magnifying**, since it is a setting the user sees in the body's own menus; (3) `Factor` is **4.96** for a
+  nominal 5x, so pixel scale comes from the rect, never the level asked for; (4) a zoom takes ~1 s during which
+  the body streams PRE-zoom frames, so level changes use `verify: true` while the per-frame **pan** uses
+  `verify: false` (a second of polling on the capture loop is the thing to avoid) and updates the cached window
+  from the clamped request; (5) a pan coordinate past `[0, sensor - crop]` is **discarded**, not clamped, by the
+  body, so the far corner is computed host-side. **`VideoRoi` is sensor px and deliberately NOT the yielded
+  frame size** (the EVF renders a 1104x736 crop as ~1024x680, so one frame px is ~1.08 sensor px at 5x): the
+  recenter loop under-corrects by that ratio, which a damped loop absorbs as lower gain, whereas frame px would
+  break the `sensorWidth - roi.Width` pan-range arithmetic it cannot get wrong. Pinned by `CanonEvfZoomTests`.
+  **The old blocker note was wrong twice, in two different ways, and both are the lesson.** It was first dated
+  on a version ("pending FC.SDK 1.5") and 1.5, 1.6 and 1.7 all shipped without it. It was then restated as
+  pending "a point/rect property accessor", which could never arrive: over PTP there is **no**
+  `Evf_ZoomPosition` or `Evf_ZoomRect` property at all. Those are EDSDK's model of the feature; the camera takes
+  zoom and pan as *operations* (0x9158 / 0x9159) and reports the crop in a live-view frame record. **So do not
+  date a blocker on a release, and state it in terms of the protocol rather than of a wrapper's shape**, or the
+  note describes something that cannot happen. `DALCameraDriver` (ZWO/QHY native raw video) is Phase D, not yet
+  implemented.
+- **COM recenter loop** (Phase C, hold the planet centred): `PlanetaryRecenterController.Decide` (pure, in
+  `TianWen.Lib/Imaging/Planetary/`) takes the disk centre of mass + the readout-window geometry and returns a
+  `RecenterDecision`, a **per-axis-deadband** (not distance, a big offset on one axis must not drag the other
+  centred axis) damped ROI jog toward the disk on each axis with pan range, plus a coarse mount nudge (sized
+  `offset × pixelScaleArcsec`, capped) on any axis that is edge-blocked (window at the sensor edge / no pan
+  range / camera can't `JogRoi`). `PlanetaryCaptureController.MaybeRecenterAsync` runs it on the capture loop
+  per frame (`BoundingBox`+`CenterOfMass` on the live frame) and actuates: a staged `JogRoi` (drained the same
+  iteration) and/or a **single-flight, fired-non-blocking** mount pulse. The new `IVideoCameraDriver.VideoRoi`
+  exposes the live window so the loop knows its remaining pan range. **One mount actuator**:
+  `MountActions.PulseGuideArcsecAsync` (arcsec → guide-rate-sized capped `PulseGuideAsync`) serves both the auto
+  loop and the manual `JogMountSignal` (RECENTER panel N/S/E/W buttons, focuser-jog routing model). Auto-recenter
+  defaults ON (ROI-only, zero mount disturbance; a no-disk frame → centred COM → no jog); mount jog is opt-in OFF.
+  The mount **sign is uncalibrated** (`FlipRa`/`FlipDec` + the per-axis cap bound a wrong guess; a guider-style
+  calibration is the deferred refinement). `ConfigureRecenter`/`AttachMount` stage config + the mount on Start.
+- **Live viewer integration** (`LiveStackPreviewSource : IPreviewSource`, in `.UI.Abstractions`): a RAW/STACK
+  toggle (transport-bar button + `K`) and Registax-style 6-layer wavelet sliders (under the WB sliders) in
+  `tianwen-fits` and the GUI viewer tab (shared `ViewerState`). **Follow-the-playhead**: the raw
+  `SerPreviewSource` stays the playback driver; the live stack shows the window ending at the current frame.
+  All stacking/sharpening is **off the render thread** with **sharpen-priority** (a wavelet-slider change
+  re-sharpens the cached master immediately, ~30 ms, and defers the slower re-stack) and **per-request
+  cancellation** (a per-work CTS lets a slider preempt an in-flight stack; `StackToAsync` invalidates the
+  window on cancel so the next call rebuilds cleanly). `_rawMaster`/`_doc` are render-thread-only (the
+  background task hands results back through its `Task<T>`; the project's lock-free hand-off).
+

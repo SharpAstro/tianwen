@@ -70,3 +70,74 @@ brightness are functions of time, computed locally from cached orbital elements.
   races nothing the render thread also computes). The vmag sparkline (`GetCometMagnitudeCurveCached`) stays
   synchronous by design -- comet-only, 32 samples ~0.7 ms, never a render-thread jank source. Inspector-
   validated: a bucket-crossing day-scrub of a selected planet holds frame time flat.
+
+## Shipped operational invariants
+
+Moved out of `CLAUDE.md` on 2026-08-20, which had accumulated the whole operational story inline.
+These are the facts that cost real debugging; the sections above are the design.
+
+### A failed per-object Horizons fetch MUST be remembered (`ApparitionRetryCooldown`)
+
+`RequestCurrentApparition` is called **per drawn marker per frame**, and its single-flight key is
+released in the `finally` while only SUCCESS writes an entry. So before the cooldown existed nothing
+recorded that the last attempt had failed, and an endpoint that can never answer was retried at
+whatever rate the request settled at. Measured on the deployed web build: **45 requests and 50 s of
+cumulative request time in one four-minute session, all for comet 5D.** An offline desktop and a JPL
+outage take the same path. The comment in `SkyMapTab` that calling it per drawn marker per frame is
+free is true only once a fetch *can* succeed.
+
+### JPL sends no CORS headers from EITHER comet host, so the browser bakes BOTH
+
+SBDB (the bulk fetch) was baked long ago. **Horizons -- the per-object apparition refinement -- is a
+different host reached from a different class**, and was missed; that omission *was* the retry storm
+above. `tools/bake-comets` writes `comets-sbdb.json` (the verbatim query response) **and**
+`comets-apparitions.json` (the overlay, resolved on the runner) into `wwwroot`, and
+`AddAstrometry(cometQueryUri:, apparitionSeedUri:)` takes both as plain same-origin URLs.
+
+**Nothing detects the host.** A dev server 404s both and degrades along the identical path, which is
+the point: a host check would make dev diverge from production at exactly the place the bug lived.
+
+- **`ApparitionCacheFile.NoRemoteRefresh` is a POLICY ("do not ask"), not a completeness claim.** As a
+  completeness claim it would need a hash guard tying it to the bulk snapshot (the
+  `SimbadMergeSnapshot` pattern), and a missing comet would then be a correctness bug. As policy, an
+  unbaked comet simply keeps its bulk record and stays flagged approximate. That is what lets the bake
+  be partial, which it must be: **518 of 4,071 comets are stale enough to warrant an upgrade.**
+- **The bake is incremental and seeds from the LIVE SITE**, so the published assets are their own CI
+  state, with no `actions/cache` to be evicted between infrequent deploys. Per-comet TTL is tiered on
+  peak-ish magnitude `M1 + K1*log10(q)` -- the planner's own gate, not a new threshold: daily <=12,
+  weekly <=15, monthly <=18, once beyond. About 30 requests per deploying day. **The tiers are a
+  relevance budget, not physics**: osculating elements decay with time, not with brightness.
+
+### Comets are NOT in `ICelestialObjectDB`
+
+The DB is immutable after init, so every consumer augments at its own layer from `ICometRepository`:
+the sky-map F3 search merges comet keys into its index (`SkyMapSearchActions.BuildSearchIndex` +
+`SkyMapSearchState.CometEntries`), the planner sweeps the repository directly
+(`ObservationScheduler.TonightsBest`), and the planner-tab search threads the repo into
+`PlannerActions.SearchTargets` / `CommitSuggestion`. Never try to inject comets into the DB.
+
+### The path and sparkline caches must hit regardless of sample count
+
+They key on `(index, time-BUCKET)` -- Moon 6 h, comet 1 d, planet 10 d ticks -- and an
+all-failed-to-solve **empty** result must still cache, or it re-samples ~49 ephemerides every frame.
+The planet path costs ~10 ms to rebuild (49 x VSOP series, per `EphemerisBenchmarks`), so the coarse
+bucket is what keeps a day-scrub from rebuilding it per frame. The solve runs OFF the render thread:
+`GetSelectedPathCached` dispatches a background `Task<SelectedPath>` and draws the last adopted
+snapshot until it lands (VSOP87a and CometEphemeris are pure, stackalloc over static-readonly tables,
+so it races nothing). The vmag sparkline stays synchronous: comet-only, ~0.7 ms.
+
+### Consuming surfaces (all shipped, inspector-validated)
+
+- **Sky map** (`SkyMapState` / `SkyMapTab`): dynamic markers (coma dot + ring + anti-solar tail +
+  label, zoom-aware mag limit), `com[e]t` (E key) toggle, click to an info panel with live alt-az /
+  rise-set plus a vmag sparkline, F3 search by designation or common name, and a selection path
+  (body-appropriate window: Moon 5 d, comet 45 d, planet 120 d) annotated with orbital events via
+  `SkyPathEventDetector` (station R/D, greatest elongation GE, opposition Opp, perihelion q).
+- **Planner** (`ObservationScheduler.TonightsBest`, gated on an `ICometRepository?`): comets sweep in
+  after the DB and circumpolar sweeps, behind a cheap static candidacy gate (peak-ish
+  `M1 + K1*log10(q)`), resolved at astro-midnight and scored through
+  `ScoreTarget(ObjectType.Comet, ...)` with a vmag-driven bonus
+  (`(CometPlannerMagnitudeFloor 15 - m) * CometBonusScale 30`, so a naked-eye comet lands near 300).
+- **MCP** (`tianwen-mcp catalog.lookup`): a comet designation resolves to a live ephemeris plus, given
+  lat/lon, tonight's dark window and a ~6-month best-night outlook, via the pure `CometObservability`.
+

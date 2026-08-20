@@ -908,3 +908,103 @@ the server as a whole, not to this feature.
   (`AddAlpaca()` already existed) and getting ImageBytes for free. "Devices only, no
   session/planner/state" was accurate and turned out not to be a drawback: native v1 remains the
   session plane, and the two planes do not overlap.
+
+## The Home tab: design decisions and the traps it hit (moved out of CLAUDE.md, 2026-08-20)
+
+The multi-rig dashboard's own reasoning, kept verbatim. Several entries are DIR.Lib layout-engine
+traps that were discovered here and fail silently; the one-line versions live in CLAUDE.md's
+Layout DSL section, and the measured detail is here.
+
+- **`HomeBoard.BuildCards` is the pure projection; `HomeTab<TSurface>` only draws.** The tab renders the
+  `ImmutableArray<RigCard>` snapshot published on `GuiAppState.HomeCards` and never touches
+  `RemoteRigRegistry` or a `LiveSessionState` -- same shape as `EquipmentTabState.BoundRigs`, and it also
+  makes it impossible to paint a card from a session being mutated underneath the frame.
+- **Read-only with respect to hardware.** A card click changes which rig you *look at*, via the same
+  `SelectRemoteRigSignal` / `SelectLocalContextSignal` the profile picker posts. Nothing on this screen
+  connects a driver, commands anything, or takes a lease.
+- **Zero device I/O**, and structurally so: cards are built in the pre-gate part of `PollPreviewTelemetry`
+  and the board is **not** added to that method's `ActiveTab` gate (which exists to guard polling
+  already-connected *drivers*). Previews stay **off** -- N mirrors each pulling JPEGs is the failure mode
+  `RemoteSessionMirror.Previews` was made opt-in for.
+- **The rig section is content-sized** (a `Grid(columns).WithAutoRows()` plus a trailing `Spacer`), never
+  Star-filled, because multi-night progress is the intended neighbour on that screen and a Star-sized
+  section would have to be reworked to admit it. A grid rather than a `WrapH` flow because fixed-width
+  cards in a flow leave ragged right-edge space and do not line up as a board.
+- **A card is as tall as the rows it built, and every card shares the tallest one's box.** Rows past the
+  first three are all conditional, so `CardHeight` is a **floor**, not the height -- it used to be exact
+  and had to be raised by hand whenever a row was added, which silently clipped the last row when it was
+  not. One shared height (computed in `Body`, not per card) is what keeps it a board: per-card heights
+  read as ragged rows, and an idle rig's card would resize the moment its rig started a run.
+- **The flip countdown is an instant, resolved at render time.** `ISessionTelemetry.MeridianFlipUtc` →
+  `SessionStateDto.MeridianFlipUtc` → `RigCard.TimeToMeridianFlip(now)`, which is why `HomeBoardLayout`
+  takes a `now`. Same rule as the prompt's `RaisedUtc`, for the same reason: a stored duration is only
+  true when it was computed, so on a rig polled every 30 s it steps in 30 s jumps and reads as broken.
+  The session computes it (`MeridianFlipDecision.TimeUntilFlip`, stamped from the same HA read the flip
+  decision uses) because the answer needs the flip config and the destination pier side.
+- **Cooling reports the camera furthest from setpoint, and "settled" is gated on the session's phase.**
+  A rig is ready when its *last* camera is. The ramp's real completion test is cooler power plus a
+  consecutive-sample count (`CameraCoolingState`) and is **not** on the wire, so the 1 °C figure in
+  `RigCardCooling.SetpointToleranceC` is a display threshold and `Phase is Cooling` overrides it --
+  reporting "finished" early is the one thing this row must not do.
+- **Progress is per target, and `PlannedFrameCount` is why it has one path.** `target 2/3 · frame 23/100`
+  needs a denominator, so `ObservationDto.PlannedFrameCount` crosses the wire and
+  `RemoteSessionMirror.ToScheduled` rebuilds the plan carrying that total -- so
+  `ScheduledObservation.PlannedFrameCount` answers identically for a local session and a mirror instead of
+  the card branching on which it is. Frames-done counts **backwards** from the exposure-log tail (the run
+  images one target at a time, so they are the tail) because this runs per card per frame.
+- **Two shapes, selected in the header** (`HomeBoardView`: `Auto` / `Cards` / `Table`, posted as
+  `SetHomeBoardViewSignal`). Auto is the default and the only value that reacts to the window: it swaps the
+  cards for a one-row-per-rig table when the grid would not fit, and the header **says why** ("window too
+  small for cards") -- a shape that changes with no explanation reads as a glitch, whereas a named one is
+  the nudge to enlarge. An explicit Cards is never second-guessed. The rejected alternative was a stack of
+  overlapping cards: it hides rigs behind other rigs, and the prompt badge is the one thing that must never
+  be hidden (two rigs can be waiting, so only one could be at the front). Both shapes are `Layout.Node`
+  projections over the same `RigCard` data in `HomeBoardLayout`, so the shared tree costs nothing here --
+  it is a description language, not a fixed shape, and both surfaces get the table for free.
+- **The header's two controls are icon segments plus a four-state theme cycler**, and both are shared-tree
+  nodes rather than per-surface chrome. The shape selector is three `Layout.Content.Icon` leaves
+  (DIR.Lib 7.18): the pixel painter builds each from rectangles and `CellLayout` picks a block-element
+  glyph, which is why an icon names its MEANING (`Grid` / `List` / `Auto`) and not its drawing -- a `Text`
+  run carrying a symbol character would be .notdef on a pixel surface missing that face, and rectangles do
+  not exist on a cell one. **Auto keeps a visible segment**: it is the default state, so lighting nothing
+  would leave the board's commonest configuration unlabelled, and the camera-convention bracketed `A` is
+  what makes it sayable at icon size. The theme cycler beside it advances System -> Light -> Dark -> Night
+  (`CycleUiThemeSignal` -> `GuiTheme.CycleTheme`) and shows a MARK PLUS THE WORD, selected by
+  `ThemeControlStyle` (a code-level choice, not a user setting). Icon-only is a real option and the wrong
+  default: three marks cover four states because Night IS a dark scheme and takes the same crescent as Dark,
+  and inside Night the whole UI is red, so the colour that would separate them says nothing -- on the one
+  control whose job is telling an observer at the mount which scheme they are in. Cycling into Night records
+  where it came from, so a later F12 restores that rather than a stale toggle memory.
+- **`.RowH(h)` sets `Width = Star` and silently eats a `.WFixed(w)` before it.** It means "a full-width row
+  of fixed height", which is right for a card and wrong for a button. The view segments were built that way
+  from the start, so `ViewButtonWidth` was inert for their whole life and three buttons sprawled across the
+  bar; use `.WFixed(w).HFixed(h)` for anything that is genuinely fixed on both axes. Neither a build nor a
+  screenshot review catches this -- only an arranged rect does, which is what
+  `HomeTabLayoutTests.TheSegmentsKeepTheirFixedWidthInsteadOfSharingTheHeader` asserts.
+- **A `Stack` places children at the cross-axis START, so centring a row's controls needs
+  `.CrossCenter()`** (`Layout.CrossAlign`, DIR.Lib 7.21). Without it a `HFixed` control in a taller bar hugs
+  the top and its centre sits half the slack high -- which the header did, visibly, and which reads as a
+  styling bug rather than a layout one. Do **not** re-solve it by padding the container or wrapping each
+  child in a spacer sandwich: both worked, and both re-derive at the call site a position the engine already
+  knows, the padding version also insetting the row's label horizontally as a side effect. The Home header
+  is the reference consumer, pinned by `EveryHeaderControlSharesOneTopAndBottom_CentredInTheBar`.
+- **An icon draws at the size it DECLARES and every kind inks that full square** (DIR.Lib 7.20 + 7.21).
+  Before 7.20 `Content.Icon.Size` was a measure-time hint only, so a 13-unit mark in a 20-unit cell painted
+  at 20 and stood a third taller than the label beside it; before 7.21 the kinds inked between 63% and 100%
+  of their declared size, so a row of different marks was ragged whatever the alignment. Both were measured
+  from rendered ink rather than eyeballed, which is the only way to see either. Consequence for a consumer:
+  **size a mark to the text it sits beside** (about 13 units against a 13 px label's ~10 units of cap
+  height), and size it independently where it stands alone in a button.
+- **`Build` takes the viewport, not a resolved column count.** Columns, card detail and cards-vs-table are
+  all decided inside it; both hosts previously ran the same `ColumnsFor` -> `ColumnWidth` -> `DetailFor`
+  arithmetic, and every new input had to be threaded through both again.
+- **`ColumnsFor` clamps to the rig count.** Without it a 200-column terminal resolves to six columns for
+  four rigs: two empty, and the four real cards squeezed under `FullDetailCardWidth` -- so the cards got
+  *narrower the wider the window was*.
+- **Two layout-engine traps this surface hit, both silent.** A `Node`'s default `Width` is `Sizing.Auto`,
+  so a container whose children are all Star measures to a near-zero intrinsic width and arranges to
+  nothing -- the table needs an explicit `.WStar()`. And `.CollapseBelow(u)` must **not** be paired with a
+  Star *minimum* on the same node: a min-clamped Star holds its floor and overflows, so the threshold is
+  never reached. The engine also prunes every under-threshold child in ONE pass rather than shedding the
+  least important first, so a column that must survive takes **no** threshold rather than a small one.
+
