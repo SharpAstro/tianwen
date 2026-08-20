@@ -60,7 +60,12 @@ internal static class N2nLinearRunner
     /// below it walk back toward the untouched input.</param>
     /// <param name="overlap">Inter-chunk overlap; must be at least
     /// <c>2 * <see cref="AiNafnetInputs.StitchBorderPx"/></c> for the retained inner regions to
-    /// abut without leaving a gap.</param>
+    /// abut without leaving a gap. What is left over above that minimum,
+    /// <c>overlap - 2 * border</c>, is the band the retained regions SHARE, and it is passed to
+    /// <see cref="ChunkedInference.Stitch"/> as the feather width -- so at exactly the minimum the
+    /// regions merely touch, there is nothing to blend across, and
+    /// <see cref="RestoreLevel"/>'s per-chunk offsets step at the join. The default 64 against a
+    /// 16 px border leaves 32 px to ramp over.</param>
     public static N2nRunResult Run(
         Image input,
         InferenceSession session,
@@ -203,7 +208,8 @@ internal static class N2nLinearRunner
         for (var c = 0; c < channels; c++)
         {
             var stitched = new float[paddedW * paddedH];
-            ChunkedInference.Stitch(outChunksByChannel[c], stitched, paddedW, paddedH, border);
+            ChunkedInference.Stitch(outChunksByChannel[c], stitched, paddedW, paddedH, border,
+                featherPx: overlap - 2 * border);
             var unpadded = ChunkedInference.RemoveBorder(stitched, paddedW, paddedH, border);
 
             var plane = new float[srcH, srcW];
@@ -250,9 +256,17 @@ internal static class N2nLinearRunner
     /// <para><b>Per chunk rather than per image, because that is where the shift is produced.</b>
     /// The prior acts on each tile's own local level, so a single global offset would correct the
     /// average and leave the variation between tiles as a low-frequency stain. Correcting locally
-    /// removes it where it is made, and the chunk overlap is averaged by
-    /// <see cref="ChunkedInference.Stitch"/>, so neighbouring corrections blend rather than
-    /// stepping at a seam.</para>
+    /// removes it where it is made.</para>
+    ///
+    /// <para><b>It is therefore this method that makes the stitch feather load-bearing, and the
+    /// two must be read together.</b> Neighbouring chunks measure different pixels, so they get
+    /// different offsets BY CONSTRUCTION -- that is the point of correcting locally, not a defect.
+    /// An unweighted overlap average does not smooth that difference out: it renders a difference
+    /// of D as two hard edges of D/2 at the shared band's boundaries, which measured 1.0x the
+    /// background sigma (111x the local column-to-column variation) on a real master and read as a
+    /// grid at the chunk stride. <see cref="ChunkedInference.Stitch"/> is passed a feather width
+    /// for exactly this reason. Widening the correction's scope is NOT the alternative fix: a
+    /// global offset reintroduces the stain this is here to remove.</para>
     ///
     /// <para>The median, not the mean: on an astro frame it is dominated by background rather than
     /// by however many stars the tile happens to hold, so a bright chunk and an empty one are
