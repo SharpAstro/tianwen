@@ -11,17 +11,24 @@ Everything below was reproduced on
 
 **Eight of ten are fixed** (P1-P8). What remains is P9 and P10, both recorded UNCONFIRMED: each was
 seen once in a screenshot, and neither is worth chasing without a reproduction. P1, P2 and P5 are in
-`Codecs` and need a NuGet release to reach CI; the rest are in this repo.
+`Codecs` and reach CI through **SharpAstro codecs 3.10.721** (released 2026-08-20; `src/Directory.Packages.props`
+floats `3.10.*`); the rest are in this repo.
+
+**A local build proves nothing about these three.** `UseLocalSiblings` self-enables when the `../Codecs`
+clone is present, so an ordinary build compiles the sibling source and never touches the pin -- which is
+exactly the state the fixes were developed in. Verified on the package path instead:
+`dotnet build TianWen.slnx -c Release -p:UseLocalSiblings=false` restores 3.10.721 and builds clean, and
+the 35 TIFF / import / codec tests pass against it.
 
 ## Status
 
 | # | Item | State |
 |---|------|-------|
-| P1 | TIFF Predictor 2 never inverted -> images decode to their own derivative | **FIXED**, awaiting NuGet release |
+| P1 | TIFF Predictor 2 never inverted -> images decode to their own derivative | **FIXED**, shipped in codecs 3.9.711 |
 | P2 | TIFF reader allocated per strip (2k-5.5k strips per file) | **FIXED** with P1 |
 | P3 | Plate solve of a non-FITS document fails, and aborts the solver chain | **FIXED** |
 | P4 | CMYK TIFF renders as a negative | **FIXED** (was briefly backlogged) |
-| P5 | LZW TIFF unsupported | **FIXED**, awaiting NuGet release |
+| P5 | LZW TIFF unsupported | **FIXED**, shipped in codecs 3.10.721 |
 | P6 | Un-clicking Calibrate does not restore the previous / slider WB | **FIXED** |
 | P7 | File list is imperative: no declared regions, no cursor, no tooltip | **FIXED** |
 | P8 | A solver exception puts raw binary in the status bar | **FIXED** |
