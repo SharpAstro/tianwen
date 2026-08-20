@@ -40,18 +40,54 @@ SmartScreen's "run anyway". So MSIX is better than a plain tarball *with* the St
 worse without: today's unsigned `.tar.gz` runs for anyone willing to click past a warning, and an
 unsigned `.msix` on the same release page installs for nobody.
 
-The consequence for this directory is that `build-msix.ps1` deliberately produces an **unsigned**
-package. It is an upload artifact, not something a user can install.
+The consequence for this directory is that `build-msix.ps1` **pack** and **bundle** modes produce an
+**unsigned** package. That is an upload artifact, not something a user can install -- which is why the
+script also has a `-SignPackage` mode, purely so a build can be tested on the machine that made it.
 
 ## Testing it locally
 
-Needs Developer Mode (Settings, System, For developers), because there is no signature:
+**`-AllowUnsigned` cannot work here, and Developer Mode does not change that.** The flag is not
+"install without checking a signature"; it admits packages whose *publisher* sits in the unsigned
+namespace, meaning a `Publisher` string carrying the marker
+`OID.2.25.311729368913984317654407730594956997722=1`. Our publisher is the one Partner Center
+assigned, so by definition it is not in that namespace and deployment refuses it:
+
+```
+Add-AppxPackage: Deployment failed with HRESULT: 0x80073D2C, The package deployment failed
+because its publisher is not in the unsigned namespace.
+```
+
+That is a deliberate rule rather than an obstacle: identity is what grants a package its storage, its
+file associations and its capabilities, so Windows will not hand an arbitrary identity to a package
+that cannot prove it owns one. The two requirements are mutually exclusive, and no combination of
+flags or Developer Mode reconciles them.
+
+Sign it locally instead, with a throwaway certificate whose subject matches the publisher:
 
 ```powershell
-Add-AppxPackage -AllowUnsigned artifacts/AstroPhotoViewer-arm64.msix
+./build-msix.ps1 -SignPackage artifacts/AstroPhotoViewer.msixbundle
+```
+
+That mints (or reuses) a self-signed code-signing certificate in `Cert:\CurrentUser\My`, signs the
+package straight from the store so no `.pfx` or password ever lands on disk, exports the public half
+beside it, and prints the two commands to finish with. Only the first needs elevation, and only once
+per certificate:
+
+```powershell
+Import-Certificate -FilePath AstroPhotoViewer.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+Add-AppxPackage AstroPhotoViewer.msixbundle
 # and to remove it again
 Get-AppxPackage SharpAstro.AstroPhotoViewer | Remove-AppxPackage
 ```
+
+`Cert:\CurrentUser\TrustedPeople` is not a way around the elevated step -- app deployment does not
+consult the per-user store. Until the import is done, `signtool verify /pa` reports "terminated in a
+root certificate which is not trusted", which is the signature being *valid* and merely untrusted; it
+is not a signing failure and needs no re-sign.
+
+**Signing edits the package in place, so never submit the file you tested with.** The signature is
+about 7 KB of difference between an artifact Partner Center will re-sign and one it may reject. Keep
+the CI download for upload and sign a copy, or re-download after testing.
 
 Then check the Start menu entry reads "Astro Photo Viewer", and that right-click, Open with offers it
 for `.fits` and `.ser` **without** having changed which app currently owns those extensions.
