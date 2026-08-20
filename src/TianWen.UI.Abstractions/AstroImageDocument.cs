@@ -236,7 +236,7 @@ public sealed class AstroImageDocument : IPreviewSource
             perChannelBg,
             lumaBg,
             wcs,
-            isPreStretched: false);
+            DetectPreStretched(viewImage, perChannelStats));
     }
 
     /// <summary>
@@ -319,6 +319,34 @@ public sealed class AstroImageDocument : IPreviewSource
 
         return new AstroImageDocument(filePath, image, DebayerAlgorithm.None, perChannelStats, lumaStats, perChannelBg, lumaBg, wcs, isPreStretched);
     }
+
+    /// <summary>
+    /// Whether the pixels have already been through a transfer function, decided from the
+    /// WHOLE-IMAGE median this method is handed rather than from a sample.
+    ///
+    /// <para>Every FITS reaches the viewer through <see cref="AdoptImageAsync"/>, which passed a
+    /// hardcoded <c>false</c> here -- so for the entire FITS path this was never detected at all, and
+    /// only TIFF/PNG/raw (which run <see cref="Image.DetectPreStretched"/> in OpenImageFileAsync)
+    /// ever got it right. A scanned photographic plate, or any already-stretched FITS, therefore
+    /// opened with the screen stretch applied ON TOP of a stretch and rendered nearly black.</para>
+    ///
+    /// <para>The threshold matches <see cref="Image.DetectPreStretched"/> deliberately -- a linear
+    /// frame sits near its black point, so a median above 0.2 is not something a linear sub does --
+    /// but the INPUT is better. That method medians 1024 contiguous samples from the middle of the
+    /// buffer, i.e. one strip across the frame centre, which a bright object dead centre can drag
+    /// over the threshold on a perfectly linear image. The median here is the real one, already
+    /// computed for the stretch and free to reuse.</para>
+    ///
+    /// <para>Channel 0 alone, and only for a Bayer mosaic would that be a mosaic channel -- where it
+    /// is still the right answer, since a CFA plane has the same distribution as the frame.</para>
+    /// </summary>
+    private static bool DetectPreStretched(Image image, ChannelStretchStats[] perChannelStats)
+        // Bit depth first, for the reason given on CarriesDisplayDataOnly: it is a fact about the
+        // container, where the median is an inference from content. Same predicate the TIFF/PNG path
+        // consults through Image.DetectPreStretched, so the two cannot answer differently for the
+        // same file.
+        => image.BitDepth.CarriesDisplayDataOnly
+            || (perChannelStats.Length > 0 && perChannelStats[0].Median > 0.2f);
 
     private static async Task<(ChannelStretchStats[] PerChannelStats, ChannelStretchStats? LumaStats, float[] PerChannelBg, float LumaBg)> ComputeStretchStatsAsync(
         Image processedRawImage, CancellationToken cancellationToken)

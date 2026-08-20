@@ -46,6 +46,19 @@ public static class BitDepthEx
             _ => null
         };
 
+        /// <summary>Whether a frame at this depth can only be DISPLAY data, never linear measurement.
+        /// True for <see cref="BitDepth.Int8"/> alone: 255 levels cannot hold an astronomical dynamic
+        /// range, so anything stored at 8 bits has already been through a transfer function -- a JPEG,
+        /// a PNG screenshot, an 8-bit TIFF export. That makes it the one bit-depth that answers "is
+        /// this already stretched" on its own, without looking at a single pixel.
+        ///
+        /// <para>It is a statement about FILES, and there is a real counterexample: a planetary camera
+        /// can stream genuinely linear 8-bit video. Those arrive through the SER and live-camera
+        /// sources, which do not open documents and default to a linear view anyway, so the two do not
+        /// meet. If an 8-bit linear FITS ever does turn up, this is the line that mis-judges it, and
+        /// the stretch toggle is one click.</para></summary>
+        public bool CarriesDisplayDataOnly => bitDepth is BitDepth.Int8;
+
         public int BitSize => Math.Abs((int)bitDepth);
     }
 

@@ -555,6 +555,16 @@ public partial class Image
     /// </summary>
     public static bool DetectPreStretched(Image image)
     {
+        // 8 bits settles it without measuring anything: 255 levels cannot hold an astronomical
+        // dynamic range, so the data has already been through a transfer function. Checked FIRST
+        // because it is the reliable half of this question -- the median test below is a heuristic
+        // over pixel statistics and has a known blind spot (a planetary frame is mostly empty sky
+        // whether stretched or not, so its median reads low either way).
+        if (image.BitDepth.CarriesDisplayDataOnly)
+        {
+            return true;
+        }
+
         var span = image.GetChannelSpan(0);
 
         const int sampleCount = 1024;
