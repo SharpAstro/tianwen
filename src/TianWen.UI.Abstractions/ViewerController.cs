@@ -346,7 +346,7 @@ public sealed class ViewerController(
                 appToken,
                 logger,
                 "Open file dialog",
-                onError: ex => state.StatusMessage = $"Open failed: {ex.Message}",
+                onError: ex => state.StatusMessage = $"Open failed: {StatusText.FromException(ex)}",
                 onFinally: () => state.NeedsRedraw = true);
                 break;
 
@@ -376,7 +376,7 @@ public sealed class ViewerController(
                         appToken,
                         logger,
                         "Plate solve",
-                        onError: ex => state.StatusMessage = $"Plate solve error: {ex.Message}",
+                        onError: ex => state.StatusMessage = $"Plate solve error: {StatusText.FromException(ex)}",
                         onFinally: () =>
                         {
                             state.IsPlateSolving = false;

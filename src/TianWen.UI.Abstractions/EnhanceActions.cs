@@ -66,7 +66,7 @@ public static class EnhanceActions
         }
         catch (Exception ex)
         {
-            state.StatusMessage = $"Enhance failed: {ex.Message}";
+            state.StatusMessage = $"Enhance failed: {StatusText.FromException(ex)}";
             return null;
         }
 

@@ -85,7 +85,12 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers, ILog
                     logger.LogDebug("Solver {SolverName} returned no solution", solver.Name);
                 }
             }
-            catch (PlateSolverException ex)
+            // Catch anything a solver can throw, not just PlateSolverException. The point of this loop
+            // is fallback, and it only delivers that if ONE solver's failure cannot end it: an
+            // IOException out of a FITS parse used to escape here and abort the chain, so a later
+            // solver that could have handled the file was never asked. A cancellation is different --
+            // it is the caller's decision, not a solver's failure -- so it still propagates.
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 attempts.Add($"{solver.Name}: {Summarise(ex.Message)}");
                 logger.LogDebug(ex, "Solver {SolverName} failed", solver.Name);
@@ -124,7 +129,12 @@ internal sealed class PlateSolverFactory(IEnumerable<IPlateSolver> solvers, ILog
                     logger.LogDebug("Solver {SolverName} returned no solution", solver.Name);
                 }
             }
-            catch (PlateSolverException ex)
+            // Catch anything a solver can throw, not just PlateSolverException. The point of this loop
+            // is fallback, and it only delivers that if ONE solver's failure cannot end it: an
+            // IOException out of a FITS parse used to escape here and abort the chain, so a later
+            // solver that could have handled the file was never asked. A cancellation is different --
+            // it is the caller's decision, not a solver's failure -- so it still propagates.
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 attempts.Add($"{solver.Name}: {Summarise(ex.Message)}");
                 logger.LogDebug(ex, "Solver {SolverName} failed", solver.Name);

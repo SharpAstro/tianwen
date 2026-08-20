@@ -141,7 +141,7 @@ namespace TianWen.UI.Abstractions
                     {
                         logger.LogError(ex, "Polar alignment routine failed");
                         liveSessionState.PolarPhase = PolarAlignmentPhase.Failed;
-                        liveSessionState.PolarStatusMessage = $"Polar alignment error: {ex.Message}";
+                        liveSessionState.PolarStatusMessage = $"Polar alignment error: {StatusText.FromException(ex)}";
                         Notify(NotificationSeverity.Error, $"Polar alignment failed: {ex.Message}");
                     }
                     finally

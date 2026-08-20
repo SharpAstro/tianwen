@@ -373,7 +373,7 @@ namespace TianWen.UI.Abstractions
             catch (Exception ex)
             {
                 logger?.LogWarning(ex, "Solve & sync: plate solve threw");
-                return new SolveSyncOutcome(SolveSyncResult.SolveFailed, $"Plate solve error: {ex.Message}", image, null);
+                return new SolveSyncOutcome(SolveSyncResult.SolveFailed, $"Plate solve error: {StatusText.FromException(ex)}", image, null);
             }
 
             if (solveResult.Solution is not { } wcs)

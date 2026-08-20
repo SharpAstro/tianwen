@@ -204,6 +204,38 @@ public static class ViewerActions
     /// <summary>
     /// Selects a file from the file list by index and sets <see cref="ViewerState.RequestedFilePath"/>.
     /// </summary>
+    /// <summary>
+    /// Turn the automatic colour calibration on or off, moving the manual white-balance triple out of
+    /// and back into the way.
+    ///
+    /// The two slots multiply (auto x manual), so an automatic answer measured from star photometry
+    /// has to take the manual slot to identity -- a hand-dragged slider or the gray-world Auto button
+    /// on top of it is a second correction of an already-corrected image. What was missing is the
+    /// other direction: nothing restored the user's triple when the calibration was switched off, so
+    /// the sliders sat at 1.00 and the adjustment was simply gone.
+    ///
+    /// Only the auto slot scales the per-channel stats, which is what holds the background neutral
+    /// under an Unlinked or linear stretch -- so the calibration is never MOVED into the manual
+    /// sliders as a friendlier-looking alternative. It is parked and put back.
+    /// </summary>
+    public static void SetColorCalibrationEnabled(ViewerState state, bool enabled)
+    {
+        if (enabled)
+        {
+            // ??= so a second calibration cannot overwrite the stash with the identity triple the
+            // first one installed. Re-calibrating must not consume the user's original.
+            state.ManualWhiteBalanceBeforeCalibration ??= state.ManualWhiteBalance;
+            state.ManualWhiteBalance = (1f, 1f, 1f);
+        }
+        else
+        {
+            state.ManualWhiteBalance = state.ManualWhiteBalanceBeforeCalibration ?? (1f, 1f, 1f);
+            state.ManualWhiteBalanceBeforeCalibration = null;
+        }
+
+        state.ColorCalibrationEnabled = enabled;
+    }
+
     public static void SelectFile(ViewerState state, int index)
     {
         if (index < 0 || index >= state.ImageFileNames.Count || state.CurrentFolder is null)
@@ -412,7 +444,7 @@ public static class ViewerActions
                 state.NeedsRedraw = true;
                 return true;
             case ToolbarAction.ColorCalibrate:
-                state.ColorCalibrationEnabled = !state.ColorCalibrationEnabled;
+                SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
                 state.NeedsRedraw = true;
                 return true;
             case ToolbarAction.BackgroundNeutralize:
@@ -420,7 +452,7 @@ public static class ViewerActions
                 state.NeedsRedraw = true;
                 return true;
             case ToolbarAction.SpccCalibrate:
-                state.ColorCalibrationEnabled = !state.ColorCalibrationEnabled;
+                SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
                 state.NeedsRedraw = true;
                 return true;
             case ToolbarAction.Shortcuts:

@@ -124,7 +124,12 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     {
         var sw = Stopwatch.StartNew();
 
-        if (!Image.TryReadFitsFile(fitsFile, out var image, out var fileWcs))
+        // Format-agnostic on purpose. This is reached from the viewer, which solves whatever
+        // document is open -- a TIFF, a RAW, a .fz -- not just a FITS. TryReadFitsFile THROWS on a
+        // non-FITS file (FITS.Lib reports the bad magic as an IOException), and that exception used
+        // to escape PlateSolverFactory's loop and take down the whole fallback chain, so ASTAP never
+        // got a turn on a file it would have converted and solved.
+        if (!Image.TryReadImageFile(fitsFile, out var image, out var fileWcs))
         {
             return Task.FromResult(new PlateSolveResult(null, sw.Elapsed));
         }
