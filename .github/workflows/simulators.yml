@@ -67,8 +67,12 @@ jobs:
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
-        cache: true
-        cache-dependency-path: src/Directory.Packages.props
+        # NuGet caching deliberately OFF here, unlike the push/PR jobs. This job only runs on
+        # workflow_dispatch, so the cache it saves is paid for on every pin change and collected
+        # almost never -- and setup-dotnet keys per OS, so these legs were the ONLY source of the
+        # Windows and macOS entries (1.4 GB per pin bump) while every push/PR job runs on Linux.
+        # A miss costs a nuget.org restore, which is free and cannot refuse; the repo cache budget
+        # is 10 GB and the lfs-* entries in it are the ones whose miss actually fails a build.
     # Building TianWen.Lib runs the PreprocessCatalogs MSBuild target as a side effect.
     - name: Build TianWen.Lib (runs PreprocessCatalogs)
       run: dotnet build TianWen.Lib/TianWen.Lib.csproj -c $BUILD_CONF
@@ -94,8 +98,12 @@ jobs:
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
-        cache: true
-        cache-dependency-path: src/Directory.Packages.props
+        # NuGet caching deliberately OFF here, unlike the push/PR jobs. This job only runs on
+        # workflow_dispatch, so the cache it saves is paid for on every pin change and collected
+        # almost never -- and setup-dotnet keys per OS, so these legs were the ONLY source of the
+        # Windows and macOS entries (1.4 GB per pin bump) while every push/PR job runs on Linux.
+        # A miss costs a nuget.org restore, which is free and cannot refuse; the repo cache budget
+        # is 10 GB and the lfs-* entries in it are the ones whose miss actually fails a build.
     # Skip PreprocessCatalogs by dropping in the prebuilt *.gs.gz and making them newer than the
     # *.lz sources (MSBuild Inputs/Outputs check). No LFS pull: the Alpaca sim tests load nothing
     # from LFS, and the embedded *.bin.gz (LFS pointer text here) is never read at runtime.
@@ -166,8 +174,12 @@ jobs:
     - uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.0.x
-        cache: true
-        cache-dependency-path: src/Directory.Packages.props
+        # NuGet caching deliberately OFF here, unlike the push/PR jobs. This job only runs on
+        # workflow_dispatch, so the cache it saves is paid for on every pin change and collected
+        # almost never -- and setup-dotnet keys per OS, so these legs were the ONLY source of the
+        # Windows and macOS entries (1.4 GB per pin bump) while every push/PR job runs on Linux.
+        # A miss costs a nuget.org restore, which is free and cannot refuse; the repo cache budget
+        # is 10 GB and the lfs-* entries in it are the ones whose miss actually fails a build.
     - name: Download preprocessed catalogs
       uses: actions/download-artifact@v8
       with:
