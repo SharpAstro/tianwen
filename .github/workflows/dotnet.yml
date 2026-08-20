@@ -679,7 +679,13 @@ jobs:
   release:
     timeout-minutes: 15   # uploads only
     needs: [build, test-unit, test-functional, publish-apps]
-    if: github.event_name == 'workflow_dispatch'
+    # Dispatch AND main, because the tag below is derived from the version rather than from the
+    # ref: a dispatch on a feature branch would publish v<major>.<minor>.<run> pointing at a commit
+    # that is not on main, and there is nothing in the name to say so. The dispatch-only gate reads
+    # like it covers this and does not -- workflow_dispatch takes a ref. publish-apps and msix stay
+    # branch-agnostic on purpose: their output is an artifact a human collects, so running them off
+    # a branch is exactly how a packaging lane gets tested before it is merged.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
