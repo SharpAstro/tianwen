@@ -176,14 +176,28 @@ public partial class Image
         ) { CameraToSrgbMatrix = cameraToSrgb };
     }
 
-    private static bool TryReadTiff(string fileName, [NotNullWhen(true)] out Image? image)
+    /// <summary>
+    /// Internal rather than private so the allocation test can call it directly: the point of that test
+    /// is what this method allocates, and going through the extension-dispatching entry point would put
+    /// unrelated work inside the measured window.
+    /// </summary>
+    internal static bool TryReadTiff(string fileName, [NotNullWhen(true)] out Image? image)
     {
         try
         {
             var bytes = File.ReadAllBytes(fileName);
-            var doc = TiffReader.Read(bytes);
-            if (doc.Pages.Count == 0)
+
+            // ReadInto, not Read: Read returns the page as one assembled raster, so converting it here
+            // means the raster and these float planes are BOTH fully resident. For a 13228x9354 RGB
+            // page that is 354 MiB of intermediate whose only purpose is to be read once, left-to-right
+            // -- see docs/plans/viewer-memory-footprint.md (M2). The sink converts each strip as it
+            // arrives and the raster never exists.
+            var sink = new TiffChannelSink();
+            var doc = TiffReader.ReadInto(bytes, ref sink);
+            if (doc.Pages.Count == 0 || sink.Channels is not { } channels)
             {
+                // No pages, or the sink declined the first one (an unsupported photometric). Either way
+                // the caller is told we could not read it, which is the same answer as before.
                 image = null;
                 return false;
             }
@@ -191,39 +205,14 @@ public partial class Image
             var page = doc.Pages[0];
             var width = page.Width;
             var height = page.Height;
+            var isSeparated = sink.IsSeparated;
+            var bitDepth = sink.BitDepth;
 
             // The photometric interpretation decides what the samples MEAN, and ignoring it is not a
             // graceful degradation -- it renders a confidently wrong picture. A Separated (CMYK)
             // print export read as RGB comes out as a colour-shifted NEGATIVE, because a high CMYK
             // value is more ink, i.e. darker. That is worse than refusing the file, since nothing on
             // screen says the interpretation was guessed.
-            if (page.Photometric is not (TiffPhotometric.Rgb or TiffPhotometric.MinIsBlack
-                or TiffPhotometric.MinIsWhite or TiffPhotometric.Cmyk))
-            {
-                // Palette / YCbCr / CIELab need a colour transform this reader does not carry. Refuse
-                // rather than reinterpret; the caller reports that it could not read the file.
-                image = null;
-                return false;
-            }
-
-            // CMYK is the one case where the output channel count is not the input's: K is needed to
-            // convert and then discarded, so decode 4 and emit 3.
-            var isSeparated = page.Photometric == TiffPhotometric.Cmyk && page.SamplesPerPixel >= 4;
-            // Drop alpha / extras: Image carries mono (1) or RGB (3); the prior Magick path
-            // also extracted only R/G/B from interleaved RGBA strides.
-            var decodeChannels = isSeparated ? 4 : page.SamplesPerPixel >= 3 ? 3 : 1;
-            var outChannels = isSeparated ? 3 : decodeChannels;
-            var bitDepth = (page.SampleFormat, page.BitsPerSample) switch
-            {
-                (TiffSampleFormat.IeeeFloat, _) => BitDepth.Float32,
-                (_, <= 8) => BitDepth.Int8,
-                (_, <= 16) => BitDepth.Int16,
-                _ => BitDepth.Float32,
-            };
-
-            var channels = CreateChannelData(decodeChannels, height, width);
-            DecodeTiffPixels(page, channels, decodeChannels);
-
             if (page.Photometric == TiffPhotometric.MinIsWhite)
             {
                 // Zero means WHITE for this photometric (scanners and fax), so the stored samples are
@@ -390,22 +379,112 @@ public partial class Image
         return rgb;
     }
 
-    private static void DecodeTiffPixels(TiffPage page, float[][,] channels, int outChannels)
+    /// <summary>
+    /// Converts a TIFF page into float planes STRIP BY STRIP, so the assembled raster never exists.
+    /// </summary>
+    /// <remarks>
+    /// <para>A mutable struct, passed by <c>ref</c> to <see cref="TiffReader.ReadInto{TSink}"/> so it is
+    /// neither boxed nor allocated -- the point of this path is to stop materialising things.</para>
+    ///
+    /// <para>It also owns the decisions that used to sit in <c>TryReadTiff</c> (which photometrics are
+    /// supported, how many channels to decode versus emit, the bit depth), because
+    /// <see cref="ITiffStripSink.BeginPage"/> is where they can be made -- before a single pixel is
+    /// decoded -- and refusing there means an unsupported file costs no decode at all.</para>
+    /// </remarks>
+    private struct TiffChannelSink : ITiffStripSink
     {
-        var width = page.Width;
-        var height = page.Height;
-        var srcChannels = page.SamplesPerPixel;
-        var bps = page.BitsPerSample;
-        var isFloat = page.SampleFormat == TiffSampleFormat.IeeeFloat;
+        public float[][,]? Channels;
+        public bool IsSeparated;
+        public BitDepth BitDepth;
+        private int _width;
+        private int _srcChannels;
+        private int _decodeChannels;
+        private int _bitsPerSample;
+        private bool _isFloat;
 
+        public bool BeginPage(int pageIndex, TiffPage page)
+        {
+            // Image carries ONE page, and page 0 is the one TryReadTiff has always used. Declining the
+            // rest is not merely tidy: their strips are then never decoded, so a multi-page TIFF costs
+            // what its first page costs.
+            if (pageIndex != 0)
+            {
+                return false;
+            }
+
+            if (page.Photometric is not (TiffPhotometric.Rgb or TiffPhotometric.MinIsBlack
+                or TiffPhotometric.MinIsWhite or TiffPhotometric.Cmyk))
+            {
+                // Palette / YCbCr / CIELab need a colour transform this reader does not carry. Refuse
+                // rather than reinterpret; the caller reports that it could not read the file. Channels
+                // stays null, which is how TryReadTiff sees the refusal.
+                return false;
+            }
+
+            // CMYK is the one case where the output channel count is not the input's: K is needed to
+            // convert and then discarded, so decode 4 and emit 3.
+            IsSeparated = page.Photometric == TiffPhotometric.Cmyk && page.SamplesPerPixel >= 4;
+            // Drop alpha / extras: Image carries mono (1) or RGB (3); the prior Magick path
+            // also extracted only R/G/B from interleaved RGBA strides.
+            _decodeChannels = IsSeparated ? 4 : page.SamplesPerPixel >= 3 ? 3 : 1;
+            BitDepth = (page.SampleFormat, page.BitsPerSample) switch
+            {
+                (TiffSampleFormat.IeeeFloat, _) => BitDepth.Float32,
+                (_, <= 8) => BitDepth.Int8,
+                (_, <= 16) => BitDepth.Int16,
+                _ => BitDepth.Float32,
+            };
+
+            _width = page.Width;
+            _srcChannels = page.SamplesPerPixel;
+            _bitsPerSample = page.BitsPerSample;
+            _isFloat = page.SampleFormat == TiffSampleFormat.IeeeFloat;
+
+            // The one allocation this path makes, and the destination the strips write straight into.
+            Channels = CreateChannelData(_decodeChannels, page.Height, page.Width);
+            return true;
+        }
+
+        public void Strip(int pageIndex, int firstRow, int rowCount, ReadOnlySpan<byte> samples)
+        {
+            if (Channels is not { } channels)
+            {
+                return;
+            }
+
+            // Rows the strip actually delivered, which is not always rowCount: a truncated file gives a
+            // short final strip, and converting past it would read the neighbouring row's samples as
+            // this row's. Trusting the span's length is what makes a partial file decode to a partial
+            // image rather than to a garbled one.
+            var bytesPerRow = _width * _srcChannels * (_bitsPerSample / 8);
+            var rows = bytesPerRow > 0 ? Math.Min(rowCount, samples.Length / bytesPerRow) : 0;
+            if (rows <= 0)
+            {
+                return;
+            }
+
+            ConvertTiffStrip(samples, channels, _decodeChannels, _width, _srcChannels, _bitsPerSample,
+                _isFloat, firstRow, rows);
+        }
+    }
+
+    /// <summary>
+    /// One strip's interleaved samples into the float planes, normalised to [0, 1] by sample-format
+    /// max. <paramref name="firstRow"/> is where the strip sits in the image, which is the only thing
+    /// that changed when this stopped being a whole-raster pass.
+    /// </summary>
+    private static void ConvertTiffStrip(ReadOnlySpan<byte> samples, float[][,] channels, int outChannels,
+        int width, int srcChannels, int bps, bool isFloat, int firstRow, int rowCount)
+    {
         if (isFloat && bps == 32)
         {
             // Float TIFFs follow the [0, 1] convention regardless of writer (Magick.NET via
             // SMin/SMax, scientific tools as literal scene-linear values). Store as-is.
-            var floats = MemoryMarshal.Cast<byte, float>(page.Pixels.AsSpan());
-            for (var y = 0; y < height; y++)
+            var floats = MemoryMarshal.Cast<byte, float>(samples);
+            for (var localRow = 0; localRow < rowCount; localRow++)
             {
-                var row = y * width;
+                var row = localRow * width;
+                var y = firstRow + localRow;
                 for (var x = 0; x < width; x++)
                 {
                     var pix = (row + x) * srcChannels;
@@ -418,11 +497,12 @@ public partial class Image
         }
         else if (!isFloat && bps == 16)
         {
-            var shorts = MemoryMarshal.Cast<byte, ushort>(page.Pixels.AsSpan());
+            var shorts = MemoryMarshal.Cast<byte, ushort>(samples);
             const float inv = 1f / 65535f;
-            for (var y = 0; y < height; y++)
+            for (var localRow = 0; localRow < rowCount; localRow++)
             {
-                var row = y * width;
+                var row = localRow * width;
+                var y = firstRow + localRow;
                 for (var x = 0; x < width; x++)
                 {
                     var pix = (row + x) * srcChannels;
@@ -436,15 +516,16 @@ public partial class Image
         else if (!isFloat && bps == 8)
         {
             const float inv = 1f / 255f;
-            for (var y = 0; y < height; y++)
+            for (var localRow = 0; localRow < rowCount; localRow++)
             {
-                var row = y * width;
+                var row = localRow * width;
+                var y = firstRow + localRow;
                 for (var x = 0; x < width; x++)
                 {
                     var pix = (row + x) * srcChannels;
                     for (var c = 0; c < outChannels; c++)
                     {
-                        channels[c][y, x] = page.Pixels[pix + c] * inv;
+                        channels[c][y, x] = samples[pix + c] * inv;
                     }
                 }
             }
@@ -452,7 +533,7 @@ public partial class Image
         else
         {
             throw new NotSupportedException(
-                $"TIFF BitsPerSample={bps} SampleFormat={page.SampleFormat} not supported by DIR.Lib path");
+                $"TIFF BitsPerSample={bps} isFloat={isFloat} not supported by the SharpAstro.Tiff path");
         }
     }
 
