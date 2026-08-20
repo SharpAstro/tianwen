@@ -1181,9 +1181,81 @@ provisional until the drizzle re-bake (§2.3, the masters are `Float16StagedStra
 And the deployment gap is not closed: the model can only be trained down to 4v4 (0.5x of a sub) while
 a master sits at 0.18x, because the tiles carry 8 subs per cell. Overstating sigma at inference is a
 free strength dial but saturates at 0.66x while costing a third of the faint signal, so **the root
-fix is HALF-MASTER PAIRS**: integrate subs 1..60 and 61..120 of a session separately for two
-independent half-masters at sigma ~0.24x, an N2N pair at the noise level the model actually meets.
-That belongs in the same registrar pass as the drizzle change so the archive is walked once.
+fix was believed to be HALF-MASTER PAIRS**: integrate subs 1..60 and 61..120 of a session separately
+for two independent half-masters at sigma ~0.24x, an N2N pair at the noise level the model actually
+meets. **Superseded:** that was done (same registrar pass as the drizzle change), trained on, and
+measured NULL in two conditioning shapes (section 2.4). Why pair depth was never going to be the
+fix, and what replaces it, is section 3b.
+
+### 3b. Master-depth denoising revisited (2026-08-20, the PR #184 session)
+
+The shipped v19d checkpoint drew visible tile seams on a real 163-sub master (the PR #184 stitch
+fix), and chasing that surfaced a wrong number (a "training level of 0.26", a misread of a
+`kept_total` retention fraction; it is not an input level, and nothing in the trainer normalises
+or centres the pixels) whose correction led back through this plan. Four conclusions from that
+session are retained here so they do not get re-derived; the experiment behind them follows.
+
+- **The half-master negative needs no seeding rescue; it is final.** The unseeded-torch trap
+  faked only the retracted v9 positive. The fix (seeded init + tile draw, cudnn deterministic,
+  bit-identical repeat runs verified) landed 2026-08-14, and the negative was then re-established
+  on clean ground: three seeds per config (v10) and again under per-band conditioning (v14), both
+  null (section 2.4). Do not re-litigate half pairs on a "maybe the seeds" theory.
+- **Every cheap inference-time lever on the 0.81M smoke model is now measured, and its frontier
+  is closed.** The conditioning dial: rejected (saturates, 4x range variance by target,
+  fabrication rises toward its gentle end). Half-master pairs: unconditionally null. The input
+  rescale (below): mechanism confirmed, peak gain 14/23/40% (R/G/B). What has never been tried is
+  what section 5 queues as P1: the NAFNet-32 class trained on the baked drizzle set.
+- **Pair-based N2N has a structural weakness exactly at deployment depth: the gradient a pair
+  carries scales with the pair's noise.** A half-master target nearly equals its input, so
+  master-depth pairs teach almost nothing per step (measured as the half-pair arm behaving like
+  the same family stopped earlier), and at deployment depth the whole smoke family pays 21-32% of
+  faint-star amplitude to remove 17-26% of the noise (the task #30 rescore against the
+  independent other half). The honest statement is not "masters cannot be denoised"; it is "sub
+  pairs are the wrong teacher for the master regime".
+- **The way out is section 2.1's synthetic-injection bullet, promoted from secondary to
+  co-primary for the deep end.** Supervised noise-to-clean with synthetic noise injected onto
+  low-noise references at randomised levels solves both master-depth problems at once: the target
+  is always clean, so a quiet input still carries a full gradient, and master depth is
+  in-distribution because the level range is synthesised. It is also the structurally likely
+  reading of how a commercial supervised denoiser works at master depth at all (sourced from the
+  2022 AIC talk: a standard recipe, capacity saturating in the 20-30M class; NOT sourced: its
+  training data, and section 1's EULA bars its outputs from ever becoming targets or benchmarks
+  in our loop, so our gates stay the fabrication probe, faint amplitude at matched noise, and
+  several seeds per config). The injected noise must carry the deployed SHAPE as well as the
+  level: band1/band0 power reads 0.589-0.601 for every regime v8 trains on against 0.320 for a
+  half-master (section 2.4), so inject white electron-domain noise pushed through the real
+  registration warp rather than white noise straight onto the master.
+
+**The input-rescale experiment** (`N2nSeamProbe.ReportInputRescaleResponseOnARealMaster`,
+env-gated on `TIANWEN_N2N_SEAM_FITS`, commit 2b4dca99): multiply the input by k so the trainer's
+own sigma statistic (median minus 25th percentile of the luminance, the `bg_sigma_torch` form)
+lands at the single-sub ~0.01 the conditioning plane was calibrated for, denoise at full
+strength, divide by k. This is not the rejected conditioning dial, which keeps the pixels and
+lies about the plane; here the plane stays truthful for the pixels the net is actually given.
+Measured on the seam-report master (trainer sigma 8.1e-5, honest k = 124):
+
+| k | MAD retention R/G/B | seam median vs local structure | bg pixels moved > 10 MAD |
+|---|---|---|---|
+| 1 | 90% / 91% / 83% | 0.8-1.2x (6/38 loud) | 0 |
+| 8 | 91% / 91% / 83% | same | 0 |
+| 62 | 89% / 88% / 69% | 1-3/38 loud | 0 |
+| 124 | **86% / 77% / 60%** | 0.7-1.0x (1-3/38 loud) | 0 |
+| 247 | 93% / 91% / 84% | same | 0 |
+
+Three readings, in order of importance. **The response peaks exactly at the honest band and is
+non-monotone**, which is the fingerprint of the conditioning plane and direct evidence the
+conditioning idea interpolates along the level axis; P1's truthful sigma plane over a wide
+synthetic level range should therefore generalise rather than need exact-depth pairs. **The peak
+is modest and channel-uneven**, so the rescale is not a production feature; the probe did not
+measure faint-star amplitude, and the deployment-depth verdict above says that is exactly where
+the cost would land. **The out-of-contract bright end is harmless in practice** (at k=247, 1.4%
+of scaled pixels sit above 1.0 and background fabrication is still zero), and the level drag
+shrinks by an order of magnitude once the net has real denoising to do, corroborating the seam
+story: the per-chunk offsets were large because the denoising was weak. One texture number for
+the shape axis, from this master: adjacent-difference MAD over plain MAD reads 0.51 / 0.88 / 1.05
+(R/G/B) against 1.41 for white noise, so R's residual is dominated by correlated stacking noise
+while G and B sit near white. The shape story is strong for R and open for G/B; know that before
+attributing the whole G/B shortfall to it.
 
 ### Infra
 
