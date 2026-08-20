@@ -42,3 +42,7 @@ src/TianWen.UI.Web/wwwroot/tyc2/
 # Isolated AOT-publish output (local :5100 perf builds; keeps the dev server's obj/bin unclobbered)
 bin-aot/
 obj-aot/
+
+# Local MSIX packaging output (packaging/windows/msix/build-msix.ps1)
+/artifacts/
+/bundle/

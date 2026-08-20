@@ -30,10 +30,19 @@ param(
 
     [Parameter(Mandatory, ParameterSetName = 'Validate')][switch]$ValidateOnly,
 
+    # Bundle mode: combine the per-architecture .msix files in a directory into one .msixbundle,
+    # which is what Partner Center takes for a multi-arch submission. Here rather than in a second
+    # script so makeappx is resolved (and pinned) in exactly one place.
+    [Parameter(Mandatory, ParameterSetName = 'Bundle')][string]$BundleDir,
+    [Parameter(Mandatory, ParameterSetName = 'Bundle')][string]$BundleVersion,
+    [Parameter(Mandatory, ParameterSetName = 'Bundle')][string]$BundleOut,
+
     # Pinned, for the same reason pdf-viewer pins WiX: a build tool whose version is decided by
     # whatever the runner image ships is a build that changes under you without a commit.
     [string]$SdkBuildToolsVersion = '10.0.26100.8249',
-    [string]$ToolCache = (Join-Path $env:LOCALAPPDATA 'SharpAstro\msix-tools')
+    # Not $env:LOCALAPPDATA directly: it is null on a Linux runner, where Join-Path then throws
+    # during parameter binding -- before any code runs, and -ValidateOnly is meant to run there.
+    [string]$ToolCache = (Join-Path ($env:LOCALAPPDATA ?? [IO.Path]::GetTempPath()) 'SharpAstro/msix-tools')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -126,6 +135,26 @@ function Resolve-MakeAppx {
 
 # ---------------------------------------------------------------------------------------------
 
+if ($PSCmdlet.ParameterSetName -eq 'Bundle') {
+    Assert-Version $BundleVersion
+    $packages = @(Get-ChildItem -LiteralPath $BundleDir -Filter '*.msix' -File)
+    if ($packages.Count -eq 0) { throw "No .msix files in $BundleDir to bundle." }
+    Write-Host ("Bundling {0} package(s): {1}" -f $packages.Count, ($packages.Name -join ', '))
+
+    $outDir = Split-Path -Parent $BundleOut
+    if ($outDir -and -not (Test-Path -LiteralPath $outDir)) {
+        New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    }
+
+    $makeappx = Resolve-MakeAppx
+    & $makeappx bundle /d $BundleDir /p $BundleOut /bv $BundleVersion /o
+    if ($LASTEXITCODE -ne 0) { throw "makeappx bundle failed with exit code $LASTEXITCODE" }
+
+    $mb = [math]::Round((Get-Item -LiteralPath $BundleOut).Length / 1MB, 1)
+    Write-Host "Built $BundleOut ($mb MB, $BundleVersion, unsigned)"
+    exit 0
+}
+
 Write-Host 'Checking manifest assets'
 Test-ManifestAssets
 
@@ -157,7 +186,10 @@ try {
     # user's machine reads them and they are a large share of the payload.
     Write-Host "Staging $PublishDir"
     Copy-Item -Path (Join-Path $PublishDir '*') -Destination $stage -Recurse -Force
-    Get-ChildItem -Path $stage -Recurse -Include '*.pdb' -File | Remove-Item -Force
+    # .lib is a link-time import library: it is what an unmanaged COMPILER links against and is
+    # dead weight in a package. onnxruntime.lib was shipping at 3 KB purely because it sits in the
+    # publish tree next to the DLL it describes.
+    Get-ChildItem -Path $stage -Recurse -Include '*.pdb', '*.lib' -File | Remove-Item -Force
 
     Copy-Item -Path $assetsDir -Destination (Join-Path $stage 'Assets') -Recurse -Force
 

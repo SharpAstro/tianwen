@@ -147,6 +147,13 @@ jobs:
     # that ship would not be the ones the recipe describes.
     - name: Verify the baked icon table matches its recipe
       run: pwsh tools/bake-icons.ps1 -Verify
+    # The cheap half of the MSIX lane, deliberately here rather than only in the msix job: that
+    # job is dispatch-only, and a packaging lane first exercised while cutting a release is one
+    # discovered to be broken at the worst moment. This validates the manifest is well-formed XML,
+    # that every logo it names exists at the size its name claims, and that the version rules hold
+    # (four parts, none over 65535, revision 0). No publish, no packing, about a second.
+    - name: Validate the MSIX manifest and assets
+      run: pwsh packaging/windows/msix/build-msix.ps1 -ValidateOnly
     - name: Restore dependencies
       run: dotnet restore
       working-directory: src
@@ -593,6 +600,78 @@ jobs:
       with:
         name: tianwen-server-${{ matrix.rid }}
         path: src/TianWen.Server/bin/Release/net10.0/${{ matrix.rid }}/publish/
+
+  # The Microsoft Store package for the FITS viewer, shipped as Astro Photo Viewer.
+  #
+  # Deliberately NOT gated on the tests, unlike release: this produces an artifact for a human to
+  # upload, not something that reaches a user by itself, and the Store runs its own certification
+  # on top. It is gated on publish-apps because it consumes those publishes rather than building
+  # its own, so a dispatch costs two AOT publishes rather than four.
+  #
+  # The package is UNSIGNED on purpose. The Store re-signs after certification, which is the whole
+  # reason this format was chosen: no certificate to buy, rotate, or leak, and no SmartScreen
+  # prompt. The consequence is that this artifact cannot be installed by double-clicking it; see
+  # packaging/windows/msix/README.md for how to test one locally.
+  msix:
+    timeout-minutes: 20
+    needs: [build, publish-apps]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    env:
+      VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        submodules: false   # only packaging/windows/msix is needed
+        lfs: false
+    # Both Windows publishes, each landing in publish/<artifact-name>/. The viewer bundles its own
+    # font and the AI weights, so nothing here needs an LFS object of its own.
+    - name: Download the Windows publishes
+      uses: actions/download-artifact@v8
+      with:
+        pattern: tianwen-fits-win-*
+        path: publish
+    - name: Resolve the package version
+      shell: bash
+      run: |
+        # MSIX is Major.Minor.Build.Revision and the Store RESERVES the revision, so it has to be
+        # 0 or the upload is rejected. VERSION_PREFIX is already Major.Minor.<run_number>, so the
+        # fourth part is appended rather than reusing VERSION_REV (run_attempt), which would put a
+        # non-zero revision on the package on any re-run.
+        echo "MSIX_VERSION=${VERSION_PREFIX}.0" >> "$GITHUB_ENV"
+        echo "Package version: ${VERSION_PREFIX}.0"
+    - name: Pack each architecture
+      shell: pwsh
+      run: |
+        foreach ($arch in 'x64', 'arm64') {
+          ./packaging/windows/msix/build-msix.ps1 `
+            -PublishDir "publish/tianwen-fits-win-$arch" `
+            -Arch $arch -Version $env:MSIX_VERSION `
+            -OutFile "artifacts/AstroPhotoViewer-$arch.msix"
+        }
+    # One bundle carrying both architectures, which is what Partner Center takes for a multi-arch
+    # submission. makeappx is resolved by the same script, so its pinned version cannot drift
+    # between the pack and the bundle.
+    - name: Bundle both architectures
+      shell: pwsh
+      run: |
+        ./packaging/windows/msix/build-msix.ps1 `
+          -BundleDir artifacts -BundleVersion $env:MSIX_VERSION `
+          -BundleOut bundle/AstroPhotoViewer.msixbundle
+    - name: Say what to do with it
+      shell: bash
+      run: |
+        echo "### Store package: AstroPhotoViewer.msixbundle (${MSIX_VERSION})" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "Unsigned by design; the Store signs it after certification. Upload it to the draft" >> "$GITHUB_STEP_SUMMARY"
+        echo "submission for Store ID 9PMDZP16TGBG. It cannot be installed by double-clicking." >> "$GITHUB_STEP_SUMMARY"
+    - uses: actions/upload-artifact@v7
+      with:
+        name: msix-store-package
+        path: bundle/*.msixbundle
+        # Longer than the 5 days the build artifacts get: this one is uploaded to Partner Center by
+        # hand, which may not happen the same day the run is dispatched.
+        retention-days: 30
 
   # Gating: only ship binaries to a GitHub Release when tests pass AND all
   # target-platform publishes succeeded. Workflow_dispatch only -- piggybacks
