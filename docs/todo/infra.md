@@ -120,6 +120,34 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 - [ ] See if fake mounts (`FakeMountDriver` and `FakeMeadeLX200ProtocolMountDriver`) can share a mount-specific base class
 - [ ] GPU offscreen comp-test followups not yet done (per the GPU comp-test survey): **A** Bayer demosaic comp, **C** WCS grid overlay comp. (D `VkRenderer` primitives, F sky-map line tessellation, B histogram already shipped as `VkRendererPrimitiveTests` / `SkyMapLineTessellationTests` / `VkHistogramPipelineTests`.)
 
+### External AI tools in the test suite (from the 2026-08-17 handover)
+
+- [ ] **Env-gate the RC-Astro integration tests?** Proposed as `TIANWEN_RCASTRO_TESTS`, following the
+  device-simulator suite's pattern, so a routine `dotnet test` stops invoking the real `rc-astro`
+  binary (each call spikes the GPU through DirectML). **Undecided by the user -- do not do this
+  unprompted.**
+- [ ] **Unexplained: something launches PixInsight during a test run.** Nothing reproducible does it.
+  Measured: `rc-astro` spawns **zero** child processes (both the license probe and a real `nxt` run),
+  the RC test classes leave the tripwire untouched, and a full suite under a 200 ms process watcher
+  saw nothing at all. PixInsight genuinely ran once, at 21:35:24, *during* a suite but not provably
+  *because* of one. **Tripwire to reuse:** the `LastWriteTime` of
+  `%APPDATA%\Pleiades\core-001-pxi.settings`. Closing this needs a concrete sighting (what, and when)
+  rather than more speculative instrumentation.
+
+Method note worth keeping, since it cost real time: **for process-launch forensics on Windows without
+admin, a vendor's app-data write time is a better tripwire than process polling**, because it catches
+a launch that happened while nobody was watching. A 200 ms `Win32_Process` poll that captures
+`ParentProcessId` is the right tool only when you can watch live, and Prefetch needs admin.
+
+### Two gotchas recorded from the same handover
+
+- **A `dev/null/` directory at the repo root is git-lfs hooks written under
+  `core.hooksPath=/dev/null`.** Go's `filepath.IsAbs` says false for that path on Windows, so it
+  lands relative to the worktree. The real hooks in `.git/hooks` were intact and the artifact was
+  deleted; if it reappears, some tool is invoking git with that config.
+- **`FormattableString.Invariant` rejects concatenated interpolated strings.** `$"a" + $"b"` is a
+  `string`, not a `FormattableString`. Hit twice in one day; write one long interpolation instead.
+
 ## Statistics
 
 - [x] Find a faster way to multiply all values in an array/span (`StatisticsHelper.cs:167`)

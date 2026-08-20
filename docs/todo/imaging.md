@@ -116,6 +116,65 @@ because 511 of its directories carry no `IMAGETYP` card at all and were skipped 
 - [ ] **Triage the SharpCap era on `FOCTEMP` delta + measured HFD** rather than discarding it, and
   give the 511 no-`IMAGETYP` directories a gate that does not depend on that card.
 
+## Archive + FITS interop backlog (recovered 2026-08-20)
+
+Filed from the `feat/ai-enhancements` handover. **Provenance matters here:** these were tracked as a
+numbered task list that lived only inside a chat session, so the numbers referenced nothing durable
+and are dropped; the old number is given once per entry only so the handover history stays greppable.
+Several entries carry a DECISION already made, which is the part that was actually at risk.
+
+- [ ] **QHY294 gain-1600 dark library.** The only real coverage hole in the 2025-2026 archive.
+  Capture spec (read off the stranded sessions' own lights, so it is a spec and not a guess) in
+  [../plans/astro-archive-survey.md](../plans/astro-archive-survey.md) section 10.1. Shooting it
+  un-drops **193 lights across 3 targets**. (was #10)
+- [ ] **Bake the older archive years, behind CALSTAT / FLIPSTAT read guards.** (was #11) Two decided
+  points:
+  - **`CALSTAT` is a read guard, and it is no longer theoretical.** Its letters (B/D/F) accumulate
+    per applied correction, so a light that already reads `CALSTAT` must not be calibrated again.
+    `C:\temp\test-data` is entirely pre-calibrated (`CALSTAT='BDF'`) and a stack run would happily
+    re-calibrate it if matching darks were present.
+  - **`FLIPSTAT` is raster-transform provenance, NOT pier side** (the raster was flipped or rotated
+    at recording). The nom-tam-fits javadoc gloss conflates the two, and an earlier reading of this
+    repo's own notes made the same mistake. Support it for READING only; never write it.
+- [ ] **Write `CALSTAT` + `DARKTIME` on our own calibration outputs.** (was #39) Partially superseded
+  by the shipped `SWCREATE` + `DATE-BEG`/`DATE-END` master provenance, so check what is already
+  written before starting.
+- [ ] **Mono narrowband, end to end.** (was #37) The M42 Ha + OIII set under `C:\temp\test-data` is
+  the real fixture and M33 LRGB exercises mono broadband; both parse correctly now that the SBFITSEXT
+  `IMAGETYP` spellings land (they used to read as `FrameType.None`, i.e. invisible).
+- [ ] **`TILEXY` + panel identity for mosaics.** (was #50) **The convention is decided, and this is
+  the only place it is written down:** MaxIm publishes no orientation convention (theirs is
+  scan-order dependent), so `TILEXY` is a **grouping key only** and all geometry stays on
+  `OBJCTRA`/`OBJCTDEC` plus the solved WCS. Ours is **X grows with RA, Y grows with Dec, (0,0) at the
+  min-RA / min-Dec corner** -- chosen for self-consistency, not because anyone else does it that way.
+  N.I.N.A. names mosaic panels through `OBJECT` as "Target Panel N". Existing files can be recovered
+  retroactively from `OBJCTRA`/`OBJCTDEC` + a solved WCS, so this is not capture-time-only.
+- [ ] **Panel level in the organized archive.** (was #38)
+- [ ] **Re-organise `D:\Astro-Organized` where several sessions share one folder.** (was #49) Scope
+  measured in [../plans/astro-archive-survey.md](../plans/astro-archive-survey.md) section 10.2:
+  **1,073 lights with no organized counterpart**, every one from a non-ASI533 / non-SV605CC camera.
+- [ ] **Filter identity for the dual-band sessions.** Either sidecars (`.tianwen-meta.json`) or a
+  `dataset tag-filter` verb. The coverage census makes the gap explicit: `filter_source=none` on all
+  60 sessions, because **no session in the source archive carries a `FILTER` header at all**. Related:
+  the archive filter-inference section above, and [../plans/filter-inference.md](../plans/filter-inference.md).
+- [ ] **ML gradient fields.** (was #15) Belongs to
+  [../plans/ai-denoise-deconv.md](../plans/ai-denoise-deconv.md) P5 rather than here; listed so the
+  handover's backlog is fully accounted for.
+- [ ] Optional: run `dataset coverage` over `D:\Astro-Organized` too, for a filter-aware report.
+
+Interop facts hit on real data during that review, kept because they are not written down anywhere
+else and each cost time to establish:
+
+- **`PEDESTAL = -100` means +100 ADU was re-added after calibration** (MaxIm's sign convention), so
+  the number is not a value to subtract as it reads.
+- **A CFA pattern is measurable from the pixels alone**, which is how `BAYERPAT='VALID'` was resolved
+  without trusting any header: the two green subplanes' medians agree to ~0.2% (that names the green
+  diagonal), and of the two remaining subplanes the brighter one is red on any real sky.
+
+Closed from the same review, recorded so nobody re-litigates them: `SNAPSHOT` (the SBFITSEXT twin of
+`STACK_N`) and `SWMODIFY` (modifying-software card) were adopted and shipped; `READOUTM` folded into
+the calibration temporal/tolerance work and shipped with it.
+
 ## Imaging
 
 - [ ] Not sure if `SensorType` LRGB check is correct (`SensorType.cs:54`)
