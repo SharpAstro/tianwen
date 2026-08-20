@@ -494,7 +494,39 @@ namespace TianWen.UI.Abstractions
             }
 
             UploadHistogramData(source);
+
+            // A DOCUMENT load ends a burst of uploads, so the host-visible scratch the uploads went
+            // through can go back. A LIVE frame does not -- this same method runs per frame for a camera
+            // feed (LiveSessionTab, GuiderTab), where releasing the buffer would mean an alloc/free every
+            // frame on the imaging hot path.
+            //
+            // SourceGeneration is what tells them apart, and it is an existing fact rather than a new
+            // flag: ViewerController bumps it on each source replacement and nothing in the live path
+            // touches it, so a camera feed holds one generation for its whole life while every opened
+            // file gets a fresh one. Deliberately not a size threshold -- a large live frame and a
+            // document look identical by size, which is exactly the case that must not churn.
+            if (state.SourceGeneration != _lastUploadSourceGeneration)
+            {
+                _lastUploadSourceGeneration = state.SourceGeneration;
+                TrimUploadScratch();
+            }
+
             state.StatusMessage = null;
+        }
+
+        /// <summary>
+        /// The <see cref="ViewerState.SourceGeneration"/> the last upload belonged to. Starts at 0, which
+        /// is the generation a never-replaced source has, so a live feed never trims.
+        /// </summary>
+        private int _lastUploadSourceGeneration;
+
+        /// <summary>
+        /// Releases whatever host-visible scratch the texture uploads went through. Called once per
+        /// document load, after the last channel. No-op by default: a backend with no such buffer, and
+        /// the offline renderer used by the layout tests, have nothing to release.
+        /// </summary>
+        protected virtual void TrimUploadScratch()
+        {
         }
 
         // -----------------------------------------------------------------------

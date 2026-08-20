@@ -1190,6 +1190,56 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         api.vkUpdateDescriptorSets(1, &write, 0, null);
     }
 
+    /// <summary>
+    /// The host-visible staging buffer's current size in bytes, 0 when none is allocated. Exposed so a
+    /// headless test can assert the trim happened -- a <c>VkBuffer</c> is invisible to the GC, so there
+    /// is nothing else to observe it by, which is also why this cost went unnoticed for so long.
+    ///
+    /// <para>Public rather than internal because this assembly grants no <c>InternalsVisibleTo</c>, and
+    /// the neighbouring test-facing members (<see cref="R32SfloatOptimalTilingFeatures"/>,
+    /// <see cref="ReadbackChannelFirstFloats"/>) are public for the same reason.</para>
+    /// </summary>
+    public ulong StagingBufferSize => _stagingSize;
+
+    /// <summary>
+    /// Releases the staging buffer, so the high-water mark of one large upload stops following the
+    /// process around.
+    /// </summary>
+    /// <remarks>
+    /// <para><see cref="EnsureStagingBuffer"/> is grow-only and was freed ONLY on dispose, so one channel
+    /// of a big document pinned that much host-visible memory for the process lifetime: a 13228x9354
+    /// document measures 472 MiB, and every small FITS opened afterwards still carried it. Nothing
+    /// reported it either -- a Vulkan buffer is not managed memory, so it does not even show as GC
+    /// pressure.</para>
+    ///
+    /// <para><b>This is deliberately NOT done inside <see cref="UploadChannelTexture"/>.</b> That is the
+    /// obvious shape and it is wrong: the live preview path uploads a channel PER FRAME, and a colour
+    /// sensor's mosaic is one large channel (an ASI2600 frame is ~104 MB), so freeing after every upload
+    /// would turn a stable allocation into an alloc/free per frame on the imaging hot path. Only the
+    /// caller knows a burst of uploads has ended, which is why this is an explicit trim.</para>
+    ///
+    /// <para>A size cap ("release anything over 32 MiB") was considered and rejected for the same reason:
+    /// it cannot tell a document load from a large live frame, so it would churn exactly the path that
+    /// needs the buffer retained.</para>
+    ///
+    /// <para>Needs no fence: <see cref="UploadToImage"/> is synchronous, so by the time a caller can ask
+    /// for this the copy has already completed.</para>
+    /// </remarks>
+    public void TrimStagingBuffer()
+    {
+        if (_stagingBuffer == VkBuffer.Null)
+        {
+            return;
+        }
+
+        var api = _ctx.DeviceApi;
+        api.vkDestroyBuffer(_stagingBuffer);
+        api.vkFreeMemory(_stagingMemory);
+        _stagingBuffer = VkBuffer.Null;
+        _stagingMemory = VkDeviceMemory.Null;
+        _stagingSize = 0;
+    }
+
     private void EnsureStagingBuffer(ulong size)
     {
         if (_stagingBuffer != VkBuffer.Null && _stagingSize >= size)

@@ -76,6 +76,68 @@ public sealed class GpuStretchPipelineTests : IClassFixture<OffscreenGpuFixture>
         }
     }
 
+    /// <summary>
+    /// The staging buffer is grow-only and was freed only on dispose, so one large upload pinned that
+    /// much host-visible memory for the process lifetime -- 472 MiB for the document measured in
+    /// <c>docs/plans/viewer-memory-footprint.md</c>, carried through every subsequent small file.
+    ///
+    /// <para>Asserted here rather than by watching managed memory because a <c>VkBuffer</c> is invisible
+    /// to the GC: it does not even register as GC pressure, which is precisely why the cost went
+    /// unnoticed. <c>StagingBufferSize</c> exists for this.</para>
+    ///
+    /// <para>The re-upload at the end is the half that matters as much as the release: a trim that left
+    /// the pipeline unable to upload again would be worse than the leak, and
+    /// <c>EnsureStagingBuffer</c> has to take its create-fresh branch from a nulled handle.</para>
+    /// </summary>
+    [Fact]
+    public void TrimmingTheStagingBufferReleasesItAndTheNextUploadStillWorks()
+    {
+        if (!_gpu.VulkanAvailable)
+        {
+            output.WriteLine($"Vulkan unavailable: {_gpu.UnavailableReason}");
+            Assert.Skip($"Vulkan runtime not available on this host ({_gpu.UnavailableReason})");
+            return;
+        }
+
+        var pixels = new float[64 * 64];
+        for (var i = 0; i < pixels.Length; i++)
+        {
+            pixels[i] = i / (float)pixels.Length;
+        }
+
+        // Every call below touches the device, so it all runs on the fixture's queue thread --
+        // VulkanDevice.AssertQueueThread rejects it otherwise. Observations come back as values and are
+        // asserted outside, so a failure reports as an assertion rather than as an exception marshalled
+        // off that thread.
+        var (afterUpload, afterTrim, afterSecondTrim, afterReupload, probed) = _gpu.Invoke(() =>
+        {
+            var pipeline = _gpu.Pipeline!;
+
+            pipeline.UploadChannelTexture(pixels, 0, 64, 64);
+            var allocated = pipeline.StagingBufferSize;
+
+            pipeline.TrimStagingBuffer();
+            var trimmed = pipeline.StagingBufferSize;
+
+            // Idempotent: the trim nulls the handle, so a second call must not double-free.
+            pipeline.TrimStagingBuffer();
+            var trimmedTwice = pipeline.StagingBufferSize;
+
+            pipeline.UploadChannelTexture(pixels, 0, 64, 64);
+            var reallocated = pipeline.StagingBufferSize;
+
+            Span<float> probe = stackalloc float[4];
+            pipeline.ReadbackChannelFirstFloats(0, probe);
+            return (allocated, trimmed, trimmedTwice, reallocated, probe[1]);
+        });
+
+        afterUpload.ShouldBeGreaterThan(0UL, "an upload must have allocated the scratch");
+        afterTrim.ShouldBe(0UL);
+        afterSecondTrim.ShouldBe(0UL);
+        afterReupload.ShouldBeGreaterThan(0UL, "the pipeline must still upload after a trim");
+        probed.ShouldBe(pixels[1], 1e-6f);
+    }
+
     [Fact]
     public async Task GivenSyntheticSpccField_GpuRenderMatchesCpuRender()
     {
