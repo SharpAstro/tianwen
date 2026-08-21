@@ -177,6 +177,63 @@ public static class StatisticsHelper
         return (median, MedianFast(values));
     }
 
+
+    /// <summary>
+    /// Copies the non-NaN values of <paramref name="source"/> into <paramref name="destination"/>,
+    /// packed from index 0, and returns how many were written.
+    /// </summary>
+    /// <remarks>
+    /// <para>Compacting before a selection is not optional, it is a precondition: quickselect
+    /// partitions with <c>&lt;</c> and <c>&gt;</c>, both of which are FALSE against NaN, so a NaN
+    /// left in the buffer lands in an unpredictable partition position and the answer depends on
+    /// the input permutation. Warped frames carry large NaN edge regions by construction, so this
+    /// is the normal case on the stacking path rather than a defensive check.</para>
+    /// <para>Scalar on purpose. <c>Vector&lt;float&gt;.Min</c> returns NaN-poisoned results if any
+    /// lane is NaN, and a vectorised COMPACTION needs a compress/shuffle per block, which is more
+    /// machinery than the surrounding selection cost justifies.</para>
+    /// </remarks>
+    public static int CompactFinite(ReadOnlySpan<float> source, Span<float> destination)
+    {
+        var n = 0;
+        for (var i = 0; i < source.Length; i++)
+        {
+            var v = source[i];
+            if (!float.IsNaN(v))
+            {
+                destination[n++] = v;
+            }
+        }
+        return n;
+    }
+
+    /// <summary>
+    /// As <see cref="CompactFinite(ReadOnlySpan{float}, Span{float})"/>, and additionally reports
+    /// the smallest value written. <paramref name="min"/> is
+    /// <see cref="float.PositiveInfinity"/> when nothing was -- the caller chooses what an
+    /// all-NaN input should mean, rather than having a sentinel baked in here.
+    /// </summary>
+    /// <remarks>
+    /// The pairing is the point: a min and a compaction each need one <c>IsNaN</c> test per
+    /// element, so taking them together halves the traversals. <c>Normalizer.ComputeStats</c> ran
+    /// them as separate passes over the same pixels, once per channel per warped frame.
+    /// </remarks>
+    public static int CompactFinite(ReadOnlySpan<float> source, Span<float> destination, out float min)
+    {
+        var m = float.PositiveInfinity;
+        var n = 0;
+        for (var i = 0; i < source.Length; i++)
+        {
+            var v = source[i];
+            if (!float.IsNaN(v))
+            {
+                destination[n++] = v;
+                if (v < m) { m = v; }
+            }
+        }
+        min = m;
+        return n;
+    }
+
     /// <summary>
     /// Overwrites each element with its absolute deviation from <paramref name="centre"/>. One
     /// pass, vectorised in the same shape as <c>Normalizer.NormalizeVec</c>.

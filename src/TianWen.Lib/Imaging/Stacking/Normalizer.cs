@@ -58,8 +58,24 @@ public static class Normalizer
         {
             var channel = image.GetChannelArray(ch);
             var span = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
-            mins[ch] = MinIgnoringNaN(span);
-            medians[ch] = MedianViaQuickSelect(span, mins[ch]);
+
+            // Rent rather than allocate: a 3008^2 channel is 36 MB, and 244 frames x 3
+            // channels is ~26 GB of churn the GC would otherwise have to collect. The pool
+            // returns oversize buffers, so slice to the valid count.
+            var buf = ArrayPool<float>.Shared.Rent(span.Length);
+            try
+            {
+                // ONE pass for both statistics. This was two passes over the same pixels --
+                // a min that skipped NaN, then a NaN-stripping copy -- each paying its own
+                // IsNaN test per element.
+                var n = CompactFinite(span, buf, out var min);
+                mins[ch] = n == 0 ? 0f : min;
+                medians[ch] = n == 0 ? mins[ch] : MedianFast(buf.AsSpan(0, n));
+            }
+            finally
+            {
+                ArrayPool<float>.Shared.Return(buf);
+            }
         });
         return new NormalizationStats(mins, medians);
     }
@@ -89,27 +105,33 @@ public static class Normalizer
         var mins = new float[c];
         var medians = new float[c];
         var count = (x1 - x0) * (y1 - y0);
+        var width = image.Width;
         Parallel.For(0, c, ch =>
         {
             var channel = image.GetChannelArray(ch);
-            // Copy the box's pixels into a contiguous scratch buffer and run
-            // the same MinIgnoringNaN + MedianViaQuickSelect path as the
-            // whole-image overload. Rented from the pool to avoid 3-channel
-            // x N-frame GC churn on the stacking hot path.
+            var flat = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
+            // Rented from the pool to avoid 3-channel x N-frame GC churn on the stacking hot
+            // path.
             var buf = ArrayPool<float>.Shared.Rent(count);
             try
             {
-                var k = 0;
+                // Compact row by row straight into the scratch. A box row is contiguous, so
+                // this collapses THREE passes and TWO rents -- a two-dimensional indexed copy
+                // of the box, then a min over it, then a NaN-stripping copy into a second
+                // rented buffer -- into one pass over one buffer, with flat indexing instead
+                // of channel[y, x].
+                var n = 0;
+                var min = float.PositiveInfinity;
                 for (var y = y0; y < y1; y++)
                 {
-                    for (var x = x0; x < x1; x++)
-                    {
-                        buf[k++] = channel[y, x];
-                    }
+                    var row = flat.Slice(y * width + x0, x1 - x0);
+                    n += CompactFinite(row, buf.AsSpan(n), out var rowMin);
+                    if (rowMin < min) { min = rowMin; }
                 }
-                var span = new ReadOnlySpan<float>(buf, 0, count);
-                mins[ch] = MinIgnoringNaN(span);
-                medians[ch] = MedianViaQuickSelect(span, mins[ch]);
+                // An all-NaN box keeps PositiveInfinity and reports 0, which is what the
+                // MinIgnoringNaN this replaced did, and the median then follows the min.
+                mins[ch] = float.IsPositiveInfinity(min) ? 0f : min;
+                medians[ch] = n == 0 ? mins[ch] : MedianFast(buf.AsSpan(0, n));
             }
             finally
             {
@@ -117,38 +139,6 @@ public static class Normalizer
             }
         });
         return new NormalizationStats(mins, medians);
-    }
-
-    private static float MedianViaQuickSelect(ReadOnlySpan<float> span, float fallbackOnEmpty)
-    {
-        if (span.Length == 0) return fallbackOnEmpty;
-
-        // Rent rather than allocate -- a 3008^2 channel is 36 MB, 244 frames x
-        // 3 channels = ~26 GB of churn that the GC would otherwise have to
-        // collect. The pool returns oversize buffers, so we slice to the
-        // valid count.
-        var buffer = ArrayPool<float>.Shared.Rent(span.Length);
-        try
-        {
-            // Strip NaN -- MedianFast's quickselect uses < / > comparisons that
-            // are ill-defined on NaN (false-against-everything would land NaN
-            // in unpredictable partition positions). Single pass copy + filter.
-            var validCount = 0;
-            for (var i = 0; i < span.Length; i++)
-            {
-                var v = span[i];
-                if (!float.IsNaN(v))
-                {
-                    buffer[validCount++] = v;
-                }
-            }
-            if (validCount == 0) return fallbackOnEmpty;
-            return MedianFast(buffer.AsSpan(0, validCount));
-        }
-        finally
-        {
-            ArrayPool<float>.Shared.Return(buffer);
-        }
     }
 
     /// <summary>
@@ -228,19 +218,5 @@ public static class Normalizer
         {
             dst[i] = (src[i] - min) * scale;
         }
-    }
-
-    private static float MinIgnoringNaN(ReadOnlySpan<float> span)
-    {
-        // Vector<float>.Min returns NaN-poisoned results if any lane is NaN.
-        // Scalar loop with explicit NaN skip is simpler than mask logic and
-        // not the perf bottleneck (this runs once per frame at stats time).
-        var min = float.PositiveInfinity;
-        for (var i = 0; i < span.Length; i++)
-        {
-            var v = span[i];
-            if (!float.IsNaN(v) && v < min) min = v;
-        }
-        return float.IsPositiveInfinity(min) ? 0f : min;
     }
 }
