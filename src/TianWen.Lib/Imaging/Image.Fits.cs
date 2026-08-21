@@ -17,6 +17,27 @@ namespace TianWen.Lib.Imaging;
 
 public partial class Image
 {
+    /// <summary>
+    /// Whether a FITS header's DATAMIN/DATAMAX have to be recomputed from the pixels because the
+    /// file did not state a usable pair.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>This is a performance gate, and TianWen's own writer is on the good side of it.</b>
+    /// <c>WriteToFitsFile</c> emits both cards for every frame it writes -- which is every captured
+    /// light, flat, master and plate-solve input, since they all reach it through
+    /// <c>IExternal.WriteFitsFileAsync</c> -- so reading our own files skips a full-frame min/max
+    /// traversal. Third-party subs generally do not: measured on three ASI533 frames from N.I.N.A.,
+    /// none carried either card. Pinned by <c>FitsDataMinMaxGateTests</c>.</para>
+    /// <para>Extracted so the test asserts THIS rule rather than a second copy of it. A restated
+    /// predicate would keep passing after the real one changed, which is the failure mode that makes
+    /// a performance guard worthless.</para>
+    /// <para>Both halves are required: a file stating only DATAMAX leaves min NaN and recalculates
+    /// anyway, so writing one without the other buys nothing.</para>
+    /// </remarks>
+    internal static bool NeedsMinMaxRecalc(float minValue, float maxValue)
+        => float.IsNaN(minValue) || minValue < 0 || float.IsNaN(maxValue)
+            || maxValue is <= 0 || maxValue <= minValue;
+
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image)
     {
         return TryReadFitsFile(fileName, out image, out _);
@@ -548,7 +569,7 @@ public partial class Image
 
         var minValue = (float)hdu.MinimumValue;
         var maxValue = (float)hdu.MaximumValue;
-        bool needsMinMaxValRecalc = float.IsNaN(minValue) || minValue < 0 || float.IsNaN(maxValue) || maxValue is <= 0 || maxValue <= minValue;
+        bool needsMinMaxValRecalc = NeedsMinMaxRecalc(minValue, maxValue);
         if (needsMinMaxValRecalc)
         {
             maxValue = float.MinValue;
@@ -601,6 +622,14 @@ public partial class Image
             RecalcMinMax(imgChannels, channelCount, ref minValue, ref maxValue);
         }
 
+        // No min/max tracking here on purpose: RecalcMinMax below computes exactly the same two
+        // values from the same planes, vectorised, under the same needsMinMaxValRecalc flag -- so
+        // tracking them inline was a scalar duplicate of a pass that runs anyway, paid as a branch
+        // and two MathF calls on every pixel of the hot conversion loop. The NaN semantics match:
+        // the guard here skipped NaN and TensorPrimitives MinNumber/MaxNumber skip it too.
+        //
+        // Not a hypothetical path -- a real sub carries no DATAMIN/DATAMAX (measured on three ASI533
+        // frames), so needsMinMaxValRecalc is TRUE for the files this reader exists to read.
         void ConvertChannel<T>(T[,] src, float[,] dst) where T : struct, INumberBase<T>
         {
             var dstSpan = dst.AsSpan2D();
@@ -609,13 +638,7 @@ public partial class Image
                 var row = dstSpan.GetRowSpan(h);
                 for (int w = 0; w < width; w++)
                 {
-                    var val = bscale * float.CreateTruncating(src[h, w]) + bzero;
-                    row[w] = val;
-                    if (needsMinMaxValRecalc && !float.IsNaN(val))
-                    {
-                        maxValue = MathF.Max(maxValue, val);
-                        minValue = MathF.Min(minValue, val);
-                    }
+                    row[w] = bscale * float.CreateTruncating(src[h, w]) + bzero;
                 }
             }
         }

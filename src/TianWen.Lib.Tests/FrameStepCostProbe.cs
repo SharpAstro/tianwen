@@ -99,8 +99,27 @@ namespace TianWen.Lib.Tests
             var openMs = t.Elapsed.TotalMilliseconds;
             var openAlloc = GC.GetAllocatedBytesForCurrentThread() - before;
 
+            // The same pixels, rewritten by OUR writer, which states DATAMIN/DATAMAX. Reading that
+            // back skips the vectorised min/max traversal the gate exists for, so the difference is
+            // what those two cards are worth on the read -- and third-party subs carry neither.
+            var rewritten = Path.Combine(Path.GetTempPath(), $"tw-rewrite-{Guid.NewGuid():N}.fits");
+            double rewrittenMs;
+            try
+            {
+                image.WriteToFitsFile(rewritten);
+                Image.TryReadFitsFile(rewritten, out _, out _);   // warm the new file
+                t.Restart();
+                Image.TryReadFitsFile(rewritten, out _, out _);
+                rewrittenMs = t.Elapsed.TotalMilliseconds;
+            }
+            finally
+            {
+                if (File.Exists(rewritten)) { File.Delete(rewritten); }
+            }
+
             output.WriteLine($"{name,-56} {sizeMb,7:F1} MB  {w}x{h}x{channels} ({mp:F1} MP) {image.BitDepth}");
             output.WriteLine($"    read (unpooled) {readMs,8:F1} ms   alloc {readAlloc / 1048576.0,8:F1} MB");
+            output.WriteLine($"    read (ours, DATAMIN/MAX stated) {rewrittenMs,8:F1} ms");
             output.WriteLine($"    read (pooled)   {pooledMs,8:F1} ms   alloc {pooledAlloc / 1048576.0,8:F1} MB");
             output.WriteLine($"    Statistics x{channels}     {statsMs,8:F1} ms");
             output.WriteLine($"    OpenAsync TOTAL {openMs,8:F1} ms   alloc {openAlloc / 1048576.0,8:F1} MB"
