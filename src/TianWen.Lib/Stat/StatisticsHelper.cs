@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Numerics;
 using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 
@@ -119,6 +120,96 @@ public static class StatisticsHelper
         k = Math.Clamp(k, 0, n - 1);
         QuickSelect(values, k);
         return values[k];
+    }
+
+    /// <summary>
+    /// Median and median absolute deviation over ONE buffer, in place: selects the median,
+    /// overwrites each element with its absolute deviation from it, then selects again.
+    /// </summary>
+    /// <remarks>
+    /// <para>This shape was written out longhand in four places, and the thing worth
+    /// centralising is not the six lines -- it is the CONTRACT that makes them correct. A
+    /// selection permutes the buffer but loses no values, and an absolute deviation is computed
+    /// per element independently of order, so the second selection sees the right multiset
+    /// without a second buffer. Two of the four call sites carried a comment explaining that,
+    /// which is a good sign it is not obvious; a third
+    /// (<see cref="Image.GetStarMaskedMedianAndMADScaledToUnit"/>) had missed it and allocated a
+    /// second 6 MB array per channel, and a fourth (the plate solver's residual clip) had missed
+    /// it differently and recomputed every residual from source in a second pass.</para>
+    /// <para>The deviation pass is vectorised here, so sharing it is faster than the scalar
+    /// copies it replaces rather than merely tidier. <c>Vector.Abs</c> clears a sign bit and
+    /// rounds nothing, so the result is bit-identical to the scalar form.</para>
+    /// <para>The buffer is left holding deviations, not the input values.</para>
+    /// </remarks>
+    public static (float Median, float Mad) MedianAndMad(Span<float> values)
+    {
+        var median = MedianFast(values);
+        AbsoluteDeviationsInPlace(values, median);
+        return (median, MedianFast(values));
+    }
+
+    /// <summary>
+    /// As <see cref="MedianAndMad(Span{float})"/> but using the <c>sorted[n / 2]</c> convention
+    /// for both selections -- the UPPER of the two middle values when <paramref name="values"/>
+    /// has an even length, where <see cref="MedianFast(Span{float})"/> averages them.
+    /// </summary>
+    /// <remarks>
+    /// Exists because <see cref="Image.GetStarMaskedMedianAndMADScaledToUnit"/> feeds the stretch
+    /// and must not silently change convention. The two are a named pair rather than one method
+    /// with a flag because the difference is a statistical definition, not a mode: it is exactly
+    /// the distinction that no real image can reveal (a quantised background ties the two middle
+    /// samples, so swapping them leaves every fixture assertion green -- measured, see
+    /// <c>NthSmallestTests</c>), which is why it has to be legible at the call site.
+    /// </remarks>
+    public static (float Median, float Mad) UpperMedianAndMad(Span<float> values)
+    {
+        var k = values.Length / 2;
+        var median = NthSmallest(values, k);
+        AbsoluteDeviationsInPlace(values, median);
+        return (median, NthSmallest(values, k));
+    }
+
+    /// <summary>Double-precision counterpart to <see cref="MedianAndMad(Span{float})"/>.</summary>
+    public static (double Median, double Mad) MedianAndMad(Span<double> values)
+    {
+        var median = MedianFast(values);
+        AbsoluteDeviationsInPlace(values, median);
+        return (median, MedianFast(values));
+    }
+
+    /// <summary>
+    /// Overwrites each element with its absolute deviation from <paramref name="centre"/>. One
+    /// pass, vectorised in the same shape as <c>Normalizer.NormalizeVec</c>.
+    /// </summary>
+    private static void AbsoluteDeviationsInPlace(Span<float> values, float centre)
+    {
+        var width = Vector<float>.Count;
+        var centreVec = new Vector<float>(centre);
+        var i = 0;
+        for (; i <= values.Length - width; i += width)
+        {
+            Vector.Abs(new Vector<float>(values[i..]) - centreVec).CopyTo(values[i..]);
+        }
+        for (; i < values.Length; i++)
+        {
+            values[i] = MathF.Abs(values[i] - centre);
+        }
+    }
+
+    /// <summary>Double-precision counterpart to the above.</summary>
+    private static void AbsoluteDeviationsInPlace(Span<double> values, double centre)
+    {
+        var width = Vector<double>.Count;
+        var centreVec = new Vector<double>(centre);
+        var i = 0;
+        for (; i <= values.Length - width; i += width)
+        {
+            Vector.Abs(new Vector<double>(values[i..]) - centreVec).CopyTo(values[i..]);
+        }
+        for (; i < values.Length; i++)
+        {
+            values[i] = Math.Abs(values[i] - centre);
+        }
     }
 
     /// <summary>

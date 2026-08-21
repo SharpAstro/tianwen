@@ -1131,12 +1131,7 @@ public static class DatasetPsfNoiseReport
         }
         if (n == 0) return 0.0;
         var slice = buf.AsSpan(0, n);
-        var median = StatisticsHelper.MedianFast(slice);
-        for (var i = 0; i < slice.Length; i++)
-        {
-            slice[i] = MathF.Abs(slice[i] - median);
-        }
-        var mad = StatisticsHelper.MedianFast(slice);
+        var (_, mad) = StatisticsHelper.MedianAndMad(slice);
         var max = master.MaxValue;
         return max > 0 ? mad / max : mad;
     }
