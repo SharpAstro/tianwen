@@ -213,9 +213,20 @@ need them at load (stretch stats, star detection), then release. Steady state fa
 
 ### Where the work lands, concretely
 
-- `VkFitsImagePipeline.UploadChannelTexture` / `CreateChannelImage` / `CreateChannelImageView` --
-  `VkFormat.R32Sfloat` is written at six sites (lines around 263, 1015, 1052, 1085, 1098 plus the
-  format probe at 908). Format becomes per-channel state derived from the document's `BitDepth`.
+- `VkFitsImagePipeline.UploadChannelTexture` / `CreateChannelTexture` -- **DONE.** The count above
+  said six sites and was wrong: 1098 and 1124 are `CreateHistogramTexture`, whose float bin data
+  must STAY `R32Sfloat`, and 443/1040 are its uploads. The channel sites are 263 (upload), 1015 (the
+  1x1 placeholder), 1052 (imageCI) and 1085 (viewCI). Format is now per-channel state
+  (`_channelFormats`) and **part of the recreate condition, not just the size** -- a texture cannot
+  change texel format in place, so an 8-bit file opened after a float one at identical dimensions
+  must still reallocate, or the copy reinterprets the new bytes through the old format and draws
+  garbage at the right size. `ReadbackChannelFirstFloats` divides by 255 for a UNORM channel so the
+  test diagnostic keeps returning [0,1] like the sampler does.
+  Measured on an Adreno X1-85 at 256x256: **R8Unorm is 0.247 of R32Sfloat** (65,664 B against
+  266,368 B, driver-reported so alignment padding is included), via the new
+  `ChannelDeviceBytes` -- the `StagingBufferSize` pattern, because a `VkImage` is invisible to both
+  the GC and working set. Pinned by `GpuChannelFormatTests`; dropping the format term from the
+  recreate condition fails all three.
 - `ImageRendererBase.UploadDocumentTextures` -- picks what to upload; already per-channel.
 - `AstroImageDocument` -- holds `UnstretchedImage` (`AstroImageDocument.cs:51`). D3' adds the retained
   raster beside it; D1' is what removes the float planes from that field.
