@@ -200,6 +200,10 @@ The seam that actually works is **what the document HOLDS**, in two steps:
 **D3' -- the document retains the source raster and uploads it directly.**
 
 - Costs +3 B/px to hold, saves 9 B/px of device memory: **net -6 B/px**, with no re-quantise step.
+  **Measured, not projected** (step 4, `GpuChannelFormatTests`, 2048x1536, driver-reported so
+  alignment padding is in): RGB device 37,896,192 B -> 9,437,184 B = **-9.05 B/px**, held +3.00,
+  **net -6.05 B/px**; mono **-3.02** device, +1.00 held, **net -2.02 B/px**. Only the DELTA is used,
+  never either total, so a channel a case does not upload cancels out.
 - No `IPreviewSource` change: the existing float accessor keeps working, because the float planes are
   still there. Only the upload path and the texture format move.
 - Shippable alone, and it is exactly the data change D1' builds on rather than something D1' undoes.
@@ -222,11 +226,17 @@ need them at load (stretch stats, star detection), then release. Steady state fa
   must still reallocate, or the copy reinterprets the new bytes through the old format and draws
   garbage at the right size. `ReadbackChannelFirstFloats` divides by 255 for a UNORM channel so the
   test diagnostic keeps returning [0,1] like the sampler does.
-  Measured on an Adreno X1-85 at 256x256: **R8Unorm is 0.247 of R32Sfloat** (65,664 B against
-  266,368 B, driver-reported so alignment padding is included), via the new
+  Measured on an Adreno X1-85 at 256x256: **R8Unorm is 0.246 of R32Sfloat** (196,608 B against
+  798,720 B over all three channels, driver-reported so alignment padding is included), via the new
   `ChannelDeviceBytes` -- the `StagingBufferSize` pattern, because a `VkImage` is invisible to both
   the GC and working set. Pinned by `GpuChannelFormatTests`; dropping the format term from the
   recreate condition fails all three.
+  - **That test was order-dependent until step 4 caught it, and the failure mode is worth knowing:**
+    `ChannelDeviceBytes` sums ALL THREE channels, so uploading only channel 0 measures it against
+    whatever the other two happen to hold. It read 0.247 for a long time purely because nothing
+    before it had uploaded anything big; adding a 2048x1536 case to the same shared fixture made it
+    report **0.969**, i.e. the format change having achieved nothing. A per-channel claim must
+    upload every channel, or difference two reads.
 - `ImageRendererBase.UploadDocumentTextures` -- **DONE.** Each of the three upload sites (raw Bayer,
   3-channel composite, single-channel view) now tries `TryUploadRetainedRaster` first and falls back
   to the float span. Three things about the shape are load-bearing:
@@ -414,7 +424,7 @@ sizes (the `StagingBufferSize` pattern) for the device half.
 | A | **DONE** -- M1 | Self-contained, one repo, no API design. Fixes the cost that persists across documents -- the one a user experiences as "it got slow after I opened that file". |
 | B | **DONE** -- M2 in `Codecs` (3.11) | A new public API on `SharpAstro.Tiff` plus a release. Second, so A has shipped by the time the pin moves. |
 | C | **CODE DONE**, pin held until 3.11 publishes -- M2 in `tianwen` | Follows B's release; the codec family floats per minor, so the pin edit is one line. |
-| D | **DESIGNED** -- M3, split into D1/D2/D3 above | The design is written; D3 (device-only) is the recommended first step and needs no API change. D1 demotes the float planes to a transient. D2 (depth-agnostic star detection) is gated on MEASURING that star detection is what holds them resident. |
+| D | **D3' DONE** (measured -6.05 B/px RGB, -2.02 mono); D1'/D2 designed -- M3 above | D3' shipped first as recommended: device-only, no API change. D1' demotes the float planes to a transient and is the next decision, to be taken against measurements with D3' in place. D2 (depth-agnostic star detection) stays gated on MEASURING that star detection is what holds them resident -- still an assumption. 16-bit retention is gated behind D1' too: the same arithmetic gives net 0 while the float planes stay resident. |
 
 ## Verification
 

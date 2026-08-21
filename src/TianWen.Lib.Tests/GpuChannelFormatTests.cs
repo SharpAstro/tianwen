@@ -113,6 +113,14 @@ public sealed class GpuChannelFormatTests : IClassFixture<OffscreenGpuFixture>
     /// requirement rather than a computed <c>w * h</c>, so alignment padding is included -- that is
     /// what the memory claim in the plan is actually about.
     /// </summary>
+    /// <remarks>
+    /// <b>Every channel is uploaded, because <c>ChannelDeviceBytes</c> is a sum over all three.</b>
+    /// Uploading only channel 0 leaves the other two holding whatever the previous test in this shared
+    /// fixture left there, and a document-sized leftover swamps a 256x256 read -- measured at ratio
+    /// 0.969 when a 2048x1536 case ran first, which reads as the format change having done nothing.
+    /// It passed for a long time only because nothing before it had uploaded anything big, so this was
+    /// order-dependence rather than a measurement.
+    /// </remarks>
     [Fact]
     public void AnEightBitChannelCostsAboutAQuarterOfTheDeviceMemory()
     {
@@ -123,20 +131,21 @@ public sealed class GpuChannelFormatTests : IClassFixture<OffscreenGpuFixture>
         }
 
         const int W = 256, H = 256;
+        const int Channels = 3;
         var floats = new float[W * H];
         var bytes = new byte[W * H];
 
         var (floatBytes, unormBytes) = _gpu.Invoke(() =>
         {
             var pipeline = _gpu.Pipeline!;
-            pipeline.UploadChannelTexture(floats, 0, W, H);
+            for (var c = 0; c < Channels; c++) { pipeline.UploadChannelTexture(floats, c, W, H); }
             var asFloat = pipeline.ChannelDeviceBytes;
-            pipeline.UploadChannelTexture(bytes, 0, W, H);
+            for (var c = 0; c < Channels; c++) { pipeline.UploadChannelTexture(bytes, c, W, H); }
             var asUnorm = pipeline.ChannelDeviceBytes;
             return (asFloat, asUnorm);
         });
 
-        _output.WriteLine($"{W}x{H}: R32Sfloat = {floatBytes} B, R8Unorm = {unormBytes} B, " +
+        _output.WriteLine($"{W}x{H} x{Channels}ch: R32Sfloat = {floatBytes} B, R8Unorm = {unormBytes} B, " +
             $"ratio {unormBytes / (double)floatBytes:F3}");
 
         floatBytes.ShouldBeGreaterThan(0L);
@@ -144,5 +153,66 @@ public sealed class GpuChannelFormatTests : IClassFixture<OffscreenGpuFixture>
         // A quarter, with room for the driver's alignment granularity at this size.
         (unormBytes / (double)floatBytes).ShouldBeLessThan(0.30);
         (unormBytes / (double)floatBytes).ShouldBeGreaterThan(0.20);
+    }
+
+    /// <summary>
+    /// D3' step 4: the NET figure, which is the only one that says whether the change pays. Holding
+    /// the raster costs host memory and uploading it saves device memory, so the two halves move in
+    /// opposite directions and neither alone is the answer.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Composed from two facts, not one heroic probe.</b> The DEVICE half is measured here,
+    /// every channel at once, from the driver's own reported requirement so alignment padding is
+    /// included. The HELD half is the size of the very array that was uploaded, which is what "retain
+    /// the source raster" means; that a real 8-bit FILE yields exactly <c>w * h</c> bytes per channel
+    /// is pinned on a real file by <c>ViewerByteTextureUploadTests</c>. Reading a file here as well
+    /// would re-test the importer and the memory claim no better.</para>
+    /// <para><b>Only the DELTA is used</b>, never either total. The fixture is shared across this
+    /// class, so a channel this case does not upload still holds whatever the previous test left in
+    /// it -- unchanged between the two reads, and therefore cancelled.</para>
+    /// <para>Neither half is visible to working set: a <c>VkImage</c> is invisible to the GC, and
+    /// run-to-run variance on a large document exceeds anything this change delivers (M2 in the plan
+    /// established that the hard way).</para>
+    /// </remarks>
+    [Theory]
+    [InlineData(1)]   // mono: the plan's -2 B/px
+    [InlineData(3)]   // RGB: the plan's -6 B/px, and the case that motivated D3'
+    public void AnEightBitDocumentPaysTwoFewerBytesPerPixelPerChannel(int channels)
+    {
+        if (!_gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available on this host ({_gpu.UnavailableReason})");
+            return;
+        }
+
+        // Document-sized rather than tile-sized: alignment padding is a smaller share of a big
+        // texture, so measuring on a 256x256 would flatter the result.
+        const int W = 2048, H = 1536;
+        var px = (double)W * H;
+
+        var floats = new float[W * H];
+        var bytes = new byte[W * H];
+
+        var (deviceFloat, deviceByte) = _gpu.Invoke(() =>
+        {
+            var pipeline = _gpu.Pipeline!;
+            for (var c = 0; c < channels; c++) { pipeline.UploadChannelTexture(floats, c, W, H); }
+            var asFloat = pipeline.ChannelDeviceBytes;
+            for (var c = 0; c < channels; c++) { pipeline.UploadChannelTexture(bytes, c, W, H); }
+            var asByte = pipeline.ChannelDeviceBytes;
+            return (asFloat, asByte);
+        });
+
+        // Negative: a saving. The held cost is the uploaded array itself, per channel.
+        var devicePerPx = (deviceByte - deviceFloat) / px;
+        var heldPerPx = channels * (bytes.Length / px);
+        var netPerPx = heldPerPx + devicePerPx;
+
+        _output.WriteLine($"{W}x{H} x{channels}ch: device {deviceFloat} B -> {deviceByte} B "
+            + $"({devicePerPx:F2} B/px), held +{heldPerPx:F2} B/px, NET {netPerPx:F2} B/px");
+
+        // 4 B/px of float becomes 1 of UNORM, so 3 per channel, less any alignment granularity.
+        devicePerPx.ShouldBeLessThan(-2.8 * channels);
+        netPerPx.ShouldBeLessThan(-1.8 * channels);
     }
 }
