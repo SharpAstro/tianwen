@@ -11,7 +11,7 @@
 //   into a VkImage offscreen framebuffer. Only re-render when:
 //   - New image loaded (NeedsTextureUpdate)
 //   - Stretch parameters changed (mode, shadows, midtones, highlights, boost, HDR)
-//   - Zoom or pan changed
+//   - Zoom changed, or a pan left the cached margin (constraint 3 below)
 //   - Star overlay toggled
 //   - WCS grid toggled
 //   - Channel view changed
@@ -20,23 +20,51 @@
 //   Each frame: blit cached Layer 1 framebuffer → render toolbar, status bar,
 //   file list, info panel on top. This is just text quads; very cheap.
 //
-// Implementation steps:
-//   1. Add offscreen VkImage + VkFramebuffer to VkFitsImagePipeline (same size as swapchain)
-//   2. Add a "blit" shader (fullscreen quad sampling the offscreen texture)
-//   3. Add ImageContentDirty flag to ViewerState: set by stretch/zoom/pan/toggle changes
-//   4. In OnRender: if ImageContentDirty → render Layer 1 to offscreen → clear flag
-//   5. Always: blit offscreen → render chrome overlay → present
-//   6. Handle resize: recreate offscreen framebuffer
+// THREE CONSTRAINTS, each already paid for elsewhere. Read them before writing the code.
+//
+// 1. The cache render MUST ride the frame: no extra submit, no extra fence, no wait, and never a
+//    barrier against an image this process does not currently own. That last one is exactly the
+//    inspector screenshot mistake (SdlVulkan.Renderer 57eceb8) -- ReadbackSwapchainRgba ran after
+//    vkQueuePresentKHR and transitioned the presented image without re-acquiring it, which the
+//    Khronos layer reports as a WRITE_AFTER_PRESENT hazard and which entitles the driver to park the
+//    whole queue, making it the leading candidate for the Adreno stuck-fence wedge. Note this is NOT
+//    a new upstream feature: VulkanContext.ThumbnailCapture.cs is already a secondary render target
+//    on the LIVE device, opened on the frame's own command buffer from the OnPreRenderPass hook,
+//    with the projection redirected and the pre-baked pipelines binding unchanged (its render pass
+//    keeps the swapchain's attachment formats, sample count and subpass refs). The cached layer is
+//    that class with three changes: finalLayout ShaderReadOnlyOptimal rather than TransferSrcOptimal,
+//    no readback buffer and no copy, and it persists across frames instead of being consumed once.
+//
+// 2. ONE TARGET PER FRAME-IN-FLIGHT, never one shared target. Re-rendering a shared cache writes an
+//    image the previous submitted frame is still sampling -- the hazard VkFontAtlas.Grow guards with
+//    a drain, and which "the Adreno X1-85 punishes by failing the next vkQueueSubmit". Draining per
+//    dirty frame is not the answer here: during a zoom drag EVERY frame is dirty, so the stall would
+//    land on the hot path. With MaxFramesInFlight targets a content change marks all of them dirty
+//    and each re-renders on its next turn, so a change costs 2 image renders and then nothing, and a
+//    continuous zoom is never worse than today.
+//
+// 3. The cache is IMAGE-space with a margin, not pane-space, or panning gains nothing -- a pane-sized
+//    cache invalidates on every pan, which is a case this exists to fix. Allocate pane + margin once
+//    at capacity and never resize on the render thread (ThumbnailCapture holds the same discipline:
+//    "fixed allocated capacity, never resized on the render thread"); re-allocate only on window
+//    resize, which already drains. A pan inside the margin is then a blit at an offset and a pan
+//    beyond it re-renders. At 1.5x linear margin on a 1920x1080 pane that is 18.7 MB per slot, 37 MB
+//    for two.
 //
 // Expected impact: mouse-hover GPU usage drops from ~20% to <2% (just text rendering).
 // The full image render only runs on actual content changes (~1-5 fps during interaction).
+// Ablation on a solved frame, 1:1 and maximized: 2.94 ms baseline, 4.22 ms with the A/B split,
+// 4.97 ms with Calibrate + NeutBg -- so the shader, not the chrome, is what a redraw costs.
 //
 // Files to change:
-//   - SdlVulkan.Renderer: VkRenderer needs render-to-texture support (new feature)
+//   - SdlVulkan.Renderer: a sampleable variant of ThumbnailCapture (finalLayout, no readback), and
+//     make the bounded TryWaitPriorFramesIdle public so a consumer owning GPU images can honour the
+//     rule in constraint 2 without an unbounded vkDeviceWaitIdle
 //   - TianWen.UI.Shared/VkFitsImagePipeline.cs: offscreen framebuffer management
 //   - TianWen.UI.Shared/VkImageRenderer.cs: split RenderImageQuad into cached/blit paths
 //   - TianWen.UI.Abstractions/ImageRendererBase.cs: add ImageContentDirty flag logic
-//   - TianWen.UI.Abstractions/ViewerState.cs: add ImageContentDirty property
+//   - TianWen.UI.Abstractions/ViewerState.cs: add ImageContentDirty state (a per-slot dirty mask,
+//     not one bool, per constraint 2)
 
 using System;
 using System.IO;
