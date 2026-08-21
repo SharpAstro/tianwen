@@ -24,6 +24,16 @@ namespace TianWen.Lib.Tests;
 /// <para><see cref="GC.GetAllocatedBytesForCurrentThread"/> has none of that problem. The decode is
 /// synchronous on the calling thread, the raster is one big array, and the count is exact -- so
 /// "was a raster allocated" becomes a question with a yes/no answer instead of a statistic.</para>
+///
+/// <para><b>D3' narrowed this invariant on purpose, and this test caught it doing so.</b> M2's rule
+/// was "no raster-sized allocation beside the float planes" full stop, and D3' now retains the
+/// 8-bit samples so the viewer can upload THOSE instead of the widened floats. So the rule is now
+/// narrower and still meaningful: the intermediate that M2 removed was <b>4 B/px</b> of assembled
+/// float raster whose only purpose was to be read once, and it is still gone; what exists now is
+/// <b>1 B/px</b> that is kept because it saves 3 B/px of device memory. The bound below therefore
+/// accounts for exactly one 8-bit raster and is paired with an assertion that the retention
+/// actually happened -- otherwise the extra headroom would silently license the very allocation
+/// the test exists to forbid.</para>
 /// </summary>
 [Collection("Imaging")]
 public class TiffStreamingDecodeAllocationTests
@@ -34,10 +44,11 @@ public class TiffStreamingDecodeAllocationTests
     private const int Channels = 3;
 
     /// <summary>
-    /// The float planes are unavoidable -- they are the output. What must NOT appear beside them is a
-    /// second, raster-sized allocation. The bound is generous on purpose: it only has to be tight
-    /// enough to exclude the raster, and a bound tuned finer than that would fail on an unrelated
-    /// allocation change and teach everyone to widen it.
+    /// The float planes are unavoidable -- they are the output, and since D3' one 8-bit raster is
+    /// deliberate. What must NOT appear is a SECOND raster-sized allocation: the assembled float
+    /// intermediate M2 deleted, or the file slurped into a byte[]. The bound is generous on purpose:
+    /// it only has to be tight enough to exclude those, and a bound tuned finer would fail on an
+    /// unrelated allocation change and teach everyone to widen it.
     /// </summary>
     /// <remarks>No LZW: TiffWriter cannot ENCODE it, and until SharpAstro.Tiff 3.11 asking for it
     /// silently wrote raw bytes labelled LZW. That corrupt fixture is what surfaced the writer bug --
@@ -52,6 +63,8 @@ public class TiffStreamingDecodeAllocationTests
         {
             var floatPlaneBytes = (long)Width * Height * Channels * sizeof(float);
             var rasterBytes = (long)Width * Height * Channels;   // 8-bit samples
+            // D3': an 8-bit page keeps its original samples for the R8Unorm upload path.
+            var retainedRasterBytes = rasterBytes;
 
             // Warm the path once: first-touch statics, the file read buffer and any JIT allocations
             // would otherwise land in the measured window and make the bound meaningless.
@@ -73,13 +86,21 @@ public class TiffStreamingDecodeAllocationTests
             // the bound can say so.
             var fileBytes = new FileInfo(path).Length;
 
-            // Half a raster of headroom above the output: comfortably clear of the per-strip scratch,
-            // comfortably below either "a raster got allocated" or "the file got slurped".
-            var ceiling = floatPlaneBytes + rasterBytes / 2;
+            // The retention is what the extra term below pays for, so assert it happened. Without
+            // this the widened ceiling would quietly permit a stray raster instead of accounting
+            // for a chosen one.
+            image.HasSourceRaster.ShouldBeTrue(
+                "an 8-bit page must retain its samples, which is what the raster term in the ceiling is");
+
+            // Half a raster of headroom above the two terms we expect: comfortably clear of the
+            // per-strip scratch, comfortably below either "a SECOND raster got allocated" or "the
+            // file got slurped".
+            var ceiling = floatPlaneBytes + retainedRasterBytes + rasterBytes / 2;
             allocated.ShouldBeLessThan(ceiling,
-                $"allocated {allocated:N0} B; the float planes are {floatPlaneBytes:N0} B and are the only " +
-                $"large term that should remain -- a raster would add {rasterBytes:N0} B, slurping the " +
-                $"file would add {fileBytes:N0} B");
+                $"allocated {allocated:N0} B; expected the float planes ({floatPlaneBytes:N0} B) plus " +
+                $"one retained 8-bit raster ({retainedRasterBytes:N0} B) and nothing else large -- a " +
+                $"second raster would add {rasterBytes:N0} B, slurping the file would add " +
+                $"{fileBytes:N0} B");
         }
         finally
         {

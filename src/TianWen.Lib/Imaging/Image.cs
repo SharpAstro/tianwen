@@ -14,7 +14,7 @@ namespace TianWen.Lib.Imaging;
 /// the raw-array constructor overload wraps legacy <c>float[][,]</c> call sites.
 /// </summary>
 public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, float pedestal, ImageMeta imageMeta,
-    bool samplesAreUnitReferred = false)
+    bool samplesAreUnitReferred = false, ImmutableArray<byte[]> sourceRaster = default)
 {
     public int Width
     {
@@ -62,6 +62,49 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     public bool SamplesAreUnitReferred => samplesAreUnitReferred;
 
     /// <summary>
+    /// True when the ORIGINAL 8-bit samples of at least one channel were kept alongside the float
+    /// planes, so a viewer can upload them directly instead of the widened floats.
+    /// </summary>
+    public bool HasSourceRaster => !sourceRaster.IsDefaultOrEmpty;
+
+    /// <summary>
+    /// The original 8-bit samples of <paramref name="channel"/>, flat and row-major, matching the
+    /// float plane's <c>[Height, Width]</c> layout. False when this image carries none.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why keep bytes we already widened:</b> the float plane costs 4 B/px on the host AND
+    /// 4 B/px on the GPU, while these bytes cost 1 and let the texture be <c>R8Unorm</c> for a
+    /// further 1 B/px there. For a document whose source WAS 8-bit that is not a quality trade at
+    /// all -- the float plane was derived from these very bytes, so uploading them is lossless and
+    /// skips a re-quantise. See D3' in <c>docs/plans/viewer-memory-footprint.md</c>.</para>
+    /// <para><b>Only an importer sets this, and every other construction drops it. That is
+    /// deliberate, not an oversight.</b> The raster describes the samples as they were READ; any
+    /// transform that rescales, inverts, debayers, stacks or otherwise recomputes pixels makes it
+    /// a lie. Because it is an opt-in constructor argument, a transform that builds a fresh image
+    /// loses it automatically -- which is the fail-closed direction. Never forward it the way
+    /// <see cref="SamplesAreUnitReferred"/> is forwarded: that describes a SCALE, which survives a
+    /// copy, whereas this describes SPECIFIC BYTES, which does not.</para>
+    /// <para>A shape mismatch is declined rather than thrown, because the alternative to no raster
+    /// is a texture uploaded from the wrong number of bytes -- which draws a plausible-looking
+    /// wrong picture instead of failing.</para>
+    /// </remarks>
+    public bool TryGetSourceRaster(int channel, out ReadOnlySpan<byte> raster)
+    {
+        if (!sourceRaster.IsDefaultOrEmpty
+            && (uint)channel < (uint)sourceRaster.Length
+            && (uint)channel < (uint)channels.Length
+            && sourceRaster[channel] is { } plane
+            && plane.Length == channels[channel].Length)
+        {
+            raster = plane;
+            return true;
+        }
+
+        raster = default;
+        return false;
+    }
+
+    /// <summary>
     /// Image-wide full-scale value, derived as the maximum over the channels' <see cref="Channel.MaxValue"/>.
     /// Legacy raw-array constructions stamp the same image-wide value on every channel, so this reads
     /// back exactly what was passed in; channel-typed constructions keep per-channel maxima intact
@@ -79,8 +122,9 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// for new code: it keeps per-channel min/max and lets a camera buffer travel with its channel.
     /// </summary>
     public Image(float[][,] data, BitDepth bitDepth, float maxValue, float minValue, float pedestal, ImageMeta imageMeta,
-        bool samplesAreUnitReferred = false)
-        : this(WrapRawPlanes(data, minValue, maxValue), bitDepth, pedestal, imageMeta, samplesAreUnitReferred)
+        bool samplesAreUnitReferred = false, ImmutableArray<byte[]> sourceRaster = default)
+        : this(WrapRawPlanes(data, minValue, maxValue), bitDepth, pedestal, imageMeta, samplesAreUnitReferred,
+            sourceRaster)
     {
     }
 
