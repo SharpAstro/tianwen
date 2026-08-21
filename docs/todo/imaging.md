@@ -207,6 +207,38 @@ the calibration temporal/tolerance work and shipped with it.
   test could NOT distinguish `MedianFast` from the upper median on any real fixture (swapping it in
   left every assertion green), because a quantised background ties the two middle samples. That
   convention is pinned on synthetic distinct values instead.
+- [x] **DONE 2026-08-21. Allocation on the stats paths, measured after the fact -- and it
+  corrected two claims made from reading the code.** Three commits on this branch asserted
+  allocation wins that had never been measured. `StatsAllocationProbe`
+  (`TIANWEN_STATS_ALLOC_PROBE=1`, `-c Release`) times them with
+  `GC.GetTotalAllocatedBytes(precise: true)` -- process-wide, so it counts the `Parallel.For`
+  worker threads these paths use, which `GC.GetAllocatedBytesForCurrentThread` would miss, and
+  which working set cannot see at all. 3008x3008 x3:
+
+  | path | before | after |
+  |---|---|---|
+  | star-masked median+MAD (x3 channels) | 12.83 MB/call | **6.49 MB/call** |
+  | `Normalizer.ComputeStats` whole image | 38.40 MB/call | 38.40 MB/call (no change) |
+  | `Normalizer.ComputeStats` box | 19.20 MB/call | **0.00 MB/call** |
+  | `Image.Statistics` (one channel) | 0.50 MB/call | **0.25 MB/call** |
+
+  Two corrections fall out of that. **The whole-image `Normalizer` path allocates exactly what it
+  did** -- the old one had ONE rent, not two (the min pass rented nothing), so fusing the passes
+  bought time and nothing else; two probe labels said "2 rents" and were wrong. And **the box path
+  went to zero, not merely halved**: two simultaneous same-bucket rents per channel across three
+  threads exceeded what the pool retained, so every call missed and allocated; one rent reuses
+  perfectly.
+
+  It also found a cost nobody had suspected: `Image.Histogram` built its bins in an
+  `ImmutableArray<uint>.Builder`, paying for the builder's backing array AND a second one because
+  `ToImmutableArray()` on a Builder copies. Now a plain `uint[]` wrapped by
+  `ImmutableCollectionsMarshal.AsImmutableArray` -- half the memory, the 64-call zero-fill loop
+  deleted (`new uint[]` is already zeroed), and bit-identical bins.
+
+  **`ArrayPool<float>.Shared` pools a 34 MB array**, verified in the probe rather than recalled;
+  the guess that it capped around 1 MB was wrong, which is why the whole-image path shows pool
+  behaviour and not raw allocation. GC collection counts stayed +0/0/0 at these rep counts, so no
+  claim is made about collection pressure -- only about bytes.
 - [ ] **`Image.Histogram` still has one measured lever left: parallel row bands, 32 -> 8 ms per
   24 MP channel.** Deliberately not taken. It needs per-band bin arrays plus a merge, and it
   reorders the `total_value` double summation, which feeds `hist_mean` -> `Background()`'s mode

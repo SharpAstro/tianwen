@@ -67,7 +67,7 @@ public class NormalizerStatsCostProbe(ITestOutputHelper output)
         // Inset box, the shape the stacking pipeline actually passes (footprint intersection AABB).
         var box = new Rectangle(180, 220, Size - 400, Size - 460);
 
-        Time("whole image  BEFORE (min pass + NaN-strip pass, 2 rents)", () => OldWholeImage(image));
+        Time("whole image  BEFORE (min pass + NaN-strip pass, 1 rent)", () => OldWholeImage(image));
         Time("whole image  AFTER  (fused, 1 rent)", () => Normalizer.ComputeStats(image));
         output.WriteLine("");
         Time("box          BEFORE (2-D copy + min pass + strip pass, 2 rents)", () => OldBox(image, box));
