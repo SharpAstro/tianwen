@@ -877,15 +877,11 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 if (!keep[i]) continue;
                 work[w++] = Math.Sqrt(duFwdRaw[i] * duFwdRaw[i] + dvFwdRaw[i] * dvFwdRaw[i]);
             }
-            medianResidual = StatisticsHelper.MedianFast(work.AsSpan(0, w));
-            w = 0;
-            for (var i = 0; i < n; i++)
-            {
-                if (!keep[i]) continue;
-                var resMag = Math.Sqrt(duFwdRaw[i] * duFwdRaw[i] + dvFwdRaw[i] * dvFwdRaw[i]);
-                work[w++] = Math.Abs(resMag - medianResidual);
-            }
-            mad = StatisticsHelper.MedianFast(work.AsSpan(0, w));
+            // MedianAndMad transforms `work` into deviations in place, so the second
+            // collection pass this used to run -- re-filtering on keep[] and recomputing every
+            // residual magnitude with a fresh Math.Sqrt -- is not needed. `work` is scratch and
+            // nothing reads it after this.
+            (medianResidual, mad) = StatisticsHelper.MedianAndMad(work.AsSpan(0, w));
             // sigma ≈ 1.4826 × MAD for normal-distributed residuals. Cap below
             // 0.5 px so the clip threshold never collapses below typical
             // centroid noise on a tight final cluster.

@@ -433,11 +433,7 @@ public static class Tycho2ColorCalibration
             return (inputRadiusArcsec, float.NaN, float.NaN);
         }
 
-        // MedianFast permutes the buffer in place but doesn't lose values, so
-        // we can compute deviations from the (now-permuted) buffer afterward.
-        var probeMedian = StatisticsHelper.MedianFast(residuals[..n]);
-        for (var i = 0; i < n; i++) residuals[i] = MathF.Abs(residuals[i] - probeMedian);
-        var probeMad = StatisticsHelper.MedianFast(residuals[..n]);
+        var (probeMedian, probeMad) = StatisticsHelper.MedianAndMad(residuals[..n]);
 
         // Tolerance = max(input, median + K * sigma) with safety floor. Cap
         // at the probe radius -- we never trust an estimate beyond what we

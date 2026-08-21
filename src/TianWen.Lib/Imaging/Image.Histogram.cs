@@ -403,30 +403,15 @@ public partial class Image
         }
 
         // Two medians, so historically two full Array.Sort of ~1.5 M samples (a 24 MP frame at
-        // stride 4). A median needs SELECTION, not a sort: NthSmallest is quickselect over the
-        // same buffer and returns the identical k-th order statistic, so this is bit-identical to
-        // the sort-and-index it replaces while dropping O(n log n) to expected O(n). Measured on
-        // the 24 MP 3-channel document-open path: 512 ms -> 67 ms for the pair.
+        // stride 4) plus a second 6 MB buffer for the deviations. A median needs SELECTION, not a
+        // sort, and the deviations can overwrite the same buffer -- see UpperMedianAndMad, which
+        // owns that contract for the four places that need it. Bit-identical: the k-th order
+        // statistic is a property of the multiset, so selection returns exactly what
+        // sort-and-index did. Measured on the 24 MP 3-channel document-open path: 512 -> 67 ms.
         //
-        // Note the convention: sorted[count / 2] is the UPPER median for even count, which is why
-        // this uses NthSmallest and NOT MedianFast (that averages the two middle values, and the
-        // result feeds the stretch).
-        //
-        // Normalizer.MedianViaQuickSelect made this same trade for the stacking hot path long ago
-        // ("~150 ms per channel, was ~1.5-2 s with sort-based path"); this file already had
-        // `using static StatisticsHelper` and kept sorting anyway.
-        var work = samples.AsSpan(0, count);
-        var median = NthSmallest(work, count / 2);
-
-        // MAD: median of absolute deviations from the median. Overwrite the SAME buffer -- the
-        // selection above permuted it but lost no values, and a deviation is computed per element
-        // independently of order, so the second selection sees the correct multiset. This also
-        // drops the second 6 MB allocation per channel.
-        for (var i = 0; i < count; i++)
-        {
-            work[i] = MathF.Abs(work[i] - median);
-        }
-        var mad = NthSmallest(work, count / 2);
+        // UPPER median (sorted[count / 2]), not MedianFast's average of the two middle values:
+        // this result feeds the stretch, so the convention is held deliberately.
+        var (median, mad) = UpperMedianAndMad(samples.AsSpan(0, count));
 
         var invMax = 1f / unitDivisor;
         // Return median in pedestal-subtracted unit-scaled space, matching
