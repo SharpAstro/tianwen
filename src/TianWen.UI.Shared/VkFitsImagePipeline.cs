@@ -96,7 +96,30 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     private readonly VkDeviceMemory[] _channelMemories = new VkDeviceMemory[ChannelCount];
     private readonly VkImageView[] _channelViews = new VkImageView[ChannelCount];
     private readonly int[] _channelWidth = new int[ChannelCount];
+    /// <summary>
+    /// Texel format of each channel texture. A document whose SOURCE was 8-bit uploads its
+    /// original bytes as <see cref="VkFormat.R8Unorm"/> instead of re-quantised floats, which is
+    /// a quarter of the device memory for the same picture -- and lossless with respect to the
+    /// file, since the float plane was itself derived from those bytes.
+    /// </summary>
+    /// <remarks>
+    /// <para>The shader needs no branch: <c>texture()</c> on a UNORM format returns a float
+    /// already normalised to [0,1], which is exactly the range the float path uploads (a document
+    /// is normalised on adopt). That equivalence is the reason this is a format change and not a
+    /// pipeline change.</para>
+    /// <para>Tracked per channel rather than per pipeline because the before/after split can hold
+    /// a retained set in one format while the live set is in the other.</para>
+    /// </remarks>
     private readonly int[] _channelHeight = new int[ChannelCount];
+    private readonly VkFormat[] _channelFormats = CreateFormats();
+    private readonly long[] _channelBytes = new long[ChannelCount];
+
+    private static VkFormat[] CreateFormats()
+    {
+        var formats = new VkFormat[ChannelCount];
+        Array.Fill(formats, VkFormat.R32Sfloat);
+        return formats;
+    }
 
     // Retained pre-enhance channel textures (the "before" half of the split). Populated ONLY by
     // TryRetainChannelsAsBefore, which MOVES the live handles here rather than copying any pixels --
@@ -165,7 +188,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         var api = _ctx.DeviceApi;
         var count = destination.Length;
-        var byteSize = (ulong)(count * sizeof(float));
+        // Follow the texel format: an 8-bit channel reads back one byte per texel, and sizing the
+        // scratch for floats would ask the driver for four times the data that exists.
+        var isByteFormat = _channelFormats[channel] == VkFormat.R8Unorm;
+        var byteSize = (ulong)(count * (isByteFormat ? sizeof(byte) : sizeof(float)));
 
         // Host-visible scratch buffer (separate from _stagingBuffer to avoid trampling it).
         VkBufferCreateInfo bufCI = new()
@@ -220,7 +246,21 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
                 void* mapped;
                 api.vkMapMemory(scratchMem, 0, byteSize, 0, &mapped);
-                new ReadOnlySpan<float>(mapped, count).CopyTo(destination);
+                if (isByteFormat)
+                {
+                    // Undo the UNORM encoding so callers see the same [0,1] floats they would get
+                    // from a float channel. This mirrors what the SAMPLER does, which is the whole
+                    // reason the shader needs no branch -- so the diagnostic must not either.
+                    var raw = new ReadOnlySpan<byte>(mapped, count);
+                    for (var i = 0; i < count; i++)
+                    {
+                        destination[i] = raw[i] / 255f;
+                    }
+                }
+                else
+                {
+                    new ReadOnlySpan<float>(mapped, count).CopyTo(destination);
+                }
                 api.vkUnmapMemory(scratchMem);
             }
             finally
@@ -236,8 +276,12 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     /// <summary>
     /// Uploads a R32_SFLOAT 2D image into channel slot <paramref name="channel"/> (0-based).
-    /// Creates or recreates the texture if dimensions changed.
+    /// Creates or recreates the texture if the dimensions OR the format changed.
     /// </summary>
+    /// <remarks>
+    /// For a document whose source was 8-bit, prefer the <see cref="ReadOnlySpan{T}"/>-of-byte
+    /// overload: same picture, a quarter of the device memory, and no re-quantise step.
+    /// </remarks>
     public void UploadChannelTexture(ReadOnlySpan<float> data, int channel, int width, int height)
     {
         if ((uint)channel >= ChannelCount)
@@ -246,11 +290,49 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         var byteSize = (ulong)(data.Length * sizeof(float));
         EnsureStagingBuffer(byteSize);
         CopyToStaging(data, byteSize);
+        UploadStagedChannel(channel, width, height, byteSize, VkFormat.R32Sfloat);
+    }
 
-        if (_channelWidth[channel] != width || _channelHeight[channel] != height)
+    /// <summary>
+    /// Uploads an 8-bit single-component 2D image into channel slot <paramref name="channel"/> as
+    /// <see cref="VkFormat.R8Unorm"/>. One quarter of the device memory of the float overload for the
+    /// same picture, and for a document whose source was 8-bit it is also lossless: the float plane
+    /// the other overload would upload was derived from these very bytes.
+    /// </summary>
+    /// <remarks>
+    /// The sampler returns [0,1] for a UNORM format, matching what the float path uploads, so the
+    /// fragment shader is unchanged and unaware. Do NOT use this for data whose range is not already
+    /// [0,1] at 8-bit precision -- a live camera frame stays on the float overload.
+    /// </remarks>
+    public void UploadChannelTexture(ReadOnlySpan<byte> data, int channel, int width, int height)
+    {
+        if ((uint)channel >= ChannelCount)
+            throw new ArgumentOutOfRangeException(nameof(channel));
+
+        var byteSize = (ulong)data.Length;
+        EnsureStagingBuffer(byteSize);
+        CopyToStaging(data, byteSize);
+        UploadStagedChannel(channel, width, height, byteSize, VkFormat.R8Unorm);
+    }
+
+    /// <summary>
+    /// Shared tail of both upload overloads: recreate the texture when its geometry OR its format
+    /// changed, rebind, then copy from the staging buffer already filled by the caller.
+    /// </summary>
+    /// <remarks>
+    /// <b>The format is part of the recreate condition, not just the size.</b> A texture cannot
+    /// change texel format in place, so opening an 8-bit file after a float one (or the reverse) at
+    /// identical dimensions must still allocate: without the format term the copy would reinterpret
+    /// the new bytes through the old format and draw garbage at the right size, which is the failure
+    /// mode most likely to look like a stretch bug.
+    /// </remarks>
+    private void UploadStagedChannel(int channel, int width, int height, ulong byteSize, VkFormat format)
+    {
+        if (_channelWidth[channel] != width || _channelHeight[channel] != height
+            || _channelFormats[channel] != format)
         {
             DestroyChannelTexture(channel);
-            CreateChannelTextureOrFreeBefore(channel, width, height);
+            CreateChannelTextureOrFreeBefore(channel, width, height, format);
             BindChannelSampler(channel, _channelViews[channel], _imageSamplerSet);
             if (!HasBeforeChannels)
             {
@@ -260,7 +342,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             }
         }
 
-        UploadToImage(_channelImages[channel], (uint)width, (uint)height, byteSize, VkFormat.R32Sfloat);
+        UploadToImage(_channelImages[channel], (uint)width, (uint)height, byteSize, format);
         _channelWidth[channel] = width;
         _channelHeight[channel] = height;
     }
@@ -277,6 +359,26 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// tight memory is by exactly the amount this cache is costing.
     /// </summary>
     public long BeforeChannelBytes => _beforeChannelBytes;
+
+    /// <summary>
+    /// Device memory currently held by the LIVE channel textures, in bytes, as the driver reported
+    /// it (<c>VkMemoryRequirements.size</c>, so it includes any alignment padding).
+    /// </summary>
+    /// <remarks>
+    /// Exists so a texture-format change can be measured instead of argued: a <c>VkImage</c> is
+    /// invisible to the GC, so neither <c>GC.GetTotalAllocatedBytes</c> nor working set can see the
+    /// device half of what the viewer holds. Same reasoning as
+    /// <see cref="StagingBufferSize"/> and <see cref="BeforeChannelBytes"/>.
+    /// </remarks>
+    public long ChannelDeviceBytes
+    {
+        get
+        {
+            var total = 0L;
+            for (var i = 0; i < ChannelCount; i++) { total += _channelBytes[i]; }
+            return total;
+        }
+    }
 
     /// <summary>
     /// Moves the CURRENT channel textures into the before slot, so the next upload allocates fresh
@@ -330,6 +432,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             _channelViews[i] = VkImageView.Null;
             _channelWidth[i] = 0;
             _channelHeight[i] = 0;
+            _channelFormats[i] = VkFormat.R32Sfloat;
+            _channelBytes[i] = 0;
 
             if (_beforeViews[i] != VkImageView.Null)
             {
@@ -415,16 +519,16 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     // set and tries once more. The before textures are a CACHE: the live image is what the user is
     // looking at, so it always wins the memory. Without this the enhance apply would surface an
     // allocation failure as a broken viewer rather than as a quietly-dropped comparison.
-    private void CreateChannelTextureOrFreeBefore(int channel, int width, int height)
+    private void CreateChannelTextureOrFreeBefore(int channel, int width, int height, VkFormat format)
     {
         try
         {
-            CreateChannelTexture(channel, width, height);
+            CreateChannelTexture(channel, width, height, format);
         }
         catch (VkException) when (HasBeforeChannels)
         {
             ReleaseBeforeChannels();
-            CreateChannelTexture(channel, width, height);
+            CreateChannelTexture(channel, width, height, format);
         }
     }
 
@@ -1011,7 +1115,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         for (var i = 0; i < ChannelCount; i++)
         {
-            CreateChannelTexture(i, 1, 1);
+            CreateChannelTexture(i, 1, 1, VkFormat.R32Sfloat);
             UploadToImage(_channelImages[i], 1, 1, byteSize, VkFormat.R32Sfloat);
             _channelWidth[i] = 1;
             _channelHeight[i] = 1;
@@ -1042,14 +1146,14 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         }
     }
 
-    private void CreateChannelTexture(int channel, int width, int height)
+    private void CreateChannelTexture(int channel, int width, int height, VkFormat format)
     {
         var api = _ctx.DeviceApi;
 
         VkImageCreateInfo imageCI = new()
         {
             imageType = VkImageType.Image2D,
-            format = VkFormat.R32Sfloat,
+            format = format,
             extent = new VkExtent3D((uint)width, (uint)height, 1),
             mipLevels = 1,
             arrayLayers = 1,
@@ -1069,6 +1173,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         api.vkCreateImage(&imageCI, null, out _channelImages[channel]).CheckResult();
 
         api.vkGetImageMemoryRequirements(_channelImages[channel], out var memReqs);
+        _channelBytes[channel] = (long)memReqs.size;
         VkMemoryAllocateInfo allocInfo = new()
         {
             allocationSize = memReqs.size,
@@ -1082,10 +1187,11 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
                 VkImageLayout.Undefined, VkImageLayout.ShaderReadOnlyOptimal));
 
         var viewCI = new VkImageViewCreateInfo(
-            _channelImages[channel], VkImageViewType.Image2D, VkFormat.R32Sfloat,
+            _channelImages[channel], VkImageViewType.Image2D, format,
             VkComponentMapping.Rgba,
             new VkImageSubresourceRange(VkImageAspectFlags.Color, 0, 1, 0, 1));
         api.vkCreateImageView(&viewCI, null, out _channelViews[channel]).CheckResult();
+        _channelFormats[channel] = format;
     }
 
     private void CreateHistogramTexture(int channel)
@@ -1147,6 +1253,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         }
         _channelWidth[channel] = 0;
         _channelHeight[channel] = 0;
+        _channelBytes[channel] = 0;
     }
 
     private void DestroyHistogramTexture(int channel)
@@ -1279,6 +1386,16 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         void* mapped;
         api.vkMapMemory(_stagingMemory, 0, byteSize, 0, &mapped);
         fixed (float* pSrc = data)
+            Buffer.MemoryCopy(pSrc, mapped, (long)byteSize, (long)byteSize);
+        api.vkUnmapMemory(_stagingMemory);
+    }
+
+    private void CopyToStaging(ReadOnlySpan<byte> data, ulong byteSize)
+    {
+        var api = _ctx.DeviceApi;
+        void* mapped;
+        api.vkMapMemory(_stagingMemory, 0, byteSize, 0, &mapped);
+        fixed (byte* pSrc = data)
             Buffer.MemoryCopy(pSrc, mapped, (long)byteSize, (long)byteSize);
         api.vkUnmapMemory(_stagingMemory);
     }
