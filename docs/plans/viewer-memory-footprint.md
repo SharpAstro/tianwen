@@ -227,7 +227,31 @@ need them at load (stretch stats, star detection), then release. Steady state fa
   `ChannelDeviceBytes` -- the `StagingBufferSize` pattern, because a `VkImage` is invisible to both
   the GC and working set. Pinned by `GpuChannelFormatTests`; dropping the format term from the
   recreate condition fails all three.
-- `ImageRendererBase.UploadDocumentTextures` -- picks what to upload; already per-channel.
+- `ImageRendererBase.UploadDocumentTextures` -- **DONE.** Each of the three upload sites (raw Bayer,
+  3-channel composite, single-channel view) now tries `TryUploadRetainedRaster` first and falls back
+  to the float span. Three things about the shape are load-bearing:
+  - **The gate is a capability on the BACKEND** (`SupportsByteChannelTextures`, virtual returning
+    false), not a new abstract member. Five classes derive from `ImageRendererBase` -- `VkImageRenderer`
+    plus four offline test doubles -- and an abstract member would have forced a stub into all four,
+    each free to get it wrong. With the default they keep taking the float path unchanged, which
+    `ViewerByteTextureUploadTests` asserts directly rather than leaving implied.
+  - **The gate is checked BEFORE the raster is looked for**, because widening the bytes back to floats
+    to satisfy a float-only backend would be strictly worse than never asking: the floats already
+    exist on the image. So the byte overload throws rather than no-ops -- unreachable unless a backend
+    advertised a capability it did not implement, where a silent no-op would present as a blank image.
+  - **The single-channel site uploads source channel N into texture slot 0**, so the raster lookup
+    takes the source index while the upload takes the slot. Passing the slot to both would upload
+    channel 0's bytes while claiming to show blue.
+  - Reaching the raster via `source is AstroImageDocument` needs no `IPreviewSource` change, and that
+    is the interface's own documented pattern for document-only features (a SER frame has no retained
+    raster and takes the float path). Safe because `IPreviewSource.GetChannelData` forwards to
+    `UnstretchedImage`, the very image the raster hangs off -- and any transform that recomputes pixels
+    builds a new `Image`, dropping the raster rather than carrying a stale one.
+  - Verified end to end in `tianwen-fits` on a hand-written 8-bit TIFF (deliberately not written by
+    `SharpAstro.Tiff`, so the importer meets a third-party layout): all five synthetic stars land at
+    their computed screen positions, the diagonal gradient runs the right way (so no transposition or
+    row offset), and the reported median matches the generator's expected mean. A cost probe cannot
+    see pixels, so this half needed an eye on it.
 - `AstroImageDocument` -- holds `UnstretchedImage` (`AstroImageDocument.cs:51`). D3' adds the retained
   raster beside it; D1' is what removes the float planes from that field.
 - `Image.BitDepth` already carries the source depth, and `BitDepthEx.CarriesDisplayDataOnly` already

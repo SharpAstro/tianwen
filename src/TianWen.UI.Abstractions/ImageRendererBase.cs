@@ -299,6 +299,34 @@ namespace TianWen.UI.Abstractions
             int imageWidth, int imageHeight);
 
         /// <summary>
+        /// Whether this backend can hold a channel as 8-bit texels. False by default, which is what
+        /// keeps this a capability rather than a new abstract member: a backend that has not
+        /// implemented it (and every offline test double) keeps taking the float path unchanged.
+        /// </summary>
+        /// <remarks>
+        /// The gate is on the BACKEND and is checked before the raster is even looked for, because
+        /// widening the retained bytes back into floats to satisfy the float path would be strictly
+        /// worse than never having asked: the floats already exist on the image. So a backend that
+        /// says no is not offered the bytes at all.
+        /// </remarks>
+        protected virtual bool SupportsByteChannelTextures => false;
+
+        /// <summary>
+        /// Uploads 8-bit image texture data for the given channel, as UNORM texels that sample to the
+        /// same [0,1] the float path uploads.
+        /// </summary>
+        /// <remarks>
+        /// Only reached when <see cref="SupportsByteChannelTextures"/> is true, hence the throwing
+        /// default rather than a silent no-op: an override missing on a backend that advertised the
+        /// capability is a bug, and a no-op would present as a blank image.
+        /// </remarks>
+        public virtual void UploadImageTexture(ReadOnlySpan<byte> data, int channel,
+            int imageWidth, int imageHeight)
+            => throw new NotSupportedException(
+                $"{GetType().Name} does not implement 8-bit channel uploads; "
+                + $"{nameof(SupportsByteChannelTextures)} must stay false.");
+
+        /// <summary>
         /// Uploads histogram data from a preview source. Called once per image load (or sequence open).
         /// </summary>
         public abstract void UploadHistogramData(IPreviewSource source);
@@ -415,13 +443,66 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Uploads per-channel R32f textures. Convenience alias for <see cref="UploadImageTexture"/>.
+        /// Uploads per-channel R32f textures. Convenience alias for
+        /// <see cref="UploadImageTexture(ReadOnlySpan{float}, int, int, int)"/>.
         /// </summary>
         public void UploadChannelTexture(ReadOnlySpan<float> data, int channel, int imageWidth, int imageHeight)
         {
             ImageWidth = imageWidth;
             ImageHeight = imageHeight;
             UploadImageTexture(data, channel, imageWidth, imageHeight);
+        }
+
+        /// <summary>
+        /// Uploads a channel as 8-bit UNORM texels. Alias for
+        /// <see cref="UploadImageTexture(ReadOnlySpan{byte}, int, int, int)"/>.
+        /// </summary>
+        public void UploadChannelTexture(ReadOnlySpan<byte> data, int channel, int imageWidth, int imageHeight)
+        {
+            ImageWidth = imageWidth;
+            ImageHeight = imageHeight;
+            UploadImageTexture(data, channel, imageWidth, imageHeight);
+        }
+
+        /// <summary>
+        /// Uploads <paramref name="sourceChannel"/> from the document's RETAINED 8-bit samples if they
+        /// are available, returning false to mean "caller should upload the floats instead".
+        /// </summary>
+        /// <remarks>
+        /// <para>Where the saving comes from (D3' of <c>docs/plans/viewer-memory-footprint.md</c>): a
+        /// float channel costs 4 B/px of device memory, an R8Unorm one costs 1. For a document whose
+        /// source container WAS 8-bit this is lossless rather than a quality trade, because the float
+        /// plane was widened FROM these very bytes (pinned by
+        /// <c>SourceRasterRetentionTests.An8BitTiffKeepsSamplesThatExactlyReproduceTheFloatPlane</c>),
+        /// so it also skips a re-quantise.</para>
+        /// <para><b>Reaching the raster through the document is deliberate, and does not widen
+        /// <see cref="IPreviewSource"/>.</b> That interface is the per-frame playback surface shared
+        /// with SER video, and its own remarks establish the pattern: document-only features are
+        /// reached by testing <c>source is AstroImageDocument</c> and are simply inactive for a video.
+        /// A live camera frame has no retained raster and takes the float path, as before.</para>
+        /// <para>Safe because <c>GetChannelData</c> and the raster are the SAME image: the interface
+        /// forwards to <c>UnstretchedImage</c>, and any transform that recomputes pixels builds a new
+        /// <c>Image</c>, which drops the raster rather than carrying a stale one.</para>
+        /// </remarks>
+        private bool TryUploadRetainedRaster(IPreviewSource source, int sourceChannel, int textureSlot,
+            int imageWidth, int imageHeight)
+        {
+            if (!SupportsByteChannelTextures || source is not AstroImageDocument document
+                || !document.UnstretchedImage.TryGetSourceRaster(sourceChannel, out var raster))
+            {
+                return false;
+            }
+
+            // The upload is sized from the SOURCE's dimensions, so a raster that disagrees with them
+            // would be uploaded as the wrong number of texels and draw a plausible-looking wrong
+            // picture. Decline instead; the float path is always correct.
+            if (raster.Length != (long)imageWidth * imageHeight)
+            {
+                return false;
+            }
+
+            UploadChannelTexture(raster, textureSlot, imageWidth, imageHeight);
+            return true;
         }
 
         /// <summary>
@@ -465,7 +546,10 @@ namespace TianWen.UI.Abstractions
                 BayerOffsetX = source.BayerOffsetX;
                 BayerOffsetY = source.BayerOffsetY;
                 RawBayerDebayerMode = GpuDebayerMode(state.DebayerAlgorithm);
-                UploadChannelTexture(source.GetChannelData(0), 0, pixelWidth, pixelHeight);
+                if (!TryUploadRetainedRaster(source, 0, 0, pixelWidth, pixelHeight))
+                {
+                    UploadChannelTexture(source.GetChannelData(0), 0, pixelWidth, pixelHeight);
+                }
             }
             else if (state.ChannelView is ChannelView.Composite && source.ChannelCount >= 3)
             {
@@ -474,7 +558,10 @@ namespace TianWen.UI.Abstractions
 
                 for (var i = 0; i < 3; i++)
                 {
-                    UploadChannelTexture(source.GetChannelData(i), i, pixelWidth, pixelHeight);
+                    if (!TryUploadRetainedRaster(source, i, i, pixelWidth, pixelHeight))
+                    {
+                        UploadChannelTexture(source.GetChannelData(i), i, pixelWidth, pixelHeight);
+                    }
                 }
             }
             else
@@ -490,7 +577,13 @@ namespace TianWen.UI.Abstractions
                     var cv => throw new InvalidOperationException($"Invalid channel view {cv}")
                 };
 
-                UploadChannelTexture(source.GetChannelData(channelIndex), 0, pixelWidth, pixelHeight);
+                // Note the asymmetry: the SOURCE channel is channelIndex, the texture slot is 0. A
+                // single-channel view of a 3-channel image uploads (say) blue into slot 0, so the
+                // raster lookup has to use the source index while the upload uses the slot.
+                if (!TryUploadRetainedRaster(source, channelIndex, 0, pixelWidth, pixelHeight))
+                {
+                    UploadChannelTexture(source.GetChannelData(channelIndex), 0, pixelWidth, pixelHeight);
+                }
             }
 
             UploadHistogramData(source);
