@@ -318,6 +318,21 @@ namespace TianWen.UI.Abstractions
             int imageWidth, int imageHeight) => false;
 
         /// <summary>
+        /// Lets a backend free per-channel device storage that the view just uploaded no longer
+        /// samples. <paramref name="liveSlotCount"/> is the number of texture SLOTS the pass populated.
+        /// </summary>
+        /// <remarks>
+        /// <para>A no-op default is right here, unlike the 8-bit upload above: a backend with no
+        /// per-channel device storage genuinely has nothing to release, so silence is the correct answer
+        /// rather than a missing implementation.</para>
+        /// <para><b>Populated slots is NOT <see cref="ChannelTextureCount"/>.</b> That uniform is the
+        /// shader's output arity -- raw Bayer sets it to 3 while uploading a single mosaic texture that
+        /// the shader demosaics. Passing it would keep two stale full-size textures alive on exactly the
+        /// path that needs one; passing too few would free one the shader samples.</para>
+        /// </remarks>
+        protected virtual void ReleaseUnusedChannelTextures(int liveSlotCount) { }
+
+        /// <summary>
         /// Uploads histogram data from a preview source. Called once per image load (or sequence open).
         /// </summary>
         public abstract void UploadHistogramData(IPreviewSource source);
@@ -535,6 +550,7 @@ namespace TianWen.UI.Abstractions
 
             var pixelWidth = source.Width;
             var pixelHeight = source.Height;
+            var uploadedSlots = 0;
 
             // Raw Bayer: upload single channel, GPU shader debayers (bilinear or MHC per DebayerAlgorithm)
             if (source.SensorType is TianWen.Lib.Imaging.SensorType.RGGB && source.ChannelCount == 1
@@ -542,6 +558,7 @@ namespace TianWen.UI.Abstractions
             {
                 ChannelTextureCount = 3; // shader produces RGB
                 ImageSourceMode = 2; // RawBayer
+                uploadedSlots = 1;     // ... from ONE mosaic texture; see ReleaseUnusedChannelTextures
                 BayerOffsetX = source.BayerOffsetX;
                 BayerOffsetY = source.BayerOffsetY;
                 RawBayerDebayerMode = GpuDebayerMode(state.DebayerAlgorithm);
@@ -554,6 +571,7 @@ namespace TianWen.UI.Abstractions
             {
                 ChannelTextureCount = 3;
                 ImageSourceMode = 0; // ProcessedChannels
+                uploadedSlots = 3;
 
                 for (var i = 0; i < 3; i++)
                 {
@@ -567,14 +585,12 @@ namespace TianWen.UI.Abstractions
             {
                 ChannelTextureCount = 1;
                 ImageSourceMode = source.ChannelCount == 1 ? 1 : 0; // RawMono or ProcessedChannels
+                uploadedSlots = 1;
 
-                var channelIndex = state.ChannelView switch
-                {
-                    ChannelView.Composite or ChannelView.Channel0 or ChannelView.Red => 0,
-                    ChannelView.Channel1 or ChannelView.Green => Math.Min(1, source.ChannelCount - 1),
-                    ChannelView.Channel2 or ChannelView.Blue => Math.Min(2, source.ChannelCount - 1),
-                    var cv => throw new InvalidOperationException($"Invalid channel view {cv}")
-                };
+                // Composite reaches this branch only for an image with fewer than 3 channels (the
+                // 3-channel composite is handled above), so channel 0 is what it displays. The
+                // mapping itself lives on ChannelView so the cursor readout resolves it the same way.
+                var channelIndex = state.ChannelView.DisplayedSourceChannel(source.ChannelCount) ?? 0;
 
                 // Note the asymmetry: the SOURCE channel is channelIndex, the texture slot is 0. A
                 // single-channel view of a 3-channel image uploads (say) blue into slot 0, so the
@@ -584,6 +600,10 @@ namespace TianWen.UI.Abstractions
                     UploadChannelTexture(source.GetChannelData(channelIndex), 0, pixelWidth, pixelHeight);
                 }
             }
+
+            // The view may sample fewer channels than the last one did, and nothing else shrinks the
+            // slots it stopped using.
+            ReleaseUnusedChannelTextures(uploadedSlots);
 
             UploadHistogramData(source);
 

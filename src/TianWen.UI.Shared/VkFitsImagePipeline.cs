@@ -348,6 +348,72 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     }
 
     /// <summary>
+    /// Frees the channel textures at or above <paramref name="liveChannelCount"/>, leaving each as a
+    /// 1x1 placeholder. Call after an upload pass that populated fewer slots than the last one did.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Nothing else shrinks them.</b> A channel texture is destroyed only when it is
+    /// re-uploaded at a different geometry or format, so a view that stops sampling a channel leaves it
+    /// allocated at the previous document's full size. Two ordinary sequences strand it: pressing C on a
+    /// 3-plane master drops to one sampled slot and holds two full-size textures, and stepping from a
+    /// master to a mono sub in the same folder does the same across documents. Neither is visible to the
+    /// GC or to working set, which is why it went unnoticed.</para>
+    /// <para>A 1x1 placeholder rather than a null view, because Vulkan forbids binding a descriptor set
+    /// that references a destroyed view even when the shader never samples it -- the same reason
+    /// <see cref="CreatePlaceholderTextures"/> exists at all.</para>
+    /// <para>No device-idle wait, matching the recreate branch of <see cref="UploadStagedChannel"/>:
+    /// that already destroys a texture the previous frame sampled, and relies on the renderer having
+    /// waited on its frame fence. This is the same operation at the same point in the frame.</para>
+    /// <para>The BEFORE slots are deliberately untouched. They hold the split's left half, which is a
+    /// deliberate retention with its own release path (<see cref="ReleaseBeforeChannels"/>); freeing
+    /// them here would empty the comparison the user is looking at.</para>
+    /// </remarks>
+    public void ReleaseChannelTexturesFrom(int liveChannelCount)
+    {
+        if (liveChannelCount >= ChannelCount)
+        {
+            return;
+        }
+
+        var placeholder = new float[] { 0f };
+        var byteSize = (ulong)sizeof(float);
+        var staged = false;
+
+        for (var i = Math.Max(0, liveChannelCount); i < ChannelCount; i++)
+        {
+            // Already a placeholder, or vacated into the before slot (width 0): nothing to reclaim,
+            // and a vacated slot's handles now belong to the before arrays.
+            if (_channelWidth[i] <= 1 && _channelHeight[i] <= 1)
+            {
+                continue;
+            }
+
+            DestroyChannelTexture(i);
+
+            // Staged once and uploaded per slot: UploadToImage is synchronous, so the reuse is safe.
+            if (!staged)
+            {
+                EnsureStagingBuffer(byteSize);
+                CopyToStaging(placeholder.AsSpan(), byteSize);
+                staged = true;
+            }
+
+            CreateChannelTexture(i, 1, 1, VkFormat.R32Sfloat);
+            BindChannelSampler(i, _channelViews[i], _imageSamplerSet);
+            if (!HasBeforeChannels)
+            {
+                // Same rule as the recreate branch: while nothing is retained the before set mirrors
+                // the live views, so it must never be left pointing at the view just destroyed.
+                BindChannelSampler(i, _channelViews[i], _beforeSamplerSet);
+            }
+
+            UploadToImage(_channelImages[i], 1, 1, byteSize, VkFormat.R32Sfloat);
+            _channelWidth[i] = 1;
+            _channelHeight[i] = 1;
+        }
+    }
+
+    /// <summary>
     /// True while pre-enhance channel textures are retained for the before/after split's left half.
     /// </summary>
     public bool HasBeforeChannels { get; private set; }

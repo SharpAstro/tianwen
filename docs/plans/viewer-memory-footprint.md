@@ -399,6 +399,75 @@ That asymmetry is the honest summary of M3's value: **it makes the viewer good a
 never designed for, and changes nothing for the ones it was.** Worth doing -- opening a big TIFF
 should not cost 2.2 GB -- but it should be sized against that, not against the astro path.
 
+### What the interactive toggles actually cost, and what 24 B/px is a figure FOR
+
+The 24 B/px headline is a **3-plane** number, and the plan above reads as though 3-plane meant
+"display document". It does not: **a stacked master is 3-plane float32** -- `master_<slug>.fits`, the
+`_autocrop`, `_sharpened`, the EXR mirrors, the split-plate TIFFs. That is the entire output of the
+stacking pipeline and the largest thing a user opens, and D3' does nothing for it (no 8-bit raster)
+nor can D1' as scoped (nothing to rebuild the planes FROM). Per shape, host + device:
+
+| document | host | raster | device | total | D3' moved it? |
+|---|---|---|---|---|---|
+| 3-plane float32 (master, float TIFF/EXR) | 12 | -- | 12 | **24** | no, nothing to narrow |
+| 3-plane 16-bit int | 12 | -- | 12 | **24** | no, the gate is `Int8` |
+| 1-plane Bayer float32 (raw sub) | 4 | -- | 4 | **8** | no |
+| 1-plane 16-bit mono | 4 | -- | 4 | **8** | no |
+| 1-plane float32 mono | 4 | -- | 4 | **8** | no |
+| 8-bit RGB | 12 | 3 | 3 | 18 (was 24) | yes, -6 |
+| 8-bit mono | 4 | 1 | 1 | 6 (was 8) | yes, -2 |
+
+**The raw sub is already the cheapest thing the viewer holds**, because the mosaic uploads as ONE
+texture and the shader demosaics; CPU-debayering it would be 3 planes plus 3 textures, i.e. 24. The
+largest memory decision in this viewer was made by not CPU-debayering, and it dwarfs the rest of M3.
+
+**What pins the float planes is not what the plan says.** It claims two load-time passes (stretch
+stats, star detection). Reading the code, `UnstretchedImage` has six consumers and three are buttons:
+
+| feature | reads | needs the planes? |
+|---|---|---|
+| stretch, boost, curves, HDR, WB, luma weighting | `ChannelStatistics`, cached in the ctor | no |
+| star overlay, grid, WCS, object overlay | cached `Stars`, WCS | no |
+| histogram panel | the same cached stats (raw bins only when `FrameCount > 1`) | no |
+| channel select (C), debayer (D) | re-upload one channel | the SAMPLES, not necessarily the planes |
+| cursor readout | `image[c, y, x]` for every channel, **per mouse move** | yes |
+| Calibrate / SPCC / Enhance | background scan, star-masked medians, whole image | yes, on demand |
+
+So the toggles are nearly free -- they run off cached histograms, not pixels -- and "demote the planes
+to a load-time transient, then release" would break Calibrate and Enhance on every document. It also
+partly answers D2's gate: star detection is one consumer of several, so making it depth-agnostic
+cannot free the planes by itself.
+
+**Two things shipped out of that reading, both independent of D1':**
+
+- **Channel textures are now released when the view stops sampling them**
+  (`VkFitsImagePipeline.ReleaseChannelTexturesFrom`, reached through the new
+  `ImageRendererBase.ReleaseUnusedChannelTextures` seam). Nothing shrank them before: a channel
+  texture is destroyed only when re-uploaded at a different geometry or format, so pressing C on a
+  3-plane master held two full-size textures for a view that samples one, and stepping from a master
+  to a mono sub in the same folder held them across documents -- invisible to the GC and to working
+  set. Measured on a real driver: 3,170,304 B -> 1,056,896 B (0.333) for a 512x512 3-plane image
+  dropping to one sampled slot, with channel 0 reading back unchanged. **The count passed is SLOTS
+  FILLED, not `ChannelTextureCount`** -- raw Bayer sets that uniform to 3 while uploading one mosaic,
+  so passing it would strand two textures on exactly the path that needs one.
+- **The cursor readout follows the channel view.** `ChannelView.DisplayedSourceChannel` is now the one
+  mapping, shared by the upload and the readout -- they must agree about what is on screen and did
+  not. A single-channel view reads one plane instead of all of them and labels it `R:`/`G:`/`B:`;
+  reporting three values while the display shows one channel named two channels the user could not
+  see. Mono keeps the neutral `Val:`.
+
+**What is left for a master, ranked.** Releasing the two unused PLANES as well (16 -> 8 B/px in a
+single-channel view) is possible but makes every C press a strided re-read from disk -- sub-second for
+an ASI533 drizzle, seconds for a multi-GB mosaic -- so it needs measuring, not assuming. Beyond that,
+the mechanism a master wants already exists: `EnhanceRevertPolicy` decides whether a large image is
+worth holding at all (128 MB budget) and resolves to `Reload` when it is not. Generalising that from
+the pre-enhance document to the live document's planes would put a master at 12 B/px instead of 24,
+with Calibrate/SPCC/Enhance re-reading the file. **The readout is the prerequisite either way**: while
+it needs `image[c, y, x]` per mouse move, nothing can release the planes. And note why it must be
+release-and-RELOAD rather than D3's retain-and-upload: FITS is big-endian, so a master's on-disk bytes
+are neither uploadable nor usable as host planes without a swap. The file can be the source, not the
+raster.
+
 ### Recommendation
 
 Ship **D3'** first (retain the raster + upload it directly: self-contained, no `IPreviewSource`

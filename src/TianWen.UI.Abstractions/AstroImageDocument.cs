@@ -739,7 +739,17 @@ public sealed class AstroImageDocument : IPreviewSource
     /// Gets pixel information at the given display coordinates, including sky coordinates if plate-solved.
     /// Returns raw (unstretched) values from the processedRawImage image.
     /// </summary>
-    public PixelInfo GetPixelInfo(int x, int y)
+    /// <param name="channel">
+    /// The single source channel on screen, or <c>null</c> to read every channel (a composite view).
+    /// Resolve it with <c>ChannelView.DisplayedSourceChannel</c> rather than by hand.
+    /// </param>
+    /// <remarks>
+    /// <b>This runs on every mouse move</b> (<c>ViewerActions.UpdateCursorInfo</c>), so on a large
+    /// master the channel argument is the difference between touching one float plane per move and
+    /// touching all of them. It is also what the user is looking at: reporting R, G and B while the
+    /// display is a single channel names two channels that are not on screen.
+    /// </remarks>
+    public PixelInfo GetPixelInfo(int x, int y, int? channel = null)
     {
         var image = UnstretchedImage;
         if (x < 0 || x >= image.Width || y < 0 || y >= image.Height)
@@ -747,10 +757,18 @@ public sealed class AstroImageDocument : IPreviewSource
             return new PixelInfo(x, y, [], null, null);
         }
 
-        var values = new float[image.ChannelCount];
-        for (var c = 0; c < image.ChannelCount; c++)
+        float[] values;
+        if (channel is { } single && (uint)single < (uint)image.ChannelCount)
         {
-            values[c] = image[c, y, x];
+            values = [image[single, y, x]];
+        }
+        else
+        {
+            values = new float[image.ChannelCount];
+            for (var c = 0; c < image.ChannelCount; c++)
+            {
+                values[c] = image[c, y, x];
+            }
         }
 
         double? ra = null, dec = null;
