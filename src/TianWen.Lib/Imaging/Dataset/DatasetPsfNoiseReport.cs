@@ -1125,10 +1125,7 @@ public static class DatasetPsfNoiseReport
         var span = master.GetChannelSpan(0);
         var buf = new float[span.Length];
         var n = 0;
-        for (var i = 0; i < span.Length; i++)
-        {
-            if (!float.IsNaN(span[i])) buf[n++] = span[i];
-        }
+        n = StatisticsHelper.CompactFinite(span, buf);
         if (n == 0) return 0.0;
         var slice = buf.AsSpan(0, n);
         var (_, mad) = StatisticsHelper.MedianAndMad(slice);
