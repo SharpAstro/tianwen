@@ -26,7 +26,9 @@ namespace TianWen.Lib.Tests
     /// separately by <c>GpuChannelFormatTests</c>, through a real driver readback.</para>
     /// <para>The third test is the one that protects everything else: four other suites derive their own
     /// viewers from <c>ImageRendererBase</c>, and they must keep taking the float path untouched. That is
-    /// why the capability is a virtual returning false rather than a new abstract member.</para>
+    /// why the 8-bit upload is a virtual returning false rather than a new abstract member, and why the
+    /// float-only double here declines by NOT overriding it, which is the shape those four suites are in.
+    /// A double that overrode the method and returned false would be testing a different thing.</para>
     /// </remarks>
     [Collection("UI")]
     public class ViewerByteTextureUploadTests
@@ -36,7 +38,9 @@ namespace TianWen.Lib.Tests
 
         /// <summary>Records WHICH overload the upload took, and what it carried. Everything above the
         /// seam is the real shipped code.</summary>
-        private sealed class RecordingUploadViewer : ImageRendererBase<RgbaImage>
+        /// <remarks>This one implements ONLY the float upload, so it is also the float-only backend:
+        /// it inherits the base default by saying nothing, exactly as the other viewer doubles do.</remarks>
+        private class RecordingUploadViewer : ImageRendererBase<RgbaImage>
         {
             public RecordingUploadViewer(RgbaImageRenderer renderer) : base(renderer)
             {
@@ -44,22 +48,12 @@ namespace TianWen.Lib.Tests
                 Height = renderer.Height;
             }
 
-            /// <summary>Settable so one fixture can exercise both a backend that implements 8-bit
-            /// textures and one that does not.</summary>
-            public bool AdvertiseByteSupport { get; set; } = true;
-
-            protected override bool SupportsByteChannelTextures => AdvertiseByteSupport;
-
             public List<(int Channel, int Length)> FloatUploads { get; } = [];
             public List<(int Channel, byte[] Data)> ByteUploads { get; } = [];
 
             public override void UploadImageTexture(ReadOnlySpan<float> data, int channel,
                 int imageWidth, int imageHeight)
                 => FloatUploads.Add((channel, data.Length));
-
-            public override void UploadImageTexture(ReadOnlySpan<byte> data, int channel,
-                int imageWidth, int imageHeight)
-                => ByteUploads.Add((channel, data.ToArray()));
 
             public override void UploadHistogramData(IPreviewSource source) { }
 
@@ -97,7 +91,7 @@ namespace TianWen.Lib.Tests
                 document.UnstretchedImage.HasSourceRaster.ShouldBeTrue(
                     "the fixture must actually be the retaining case, or this test proves nothing");
 
-                var viewer = NewViewer();
+                var viewer = NewByteCapableViewer();
                 viewer.UploadDocumentTextures(document, NewState());
 
                 viewer.ByteUploads.Count.ShouldBe(1, "one mono channel, uploaded as bytes");
@@ -132,7 +126,7 @@ namespace TianWen.Lib.Tests
                 document.ShouldNotBeNull();
                 document.UnstretchedImage.HasSourceRaster.ShouldBeFalse();
 
-                var viewer = NewViewer();
+                var viewer = NewByteCapableViewer();
                 viewer.UploadDocumentTextures(document, NewState());
 
                 viewer.FloatUploads.Count.ShouldBe(1);
@@ -147,9 +141,9 @@ namespace TianWen.Lib.Tests
         [Fact]
         public async Task ABackendWithoutByteTexturesKeepsTakingTheFloatPath()
         {
-            // The capability gate. Every other viewer test double inherits the false default, so this
-            // is what says their behaviour is untouched -- and it must be checked on a document that
-            // DOES have a raster, or it passes for the wrong reason.
+            // The default. Every other viewer test double inherits it by never overriding the 8-bit
+            // upload, which is what says their behaviour is untouched, and it must be checked on a
+            // document that DOES have a raster, or it passes for the wrong reason.
             var ct = TestContext.Current.CancellationToken;
             var path = await WriteGray8TiffAsync(ct);
             try
@@ -158,13 +152,12 @@ namespace TianWen.Lib.Tests
                 document.ShouldNotBeNull();
                 document.UnstretchedImage.HasSourceRaster.ShouldBeTrue();
 
-                var viewer = NewViewer();
-                viewer.AdvertiseByteSupport = false;
+                var viewer = NewFloatOnlyViewer();
                 viewer.UploadDocumentTextures(document, NewState());
 
                 viewer.FloatUploads.Count.ShouldBe(1);
                 viewer.ByteUploads.ShouldBeEmpty(
-                    "a backend that does not advertise 8-bit textures must never be handed bytes");
+                    "a backend with no 8-bit upload falls through to the floats, never loses the channel");
             }
             finally
             {
@@ -172,7 +165,24 @@ namespace TianWen.Lib.Tests
             }
         }
 
-        private static RecordingUploadViewer NewViewer()
+        /// <summary>A backend WITH an 8-bit path. Overriding the method is the whole declaration;
+        /// there is no capability flag to set, so it cannot advertise what it has not implemented.</summary>
+        private sealed class ByteCapableUploadViewer : RecordingUploadViewer
+        {
+            public ByteCapableUploadViewer(RgbaImageRenderer renderer) : base(renderer) { }
+
+            protected override bool TryUploadImageTexture(ReadOnlySpan<byte> data, int channel,
+                int imageWidth, int imageHeight)
+            {
+                ByteUploads.Add((channel, data.ToArray()));
+                return true;
+            }
+        }
+
+        private static ByteCapableUploadViewer NewByteCapableViewer()
+            => new ByteCapableUploadViewer(new RgbaImageRenderer(400, 300));
+
+        private static RecordingUploadViewer NewFloatOnlyViewer()
             => new RecordingUploadViewer(new RgbaImageRenderer(400, 300));
 
         // Chromeless, no panels, linear: the upload path is what is under test, not layout.
