@@ -896,15 +896,27 @@ namespace TianWen.UI.Abstractions
                 ReleaseBeforeImageTextures();
             }
 
+            var area = _layout.ImageArea;
+
             if (Split.ResolveDividerX(HasBeforeImageTextures, DpiScale) is not { } splitX)
             {
+                // Clipped to the pane, for the same reason the split halves below are: the quad is
+                // sized to the ZOOMED image, so once it exceeds the pane it reaches under the file
+                // list, the info panel and the toolbar -- and DIR.Lib's clip stack is a real
+                // vkCmdSetScissor (VkRenderer.ApplyClip), so those fragments are rejected before the
+                // shader runs rather than shaded and painted over. Every one of them would otherwise
+                // pay the full demosaic + stretch to end up behind opaque chrome.
+                //
+                // This path had NO clip at all while the split path had one per half, so the ordinary
+                // single-image view was the worse-bounded of the two.
+                PushClip(area.X, area.Y, area.Width, area.Height);
                 RenderImageQuad(source, state, live, gridWcs,
                     p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,
                     RenditionSlot.Live, sampleBeforeChannels: false);
+                PopClip();
                 return;
             }
 
-            var area = _layout.ImageArea;
             var comparesPixels = Split.ComparesPixels;
             var comparison = Split.ComparisonRendition(live);
 
