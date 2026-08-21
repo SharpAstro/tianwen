@@ -267,7 +267,16 @@ public partial class Image
                 var imageMeta = BuildImageMetaFromExif(exif, page.FileIsLittleEndian);
 
                 // Values are now in [0, 1] (DecodeTiffPixels normalises by sample-format max).
-                image = new Image(channels, bitDepth, 1.0f, 0f, 0f, imageMeta, samplesAreUnitReferred: true);
+                //
+                // The retained raster only travels when the planes above were not rewritten. The
+                // sink already declines MinIsWhite, and IsSeparated means ConvertSeparatedToRgb
+                // built entirely new planes, so re-checking here is belt and braces against a
+                // future transform being added between the two without the gate being revisited.
+                var raster = !isSeparated && sink.Raster is { } planes
+                    ? ImmutableCollectionsMarshal.AsImmutableArray(planes)
+                    : default;
+                image = new Image(channels, bitDepth, 1.0f, 0f, 0f, imageMeta, samplesAreUnitReferred: true,
+                    sourceRaster: raster);
                 return true;
             }
             finally
@@ -444,6 +453,9 @@ public partial class Image
     private struct TiffChannelSink : ITiffStripSink
     {
         public float[][,]? Channels;
+        /// <summary>The untouched 8-bit samples, per channel, flat row-major. Null unless the page
+        /// is 8-bit and needs no colour transform -- see the assignment in BeginPage.</summary>
+        public byte[][]? Raster;
         public bool IsSeparated;
         public BitDepth BitDepth;
         private int _width;
@@ -492,6 +504,25 @@ public partial class Image
 
             // The one allocation this path makes, and the destination the strips write straight into.
             Channels = CreateChannelData(_decodeChannels, page.Height, page.Width);
+
+            // Retain the 8-bit samples as they arrive, so the viewer can upload THEM rather than
+            // the floats they widen into: 1 B/px held here buys 3 B/px of device memory back (see
+            // D3' in docs/plans/viewer-memory-footprint.md). Free at this point -- every byte is
+            // already in hand and about to be read exactly once.
+            //
+            // Gated on the page needing NO colour transform. A MinIsWhite page is inverted and a
+            // CMYK page is converted to RGB after the decode, and both rewrite the float planes
+            // while these bytes would still say what the FILE said. Retaining through either
+            // would upload a negative, or a colour-shifted one, at full confidence.
+            if (BitDepth == BitDepth.Int8 && !IsSeparated
+                && page.Photometric != TiffPhotometric.MinIsWhite)
+            {
+                Raster = new byte[_decodeChannels][];
+                for (var c = 0; c < _decodeChannels; c++)
+                {
+                    Raster[c] = new byte[page.Height * page.Width];
+                }
+            }
             return true;
         }
 
@@ -513,8 +544,8 @@ public partial class Image
                 return;
             }
 
-            ConvertTiffStrip(samples, channels, _decodeChannels, _width, _srcChannels, _bitsPerSample,
-                _isFloat, firstRow, rows);
+            ConvertTiffStrip(samples, channels, Raster, _decodeChannels, _width, _srcChannels,
+                _bitsPerSample, _isFloat, firstRow, rows);
         }
     }
 
@@ -523,7 +554,8 @@ public partial class Image
     /// max. <paramref name="firstRow"/> is where the strip sits in the image, which is the only thing
     /// that changed when this stopped being a whole-raster pass.
     /// </summary>
-    private static void ConvertTiffStrip(ReadOnlySpan<byte> samples, float[][,] channels, int outChannels,
+    private static void ConvertTiffStrip(ReadOnlySpan<byte> samples, float[][,] channels,
+        byte[][]? raster, int outChannels,
         int width, int srcChannels, int bps, bool isFloat, int firstRow, int rowCount)
     {
         if (isFloat && bps == 32)
@@ -570,12 +602,20 @@ public partial class Image
             {
                 var row = localRow * width;
                 var y = firstRow + localRow;
+                var rasterRow = y * width;
                 for (var x = 0; x < width; x++)
                 {
                     var pix = (row + x) * srcChannels;
                     for (var c = 0; c < outChannels; c++)
                     {
-                        channels[c][y, x] = samples[pix + c] * inv;
+                        var sample = samples[pix + c];
+                        channels[c][y, x] = sample * inv;
+                        // The float above IS this byte divided by 255, so retaining it costs a
+                        // store and loses nothing.
+                        if (raster is not null)
+                        {
+                            raster[c][rasterRow + x] = sample;
+                        }
                     }
                 }
             }
