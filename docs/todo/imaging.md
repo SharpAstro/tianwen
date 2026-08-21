@@ -207,38 +207,47 @@ the calibration temporal/tolerance work and shipped with it.
   test could NOT distinguish `MedianFast` from the upper median on any real fixture (swapping it in
   left every assertion green), because a quantised background ties the two middle samples. That
   convention is pinned on synthetic distinct values instead.
-- [x] **DONE 2026-08-21. Allocation on the stats paths, measured after the fact -- and it
-  corrected two claims made from reading the code.** Three commits on this branch asserted
-  allocation wins that had never been measured. `StatsAllocationProbe`
-  (`TIANWEN_STATS_ALLOC_PROBE=1`, `-c Release`) times them with
-  `GC.GetTotalAllocatedBytes(precise: true)` -- process-wide, so it counts the `Parallel.For`
-  worker threads these paths use, which `GC.GetAllocatedBytesForCurrentThread` would miss, and
-  which working set cannot see at all. 3008x3008 x3:
+- [x] **DONE 2026-08-21. Time AND allocation for the stats paths, in BenchmarkDotNet:
+  `StatsPathBenchmarks`.** Run with
+  `dotnet run -c Release --project TianWen.UI.Benchmarks -- --filter '*StatsPath*'`. Each change
+  sits against the implementation it replaced as an explicit `[Benchmark(Baseline = true)]`, so the
+  Ratio and Alloc Ratio columns are computed rather than asserted. At Size=3008 (an ASI2600 sub,
+  and the size at which these buffers cross into the LOH):
 
-  | path | before | after |
-  |---|---|---|
-  | star-masked median+MAD (x3 channels) | 12.83 MB/call | **6.49 MB/call** |
-  | `Normalizer.ComputeStats` whole image | 38.40 MB/call | 38.40 MB/call (no change) |
-  | `Normalizer.ComputeStats` box | 19.20 MB/call | **0.00 MB/call** |
-  | `Image.Statistics` (one channel) | 0.50 MB/call | **0.25 MB/call** |
+  | path | before | after | ratio | alloc before | alloc after | alloc ratio |
+  |---|---|---|---|---|---|---|
+  | star-masked median+MAD (x3 ch) | 136.0 ms | 25.6 ms | **0.19** | 13,141 KB | 6,645 KB | 0.51 |
+  | `Normalizer.ComputeStats` whole | 79.4 ms | 75.3 ms | 0.95 | 28,089 KB | 28,089 KB | **1.00** |
+  | `Normalizer.ComputeStats` box | 77.3 ms | 72.4 ms | 0.94 | 18,727 KB | 14,046 KB | 0.75 |
+  | histogram bin buffer | 154.8 us | 7.0 us | **0.05** | 512 KB | 256 KB | 0.50 |
 
-  Two corrections fall out of that. **The whole-image `Normalizer` path allocates exactly what it
-  did** -- the old one had ONE rent, not two (the min pass rented nothing), so fusing the passes
-  bought time and nothing else; two probe labels said "2 rents" and were wrong. And **the box path
-  went to zero, not merely halved**: two simultaneous same-bucket rents per channel across three
-  threads exceeded what the pool retained, so every call missed and allocated; one rent reuses
-  perfectly.
+  **Read the two Normalizer rows with the error bars in view**: at `[ShortRunJob]` those means
+  carry a 99.9% CI half-width of 5-35 ms, so a 0.94-0.95 ratio is not distinguishable from 1.0.
+  The Normalizer change is justified by the duplication it removed and by its EXACT allocation
+  numbers (MemoryDiagnoser counts, it does not sample), not by its timing. The star-masked and
+  histogram rows are far outside the noise.
 
-  It also found a cost nobody had suspected: `Image.Histogram` built its bins in an
-  `ImmutableArray<uint>.Builder`, paying for the builder's backing array AND a second one because
-  `ToImmutableArray()` on a Builder copies. Now a plain `uint[]` wrapped by
-  `ImmutableCollectionsMarshal.AsImmutableArray` -- half the memory, the 64-call zero-fill loop
-  deleted (`new uint[]` is already zeroed), and bit-identical bins.
+  **This replaced two hand-rolled probes, and getting the tool right corrected them.** They timed
+  "best of 3" around `GC.GetTotalAllocatedBytes` after a forced collection, and reported the box
+  path as **19.20 -> 0.00 MB/call**. That zero was an artefact of measuring five reps with a
+  perfectly warm pool; over BDN's steady state the honest figure is 0.75. The probes also each
+  carried a private copy of the pre-change implementations, which is how one wrong label ("2
+  rents" on a path that had one) came to be written twice. They are deleted; the baselines live
+  once, in the benchmark.
 
-  **`ArrayPool<float>.Shared` pools a 34 MB array**, verified in the probe rather than recalled;
-  the guess that it capped around 1 MB was wrong, which is why the whole-image path shows pool
-  behaviour and not raw allocation. GC collection counts stayed +0/0/0 at these rep counts, so no
-  claim is made about collection pressure -- only about bytes.
+  What survived from the probe work: **the whole-image `Normalizer` path allocates exactly what it
+  did** (alloc ratio 1.00 -- the old one had ONE rent, the min pass rented nothing), and
+  `ArrayPool<float>.Shared` **does** pool a 34 MB array, so the guess that it capped near 1 MB was
+  wrong. And the benchmark found a cost nobody had suspected: `Image.Histogram` built its bins in
+  an `ImmutableArray<uint>.Builder`, paying for the builder's backing array AND a second one
+  because `ToImmutableArray()` on a Builder copies. Now a plain `uint[]` wrapped by
+  `ImmutableCollectionsMarshal.AsImmutableArray`: half the memory, **20x** less time, the 64-call
+  zero-fill loop deleted (`new uint[]` is already zeroed), and bit-identical bins. A document open
+  makes 10-12 of those calls.
+
+  `MemoryDiagnoser` also reports Gen0/1/2 collections per 1000 ops, which the probes could not
+  produce at all (five reps never triggered a GC): the histogram buffer goes 14.77 -> 7.20
+  collections per 1000 ops at Size=1280.
 - [ ] **`Image.Histogram` still has one measured lever left: parallel row bands, 32 -> 8 ms per
   24 MP channel.** Deliberately not taken. It needs per-band bin arrays plus a merge, and it
   reorders the `total_value` double summation, which feeds `hist_mean` -> `Background()`'s mode
