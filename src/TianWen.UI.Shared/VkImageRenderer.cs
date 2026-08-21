@@ -60,6 +60,11 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
         return true;
     }
 
+    protected override void ReleaseUnusedChannelTextures(int liveSlotCount)
+    {
+        _fitsPipeline.ReleaseChannelTexturesFrom(liveSlotCount);
+    }
+
     /// <summary>Hands the pipeline's staging buffer back after a document load. See
     /// <see cref="VkFitsImagePipeline.TrimStagingBuffer"/> for why this is caller-driven.</summary>
     protected override void TrimUploadScratch()

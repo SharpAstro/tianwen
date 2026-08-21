@@ -215,4 +215,66 @@ public sealed class GpuChannelFormatTests : IClassFixture<OffscreenGpuFixture>
         devicePerPx.ShouldBeLessThan(-2.8 * channels);
         netPerPx.ShouldBeLessThan(-1.8 * channels);
     }
+
+    /// <summary>
+    /// A view that stops sampling a channel must give the texture back. Nothing else shrinks them: a
+    /// channel texture is destroyed only when re-uploaded at a different geometry or format, so before
+    /// this, pressing C on a 3-plane master held two full-size textures for a view that samples one,
+    /// and stepping from a master to a mono sub in the same folder held them across documents.
+    /// </summary>
+    /// <remarks>
+    /// The readback is the half that matters most. Freeing device memory is easy to do while freeing
+    /// the WRONG slot, and the symptom of that -- the live channel sampling a 1x1 placeholder -- is a
+    /// uniformly flat image, which looks like a stretch bug rather than a lifetime bug.
+    /// </remarks>
+    [Fact]
+    public void AViewThatStopsSamplingAChannelGivesTheTextureBack()
+    {
+        if (!_gpu.VulkanAvailable)
+        {
+            Assert.Skip($"Vulkan runtime not available on this host ({_gpu.UnavailableReason})");
+            return;
+        }
+
+        const int W = 512, H = 512;
+        var floats = new float[W * H];
+        for (var i = 0; i < floats.Length; i++) { floats[i] = (i % 251) / 251f; }
+
+        var (three, afterRelease, afterAgain, afterNoop, probe) = _gpu.Invoke(() =>
+        {
+            var pipeline = _gpu.Pipeline!;
+            for (var c = 0; c < 3; c++) { pipeline.UploadChannelTexture(floats, c, W, H); }
+            var all = pipeline.ChannelDeviceBytes;
+
+            // The single-channel view: slot 0 populated, slots 1 and 2 no longer sampled.
+            pipeline.ReleaseChannelTexturesFrom(1);
+            var released = pipeline.ChannelDeviceBytes;
+
+            // Idempotent, because the upload pass runs per document and would otherwise re-destroy and
+            // re-create two placeholders on every one.
+            pipeline.ReleaseChannelTexturesFrom(1);
+            var again = pipeline.ChannelDeviceBytes;
+
+            // Nothing to release when every slot is live.
+            pipeline.ReleaseChannelTexturesFrom(3);
+            var noop = pipeline.ChannelDeviceBytes;
+
+            var read = new float[8];
+            pipeline.ReadbackChannelFirstFloats(0, read);
+            return (all, released, again, noop, read);
+        });
+
+        _output.WriteLine($"{W}x{H} x3ch: {three} B -> {afterRelease} B after dropping to one sampled "
+            + $"slot ({afterRelease / (double)three:F3})");
+
+        // Two of three freed, so about a third remains plus two 1x1 placeholders.
+        (afterRelease / (double)three).ShouldBeLessThan(0.40);
+        afterAgain.ShouldBe(afterRelease, "a second release must not churn the placeholders");
+        afterNoop.ShouldBe(afterRelease, "releasing from the live count must do nothing");
+
+        for (var i = 0; i < probe.Length; i++)
+        {
+            probe[i].ShouldBe(floats[i], 1e-6f, $"live channel texel {i} must survive the release");
+        }
+    }
 }

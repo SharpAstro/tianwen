@@ -193,7 +193,8 @@ public static class ViewerActions
     public static void UpdateCursorInfo(AstroImageDocument document, ViewerState state, int imageX, int imageY)
     {
         state.CursorImagePosition = (imageX, imageY);
-        state.CursorPixelInfo = document.GetPixelInfo(imageX, imageY);
+        state.CursorPixelInfo = document.GetPixelInfo(imageX, imageY,
+            state.ChannelView.DisplayedSourceChannel(document.UnstretchedImage.ChannelCount));
     }
 
     /// <summary>

@@ -108,7 +108,19 @@ public static class InfoPanelData
             if (info.Values.Length == 1)
             {
                 var v = info.Values[0];
-                lines.Add($"Val: {v:F4} ({v * 65535.0:F0})");
+                // Name the channel when a view selected one, so the single value is not ambiguous.
+                // "Val" stays for a mono image, where there is nothing to disambiguate.
+                var label = state.ChannelView switch
+                {
+                    ChannelView.Red => "R",
+                    ChannelView.Green => "G",
+                    ChannelView.Blue => "B",
+                    ChannelView.Channel0 => "Ch0",
+                    ChannelView.Channel1 => "Ch1",
+                    ChannelView.Channel2 => "Ch2",
+                    _ => "Val"
+                };
+                lines.Add($"{label}: {v:F4} ({v * 65535.0:F0})");
             }
             else if (info.Values.Length >= 3)
             {
