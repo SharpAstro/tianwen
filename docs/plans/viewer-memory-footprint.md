@@ -230,15 +230,32 @@ need them at load (stretch stats, star detection), then release. Steady state fa
 - `ImageRendererBase.UploadDocumentTextures` -- **DONE.** Each of the three upload sites (raw Bayer,
   3-channel composite, single-channel view) now tries `TryUploadRetainedRaster` first and falls back
   to the float span. Three things about the shape are load-bearing:
-  - **The gate is a capability on the BACKEND** (`SupportsByteChannelTextures`, virtual returning
-    false), not a new abstract member. Five classes derive from `ImageRendererBase` -- `VkImageRenderer`
-    plus four offline test doubles -- and an abstract member would have forced a stub into all four,
-    each free to get it wrong. With the default they keep taking the float path unchanged, which
-    `ViewerByteTextureUploadTests` asserts directly rather than leaving implied.
-  - **The gate is checked BEFORE the raster is looked for**, because widening the bytes back to floats
-    to satisfy a float-only backend would be strictly worse than never asking: the floats already
-    exist on the image. So the byte overload throws rather than no-ops -- unreachable unless a backend
-    advertised a capability it did not implement, where a silent no-op would present as a blank image.
+  - **The override IS the capability declaration.** The 8-bit upload is a virtual
+    `TryUploadImageTexture(ReadOnlySpan<byte>, ...)` returning **false**, and there is no companion
+    "supports 8-bit textures" flag anywhere. Five classes derive from `ImageRendererBase` --
+    `VkImageRenderer` plus four offline test doubles -- so a new *abstract* member would have forced a
+    stub into all four, each free to get it wrong; the false default keeps them on the float path
+    unchanged, which `ViewerByteTextureUploadTests` asserts directly rather than leaving implied. The
+    float-only double in that suite declines by NOT overriding the method, which is the shape those
+    four suites are actually in -- a double that overrode it and returned false would test something
+    else.
+  - **Rejected: a `bool SupportsByteChannelTextures` beside the upload, and its natural successor, a
+    `[Flags]` enum of supported texel formats.** The bool shipped first and was replaced the same day.
+    The diagnosis behind the enum is right -- a bool named for one depth cannot say "8 but not 16", so
+    a second format needs a second bool or a rename -- but a capability *set* is the wrong cure: it
+    states every format TWICE (advertised, and implemented) and lets a backend claim a depth it never
+    wrote, a disagreement nothing except a runtime throw can catch. That throw was in fact the whole
+    guard behind the bool. Folding the claim into the method makes the lie unrepresentable and costs
+    ONE member per format instead of two. It also buys the caller nothing to give up: a document
+    retains exactly one depth (its source container width), so at most one raster lookup can ever
+    succeed and there is nothing for a set to help choose between.
+  - **The bool was additionally justified by an ordering that does not survive inspection**, which is
+    worth recording because it read convincingly: "checked before the raster is looked for, because
+    widening the bytes back to floats would be worse than never asking". Nothing widens anything on the
+    fallback path -- the floats are already resident, which is the whole premise of D1' -- and the real
+    short-circuit for a live source is the `source is not AstroImageDocument` test, which was already
+    first. Removing the flag costs a float-only backend one `TryGetSourceRaster`: a field read and two
+    bounds checks, per document change, not per frame.
   - **The single-channel site uploads source channel N into texture slot 0**, so the raster lookup
     takes the source index while the upload takes the slot. Passing the slot to both would upload
     channel 0's bytes while claiming to show blue.

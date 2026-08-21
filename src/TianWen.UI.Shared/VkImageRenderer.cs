@@ -52,12 +52,12 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     }
 
     /// <summary>The pipeline carries a per-channel texel format and recreates on a change, so an 8-bit
-    /// channel becomes an <c>R8Unorm</c> texture at a quarter of the device memory.</summary>
-    protected override bool SupportsByteChannelTextures => true;
-
-    public override void UploadImageTexture(ReadOnlySpan<byte> data, int channel, int imageWidth, int imageHeight)
+    /// channel becomes an <c>R8Unorm</c> texture at a quarter of the device memory. Overriding this at
+    /// all is what declares the capability, so there is no flag to keep in step with it.</summary>
+    protected override bool TryUploadImageTexture(ReadOnlySpan<byte> data, int channel, int imageWidth, int imageHeight)
     {
         _fitsPipeline.UploadChannelTexture(data, channel, imageWidth, imageHeight);
+        return true;
     }
 
     /// <summary>Hands the pipeline's staging buffer back after a document load. See

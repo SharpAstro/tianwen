@@ -299,32 +299,23 @@ namespace TianWen.UI.Abstractions
             int imageWidth, int imageHeight);
 
         /// <summary>
-        /// Whether this backend can hold a channel as 8-bit texels. False by default, which is what
-        /// keeps this a capability rather than a new abstract member: a backend that has not
-        /// implemented it (and every offline test double) keeps taking the float path unchanged.
-        /// </summary>
-        /// <remarks>
-        /// The gate is on the BACKEND and is checked before the raster is even looked for, because
-        /// widening the retained bytes back into floats to satisfy the float path would be strictly
-        /// worse than never having asked: the floats already exist on the image. So a backend that
-        /// says no is not offered the bytes at all.
-        /// </remarks>
-        protected virtual bool SupportsByteChannelTextures => false;
-
-        /// <summary>
         /// Uploads 8-bit image texture data for the given channel, as UNORM texels that sample to the
-        /// same [0,1] the float path uploads.
+        /// same [0,1] the float path uploads. False means this backend has no 8-bit path, and the
+        /// caller uploads the widened floats instead.
         /// </summary>
         /// <remarks>
-        /// Only reached when <see cref="SupportsByteChannelTextures"/> is true, hence the throwing
-        /// default rather than a silent no-op: an override missing on a backend that advertised the
-        /// capability is a bug, and a no-op would present as a blank image.
+        /// <para><b>The override IS the capability declaration.</b> That is why no companion
+        /// "supports 8-bit textures" flag exists to consult: a flag beside this method would state one
+        /// fact twice and let a backend advertise a texel format it never implemented, a disagreement
+        /// only a runtime throw could then catch. Here the sole way to claim 8-bit uploads is to
+        /// perform one, so there is nothing to disagree with, and a further format later costs ONE
+        /// member rather than two.</para>
+        /// <para>A backend that declines must upload NOTHING, because the caller goes on to fill the
+        /// same channel slot from the floats. Declining is always safe: the float plane draws the same
+        /// picture, and for every source except a retained 8-bit raster it is the only one there is.</para>
         /// </remarks>
-        public virtual void UploadImageTexture(ReadOnlySpan<byte> data, int channel,
-            int imageWidth, int imageHeight)
-            => throw new NotSupportedException(
-                $"{GetType().Name} does not implement 8-bit channel uploads; "
-                + $"{nameof(SupportsByteChannelTextures)} must stay false.");
+        protected virtual bool TryUploadImageTexture(ReadOnlySpan<byte> data, int channel,
+            int imageWidth, int imageHeight) => false;
 
         /// <summary>
         /// Uploads histogram data from a preview source. Called once per image load (or sequence open).
@@ -454,14 +445,23 @@ namespace TianWen.UI.Abstractions
         }
 
         /// <summary>
-        /// Uploads a channel as 8-bit UNORM texels. Alias for
-        /// <see cref="UploadImageTexture(ReadOnlySpan{byte}, int, int, int)"/>.
+        /// Uploads a channel as 8-bit UNORM texels, or returns false when this backend has no 8-bit
+        /// path. Alias for <see cref="TryUploadImageTexture"/>.
         /// </summary>
-        public void UploadChannelTexture(ReadOnlySpan<byte> data, int channel, int imageWidth, int imageHeight)
+        /// <remarks>
+        /// The geometry is stamped only on success, so a decline leaves this widget exactly as it was
+        /// and the float upload that follows is the first thing to touch it.
+        /// </remarks>
+        public bool TryUploadChannelTexture(ReadOnlySpan<byte> data, int channel, int imageWidth, int imageHeight)
         {
+            if (!TryUploadImageTexture(data, channel, imageWidth, imageHeight))
+            {
+                return false;
+            }
+
             ImageWidth = imageWidth;
             ImageHeight = imageHeight;
-            UploadImageTexture(data, channel, imageWidth, imageHeight);
+            return true;
         }
 
         /// <summary>
@@ -487,7 +487,7 @@ namespace TianWen.UI.Abstractions
         private bool TryUploadRetainedRaster(IPreviewSource source, int sourceChannel, int textureSlot,
             int imageWidth, int imageHeight)
         {
-            if (!SupportsByteChannelTextures || source is not AstroImageDocument document
+            if (source is not AstroImageDocument document
                 || !document.UnstretchedImage.TryGetSourceRaster(sourceChannel, out var raster))
             {
                 return false;
@@ -501,8 +501,7 @@ namespace TianWen.UI.Abstractions
                 return false;
             }
 
-            UploadChannelTexture(raster, textureSlot, imageWidth, imageHeight);
-            return true;
+            return TryUploadChannelTexture(raster, textureSlot, imageWidth, imageHeight);
         }
 
         /// <summary>
