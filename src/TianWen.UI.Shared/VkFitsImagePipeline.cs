@@ -361,9 +361,11 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// <para>A 1x1 placeholder rather than a null view, because Vulkan forbids binding a descriptor set
     /// that references a destroyed view even when the shader never samples it -- the same reason
     /// <see cref="CreatePlaceholderTextures"/> exists at all.</para>
-    /// <para>No device-idle wait, matching the recreate branch of <see cref="UploadStagedChannel"/>:
-    /// that already destroys a texture the previous frame sampled, and relies on the renderer having
-    /// waited on its frame fence. This is the same operation at the same point in the frame.</para>
+    /// <para>The in-flight hazard is handled once, in <see cref="DestroyChannelTexture"/>. This method
+    /// originally argued it needed no wait because the recreate branch of
+    /// <see cref="UploadStagedChannel"/> does the same thing and relies on the renderer having waited
+    /// its frame fence -- true about the precedent, wrong about the fence, and so wrong about both.
+    /// See that method for what the fence actually retires.</para>
     /// <para>The BEFORE slots are deliberately untouched. They hold the split's left half, which is a
     /// deliberate retention with its own release path (<see cref="ReleaseBeforeChannels"/>); freeing
     /// them here would empty the comparison the user is looking at.</para>
@@ -1299,9 +1301,42 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         api.vkCreateImageView(&viewCI, null, out _histViews[channel]).CheckResult();
     }
 
+    /// <summary>
+    /// Frees a channel's view, image and memory, draining prior in-flight frames first because every
+    /// caller destroys an image a frame still in flight may be sampling.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Waiting the frame fence is not enough, and assuming it was is how this was missed.</b>
+    /// The renderer waits the fence for frame index <c>N % MaxFramesInFlight</c> at BeginFrame, which
+    /// retires frame N-2, NOT frame N-1. With two frames in flight there is therefore always one
+    /// submitted frame whose descriptor set still references this view when a destroy runs mid-record.
+    /// SdlVulkan.Renderer's <c>VkFontAtlas.Grow</c> names the cost on the hardware we ship on -- "the
+    /// Adreno X1-85 punishes that by failing the next vkQueueSubmit" -- and a run of rejected submits
+    /// is the observed shape of the viewer wedge, so this is not a theoretical hazard.</para>
+    /// <para>Every call site qualifies and none is per-frame: the geometry/format recreate in
+    /// <see cref="UploadStagedChannel"/> (a new document, a channel toggle, stepping to a frame of a
+    /// different size), <see cref="ReleaseChannelTexturesFrom"/>, and teardown. So the drain never
+    /// lands on the steady-state path, and once the first destroy of a batch has idled the queue the
+    /// rest cost nothing until something new is submitted.</para>
+    /// <para>Skipped when there is nothing allocated, so a placeholder slot pays no wait.</para>
+    /// <para>Guarded on <see cref="VulkanContext.IsGpuStuck"/> for the same reason
+    /// <see cref="Dispose"/> guards its own drain: an unbounded wait on an already-wedged device would
+    /// hard-freeze the render thread, turning a recoverable stall into a hang. The bounded form
+    /// upstream (<c>TryWaitPriorFramesIdle</c> -- waits every fence except the current frame's, capped,
+    /// and skips a known-stuck GPU) is what this should call; it is <c>internal</c> today.</para>
+    /// </remarks>
     private void DestroyChannelTexture(int channel)
     {
         var api = _ctx.DeviceApi;
+
+        if ((_channelViews[channel] != VkImageView.Null
+                || _channelImages[channel] != VkImage.Null
+                || _channelMemories[channel] != VkDeviceMemory.Null)
+            && !_ctx.IsGpuStuck)
+        {
+            api.vkDeviceWaitIdle();
+        }
+
         if (_channelViews[channel] != VkImageView.Null)
         {
             api.vkDestroyImageView(_channelViews[channel]);
