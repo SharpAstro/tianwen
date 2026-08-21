@@ -882,9 +882,10 @@ void PumpInstanceGate()
 
     while (instanceGate.TryDequeue(out _))
     {
-        // Restores only if minimised, then raises. The rule and the reason it is not simply
-        // "restore, then raise" live in SharpAstro.AppShell's WindowActivation.
-        sdlWindow.ActivateForHandoff();
+        // Restores only if minimised, then raises. SdlVulkanWindow implements
+        // IActivatableWindow, so this is AppShell's own rule, not a local copy of it; the
+        // reason it is not simply "restore, then raise" is on WindowActivation.
+        sdlWindow.Activate();
         appState.NeedsRedraw = true;
     }
 }

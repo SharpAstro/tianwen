@@ -15,6 +15,7 @@ Note csproj paths vary, not every repo uses `src/<Lib>/<Lib>.csproj`:
 | DIR.Lib | `DIR.Lib` | `../../sharpastro/DIR.Lib` | `src/DIR.Lib/DIR.Lib.csproj` | `.github/workflows/dotnet.yml` |
 | Console.Lib | `Console.Lib` | `../../sharpastro/Console.Lib` | `src/Console.Lib/Console.Lib.csproj` | `.github/workflows/dotnet.yml` |
 | SdlVulkan.Renderer | `SdlVulkan.Renderer` | `../../sharpastro/SdlVulkan.Renderer` | `src/SdlVulkan.Renderer/SdlVulkan.Renderer.csproj` | `.github/workflows/dotnet.yml` |
+| SharpAstro.AppShell | `SharpAstro.AppShell` | `../../sharpastro/AppShell` | `src/SharpAstro.AppShell/SharpAstro.AppShell.csproj` | `.github/workflows/dotnet.yml` |
 | FITS.Lib | `FITS.Lib` | `../../sharpastro/FITS.Lib` | `CSharpFITS/CSharpFITS.csproj` | `.github/workflows/dotnet.yml` |
 | FC.SDK | `FC.SDK` | `../../sharpastro/FC.SDK` | `src/FC.SDK/FC.SDK.csproj` | `.github/workflows/dotnet.yml` |
 | ZWOptical.SDK | `ZWOptical.SDK` | `../../sharpastro/zwo-sdk-nuget` | `ZWOptical.SDK.csproj` (repo root) | `.github/workflows/dotnet.yml` |
@@ -60,6 +61,7 @@ local in-tree iteration requires a local nupkg feed rather than switching to Pro
 ```
 SharpAstro.Fonts --> DIR.Lib --> Console.Lib        --> TianWen
                              --> SdlVulkan.Renderer  --> TianWen
+SharpAstro.AppShell -------------^
 ```
 
 - **SharpAstro.Fonts** is the root. Only bump when its own code changes.
@@ -67,6 +69,10 @@ SharpAstro.Fonts --> DIR.Lib --> Console.Lib        --> TianWen
   ALL downstream libs need a release even if their code didn't change - this
   keeps all versions in sync and ensures CI builds pick up the new DIR.Lib
   transitively.
+- **SharpAstro.AppShell** is a second root, independent of the Fonts/DIR.Lib line: it has no
+  in-house dependencies at all. SdlVulkan.Renderer consumes it (7.23+) for
+  `IActivatableWindow`, so an AppShell release cascades to SdlVulkan.Renderer and then to
+  TianWen, on the same rules as DIR.Lib below.
 - **Console.Lib** and **SdlVulkan.Renderer** both depend on DIR.Lib but NOT
   on each other, so they can be released in parallel.
 

@@ -424,9 +424,10 @@ bool PumpInstanceGate()
         // The same entry point a drag and drop uses, so a handed-off file and a dropped one
         // cannot diverge: it scans the folder, selects the file and flags a redraw.
         ViewerActions.HandleFileDrop(state, request.Payload);
-        // Restores only if minimised, then raises. The rule and the reason it is not simply
-        // "restore, then raise" live in SharpAstro.AppShell's WindowActivation.
-        sdlWindow.ActivateForHandoff();
+        // Restores only if minimised, then raises. SdlVulkanWindow implements
+        // IActivatableWindow, so this is AppShell's own rule, not a local copy of it; the
+        // reason it is not simply "restore, then raise" is on WindowActivation.
+        sdlWindow.Activate();
         applied = true;
     }
 
