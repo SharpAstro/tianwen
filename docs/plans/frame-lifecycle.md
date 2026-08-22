@@ -108,6 +108,53 @@ flag, which is precisely the ambiguity this plan is about.
 - Is convention 3 worth keeping distinct from 1 at all, or is "recycled by someone" the single
   useful category? The consumer rules are identical; only the recycler differs.
 
+## A leased frame could be its own TYPE (raised by the user 2026-08-22)
+
+Out of a review of D1: *"maybe a LeasedImage subclass that has the fast access methods."* The idea
+splits into two, and they land differently -- worth recording both, because the appealing half is the
+one that does not work.
+
+### Adopted in principle: type the OWNERSHIP obligation
+
+`TryLease` hands back an `Image` whose "you MUST `Release()` this" lives only in a doc comment, which
+is convention 3 of the table above in its purest form: a rule that exists, is real, and is enforced
+by nobody. A distinct returned type would make it compile-time-checkable -- the borrower cannot lose
+track of an obligation the type carries. It is orthogonal to performance and is the genuinely useful
+version of the suggestion.
+
+Two things to settle when it is picked up. **Where it goes in the hierarchy:** a subclass inherits
+every mutator, so a `LeasedImage` still exposes `TryReleaseFloatPlanes`; a *wrapper* that exposes the
+read surface and its own `Dispose` is the shape that can actually constrain a borrower, at the cost of
+forwarding. And **whether `Release` becomes `Dispose`**: a `using` is the only thing that makes the
+obligation hard to forget, but `Image.Release` is refcount semantics rather than disposal, and
+conflating the two is how a double-release gets written.
+
+### Rejected: a subclass carrying FAST accessors
+
+The performance motivation was real (see the measured numbers on the `SubpixelValue` hoist), but a
+class cannot hold the guarantee it would be asserting:
+
+- **The promise is falsifiable after the fact.** `LeasedImage` would assert "my planes are resident"
+  in its type while residency remains mutable state on the base -- and `TryReleaseFloatPlanes` is
+  public and inherited, so one call makes the type's claim false while every holder goes on believing
+  it. A per-call check is worse than a correct type and *better* than a type that lies.
+- **It would bind on the wrong images.** The hot readers are `Image.Transform` / `Image.StarDetection`
+  instance methods where `this` is an `Image`, so a subclass's non-virtual fast methods never resolve
+  without a cast or a duplicated loop; making them `virtual` swaps a struct copy for a virtual
+  dispatch in a 12.6M-call loop, which is likely worse.
+- **The two sets barely overlap.** Leases are camera frames; the resample loops run on stacker images.
+  And `TryReleaseFloatPlanes` refuses any channel carrying a `Buffer`, so a leasable frame is never
+  released and a released image has no buffer to recycle -- the invariant `LeasedImage` would enforce
+  already holds for free.
+- **It needs `protected` access to the plane array**, widening the surface that must respect residency,
+  which is the opposite of the goal.
+
+**What was done instead, and the rule it generalises to:** hoist the residency resolution out of the
+loop and hand the loop the `float[,]` planes (`Image.ResidentPlanes()`). A *scope* rather than a type.
+If the invariant should ever be expressed in the type system, the right shape is a `readonly ref
+struct` -- it cannot be stored in a field, so a residency guarantee physically cannot outlive the
+operation that established it, which is exactly the property a class lacks.
+
 ## Related
 
 - [stacking.md](stacking.md), [ai-enhancement.md](ai-enhancement.md): the two pipelines with the

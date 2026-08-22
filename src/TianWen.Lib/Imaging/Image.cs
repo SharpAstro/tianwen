@@ -468,10 +468,40 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// <param name="x1"></param>
     /// <param name="y1"></param>
     /// <returns></returns>
+    /// <remarks>
+    /// Convenience for a caller that samples a handful of points. Anything sampling PER PIXEL must
+    /// hoist <see cref="ResidentPlanes"/> out of its loop and use the plane-taking overload instead:
+    /// resolving residency is a field read, an index and a length check, which is nothing per star and
+    /// 12.6M times nothing for a 2048-square colour warp.
+    /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
     private float SubpixelValue(int channel, float x1, float y1)
+        => SubpixelValue(Planes[channel].Data, x1, y1);
+
+    /// <summary>
+    /// Every channel's plane with residency resolved ONCE, for a loop that samples per pixel.
+    /// </summary>
+    /// <remarks>
+    /// The array is a snapshot: it holds the planes themselves, so it cannot be invalidated by a
+    /// release landing mid-loop the way a re-read of the channel array could. That is deliberate --
+    /// a guarantee of residency must not outlive the operation that established it, and holding the
+    /// arrays is what makes the guarantee true rather than merely claimed.
+    /// </remarks>
+    private float[][,] ResidentPlanes()
     {
-        var channelData = Planes[channel].Data;
+        var planes = Planes;
+        var arrays = new float[planes.Length][,];
+        for (var c = 0; c < planes.Length; c++)
+        {
+            arrays[c] = planes[c].Data;
+        }
+
+        return arrays;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
+    private float SubpixelValue(float[,] channelData, float x1, float y1)
+    {
         var width = Width;
         var height = Height;
 

@@ -120,17 +120,23 @@ public partial class Image
             MaxDegreeOfParallelism = Environment.ProcessorCount * 4
         };
 
+        // Residency resolved once for the whole warp rather than once per destination pixel, and note
+        // the rows run in PARALLEL: sampling by channel index had every worker re-checking, and against
+        // a released image every worker would have raced into the rebuild.
+        var srcPlanes = ResidentPlanes();
+
         for (var c = 0; c < channelCount; c++)
         {
             var channel = c;
             var dstChannel = output[channel];
+            var srcPlane = srcPlanes[channel];
             await Parallel.ForAsync(0, refHeight, parallelOptions, async (y, ct) => await Task.Run(() =>
             {
                 for (var x = 0; x < refWidth; x++)
                 {
                     var srcPos = Vector2.Transform(new Vector2(x, y), inverseTransform);
                     dstChannel[y, x] = srcPos.X >= 0 && srcPos.X < srcW && srcPos.Y >= 0 && srcPos.Y < srcH
-                        ? SubpixelValue(channel, srcPos.X, srcPos.Y)
+                        ? SubpixelValue(srcPlane, srcPos.X, srcPos.Y)
                         : float.NaN;
                 }
                 return ValueTask.CompletedTask;
@@ -245,6 +251,9 @@ public partial class Image
 
         var output = CreateChannelData(channelCount, regionH, regionW);
 
+        // Residency resolved once per operation, not once per sampled pixel.
+        var regionPlanes = ResidentPlanes();
+
         var parallelOptions = new ParallelOptions
         {
             CancellationToken = cancellationToken,
@@ -254,6 +263,7 @@ public partial class Image
         {
             var channel = c;
             var dstChannel = output[channel];
+            var srcPlane = regionPlanes[channel];
             Parallel.For(0, regionH, parallelOptions, dy =>
             {
                 var canvasY = y0 + dy;
@@ -262,7 +272,7 @@ public partial class Image
                     var canvasX = x0 + dx;
                     var srcPos = Vector2.Transform(new Vector2(canvasX, canvasY), inverseTransform);
                     dstChannel[dy, dx] = srcPos.X >= 0 && srcPos.X < srcW && srcPos.Y >= 0 && srcPos.Y < srcH
-                        ? SubpixelValue(channel, srcPos.X, srcPos.Y)
+                        ? SubpixelValue(srcPlane, srcPos.X, srcPos.Y)
                         : float.NaN;
                 }
             });
@@ -291,6 +301,9 @@ public partial class Image
         var height = Height;
         var transformedData = CreateChannelData(channelCount, newHeight, newWidth);
 
+        // Residency resolved once per operation, not once per sampled pixel.
+        var transformPlanes = ResidentPlanes();
+
         var parallelOptions = new ParallelOptions
         {
             CancellationToken = cancellationToken,
@@ -301,13 +314,14 @@ public partial class Image
         {
             var channel = c;
             var dstChannel = transformedData[channel];
+            var srcPlane = transformPlanes[channel];
             await Parallel.ForAsync(0, newHeight, parallelOptions, async (y, ct) => await Task.Run(() =>
             {
                 for (var x = 0; x < newWidth; x++)
                 {
                     var sourcePos = Vector2.Transform(new Vector2(x, y), inverseTransform);
                     dstChannel[y, x] = sourcePos.X >= 0 && sourcePos.X < width && sourcePos.Y >= 0 && sourcePos.Y < height
-                        ? SubpixelValue(channel, sourcePos.X, sourcePos.Y)
+                        ? SubpixelValue(srcPlane, sourcePos.X, sourcePos.Y)
                         : float.NaN;
                 }
 
@@ -334,6 +348,9 @@ public partial class Image
         var outW = weightAccum.GetLength(1);
         var channels = ChannelCount;
 
+        // Residency resolved once per operation, not once per sampled pixel.
+        var planes = ResidentPlanes();
+
         Span<float> samples = stackalloc float[channels];
         for (var y = 0; y < outH; y++)
         {
@@ -345,7 +362,7 @@ public partial class Image
                 var ok = true;
                 for (var c = 0; c < channels; c++)
                 {
-                    var v = SubpixelValue(c, sx, sy);
+                    var v = SubpixelValue(planes[c], sx, sy);
                     if (float.IsNaN(v))
                     {
                         ok = false;
@@ -387,6 +404,9 @@ public partial class Image
         var height = Height;
         var warped = CreateChannelData(channelCount, height, width);
 
+        // Residency resolved once per operation, not once per sampled pixel.
+        var planes = ResidentPlanes();
+
         var parallelOptions = new ParallelOptions
         {
             CancellationToken = cancellationToken,
@@ -403,7 +423,7 @@ public partial class Image
                 var inBounds = sx >= 0 && sx < width && sy >= 0 && sy < height;
                 for (var c = 0; c < channelCount; c++)
                 {
-                    warped[c][y, x] = inBounds ? SubpixelValue(c, sx, sy) : float.NaN;
+                    warped[c][y, x] = inBounds ? SubpixelValue(planes[c], sx, sy) : float.NaN;
                 }
             }
         });
@@ -424,6 +444,9 @@ public partial class Image
         var outW = weightAccum.GetLength(1);
         var channels = ChannelCount;
 
+        // Residency resolved once per operation, not once per sampled pixel.
+        var planes = ResidentPlanes();
+
         Span<float> samples = stackalloc float[channels];
         for (var y = 0; y < outH; y++)
         {
@@ -436,7 +459,7 @@ public partial class Image
                 var ok = true;
                 for (var c = 0; c < channels; c++)
                 {
-                    var v = SubpixelValue(c, sx, sy);
+                    var v = SubpixelValue(planes[c], sx, sy);
                     if (float.IsNaN(v))
                     {
                         ok = false;
@@ -483,6 +506,9 @@ public partial class Image
         var outH = weightAccum.GetLength(0);
         var outW = weightAccum.GetLength(1);
         var channels = ChannelCount;
+
+        // Residency resolved once per operation, not once per sampled pixel.
+        var planes = ResidentPlanes();
         var width = Width;
         var height = Height;
 
@@ -498,7 +524,7 @@ public partial class Image
                 var ok = true;
                 for (var c = 0; c < channels; c++)
                 {
-                    var v = SubpixelValue(c, sx, sy);
+                    var v = SubpixelValue(planes[c], sx, sy);
                     if (float.IsNaN(v))
                     {
                         ok = false;
