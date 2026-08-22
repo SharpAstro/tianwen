@@ -146,6 +146,63 @@ namespace TianWen.Lib.Tests
                 DebayerAlgorithm.None);
         }
 
+        /// <summary>
+        /// A pointer over the chrome must report nothing, even when the zoomed image's extent covers
+        /// the chrome's position.
+        /// </summary>
+        /// <remarks>
+        /// The caller repaints the window whenever this readout CHANGES, so a readout that tracks the
+        /// pointer across the file list repaints on every motion event -- measured at 8% GPU on an
+        /// Adreno X1-85, and 0% once zoomed out far enough that the image no longer reaches there.
+        /// That is the shape that hides the bug: the waste appears as you zoom IN, so it reads as a
+        /// rendering cost rather than a hit test against the wrong rectangle.
+        /// </remarks>
+        [Fact]
+        public async Task APointerOverTheChromeReportsNothingHoweverFarTheImageIsZoomed()
+        {
+            var document = await NewMonoDocumentAsync();
+            var state = new ViewerState { Zoom = 40f };
+
+            // A pane inset from the window origin, as the toolbar and file list make it.
+            const float areaX = 100f, areaY = 50f, areaW = 200f, areaH = 150f;
+
+            // Inside the pane: a real readout, which is the control for everything below.
+            ViewerActions.UpdateCursorFromScreenPosition(document, state,
+                areaX + areaW / 2f, areaY + areaH / 2f, areaX, areaY, areaW, areaH)
+                .ShouldBeTrue();
+            state.CursorImagePosition.ShouldNotBeNull();
+
+            // Over the file list (left of the pane). At zoom 40 the image extent easily spans it, so
+            // the old image-bounds-only test reported a pixel here.
+            ViewerActions.UpdateCursorFromScreenPosition(document, state,
+                areaX - 40f, areaY + areaH / 2f, areaX, areaY, areaW, areaH)
+                .ShouldBeFalse();
+            state.CursorImagePosition.ShouldBeNull();
+            state.CursorPixelInfo.ShouldBeNull();
+
+            // And it must STAY null as the pointer keeps moving, because it is the CHANGE that costs a
+            // repaint. One null is a fix; a null that keeps re-reporting the same null is the saving.
+            for (var dy = 0; dy < 20; dy++)
+            {
+                ViewerActions.UpdateCursorFromScreenPosition(document, state,
+                    areaX - 40f, areaY + dy, areaX, areaY, areaW, areaH)
+                    .ShouldBeFalse();
+                state.CursorImagePosition.ShouldBeNull();
+            }
+
+            // Over the toolbar (above the pane).
+            ViewerActions.UpdateCursorFromScreenPosition(document, state,
+                areaX + areaW / 2f, areaY - 10f, areaX, areaY, areaW, areaH)
+                .ShouldBeFalse();
+            state.CursorImagePosition.ShouldBeNull();
+
+            // Over the info panel (right of the pane).
+            ViewerActions.UpdateCursorFromScreenPosition(document, state,
+                areaX + areaW + 5f, areaY + areaH / 2f, areaX, areaY, areaW, areaH)
+                .ShouldBeFalse();
+            state.CursorImagePosition.ShouldBeNull();
+        }
+
         private static Task<AstroImageDocument> NewMonoDocumentAsync()
         {
             var plane = new float[Height, Width];
