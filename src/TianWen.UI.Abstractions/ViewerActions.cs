@@ -356,23 +356,41 @@ public static class ViewerActions
 
     /// <summary>
     /// Updates cursor pixel info from a screen position, converting to image coordinates.
-    /// Returns true if the cursor is over the image.
+    /// Returns true if the cursor is over the VISIBLE image.
     /// </summary>
+    /// <remarks>
+    /// <b>The pointer must be inside the image PANE, not merely inside the image's mathematical
+    /// extent.</b> Zoomed in, that extent runs underneath the toolbar, the file list and the info
+    /// panel, all of which are drawn OVER it -- so testing the extent alone reports a pixel value for
+    /// a pixel that is not visible where the pointer is, and the caller, seeing the readout change,
+    /// repaints the whole window for every motion event. Measured on an Adreno X1-85: 8% GPU just
+    /// sliding the pointer down the file list. Zoom out far enough that the image no longer reaches
+    /// the file list and the same gesture costs 0%, which is what made the cause visible -- the tell
+    /// is that the waste APPEARS as you zoom in, which reads like a rendering cost rather than a
+    /// hit-test bug.
+    /// </remarks>
     public static bool UpdateCursorFromScreenPosition(
         AstroImageDocument? document, ViewerState state,
         float px, float py,
-        float fileListW, float toolbarH, float areaW, float areaH)
+        float areaX, float areaY, float areaW, float areaH)
     {
         if (document?.UnstretchedImage is not { } image)
         {
             return false;
         }
 
+        if (px < areaX || px >= areaX + areaW || py < areaY || py >= areaY + areaH)
+        {
+            state.CursorImagePosition = null;
+            state.CursorPixelInfo = null;
+            return false;
+        }
+
         var scale = state.Zoom;
         var drawW = image.Width * scale;
         var drawH = image.Height * scale;
-        var offsetX = fileListW + (areaW - drawW) / 2f + state.PanOffset.X;
-        var offsetY = toolbarH + (areaH - drawH) / 2f + state.PanOffset.Y;
+        var offsetX = areaX + (areaW - drawW) / 2f + state.PanOffset.X;
+        var offsetY = areaY + (areaH - drawH) / 2f + state.PanOffset.Y;
 
         var imgX = (int)((px - offsetX) / scale);
         var imgY = (int)((py - offsetY) / scale);
