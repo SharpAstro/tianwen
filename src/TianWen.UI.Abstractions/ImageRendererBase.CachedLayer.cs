@@ -59,16 +59,40 @@ namespace TianWen.UI.Abstractions
 
         private CachedLayerSlotState[] _cachedLayerSlots = [];
 
-        /// <summary>Counts layer renders, so a test can prove a redraw did NOT re-shade the image.</summary>
+        /// <summary>
+        /// What the cache actually did, for a host to publish to the debug inspector or a test to
+        /// assert on.
+        /// </summary>
         /// <remarks>
-        /// The whole feature is invisible to a pixel comparison: a correct cache and a re-render produce
-        /// the same frame, which is the point. So the only way to assert it works is to count the
-        /// expensive operation, the same reasoning as SkyMapTab.PrimOverlayGathers.
+        /// <para><b>Without this the feature is unfalsifiable from outside the process.</b> A working
+        /// cache draws a frame byte-identical to a re-render -- that is the point -- so no screenshot
+        /// can show it and no frame-time average can separate "on and not helping" from "never
+        /// engaged". The first A/B measurement here could not tell those apart and read as a null
+        /// result; with these numbers it took one query to see a 98% hit rate, and a second to find the
+        /// before/after split bypassing the cache entirely.</para>
+        /// <para>ONE public member rather than three internals behind an InternalsVisibleTo, which was
+        /// the first attempt. The friend route works and its precedent sits in LibraryAttributes.cs,
+        /// but it must name the ASSEMBLY (<c>tianwen-fits</c>) where every other reference in the repo
+        /// names the PROJECT -- and getting that wrong compiles the attribute happily, then fails at the
+        /// call site with "does not contain a definition", which reads like a missing member rather than
+        /// a mis-named friend. A friend list also grows one string-keyed coupling per host. This
+        /// assembly is not packaged, so a public member commits to no published API, and the name says
+        /// out loud that it is a diagnostic.</para>
+        /// <para><c>LastMiss</c> is the field that earned its place: it separates not-opted-in,
+        /// nothing-loaded, split-open, no-capacity and slot-stale, so a disappointing measurement names
+        /// its own cause instead of needing the source read to guess at one.</para>
         /// </remarks>
-        internal int CachedLayerRenders { get; private set; }
+        public readonly record struct CachedLayerDiagnostics(
+            bool Enabled, int Renders, int Blits, string LastMiss);
 
-        /// <summary>Counts blits, so a test can prove the cache was actually USED and not just built.</summary>
-        internal int CachedLayerBlits { get; private set; }
+        /// <summary>See <see cref="CachedLayerDiagnostics"/>.</summary>
+        public CachedLayerDiagnostics CachedLayerStats
+            => new CachedLayerDiagnostics(UseCachedImageLayer, _cachedLayerRenders, _cachedLayerBlits,
+                _cachedLayerLastMiss);
+
+        private int _cachedLayerRenders;
+        private int _cachedLayerBlits;
+        private string _cachedLayerLastMiss = "never attempted";
 
         // ---- the seam a GPU backend fills in; every default means "unsupported, draw directly" ----
 
@@ -169,7 +193,7 @@ namespace TianWen.UI.Abstractions
                 Zoom: p.Scale, PaneW: pane.Width, PaneH: pane.Height,
                 ImageW: ImageWidth, ImageH: ImageHeight,
                 LayerW: layerW, LayerH: layerH);
-            CachedLayerRenders++;
+            _cachedLayerRenders++;
         }
 
         /// <summary>
@@ -191,6 +215,9 @@ namespace TianWen.UI.Abstractions
             var p = _placement;
             if (!IsSlotReusable(_cachedLayerSlots[slot], pane, p, layerW, layerH, out var dx, out var dy))
             {
+                _cachedLayerLastMiss = _cachedLayerSlots[slot].Rendered
+                    ? "slot stale (the view moved past what it holds)"
+                    : $"slot {slot} not built yet";
                 return false;
             }
 
@@ -211,7 +238,12 @@ namespace TianWen.UI.Abstractions
 
             if (drawn)
             {
-                CachedLayerBlits++;
+                _cachedLayerBlits++;
+                _cachedLayerLastMiss = "";
+            }
+            else
+            {
+                _cachedLayerLastMiss = "backend refused the blit";
             }
             return drawn;
         }
@@ -236,13 +268,21 @@ namespace TianWen.UI.Abstractions
             layerW = 0;
             layerH = 0;
 
-            if (!UseCachedImageLayer || CachedLayerSlotCount <= 0)
+            if (!UseCachedImageLayer)
             {
+                _cachedLayerLastMiss = "not opted in";
+                return false;
+            }
+
+            if (CachedLayerSlotCount <= 0)
+            {
+                _cachedLayerLastMiss = "backend has no layer support";
                 return false;
             }
 
             if (ImageWidth <= 0 || ImageHeight <= 0)
             {
+                _cachedLayerLastMiss = "nothing loaded";
                 return false;
             }
 
@@ -251,6 +291,7 @@ namespace TianWen.UI.Abstractions
             // the state a viewer sits in while the user reads the status bar. So it renders directly.
             if (Split.ResolveDividerX(HasBeforeImageTextures, DpiScale) is not null)
             {
+                _cachedLayerLastMiss = "before/after split is open";
                 return false;
             }
 
@@ -265,6 +306,7 @@ namespace TianWen.UI.Abstractions
 
             if (!TryEnsureCachedLayerTargets(layerW, layerH))
             {
+                _cachedLayerLastMiss = $"no capacity for {layerW}x{layerH}";
                 return false;
             }
 
