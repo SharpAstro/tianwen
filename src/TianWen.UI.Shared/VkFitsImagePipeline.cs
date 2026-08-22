@@ -143,6 +143,12 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     private byte* _stretchUboMapped;
     private int _stretchUboSlotStride;
 
+    // Shadow of the bytes last written to each stretch UBO slot, and whether the most recent write
+    // changed them. See StretchUboChanged for why this exists rather than a hand-written cache key.
+    private readonly byte[][] _stretchUboShadow = new byte[StretchUboSlots][];
+    private readonly bool[] _stretchUboEverWritten = new bool[StretchUboSlots];
+    private readonly bool[] _stretchUboChanged = new bool[StretchUboSlots];
+
     // Histogram UBO buffer (persistently mapped)
     private VkBuffer _histogramUboBuffer;
     private VkDeviceMemory _histogramUboMemory;
@@ -793,7 +799,42 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         WriteFloat(p, 404, normalizeScale);
         WriteFloat(p, 408, debayerMode);
         WriteFloat(p, 412, 0f);
+
+        // Every 4-byte slot from 0 to StretchUboSize is written on every call, so comparing the whole
+        // range against the previous contents is exact: there is no padding hole left holding stale or
+        // uninitialised bytes. The read comes back from mapped host-visible memory, which is slower
+        // than normal RAM, but it is 416 bytes -- about seven cache lines -- once per draw. Staging the
+        // writes through a CPU-side array and copying in would avoid the read entirely; it would also
+        // mean rewriting every WriteFloat above, for a cost nothing can measure.
+        var written = new ReadOnlySpan<byte>(p, StretchUboSize);
+        var shadow = _stretchUboShadow[slot] ??= new byte[StretchUboSize];
+        _stretchUboChanged[slot] = !_stretchUboEverWritten[slot] || !written.SequenceEqual(shadow);
+        if (_stretchUboChanged[slot])
+        {
+            written.CopyTo(shadow);
+            _stretchUboEverWritten[slot] = true;
+        }
     }
+
+    /// <summary>
+    /// Whether the most recent <see cref="UpdateStretchUBO"/> for <paramref name="slot"/> wrote
+    /// different bytes than the call before it.
+    /// </summary>
+    /// <remarks>
+    /// <para>The UBO is the shader's COMPLETE input, so this answers "would that draw produce the same
+    /// pixels as last time?" exactly, and by construction rather than by a maintained list of the state
+    /// that happens to matter. That distinction is the whole reason it exists: a cached image layer is
+    /// only safe to reuse on the strength of an answer that cannot be wrong, and a hand-enumerated key
+    /// goes stale the moment a uniform is added -- with the failure mode being a stale picture on screen
+    /// and nothing in the diff to point at.</para>
+    /// <para>The first write to a slot always reports changed, so an all-zero UBO can never be mistaken
+    /// for an untouched shadow. An out-of-range slot reports changed too: the fail-safe answer is always
+    /// "do not reuse".</para>
+    /// <para>It says nothing about the TEXTURES, which are the shader's other input. A caller reusing a
+    /// rendition owes its own check that no channel was re-uploaded since.</para>
+    /// </remarks>
+    public bool StretchUboChanged(int slot = UboSlotPrimary)
+        => (uint)slot >= StretchUboSlots || _stretchUboChanged[slot];
 
     /// <summary>
     /// Writes histogram parameters into the persistently-mapped histogram UBO.
