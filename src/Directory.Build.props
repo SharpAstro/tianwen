@@ -20,7 +20,7 @@
       A release bump is 1.0 -> 1.1 additive, 1.x -> 2.x breaking. The patch segment is CI's
       (github.run_number) and is never written by hand.
     -->
-    <VersionMajorMinor>6.2</VersionMajorMinor>
+    <VersionMajorMinor>6.3</VersionMajorMinor>
     <!--
       Local builds get Major.Minor.0; CI passes -p:Version=Major.Minor.<run><attempt>+<sha> and the
       condition lets it win. This applies to EVERY project, which also closes a latent bug:
