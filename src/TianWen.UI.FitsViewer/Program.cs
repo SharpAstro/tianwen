@@ -164,31 +164,70 @@ if (initialFilePath is not null)
     state.RequestedFilePath = initialFilePath;
 }
 
-// --- One instance per folder ---
+// --- One instance per folder, plus one for "nothing open" ---
 // A double-click in the shell starts a fresh process, so a folder the user is already looking
 // at would get a second window onto it. The channel is keyed on the FOLDER rather than the app:
 // a file in a folder already on screen goes to that window, a file anywhere else gets its own.
 //
-// Every other outcome falls through and opens here -- no folder, --new-window, the opt-out, or a
+// The one exception is a window with NOTHING open, which holds the empty identity: it has no folder
+// to be more specific about, so it adopts a file from anywhere rather than let a second window open
+// beside it. A non-empty window never adopts across folders -- that would silently replace the folder
+// someone is looking at, which is the whole reason the claim is folder-scoped.
+//
+// Every other outcome falls through and opens here -- --new-window, the opt-out, a bare launch, or a
 // hand-off that failed -- because an extra window is a poor outcome and a double-click that does
 // nothing is not an acceptable one.
 const string GateScope = "tianwen-fits";
 const string SingleInstanceEnvVar = "TIANWEN_FITS_SINGLE_INSTANCE";
 InstanceGate? instanceGate = null;
 var gateFolder = folderPath;
-if (folderPath is not null && !newWindow
+if (!newWindow
     && !string.Equals(Environment.GetEnvironmentVariable(SingleInstanceEnvVar), "0", StringComparison.Ordinal))
 {
-    var channel = InstanceGate.ChannelFor(GateScope, InstanceGate.NormalizePathIdentity(folderPath));
-    instanceGate = InstanceGate.TryClaim(channel, logger);
-    if (instanceGate is null)
+    // An instance with NOTHING open answers for the EMPTY identity, which is ChannelFor's own default
+    // and cannot collide with a folder (NormalizePathIdentity always returns an absolute path, never
+    // ""). That claim is what lets a file reach a window showing nothing: without it such a window
+    // holds no claim at all, so every double-click missed it and started a second process -- precisely
+    // the cost the hand-off exists to avoid.
+    var emptyChannel = InstanceGate.ChannelFor(GateScope);
+
+    if (folderPath is not null)
     {
-        var handoff = initialFilePath ?? folderPath;
-        if (InstanceGate.TryHandOff(channel, handoff, TimeSpan.FromSeconds(5), logger))
+        var channel = InstanceGate.ChannelFor(GateScope, InstanceGate.NormalizePathIdentity(folderPath));
+        instanceGate = InstanceGate.TryClaim(channel, logger);
+        if (instanceGate is null)
         {
-            logger.LogInformation("Handed {Path} to the instance already showing {Folder}", handoff, folderPath);
-            return 0;
+            // A window already showing this folder beats an empty one: it is the more specific answer,
+            // and the file lands in the list the user is already looking at.
+            var handoff = initialFilePath ?? folderPath;
+            if (InstanceGate.TryHandOff(channel, handoff, TimeSpan.FromSeconds(5), logger))
+            {
+                logger.LogInformation("Handed {Path} to the instance already showing {Folder}", handoff, folderPath);
+                return 0;
+            }
         }
+    }
+
+    // Nobody was showing this folder, so prefer an EMPTY window over opening a second one. A bare
+    // launch (no file at all) deliberately does not reach here: the user asked for a window, so they
+    // get one.
+    if (initialFilePath is not null
+        && InstanceGate.TryHandOff(emptyChannel, initialFilePath, TimeSpan.FromSeconds(5), logger))
+    {
+        logger.LogInformation("Handed {Path} to the instance with nothing open", initialFilePath);
+        // Release the folder claim taken moments ago so the adopter's re-bind can take it. Losing that
+        // race is survivable by construction -- PumpInstanceGate keeps going ungated -- which is also
+        // the answer for two empty instances: one holds the empty channel, the other just opens what it
+        // was given.
+        instanceGate?.Dispose();
+        return 0;
+    }
+
+    if (folderPath is null)
+    {
+        // This IS the empty instance. Claim the empty identity so a later launch can find it; the
+        // PumpInstanceGate re-bind then moves the claim to whatever folder the adopted file is in.
+        instanceGate = InstanceGate.TryClaim(emptyChannel, logger);
     }
 }
 

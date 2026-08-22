@@ -39,9 +39,11 @@ the 35 TIFF / import / codec tests pass against it.
 | P9 | Stray text fragment at the left edge (needs confirmation) | UNCONFIRMED |
 | P10 | Hand-off may select the adjacent row (needs confirmation) | UNCONFIRMED |
 | P11 | `--help` reports no version, and the AI enhancer status is invisible | NEXT RELEASE |
-| P12 | Gain/ISO and offset are parsed but never shown in the info pane | NEXT RELEASE |
+| P12 | Gain/ISO and offset are parsed but never shown in the info pane | **FIXED** |
 | P13 | No in-depth user documentation | NEXT RELEASE |
-| P14 | An EMPTY instance does not adopt a file, because the gate is folder-scoped | NEXT RELEASE |
+| P14 | An EMPTY instance does not adopt a file, because the gate is folder-scoped | **FIXED** |
+| P15 | A faint residue is left at the end of the cursor readout (damage-era) | OPEN |
+| P16 | `Frame: None` printed the enum default as if it were a frame kind | **FIXED** |
 
 ---
 
@@ -254,13 +256,26 @@ first `EnhanceAsync`, so that composing the service collection spawns no `rc-ast
 status readout must not undo that by probing at startup. Either populate it lazily (report "not
 probed yet" until something asks) or make the probe an explicit user action in the status view.
 
-## P12. Gain/ISO and offset are parsed but never shown in the info pane  — NEXT RELEASE
+## P12. Gain/ISO and offset are parsed but never shown in the info pane  — FIXED
 
-Raised by the user 2026-08-22. `ImageMeta` already carries `Gain` (FITS `GAIN`) and `Offset` (FITS
+Raised by the user 2026-08-22. `ImageMeta` already carried `Gain` (FITS `GAIN`) and `Offset` (FITS
 `OFFSET`, `BLKLEVEL`), both `-1` when unknown, and TianWen writes both on every frame it captures --
-so this is a rendering gap in `ImageRendererBase.InfoPanel`, not a parsing one. Show them as their
-own rows, suppressed when `-1` rather than printed as `-1`. For a camera raw the same row should
-carry ISO (the `Gain` analogue on that path).
+so the gain and offset half was purely a rendering gap in `InfoPanelData.GetMetadataLines`, and is now
+three rows beside `Exposure` (the same fact: what the camera was set to), each **suppressed at `-1`**
+rather than printed, so a header that carried nothing produces no row.
+
+**The ISO half needed one field, which is more than "rendering".** There was no ISO anywhere in
+`ImageMeta`, and it must not be folded into `Gain`: that is a `short` sized for a sensor gain register
+and ISO 51200 does not fit in one. So `ImageMeta` gained `int Iso = -1` (appended, so every positional
+caller is unaffected) and the Canon raw importer now carries `raw.Exif?.Iso` through -- SharpAstro.Exif
+already parsed it, `BuildCanonRawImageMeta` simply dropped it on the floor. A file carries gain or ISO,
+never both, so the panel shows whichever it has.
+
+Pinned by `InfoPanelMetadataTests` (4): presence, the order beside `Exposure`, ISO-instead-of-gain for a
+raw, and the suppression case which additionally asserts **no row anywhere contains `-1`** -- because
+the failure mode of a formatted-unconditionally row is `Gain: -1`, which reads like a real value out of
+a real header. Live-verified: the ZWO ASI120MC plate-solve fixture renders `Gain: 48` with no `Offset`
+row, that file having no OFFSET card.
 
 ## P13. No in-depth user documentation  — NEXT RELEASE
 
@@ -271,7 +286,7 @@ solve, Enhance, the SER transport, and the file associations plus the single-ins
 all discoverable only by experiment or by reading `CLAUDE.md`. The Store listing needs somewhere to
 point, and P11's version line needs a document to sit beside.
 
-## P14. An EMPTY instance does not adopt a file  — NEXT RELEASE
+## P14. An EMPTY instance does not adopt a file  — FIXED
 
 Raised by the user 2026-08-22: *"if instance is empty (no folder open), opening any file should
 re-use that instance."*
@@ -283,20 +298,77 @@ reported behaviour: a window with *nothing* open holds a claim on no folder at a
 any folder misses it and spawns a second process, which is exactly the cost the hand-off exists to
 avoid.
 
-The mechanism to express the fix already exists and does not need a new lookup:
-`PumpInstanceGate` re-binds when the folder changes, releasing the old channel and claiming the new
-one. So an empty instance can hold a distinguished "no folder" claim and, on receiving a file, adopt
-it and re-bind to that file's folder. Two things to settle in the same change:
+**The "no folder" identity needed no sentinel.** `InstanceGate.ChannelFor(scope, identity)` defaults
+`identity` to the empty string and `NormalizePathIdentity` always returns an absolute path, so the
+empty identity is both collision-free and already exactly what the API's default means. An instance
+launched with no folder now claims it.
 
-- **What happens when two empty instances are running.** Only one can hold the no-folder claim, and
-  the loser must keep working: the existing rule applies, failure is never fatal, so it opens the
-  document itself.
-- **Whether the same courtesy extends to a NON-empty instance** whose folder differs. It must not:
-  that is the folder-scoping decision, and adopting there would silently replace the folder a user
-  is looking at.
+**The order is folder first, then empty.** A window already showing the file's folder is the more
+specific answer and keeps winning, so the file lands in the list the user is already looking at; only
+when nothing holds that folder does an empty window get offered it. The launching process releases the
+folder claim it had just taken before exiting, so the adopter's re-bind can take it.
 
-Note that P10 is in the same code path (`ViewerActions.ScanFolder(state, folder, fileName)` choosing
-the selected row after a hand-off) and should be reproduced while this is being worked on.
+**Nothing new was needed for the re-bind, as predicted:** `PumpInstanceGate` already keys on
+`state.CurrentFolder` changing, so adopting a file moves the claim off the empty identity and onto that
+file's folder by itself. Verified in the log, in order: the first launch reports *"Handed ... to the
+instance with nothing open"*, and a second launch of the same file then reports *"Handed ... to the
+instance already showing ...\p14"* -- which is only possible if the claim moved.
+
+**The two open questions, decided:** two empty instances *race, and that is fine* (the user's call) --
+one holds the empty channel, the loser opens what it was given, which is the existing "failure is never
+fatal" rule. And a NON-empty instance still never adopts across folders: that is the folder-scoping
+decision, and adopting there would silently replace the folder someone is looking at.
+
+Live-verified end to end: an empty viewer plus a second launch carrying a file leaves **one** process
+(the original), the second exiting 0 with no window, and the survivor shows `Files (scratchpad/p14)`
+with `plate.fits` selected and loaded.
+
+P10 is in the same code path (`ViewerActions.ScanFolder(state, folder, fileName)` choosing the selected
+row after a hand-off) and is still worth reproducing; the hand-offs above selected the right row every
+time.
+
+## P15. A faint residue at the end of the cursor readout  — OPEN
+
+Reported by the user 2026-08-22: *"the pointer now sometimes leaves a very faint ) at the end of the
+position when moving pointer left to the file list, that might be a residue from the clip rect or
+something. not dramatic but noticable"*.
+
+**"Now" is the important word.** The readout is `Pos: (x, y)` from `InfoPanelData.GetCursorLines`, and
+the pointer leaving the image pane clears it. Before damage-based repaint every frame cleared the
+whole surface, so anything painted outside a fill was wiped for free; now only the declared damage is
+repainted, and whatever is not covered by an actual paint inside it survives. So this is a
+damage-era regression, not a new drawing bug.
+
+**What has already been ruled out:** the float-to-integer conversion. `ClampToSwapchain`
+(SdlVulkan.Renderer) truncates the near edge and takes `MathF.Ceiling` on the far edge, so the
+scissor already covers the whole of a rect that ends mid-pixel -- the obvious cause is not the cause.
+`ApplyClip` likewise intersects a widget clip with the damage region, so a clipped draw cannot escape
+it either.
+
+**The leading hypothesis is that the erase is narrower than the text was.** The narrowing declares
+`_layout.InfoPanel` (and `_layout.StatusBar`) as damaged, but the repaint fills the panel's own
+background rect; if a glyph's antialiased fringe extended a fraction past that fill, the fringe now
+has nothing to cover it. That matches the symptom exactly -- a *very faint* remnant of one glyph
+rather than a whole one, and the last glyph of the longest line at that. Worth measuring before
+fixing: capture the panel's arranged rect and the measured width of the `Pos:` line at the DPI in
+use, and compare.
+
+**Two candidate fixes, and the choice matters.** Inflating the damage rect by a pixel would hide it
+cheaply and would also hide the next one like it. Finding why text extends past its own background is
+the root fix, and it generalises: any panel that draws text to its edge has the same exposure.
+
+The high-level counters in
+[inspector-high-level-telemetry.md](inspector-high-level-telemetry.md) would have made this
+measurable from inside the app (damage area versus painted area) instead of by eye.
+
+## P16. `Frame: None` printed the enum default as a value  — FIXED
+
+Noticed by the user 2026-08-22 while reading the P12 screenshot: the info panel said `Frame: None`.
+`FrameType.None` is the enum's zero, i.e. the file carried no `IMAGETYP` / `FRAMETYP` card (or one
+that did not map), so the row was naming the absence of a fact as though it were a frame kind -- the
+same failure as `Gain: -1`, one row down, and found the same way. The row is now suppressed for
+`None` as well as for the unremarkable `Light`. Pinned by two more cases in
+`InfoPanelMetadataTests` (unstated produces no row; a real `Flat` is still named).
 
 ---
 
@@ -310,7 +382,7 @@ the selected row after a hand-off) and should be reproduced while this is being 
 | D | P4, P6 | DONE. Correctness of presentation. P4 was briefly backlogged, then done anyway once P1 made the file decode at all. |
 | E | P5 | DONE. An LZW decoder; the only item whose absence was already documented scope. |
 | F | P9, P10 | Reproduce first; do not fix from a single screenshot. |
-| G | P12, P11, P13, P14 | The next release, in that order: P12 is a two-row rendering gap, P11 is a read of an existing property plus a lazily-populated status, P14 is a host-policy change with two cases to settle, and P13 is best written last so it documents what P11/P14 actually do. |
+| G | **P12 + P14 DONE 2026-08-22**; P11, P13 remain | The next release, in that order: P12 is a two-row rendering gap, P11 is a read of an existing property plus a lazily-populated status, P14 is a host-policy change with two cases to settle, and P13 is best written last so it documents what P11/P14 actually do. |
 
 ## Verification
 

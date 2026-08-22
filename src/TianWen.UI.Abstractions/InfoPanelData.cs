@@ -35,6 +35,23 @@ public static class InfoPanelData
         {
             lines.Add($"Exposure: {meta.ExposureDuration.TotalSeconds:F1}s");
         }
+        // Gain / ISO / offset sit next to the exposure because they are the same fact: what the camera
+        // was set to. All three are sentinel -1 when absent and are SUPPRESSED rather than printed as
+        // -1, which is why each one is its own check instead of a formatted block. ISO is the
+        // consumer-camera spelling (EXIF, so a raw import), gain the astro-camera one (FITS GAIN); a
+        // file carries one or the other, never both.
+        if (meta.Gain >= 0)
+        {
+            lines.Add($"Gain: {meta.Gain}");
+        }
+        if (meta.Iso >= 0)
+        {
+            lines.Add($"ISO: {meta.Iso}");
+        }
+        if (meta.Offset >= 0)
+        {
+            lines.Add($"Offset: {meta.Offset}");
+        }
         if (meta.FocalLength > 0)
         {
             lines.Add($"Focal: {meta.FocalLength}mm");
@@ -60,7 +77,10 @@ public static class InfoPanelData
         {
             lines.Add($"Sensor: {meta.SensorType}");
         }
-        if (meta.FrameType is not FrameType.Light)
+        // Light is the default and needs no label; None is the ENUM default, i.e. no IMAGETYP /
+        // FRAMETYP card at all (or one that did not map), so printing it renders the literal
+        // "Frame: None" -- a sentinel wearing a value's clothes, the same failure as "Gain: -1".
+        if (meta.FrameType is not (FrameType.Light or FrameType.None))
         {
             lines.Add($"Frame: {meta.FrameType}");
         }

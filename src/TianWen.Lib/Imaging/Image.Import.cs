@@ -173,7 +173,8 @@ public partial class Image
             SensorType: SensorType.RGGB,
             BayerOffsetX: 0, BayerOffsetY: 0,
             RowOrder: RowOrder.TopDown,
-            Latitude: float.NaN, Longitude: float.NaN
+            Latitude: float.NaN, Longitude: float.NaN,
+            Iso: raw.Exif?.Iso ?? -1
         ) { CameraToSrgbMatrix = cameraToSrgb };
     }
 

@@ -53,6 +53,10 @@ namespace TianWen.Lib.Imaging;
 /// <param name="Gain">Camera gain register setting (FITS: GAIN). -1 if unknown.</param>
 /// <param name="Offset">Camera offset/black-level register setting (FITS: OFFSET, BLKLEVEL). -1 if unknown.
 /// See class-level remarks for OFFSET vs PEDESTAL distinction.</param>
+/// <param name="Iso">Camera ISO sensitivity, the consumer-camera analogue of <paramref name="Gain"/>, read from
+/// EXIF on a raw import (there is no FITS card for it). -1 if unknown. It is NOT folded into
+/// <paramref name="Gain"/>: that is a <see cref="short"/> sized for a sensor gain register, and ISO 51200 does
+/// not fit in one.</param>
 /// <param name="SetCCDTemperature">Requested cooler setpoint in Celsius (FITS: SET-TEMP). NaN if unavailable.</param>
 /// <param name="TargetRA">Target right ascension in hours (FITS: OBJCTRA, RA). NaN if unknown.</param>
 /// <param name="TargetDec">Target declination in degrees (FITS: OBJCTDEC, DEC). NaN if unknown.</param>
@@ -105,7 +109,8 @@ public record struct ImageMeta(
     int Aperture = -1,
     string SensorModel = "",
     Devices.PointingState PierSide = Devices.PointingState.Unknown,
-    float? SensorFullScaleAdu = null
+    float? SensorFullScaleAdu = null,
+    int Iso = -1
 )
 {
     /// <summary>
