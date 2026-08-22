@@ -46,7 +46,9 @@ namespace TianWen.UI.Abstractions
             _panZoom.BeginPan(x, y);
         }
 
-        public override bool HandleInput(InputEvent evt)
+        // Called only through HandleInput, which forces full damage for anything that asks for a
+        // frame without saying what changed. See ImageRendererBase.Damage.cs.
+        private bool HandleViewerInput(InputEvent evt)
         {
             // The split divider's drag. Its PRESS armed it from the region it painted, so only motion
             // and release are routed -- and only here, which both hosts already forward to. A control
@@ -605,7 +607,23 @@ namespace TianWen.UI.Abstractions
             // Image-area pane rect (origin + size) from the single layout pass.
             var area = _layout.ImageArea;
             ViewerActions.UpdateCursorFromScreenPosition(_document, state, px, py, area.X, area.Y, area.Width, area.Height);
-            return state.CursorImagePosition != prevPos;
+            if (state.CursorImagePosition == prevPos)
+            {
+                return false;
+            }
+
+            // The most frequent redraw in the whole app, and the cheapest to bound: a readout is
+            // shown in exactly two places, so nothing else needs repainting. The info panel is not
+            // optional here even though it looks secondary -- it lists the per-channel pixel values,
+            // so omitting it would leave them frozen at whatever the pointer last touched while the
+            // status bar beside them kept updating.
+            RequestDamage(_layout.StatusBar);
+            if (state.ShowInfoPanel)
+            {
+                RequestDamage(_layout.InfoPanel);
+            }
+
+            return true;
         }
 
         private bool HandleViewerMouseUp(InputEvent evt)
