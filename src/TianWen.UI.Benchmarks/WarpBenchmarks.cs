@@ -21,9 +21,29 @@ namespace TianWen.UI.Benchmarks;
 /// <para>Mono and colour both, because the per-channel hoist amortises over a whole plane: with one
 /// channel there is one hoist for the whole image, with three there are three, and the per-pixel cost
 /// is what stays constant.</para>
+/// <para><b>Measured, default job (NOT ShortRun), win-arm64, Accumulate ms:</b></para>
+/// <code>
+///                      pre-D1        per-pixel check      hoisted
+///                    JIT     AOT      JIT     AOT       JIT     AOT
+///  Mono  1024      10.50   10.47    11.32   11.59     11.52   10.40
+///  Mono  2048      42.34   42.58    47.02   46.03     45.25   41.16
+///  Color 1024      28.81   28.06    32.10   32.12     29.09   28.39
+///  Color 2048     121.02  124.39   135.59  147.71    127.52  129.05
+/// </code>
+/// <para>Three things this says. The per-pixel residency check cost <b>8-19%</b>, which nobody had
+/// measured when D1 shipped. The hoist recovers <b>4-9% on the JIT and 10-13% under AOT</b> -- it
+/// helps MORE where it ships, because AOT has no dynamic PGO to hoist the repeated struct copy on
+/// its own. And AOT is not uniformly faster: with the check in the loop it was 9% SLOWER than the
+/// JIT on Color/2048 (147.71 against 135.59), so measuring only the JIT would have understated both
+/// the regression and the fix.</para>
+/// <para>Run both: <c>--runtimes net10.0 nativeaot10.0</c>. Every shipped binary here is
+/// <c>PublishAot</c>, so a JIT-only number is not the number that matters.</para>
 /// </remarks>
+// NOT ShortRunJob. Three iterations cannot resolve a single-digit-percent per-sample cost: the
+// same build read 36.17 ms and 42.26 ms on Accumulate_Mono/2048 under ShortRun, while the default
+// job reports 45.25 ms +/- 0.62. A short job is for keeping a suite quick, not for deciding whether
+// an optimisation worked.
 [MemoryDiagnoser]
-[ShortRunJob]
 public class WarpBenchmarks
 {
     private Image _mono = null!;
