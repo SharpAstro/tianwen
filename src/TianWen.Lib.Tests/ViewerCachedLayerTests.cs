@@ -1,0 +1,343 @@
+using System;
+using System.Collections.Generic;
+using DIR.Lib;
+using Shouldly;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Imaging;
+using TianWen.UI.Abstractions;
+using Xunit;
+
+namespace TianWen.Lib.Tests
+{
+    /// <summary>
+    /// The cached image layer: image content is rendered into an offscreen target and blitted for as long
+    /// as it stays valid, so a redraw that only changes the chrome stops re-running the demosaic + stretch
+    /// over the whole pane.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Every assertion here is a COUNT, and it has to be.</b> A working cache and a re-render
+    /// produce the identical frame -- that is the entire point -- so no pixel comparison, screenshot or
+    /// layout assertion can tell them apart. The only observable difference is how often the expensive
+    /// operation ran, the same reasoning that put a counter behind
+    /// <c>SkyMapTab.PrimOverlayGathers</c>.</para>
+    /// <para>The seam is faked rather than driven on a GPU because what is under test is the POLICY --
+    /// when a slot may be reused and what UV window to sample -- which is renderer-agnostic. The Vulkan
+    /// side of it (that a layer survives its render pass and can be sampled later) is pinned upstream by
+    /// SdlVulkan.Renderer's own real-device test.</para>
+    /// </remarks>
+    [Collection("UI")]
+    public class ViewerCachedLayerTests
+    {
+        private const uint SurfaceW = 1000;
+        private const uint SurfaceH = 600;
+        private const int ImageW = 400;
+        private const int ImageH = 300;
+
+        // Pane is the whole surface (HideChrome), so the margin is a quarter of 1000 x 600.
+        private const float MarginX = SurfaceW * 0.25f;
+
+        [Fact]
+        public void AFirstFrameBuildsTheLayerAndDrawsFromIt()
+        {
+            var viewer = NewViewer();
+            var state = NewState();
+
+            Frame(viewer, state);
+
+            viewer.LayerPasses.Count.ShouldBe(1, "the layer had to be built");
+            viewer.LayerDraws.ShouldBe(1, "the image is rendered INTO the layer");
+            viewer.DirectDraws.ShouldBe(0, "and not also straight to the surface");
+            viewer.Blits.Count.ShouldBe(1, "the frame is drawn from the layer");
+            viewer.CachedLayerRenders.ShouldBe(1);
+            viewer.CachedLayerBlits.ShouldBe(1);
+
+            // Capacity is the pane plus a quarter of it on each side, so a pan has somewhere to go.
+            viewer.LayerPasses[0].ShouldBe(((int)(SurfaceW * 1.5f), (int)(SurfaceH * 1.5f)));
+        }
+
+        /// <summary>
+        /// THE test. A frame that returns to an already-built slot with nothing changed must not re-render
+        /// the image. If this passes and everything else fails, the feature still works; if this fails,
+        /// nothing else matters -- the cache would be a pure cost.
+        /// </summary>
+        [Fact]
+        public void ReturningToAWarmSlotWithNothingChangedDoesNotReRender()
+        {
+            var viewer = NewViewer();
+            var state = NewState();
+
+            Frame(viewer, state);              // slot 0 built
+            viewer.SlotIndex = 1;
+            Frame(viewer, state);              // slot 1 built -- a second target, cold on its first turn
+            viewer.CachedLayerRenders.ShouldBe(2, "each slot is built once");
+
+            viewer.SlotIndex = 0;              // back round to a warm slot
+            Frame(viewer, state);
+
+            viewer.CachedLayerRenders.ShouldBe(2, "a warm slot must NOT be re-rendered");
+            viewer.CachedLayerBlits.ShouldBe(3, "and it must still be drawn");
+            viewer.DirectDraws.ShouldBe(0, "nothing fell back to a direct render");
+        }
+
+        [Fact]
+        public void PanningInsideTheMarginIsAnOffsetIntoTheSameLayer()
+        {
+            var viewer = NewViewer();
+            var state = NewState();
+            Frame(viewer, state);
+            var atRest = viewer.Blits[0];
+
+            // Well inside a 250px margin.
+            state.PanOffset = (100f, 0f);
+            Frame(viewer, state);
+
+            viewer.CachedLayerRenders.ShouldBe(1, "a pan inside the margin is a UV offset, not a re-render");
+            viewer.CachedLayerBlits.ShouldBe(2);
+            viewer.Blits[1].U0.ShouldBeLessThan(atRest.U0, "the sampled window must move with the pan");
+            (viewer.Blits[1].U1 - viewer.Blits[1].U0)
+                .ShouldBe(atRest.U1 - atRest.U0, 1e-5f, "and keep its width, or the image would scale");
+        }
+
+        [Fact]
+        public void PanningBeyondTheMarginReRenders()
+        {
+            var viewer = NewViewer();
+            var state = NewState();
+            Frame(viewer, state);
+
+            // Past the margin: the layer simply does not hold those pixels.
+            state.PanOffset = (MarginX + 30f, 0f);
+            Frame(viewer, state);
+
+            viewer.CachedLayerRenders.ShouldBe(2);
+        }
+
+        [Fact]
+        public void AChangedShaderInputInvalidatesEverySlotAndNotJustThisOne()
+        {
+            var viewer = NewViewer();
+            var state = NewState();
+
+            Frame(viewer, state);
+            viewer.SlotIndex = 1;
+            Frame(viewer, state);
+            viewer.CachedLayerRenders.ShouldBe(2);
+
+            // A dial moved. The other slot is stale too, and it is the one the NEXT frame will reach for
+            // -- so a change that only invalidated the current slot would blit the old dials one frame
+            // later, which is the bug that would be blamed on the stretch rather than the cache.
+            viewer.UniformsChanged = true;
+            viewer.SlotIndex = 0;
+            Frame(viewer, state);
+            viewer.CachedLayerRenders.ShouldBe(3);
+
+            viewer.SlotIndex = 1;
+            Frame(viewer, state);
+            viewer.CachedLayerRenders.ShouldBe(4, "the second slot was invalidated by the same change");
+        }
+
+        [Fact]
+        public void AZoomChangeReRenders()
+        {
+            var viewer = NewViewer();
+            var state = NewState();
+            Frame(viewer, state);
+
+            state.Zoom = 2f;
+            Frame(viewer, state);
+
+            viewer.CachedLayerRenders.ShouldBe(2, "the layer holds content at one zoom");
+        }
+
+        [Fact]
+        public void ATextureUploadInvalidatesTheLayer()
+        {
+            var viewer = NewViewer();
+            var state = NewState();
+            Frame(viewer, state);
+            viewer.CachedLayerRenders.ShouldBe(1);
+
+            // The ordering hazard: the host uploads textures inside its render callback, AFTER the
+            // pre-pass that built the layer. Without invalidation here, swapping document would blit a
+            // layer drawn from the previous document's pixels.
+            viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, ImageW, ImageH);
+            viewer.SlotIndex = 0;
+            Frame(viewer, state);
+
+            viewer.CachedLayerRenders.ShouldBe(2);
+        }
+
+        [Fact]
+        public void WithoutTheOptInTheImageIsDrawnDirectlyAsBefore()
+        {
+            var viewer = NewViewer();
+            viewer.UseCachedImageLayer = false;
+            var state = NewState();
+
+            Frame(viewer, state);
+            Frame(viewer, state);
+
+            viewer.CachedLayerRenders.ShouldBe(0);
+            viewer.CachedLayerBlits.ShouldBe(0);
+            viewer.LayerPasses.ShouldBeEmpty();
+            viewer.DirectDraws.ShouldBe(2, "every frame renders the image, exactly as it always did");
+        }
+
+        [Fact]
+        public void ABackendThatCannotAnswerNeverGetsACacheHit()
+        {
+            // The seam's defaults all mean "unsupported", so a viewer that overrides nothing keeps the
+            // old behaviour. That is what makes adding this safe for the GUI's embedded viewers.
+            var viewer = new PlainViewer(new RgbaImageRenderer(SurfaceW, SurfaceH)) { UseCachedImageLayer = true };
+            viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, ImageW, ImageH);
+            var state = NewState();
+
+            Frame(viewer, state);
+
+            viewer.CachedLayerRenders.ShouldBe(0);
+            viewer.DirectDraws.ShouldBe(1);
+        }
+
+        private static void Frame(TestViewerBase viewer, ViewerState state)
+        {
+            viewer.PrepareFrame(null, state);
+            viewer.PrepareCachedImageLayer();
+            viewer.Render(null, state);
+        }
+
+        private static CachingViewer NewViewer()
+        {
+            var viewer = new CachingViewer(new RgbaImageRenderer(SurfaceW, SurfaceH));
+            // Stamps ImageWidth/ImageHeight, which is what gates the image draw at all.
+            viewer.UploadChannelTexture(ReadOnlySpan<float>.Empty, 0, ImageW, ImageH);
+            return viewer;
+        }
+
+        private static ViewerState NewState() => new ViewerState
+        {
+            HideChrome = true,
+            ShowFileList = false,
+            ShowInfoPanel = false,
+            ShowHistogram = false,
+            StretchMode = StretchMode.None,
+            Zoom = 1f,
+            ZoomToFit = false,
+        };
+
+        /// <summary>Shared no-op GPU seam, so each viewer below only states what it is testing.</summary>
+        private abstract class TestViewerBase : ImageRendererBase<RgbaImage>
+        {
+            protected TestViewerBase(RgbaImageRenderer renderer) : base(renderer)
+            {
+                Width = renderer.Width;
+                Height = renderer.Height;
+            }
+
+            public int DirectDraws { get; protected set; }
+
+            protected override void RenderHistogramQuad(StretchUniforms stretch, HistogramDisplay histogram,
+                ViewerState state, float left, float top, float right, float bottom, uint projW, uint projH) { }
+
+            protected override void DrawEllipseOverlay(float cx, float cy, float semiMajor, float semiMinor,
+                float angleRad, RGBAColor32 color, float thickness) { }
+
+            protected override void DrawCrossOverlay(float cx, float cy, float armLength, RGBAColor32 color) { }
+
+            protected override void DrawLineOverlay(float x0, float y0, float x1, float y1,
+                RGBAColor32 color, float thickness) { }
+
+            protected override void OnResize(uint width, uint height) { }
+
+            public override void UploadImageTexture(ReadOnlySpan<float> data, int channel,
+                int imageWidth, int imageHeight) { }
+
+            public override void UploadHistogramData(IPreviewSource source) { }
+
+            protected override HistogramDisplay? GetHistogramDisplay() => null;
+        }
+
+        /// <summary>Overrides nothing of the cached-layer seam: the unsupported-backend case.</summary>
+        private sealed class PlainViewer(RgbaImageRenderer renderer) : TestViewerBase(renderer)
+        {
+            protected override void RenderImageQuad(IPreviewSource? source, ViewerState state,
+                in DisplayRendition rendition, WCS? wcs,
+                float left, float top, float right, float bottom, uint projW, uint projH,
+                RenditionSlot slot, bool sampleBeforeChannels)
+                => DirectDraws++;
+        }
+
+        /// <summary>Fakes the seam and records what the policy asked it to do.</summary>
+        private sealed class CachingViewer : TestViewerBase
+        {
+            private readonly HashSet<int> _built = [];
+            private bool _inLayer;
+
+            public CachingViewer(RgbaImageRenderer renderer) : base(renderer)
+                => UseCachedImageLayer = true;
+
+            public int SlotIndex { get; set; }
+
+            /// <summary>What the next <see cref="ImageShaderInputChanged"/> answers. Cleared once read,
+            /// mirroring the real signal, which reports a change only for the write that made it.</summary>
+            public bool UniformsChanged { get; set; } = true;
+
+            public List<(int W, int H)> LayerPasses { get; } = [];
+            public List<(float U0, float V0, float U1, float V1)> Blits { get; } = [];
+            public int LayerDraws { get; private set; }
+
+            protected override int CachedLayerSlotCount => 2;
+            protected override int CachedLayerSlotIndex => SlotIndex;
+            protected override bool TryEnsureCachedLayerTargets(int width, int height) => true;
+
+            protected override bool TryBeginCachedLayerPass(int width, int height)
+            {
+                LayerPasses.Add((width, height));
+                _inLayer = true;
+                return true;
+            }
+
+            protected override void EndCachedLayerPass()
+            {
+                _inLayer = false;
+                _built.Add(SlotIndex);
+            }
+
+            protected override bool TryDrawCachedLayer(int slot, float x, float y, float w, float h,
+                float u0, float v0, float u1, float v1)
+            {
+                if (!_built.Contains(slot))
+                {
+                    return false;
+                }
+
+                Blits.Add((u0, v0, u1, v1));
+                return true;
+            }
+
+            protected override bool TryWriteImageUniforms(IPreviewSource? source, ViewerState state,
+                in DisplayRendition rendition, WCS? gridWcs, RenditionSlot slot) => true;
+
+            protected override bool ImageShaderInputChanged(RenditionSlot slot)
+            {
+                var changed = UniformsChanged;
+                UniformsChanged = false;
+                return changed;
+            }
+
+            protected override void RenderImageQuad(IPreviewSource? source, ViewerState state,
+                in DisplayRendition rendition, WCS? wcs,
+                float left, float top, float right, float bottom, uint projW, uint projH,
+                RenditionSlot slot, bool sampleBeforeChannels)
+            {
+                if (_inLayer)
+                {
+                    LayerDraws++;
+                }
+                else
+                {
+                    DirectDraws++;
+                }
+            }
+        }
+    }
+}

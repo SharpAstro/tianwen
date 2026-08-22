@@ -216,11 +216,27 @@ var imageRenderer = new VkImageRenderer(renderer, (uint)pixW, (uint)pixH)
     Tracker = tracker,
     Logger = logger,
     // SharpenPipeline is registered (AddRcAstroAi above), so surface the Enhance toolbar button.
-    EnhanceAvailable = true
+    EnhanceAvailable = true,
+    // Cache the image content in an offscreen layer, so a redraw that only changes the chrome
+    // blits instead of re-running the demosaic + stretch over the whole pane. The renderer owns
+    // ONE set of layer targets, so exactly one viewer per renderer may claim them; this process
+    // has exactly one viewer, which is what makes the claim unambiguous here and why the GUI (two
+    // embedded viewers on a shared renderer) does not set it.
+    UseCachedImageLayer = true
 };
 
 var cts = new CancellationTokenSource();
 imageRenderer.AppToken = cts.Token;
+
+// The cached image layer is a render pass of its own, and render passes cannot nest -- so it has
+// to be recorded before the main one opens, which is what this hook is. PrepareFrame decides the
+// layout, placement and uniforms here rather than inside Render; it is idempotent, so the Render
+// call below finds the work already done instead of repeating it.
+renderer.OnPreRenderPass = _ =>
+{
+    imageRenderer.PrepareFrame(controller.Source, state);
+    imageRenderer.PrepareCachedImageLayer();
+};
 
 // Kick off DB init eagerly so it is ready when the user toggles overlays. Tracked rather than
 // discarded: the catalog decode is the slowest thing the viewer starts, and a discarded task that
