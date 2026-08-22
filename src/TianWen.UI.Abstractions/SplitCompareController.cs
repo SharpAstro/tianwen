@@ -75,6 +75,43 @@ namespace TianWen.UI.Abstractions
         public void BeginDrag() => IsDragging = true;
 
         /// <summary>
+        /// The strip the divider just swept across, or null when it has not moved. Only these pixels
+        /// differ between the two frames.
+        /// </summary>
+        /// <remarks>
+        /// <para>Both halves draw the SAME quad into complementary clips, so moving the divider
+        /// changes nothing except which side of it each pixel belongs to -- and therefore only the
+        /// pixels between the old and the new position. Everything to the left of both, and
+        /// everything to the right of both, is identical.</para>
+        /// <para>Widened by <see cref="SweepLabelMargin"/> because the two half LABELS travel with
+        /// the divider, so the strip that changed is wider than the divider's own path. Guessing that
+        /// margin is deliberate: the labels are measured at paint time and this is decided during
+        /// input, and a margin that is too generous costs a little repainting while one that is too
+        /// tight leaves half a word on screen.</para>
+        /// <para>Worth knowing what this does NOT fix: a RAPID drag sweeps most of the pane, so the
+        /// strip approaches the whole thing and the saving approaches nothing. It helps a slow,
+        /// deliberate comparison. Making a fast drag cheap needs the two renditions cached, which is
+        /// a layer per rendition.</para>
+        /// </remarks>
+        public RectF32? LastDragSweep { get; private set; }
+
+        /// <summary>Design units of slack each side of the swept strip, to cover the half labels.</summary>
+        private const float SweepLabelMargin = 220f;
+
+        private RectF32? SweepBetween(float? from, float? to)
+        {
+            if (from is not { } a || to is not { } b || _track.Width <= 0f)
+            {
+                return null;
+            }
+
+            var x0 = _track.X + MathF.Min(a, b) * _track.Width - SweepLabelMargin;
+            var x1 = _track.X + MathF.Max(a, b) * _track.Width + SweepLabelMargin;
+            x0 = MathF.Max(x0, _track.X);
+            x1 = MathF.Min(x1, _track.X + _track.Width);
+            return x1 <= x0 ? null : new RectF32(x0, _track.Y, x1 - x0, _track.Height);
+        }
+        /// <summary>
         /// Routes pointer motion and release. Returns true when the event was consumed. The press is NOT
         /// handled here -- it arrives through <see cref="BeginDrag"/> off the registered region.
         /// </summary>
@@ -90,7 +127,9 @@ namespace TianWen.UI.Abstractions
                 case InputEvent.MouseMove(var px, _):
                     if (_track.Width > 0f)
                     {
+                        var before = Fraction;
                         Fraction = Math.Clamp((px - _track.X) / _track.Width, 0f, 1f);
+                        LastDragSweep = SweepBetween(before, Fraction);
                     }
                     return true;
 
