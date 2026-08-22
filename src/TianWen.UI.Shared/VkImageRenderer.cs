@@ -143,11 +143,16 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
         if (gridWcs is { } gw)
         {
             var pixelScaleArcsec = gw.PixelScaleArcsec;
-            var fileListW = state.ShowFileList ? ScaledFileListWidth : 0;
-            var panelW = state.ShowInfoPanel ? ScaledInfoPanelWidth : 0;
-            var areaW = (float)(projW - fileListW - panelW);
-            var areaH = (float)(projH - ScaledToolbarHeight - ScaledStatusBarHeight);
-            var viewImagePixels = MathF.Min(areaW, areaH) / state.Zoom;
+
+            // The pane comes from the ONE arranged layout. This used to re-derive it as projW/projH
+            // minus the chrome widths, which duplicated what ComputeLayout already knows and was wrong
+            // three ways: it subtracts a toolbar and status bar even under HideChrome, where neither is
+            // drawn (every embedded preview in the GUI), it ignores the histogram and SER transport
+            // strips that also shrink the pane, and it quietly tied grid spacing to the PROJECTION dims
+            // -- so drawing this same quad into a differently sized target would change the spacing for
+            // no reason the caller could see.
+            var pane = ImageAreaRect;
+            var viewImagePixels = MathF.Min(pane.Width, pane.Height) / state.Zoom;
             var viewArcsec = viewImagePixels * pixelScaleArcsec;
             var spacingArcsec = GridSpacingsArcsec[^1];
             foreach (var candidate in GridSpacingsArcsec)
