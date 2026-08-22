@@ -8,8 +8,16 @@ namespace TianWen.UI.Benchmarks;
 
 /// <summary>
 /// The bilinear resample loops, which are the only place in the library that touches a plane
-/// PER DESTINATION PIXEL: a 2048-square 3-channel warp is 12.6M samples, and the stacker runs one per
-/// registered frame.
+/// PER DESTINATION PIXEL: a 2048-square 3-channel pass is 12.6M samples.
+/// <para>ONE sampler, TWO stackers, and the distinction matters when reading these numbers.
+/// <c>Accumulate*</c> is the PLANETARY translate-and-average kernel -- <c>LuckyImagingStacker</c>
+/// for the batch path, and <c>RollingWindowStacker</c> twice for the live one (once to add a frame,
+/// once to evict it by re-folding with a negated weight, which is why the kernel has to stay linear
+/// in weight). The DEEP-SKY path reaches the same <c>SubpixelValue</c> through
+/// <c>FrameRegistration</c> -> <c>WarpToReferenceGridAsync</c> per registered frame and
+/// <c>TilePipelinedStrategy</c> -> <c>WarpRegionAsync</c> per strip. The measurements below are the
+/// planetary kernel, because it is single-threaded and therefore measurable; deep-sky shares the
+/// sampler and so is expected to benefit, but that is INFERRED and not measured here.</para>
 /// </summary>
 /// <remarks>
 /// <para>This exists to price a residency check. D1 (see
