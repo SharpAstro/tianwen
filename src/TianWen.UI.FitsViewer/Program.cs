@@ -238,6 +238,7 @@ renderer.OnPreRenderPass = _ =>
     imageRenderer.PrepareCachedImageLayer();
 };
 
+
 // Kick off DB init eagerly so it is ready when the user toggles overlays. Tracked rather than
 // discarded: the catalog decode is the slowest thing the viewer starts, and a discarded task that
 // throws (a missing or corrupt catalog) would leave the overlays permanently and silently empty.
@@ -252,6 +253,10 @@ tracker.RunGuarded(
 controller.FileLoaded += name => SetWindowTitle(sdlWindow.Handle, Path.GetFileName(name));
 
 // --- Main event loop via SdlEventLoop ---
+
+// Which repaint path each frame took; see the AppState block below for why they are counted.
+var partialFrames = 0;
+var fullFrames = 0;
 
 var loop = new SdlEventLoop(sdlWindow, renderer)
 {
@@ -341,7 +346,12 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
             imageRenderer.UploadDocumentTextures(controller.Source, state);
         }
 
-        imageRenderer.Render(controller.Source, state);
+        // Which repaint path the frame took. Counted because a partial frame is IDENTICAL on screen to
+    // a full one -- that is the point -- so no screenshot can tell them apart and this is the only
+    // evidence that the damage path is engaging at all.
+    if (renderer.LastFrameWasPartial) { partialFrames++; } else { fullFrames++; }
+
+    imageRenderer.Render(controller.Source, state);
 
         // Also after a paint, not only on move: a repaint can change which regions sit under a
         // STATIONARY pointer (a dropdown opening over the handle, a panel toggled by a key).
@@ -363,6 +373,29 @@ bus.Subscribe<PlateSolveSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.PlateSolve, reverse: false, cts.Token));
 bus.Subscribe<EnhanceImageSignal>(_ =>
     controller.HandleToolbarAction(ToolbarAction.Enhance, reverse: false, cts.Token));
+
+// Damage: hand the renderer the rects this frame changed, so it preserves the previous frame and
+// repaints only those. Anything that asked for a frame without saying what moved comes back false
+// here and the whole surface is repainted, which is what the viewer always did.
+//
+// Declared BEFORE BeginFrame, because the render pass is chosen from it: by the time OnRender runs
+// the pass is already open and the decision is made.
+var frameDamage = new List<RectF32>();
+loop.OnBeforeFrame = () =>
+{
+    frameDamage.Clear();
+    if (imageRenderer.TryTakeFrameDamage(frameDamage))
+    {
+        foreach (var r in frameDamage)
+        {
+            renderer.AddFrameDamage(r.X, r.Y, r.Width, r.Height);
+        }
+    }
+    else
+    {
+        renderer.MarkFullFrameDamage();
+    }
+};
 
 // OnKeyDown wired separately: imageRenderer.HandleInput handles F11 via signal bus
 loop.OnKeyDown = (inputKey, inputModifier) =>
@@ -393,6 +426,8 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
         w.Set("cachedLayerRenders", layer.Renders);
         w.Set("cachedLayerBlits", layer.Blits);
         w.Set("cachedLayerLastMiss", layer.LastMiss);
+        w.Set("partialFrames", partialFrames);
+        w.Set("fullFrames", fullFrames);
         w.Set("zoom", state.Zoom);
         w.Set("file", controller.Source is AstroImageDocument d ? System.IO.Path.GetFileName(d.FilePath) : "");
     },
