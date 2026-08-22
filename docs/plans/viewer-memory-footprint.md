@@ -468,6 +468,62 @@ release-and-RELOAD rather than D3's retain-and-upload: FITS is big-endian, so a 
 are neither uploadable nor usable as host planes without a swap. The file can be the source, not the
 raster.
 
+### D1' measured, and the answer is not the one the plan expected
+
+D1' was designed and then deliberately gated: "decide D1' against measurements taken with D3' in
+place". Those measurements now exist, on a 4096x4096 float32 mono master (64 MB, 16.8 MP), warm,
+via `FrameStepCostProbe`:
+
+| operation | warm |
+|---|---|
+| plane re-read, our writer (DATAMIN/MAX stated, so no min/max traversal) | **14.1 ms** |
+| plane re-read, third-party frame (traversal runs) | 25.0 ms |
+| `Statistics` x1 | 213.6 ms |
+| full `OpenAsync` | 407 ms |
+
+**The reload is cheap: ~0.22 ms/MB.** A channel toggle that re-read one plane would cost ~14-25 ms,
+which is imperceptible on a keypress -- so the plan's worry about "every C press a strided re-read"
+is answered for anything master-sized. It also confirms the other half of that worry: 0.22 ms/MB
+puts a 1 GB mosaic at ~3.5 s, so the policy has to be size-aware rather than unconditional, which is
+the shape `EnhanceRevertPolicy` already has (a budget, resolving to Retained or Reload).
+
+Note which number is NOT in the reload path: `Statistics` at 213 ms dwarfs the read, and it is
+cached in the document constructor. A reload that only wants pixels skips it. Any future measurement
+here must be of the READ, not of `OpenAsync`, or it will overstate the cost by 20x and kill the idea
+on false evidence.
+
+**But the blocker is structural, and it is not the one the plan named.** `Channel` is
+`record struct Channel(float[,] Data, Filter, MinValue, MaxValue, Index)` -- its DIMENSIONS come from
+the array. So `Image.Width`/`Height`/`ChannelCount`, and through them every `IPreviewSource` member
+the viewer asks about geometry, are derived from the planes being present. "Release the planes and
+keep the image" is therefore not a small change to a policy; it is a change of ownership, where
+dimensions and metadata have to live somewhere the planes do not. That is why this section records a
+decision rather than an implementation.
+
+**Two routes, and they are not equally attractive:**
+
+- **Raster-backed release (cheap, narrow).** Where a source raster covers every channel (D3'), the
+  float planes are pure duplication -- the raster holds the same information at 1 B/px and can
+  regenerate them in memory with NO disk I/O. That is D1's 6 B/px steady state exactly, and it is why
+  D3' was recommended first. It applies only to documents whose source was 8-bit.
+- **Reload-backed release (general, needs the restructure).** Works for any re-readable file, at the
+  measured 0.22 ms/MB, and covers the float masters that actually matter. Needs the ownership change
+  above.
+
+**And the readout is still the prerequisite, for a reason narrower than before.** Earlier work this
+cycle made the cursor readout read ONE plane instead of all three, and gated it to the image pane, so
+the requirement fell from "all planes resident" to "the displayed plane resident". That is enough for
+a single-channel view (12 -> 4 B/px host on a 3-plane master) and NOT enough for the composite view,
+which displays all three -- and composite is the common case for a stacked master. Serving a readout
+without any plane resident needs a random-access tile cache over the file (read a tile around the
+cursor, cache it, so moving within the tile is free), which is a new subsystem and format-limited:
+straightforward for uncompressed FITS, not available for `.fz`, TIFF or CR2.
+
+**Recommendation:** take the raster-backed release first -- it is bounded, needs no I/O and no tile
+cache, and it lands D1's headline number for the documents it covers. Treat the ownership restructure
+as its own change, justified by the reload measurement rather than by the memory table alone, and do
+not start it while the readout still needs a resident plane in composite view.
+
 ### Recommendation
 
 Ship **D3'** first (retain the raster + upload it directly: self-contained, no `IPreviewSource`
@@ -493,7 +549,7 @@ sizes (the `StagingBufferSize` pattern) for the device half.
 | A | **DONE** -- M1 | Self-contained, one repo, no API design. Fixes the cost that persists across documents -- the one a user experiences as "it got slow after I opened that file". |
 | B | **DONE** -- M2 in `Codecs` (3.11) | A new public API on `SharpAstro.Tiff` plus a release. Second, so A has shipped by the time the pin moves. |
 | C | **CODE DONE**, pin held until 3.11 publishes -- M2 in `tianwen` | Follows B's release; the codec family floats per minor, so the pin edit is one line. |
-| D | **D3' DONE** (measured -6.05 B/px RGB, -2.02 mono); D1'/D2 designed -- M3 above | D3' shipped first as recommended: device-only, no API change. D1' demotes the float planes to a transient and is the next decision, to be taken against measurements with D3' in place. D2 (depth-agnostic star detection) stays gated on MEASURING that star detection is what holds them resident -- still an assumption. 16-bit retention is gated behind D1' too: the same arithmetic gives net 0 while the float planes stay resident. |
+| D | **D3' DONE** (measured -6.05 B/px RGB, -2.02 mono); D1' MEASURED + decided (section above), D2 designed -- M3 above | D3' shipped first as recommended: device-only, no API change. D1' demotes the float planes to a transient and is the next decision, to be taken against measurements with D3' in place. D2 (depth-agnostic star detection) stays gated on MEASURING that star detection is what holds them resident -- still an assumption. 16-bit retention is gated behind D1' too: the same arithmetic gives net 0 while the float planes stay resident. |
 
 ## Verification
 
