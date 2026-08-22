@@ -492,13 +492,22 @@ cached in the document constructor. A reload that only wants pixels skips it. An
 here must be of the READ, not of `OpenAsync`, or it will overstate the cost by 20x and kill the idea
 on false evidence.
 
-**But the blocker is structural, and it is not the one the plan named.** `Channel` is
-`record struct Channel(float[,] Data, Filter, MinValue, MaxValue, Index)` -- its DIMENSIONS come from
-the array. So `Image.Width`/`Height`/`ChannelCount`, and through them every `IPreviewSource` member
-the viewer asks about geometry, are derived from the planes being present. "Release the planes and
-keep the image" is therefore not a small change to a policy; it is a change of ownership, where
-dimensions and metadata have to live somewhere the planes do not. That is why this section records a
-decision rather than an implementation.
+**The blocker is smaller than it first looks, and the first reading of it here was wrong.**
+`Channel` is `record struct Channel(float[,] Data, ...)`, so a CHANNEL's dimensions do come from its
+array -- which reads like "release the planes and every geometry query breaks". It does not:
+`Image.Width`, `Height` and `ChannelCount` are **captured into auto-properties at construction**
+(`public int Width { get; } = ValidateSameShape(channels)[0].Width;`), not computed per access. So
+geometry, metadata, the cached stats and the cached stars all survive the planes being emptied, and
+`Image` needs no new home for them.
+
+What is actually left to decide is the **contract of `GetChannelSpan` when the planes are gone**, and
+that is a genuine API question rather than a refactor. Three options, none free: return an empty span
+(every existing caller silently reads nothing -- the worst kind of wrong), throw (honest, but turns a
+memory policy into a crash for any caller that has not been taught about it), or restore lazily inside
+the getter (safe for callers, but hides tens of milliseconds of work behind a property read, which is
+the shape this codebase already refuses elsewhere). The answer is probably an explicit
+`EnsurePlanes()` that callers must reach for, with `GetChannelSpan` throwing -- but that means
+auditing every caller, which is the real cost of D1' and was not visible from the memory table.
 
 **Two routes, and they are not equally attractive:**
 
