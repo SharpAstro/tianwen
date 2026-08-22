@@ -59,7 +59,7 @@
     <PackageVersion Include="Pastel" Version="7.0.1" />
     <PackageVersion Include="System.CommandLine" Version="2.0.6" />
 
-    <PackageVersion Include="DIR.Lib" Version="8.7.*" />
+    <PackageVersion Include="DIR.Lib" Version="8.8.*" />
 
     <PackageVersion Include="SharpAstro.Tiff" Version="$(SharpAstroCodecsVersion)" />
     <PackageVersion Include="SharpAstro.Exif" Version="$(SharpAstroCodecsVersion)" />
@@ -76,9 +76,9 @@
 
     <PackageVersion Include="SharpAstro.Codecs" Version="$(SharpAstroCodecsVersion)" />
 
-    <PackageVersion Include="Console.Lib" Version="4.26.*" />
+    <PackageVersion Include="Console.Lib" Version="4.27.*" />
 
-    <PackageVersion Include="SdlVulkan.Renderer" Version="7.24.*" />
+    <PackageVersion Include="SdlVulkan.Renderer" Version="7.25.*" />
 
     <PackageVersion Include="WebGl.Renderer" Version="1.26.*" />
     <PackageVersion Include="SDL3-CS" Version="3.5.0-preview.20260213-150035" />
