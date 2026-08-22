@@ -95,7 +95,7 @@ public partial class Image
         var copyChannels = Math.Min(ChannelCount, destArrays.Length);
         for (var c = 0; c < copyChannels; c++)
         {
-            var src = channels[c].Data;
+            var src = Planes[c].Data;
             var dst = destArrays[c];
             for (var y = y0; y < y1; y++)
             {
@@ -160,7 +160,7 @@ public partial class Image
         var height = Height;
         var debayered = destination ?? CreateChannelData(1, height, width);
         var dstChannel = debayered[0];
-        var srcChannel = channels[0].Data;
+        var srcChannel = Planes[0].Data;
         var w1 = width - 1;
         var h1 = height - 1;
         var s = (double)scale;
@@ -224,7 +224,7 @@ public partial class Image
         var width = Width;
         var height = Height;
         var debayered = destination ?? CreateChannelData(3, height, width); // RGB output
-        var src = channels[0].Data;
+        var src = Planes[0].Data;
         var dstR = debayered[0];
         var dstG = debayered[1];
         var dstB = debayered[2];
@@ -355,7 +355,7 @@ public partial class Image
         const int R = 0, G = 1, B = 2;
         const int radius = 2;
 
-        var srcChannel = channels[0].Data;
+        var srcChannel = Planes[0].Data;
         var dstR = debayered[R];
         var dstG = debayered[G];
         var dstB = debayered[B];
@@ -614,7 +614,7 @@ public partial class Image
     private void ProcessEdgePixel(float[][,] debayered, int x, int y, int width, int height, int[,] bayerPattern, float scale)
     {
         int knownColor = bayerPattern[y & 1, x & 1];
-        debayered[knownColor][y, x] = channels[0].Data[y, x] * scale;
+        debayered[knownColor][y, x] = Planes[0].Data[y, x] * scale;
 
         for (int c = 0; c < 3; c++)
         {
@@ -630,7 +630,7 @@ public partial class Image
     {
         float sum = 0;
         int count = 0;
-        var srcChannel = channels[0].Data;
+        var srcChannel = Planes[0].Data;
 
         int yMin = Math.Max(0, y - 2);
         int yMax = Math.Min(height - 1, y + 2);
@@ -729,7 +729,7 @@ public partial class Image
         using var vB = Array2DPool<float>.RentScoped(height, width);
         var rgbV = new float[][,] { vR.Array, vG.Array, vB.Array };
 
-        var srcChannel = channels[0].Data;
+        var srcChannel = Planes[0].Data;
         var rgbH_R = rgbH[R]; var rgbH_G = rgbH[G]; var rgbH_B = rgbH[B];
         var rgbV_R = rgbV[R]; var rgbV_G = rgbV[G]; var rgbV_B = rgbV[B];
 

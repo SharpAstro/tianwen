@@ -583,7 +583,7 @@ public partial class Image
         for (var c = 0; c < channelCount; c++)
         {
             dst[c] = new float[dstHeight, dstWidth];
-            var src = channels[c].Data;
+            var src = Planes[c].Data;
             for (var y = 0; y < dstHeight; y++)
             {
                 var srcY0 = y * factor;

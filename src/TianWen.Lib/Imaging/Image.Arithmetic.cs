@@ -362,7 +362,7 @@ public partial class Image
         ValidateSameShape(other);
         for (var c = 0; c < ChannelCount; c++)
         {
-            var plane = channels[c].Data;
+            var plane = Planes[c].Data;
             var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length);
             var src = other.GetChannelSpan(c);
             TensorPrimitives.Add(dst, src, dst);

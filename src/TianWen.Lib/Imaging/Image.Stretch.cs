@@ -41,9 +41,9 @@ public partial class Image
             {
                 for (var x = 0; x < width; x++)
                 {
-                    var r = channels[0].Data[y, x];
-                    var g = channels[1].Data[y, x];
-                    var b = channels[2].Data[y, x];
+                    var r = Planes[0].Data[y, x];
+                    var g = Planes[1].Data[y, x];
+                    var b = Planes[2].Data[y, x];
                     if (float.IsNaN(r) || float.IsNaN(g) || float.IsNaN(b))
                     {
                         lumaChannel[y, x] = float.NaN;
