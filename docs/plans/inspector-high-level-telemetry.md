@@ -69,6 +69,34 @@ living where the generic knowledge is.
 - **Hand-written JSON via `Utf8JsonWriter`**, never a reflective overload -- the AOT rule the TUI's
   `appState` already follows.
 
+## Phasing
+
+The cost here is not the code, it is that the three layers live in three repos, so the **release
+cascade decides the order**, not the difficulty.
+
+| # | where | what |
+|---|---|---|
+| T0 | design only | Settle the command name and the JSON shape FIRST, on paper. It crosses two libraries and the MCP sidecar, so a field added after T1 ships costs a second cascade to correct. One command per host (`stats`, or an extended `appState`), sections rather than a flat bag, so a layer can be added without a schema break. |
+| T1 | DIR.Lib.Diagnostics | The process half: working set, managed heap, GC counts by generation, thread count, uptime, framework version. Nothing SDL- or terminal-specific, so both hosts get it free and the TUI's `appState` gains the same section. |
+| T2 | SdlVulkan.Renderer | The GPU + frame-loop half: device/driver/API, validation availability, swapchain image count and format, frames painted / skipped / partial, damage area as a fraction of the surface, texture count and bytes, staging-buffer high water. The MCP sidecar ships from this repo too, so exposing the new command rides here. |
+| T3 | TianWen | The domain half through a callback, exactly like `AppState`: resident cached frames, open documents, the document's footprint, whether an 8-bit document dropped its float planes. |
+
+**T1 and T2 should be ONE wave.** A DIR.Lib minor forces a lockstep Console.Lib AND
+SdlVulkan.Renderer release before TianWen can re-pin, and T2 is a renderer release of its own -- so
+shipping them separately is two cascades for one feature. This is the same argument
+[damage-based-repaint.md](damage-based-repaint.md) makes for batching D1-D3, and that plan is the
+precedent for it working.
+
+So the process is: **T0 on paper -> T1+T2 in a single DIR.Lib + renderer pair -> tianwen repin ->
+T3**, with T3 the only part that can be iterated freely afterwards because it is a callback in this
+repo.
+
+**The cheapest useful subset, if the cascade is not worth paying yet:** T3 alone against what the
+hosts already expose. `AppState` is already a callback, so resident-cache counts and open-document
+footprints can land in TianWen today with no library change at all -- which covers the "how many
+resident frames in the cache" question that prompted this. The process and GPU halves are what need
+the wave.
+
 ## Two things to get right
 
 1. **A stats read must not perturb what it measures.** No forced `GC.Collect` behind an inspector

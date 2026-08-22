@@ -70,7 +70,18 @@ public partial class Image
         // A distinct instance, so the refs just taken get their own one-shot Release (Image.Release
         // clears _channelBuffers via Interlocked.Exchange). Handing back `this` would make the
         // borrower's release indistinguishable from the owner's and drop the frame early.
-        leased = new Image(channels, bitDepth, pedestal, imageMeta);
+        //
+        // The LIVE planes, not the constructor argument: residency can move after construction, and
+        // seeding a lease from the original array would hand the borrower float planes this image has
+        // since dropped -- resurrecting exactly the bytes D1 released. Passing the released form is
+        // safe because the raster travels with it, so the borrower can rebuild if it reads.
+        //
+        // samplesAreUnitReferred and the raster are forwarded because a lease is a VIEW of the same
+        // pixels: the scale fact is still true of them, and the raster still describes those very
+        // bytes. (The rule against forwarding a raster is about transforms that RECOMPUTE pixels,
+        // which is what makes the raster a lie; sharing them recomputes nothing.) Dropping the flag
+        // made a leased frame claim ADU scale while carrying unit-referred samples.
+        leased = new Image(_planes, bitDepth, pedestal, imageMeta, samplesAreUnitReferred, sourceRaster);
         return true;
     }
 }

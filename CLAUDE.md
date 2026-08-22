@@ -1272,6 +1272,29 @@ The rename to `AdoptImageAsync` is the canonical signal: any other public API th
 its `Image` input should follow the same naming convention (`Adopt*` / verb-form ownership
 transfer), not the neutral `CreateFrom*` factory pattern.
 
+**A third mutation exists and is deliberately invisible: plane RESIDENCY** (`TryReleaseFloatPlanes`,
+D1 of [docs/plans/viewer-memory-footprint.md](docs/plans/viewer-memory-footprint.md)). It breaks the
+pattern of the two above on purpose -- it is not announced, not opt-in, and the caller is *expected*
+to keep using the image -- because a released 8-bit image rebuilds its planes from the retained
+raster on the next read, so the mutation is unobservable **by value**. That only holds if it is also
+unobservable **by timing**, which is why: residency is DERIVED from the one `_planes` array rather
+than tracked in a flag beside it (a flag and the array it describes are the same fact twice, and a
+reader can catch the pair mid-update), every transition builds the whole replacement locally and
+publishes it with ONE interlocked write (so a reader sees the whole before or the whole after, never
+a half-restored array with some channels real and some 0x0 stubs), and a restorer that loses the
+publication race discards its work rather than interleaving. **`Image` is public surface in a
+published package**: a consumer reading two channels from two threads is entitled to do so against a
+type documented as immutable, and cannot be expected to know a read can rebuild them. `volatile` on a
+residency flag would NOT have bought this -- the tear is in the array, not the flag. Pinned by
+`ImagePlaneResidencyConcurrencyTests`, whose racing-release case fails against the per-channel
+version.
+
+**Every read must go through the `Planes` accessor.** Three did not (`GetChannelArray`, the subpixel
+sampler, `ScaleFloatValuesToUnitInPlace`) and so read the released 0x0 stub: a FITS write of a
+released image emitted nothing and the in-place rescale threw on `plane[0, 0]`. Residency is also why
+`TryLease` seeds from the LIVE planes -- seeding from the constructor argument handed a borrower the
+float planes the image had since dropped, resurrecting exactly what D1 released.
+
 **Test fixtures must not share `Image` instances across tests.** `SharedTestData` caches the
 extracted *temp file path* (cheap to re-parse) but constructs a fresh `Image` per call; do
 not reintroduce an `Image`-keyed cache. Two parallel collections passing the same cached

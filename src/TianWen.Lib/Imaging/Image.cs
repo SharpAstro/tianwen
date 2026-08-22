@@ -13,26 +13,26 @@ namespace TianWen.Lib.Imaging;
 /// The image-wide <see cref="MaxValue"/>/<see cref="MinValue"/> are derived across the channels;
 /// the raw-array constructor overload wraps legacy <c>float[][,]</c> call sites.
 /// </summary>
-public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, float pedestal, ImageMeta imageMeta,
+public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bitDepth, float pedestal, ImageMeta imageMeta,
     bool samplesAreUnitReferred = false, ImmutableArray<byte[]> sourceRaster = default)
 {
     public int Width
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         get;
-    } = ValidateSameShape(channels)[0].Width;
+    } = ValidateSameShape(initialChannels)[0].Width;
 
     public int Height
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         get;
-    } = channels[0].Height;
+    } = initialChannels[0].Height;
 
     public int ChannelCount
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
         get;
-    } = channels.Length;
+    } = initialChannels.Length;
 
     public (int ChannelCount, int Width, int Height) Shape => (ChannelCount, Width, Height);
 
@@ -88,7 +88,24 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// is a texture uploaded from the wrong number of bytes -- which draws a plausible-looking
     /// wrong picture instead of failing.</para>
     /// </remarks>
-    private bool _planesReleased;
+    /// <summary>
+    /// The channels, as one reference that is only ever REPLACED, never edited in place.
+    /// </summary>
+    /// <remarks>
+    /// <para>Residency is <b>derived</b> from this array rather than tracked in a flag beside it. A
+    /// flag would be the same fact stored twice, and the two can disagree: whichever order the two
+    /// writes land in, a reader can catch the pair mid-update and either read a released plane while
+    /// the flag still says resident, or restore planes that are already there.</para>
+    /// <para>Every transition builds the complete replacement locally and publishes it with ONE
+    /// interlocked write, so a concurrent reader sees either the whole before or the whole after --
+    /// never a half-restored array with some channels real and some empty. That matters because this
+    /// type is documented as immutable and ships in a package: a consumer reading two channels from
+    /// two threads is entitled to do so, and cannot be expected to know that a read can rebuild them.</para>
+    /// </remarks>
+    private ImmutableArray<Channel> _planes = initialChannels;
+
+    /// <summary>True when <paramref name="planes"/> is the released form (every plane a 0x0 stub).</summary>
+    private static bool IsReleased(ImmutableArray<Channel> planes) => planes[0].Data.Length == 0;
 
     /// <summary>
     /// The channels, with their float planes guaranteed present -- rebuilt from the source raster first
@@ -105,17 +122,15 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     {
         get
         {
-            if (_planesReleased)
-            {
-                RestorePlanesFromRaster();
-            }
-
-            return channels;
+            // ONE reference read, then work off the snapshot: re-reading the field mid-method is how a
+            // caller ends up mixing two generations of the array.
+            var snapshot = _planes;
+            return IsReleased(snapshot) ? RestorePlanesFromRaster(snapshot) : snapshot;
         }
     }
 
     /// <summary>Whether the float planes are currently resident.</summary>
-    public bool PlanesResident => !_planesReleased;
+    public bool PlanesResident => !IsReleased(_planes);
 
     /// <summary>
     /// Drops the float planes where the source raster can rebuild them exactly, keeping geometry,
@@ -137,38 +152,52 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// </remarks>
     public bool TryReleaseFloatPlanes()
     {
-        if (_planesReleased)
-        {
-            return true;
-        }
-
-        if (sourceRaster.IsDefaultOrEmpty || sourceRaster.Length != channels.Length)
+        // A degenerate 0-px image would satisfy the length check below against a 0-length raster and
+        // "release" planes that are already empty, which then reads as released forever.
+        var expected = Width * Height;
+        if (expected == 0 || sourceRaster.IsDefaultOrEmpty || sourceRaster.Length != ChannelCount)
         {
             return false;
         }
 
-        var expected = Width * Height;
-        for (var c = 0; c < channels.Length; c++)
+        while (true)
         {
-            if (sourceRaster[c] is not { } raster || raster.Length != expected
-                || channels[c].Buffer is not null)
+            var snapshot = _planes;
+            if (IsReleased(snapshot))
             {
-                return false;
+                return true;
             }
-        }
 
-        for (var c = 0; c < channels.Length; c++)
-        {
-            channels = channels.SetItem(c, channels[c] with { Data = EmptyPlane });
-        }
+            for (var c = 0; c < snapshot.Length; c++)
+            {
+                if (sourceRaster[c] is not { } raster || raster.Length != expected
+                    || snapshot[c].Buffer is not null)
+                {
+                    return false;
+                }
+            }
 
-        _planesReleased = true;
-        return true;
+            var released = ImmutableArray.CreateBuilder<Channel>(snapshot.Length);
+            for (var c = 0; c < snapshot.Length; c++)
+            {
+                released.Add(snapshot[c] with { Data = EmptyPlane });
+            }
+
+            if (ImmutableInterlocked.InterlockedCompareExchange(ref _planes, released.MoveToImmutable(), snapshot)
+                == snapshot)
+            {
+                return true;
+            }
+
+            // Lost the publication race, so the array we inspected is stale: someone restored (or
+            // released) underneath us. Re-read and decide again rather than forcing our own answer on
+            // top of theirs.
+        }
     }
 
     private static readonly float[,] EmptyPlane = new float[0, 0];
 
-    private void RestorePlanesFromRaster()
+    private ImmutableArray<Channel> RestorePlanesFromRaster(ImmutableArray<Channel> released)
     {
         // The raster is the ORIGINAL 8-bit samples and the released plane was normalised by the
         // sample-format maximum, so this reproduces the values exactly rather than approximately: the same
@@ -176,7 +205,8 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
         // after a release, which is the one thing this must never do.
         var width = Width;
         var height = Height;
-        for (var c = 0; c < channels.Length; c++)
+        var restored = ImmutableArray.CreateBuilder<Channel>(released.Length);
+        for (var c = 0; c < released.Length; c++)
         {
             var raster = sourceRaster[c];
             var plane = new float[height, width];
@@ -189,17 +219,30 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
                 }
             }
 
-            channels = channels.SetItem(c, channels[c] with { Data = plane });
+            restored.Add(released[c] with { Data = plane });
         }
 
-        _planesReleased = false;
+        var built = restored.MoveToImmutable();
+        var prior = ImmutableInterlocked.InterlockedCompareExchange(ref _planes, built, released);
+        if (prior == released)
+        {
+            return built;
+        }
+
+        // Another thread published first. Prefer what IS published so every reader agrees on one set of
+        // arrays, and let ours be collected: two restorers compute identical values from the same bytes,
+        // so duplicating the work is wasteful rather than wrong -- and it is cheaper than making every
+        // read take a lock to prevent it. Falling back to our own build if the winner somehow published
+        // the released form keeps this from ever handing back empty planes.
+        var current = _planes;
+        return IsReleased(current) ? built : current;
     }
 
     public bool TryGetSourceRaster(int channel, out ReadOnlySpan<byte> raster)
     {
         if (!sourceRaster.IsDefaultOrEmpty
             && (uint)channel < (uint)sourceRaster.Length
-            && (uint)channel < (uint)channels.Length
+            && (uint)channel < (uint)ChannelCount
             && sourceRaster[channel] is { } plane
             && plane.Length == Width * Height)
         {
@@ -217,10 +260,10 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// back exactly what was passed in; channel-typed constructions keep per-channel maxima intact
     /// (reachable via <see cref="GetChannel"/>).
     /// </summary>
-    public float MaxValue { get; } = DeriveMax(channels);
+    public float MaxValue { get; } = DeriveMax(initialChannels);
 
     /// <summary>Image-wide minimum, derived as the minimum over the channels' <see cref="Channel.MinValue"/>.</summary>
-    public float MinValue { get; } = DeriveMin(channels);
+    public float MinValue { get; } = DeriveMin(initialChannels);
 
     /// <summary>
     /// Legacy raw-array overload: wraps each plane in a <see cref="Channel"/> carrying the
@@ -339,7 +382,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// Returns the raw backing <c>float[,]</c> for a channel. Internal; use for low-level
     /// interop (guider tracker, FITS write) where span access is insufficient.
     /// </summary>
-    internal float[,] GetChannelArray(int channel) => channels[channel].Data;
+    internal float[,] GetChannelArray(int channel) => Planes[channel].Data;
 
     /// <summary>
     /// Wraps a single mono <c>float[,]</c> channel in an <see cref="Image"/> with default metadata.
@@ -376,7 +419,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// channel; there is no attach-after-construct step). Null for images whose channels own their
     /// arrays outright (debayer/normalize output, tests, file loads).
     /// </summary>
-    private ChannelBuffer?[]? _channelBuffers = HarvestBuffers(channels);
+    private ChannelBuffer?[]? _channelBuffers = HarvestBuffers(initialChannels);
 
     /// <summary>
     /// Whether <see cref="Release"/> has run. Distinct from a null <see cref="_channelBuffers"/>, which
@@ -428,7 +471,7 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
     private float SubpixelValue(int channel, float x1, float y1)
     {
-        var channelData = channels[channel].Data;
+        var channelData = Planes[channel].Data;
         var width = Width;
         var height = Height;
 
@@ -711,10 +754,14 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
 
         var invMax = 1.0f / UnitScaleDivisor;
 
+        // Through Planes, and ONCE: this mutates the arrays in place, so it must operate on resident
+        // planes (a released channel is a 0x0 stub and plane[0, 0] would throw) and the rewrap below
+        // has to carry the very same arrays it just scaled.
+        var planes = Planes;
         for (var c = 0; c < ChannelCount; c++)
         {
             // NaN * invMax = NaN, so NaN values are preserved without branching.
-            var plane = channels[c].Data;
+            var plane = planes[c].Data;
             var span = MemoryMarshal.CreateSpan(ref plane[0, 0], plane.Length);
             MultiplyScalar(span, invMax, span);
         }
@@ -723,8 +770,8 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
         // carried over: the ref-counted release responsibility stays with the original Image
         // (callers treat the source as consumed but its Release() still owns the recycle); 
         // carrying the ref here would double-release a refcount-1 buffer.
-        var rescaled = ImmutableArray.CreateBuilder<Channel>(channels.Length);
-        foreach (var channel in channels)
+        var rescaled = ImmutableArray.CreateBuilder<Channel>(planes.Length);
+        foreach (var channel in planes)
         {
             rescaled.Add(channel with
             {
