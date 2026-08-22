@@ -9,8 +9,12 @@ release blockers rather than backlog.
 Everything below was reproduced on
 `C:\Users\<user>\OneDrive\Pictures\Astro\My` and `..\Tests` (15 TIFFs, 3 FITS).
 
-**Eight of ten are fixed** (P1-P8). What remains is P9 and P10, both recorded UNCONFIRMED: each was
-seen once in a screenshot, and neither is worth chasing without a reproduction. P1, P2 and P5 are in
+**Eight of the original ten are fixed** (P1-P8). P9 and P10 remain UNCONFIRMED: each was seen once
+in a screenshot, and neither is worth chasing without a reproduction. **P11-P14 were added on
+2026-08-22 from the user's own notes** and are not packaging defects but the next release's list:
+they are here rather than in the backlog because they are what a Store user meets first (no version
+string, no way to know whether Enhance has a backend, no documentation, and a second window where
+the open one was empty). P1, P2 and P5 are in
 `Codecs` and reach CI through **SharpAstro codecs 3.10.721** (released 2026-08-20; `src/Directory.Packages.props`
 floats `3.10.*`); the rest are in this repo.
 
@@ -34,6 +38,10 @@ the 35 TIFF / import / codec tests pass against it.
 | P8 | A solver exception puts raw binary in the status bar | **FIXED** |
 | P9 | Stray text fragment at the left edge (needs confirmation) | UNCONFIRMED |
 | P10 | Hand-off may select the adjacent row (needs confirmation) | UNCONFIRMED |
+| P11 | `--help` reports no version, and the AI enhancer status is invisible | NEXT RELEASE |
+| P12 | Gain/ISO and offset are parsed but never shown in the info pane | NEXT RELEASE |
+| P13 | No in-depth user documentation | NEXT RELEASE |
+| P14 | An EMPTY instance does not adopt a file, because the gate is folder-scoped | NEXT RELEASE |
 
 ---
 
@@ -225,6 +233,71 @@ itself worked — the second process exited 0 and one process remained — so th
 click during the same interval, so it needs an isolated repro: hand off a distinctly-named file
 with nothing else touching the window, and assert the selected index.
 
+## P11. `--help` reports no version, and the AI enhancer status is invisible  — NEXT RELEASE
+
+Raised by the user 2026-08-22. Two things a person needs before they can file a useful bug, and
+neither is reachable today.
+
+- **Version with help.** `--help` should print the build version. It derives from the single
+  `VersionMajorMinor` in `src/Directory.Build.props` (see CLAUDE.md), so this is a read of
+  `VersionPrefix`, not a new number to maintain. A Store user has no other way to say which build
+  they are on.
+- **AI discovery status + download options.** The Enhance button is presence-gated on
+  `EnhanceAvailable`, so where no backend resolved it simply is not there, which is
+  indistinguishable from "this build has no enhance feature". The viewer should be able to report
+  which backend it would use (RC-Astro vs SAS vs none), which RC products are licensed, and which
+  SAS model files are missing -- plus an affordance to fetch the missing ones, because
+  `tools/tianwen-ai-models-fetch.ps1` is a repo script and a Store install has no access to it.
+
+**The trap:** the RC-vs-SAS choice and its blocking license probe are *deliberately* deferred to the
+first `EnhanceAsync`, so that composing the service collection spawns no `rc-astro` process. A
+status readout must not undo that by probing at startup. Either populate it lazily (report "not
+probed yet" until something asks) or make the probe an explicit user action in the status view.
+
+## P12. Gain/ISO and offset are parsed but never shown in the info pane  — NEXT RELEASE
+
+Raised by the user 2026-08-22. `ImageMeta` already carries `Gain` (FITS `GAIN`) and `Offset` (FITS
+`OFFSET`, `BLKLEVEL`), both `-1` when unknown, and TianWen writes both on every frame it captures --
+so this is a rendering gap in `ImageRendererBase.InfoPanel`, not a parsing one. Show them as their
+own rows, suppressed when `-1` rather than printed as `-1`. For a camera raw the same row should
+carry ISO (the `Gain` analogue on that path).
+
+## P13. No in-depth user documentation  — NEXT RELEASE
+
+Raised by the user 2026-08-22. The viewer ships to the Microsoft Store as Astro Photo Viewer with no
+user-facing documentation at all: the keyboard shortcuts, the stretch model (and what Linked /
+Unlinked / Luma actually do), Calibrate versus the manual WB sliders, the wavelet layers, plate
+solve, Enhance, the SER transport, and the file associations plus the single-instance behaviour are
+all discoverable only by experiment or by reading `CLAUDE.md`. The Store listing needs somewhere to
+point, and P11's version line needs a document to sit beside.
+
+## P14. An EMPTY instance does not adopt a file  — NEXT RELEASE
+
+Raised by the user 2026-08-22: *"if instance is empty (no folder open), opening any file should
+re-use that instance."*
+
+Today the gate is **folder-scoped** by design -- one primary per normalised folder, and the pipe name
+IS the identity, which is what avoids enumerating live instances (see
+[../architecture/desktop-shell.md](../architecture/desktop-shell.md)). The consequence is the
+reported behaviour: a window with *nothing* open holds a claim on no folder at all, so a file from
+any folder misses it and spawns a second process, which is exactly the cost the hand-off exists to
+avoid.
+
+The mechanism to express the fix already exists and does not need a new lookup:
+`PumpInstanceGate` re-binds when the folder changes, releasing the old channel and claiming the new
+one. So an empty instance can hold a distinguished "no folder" claim and, on receiving a file, adopt
+it and re-bind to that file's folder. Two things to settle in the same change:
+
+- **What happens when two empty instances are running.** Only one can hold the no-folder claim, and
+  the loser must keep working: the existing rule applies, failure is never fatal, so it opens the
+  document itself.
+- **Whether the same courtesy extends to a NON-empty instance** whose folder differs. It must not:
+  that is the folder-scoping decision, and adopting there would silently replace the folder a user
+  is looking at.
+
+Note that P10 is in the same code path (`ViewerActions.ScanFolder(state, folder, fileName)` choosing
+the selected row after a hand-off) and should be reproduced while this is being worked on.
+
 ---
 
 ## Phasing
@@ -237,6 +310,7 @@ with nothing else touching the window, and assert the selected index.
 | D | P4, P6 | DONE. Correctness of presentation. P4 was briefly backlogged, then done anyway once P1 made the file decode at all. |
 | E | P5 | DONE. An LZW decoder; the only item whose absence was already documented scope. |
 | F | P9, P10 | Reproduce first; do not fix from a single screenshot. |
+| G | P12, P11, P13, P14 | The next release, in that order: P12 is a two-row rendering gap, P11 is a read of an existing property plus a lazily-populated status, P14 is a host-policy change with two cases to settle, and P13 is best written last so it documents what P11/P14 actually do. |
 
 ## Verification
 

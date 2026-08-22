@@ -35,14 +35,14 @@ screenshot-poll-and-OCR**. Three pieces compose:
    timezone"). Canonical wiring (URIs, connect order, guider→mount `LinkDevices`, guide-scope FL):
    `SessionTestHelper.CreateSessionAsync(mountPort:"SkyWatcher", latitude, longitude)`.
 
-2. **Anchor the clock** with `TIANWEN_NOW` (see the TimeProvider section above) to a real night at that site,
+2. **Anchor the clock** with `TIANWEN_NOW` (see the TimeProvider section of `CLAUDE.md`) to a real night at that site,
    so the planner computes visible targets and the session leaves `WaitingForDark` at once instead of stalling
    in daylight.
 
 3. **Drive + observe via the DEBUG inspector, not screenshots.** A **DEBUG** GUI build attaches
    `DebugInspector` (`Program.cs`, compiled out of Release entirely), exposing this process to the
    `sdl-ui-inspector` MCP sidecar (`.mcp.json` → `dnx SdlVulkan.Renderer.Inspector`, UDP-multicast discovery).
-   It gives five surfaces:
+   It gives six surfaces:
    - **Describe/state snapshot** (the `AppState` block): `activeTab`, `profile`, `sessionRunning`, `phase`,
      `mountConnected/Name/RaJ2000/DecJ2000/mountSlewing/mountTracking`, `lastNotification`, sky-map viewport,
      `liveSessionMode` (Preview/PolarAlign/Planetary/Flats) + `flatRunActive`/`flatStatus`.
@@ -71,10 +71,11 @@ screenshot-poll-and-OCR**. Three pieces compose:
      so the flat list reconstructs the nesting), `kind` (Stack/Dock/Grid/Overlay/Split/Leaf), rect, `axis`,
      `columns`, `text`+`fontSize`, `fillKey`, `bg`, and `hitRole`/`hitLabel`. The STRUCTURAL counterpart to the
      clickable-only `describe_ui` (which only shows interactive leaves); use it to debug placement (clipping,
-     gaps, why a panel is the size it is, nesting). Gated by DIR.Lib's `LayoutInspection.Enabled` (flipped on in
-     `DebugInspector.Attach` when `GetLayout` is wired; widgets retain their arranged tree via
-     `PixelWidgetBase.GetCapturedLayout()`), so production paints carry no overhead. Empty if the app draws
-     without the layout DSL.
+     gaps, why a panel is the size it is, nesting). Widgets retain their arranged tree via
+     `PixelWidgetBase.GetCapturedLayout()`. **Capture is UNCONDITIONAL as of DIR.Lib 8.8** -- the old
+     `LayoutInspection.Enabled` gate that `DebugInspector.Attach` used to flip is obsolete, is no longer
+     read, and is scheduled for deletion at the next DIR.Lib major, so do not assert the "production
+     paints carry no overhead" claim it used to buy. Empty if the app draws without the layout DSL.
    - **Render-thread watchdog** (`render_liveness`, `SdlVulkan.Renderer.Inspector` 6.8+): the inspector runs
      every command (incl. `ping`) ON the render thread, so a `ping` that round-trips proves the render loop is
      pumping; a connected-but-silent probe means it's blocked (a hang) while the process is still up.
