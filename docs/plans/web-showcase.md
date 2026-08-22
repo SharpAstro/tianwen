@@ -474,6 +474,37 @@ the no-op base). All three now work on web, built by SHARING the desktop logic, 
   clickable markers, Milky Way texture (all `RenderMountOverlay`/`RenderFixedPointMarkers`/etc. no-op
   overrides; no device layer / cosmetic); the sky-flat sky-map group-frame rendering.
 
+## A quantized cache key must not derive its grid from a continuous input (2026-08, from CLAUDE.md)
+
+The object-overlay candidate cache exists twice -- `SkyMapTab.BuildOverlayKey` (CPU/browser) and the
+`OverlayGatherKey` of `VkSkyMapTab` (desktop GPU), hand-maintained mirrors -- and **both** quantized
+the view centre into `FOV/8` cells using the **raw** FOV while separately bucketing the FOV itself
+into ~10% steps. So during a zoom the grid rescaled continuously and the rounded centre moved on
+**every event** even with the centre held perfectly still: the "quantization" quantized nothing, and
+the FOV bucketing right beside it bought nothing. Take the step from the **bucketed** value.
+
+- **Measured, CPU path, a 60->30 degree pinch with a fixed centre: 69 gathers against 8.** A pure pan
+  of 1.4h of RA costs 3. That asymmetry is the tell -- the cache was designed for pan, tested by
+  panning, and a *zoom* is what broke it.
+- **It presented completely differently on each path, which is why one is easy to miss.** The browser
+  gathers inline, so it stalled frames (touchmove p95 91 ms, max 246 ms, 91% of the busy time of the
+  main thread inside move handling). The desktop gathers on a background task and keeps drawing the
+  last-good list, so it showed as no jank at all -- just a 60-170 ms catalog walk re-running forever
+  without settling, which is precisely the "slow gather -> the view had already moved -> cache miss ->
+  slow gather" loop that async design was introduced to escape.
+- **Assert the gather COUNT, never the output.** A stale-keyed rebuild draws the byte-identical frame,
+  so nothing observable -- pixels included -- separates a cache that holds from one that misses per
+  event. Hence `SkyMapTab.PrimOverlayGathers`, the same reasoning as
+  `SkyMapState.PlanetCacheRebuilds`.
+- **A bound like `gathers <= 12` passes on `gathers == 0`.** `ShowObjectOverlay` is **off by default**,
+  so the first version of the E2E turned nothing on, measured nothing, and passed with the fix
+  reverted. Any such test needs `gathers > 0` beside the bound, and must be seen to FAIL with the fix
+  removed.
+- **A burst test must dispatch its events inside ONE JS task** (`CanvasGestures.TrackpadPinchAsync`
+  with `burst: true`), or the browser paints between them and the assertion becomes timing-dependent.
+  The paced variant (`burst: false`) is the opposite tool: it is what lets per-repaint work like this
+  gather be measured at all, since a burst collapses it to a single repaint and hides it.
+
 ## Related research plans
 
 - [web-tycho2.md](web-tycho2.md): the concrete implementation plan for full Tycho-2 in the atlas

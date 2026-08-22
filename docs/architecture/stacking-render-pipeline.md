@@ -278,3 +278,48 @@ The unification collapsed several near-duplicate code paths into single sources:
   uniforms for both the PNG and the plates.
 - `StretchSolver` is the single producer of the stretch-uniform math the viewer
   (`AstroImageDocument`), the CPU stretch, and the GLSL shader all agree on.
+
+---
+
+## 9. Two opt-in display stages, and the rule both obey
+
+Both are **render** stages that touch the display raster only. The linear FITS / EXR masters and the
+`--split-plates` TIFFs are never touched (the plates stay edit-ready for the user's own finishing),
+and identity options collapse to null so the untouched render path stays byte-identical.
+
+### Masked finishing boost
+
+`Image.MaskedBoost` (`Image.Masks.cs`) composes the mask primitives (`LuminanceRangeMask` ->
+`Saturate` / `ContrastBoost` -> `BlendThroughMask`) into the Affinity "masked contrast boost +
+saturation" finishing macro; the basic mask support (`Invert`, `Binarize`, `GaussianBlur` =
+feathering, scalar `Multiply` for partial-strength masks) lives alongside it. `stack --saturation X
+--contrast-boost Y` (and the same flags on `image render`, for iterating against an existing master
+without re-stacking) bake it into the rendered preview PNG ONLY, applied to the STRETCHED rgba16
+buffer between `RenderStretchedRgba16` and the PNG/PQ encode
+(`MasterPreviewRenderer.ApplyMaskedBoost`).
+
+**Never apply the mask primitives to a LINEAR master.** The luminance mask degenerates to ~0
+everywhere (background at ~0, star cores rolled off, nebulosity a few percent of peak), which is
+exactly why this is a render stage and not a `SharpenStep`. Pinned by `ImageMaskTests` +
+`MasterPreviewMaskedBoostTests`.
+
+### Ultra HDR: the two load-bearing invariants
+
+Section 2 above describes the format and the chain. The two things not to regress:
+
+1. **The recovery gain is gated on the clip** (`maxRescaled > 1`) and is exactly 1 below it. Do NOT
+   derive it from `Rec709(rescaled)/Rec709(base_lin)` across the whole frame: the MTF's shadow-lift
+   versus the sRGB EOTF makes `rescaled > base_lin` in the faint field too, which would push the
+   background into HDR. That is the bug the `RenderHdrLinearRgb` background test caught.
+2. **ONE luminance gain multiplies all three channels**, preserving the SDR base's hue. A gray gain
+   map recovers luminance/**structure, not saturation**; per-channel re-saturation needs an RGB gain
+   map, which is deferred.
+
+Cores roll off smoothly toward the cap via `RollOffHeadroom`. It can only recover headroom the master
+actually holds -- a sensor-saturated core stays flat. Pinned by `MasterPreviewUltraHdrTests`.
+
+### The one stretched-TIFF writer
+
+`Image.WriteStretchedTiffAsync` (verbatim [0,1] floats -- no `1/MaxValue` rescale -- plus
+`IccProfiles.SRgbV4`) is shared by `stack --split-plates` and `image sharpen`. Do not add a second
+one; the float-TIFF on-disk convention it implements is in `CLAUDE.md` under "Float TIFF Convention".

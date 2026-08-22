@@ -116,3 +116,14 @@ The page will still exist and still be a page; the target is that it reads like 
 - [`controls-upstreaming.md`](controls-upstreaming.md) — the U-plan that moved sliders, text inputs and
   the key router into DIR.Lib. This is that plan's unfinished third surface.
 - [`web-showcase.md`](web-showcase.md) — what the browser build is for.
+
+## Coalescing, the two details that are easy to lose (from CLAUDE.md, 2026-08-22)
+
+- **The pending flag lives on the .NET side**, so an already-dirty frame costs nothing -- not even an
+  interop crossing. Steady state is two crossings per *painted* frame regardless of event rate.
+- **Clear the flag BEFORE painting** in the rAF callback, and clear it on the schedule-failure path: a
+  latched flag is a permanently frozen canvas. Absent the `wwwroot/raf-pump.js` module the call falls
+  back to painting synchronously -- never to skipping.
+- `RequestRenderCoalesced()` is for `OnPointerMove` / `OnWheel` / `OnPinch` **only**. Everything else
+  keeps calling `RenderFrame()` directly, because for a one-shot event an immediate paint is the lowest
+  latency available.

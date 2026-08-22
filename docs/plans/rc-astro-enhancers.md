@@ -141,3 +141,18 @@ mutable -- each entry point snapshots an immutable `EnhanceOptions` at the call 
 flags (once per invocation); GUI from existing viewer/UI state into a fresh record per Enhance
 click; Server deserialized from the request DTO per request (naturally per-call, supports
 concurrent divergent enhances).
+
+---
+
+## Stellar-sharpen is opt-in, and hard-skipped when a deblurrer is live
+
+`image sharpen --stellar-sharpen`, default **OFF**. The SAS stellar sharpener (NAFNet) over-sharpens
+already-tight star cores into square white clipped blocks; and when a deblurrer (BlurX) is live the
+stars are already tightened, so the option is **hard-skipped even if requested**, with a warning.
+This is why the BlurX-first step program carries no stellar-sharpen stage at all
+([../architecture/stacking-render-pipeline.md](../architecture/stacking-render-pipeline.md) section
+3).
+
+Role split, for the same reason: RC-Astro serves `IStarRemover` / `INonStellarDeconvolver` /
+`IDenoiseEnhancer` (sxt / bxt / nxt) and is preferred + license-gated; SAS ONNX is the free fallback
+tier; `IStellarSharpener` and `IGradientCorrector` stay SAS, because RC has no equivalent.

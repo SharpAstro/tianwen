@@ -164,6 +164,16 @@ control** axis is the new `ICoverDriver.CanControlBrightness` (default `true`; `
 `ManualCoverDriver`). Flats prompt on `!CanControlBrightness`; a future **dark-frame** flow will prompt on
 `CoverStatus.NotPresent` ("cover the scope") using the **same** `RequestUserConfirmationAsync` channel.
 
+**One-path helpers (shared by the calibrator AND sky paths):** `ResolveFilterPositions` +
+`PrepareFilterForFlatsAsync` (filter switch + denorm stamp), `CaptureFlatFrameAsync`,
+`MeasureFlatLevel`, `WriteFlatToFitsFileAsync`; `RunFlatsOnlyAsync` additionally reuses the
+`AllocateObservableState` + `ConnectTelescopeAsync` of `RunAsync`. Device kind is invisible to
+`TakeFlatsAsync` -- flip-flat, driver panel and manual cover all flow through the same calibrator path
+with no branching.
+
+**The Equipment button carries no glyph.** "+ Manual Light Panel" is a plain text button; the light-bulb
+is the **Live Session sidebar icon for Flats mode**, not a decoration on that button.
+
 **Deferred within Phase 4:** live-thumbnail publishing for the **sky-flat** path (it already shows a status
 line; only the calibrator path publishes frames so far); the **dark-frame** capture flow itself (the prompt
 channel + capability are in place for it); and a per-filter progress *bar* (the status line is text-only,

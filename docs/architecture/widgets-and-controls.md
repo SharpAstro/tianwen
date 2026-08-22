@@ -62,8 +62,8 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
 | `ClickableRegion` / `HitResult` + Layout `.Clickable` | DIR.Lib | everything | the universal button/row primitive |
 | `TextInputState` | DIR.Lib | planner search, sky-map F3, session config, equipment | state + callback contract (`OnCommit/OnCancel/OnTextChanged/OnKeyOverride`) |
 | `DropdownMenuState` | DIR.Lib | viewer toolbar dropdowns, `PixelMenuWidget` | clip-only; controller adoption deferred until a menu overflows |
-| `TrackSlider` (`DrawTrackSlider` + `TrackFrac`) | tianwen (`ImageRendererBase.TrackSlider.cs`) | WB, 6 wavelet layers, SER scrub | generic; DIR.Lib promotion candidate (see [../plans/controls-upstreaming.md](../plans/controls-upstreaming.md)) |
-| `TextInputInteraction` | tianwen (UI.Abstractions) | all text inputs | key routing/clipboard/suggestion-cycling over `TextInputState`; promotion candidate |
+| `TrackSlider` (`DrawTrackSlider` + `TrackFrac`) | **DIR.Lib** (`PixelWidgetBase`, U1 of [../plans/controls-upstreaming.md](../plans/controls-upstreaming.md)) | WB, 6 wavelet layers, SER scrub | promoted; there is no `ImageRendererBase.TrackSlider.cs` any more. A new track-style control calls `DrawTrackSlider` / `TrackFrac`, never re-triplicates the bar/fill/handle/clamp math |
+| `TextInputInteraction` | **DIR.Lib** (U6, shipped 2026-08-14) | all text inputs, all three hosts | key routing/clipboard/suggestion-cycling over `TextInputState`; reads the focused field from `ctx.Focus.Current` and takes `KeyContext.TabFields` as a callback, so no `IPixelWidget` appears in it |
 | `PlannerSearchInteraction` | tianwen (UI.Abstractions) | planner search box | callback wiring over `TextInputState`; candidate subclass of a DIR.Lib search base |
 | sky-map F3 search (`SkyMapSearchState` + `SkyMapTab.Search`) | tianwen (UI.Abstractions) | sky map | same shape as planner search (input + results + selected index + key-nav + commit); second subclass candidate |
 | `PlannerSliderInteraction` | tianwen (UI.Abstractions) | planner handoff sliders | click-to-place semantics; deliberately NOT on `TapOrDragGesture` |
@@ -106,3 +106,161 @@ chromeless Live Session / polar / guide-cam previews (`ViewerState.HideChrome`).
    placement-layer analogue of rule 1's inline scroll math. Direct pixel drawing is reserved for
    raster content inside keyed `Fill` leaves (charts, histogram, image, sky map, on-image overlays)
    and control internals.
+
+---
+
+## The layout DSL: the engine features TianWen relies on
+
+The engine and its DSL reference live in **DIR.Lib's README** under "Declarative Layout
+(`DIR.Lib.Layout`)"; it owns the engine and TianWen is a consumer. What follows is the part a
+consumer has to know, and the part that was learned by being bitten. `CLAUDE.md` keeps the one-line
+form of each rule; the reasoning is here.
+
+- **Responsive primitives (DIR.Lib 6.14):** `Sizing.Star(weight, min, max)` clamps
+  (`.WStar/.HStar(w, min, max)`, `.WClamp/.HClamp`) -- a min-clamped Star holds its floor and
+  overflows *visibly* instead of starving to zero when Fixed siblings eat the container, a
+  max-clamped Star's surplus redistributes to its Star siblings; `.CollapseBelow(u)` drops a Stack
+  child entirely (no paint, no hit, no gap) when its arranged main extent lands under the threshold;
+  `Layout.Builder.WrapH/WrapV` flow containers wrap children into new lines when out of extent
+  (toolbars / chip rows). The tree is rebuilt per frame, so orientation is a plain C# branch -- no
+  media-query machinery. Canonical consumer: `PlannerTab.BuildFrameLayout` (landscape = left-list
+  dock, portrait = chart / collapsible compact details / list stack), pinned by
+  `PlannerTabLayoutTests` (arranged rects + an offline `RgbaImageRenderer` pixel render at phone +
+  desktop resolutions, the chess `PixelGameDisplayLayoutTests` pattern).
+- **Five silent traps, all found on the Home board**; the measured detail is in
+  [../plans/remote-profile.md](../plans/remote-profile.md).
+  1. `.RowH(h)` sets `Width = Star` and silently eats a `.WFixed(w)` before it -- it means "a
+     full-width row of fixed height", so anything genuinely fixed on both axes needs
+     `.WFixed(w).HFixed(h)`.
+  2. A `Stack` places children at the cross-axis START, so centring a row's controls needs
+     `.CrossCenter()`; do NOT re-solve it with container padding or spacer sandwiches, which
+     re-derive at the call site a position the engine already knows.
+  3. A `Node`'s default `Width` is `Sizing.Auto`, so a container whose children are all Star
+     measures to a near-zero intrinsic width and arranges to nothing -- state `.WStar()` explicitly.
+  4. `.CollapseBelow(u)` must **not** be paired with a Star *minimum* on the same node (a
+     min-clamped Star holds its floor and overflows, so the threshold never trips), and the engine
+     prunes every under-threshold child in ONE pass rather than shedding the least important first,
+     so a child that must survive takes **no** threshold rather than a small one.
+  5. An icon draws at the size it DECLARES and every kind inks that full square (DIR.Lib 7.20 +
+     7.21), so size a mark to the text it sits beside; both of those were measured from rendered
+     ink, which is the only way to see either.
+- **A mark is an `Icon`, never a symbol character in a `Text` run.** `Layout.Content.Icon` names a
+  MEANING and each surface constructs what it can draw (the GPU fills rows of rectangles,
+  `CellLayout` picks a block element), whereas a caret glyph in a label asks whichever face the host
+  resolved to have that codepoint and draws .notdef where it does not. `IconKind.CaretUp/CaretDown`
+  (DIR.Lib 7.23) are the drop-chip marks -- filled, not chevrons, because at the ten-or-fewer pixels
+  a chip affords a stroked mark is two hairlines and the hole between them disappears first.
+  Consumer: the Live Session mode pill.
+- **`.PadX(u)` / `.Pad(across, down)` for a FIXED-height bar** (DIR.Lib 7.24; `PaddingY` null =
+  "same as `Padding`", so every existing tree is unchanged). A bar with no vertical room to give
+  away, padded symmetrically, loses its icon first: text overflows its rect and goes on looking
+  correct, while an icon -- square by its smaller side -- collapses to a stub. That asymmetry is why
+  the failure hides.
+- **`PushClip(x, y, w, h)` / `PopClip()` on the widget base** (DIR.Lib 7.25), never
+  `Renderer.PushClip` with a hand-built `RectInt`: that struct takes `(LowerRight, UpperLeft)`, the
+  opposite order to every other rect a widget states, and the five sites here each spelled the
+  inversion out. **Clips NEST and NARROW** (DIR.Lib 7.27): a push inside a push draws in the
+  INTERSECTION, and a pop restores the enclosing clip rather than the whole surface, so an inner
+  widget states only its own bounds and cannot escape the parent's. It was single-level until then
+  (a second push replaced the first, and any pop opened all the way up), which is why nothing here
+  nests today -- the five sites are one level each, and behave identically under both models. Worth
+  knowing the direction of the change if you find one that does nest: under the old contract the
+  rest of an outer panel painted UNCLIPPED after an inner pop, so 7.27 can only fix such a case,
+  never break it. `Renderer.ClipDepth` is assertable if a widget wants to prove it left the renderer
+  as it found it.
+- **`Renderer.DrawTriangles`** (DIR.Lib 7.26) means a mark that is not rectangles, ellipses or text
+  no longer has to reach past the abstract renderer to a backend with a triangle pipeline; the base
+  has a scanline default and `VkRenderer` overrides it with one draw call. Nothing in TianWen calls
+  it directly.
+- Engine geometry is headless-testable (stub `Layout.IMeasureContext`); `EquipmentPanelLayoutTests`
+  / `SessionConfigLayoutTests` pin arranged rects. Shipped DIR.Lib 6.0 / Console.Lib 3.3 /
+  SdlVulkan.Renderer 6.7. **The offline `RgbaImageRenderer` honours clipping since DIR.Lib 7.25**,
+  so a headless render finally agrees with the app about what was drawn; before that a clip the app
+  applied was ignored and a control trimming to its bounds drew over the whole picture, which reads
+  as a widget bug rather than a missing backend feature.
+
+## TUI list and tree rows are trees too, never formatted strings
+
+Console.Lib 4.10. A `ScrollableList<T>` item implements `IRowLayout.BuildRow(in RowContext)` and a
+`TreeView` node `ITreeNode.BuildNodeContent`, both returning a `Layout.Node`; the widget arranges it
+into the row's rect and paints it via `CellLayout`, so a row states structure and colour and **never
+pads, truncates, or emits an escape code**. Authored in CELLS (`TuiRowPalette.CellFontSize` = 1
+design unit = 1 cell, `CellMeasureContext.CellAuthored`) unless the tree is shared with a GPU
+surface (`TuiHomeTab` overrides `MeasureContext` to `PixelAuthored`). Three rules this replaced,
+each of which had cost a real bug:
+
+- **An inline button on a row is a `.Clickable(...)` NODE**, resolved through
+  `ScrollableList.DispatchRowHit` against the rect that was painted -- never a column range computed
+  alongside the code that draws it. `EquipmentFieldItem.DeleteActionColumns` and
+  `InfoRowItem.ButtonRegion` were exactly that, and `StepperRow` derived four offsets *twice*. A row
+  also cannot see its own usable width (the list yields a column to the scrollbar once it
+  overflows), so a right-anchored span drifted by one column exactly when the list scrolled -- which
+  is why the OTA `[X]` used to be pinned beside the title instead of at the row's edge, where it now
+  is.
+- **A cell states its own pen** (`RowPen`, foreground AND background together). Foreground-only
+  writes relied on whatever SGR state a previous write left in effect; the diffing cell buffer
+  stores a colour per cell, so an inheriting row recorded cells with no colour and painted as a gap.
+  This also retired `VisibleOverhead`/`StyleSegment` -- a nested run's closing reset used to wipe
+  the enclosing row's background, so each segment re-applied the outer style on exit and the row
+  scanned its own escape bytes to know how far to pad.
+- **Width arithmetic becomes sizing.** `Math.Max(18, width / 2)` is a min-clamped Star
+  (`.WStar(1f, 18f)`) stated once in `TuiRowPalette.LabelMinColumns`, not recomputed per row shape;
+  a content column is `.WStar`, so a fixed-column budget (`width - 19`) and the comment that had
+  already drifted from it both disappear.
+
+Selection comes from `RowContext.Selected` **only when the list cursor is the truth**. Where the
+selected index lives in shared state instead (`PlannerState.SelectedTargetIndex`,
+`SessionTabState.SelectedFieldIndex` -- both moved by the keyboard independently of the cursor), the
+row reads its own `IsSelected` and the tab writes the state from `ScrollableList.HitTestRow` on
+mouse-up. Adding a capability adds a **field to `RowContext`**, never an overload: the shape this
+replaced grew one rung per capability (`(width, mode)` -> `(.., isSelected)` -> `(..,
+selectedColumn, columnCount)`) and every rung let an implementation silently opt out of the newest
+information by overriding an older one.
+
+## The pointer's appearance is a property of a region, never a host predicate
+
+`CursorKind` + `ClickableRegion.Cursor` + `RegisterCursor` / `HitTestCursor` (DIR.Lib 7.22), mapped
+to SDL by `CursorKind.ToSystemCursor` (SdlVulkan.Renderer 7.16) -- the one place in the stack that
+knows SDL calls the hand cursor `Pointer`. Both hosts here previously answered the question
+themselves, and each was wrong in the way the enum's own doc predicts:
+
+- **The FITS viewer** tested an X-band around the file-list edge **plus** a
+  `ToolbarDropdown.IsOpen` negation, because the dropdown draws over that band. That is one term per
+  overlay, and every overlay added later silently invalidates it -- the predicate keeps saying
+  "resize handle" while something else is on top.
+- **The GUI** hit-tested for `LinkHit` and could answer nothing else, so every text field in the app
+  showed an arrow. `RenderTextInput` now registers `CursorKind.Text` itself, which is where the
+  I-beams came from.
+
+**Declare the cursor beside the click** (`RegisterClickable(..., cursor:)` / `.Clickable(hit,
+onClick, cursor)` / `.WithCursor(kind)`), on the same reasoning that binds a click to the rect its
+content was painted in (rule 3 above). A region that states nothing is **transparent** to the query,
+so a row inherits its card's and a panel declares it once; `null` means "nobody had a view", **not**
+Default, so a plain button cannot stamp the arrow over a host that wanted a crosshair.
+
+- **The host asks, and picks its own default**: `guiRenderer.CursorAt(x, y) ?? CursorKind.Default`.
+  `CursorAt` lives on `VkGuiRenderer` because the composition (active tab paints over chrome, so it
+  is asked first) is the renderer's own knowledge; a host reconstructing that order would keep a
+  second copy of it.
+- **`HitTestCursor` is on `PixelWidgetBase`, not on `IPixelWidget`**, so a caller holding the
+  interface cannot ask. `IGuiChrome.ActiveTab` is `IPixelWidget?` by contract, hence the
+  concretely-typed `_activeTab` field behind it. Upstream gap, not a local preference.
+- **A drag is the one legitimate host-side term**: once the file-list grab starts the cursor stays
+  `ResizeEW` wherever the pointer travels, which no region under it can express.
+- **`Layout.Builder.Split` has no `dividerCursor` yet**, so the viewer's resize handle states no
+  cursor and its `ResizeHandleHit` is mapped by the host as a fallback. This still beats geometry:
+  an open dropdown registers a full-viewport backdrop above everything, so it answers the hit and
+  the handle correctly stops claiming the pointer.
+- **Buttons deliberately keep the arrow.** `CursorKind.Pointer` documents "a link, a button", but
+  this app's convention is hand-on-links-only; adopting it per-button would be a UX change, not an
+  adoption.
+
+**The same lesson, one level down: HOVER needs a z-order answer too, and it is
+`ViewerState.OverlayOwnsPointer`.** Clicks never need one (paint order IS hit-test z-order, so an
+overlay's regions already win), but hover is decided at PAINT time from mouse-vs-rect, *before* the
+overlay above has registered anything. The viewer toolbar, the histogram LOG button and the
+file-list rows each carried their own copy of the dropdown-is-open negation, so a second overlay
+would have had to find all three. **Add an overlay to that one property, never to a call site.** The
+per-element hover rects themselves stay by design (the
+[../plans/layout-driven-ui.md](../plans/layout-driven-ui.md) DoD tolerates interactive controls
+whose look needs their own arranged rect); it is the z-order term that must not be duplicated.

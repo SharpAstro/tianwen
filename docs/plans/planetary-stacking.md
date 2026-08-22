@@ -395,7 +395,8 @@ the 5-min time window covered the WHOLE capture. Fixes: (1) `RollingWindowOption
 ~30s to ~1.8s; (2) **sharpen-priority** -- a wavelet-slider change re-sharpens the cached master (~30ms)
 and defers the slower re-stack; (3) **per-request cancellation** (a per-work CTS) lets a slider preempt an
 in-flight stack, and `StackToAsync` invalidates the window on cancel so the next call rebuilds cleanly. The
-hot path is align-bound (~85-89%), so `GlobalAligner` caches the reference tile's forward FFT once (lossless,
+hot path is align-bound (~85-89%), so `GlobalAligner` caches the reference tile's forward FFT once via
+`PhaseCorrelation.PrepareReferenceSpectrum` (lossless,
 ~1 of 3 FFTs/frame). The default wavelet curve was retuned live to `[4.8, 4.3, 3.7, 2.7, 1.5, 0.6]` (hard
 fine/mid boost + coarse-band suppression to flatten the gradient). BenchmarkDotNet benches + a
 `profile planetary` per-stage breakdown live in `TianWen.UI.Benchmarks`.

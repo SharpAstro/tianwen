@@ -613,3 +613,15 @@ Still open:
   region path measures badly on the first paint.
 - Published `_framework` + tyc2 asset size budget (web-showcase.md already flags a payload-budget item).
 - HR-replace vs HR+tyc2-mag-split: a visual-quality call on bright-star color.
+
+## Two cull details that only show up when you touch them (from CLAUDE.md, 2026-08-22)
+
+- **The sort must stay allocation-free.** The buffer is reinterpreted as 5-float records
+  (`MemoryMarshal.Cast`) and sorted in place with a **struct** comparer, so there is no index array and
+  no scatter buffer. The obvious index-sort-then-scatter form costs ~70 MB of transient arrays at
+  exactly the moment the user is waiting for the atlas, which on single-threaded WASM is not free.
+  `VisibleCount` is the only per-frame member and is an array index plus a clamp.
+- **The cone radius spans ~8 degrees on a 30x15-degree cell**, on top of the distance to the nearest
+  chunk axis. So a cull threshold narrower than the grid it culls correctly answers "nothing is
+  visible" -- which reads as a broken cull if you assert against it. A test asserting the cull is tight
+  needs a view wider than the star spacing it is culling.

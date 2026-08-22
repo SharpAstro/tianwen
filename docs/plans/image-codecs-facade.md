@@ -165,3 +165,35 @@ so highlight recovery restores saturation, not just luminance.
    take enough bytes to disambiguate. Define the header-window contract.
 4. **Where the plan/code lives.** Packages ship from the Codecs repo; this plan doc lives in
    tianwen's `docs/plans/` (the coordinating consumer + established planning home).
+
+---
+
+## The codec surface TianWen's imaging paths rely on (moved out of CLAUDE.md, 2026-08-22)
+
+A long-standing baseline, not a changelog; the current pins live in `src/Directory.Packages.props`.
+
+live in `Directory.Packages.props`):
+
+- `SharpAstro.Color.Icc.IccProfiles.SRgbV4`: bundled 588-byte sRGB v4 profile bytes
+  (LittleCMS-generated). Pass to `TiffPageOptions.IccProfile` or
+  `PngWriter.Encode(..., iccProfile)` to embed a colour-management tag without
+  having to source profile bytes yourself.
+- `SharpAstro.Png.PngWriter.EncodeGray8` / `EncodeGray16` / `EncodeRgba16`; bit-depth and
+  grayscale variants on top of the original RGBA8 entry point. 16-bit overloads
+  accept `ReadOnlySpan<ushort>` in system-endian and byte-swap to PNG's required
+  BE order internally. Each also takes a `PngWriteOptions` overload (that is the one that
+  carries `Cicp`, used by the PQ-HDR PNG path).
+- `PngWriter.Encode(rgba, w, h, iccProfile)`: emits an `iCCP` chunk between
+  IHDR and IDAT, keyword "ICC profile", zlib-deflated. Empty span = no chunk.
+- `SharpAstro.Tiff.TiffReader.Read(stream | span)`: pure-managed decoder; v1
+  scope is strip layout + Uncompressed/Deflate/ZlibPkzip + 8/16/32-bit uint
+  or IeeeFloat + contig planar config. Both "II" (LE) and "MM" (BE) byte
+  orders are accepted; the reader detects file-order from the header and
+  byte-swaps pixels to *host* order on mismatch. Multi-page chains decoded
+  fully. SampleFormat/SMin/SMax/IccProfile round-trip. Returns
+  `TiffDocument(Pages)`; per-page `Pixels` is always in host byte order,
+  zero-copy castable to `ushort[]`/`float[]` via `MemoryMarshal.Cast`.
+- `TiffWriter` now declares the file's byte order to match the host (II on
+  LE / MM on BE) so multi-byte tag values and pixel samples can be written
+  verbatim from native memory with no swap step. The reader honours either
+  order, so round-trip is correct regardless of host architecture.

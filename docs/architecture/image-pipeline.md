@@ -123,3 +123,41 @@ Consumer-side copies that are **by design** (do not "fix"):
 - `LiveFramePreviewSource.AcceptFrame` copies into persistent owned buffers (reused across frames unless geometry changes) while normalising to `[0,1]`; the copy IS the normalisation pass, and it decouples the viewer from the camera recycle.
 - `Image.Arithmetic` / `Image.Masks` identity paths return `CopyChannelData()`; result independence is part of the contract.
 - `RollingWindowStacker.BuildMasterAsync`'s mono/RGB normalise destination; `PlanetaryMaster.NormalizeInto` wraps the destination into the returned master (`MergeAndDemosaicAsync` passes mono/RGB through), so it must own fresh arrays per publish; only the split-CFA sub-planes (consumed by merge+demosaic) reuse the persistent `_sumScratch`. Pinned by `Published_mono_master_stays_valid_after_the_next_publish`.
+
+## The two "full scale" numbers, and why conflating them is the bug (from CLAUDE.md, 2026-08-22)
+
+`Channel.MaxValue` / `Image.MaxValue` is the peak pixel **actually OBSERVED in that specific frame**
+(rescanned per capture by `DALCameraDriver.DownloadImage`, ASCOM's `Channel.FromWxHImageData`,
+Alpaca's `AlpacaImageBytes.DecodeChannel`); it intentionally varies frame to frame with scene
+brightness, seeing and hot pixels. It is **NOT** the sensor's saturation level. That fixed value
+travels separately as the optional `ImageMeta.SensorFullScaleAdu`, populated (a) at the
+`ICameraDriver.GetImageAsync` choke point from `ICameraDriver.MaxADU` for live captures, and (b) from
+a FITS `SATURATE` card on read (the astrometry.net / SExtractor / PixInsight convention; TianWen
+writes it back out, so it round-trips, but **neither N.I.N.A. nor SharpCap emits it**, verified
+empirically). Null when neither source applies (most file imports, calibration masters, stacking
+output).
+
+Two "full scale" numbers exist:
+
+1. **The FITS/BITPIX *container* width** (`BitDepth`, `BitDepthEx.UnsignedFullScale` = 65535 for
+   Int16). This is the right divisor for **N.I.N.A.-recorded files**, because *N.I.N.A. multiplies the
+   native ADC output on recording*: its ASI533 lights span [0, 65532] with 100% of values divisible by
+   4, and that combing is N.I.N.A.'s recording-time scaling, **NOT** SDK behaviour. Never infer the
+   SDK's delivered scale from third-party capture files.
+2. **The native ADC resolution** (`AdcResolution`, 2^14-1 = 16383 for the ASI533MC Pro) -- the scale
+   the vendor SDK actually hands TianWen, which does **NOT** left-shift on capture. So
+   `DALCameraDriver.MaxADU` / `SensorFullScaleAdu` report the native value for live TianWen captures.
+
+**A native ADC depth (10/12/14-bit) is never a valid `BitDepth` member**; routing it through
+`BitDepthEx.FromValue` silently falls back to the container width, which was the original bug.
+
+`Image.UnitScaleDivisor` is the single source of truth for [0,1] normalisation: `SensorFullScaleAdu`
+when known (clamped to never go below the observed peak, so a hot pixel above nominal full-scale
+cannot map above 1.0), else `MaxValue`. Used by `ScaleFloatValuesToUnit(InPlace)` AND the TIFF export;
+a private `1/MaxValue` in any normalisation path diverges the moment `SensorFullScaleAdu` is present
+(`TiffRoundTripTests` is the regression guard, and the `PlateSolveTestFile` fixture genuinely carries
+`SATURATE = 255`). `SensorFullScaleAdu` rescales with the pixels through every rescale
+(`Image.RescaleMeta`, like `Pedestal`), so after normalisation it reads 1.0 and a written SATURATE
+stays unit-consistent with the stored data; the post-scale `MaxValue` stamp is `MaxValue * invMax`,
+never a hardcoded `1.0f`, so an under-exposed live frame correctly lands below 1.0. A source without
+`SensorFullScaleAdu` falls back to the prior observed-peak behaviour unchanged.

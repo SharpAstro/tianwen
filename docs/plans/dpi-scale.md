@@ -149,3 +149,48 @@ two existing properties.
   byte-identical (they pass explicit dpi, unaffected); live GUI smoke at DisplayScale != 1
   (the win-arm64 laptop runs 1.5x) -- toolbar, planner, viewer chrome, sky-map overlay.
 - Rides DIR.Lib 6.16 + tianwen repin; "no push before NuGet" applies.
+
+---
+
+## The rule as shipped: a per-window value is a widget property (moved out of CLAUDE.md, 2026-08-22)
+
+A value that is **constant for the whole window** and would otherwise be threaded identically through
+every widget `Render`/helper signature lives as a **`virtual` property on
+`PixelWidgetBase<TSurface>`** (DIR.Lib), owned per widget instance (a widget belongs to exactly one
+window):
+
+- `DpiScale` (float, default 1), `FontPath` (string, default `string.Empty`), `EmojiFontPath`
+  (string?, null = fall back to `FontPath`). Empty/absent font = the text helpers no-op (never
+  throw), so an unconfigured widget just draws no text.
+- **The host sets them once**, at startup + on resize -- SDL `DisplayScale` + the resolved
+  bundled/system font (GUI/FitsViewer), `devicePixelRatio` + font per frame (web); a terminal leaves
+  the defaults.
+- **A composite chrome widget propagates them to its children** by overriding the setter:
+  `VkGuiRenderer` pushes `DpiScale`/`FontPath`/`EmojiFontPath` to its child tabs (the embedded
+  `VkImageRenderer` viewers + the planetary tab self-resolve their own font, so they are deliberately
+  not pushed).
+- **DIR.Lib layout helpers default to the property**: `RenderLayout`/`ArrangeLayout`/`PaintLayout`
+  take `float? dpiScale = null` / `string? fontPath = null` and resolve `?? DpiScale` / `?? FontPath`,
+  so a call omits them entirely. `dpiScale: 1f` is the explicit **device-px escape hatch** (a
+  sub-tree already sized in device px). Widget methods that draw open with
+  `var dpiScale = DpiScale;` / `var fontPath = FontPath;` (an alias, so the px + `DrawText` calls
+  below are unchanged); input handlers read the property directly (input events carry no DPI/font --
+  this is why the old `_lastDpiScale` render-time cache is gone).
+- **DIR.Lib 7.4 adds a context-taking overload of each** (`ArrangeLayout`/`PaintLayout`/`RenderLayout`
+  taking a `PixelMeasureContext<TSurface>`), for the two cases a single scalar cannot express: a
+  per-axis scale, and a **cell-authored tree arranged on a pixel surface**
+  (`PixelMeasureContext.CellAuthored`, the mirror of Console.Lib's `CellMeasureContext.PixelAuthored`
+  that `TuiHomeTab` uses in the other direction). Build the context ONCE and pass the same instance to
+  Arrange and Paint: the painter reads `FontPath`/`FontScale`/corner radius off it, so measuring with
+  one context and painting with another gives text drawn at a size it was never measured at. The
+  scalar overloads delegate to these with an isotropic context, so they stay the right default and
+  nothing about the rule above changes.
+
+**Do NOT reintroduce these as `Render`/helper parameters.** Rule of thumb: a per-window *constant*
+-> property; a per-call *derived* value stays a parameter. `fontSize` is the canonical parameter --
+it varies per region (`base*dpi`, headers `*1.3`, emoji size, value cells `*0.9`) and is computed
+inside each tab, so it is NEVER a per-window property (bundling it with the font paths into a record
+would re-couple a varying value to constants and reintroduce the threading). The two **static,
+non-widget** renderers (`AltitudeChartRenderer`, `SkyMapRenderer`) are not `PixelWidgetBase`
+subclasses, so they KEEP their `fontFamily`/`fontPath`/`emojiFontPath` parameters and are fed the
+caller's `FontPath`/`EmojiFontPath`.

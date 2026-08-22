@@ -189,3 +189,91 @@ elimination of a bug class, not new capability.
 
 Suggested order: **P1** (biggest ergonomic win, no focus-model risk) -> **U6 + P2** (one migration of
 the same call sites) -> **P4** -> **P3** as polish.
+
+---
+
+## Shipped: the rules as built (moved out of CLAUDE.md, 2026-08-22)
+
+`CLAUDE.md` keeps the one-line form of each of these; the reasoning lives here.
+
+### A text field is a declaration
+
+**Declaring a field is sufficient.** `Layout.Builder.TextInput(state, fontSize)` is the whole thing:
+`PixelWidgetBase.PaintLayout` draws it via `TextInputRenderer`, registers a
+`HitResult.TextInputHit` over the arranged rect and states `CursorKind.Text`, and Console.Lib's
+`CellLayout` paints the SAME leaf on a terminal. Click-to-focus, blur-on-outside-click, Tab cycling
+(whose order derives from region paint order, so it is the visual order automatically) and the
+I-beam all follow from that one registration.
+
+- **This replaced a keyed `Fill` plus a painter dictionary entry plus a `drawFill` dispatcher**,
+  across 11 call sites. The cost was never the closure, it was the IDENTITY: a magic string shared
+  between a tree and a dictionary that nothing checks, so a mistyped key produced a silently blank
+  field rather than an error, and the lambda re-stated the font and size the tree already knew.
+  `Fill` still exists for genuinely bespoke content -- `SessionTab`'s exposure cell keeps one for
+  its DISPLAY state, which stashes its arranged rect for a double-click region no leaf models, while
+  its EDIT state is a `TextInput` leaf. Two states, two nodes.
+- **The leaf's `fontSize` is in DESIGN units**, not the DPI-scaled value the old direct
+  `RenderTextInput` call took: the painter crosses `ctx.FontScale` like every text run, so passing a
+  pre-scaled size applies DPI twice. Every migrated call site had to drop a `* dpiScale`.
+- **Intrinsic width comes from the placeholder (or an explicit `widthSample`), never the live
+  text** -- a box that resizes while you type is a bug. It is a fallback anyway: a field almost
+  always takes its width from its row.
+- **`TextInputRenderer` no-ops without a font**, matching the layout text helpers. A headless
+  `RgbaImageRenderer` render is how the layout tests check what was drawn, and a tree with a LABEL
+  rendered while the same tree with a FIELD threw.
+- **On a cell surface three things differ, each because the surface can only say one of them**: the
+  fill IS the field (a one-row box cannot also carry a border, so focus is the background alone),
+  the caret is the terminal's REAL one via `ITerminalViewport.SetCaret` (a painted block can be
+  neither thin nor blinking), and an over-long value SCROLLS rather than ellipsizing (an ellipsis in
+  an editable field hides the text being edited, and the caret would have no real cell to land on).
+  The caret is STICKY, so `TuiTabBase.Render` hides it on any frame that painted no focused field.
+
+### Focus is global, and that is fine: `TextInputFocus`
+
+There is one keyboard, so something must name the one field receiving it -- WinForms has the same
+singleton in `Form.ActiveControl`. `GuiAppState.ActiveTextInput` was not wrong for being global; it
+was wrong for being **settable**, because the pointer and its platform side effects are separable.
+
+`DIR.Lib.TextInputFocus` owns the transition (`Focus` / `Blur` / `BlurIfFocused` /
+`BlurIfUnpainted`, plus a `FocusChanged` event). **The host binds `FocusChanged` ONCE** -- SDL
+`StartTextInput`/`StopTextInput` in the GUI, showing/hiding the `CanvasTextOverlay` on web -- and
+nothing else knows those calls exist. `GuiAppState.ActiveTextInput` is now a read-only forward to
+`Current`, so the shortcut below will not compile.
+
+- **The bug it makes unreachable:** the Equipment site-edit *cancel* path cleared the pointer by
+  hand and so skipped `StopTextInput`, leaving the IME up with nothing to type into. Its shape is
+  the lesson -- it deactivated the three fields FIRST, and since the bus is **deferred** and the old
+  handler was gated on the field still being active, posting the signal would have been a no-op, so
+  the direct assignment looked *necessary*. `Blur()` now gates on the OWNER's record, not the
+  field's `IsActive` flag (the same fact stored twice), so a blur always completes whatever a caller
+  did to the field first.
+- **`Focus` is idempotent.** A declarative UI asks on every frame; re-activating each time would
+  reset the caret under the user's fingers and, with seed text, discard what they typed.
+- **The app's entry points stay `ActivateTextInputSignal` / `DeactivateTextInputSignal`**, so focus
+  changes keep their place in the deferred bus ordering. They just route to the owner now.
+- **`BlurIfUnpainted(painted)` is called after each frame**, because a field that stops being drawn
+  otherwise keeps the keyboard (scroll it out of a culled list, switch tabs). **The caller supplies
+  what was painted**: `VkGuiRenderer.PaintedTextInputs()` unions the chrome's fields with the active
+  tab's, for the same reason `CursorAt` lives there -- only the host knows what its frame is
+  composed of. Asking one surface when the frame draws two blurs a field that is on screen, which
+  looks exactly like the bug it fixes.
+
+### `TextInputInteraction` is host-agnostic, which means no `IPixelWidget` in it
+
+The per-keystroke routing lives in **DIR.Lib** (promoted from `TianWen.UI.Abstractions`; U6 of
+[controls-upstreaming.md](controls-upstreaming.md)) and serves the GUI, the web host and the TUI.
+
+- **`KeyContext.TabFields` is a `Func<IReadOnlyList<TextInputState>>`, not an `IPixelWidget`.** That
+  interface was the one thing keeping a host-agnostic class from working on a terminal; a pixel host
+  answers `() => tab.GetRegisteredTextInputs()`, a cell host `() => CellLayout.TextInputs(Arranged)`.
+  A callback rather than a list because it is consulted only on Tab.
+- **`HandleKey` reads the focused field from `ctx.Focus.Current`**, never a parameter beside it. Two
+  ways to name it is one too many: a caller passing a field the owner disagrees with would move
+  focus off a *different* field on the next Tab, silently.
+- It **swallows every key while a field is focused**, deliberately -- that is what makes a field a
+  field: while you type into one, a letter is a letter and not the shortcut that letter is bound to.
+- The TUI site row used to hand-roll all of this (its own `_editFieldIndex` Tab cycling, its own
+  commit dispatch, a fire-and-forget of the commit task) plus a caret COLUMN derived from the
+  indent, every earlier field's rendered length, its separator and the label prefix. All of it is
+  gone; `TuiSiteRowTests` now arranges and PAINTS the row and asserts what the caret actually sits
+  on.
