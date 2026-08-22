@@ -185,6 +185,11 @@ public sealed class AstroImageDocument : IPreviewSource
             stats[c] = image.Statistics(c);
         }
         ChannelStatistics = stats;
+
+        // D1: the stats pass was the last thing that needed the float planes at load, and for a
+        // document whose source was 8-bit they are pure duplication of a raster that can rebuild them
+        // in memory. Declined for anything without one, so a float master is untouched.
+        image.TryReleaseFloatPlanes();
     }
 
     /// <summary>
@@ -757,17 +762,22 @@ public sealed class AstroImageDocument : IPreviewSource
             return new PixelInfo(x, y, [], null, null);
         }
 
+        // Read from the source raster where there is one. Not an optimisation: this runs on every
+        // mouse move, and the indexer restores released float planes on access -- so reading it here
+        // would rebuild 8-bit planes on the first hover and quietly undo D1 for the whole session.
+        // The values are identical rather than close: the plane was normalised by the sample-format
+        // maximum from these very bytes, so this is the same division over the same data.
         float[] values;
         if (channel is { } single && (uint)single < (uint)image.ChannelCount)
         {
-            values = [image[single, y, x]];
+            values = [SampleAt(image, single, x, y)];
         }
         else
         {
             values = new float[image.ChannelCount];
             for (var c = 0; c < image.ChannelCount; c++)
             {
-                values[c] = image[c, y, x];
+                values[c] = SampleAt(image, c, x, y);
             }
         }
 
@@ -785,4 +795,12 @@ public sealed class AstroImageDocument : IPreviewSource
         return new PixelInfo(x, y, values, ra, dec);
     }
 
+    /// <summary>
+    /// One sample, from the source raster when the image carries one and from the float plane
+    /// otherwise.
+    /// </summary>
+    private static float SampleAt(Image image, int channel, int x, int y)
+        => image.TryGetSourceRaster(channel, out var raster)
+            ? raster[y * image.Width + x] / 255f
+            : image[channel, y, x];
 }

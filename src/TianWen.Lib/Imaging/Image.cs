@@ -88,13 +88,120 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// is a texture uploaded from the wrong number of bytes -- which draws a plausible-looking
     /// wrong picture instead of failing.</para>
     /// </remarks>
+    private bool _planesReleased;
+
+    /// <summary>
+    /// The channels, with their float planes guaranteed present -- rebuilt from the source raster first
+    /// if they were released.
+    /// </summary>
+    /// <remarks>
+    /// Every READ accessor goes through here rather than touching <c>channels</c> directly: the indexer,
+    /// <see cref="GetChannel"/> and <see cref="GetChannelSpan"/>. A path that bypasses it and reads a
+    /// released plane meets an empty array and THROWS, which is the deliberate choice -- the alternative
+    /// to failing loudly is failing silently, reading zeroes and drawing a plausible black picture. Of the
+    /// two ways to be wrong about residency, the one that crashes is the one that gets fixed.
+    /// </remarks>
+    private ImmutableArray<Channel> Planes
+    {
+        get
+        {
+            if (_planesReleased)
+            {
+                RestorePlanesFromRaster();
+            }
+
+            return channels;
+        }
+    }
+
+    /// <summary>Whether the float planes are currently resident.</summary>
+    public bool PlanesResident => !_planesReleased;
+
+    /// <summary>
+    /// Drops the float planes where the source raster can rebuild them exactly, keeping geometry,
+    /// metadata and extrema. False when no raster covers every channel.
+    /// </summary>
+    /// <remarks>
+    /// <para>D1 of <c>docs/plans/viewer-memory-footprint.md</c>. For a document whose source WAS 8-bit
+    /// the float planes are pure duplication: the raster holds the same information at 1 B/px and the
+    /// plane was widened FROM it, so dropping them is lossless and needs no disk I/O to undo. An 8-bit
+    /// RGB document goes from 12 B/px of planes + 3 of raster + 3 on the device, to 3 + 3.</para>
+    /// <para>Geometry survives because <see cref="Width"/>, <see cref="Height"/> and
+    /// <see cref="ChannelCount"/> are captured at construction rather than read back from the arrays,
+    /// which is what makes this a policy rather than a restructure. Per-channel extrema, filter and index
+    /// live on the <see cref="Channel"/> record and survive with it; only <c>Channel.Width</c>,
+    /// <c>Height</c> and <c>Length</c> read zero while released, since those DO read the array.</para>
+    /// <para>Refused for a channel carrying a recycled camera <see cref="Channel.Buffer"/>: that array
+    /// belongs to the driver pool, and dropping our reference to it would hand back something still in
+    /// use.</para>
+    /// </remarks>
+    public bool TryReleaseFloatPlanes()
+    {
+        if (_planesReleased)
+        {
+            return true;
+        }
+
+        if (sourceRaster.IsDefaultOrEmpty || sourceRaster.Length != channels.Length)
+        {
+            return false;
+        }
+
+        var expected = Width * Height;
+        for (var c = 0; c < channels.Length; c++)
+        {
+            if (sourceRaster[c] is not { } raster || raster.Length != expected
+                || channels[c].Buffer is not null)
+            {
+                return false;
+            }
+        }
+
+        for (var c = 0; c < channels.Length; c++)
+        {
+            channels = channels.SetItem(c, channels[c] with { Data = EmptyPlane });
+        }
+
+        _planesReleased = true;
+        return true;
+    }
+
+    private static readonly float[,] EmptyPlane = new float[0, 0];
+
+    private void RestorePlanesFromRaster()
+    {
+        // The raster is the ORIGINAL 8-bit samples and the released plane was normalised by the
+        // sample-format maximum, so this reproduces the values exactly rather than approximately: the same
+        // division over the same bytes. Anything less than exact would show up as a readout that changed
+        // after a release, which is the one thing this must never do.
+        var width = Width;
+        var height = Height;
+        for (var c = 0; c < channels.Length; c++)
+        {
+            var raster = sourceRaster[c];
+            var plane = new float[height, width];
+            for (var y = 0; y < height; y++)
+            {
+                var row = y * width;
+                for (var x = 0; x < width; x++)
+                {
+                    plane[y, x] = raster[row + x] / 255f;
+                }
+            }
+
+            channels = channels.SetItem(c, channels[c] with { Data = plane });
+        }
+
+        _planesReleased = false;
+    }
+
     public bool TryGetSourceRaster(int channel, out ReadOnlySpan<byte> raster)
     {
         if (!sourceRaster.IsDefaultOrEmpty
             && (uint)channel < (uint)sourceRaster.Length
             && (uint)channel < (uint)channels.Length
             && sourceRaster[channel] is { } plane
-            && plane.Length == channels[channel].Length)
+            && plane.Length == Width * Height)
         {
             raster = plane;
             return true;
@@ -211,20 +318,20 @@ public partial class Image(ImmutableArray<Channel> channels, BitDepth bitDepth, 
     /// <param name="h"></param>
     /// <param name="w"></param>
     /// <returns></returns>
-    public float this[int c, int h, int w] => channels[c].Data[h, w];
+    public float this[int c, int h, int w] => Planes[c].Data[h, w];
 
     /// <summary>
     /// Returns the typed <see cref="Channel"/> for a plane; per-channel filter/min/max travel here
     /// (the image-wide <see cref="MaxValue"/>/<see cref="MinValue"/> are the derived extrema).
     /// </summary>
-    public Channel GetChannel(int channel) => channels[channel];
+    public Channel GetChannel(int channel) => Planes[channel];
 
     /// <summary>
     /// Returns a flat span over the pixel data for a single channel plane (height * width floats).
     /// </summary>
     public ReadOnlySpan<float> GetChannelSpan(int channel)
     {
-        var plane = channels[channel].Data;
+        var plane = Planes[channel].Data;
         return MemoryMarshal.CreateReadOnlySpan(ref plane[0, 0], plane.Length);
     }
 

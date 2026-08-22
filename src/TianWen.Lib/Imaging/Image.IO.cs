@@ -128,7 +128,7 @@ public partial class Image
         var channelBytes = new byte[channelByteSize];
         for (var c = 0; c < channelCount; c++)
         {
-            Buffer.BlockCopy(channels[c].Data, 0, channelBytes, 0, channelByteSize);
+            Buffer.BlockCopy(Planes[c].Data, 0, channelBytes, 0, channelByteSize);
             await stream.WriteAsync(channelBytes, cancellationToken);
         }
 

@@ -647,6 +647,8 @@ public partial class Image
         {
             for (int c = 0; c < channelCount; c++)
             {
+                // The local PARAMETER, not the field: this is a static local function, so it has no
+                // instance to ask for residency and its caller has already materialised the arrays.
                 var channel = channels[c];
                 var span = MemoryMarshal.CreateReadOnlySpan(ref channel[0, 0], channel.Length);
                 // MinNumber/MaxNumber skip NaN values (IEEE 754 minNum/maxNum semantics)
@@ -730,7 +732,7 @@ public partial class Image
                     {
                         for (var w = 0; w < width; w++)
                         {
-                            byteArray[h, w] = (byte)channels[0].Data[h, w];
+                            byteArray[h, w] = (byte)Planes[0].Data[h, w];
                         }
                     }
                     arrayToWrite = byteArray;
@@ -745,7 +747,7 @@ public partial class Image
                         {
                             for (var w = 0; w < width; w++)
                             {
-                                byteChannels[c][h, w] = (byte)channels[c].Data[h, w];
+                                byteChannels[c][h, w] = (byte)Planes[c].Data[h, w];
                             }
                         }
                     }
@@ -763,7 +765,7 @@ public partial class Image
                     {
                         for (var w = 0; w < width; w++)
                         {
-                            shortArray[h, w] = (short)(channels[0].Data[h, w] - bzero);
+                            shortArray[h, w] = (short)(Planes[0].Data[h, w] - bzero);
                         }
                     }
                     arrayToWrite = shortArray;
@@ -778,7 +780,7 @@ public partial class Image
                         {
                             for (var w = 0; w < width; w++)
                             {
-                                shortChannels[c][h, w] = (short)(channels[c].Data[h, w] - bzero);
+                                shortChannels[c][h, w] = (short)(Planes[c].Data[h, w] - bzero);
                             }
                         }
                     }
@@ -791,7 +793,7 @@ public partial class Image
                 dataIsInt = false;
                 if (channelCount == 1)
                 {
-                    arrayToWrite = channels[0].Data;
+                    arrayToWrite = Planes[0].Data;
                 }
                 else
                 {
@@ -800,7 +802,7 @@ public partial class Image
                     var planes = new float[channelCount][,];
                     for (var c = 0; c < channelCount; c++)
                     {
-                        planes[c] = channels[c].Data;
+                        planes[c] = Planes[c].Data;
                     }
                     arrayToWrite = planes;
                 }
