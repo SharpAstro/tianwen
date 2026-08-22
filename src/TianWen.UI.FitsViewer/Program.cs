@@ -382,6 +382,20 @@ using var debugInspector = DebugInspector.Attach(loop, new DebugInspectorOptions
     WindowTitle = () => "Fits viewer",
     GetRegions = () => imageRenderer.GetRegisteredRegions(),
     GetLayout = () => imageRenderer.GetCapturedLayout(),
+    // The cached image layer is not observable any other way: when it works, the frame is
+    // byte-identical to a re-render, so a screenshot cannot show it and a frame-time average cannot
+    // distinguish "not helping" from "never engaged". These three are what make a measurement
+    // interpretable from outside the process.
+    AppState = w =>
+    {
+        var layer = imageRenderer.CachedLayerStats;
+        w.Set("cachedLayerEnabled", layer.Enabled);
+        w.Set("cachedLayerRenders", layer.Renders);
+        w.Set("cachedLayerBlits", layer.Blits);
+        w.Set("cachedLayerLastMiss", layer.LastMiss);
+        w.Set("zoom", state.Zoom);
+        w.Set("file", controller.Source is AstroImageDocument d ? System.IO.Path.GetFileName(d.FilePath) : "");
+    },
 });
 #endif
 

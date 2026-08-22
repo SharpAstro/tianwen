@@ -48,8 +48,8 @@ namespace TianWen.Lib.Tests
             viewer.LayerDraws.ShouldBe(1, "the image is rendered INTO the layer");
             viewer.DirectDraws.ShouldBe(0, "and not also straight to the surface");
             viewer.Blits.Count.ShouldBe(1, "the frame is drawn from the layer");
-            viewer.CachedLayerRenders.ShouldBe(1);
-            viewer.CachedLayerBlits.ShouldBe(1);
+            viewer.CachedLayerStats.Renders.ShouldBe(1);
+            viewer.CachedLayerStats.Blits.ShouldBe(1);
 
             // Capacity is the pane plus a quarter of it on each side, so a pan has somewhere to go.
             viewer.LayerPasses[0].ShouldBe(((int)(SurfaceW * 1.5f), (int)(SurfaceH * 1.5f)));
@@ -69,13 +69,13 @@ namespace TianWen.Lib.Tests
             Frame(viewer, state);              // slot 0 built
             viewer.SlotIndex = 1;
             Frame(viewer, state);              // slot 1 built -- a second target, cold on its first turn
-            viewer.CachedLayerRenders.ShouldBe(2, "each slot is built once");
+            viewer.CachedLayerStats.Renders.ShouldBe(2, "each slot is built once");
 
             viewer.SlotIndex = 0;              // back round to a warm slot
             Frame(viewer, state);
 
-            viewer.CachedLayerRenders.ShouldBe(2, "a warm slot must NOT be re-rendered");
-            viewer.CachedLayerBlits.ShouldBe(3, "and it must still be drawn");
+            viewer.CachedLayerStats.Renders.ShouldBe(2, "a warm slot must NOT be re-rendered");
+            viewer.CachedLayerStats.Blits.ShouldBe(3, "and it must still be drawn");
             viewer.DirectDraws.ShouldBe(0, "nothing fell back to a direct render");
         }
 
@@ -91,8 +91,8 @@ namespace TianWen.Lib.Tests
             state.PanOffset = (100f, 0f);
             Frame(viewer, state);
 
-            viewer.CachedLayerRenders.ShouldBe(1, "a pan inside the margin is a UV offset, not a re-render");
-            viewer.CachedLayerBlits.ShouldBe(2);
+            viewer.CachedLayerStats.Renders.ShouldBe(1, "a pan inside the margin is a UV offset, not a re-render");
+            viewer.CachedLayerStats.Blits.ShouldBe(2);
             viewer.Blits[1].U0.ShouldBeLessThan(atRest.U0, "the sampled window must move with the pan");
             (viewer.Blits[1].U1 - viewer.Blits[1].U0)
                 .ShouldBe(atRest.U1 - atRest.U0, 1e-5f, "and keep its width, or the image would scale");
@@ -109,7 +109,7 @@ namespace TianWen.Lib.Tests
             state.PanOffset = (MarginX + 30f, 0f);
             Frame(viewer, state);
 
-            viewer.CachedLayerRenders.ShouldBe(2);
+            viewer.CachedLayerStats.Renders.ShouldBe(2);
         }
 
         [Fact]
@@ -121,7 +121,7 @@ namespace TianWen.Lib.Tests
             Frame(viewer, state);
             viewer.SlotIndex = 1;
             Frame(viewer, state);
-            viewer.CachedLayerRenders.ShouldBe(2);
+            viewer.CachedLayerStats.Renders.ShouldBe(2);
 
             // A dial moved. The other slot is stale too, and it is the one the NEXT frame will reach for
             // -- so a change that only invalidated the current slot would blit the old dials one frame
@@ -129,11 +129,11 @@ namespace TianWen.Lib.Tests
             viewer.UniformsChanged = true;
             viewer.SlotIndex = 0;
             Frame(viewer, state);
-            viewer.CachedLayerRenders.ShouldBe(3);
+            viewer.CachedLayerStats.Renders.ShouldBe(3);
 
             viewer.SlotIndex = 1;
             Frame(viewer, state);
-            viewer.CachedLayerRenders.ShouldBe(4, "the second slot was invalidated by the same change");
+            viewer.CachedLayerStats.Renders.ShouldBe(4, "the second slot was invalidated by the same change");
         }
 
         [Fact]
@@ -146,7 +146,7 @@ namespace TianWen.Lib.Tests
             state.Zoom = 2f;
             Frame(viewer, state);
 
-            viewer.CachedLayerRenders.ShouldBe(2, "the layer holds content at one zoom");
+            viewer.CachedLayerStats.Renders.ShouldBe(2, "the layer holds content at one zoom");
         }
 
         [Fact]
@@ -155,7 +155,7 @@ namespace TianWen.Lib.Tests
             var viewer = NewViewer();
             var state = NewState();
             Frame(viewer, state);
-            viewer.CachedLayerRenders.ShouldBe(1);
+            viewer.CachedLayerStats.Renders.ShouldBe(1);
 
             // The ordering hazard: the host uploads textures inside its render callback, AFTER the
             // pre-pass that built the layer. Without invalidation here, swapping document would blit a
@@ -164,7 +164,7 @@ namespace TianWen.Lib.Tests
             viewer.SlotIndex = 0;
             Frame(viewer, state);
 
-            viewer.CachedLayerRenders.ShouldBe(2);
+            viewer.CachedLayerStats.Renders.ShouldBe(2);
         }
 
         [Fact]
@@ -177,8 +177,8 @@ namespace TianWen.Lib.Tests
             Frame(viewer, state);
             Frame(viewer, state);
 
-            viewer.CachedLayerRenders.ShouldBe(0);
-            viewer.CachedLayerBlits.ShouldBe(0);
+            viewer.CachedLayerStats.Renders.ShouldBe(0);
+            viewer.CachedLayerStats.Blits.ShouldBe(0);
             viewer.LayerPasses.ShouldBeEmpty();
             viewer.DirectDraws.ShouldBe(2, "every frame renders the image, exactly as it always did");
         }
@@ -194,7 +194,7 @@ namespace TianWen.Lib.Tests
 
             Frame(viewer, state);
 
-            viewer.CachedLayerRenders.ShouldBe(0);
+            viewer.CachedLayerStats.Renders.ShouldBe(0);
             viewer.DirectDraws.ShouldBe(1);
         }
 
