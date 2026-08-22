@@ -485,6 +485,16 @@ namespace TianWen.UI.Abstractions
             ImageWidth = imageWidth;
             ImageHeight = imageHeight;
             UploadImageTexture(data, channel, imageWidth, imageHeight);
+
+            // Textures are the image shader's OTHER input, and the UBO byte comparison says
+            // nothing about them. This is also the cached layer's one ordering hazard: a host
+            // uploads textures from its render callback, which runs AFTER the pre-pass that built
+            // the layer, so without this a frame that swapped document would blit a layer drawn
+            // from the previous document's pixels. It belongs on the upload itself rather than on
+            // UploadDocumentTextures because this is where the content actually changes -- a
+            // caller reaching past that wrapper (the channel-view re-upload does) must invalidate
+            // too, and here it cannot forget.
+            InvalidateCachedImageLayer();
         }
 
         /// <summary>
@@ -504,6 +514,7 @@ namespace TianWen.UI.Abstractions
 
             ImageWidth = imageWidth;
             ImageHeight = imageHeight;
+            InvalidateCachedImageLayer();   // same reason as the float overload above
             return true;
         }
 
@@ -555,6 +566,7 @@ namespace TianWen.UI.Abstractions
         {
             state.NeedsTextureUpdate = false;
             state.StatusMessage = "Preparing display...";
+
 
             // Retain the OUTGOING pixels before anything overwrites them. This is the only moment they
             // are still resident, which is why the request is consumed here and not where it was made.
@@ -998,6 +1010,14 @@ namespace TianWen.UI.Abstractions
                 //
                 // This path had NO clip at all while the split path had one per half, so the ordinary
                 // single-image view was the worse-bounded of the two.
+                // A cached layer holding this exact content is a textured quad instead of a
+                // demosaic + stretch over every pixel of the pane. It answers false for anything
+                // it is not certain about, and then this draws as it always did.
+                if (TryDrawImageFromCachedLayer())
+                {
+                    return;
+                }
+
                 PushClip(area.X, area.Y, area.Width, area.Height);
                 RenderImageQuad(source, state, live, gridWcs,
                     p.OffsetX, p.OffsetY, p.OffsetX + p.DrawW, p.OffsetY + p.DrawH, Width, Height,

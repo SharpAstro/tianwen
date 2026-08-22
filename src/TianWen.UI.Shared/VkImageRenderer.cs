@@ -44,6 +44,45 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     protected override void OnResize(uint width, uint height)
     {
         _renderer.Resize(width, height);
+
+        // The layer targets are a fixed capacity that must not be reallocated mid-frame, so a
+        // resize drops them and the next frame re-ensures them at the new pane size.
+        if (_renderer.CachedLayerTargetReady)
+        {
+            _renderer.ReleaseCachedLayerTargets();
+        }
+    }
+
+    // ---- cached image layer (see ImageRendererBase.CachedLayer.cs) ----
+
+    /// <inheritdoc/>
+    protected override int CachedLayerSlotCount => _renderer.CachedLayerSlotCount;
+
+    /// <inheritdoc/>
+    protected override int CachedLayerSlotIndex => _renderer.CachedLayerSlot;
+
+    /// <inheritdoc/>
+    protected override bool TryEnsureCachedLayerTargets(int width, int height)
+        => _renderer.EnsureCachedLayerTargets((uint)width, (uint)height);
+
+    /// <inheritdoc/>
+    protected override bool TryBeginCachedLayerPass(int width, int height)
+        => _renderer.BeginCachedLayer((uint)width, (uint)height, new RGBAColor32(0, 0, 0, 255));
+
+    /// <inheritdoc/>
+    protected override void EndCachedLayerPass() => _renderer.EndCachedLayer();
+
+    /// <inheritdoc/>
+    protected override bool TryDrawCachedLayer(int slot, float x, float y, float w, float h,
+        float u0, float v0, float u1, float v1)
+    {
+        if (!_renderer.IsCachedLayerSlotRendered(slot))
+        {
+            return false;
+        }
+
+        _renderer.DrawTextureRegion(_renderer.CachedLayerDescriptorSet(slot), x, y, w, h, u0, v0, u1, v1);
+        return true;
     }
 
     public override void UploadImageTexture(ReadOnlySpan<float> data, int channel, int imageWidth, int imageHeight)
@@ -125,6 +164,40 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
         in DisplayRendition rendition, WCS? gridWcs,
         float left, float top, float right, float bottom, uint projW, uint projH,
         RenditionSlot slot, bool sampleBeforeChannels)
+    {
+        WriteImageUniforms(source, state, rendition, gridWcs, slot);
+
+        _fitsPipeline.RecordImageDraw(
+            _renderer.CurrentCommandBuffer,
+            _renderer.Surface,
+            left: left,
+            top: top,
+            right: right,
+            bottom: bottom,
+            projW: projW,
+            projH: projH,
+            uboSlot: (int)slot,
+            sampleBeforeChannels: sampleBeforeChannels);
+    }
+
+    /// <summary>
+    /// The uniform half of <see cref="RenderImageQuad"/> on its own, so the cached-layer decision
+    /// can ask whether the shader input moved BEFORE committing to a draw. Writing the UBO is a
+    /// memcpy into mapped memory; it records no GPU work, so an extra write costs nothing.
+    /// </summary>
+    protected override bool TryWriteImageUniforms(IPreviewSource? source, ViewerState state,
+        in DisplayRendition rendition, WCS? gridWcs, RenditionSlot slot)
+    {
+        WriteImageUniforms(source, state, rendition, gridWcs, slot);
+        return true;
+    }
+
+    /// <inheritdoc/>
+    protected override bool ImageShaderInputChanged(RenditionSlot slot)
+        => _fitsPipeline.StretchUboChanged((int)slot);
+
+    private void WriteImageUniforms(IPreviewSource? source, ViewerState state,
+        in DisplayRendition rendition, WCS? gridWcs, RenditionSlot slot)
     {
         // Everything below reads the RENDITION, never state.Curves*/Hdr* directly: the split's
         // comparison half is a pinned snapshot of those dials, so reading state here would leak the
@@ -222,18 +295,6 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
             normalizeScale: stretch.NormalizeScale,
             debayerMode: RawBayerDebayerMode,
             slot: (int)slot);
-
-        _fitsPipeline.RecordImageDraw(
-            cmd,
-            _renderer.Surface,
-            left: left,
-            top: top,
-            right: right,
-            bottom: bottom,
-            projW: projW,
-            projH: projH,
-            uboSlot: (int)slot,
-            sampleBeforeChannels: sampleBeforeChannels);
     }
 
     /// <inheritdoc/>
