@@ -326,7 +326,44 @@ namespace TianWen.Lib.Tests
             viewer.Draws.Count.ShouldBe(1);
             viewer.Draws[0].Slot.ShouldBe(RenditionSlot.Live);
             viewer.Draws[0].SampleBefore.ShouldBeFalse();
-            viewer.Draws[0].Clip.ShouldBeNull();
+
+            // Clipped to the image PANE, which under HideChrome is the whole surface -- so this
+            // asserts the pane, not merely "some clip". It used to assert no clip at all: the split
+            // path clipped each half while this one clipped nothing, making the ordinary single-image
+            // view the worse-bounded of the two, and every fragment behind opaque chrome paid a full
+            // demosaic + stretch before being painted over. The chrome-on case is the one that shows
+            // the difference, and it is the test below.
+            var clip = viewer.Draws[0].Clip.ShouldNotBeNull();
+            clip.UpperLeft.X.ShouldBe(0);
+            clip.UpperLeft.Y.ShouldBe(0);
+            clip.Width.ShouldBe((int)SurfaceW);
+            clip.Height.ShouldBe((int)SurfaceH);
+        }
+
+        /// <summary>
+        /// With the chrome drawn, the image draw must be bounded to the pane the chrome leaves behind.
+        /// </summary>
+        /// <remarks>
+        /// The companion above cannot see this: its state sets <c>HideChrome</c>, so the pane IS the
+        /// surface and a missing clip is indistinguishable from a correct one. That is exactly how the
+        /// unclipped path survived having a test.
+        /// </remarks>
+        [Fact]
+        public void WithChromeShown_TheImageDrawIsBoundedToThePane()
+        {
+            using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+            state.HideChrome = false;
+
+            viewer.Render(null, state);
+
+            viewer.Draws.Count.ShouldBe(1);
+            var clip = viewer.Draws[0].Clip.ShouldNotBeNull();
+            clip.Height.ShouldBeLessThan((int)SurfaceH,
+                "the toolbar and status bar rows must be outside the clip, or their fragments are shaded and then painted over");
+            clip.Height.ShouldBeGreaterThan(0);
+            clip.Width.ShouldBeGreaterThan(0);
         }
 
         [Fact]
