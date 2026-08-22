@@ -59,6 +59,14 @@ namespace TianWen.UI.Abstractions
                 {
                     dragState.NeedsRedraw = true;
                 }
+
+                // Only the strip the divider crossed differs: both halves draw the same quad into
+                // complementary clips, so a pixel left of both positions or right of both is unchanged.
+                if (Split.LastDragSweep is { } sweep)
+                {
+                    RequestDamage(sweep);
+                }
+
                 return true;
             }
 
