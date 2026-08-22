@@ -749,73 +749,21 @@ namespace TianWen.UI.Abstractions
 
         public void Render(IPreviewSource? source, ViewerState state)
         {
-            _state = state;
-            _source = source;
-            // Still-only features (plate solve, stars, colour calibration, WCS overlays, info panel)
-            // operate on a document; a SER source is not one, so document is null and they stay inactive.
-            var document = source as AstroImageDocument;
-            _document = document;
             BeginFrame();
 
-            // Per-document calibration caches (BackgroundNeutralization,
-            // ColorCalibration) are null on a freshly loaded doc. If the user
-            // had the toggle on for the previous file, restore the visual by
-            // recomputing for the new doc -- otherwise the stretch falls back
-            // to identity gains and the image looks cast-coloured until the
-            // user re-clicks Calibrate/NeutBg.
-            if (document is not null)
-            {
-                // Always reapply the current method when the toggle is on --
-                // not just when the doc's cached gain is null. Otherwise a
-                // cached doc that was previously viewed under a different
-                // method (e.g. Mean) keeps its stale Mean gains even though
-                // the toolbar shows Min pivot. The doc's per-method dict
-                // makes the re-call a cheap dictionary lookup.
-                if (state.BackgroundNeutralizationEnabled)
-                {
-                    document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
-                }
-                // ColorCalibration auto-retrigger on file switch. The
-                // ColorCalibrationInFlight guard inside TryStartColorCalibration
-                // ensures we don't spawn a new SPCC task every frame while
-                // the previous one is still running (which would freeze the UI).
-                if (state.ColorCalibrationEnabled
-                    && document.ColorCalibration is null
-                    && !document.ColorCalibrationInFlight
-                    && document.Stars is { Count: >= 5 })
-                {
-                    TryStartColorCalibration(state);
-                }
-            }
+            // One preparation pass per frame, wherever it happens. A host that caches the image layer
+            // has to render it BEFORE the main render pass opens (render passes cannot nest), which
+            // means the layout and the uniforms must already be decided by the time this method runs.
+            // PrepareFrame is idempotent, so a host that does none of that just gets the work here and
+            // no caching -- the fallback is "behaves exactly as it always did", not "renders wrong".
+            PrepareFrame(source, state);
+            var document = _document;
 
-            // The toolbar band's HEIGHT is an input to the layout pass below, and what decides it is the
-            // measured labels (which change: "Stars" -> "Stars: 5893") against the window width. So the
-            // toolbar is measured FIRST and the widths are kept; the placement pass inside RenderToolbar
-            // re-walks arithmetic only, and no label is measured twice.
-            PrepareToolbarLayout(document, state);
-
-            // Single layout pass: every pane rect (file list / image / info panel) and the image
-            // placement below derive from this ONE arrangement -- no per-consumer recomputation.
-            ComputeLayout(state);
-            ComputeImagePlacement(state);
-
-            // Draw image FIRST so UI chrome paints on top of it
+            // Draw image FIRST so UI chrome paints on top of it. The stretch and the grid WCS were
+            // resolved in PrepareFrame, because the cached image layer needs them before this point.
             if (ImageWidth > 0 && ImageHeight > 0)
             {
-                var stretch = source?.ComputeStretchUniforms(
-                        state.StretchMode, state.StretchParameters,
-                        bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
-                        manualWhiteBalance: state.ManualWhiteBalance)
-                    ?? new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
-                // Grid WCS: the document's (still image), or the caller-supplied OverrideWcs for a
-                // document-less live source (a plate-solved preview frame). GPU grid only; the RA/Dec labels
-                // stay document-gated in RenderGridLabels (a live preview shows grid lines, not labels).
-                var gridWcs = !state.ShowGrid
-                    ? null as WCS?
-                    : (document?.Wcs is { HasCDMatrix: true } w
-                        ? w
-                        : (OverrideWcs is { HasCDMatrix: true } ow ? ow : null as WCS?));
-                RenderImage(source, state, stretch, gridWcs);
+                RenderImage(source, state, _preparedStretch, _preparedGridWcs);
             }
 
             // UI chrome (drawn on top of image). Skipped wholesale for an embedded chromeless preview.
@@ -901,6 +849,119 @@ namespace TianWen.UI.Abstractions
             if (!state.HideChrome)
             {
                 RenderHoverTooltip(state);
+            }
+
+            // Consumed: the next frame prepares again, here or in its host's pre-pass.
+            _framePrepared = false;
+        }
+
+        // Set by PrepareFrame, read by Render. Not a per-call parameter because the whole point is that
+        // the decisions can be made in a different call than the one that draws them.
+        private bool _framePrepared;
+        private StretchUniforms _preparedStretch;
+        private WCS? _preparedGridWcs;
+
+        /// <summary>
+        /// How many times <see cref="PrepareFrame"/> has actually done its work. Exposed because the
+        /// guard it counts is otherwise UNOBSERVABLE: preparing twice in one frame happens to be
+        /// harmless (measuring, arranging and clamping are all idempotent), so a test asserting on the
+        /// resulting layout passes whether the guard is there or not. What the guard buys is the work
+        /// not being repeated every single frame, and this is the only way to see that.
+        /// </summary>
+        internal int FramePreparations { get; private set; }
+
+        /// <summary>
+        /// Everything a frame decides before anything is drawn: per-document calibration restore, the
+        /// toolbar band measurement, the one layout pass, the image placement, and the stretch uniforms
+        /// plus grid WCS the image draw consumes. Idempotent within a frame.
+        /// </summary>
+        /// <remarks>
+        /// <para>Separate from <see cref="Render"/> because a cached image layer has to be rendered
+        /// before the main render pass opens, and deciding what to render into it needs the pane rect,
+        /// the placement and the uniforms -- all of which used to be computed inside Render, i.e. too
+        /// late to be of any use. A host that renders a cached layer calls this first; Render then finds
+        /// the work already done.</para>
+        /// <para>A host that does NOT call it loses nothing: Render calls it itself and the viewer
+        /// behaves exactly as before. That is deliberate -- the failure mode for forgetting to wire a
+        /// pre-pass is "no caching", never "a wrong frame".</para>
+        /// </remarks>
+        public void PrepareFrame(IPreviewSource? source, ViewerState state)
+        {
+            if (_framePrepared)
+            {
+                return;
+            }
+
+            _state = state;
+            _source = source;
+            // Still-only features (plate solve, stars, colour calibration, WCS overlays, info panel)
+            // operate on a document; a SER source is not one, so document is null and they stay inactive.
+            var document = source as AstroImageDocument;
+            _document = document;
+
+            RestoreDocumentCalibration(document, state);
+
+            // The toolbar band's HEIGHT is an input to the layout pass below, and what decides it is the
+            // measured labels (which change: "Stars" -> "Stars: 5893") against the window width. So the
+            // toolbar is measured FIRST and the widths are kept; the placement pass inside RenderToolbar
+            // re-walks arithmetic only, and no label is measured twice.
+            PrepareToolbarLayout(document, state);
+
+            // Single layout pass: every pane rect (file list / image / info panel) and the image
+            // placement derive from this ONE arrangement -- no per-consumer recomputation.
+            ComputeLayout(state);
+            ComputeImagePlacement(state);
+
+            _preparedStretch = source?.ComputeStretchUniforms(
+                    state.StretchMode, state.StretchParameters,
+                    bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
+                    manualWhiteBalance: state.ManualWhiteBalance)
+                ?? new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
+
+            // Grid WCS: the document's (still image), or the caller-supplied OverrideWcs for a
+            // document-less live source (a plate-solved preview frame). GPU grid only; the RA/Dec labels
+            // stay document-gated in RenderGridLabels (a live preview shows grid lines, not labels).
+            _preparedGridWcs = !state.ShowGrid
+                ? null as WCS?
+                : (document?.Wcs is { HasCDMatrix: true } w
+                    ? w
+                    : (OverrideWcs is { HasCDMatrix: true } ow ? ow : null as WCS?));
+
+            _framePrepared = true;
+            FramePreparations++;
+        }
+
+        /// <summary>
+        /// Per-document calibration caches (BackgroundNeutralization, ColorCalibration) are null on a
+        /// freshly loaded doc. If the user had the toggle on for the previous file, restore the visual by
+        /// recomputing for the new doc -- otherwise the stretch falls back to identity gains and the
+        /// image looks cast-coloured until the user re-clicks Calibrate/NeutBg.
+        /// </summary>
+        private void RestoreDocumentCalibration(AstroImageDocument? document, ViewerState state)
+        {
+            if (document is null)
+            {
+                return;
+            }
+
+            // Always reapply the current method when the toggle is on -- not just when the doc's cached
+            // gain is null. Otherwise a cached doc that was previously viewed under a different method
+            // (e.g. Mean) keeps its stale Mean gains even though the toolbar shows Min pivot. The doc's
+            // per-method dict makes the re-call a cheap dictionary lookup.
+            if (state.BackgroundNeutralizationEnabled)
+            {
+                document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
+            }
+
+            // ColorCalibration auto-retrigger on file switch. The ColorCalibrationInFlight guard inside
+            // TryStartColorCalibration ensures we don't spawn a new SPCC task every frame while the
+            // previous one is still running (which would freeze the UI).
+            if (state.ColorCalibrationEnabled
+                && document.ColorCalibration is null
+                && !document.ColorCalibrationInFlight
+                && document.Stars is { Count: >= 5 })
+            {
+                TryStartColorCalibration(state);
             }
         }
 

@@ -314,6 +314,86 @@ namespace TianWen.Lib.Tests
             pixels.ShouldNotBe(pinned);
         }
 
+        // ---- Frame preparation ------------------------------------------------------------------
+        // PrepareFrame exists so a host can decide the layout, placement and uniforms BEFORE the main
+        // render pass opens, which is the only point at which a cached image layer can be rendered.
+        // These live here because the recording harness above is what can see the draws.
+
+        /// <summary>
+        /// Preparing first must produce the same frame as not preparing at all. This is the property
+        /// that makes the pre-pass optional rather than load-bearing: a host that never calls it gets
+        /// the old behaviour, so forgetting to wire it can only cost caching, never correctness.
+        /// </summary>
+        [Fact]
+        public void PreparingBeforeRenderingChangesNothingAboutTheFrame()
+        {
+            using var rendererA = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewerA = NewViewer(rendererA);
+            viewerA.Render(null, NewState());
+
+            using var rendererB = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewerB = NewViewer(rendererB);
+            var stateB = NewState();
+            viewerB.PrepareFrame(null, stateB);
+            viewerB.Render(null, stateB);
+
+            viewerB.Draws.Count.ShouldBe(viewerA.Draws.Count);
+            viewerB.Draws[0].ShouldBe(viewerA.Draws[0]);
+            viewerB.ImageArea.ShouldBe(viewerA.ImageArea);
+        }
+
+        /// <summary>
+        /// Preparing twice in one frame must do the work once. A host pre-pass plus Render's own call is
+        /// the NORMAL case, so a repeated pass would run every frame rather than being a rare edge.
+        /// </summary>
+        /// <remarks>
+        /// Asserted on the COUNTER, not on the resulting layout, because the layout cannot see this:
+        /// measuring, arranging and clamping are all idempotent, so preparing twice produces an identical
+        /// frame and a layout assertion would pass with the guard removed. The counter is the only
+        /// observable difference, which is exactly why it exists.
+        /// </remarks>
+        [Fact]
+        public void PreparingTwiceInAFrameOnlyDoesTheWorkOnce()
+        {
+            using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+
+            viewer.PrepareFrame(null, state);
+            viewer.PrepareFrame(null, state);
+            viewer.FramePreparations.ShouldBe(1);
+
+            // Render finds it already prepared and must not redo it either.
+            viewer.Render(null, state);
+            viewer.FramePreparations.ShouldBe(1);
+            viewer.Draws.Count.ShouldBe(1);
+        }
+
+        /// <summary>
+        /// The preparation is per FRAME, not once per viewer: the next frame must prepare again, or every
+        /// frame after the first would draw the first frame's layout and the viewer would stop responding
+        /// to zoom, pan and panel toggles entirely.
+        /// </summary>
+        [Fact]
+        public void EachFramePreparesAgain()
+        {
+            using var renderer = new ClipRecordingRenderer(SurfaceW, SurfaceH);
+            var viewer = NewViewer(renderer);
+            var state = NewState();
+
+            viewer.Render(null, state);
+            var before = viewer.ImageArea;
+
+            // A layout-changing toggle between frames: it can only be picked up if the second frame
+            // prepares from scratch.
+            state.ShowInfoPanel = true;
+            viewer.Render(null, state);
+
+            viewer.ImageArea.Width.ShouldBeLessThan(before.Width,
+                "the info panel must narrow the image pane on the very next frame");
+            viewer.FramePreparations.ShouldBe(2, "one preparation per frame");
+        }
+
         [Fact]
         public void WithTheSplitOff_ItDrawsOnceFromTheLiveSlot()
         {
