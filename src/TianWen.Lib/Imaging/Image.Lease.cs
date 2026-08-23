@@ -22,6 +22,11 @@ public partial class Image
     /// Losing the race is normal and is reported as <see langword="false"/>, not an exception: the
     /// honest answer for a poller is "no frame right now", and the next poll succeeds.
     /// </para>
+    /// <para>
+    /// <b>Frame ownership: this is the BORROW primitive.</b> Everyone who is not the owner reads
+    /// through here, and releases the LEASE rather than the original. See the frame-ownership notes
+    /// on <see cref="Image"/>.
+    /// </para>
     /// </summary>
     /// <param name="leased">
     /// The borrowed image on success. It shares this image's pixel arrays and metadata, so it must be
@@ -73,7 +78,7 @@ public partial class Image
         //
         // The LIVE planes, not the constructor argument: residency can move after construction, and
         // seeding a lease from the original array would hand the borrower float planes this image has
-        // since dropped -- resurrecting exactly the bytes D1 released. Passing the released form is
+        // since dropped -- resurrecting exactly the bytes D1 evicted. Passing the evicted form is
         // safe because the raster travels with it, so the borrower can rebuild if it reads.
         //
         // samplesAreUnitReferred and the raster are forwarded because a lease is a VIEW of the same

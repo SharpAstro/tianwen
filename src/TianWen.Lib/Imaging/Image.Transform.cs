@@ -122,7 +122,7 @@ public partial class Image
 
         // Residency resolved once for the whole warp rather than once per destination pixel, and note
         // the rows run in PARALLEL: sampling by channel index had every worker re-checking, and against
-        // a released image every worker would have raced into the rebuild.
+        // an evicted image every worker would have raced into the rebuild.
         var srcPlanes = ResidentPlanes();
 
         for (var c = 0; c < channelCount; c++)

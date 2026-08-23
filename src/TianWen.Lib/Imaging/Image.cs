@@ -13,6 +13,80 @@ namespace TianWen.Lib.Imaging;
 /// The image-wide <see cref="MaxValue"/>/<see cref="MinValue"/> are derived across the channels;
 /// the raw-array constructor overload wraps legacy <c>float[][,]</c> call sites.
 /// </summary>
+/// <remarks>
+/// <para><b>Frame ownership: own, borrow, consume.</b> This block is the one place the rules are
+/// written down, and every producer of an <see cref="Image"/> points back here. The MECHANISM has
+/// existed and worked for a while (<see cref="ChannelBuffer"/> refcounts, <see cref="Release"/>,
+/// <see cref="TryLease"/>, <c>Array2DPool</c>); what was missing was a stated rule saying which part
+/// of it applies to a given instance, so the answer was reconstructed per call site from that call
+/// site's own knowledge. See <c>docs/plans/frame-lifecycle.md</c>.</para>
+///
+/// <para><b>Own</b> -- the frame was handed to you, so you <see cref="Release"/> it exactly once and
+/// never touch it afterwards. <b>Borrow</b> -- you did not receive ownership, so take
+/// <see cref="TryLease"/> if you need the pixels beyond the current frame, and release the LEASE,
+/// never the original. <b>Consume</b> -- you hand your frame to a method that writes through its
+/// arrays and returns a view of them; the input is spent, and only the result may be used.</para>
+///
+/// <para><b>Four conventions coexist and an <see cref="Image"/> carries no runtime indication of
+/// which one it is</b>, which is precisely why the producer's documentation is the only place the
+/// answer lives. All four are real distinctions between real situations and are deliberately kept;
+/// the fifth was not a convention and has been retired (see below):</para>
+/// <list type="number">
+/// <item><b>Driver-owned, recycled</b> (<c>ICameraDriver.GetImageAsync</c>) -- OWN it.
+/// <see cref="Release"/> hands the array back to the camera, so never read it afterwards and never
+/// hold it across an <c>await</c> without <see cref="TryLease"/>.</item>
+/// <item><b>Self-owned</b> (file loads by default, debayer output, synthetic frames, tests) -- nothing
+/// is required of the consumer. <see cref="Release"/> is a no-op and must STAY one: several call
+/// sites release an image and go on reading it, which is well defined only under this convention.</item>
+/// <item><b>Pool-owned</b> (<c>TryReadFitsFile(..., pooled: true)</c>) -- OWN it, exactly as for a
+/// camera frame; here <see cref="Release"/> returns the array to <c>Array2DPool</c> instead.</item>
+/// <item><b>Consumed input</b> (<see cref="ScaleFloatValuesToUnitInPlace"/>,
+/// <c>AstroImageDocument.AdoptImageAsync</c>, <c>Calibrator.Apply</c>) -- CONSUME: the input is spent
+/// and only the result may be used. Some consumers hand back a view of the input's own arrays with
+/// <c>Buffer = null</c> so release responsibility stays put; <c>Calibrator.Apply</c> instead takes
+/// the ownership over and hands the result's back to the caller. This is the only convention that
+/// MUTATES, and the only one with no runtime enforcement whatsoever: conventions 1 and 3 fail loudly
+/// (a released <see cref="ChannelBuffer"/> throws), while a second reader of a consumed input fails
+/// silently, in the pixels. <b>Membership is a property of the METHOD, never of an argument</b> --
+/// <see cref="DebayerAsync"/> used to consume only for some sensor types and only with
+/// <c>normalizeToUnit</c> set, which P4 removed.</item>
+/// </list>
+///
+/// <para><b>There was a fifth -- "identity or copy, decided at runtime" -- and it was not a
+/// convention but the absence of one.</b> <c>Calibrator.Apply</c>, the <c>SharpenPipeline</c> steps
+/// and <see cref="MaskedBoost"/> each returned either a new image or the caller's own input
+/// depending on configuration, so fourteen call sites wrote
+/// <c>if (!ReferenceEquals(result, input)) input.Release();</c> longhand. P1 of
+/// <c>docs/plans/frame-lifecycle.md</c> retired every one of them. <b>Do not reintroduce that
+/// idiom.</b></para>
+///
+/// <para><b>Ownership is a property of the HANDOFF, not of reference identity</b>, which is why the
+/// guard had to go rather than be tidied. <c>ReferenceEquals</c> answers "is this a different
+/// instance?", which coincides with "do I own this?" only while a single thread owns the whole chain
+/// -- an undocumented precondition of every site that wrote it. Getting it wrong is silent:
+/// releasing a frame you did not own recycles pixels another holder is still reading, which surfaces
+/// as a corrupted stack rather than an exception. In every case the answer was already in hand one
+/// branch earlier (<c>Blend &lt; 1f</c>, <c>channels == 1</c>, <c>options.IsNoOp</c>, the assignment
+/// that replaced an accumulator), so the fix was to ask THAT and not the reference. Where a producer
+/// cannot offer such a predicate, make it CONSUME its input instead, as <c>Calibrator.Apply</c>
+/// does.</para>
+///
+/// <para><b>Ownership transfer is visible in the name</b>, where the name is otherwise neutral about
+/// it: <c>Adopt*</c> and <c>*Into*</c> take ownership of what they are given, a bare
+/// <c>CreateFrom*</c> or <c>Get*</c> does not, and <c>*InPlace</c> says an instance method consumes
+/// its own receiver. The one deliberate exception is <c>Calibrator.Apply</c>, an established domain
+/// verb that consumes its light: renaming it buys a weaker signal than the doc plus
+/// <c>CalibratorOwnershipTests</c> already give, so it is documented and pinned instead. Do not treat
+/// that as licence for the next one -- it is recorded as an exception in
+/// <c>docs/plans/frame-lifecycle.md</c> precisely so it stays one.</para>
+///
+/// <para><b>"Released" means ownership is spent, and nothing else.</b> Dropping the float planes to
+/// save memory is EVICTION (<see cref="TryEvictFloatPlanes"/>, <see cref="PlanesResident"/>) -- a
+/// separate, reversible fact with the opposite implication for a caller: an evicted image is
+/// perfectly usable and rebuilds itself on the next read, whereas a released one must not be touched
+/// at all. The two shared the word "released" until this was written down, which is the single most
+/// likely way for a reader of this type to write the inverted guard.</para>
+/// </remarks>
 public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bitDepth, float pedestal, ImageMeta imageMeta,
     bool samplesAreUnitReferred = false, ImmutableArray<byte[]> sourceRaster = default)
 {
@@ -68,6 +142,165 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     public bool HasSourceRaster => !sourceRaster.IsDefaultOrEmpty;
 
     /// <summary>
+    /// The channels, as one reference that is only ever REPLACED, never edited in place.
+    /// </summary>
+    /// <remarks>
+    /// <para>Residency is <b>derived</b> from this array rather than tracked in a flag beside it. A
+    /// flag would be the same fact stored twice, and the two can disagree: whichever order the two
+    /// writes land in, a reader can catch the pair mid-update and either read an evicted plane while
+    /// the flag still says resident, or restore planes that are already there.</para>
+    /// <para>Every transition builds the complete replacement locally and publishes it with ONE
+    /// interlocked write, so a concurrent reader sees either the whole before or the whole after --
+    /// never a half-restored array with some channels real and some empty. That matters because this
+    /// type is documented as immutable and ships in a package: a consumer reading two channels from
+    /// two threads is entitled to do so, and cannot be expected to know that a read can rebuild them.</para>
+    /// <para><b>Deriving it is the expensive half, and the hoist is what pays for it.</b> Asking
+    /// <see cref="IsEvicted"/> costs a second copy of a five-field <see cref="Channel"/> plus a
+    /// dependent <c>.Data</c> load and a length check -- nothing once, and <b>+8.7% to +20.3%</b> on
+    /// the bilinear resample loops at 12.6M samples for a 2048-square colour pass (`WarpBenchmarks`,
+    /// which also shows that D1' itself, a predicted-not-taken bool, cost nothing). That is not an
+    /// argument for going back to a flag: the tear a flag permits is in the array, not the flag, so
+    /// <c>volatile</c> would not have bought this. It is an argument for
+    /// <see cref="ResidentPlanes"/> -- resolve residency ONCE per operation and hand the loop plain
+    /// <c>float[,]</c>. Under AOT, which is what ships, that returns to parity.</para>
+    /// </remarks>
+    private ImmutableArray<Channel> _planes = initialChannels;
+
+    /// <summary>True when <paramref name="planes"/> is the evicted form (every plane a 0x0 stub).</summary>
+    private static bool IsEvicted(ImmutableArray<Channel> planes) => planes[0].Data.Length == 0;
+
+    /// <summary>
+    /// The channels, with their float planes guaranteed present -- rebuilt from the source raster first
+    /// if they were evicted.
+    /// </summary>
+    /// <remarks>
+    /// Every READ accessor goes through here rather than touching <c>channels</c> directly: the indexer,
+    /// <see cref="GetChannel"/> and <see cref="GetChannelSpan"/>. A path that bypasses it and reads a
+    /// evicted plane meets an empty array and THROWS, which is the deliberate choice -- the alternative
+    /// to failing loudly is failing silently, reading zeroes and drawing a plausible black picture. Of the
+    /// two ways to be wrong about residency, the one that crashes is the one that gets fixed.
+    /// </remarks>
+    private ImmutableArray<Channel> Planes
+    {
+        get
+        {
+            // ONE reference read, then work off the snapshot: re-reading the field mid-method is how a
+            // caller ends up mixing two generations of the array.
+            var snapshot = _planes;
+            return IsEvicted(snapshot) ? RestorePlanesFromRaster(snapshot) : snapshot;
+        }
+    }
+
+    /// <summary>Whether the float planes are currently resident.</summary>
+    public bool PlanesResident => !IsEvicted(_planes);
+
+    /// <summary>
+    /// Drops the float planes where the source raster can rebuild them exactly, keeping geometry,
+    /// metadata and extrema. False when no raster covers every channel.
+    /// </summary>
+    /// <remarks>
+    /// <para>D1 of <c>docs/plans/viewer-memory-footprint.md</c>. For a document whose source WAS 8-bit
+    /// the float planes are pure duplication: the raster holds the same information at 1 B/px and the
+    /// plane was widened FROM it, so dropping them is lossless and needs no disk I/O to undo. An 8-bit
+    /// RGB document goes from 12 B/px of planes + 3 of raster + 3 on the device, to 3 + 3.</para>
+    /// <para>Geometry survives because <see cref="Width"/>, <see cref="Height"/> and
+    /// <see cref="ChannelCount"/> are captured at construction rather than read back from the arrays,
+    /// which is what makes this a policy rather than a restructure. Per-channel extrema, filter and index
+    /// live on the <see cref="Channel"/> record and survive with it; only <c>Channel.Width</c>,
+    /// <c>Height</c> and <c>Length</c> read zero while evicted, since those DO read the array.</para>
+    /// <para>Refused for a channel carrying a recycled camera <see cref="Channel.Buffer"/>: that array
+    /// belongs to the driver pool, and dropping our reference to it would hand back something still in
+    /// use.</para>
+    /// </remarks>
+    public bool TryEvictFloatPlanes()
+    {
+        // A degenerate 0-px image would satisfy the length check below against a 0-length raster and
+        // "evict" planes that are already empty, which then reads as evicted forever.
+        var expected = Width * Height;
+        if (expected == 0 || sourceRaster.IsDefaultOrEmpty || sourceRaster.Length != ChannelCount)
+        {
+            return false;
+        }
+
+        while (true)
+        {
+            var snapshot = _planes;
+            if (IsEvicted(snapshot))
+            {
+                return true;
+            }
+
+            for (var c = 0; c < snapshot.Length; c++)
+            {
+                if (sourceRaster[c] is not { } raster || raster.Length != expected
+                    || snapshot[c].Buffer is not null)
+                {
+                    return false;
+                }
+            }
+
+            var evicted = ImmutableArray.CreateBuilder<Channel>(snapshot.Length);
+            for (var c = 0; c < snapshot.Length; c++)
+            {
+                evicted.Add(snapshot[c] with { Data = EmptyPlane });
+            }
+
+            if (ImmutableInterlocked.InterlockedCompareExchange(ref _planes, evicted.MoveToImmutable(), snapshot)
+                == snapshot)
+            {
+                return true;
+            }
+
+            // Lost the publication race, so the array we inspected is stale: someone restored (or
+            // evicted) underneath us. Re-read and decide again rather than forcing our own answer on
+            // top of theirs.
+        }
+    }
+
+    private static readonly float[,] EmptyPlane = new float[0, 0];
+
+    private ImmutableArray<Channel> RestorePlanesFromRaster(ImmutableArray<Channel> evicted)
+    {
+        // The raster is the ORIGINAL 8-bit samples and the evicted plane was normalised by the
+        // sample-format maximum, so this reproduces the values exactly rather than approximately: the same
+        // division over the same bytes. Anything less than exact would show up as a readout that changed
+        // after an eviction, which is the one thing this must never do.
+        var width = Width;
+        var height = Height;
+        var restored = ImmutableArray.CreateBuilder<Channel>(evicted.Length);
+        for (var c = 0; c < evicted.Length; c++)
+        {
+            var raster = sourceRaster[c];
+            var plane = new float[height, width];
+            for (var y = 0; y < height; y++)
+            {
+                var row = y * width;
+                for (var x = 0; x < width; x++)
+                {
+                    plane[y, x] = raster[row + x] / 255f;
+                }
+            }
+
+            restored.Add(evicted[c] with { Data = plane });
+        }
+
+        var built = restored.MoveToImmutable();
+        var prior = ImmutableInterlocked.InterlockedCompareExchange(ref _planes, built, evicted);
+        if (prior == evicted)
+        {
+            return built;
+        }
+
+        // Another thread published first. Prefer what IS published so every reader agrees on one set of
+        // arrays, and let ours be collected: two restorers compute identical values from the same bytes,
+        // so duplicating the work is wasteful rather than wrong -- and it is cheaper than making every
+        // read take a lock to prevent it. Falling back to our own build if the winner somehow published
+        // the evicted form keeps this from ever handing back empty planes.
+        var current = _planes;
+        return IsEvicted(current) ? built : current;
+    }
+
+    /// <summary>
     /// The original 8-bit samples of <paramref name="channel"/>, flat and row-major, matching the
     /// float plane's <c>[Height, Width]</c> layout. False when this image carries none.
     /// </summary>
@@ -88,156 +321,6 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// is a texture uploaded from the wrong number of bytes -- which draws a plausible-looking
     /// wrong picture instead of failing.</para>
     /// </remarks>
-    /// <summary>
-    /// The channels, as one reference that is only ever REPLACED, never edited in place.
-    /// </summary>
-    /// <remarks>
-    /// <para>Residency is <b>derived</b> from this array rather than tracked in a flag beside it. A
-    /// flag would be the same fact stored twice, and the two can disagree: whichever order the two
-    /// writes land in, a reader can catch the pair mid-update and either read a released plane while
-    /// the flag still says resident, or restore planes that are already there.</para>
-    /// <para>Every transition builds the complete replacement locally and publishes it with ONE
-    /// interlocked write, so a concurrent reader sees either the whole before or the whole after --
-    /// never a half-restored array with some channels real and some empty. That matters because this
-    /// type is documented as immutable and ships in a package: a consumer reading two channels from
-    /// two threads is entitled to do so, and cannot be expected to know that a read can rebuild them.</para>
-    /// </remarks>
-    private ImmutableArray<Channel> _planes = initialChannels;
-
-    /// <summary>True when <paramref name="planes"/> is the released form (every plane a 0x0 stub).</summary>
-    private static bool IsReleased(ImmutableArray<Channel> planes) => planes[0].Data.Length == 0;
-
-    /// <summary>
-    /// The channels, with their float planes guaranteed present -- rebuilt from the source raster first
-    /// if they were released.
-    /// </summary>
-    /// <remarks>
-    /// Every READ accessor goes through here rather than touching <c>channels</c> directly: the indexer,
-    /// <see cref="GetChannel"/> and <see cref="GetChannelSpan"/>. A path that bypasses it and reads a
-    /// released plane meets an empty array and THROWS, which is the deliberate choice -- the alternative
-    /// to failing loudly is failing silently, reading zeroes and drawing a plausible black picture. Of the
-    /// two ways to be wrong about residency, the one that crashes is the one that gets fixed.
-    /// </remarks>
-    private ImmutableArray<Channel> Planes
-    {
-        get
-        {
-            // ONE reference read, then work off the snapshot: re-reading the field mid-method is how a
-            // caller ends up mixing two generations of the array.
-            var snapshot = _planes;
-            return IsReleased(snapshot) ? RestorePlanesFromRaster(snapshot) : snapshot;
-        }
-    }
-
-    /// <summary>Whether the float planes are currently resident.</summary>
-    public bool PlanesResident => !IsReleased(_planes);
-
-    /// <summary>
-    /// Drops the float planes where the source raster can rebuild them exactly, keeping geometry,
-    /// metadata and extrema. False when no raster covers every channel.
-    /// </summary>
-    /// <remarks>
-    /// <para>D1 of <c>docs/plans/viewer-memory-footprint.md</c>. For a document whose source WAS 8-bit
-    /// the float planes are pure duplication: the raster holds the same information at 1 B/px and the
-    /// plane was widened FROM it, so dropping them is lossless and needs no disk I/O to undo. An 8-bit
-    /// RGB document goes from 12 B/px of planes + 3 of raster + 3 on the device, to 3 + 3.</para>
-    /// <para>Geometry survives because <see cref="Width"/>, <see cref="Height"/> and
-    /// <see cref="ChannelCount"/> are captured at construction rather than read back from the arrays,
-    /// which is what makes this a policy rather than a restructure. Per-channel extrema, filter and index
-    /// live on the <see cref="Channel"/> record and survive with it; only <c>Channel.Width</c>,
-    /// <c>Height</c> and <c>Length</c> read zero while released, since those DO read the array.</para>
-    /// <para>Refused for a channel carrying a recycled camera <see cref="Channel.Buffer"/>: that array
-    /// belongs to the driver pool, and dropping our reference to it would hand back something still in
-    /// use.</para>
-    /// </remarks>
-    public bool TryReleaseFloatPlanes()
-    {
-        // A degenerate 0-px image would satisfy the length check below against a 0-length raster and
-        // "release" planes that are already empty, which then reads as released forever.
-        var expected = Width * Height;
-        if (expected == 0 || sourceRaster.IsDefaultOrEmpty || sourceRaster.Length != ChannelCount)
-        {
-            return false;
-        }
-
-        while (true)
-        {
-            var snapshot = _planes;
-            if (IsReleased(snapshot))
-            {
-                return true;
-            }
-
-            for (var c = 0; c < snapshot.Length; c++)
-            {
-                if (sourceRaster[c] is not { } raster || raster.Length != expected
-                    || snapshot[c].Buffer is not null)
-                {
-                    return false;
-                }
-            }
-
-            var released = ImmutableArray.CreateBuilder<Channel>(snapshot.Length);
-            for (var c = 0; c < snapshot.Length; c++)
-            {
-                released.Add(snapshot[c] with { Data = EmptyPlane });
-            }
-
-            if (ImmutableInterlocked.InterlockedCompareExchange(ref _planes, released.MoveToImmutable(), snapshot)
-                == snapshot)
-            {
-                return true;
-            }
-
-            // Lost the publication race, so the array we inspected is stale: someone restored (or
-            // released) underneath us. Re-read and decide again rather than forcing our own answer on
-            // top of theirs.
-        }
-    }
-
-    private static readonly float[,] EmptyPlane = new float[0, 0];
-
-    private ImmutableArray<Channel> RestorePlanesFromRaster(ImmutableArray<Channel> released)
-    {
-        // The raster is the ORIGINAL 8-bit samples and the released plane was normalised by the
-        // sample-format maximum, so this reproduces the values exactly rather than approximately: the same
-        // division over the same bytes. Anything less than exact would show up as a readout that changed
-        // after a release, which is the one thing this must never do.
-        var width = Width;
-        var height = Height;
-        var restored = ImmutableArray.CreateBuilder<Channel>(released.Length);
-        for (var c = 0; c < released.Length; c++)
-        {
-            var raster = sourceRaster[c];
-            var plane = new float[height, width];
-            for (var y = 0; y < height; y++)
-            {
-                var row = y * width;
-                for (var x = 0; x < width; x++)
-                {
-                    plane[y, x] = raster[row + x] / 255f;
-                }
-            }
-
-            restored.Add(released[c] with { Data = plane });
-        }
-
-        var built = restored.MoveToImmutable();
-        var prior = ImmutableInterlocked.InterlockedCompareExchange(ref _planes, built, released);
-        if (prior == released)
-        {
-            return built;
-        }
-
-        // Another thread published first. Prefer what IS published so every reader agrees on one set of
-        // arrays, and let ours be collected: two restorers compute identical values from the same bytes,
-        // so duplicating the work is wasteful rather than wrong -- and it is cheaper than making every
-        // read take a lock to prevent it. Falling back to our own build if the winner somehow published
-        // the released form keeps this from ever handing back empty planes.
-        var current = _planes;
-        return IsReleased(current) ? built : current;
-    }
-
     public bool TryGetSourceRaster(int channel, out ReadOnlySpan<byte> raster)
     {
         if (!sourceRaster.IsDefaultOrEmpty
@@ -443,10 +526,17 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     }
 
     /// <summary>
-    /// Releases all ref-counted channel buffers. When all holders release,
-    /// the backing <c>float[,]</c> returns to the camera for reuse.
+    /// Spends this image's ownership: releases all ref-counted channel buffers, and once the last
+    /// holder releases, the backing <c>float[,]</c> goes back to the camera (convention 1) or to
+    /// <c>Array2DPool</c> (convention 3) for reuse. A no-op for a self-owned frame (convention 2).
     /// Safe to call multiple times: idempotent.
     /// </summary>
+    /// <remarks>
+    /// This is the OWNERSHIP verb and the only thing "released" means on this type. Dropping the float
+    /// planes to save memory is <see cref="TryEvictFloatPlanes"/> instead -- reversible, and it leaves
+    /// the image perfectly usable. See the frame-ownership notes on <see cref="Image"/> for which
+    /// convention a given frame arrived under.
+    /// </remarks>
     public void Release()
     {
         // Set before the exchange so a concurrent TryLease that reads a null buffer array cannot then
@@ -471,8 +561,9 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// <remarks>
     /// Convenience for a caller that samples a handful of points. Anything sampling PER PIXEL must
     /// hoist <see cref="ResidentPlanes"/> out of its loop and use the plane-taking overload instead:
-    /// resolving residency is a field read, an index and a length check, which is nothing per star and
-    /// 12.6M times nothing for a 2048-square colour warp.
+    /// resolving residency is a struct copy, a dependent load and a length check, which is nothing per
+    /// star and 12.6M times nothing for a 2048-square colour warp -- measured at +8.7% to +20.3% on
+    /// those loops before the hoist (`WarpBenchmarks`).
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveOptimization | MethodImplOptions.AggressiveInlining)]
     private float SubpixelValue(int channel, float x1, float y1)
@@ -772,7 +863,12 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// fixed ADU full-scale when known, otherwise by <see cref="MaxValue"/> (see <see cref="ScaleFloatValuesToUnit"/>),
     /// mutating the underlying channel arrays. Returns a new <see cref="Image"/> wrapping the same arrays.
     /// </summary>
-    /// <remarks>Internal only: callers must ensure the source image is not retained elsewhere.</remarks>
+    /// <remarks>
+    /// <para>Internal only: callers must ensure the source image is not retained elsewhere.</para>
+    /// <para><b>Frame ownership: convention 4, a CONSUMED input.</b> The result shares this image's
+    /// arrays and carries <c>Buffer = null</c>, so release responsibility stays with this instance and
+    /// the input must not be used again. See the frame-ownership notes on <see cref="Image"/>.</para>
+    /// </remarks>
     internal Image ScaleFloatValuesToUnitInPlace(float missingValue = float.NaN)
     {
         // Already unit-referred: return the image untouched rather than paying a full pass to divide
@@ -785,7 +881,7 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
         var invMax = 1.0f / UnitScaleDivisor;
 
         // Through Planes, and ONCE: this mutates the arrays in place, so it must operate on resident
-        // planes (a released channel is a 0x0 stub and plane[0, 0] would throw) and the rewrap below
+        // planes (an evicted channel is a 0x0 stub and plane[0, 0] would throw) and the rewrap below
         // has to carry the very same arrays it just scaled.
         var planes = Planes;
         for (var c = 0; c < ChannelCount; c++)

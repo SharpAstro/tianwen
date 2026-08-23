@@ -21,13 +21,13 @@ namespace TianWen.Lib.Tests
     /// FROM, and a channel holding a recycled camera buffer must not have its array dropped at all: that
     /// memory belongs to the driver pool and something else is still using it.</para>
     /// </remarks>
-    public class ImagePlaneReleaseTests
+    public class ImagePlaneEvictionTests
     {
         private const int W = 5;
         private const int H = 4;
 
         [Fact]
-        public void AReleasedPlaneRestoresToTheIdenticalVALUES()
+        public void AnEvictedPlaneRestoresToTheIdenticalVALUES()
         {
             var image = WithRaster();
             var before = new float[H, W];
@@ -39,7 +39,7 @@ namespace TianWen.Lib.Tests
                 }
             }
 
-            image.TryReleaseFloatPlanes().ShouldBeTrue();
+            image.TryEvictFloatPlanes().ShouldBeTrue();
             image.PlanesResident.ShouldBeFalse();
 
             // Reading through any accessor restores, and must give back exactly what was there.
@@ -55,7 +55,7 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
-        /// The released array becomes COLLECTABLE, which is the entire point.
+        /// The evicted array becomes COLLECTABLE, which is the entire point.
         /// </summary>
         /// <remarks>
         /// Asserted through a WeakReference rather than by measuring GC.GetTotalMemory, because a total
@@ -64,7 +64,7 @@ namespace TianWen.Lib.Tests
         /// would be worse still: run-to-run variance on it exceeds anything this feature saves.
         /// </remarks>
         [Fact]
-        public void TheReleasedArrayIsActuallyReclaimable()
+        public void TheEvictedArrayIsActuallyReclaimable()
         {
             // The weak reference is taken inside a method that has RETURNED before the collection.
             // A Debug build keeps a method's locals rooted until it exits, so taking it inline here
@@ -73,22 +73,22 @@ namespace TianWen.Lib.Tests
             var (image, plane) = TakeWeakPlaneRef();
             plane.IsAlive.ShouldBeTrue("the premise: the plane exists before the release");
 
-            image.TryReleaseFloatPlanes().ShouldBeTrue();
+            image.TryEvictFloatPlanes().ShouldBeTrue();
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
 
-            plane.IsAlive.ShouldBeFalse("nothing may still hold the released plane");
+            plane.IsAlive.ShouldBeFalse("nothing may still hold the evicted plane");
             image.PlanesResident.ShouldBeFalse("and reading nothing must not have restored it");
         }
 
         [Fact]
-        public void GeometryAndMetadataSurviveTheRelease()
+        public void GeometryAndMetadataSurviveTheEviction()
         {
             // The whole reason this is a policy rather than a restructure: Image captures its dimensions
             // at construction, so every geometry query keeps working while the pixels are gone.
             var image = WithRaster();
-            image.TryReleaseFloatPlanes().ShouldBeTrue();
+            image.TryEvictFloatPlanes().ShouldBeTrue();
 
             image.Width.ShouldBe(W);
             image.Height.ShouldBe(H);
@@ -100,19 +100,19 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void PerChannelExtremaSurviveTheRelease()
+        public void PerChannelExtremaSurviveTheEviction()
         {
             // They live on the Channel record, not in the array -- so the stretch keeps working on a
-            // released image, which is the point: the display state is already computed.
+            // evicted image, which is the point: the display state is already computed.
             var image = WithRaster();
             var min = image.GetChannel(0).MinValue;
             var max = image.GetChannel(0).MaxValue;
 
-            image.TryReleaseFloatPlanes().ShouldBeTrue();
+            image.TryEvictFloatPlanes().ShouldBeTrue();
 
             // GetChannel restores, so compare against a fresh release to keep the assertion honest.
             var second = WithRaster();
-            second.TryReleaseFloatPlanes().ShouldBeTrue();
+            second.TryEvictFloatPlanes().ShouldBeTrue();
             second.GetChannel(0).MinValue.ShouldBe(min);
             second.GetChannel(0).MaxValue.ShouldBe(max);
         }
@@ -123,7 +123,7 @@ namespace TianWen.Lib.Tests
             var image = WithRaster();
             var expected = image.GetChannelSpan(0).ToArray();
 
-            image.TryReleaseFloatPlanes().ShouldBeTrue();
+            image.TryEvictFloatPlanes().ShouldBeTrue();
             var after = image.GetChannelSpan(0);
 
             after.Length.ShouldBe(expected.Length);
@@ -134,12 +134,12 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void WithoutARasterTheReleaseIsRefused()
+        public void WithoutARasterTheEvictionIsRefused()
         {
             // Nothing to rebuild from, so dropping the planes would lose the pixels outright.
             var image = WithoutRaster();
 
-            image.TryReleaseFloatPlanes().ShouldBeFalse();
+            image.TryEvictFloatPlanes().ShouldBeFalse();
             image.PlanesResident.ShouldBeTrue();
             image[0, 1, 1].ShouldBe(WithoutRaster()[0, 1, 1], "the image is untouched by a refusal");
         }
@@ -148,8 +148,8 @@ namespace TianWen.Lib.Tests
         public void ReleasingTwiceIsHarmless()
         {
             var image = WithRaster();
-            image.TryReleaseFloatPlanes().ShouldBeTrue();
-            image.TryReleaseFloatPlanes().ShouldBeTrue("already released is success, not failure");
+            image.TryEvictFloatPlanes().ShouldBeTrue();
+            image.TryEvictFloatPlanes().ShouldBeTrue("already evicted is success, not failure");
             image.PlanesResident.ShouldBeFalse();
         }
 

@@ -34,10 +34,10 @@ namespace TianWen.Lib.Tests
         private const int Channels = 3;
 
         [Fact]
-        public void ConcurrentReadersOfAReleasedImageAllSeeTheRealValues()
+        public void ConcurrentReadersOfAnEvictedImageAllSeeTheRealValues()
         {
             var image = WithRaster();
-            image.TryReleaseFloatPlanes().ShouldBeTrue();
+            image.TryEvictFloatPlanes().ShouldBeTrue();
             image.PlanesResident.ShouldBeFalse();
 
             var failures = Hammer(image, readers: 8, iterations: 200);
@@ -47,24 +47,29 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
-        public void AReleaseRacingReadersNeverHandsBackAnEmptyPlane()
+        public async Task AnEvictionRacingReadersNeverHandsBackAnEmptyPlane()
         {
             // The writer keeps flipping residency underneath the readers, so every reader is repeatedly
             // meeting an image mid-transition -- which is the interleaving a single-threaded test can
             // never produce.
+            var testToken = TestContext.Current.CancellationToken;
             var image = WithRaster();
-            var stop = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+
+            // Linked, so a cancelled run stops the hammer immediately instead of holding the runner for
+            // the full window: the two-second budget is the test's own bound, not a floor.
+            using var stop = CancellationTokenSource.CreateLinkedTokenSource(testToken);
+            stop.CancelAfter(TimeSpan.FromSeconds(2));
             var failures = new ConcurrentQueue<string>();
 
             var writer = Task.Run(() =>
             {
                 while (!stop.IsCancellationRequested)
                 {
-                    image.TryReleaseFloatPlanes();
+                    image.TryEvictFloatPlanes();
                     // Reading restores, so the pair loops without needing a restore API of its own.
                     _ = image[0, 0, 0];
                 }
-            });
+            }, testToken);
 
             var readers = new Task[6];
             for (var r = 0; r < readers.Length; r++)
@@ -78,27 +83,27 @@ namespace TianWen.Lib.Tests
                             failures.Enqueue(f);
                         }
                     }
-                });
+                }, testToken);
             }
 
-            Task.WaitAll([writer, .. readers]);
+            await Task.WhenAll([writer, .. readers]);
             failures.ShouldBeEmpty();
         }
 
         [Fact]
         public void EveryPublicReadPathHonoursResidency()
         {
-            // The three that used to bypass the accessor and read the released stub directly:
+            // The three that used to bypass the accessor and read the evicted stub directly:
             // GetChannelArray (FITS write, guider tracker), the subpixel sampler, and the in-place
             // unit rescale -- which indexed plane[0, 0] on a 0x0 array and threw.
             var image = WithRaster();
-            image.TryReleaseFloatPlanes().ShouldBeTrue();
+            image.TryEvictFloatPlanes().ShouldBeTrue();
 
             image.GetChannelArray(0).Length.ShouldBe(W * H, "GetChannelArray must not hand back the stub");
 
-            var released = WithRaster();
-            released.TryReleaseFloatPlanes().ShouldBeTrue();
-            var scaled = released.ScaleFloatValuesToUnitInPlace();
+            var evicted = WithRaster();
+            evicted.TryEvictFloatPlanes().ShouldBeTrue();
+            var scaled = evicted.ScaleFloatValuesToUnitInPlace();
             scaled.Width.ShouldBe(W);
             scaled[0, 0, 0].ShouldBe(Expected(0, 0, 0), 1e-6f);
         }

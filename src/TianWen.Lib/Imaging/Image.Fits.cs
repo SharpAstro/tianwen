@@ -38,6 +38,12 @@ public partial class Image
         => float.IsNaN(minValue) || minValue < 0 || float.IsNaN(maxValue)
             || maxValue is <= 0 || maxValue <= minValue;
 
+    /// <summary>
+    /// Reads a FITS file into a SELF-OWNED image (frame ownership: convention 2). Nothing is required
+    /// of the caller and <see cref="Release"/> is a no-op; see the frame-ownership notes on
+    /// <see cref="Image"/>, and the <c>pooled</c> overload below for the variant the
+    /// caller OWNS.
+    /// </summary>
     public static bool TryReadFitsFile(string fileName, [NotNullWhen(true)] out Image? image)
     {
         return TryReadFitsFile(fileName, out image, out _);
@@ -52,8 +58,10 @@ public partial class Image
     /// Reads a FITS file, optionally renting the channel arrays from <see cref="Array2DPool{T}"/>
     /// so a bulk reader recycles them instead of handing the GC a fresh large-object array per file.
     ///
-    /// <para><b>Pooling is opt-in, and the caller takes on an obligation.</b> With
-    /// <paramref name="pooled"/> set, the returned image's channels carry a
+    /// <para><b>Pooling is opt-in, and the caller takes on an obligation.</b> It is the difference
+    /// between frame-ownership convention 2 (self-owned, nothing required of the caller) and
+    /// convention 3 (pool-owned, the caller OWNS the frame) -- see the frame-ownership notes on
+    /// <see cref="Image"/>. With <paramref name="pooled"/> set, the returned image's channels carry a
     /// <see cref="ChannelBuffer"/> whose release returns the array to the pool, so
     /// <see cref="Release"/> stops being a no-op: the caller must not touch the image afterwards,
     /// exactly as for a camera frame. Every pre-existing call site passes <see langword="false"/>

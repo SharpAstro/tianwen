@@ -15,7 +15,7 @@ namespace TianWen.Lib.Tests
     /// <para>Two things at once, which is why it is worth a suite. It is a correctness fix -- reporting
     /// R, G and B while the display shows a single channel names two channels the user cannot see -- and
     /// it is the readout's cost: <c>GetPixelInfo</c> runs on every mouse move, so reading one plane
-    /// instead of three is what would let the unused planes be released at all.</para>
+    /// instead of three is what would let the unused planes be evicted at all.</para>
     /// <para>The mapping is asserted on <c>ChannelView</c> itself as well as through the document,
     /// because the texture upload resolves the displayed channel the same way and the two disagreeing
     /// is the original bug.</para>

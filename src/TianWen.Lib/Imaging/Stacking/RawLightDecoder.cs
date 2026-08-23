@@ -18,17 +18,19 @@ namespace TianWen.Lib.Imaging.Stacking;
 internal static class RawLightDecoder
 {
     /// <summary>
-    /// Decodes <paramref name="source"/> and returns the calibrated frame.
+    /// Decodes <paramref name="source"/> and returns the calibrated frame, which the CALLER owns.
     ///
-    /// <para>The raw read is pooled only when calibration will produce a SEPARATE image, because
-    /// only then does this method own the raw buffer and get to hand it back.
-    /// <see cref="Calibrator.Apply"/> opens with <c>var result = light</c> and every master is
-    /// optional, so with no bias, dark or flat it returns the very instance it was given; pooling
-    /// there would pass a recycling buffer to a caller that never releases it (no strategy calls
-    /// <see cref="Image.Release"/>), and the array would be handed out again while the frame is
-    /// still live. When a master IS present, <see cref="Image.Subtract"/> / <see cref="Image.Divide"/>
-    /// allocate their own destinations, so the raw planes are dead the moment Apply returns and go
-    /// straight back to the pool.</para>
+    /// <para><b>The release guard is gone, because <see cref="Calibrator.Apply"/> now consumes what
+    /// it is given</b> (P1 of <c>docs/plans/frame-lifecycle.md</c>). This method hands the raw frame
+    /// over and never refers to it again; whether Apply copied or returned the very same instance is
+    /// no longer a question anyone downstream has to answer.</para>
+    ///
+    /// <para><b>The pooling decision is NOT the same question, and it survives.</b> Pooling is safe
+    /// only where somebody eventually releases, and with no masters the raw frame IS the returned
+    /// frame -- which the tile strategies cache for the whole run and never release. So the read is
+    /// pooled only when a master will consume it, which is exactly when Apply hands the arrays back.
+    /// Making this unconditional is P3, and it needs the strategies to release their cached frames
+    /// first; <see cref="ChannelBufferLeakTracker"/> is the instrument that says when they do.</para>
     ///
     /// <para>This is the workload <see cref="Array2DPool{T}"/> is good at: every frame in a run
     /// shares one shape, so the bucket hits every time and the pool's byte ceiling is never
@@ -36,17 +38,12 @@ internal static class RawLightDecoder
     /// </summary>
     public static Image DecodeCalibrate(RawLightSource source, Calibrator calibrator, string strategyName)
     {
-        var willCopy = calibrator.Bias is not null || calibrator.Dark is not null || calibrator.Flat is not null;
-        if (!Image.TryReadFitsFile(source.Path, out var raw, out _, pooled: willCopy))
+        var willConsumeRaw = calibrator.Bias is not null || calibrator.Dark is not null || calibrator.Flat is not null;
+        if (!Image.TryReadFitsFile(source.Path, out var raw, out _, pooled: willConsumeRaw))
         {
             throw new InvalidDataException($"{strategyName}: failed to read raw FITS at {source.Path}");
         }
 
-        var calibrated = calibrator.Apply(raw);
-        if (!ReferenceEquals(calibrated, raw))
-        {
-            raw.Release();
-        }
-        return calibrated;
+        return calibrator.Apply(raw);
     }
 }

@@ -302,6 +302,16 @@ internal partial record Session
 
         var previous = slots[otaIndex];
         slots[otaIndex] = image;
+
+        // This reference check is NOT the convention-5 idiom and must not be read as one, which is
+        // why it survived P1 while the thirteen transform guards did not (docs/plans/frame-lifecycle.md).
+        // Those asked "did a transform copy, so may I release my input?" -- a question about a
+        // RETURN VALUE, answerable from the branch the code had just taken. This asks "did the
+        // producer hand me the frame that is already in the slot?" -- a question about the PRODUCER,
+        // and the answer is no by construction, because every capture is a fresh GetImageAsync
+        // result. It stays because the cost of being wrong is asymmetric: releasing `previous` when
+        // it IS `image` drops the ref the slot now holds and recycles a frame the GUI is drawing,
+        // and one comparison is cheap insurance against a future caller that republishes.
         if (!ReferenceEquals(previous, image))
         {
             previous?.Release();

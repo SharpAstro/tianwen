@@ -9,12 +9,33 @@ namespace TianWen.Lib.Imaging;
 
 public partial class Image
 {
+    /// <summary>
+    /// Interpolates the Bayer mosaic into a self-owned three-channel image, optionally normalising the
+    /// samples to <c>[0, 1]</c> on the way.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Frame ownership: this never consumes its input, and the caller must not release the
+    /// RESULT.</b> Release the frame you own -- the input -- and let the result be garbage if it is a
+    /// new one. For a monochrome or full-colour sensor there is nothing to interpolate and the result
+    /// may BE the input; for a mosaic it is always a fresh self-owned image. Either way no ownership
+    /// changes hands. See the frame-ownership notes on <see cref="Image"/>.</para>
+    /// <para><b>It used to consume, and only sometimes, which is why the rule is written down.</b>
+    /// The mono / full-colour branch called <see cref="ScaleFloatValuesToUnitInPlace"/>, so with
+    /// <paramref name="normalizeToUnit"/> set this mutated the caller's pixels and handed back a view
+    /// of them -- but only for those sensor types, and only when the samples were not already unit
+    /// scaled. Ownership therefore depended on two runtime facts rather than on the signature, which
+    /// is convention 5 on the INPUT side and exactly what P1 of
+    /// <c>docs/plans/frame-lifecycle.md</c> retired for return values. P4 removed it: the branch
+    /// scales into a fresh image instead. Nothing in the tree ever reached the consuming path -- no
+    /// production caller passes <paramref name="normalizeToUnit"/> at all and all three test callers
+    /// that do are RGGB -- so the copy it now costs is paid by nobody today.</para>
+    /// </remarks>
     public Task<Image> DebayerAsync(DebayerAlgorithm debayerAlgorithm, bool normalizeToUnit = false, CancellationToken cancellationToken = default)
     {
         // NO-OP for monochrome or full colour images
         if (imageMeta.SensorType is SensorType.Monochrome or SensorType.Color)
         {
-            return Task.FromResult(normalizeToUnit ? ScaleFloatValuesToUnitInPlace() : this);
+            return Task.FromResult(normalizeToUnit ? ScaleFloatValuesToUnit() : this);
         }
 
         // Canonical divisor (sensor full-scale when known, else observed peak) -- keeps the Bayer
