@@ -96,7 +96,13 @@ internal sealed class AscomHostProcess : IDisposable
         // WaitForConnection has no timeout overload; run it on a background thread and bound the wait so
         // a helper that dies before connecting (or hangs) can't block the caller forever.
         var connected = false;
+        // Deliberately NOT disposed (CA2000): on the timeout path the accept thread is still blocked in
+        // WaitForConnection and will Set() this event whenever it finally unblocks -- disposing here would
+        // turn a slow helper into an ObjectDisposedException on a background thread. An MRES whose
+        // WaitHandle property is never touched holds no kernel object, so there is nothing to reclaim.
+#pragma warning disable CA2000
         var done = new ManualResetEventSlim(false);
+#pragma warning restore CA2000
         var thread = new Thread(() =>
         {
             try

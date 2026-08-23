@@ -91,3 +91,14 @@ dotnet_naming_style.pascal_case.required_suffix =
 dotnet_naming_style.pascal_case.word_separator = 
 dotnet_naming_style.pascal_case.capitalization = pascal_case
 dotnet_style_namespace_match_folder = true:suggestion
+
+# CA2000: a class disposable created and dropped is a real leak; struct leases are the
+# leak tracker's job (CA2000 cannot see value-type disposables -- measured, see
+# docs/plans/frame-lifecycle.md).
+[*.cs]
+dotnet_diagnostic.CA2000.severity = warning
+
+# Tests are exempt: a fixture's fakes, CTSes and sessions live exactly as long as the test process,
+# and churning 242 sites (measured 2026-08-24) to dispose them buys nothing a process exit does not.
+[TianWen.Lib.Tests*/**.cs]
+dotnet_diagnostic.CA2000.severity = none

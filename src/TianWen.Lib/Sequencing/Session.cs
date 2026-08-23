@@ -479,24 +479,15 @@ internal partial record Session(
     {
         _failureReason = null;
 
-        // Claim the equipment for the whole run -- BEFORE the try, so a conflict is reported as a plain
-        // failure rather than running the finally over hardware we never owned. Held across Finalise
-        // too: parking the mount and warming the cameras is exactly when a stray disconnect does the
-        // most damage.
-        DeviceLeaseSet leases;
-        try
+        // Claim the equipment for the whole run -- BEFORE the main try, so a conflict is reported as a
+        // plain failure rather than running the finally over hardware we never owned. Held across
+        // Finalise too: parking the mount and warming the cameras is exactly when a stray disconnect
+        // does the most damage.
+        using var _equipment = TryAcquireEquipmentForRun("the imaging session");
+        if (_equipment is null)
         {
-            leases = AcquireEquipment("the imaging session");
-        }
-        catch (DeviceLeasedException ex)
-        {
-            _logger.LogError(ex, "Cannot start: equipment already owned.");
-            _failureReason = ex.Message;
-            SetPhase(SessionPhase.Failed);
             return;
         }
-
-        using var _equipment = leases;
 
         try
         {

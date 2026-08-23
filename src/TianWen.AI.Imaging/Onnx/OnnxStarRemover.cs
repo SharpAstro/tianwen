@@ -80,7 +80,12 @@ public sealed class OnnxStarRemover(
         logger?.LogDebug("OnnxStarRemover: input {W}x{H}x{C} model={Model} chunkSize={Chunk} overlap={Overlap}",
             srcW, srcH, sourceChannels, modelName, chunkSize, overlap);
 
+        // Not disposed here (CA2000): AcquireSession returns the CACHED per-channel-count session, created
+        // once and owned by this instance's Dispose. Disposing it per call would tear the model out from
+        // under the next enhance.
+#pragma warning disable CA2000
         var session = AcquireSession(sourceChannels);
+#pragma warning restore CA2000
         var (imageInputName, outputName) = OnnxIoNames.SingleInput(session);
 
         var result = ChunkedNafnetRunner.Run(

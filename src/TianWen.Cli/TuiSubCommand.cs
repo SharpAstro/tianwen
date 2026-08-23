@@ -98,7 +98,7 @@ internal class TuiSubCommand(
         var terminal = consoleHost.Terminal;
         var external = consoleHost.External;
         var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger("TuiSubCommand");
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         // Shared state
         var registry = sp.GetService<IDeviceHub>();
