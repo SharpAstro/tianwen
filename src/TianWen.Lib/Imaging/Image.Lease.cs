@@ -1,38 +1,39 @@
-using System.Diagnostics.CodeAnalysis;
-
 namespace TianWen.Lib.Imaging;
 
 public partial class Image
 {
     /// <summary>
-    /// Borrows this image for a consumer that outlives the frame's owner, taking a reference on every
-    /// recycled channel buffer so the camera cannot reuse the pixels mid-read. On success the caller
-    /// owns the returned image and MUST <see cref="Release"/> it; on failure the frame is already gone
-    /// and the caller has nothing to release.
+    /// Borrows this frame: on success <paramref name="lease"/> wraps a DISTINCT image that shares
+    /// these pixel planes and holds a reference on every recycled channel buffer, so the camera
+    /// cannot reuse the pixels mid-read. Disposing the lease is the borrower's whole obligation --
+    /// there is no <c>Release</c> to pair by hand and no way to spend the owner's ref by mistake.
     /// <para>
     /// <b>Why this exists rather than just reading <c>LastGuideFrame</c> (or any other live frame)
-    /// directly.</b> A frame published by a driver is valid only until that driver publishes the next
-    /// one: the guide loop does <c>LastFrame?.Release(); LastFrame = frame;</c> on every exposure, so
-    /// at guiding cadence a reader that holds the reference across any await is reading a buffer the
-    /// camera has already taken back. The GUI gets away with a bare reference because it draws on the
-    /// render thread within the same frame it read; a hosted request encoding a JPEG does not, and
-    /// that difference is the whole reason for a lease.
+    /// directly.</b> A frame published by a driver is valid only until that driver publishes the
+    /// next one: publishers swap the pointer BEFORE releasing the superseded frame, but the
+    /// superseded frame IS then released, so a reader holding a bare reference across any await is
+    /// reading a buffer the camera may already have taken back. The GUI gets away with a bare
+    /// reference because it draws on the render thread within the same frame it read; a hosted
+    /// request encoding a JPEG does not, and that difference is the whole reason for a lease.
     /// </para>
     /// <para>
-    /// Losing the race is normal and is reported as <see langword="false"/>, not an exception: the
-    /// honest answer for a poller is "no frame right now", and the next poll succeeds.
+    /// Losing the race is normal and is reported as <see langword="false"/>, not an exception --
+    /// and because publishers swap first, a refusal has exactly one meaning: this frame was
+    /// superseded between the caller's read of the published pointer and the lease. Re-reading the
+    /// pointer observes the live successor, so a retry converges in one step.
     /// </para>
     /// <para>
     /// <b>Frame ownership: this is the BORROW primitive.</b> Everyone who is not the owner reads
-    /// through here, and releases the LEASE rather than the original. See the frame-ownership notes
-    /// on <see cref="Image"/>.
+    /// through here and disposes the lease, never the original. See the frame-ownership notes on
+    /// <see cref="Image"/> and the token rationale on <see cref="ImageLease"/>.
     /// </para>
     /// </summary>
-    /// <param name="leased">
-    /// The borrowed image on success. It shares this image's pixel arrays and metadata, so it must be
-    /// treated as read-only for exactly the reasons the class-level mutability notes give.
+    /// <param name="lease">
+    /// The borrow on success; <c>default</c> (inert) on failure. The leased image shares this
+    /// image's pixel arrays and metadata, so it must be treated as read-only for exactly the
+    /// reasons the class-level mutability notes give.
     /// </param>
-    public bool TryLease([NotNullWhen(true)] out Image? leased)
+    public bool TryLease(out ImageLease lease)
     {
         // Read the buffer array BEFORE consulting _released, which is what makes the two branches below
         // sound. Release() nulls the array, so a null read is ambiguous on its own (an image that never
@@ -46,11 +47,22 @@ public partial class Image
         if (buffers is null)
         {
             // Nothing to recycle: the planes are ordinary GC arrays (a file load, a debayer output, a
-            // synthetic fake frame), so no camera can pull them out from under the borrower and the
-            // image itself is the lease. Release() on it is a no-op, so the caller's release still
-            // balances. A released image is refused, because its planes may since have been reused.
-            leased = _released ? null : this;
-            return !_released;
+            // synthetic fake frame), so no camera can pull them out from under the borrower. A
+            // released image is still refused, because its planes may since have been reused.
+            //
+            // The lease is a DISTINCT image here too, not `this`. Handing out `this` made the
+            // borrower's dispose mark the SOURCE released, so one borrow cycle poisoned every later
+            // lease of the same published frame -- a repeat-polling preview 404s from the second poll
+            // on. Distinct costs one small allocation and cannot poison anything: the harvest finds
+            // no buffers, so disposing the lease is a self-owned no-op.
+            if (_released)
+            {
+                lease = default;
+                return false;
+            }
+
+            lease = new ImageLease(new Image(_planes, bitDepth, pedestal, imageMeta, samplesAreUnitReferred, sourceRaster));
+            return true;
         }
 
         // All-or-nothing: a partially referenced multi-channel frame is not a frame, and unwinding is
@@ -65,16 +77,17 @@ public partial class Image
                     buffers[undo]?.Release();
                 }
 
-                leased = null;
+                lease = default;
                 return false;
             }
 
             taken++;
         }
 
-        // A distinct instance, so the refs just taken get their own one-shot Release (Image.Release
-        // clears _channelBuffers via Interlocked.Exchange). Handing back `this` would make the
-        // borrower's release indistinguishable from the owner's and drop the frame early.
+        // A distinct instance, so the refs just taken get their own one-shot Release when the lease
+        // is disposed (Image.Release clears _channelBuffers via Interlocked.Exchange). Wrapping
+        // `this` would make the borrower's dispose indistinguishable from the owner's release and
+        // drop the frame early.
         //
         // The LIVE planes, not the constructor argument: residency can move after construction, and
         // seeding a lease from the original array would hand the borrower float planes this image has
@@ -86,7 +99,7 @@ public partial class Image
         // bytes. (The rule against forwarding a raster is about transforms that RECOMPUTE pixels,
         // which is what makes the raster a lie; sharing them recomputes nothing.) Dropping the flag
         // made a leased frame claim ADU scale while carrying unit-referred samples.
-        leased = new Image(_planes, bitDepth, pedestal, imageMeta, samplesAreUnitReferred, sourceRaster);
+        lease = new ImageLease(new Image(_planes, bitDepth, pedestal, imageMeta, samplesAreUnitReferred, sourceRaster));
         return true;
     }
 }
