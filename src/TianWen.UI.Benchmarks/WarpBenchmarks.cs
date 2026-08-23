@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Numerics;
 using System.Threading.Tasks;
 using BenchmarkDotNet.Attributes;
@@ -29,21 +29,51 @@ namespace TianWen.UI.Benchmarks;
 /// <para>Mono and colour both, because the per-channel hoist amortises over a whole plane: with one
 /// channel there is one hoist for the whole image, with three there are three, and the per-pixel cost
 /// is what stays constant.</para>
-/// <para><b>Measured, default job (NOT ShortRun), win-arm64, Accumulate ms:</b></para>
+/// <para><b>Measured, default job (NOT ShortRun), win-arm64, Accumulate ms.</b> FOUR variants,
+/// because an earlier version of this comment conflated the middle two and so billed the whole
+/// regression to D1':</para>
 /// <code>
-///                      pre-D1        per-pixel check      hoisted
-///                    JIT     AOT      JIT     AOT       JIT     AOT
-///  Mono  1024      10.50   10.47    11.32   11.59     11.52   10.40
-///  Mono  2048      42.34   42.58    47.02   46.03     45.25   41.16
-///  Color 1024      28.81   28.06    32.10   32.12     29.09   28.39
-///  Color 2048     121.02  124.39   135.59  147.71    127.52  129.05
+///                    pre-D1'         D1' shipped      thread-safe        hoisted
+///                   JIT     AOT     JIT     AOT     JIT     AOT      JIT     AOT
+///  Mono  1024     10.32   10.30   10.42   10.35   11.62   11.64    11.52   10.40
+///  Mono  2048     42.09   41.66   41.53   41.55   47.42   46.51    45.25   41.16
+///  Color 1024     28.62   27.78   28.54   28.06   32.85   32.05    29.09   28.39
+///  Color 2048    119.18  121.26  126.81  121.70  137.80  146.37   127.52  129.05
 /// </code>
-/// <para>Three things this says. The per-pixel residency check cost <b>8-19%</b>, which nobody had
-/// measured when D1 shipped. The hoist recovers <b>4-9% on the JIT and 10-13% under AOT</b> -- it
-/// helps MORE where it ships, because AOT has no dynamic PGO to hoist the repeated struct copy on
-/// its own. And AOT is not uniformly faster: with the check in the loop it was 9% SLOWER than the
-/// JIT on Color/2048 (147.71 against 135.59), so measuring only the JIT would have understated both
-/// the regression and the fix.</para>
+/// <para><b>D1' as shipped cost nothing.</b> It put one bool check (<c>if (_planesReleased)</c>) ahead
+/// of the same field read and the same single <c>Channel</c> copy that pre-D1' already did, and a
+/// predicted not-taken branch is free: seven of the eight cases land within <b>1.3%</b> of pre-D1'.
+/// The regression arrived with the fix that made residency observable from two threads, which DERIVES
+/// residency from the plane array instead of keeping a flag beside it -- so <c>IsEvicted(planes[0])</c>
+/// is a SECOND copy of a five-field struct plus a dependent <c>.Data</c> load and a <c>Length</c>
+/// check, 12.6M times. That step is <b>+8.7% to +20.3%</b> over D1' and <b>+11.6% to +20.7%</b> over
+/// pre-D1': the whole of the band once billed to D1' belongs to it. Which does not make the fix
+/// wrong -- a torn read of a half-restored plane array is not a cost worth saving -- it makes the
+/// hoist below the thing that pays for it.</para>
+/// <para>The hoist recovers most of that, and under AOT -- which is what ships -- returns to parity
+/// with D1' as shipped (-1% to +6% across the four cases). It helps MORE under AOT because the JIT
+/// has dynamic PGO and can hoist a repeated struct copy on its own. And AOT is not uniformly faster:
+/// with the check in the loop it was 6% SLOWER than the JIT on Color/2048 (146.37 against 137.80), so
+/// measuring only the JIT would have understated both the regression and the fix.</para>
+/// <para><b>Two things about how this was measured, because the conclusion is an ATTRIBUTION and not
+/// just a number.</b> The pre-D1' / D1' / thread-safe columns were taken back to back in one worktree;
+/// the hoisted column is from the earlier session, and re-measuring thread-safe in the new one agreed
+/// to within 2.6% (six of eight within 1.6%), which is what licenses reading them in one table. And
+/// <b>pre-D1' is an ABLATION of D1'</b> rather than the pre-D1' tree: pre-D1' <c>Image.cs</c> has no
+/// <c>Planes</c> accessor and the rest of the partial class has since migrated onto it, so a
+/// file-level revert does not compile -- and an ablation is the better instrument anyway, differing by
+/// exactly the one term under test.</para>
+/// <para><b>Color/2048 under the JIT is the noisy cell</b> and no conclusion should rest on it alone:
+/// nominally similar builds have read 119.18, 121.02 and 126.81 there, a ~6% spread. That is why the
+/// one pre-D1'-to-D1' reading that looks like a real cost (+6.4%) is not treated as one when its AOT
+/// twin moved +0.4%.</para>
+/// <para><b>This table is where <c>docs/plans/frame-lifecycle.md</c> gets its budget from</b>, so a
+/// re-measurement belongs in both places. That plan's rule -- ownership work is per-FRAME work and
+/// must never appear per-pixel or per-sample -- is this measurement generalised, and its cure is the
+/// one below: hoist the resolution to a scope (<c>Image.ResidentPlanes()</c>) rather than trying to
+/// make the per-sample check cheaper. The plan also took the methodological half: a before/after pair
+/// spanning two commits is a BAND, not an attribution, and it took four columns here to land the cost
+/// on the change that actually caused it.</para>
 /// <para>Run both: <c>--runtimes net10.0 nativeaot10.0</c>. Every shipped binary here is
 /// <c>PublishAot</c>, so a JIT-only number is not the number that matters.</para>
 /// </remarks>

@@ -1190,6 +1190,25 @@ installer, and the activation bug that shipped:
 
 Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → camera recycles. See
 `ChannelBuffer` XML doc for ownership semantics.
+
+**Who owns a frame is stated in ONE place: the `<remarks>` on `Image`** (P0 of
+[docs/plans/frame-lifecycle.md](docs/plans/frame-lifecycle.md)), and every producer's own doc names
+the convention it hands out and points back there. The vocabulary is **own / borrow / consume**:
+`Release()` spends ownership, `TryLease` is the borrow, `Adopt*` and `*Into*` consume. Four
+conventions coexist -- driver-owned (1), self-owned (2), pool-owned (3), consumed-input (4). A fifth,
+**identity-or-copy-decided-at-runtime, was not a convention but the absence of one** and P1 retired
+all fourteen of its guards. **Never derive "may I release this?" from a `ReferenceEquals`**:
+ownership is a property of the handoff, and the two coincide only while one thread owns the whole
+chain. Getting it wrong is silent -- it corrupts a stack rather than throwing.
+
+**The retirement generalises, so use it rather than re-deriving it:** in every case the answer was
+already in hand one branch earlier (`Blend < 1f`, `channels == 1`, `options.IsNoOp`, the assignment
+that replaced an accumulator), so ask THAT. Where a producer offers no such predicate, make it
+**consume** its input instead -- `Calibrator.Apply` now takes ownership of the light and the caller
+owns the result whatever the configuration, which is why `RawLightDecoder` has no guard at all.
+Reference checks that survive are asking a DIFFERENT question (an enhancer declining a plate, a
+display-identity "is this a new frame to upload?", the flat preview's slot swap) and must not be
+mechanically converted.
 - Never hold an `Image` from `GetImageAsync` longer than needed; it pins the camera buffer
 - **`Image`'s primary ctor takes `ImmutableArray<Channel>`** (2026-07-06): per-channel
   `Filter`/min/max live on each `Channel` (via `Image.GetChannel`), image-wide
@@ -1205,6 +1224,14 @@ Camera → `ChannelBuffer` → `Image` → consumer → `image.Release()` → ca
   paths (stacking, planetary master, tests). `Image.DebayerIntoAsync` (the write-into-caller-buffers
   variant) currently has **zero callers**: wire it or delete it, don't cite it as the viewer path.
 - `Array2DPool` is for scratch only: camera buffers use `ChannelBuffer`/`_freeBuffers`
+- **A buffer nobody released is findable in DEBUG**: `ChannelBufferLeakTracker` holds a weak-referenced
+  table of unreleased `ChannelBuffer`s attributed to their producing site by caller info (no finalizer,
+  no strong reference -- either would change the GC behaviour it measures), and
+  `StackingPipeline.RunAsync` warns at `[end]` when anything is outstanding. Compiled out of Release,
+  which is what the main CI leg builds, so `dotnet.yml`'s `test-unit` runs a second **DEBUG leg**
+  selecting `--filter "Category=DebugOnly"`. A DEBUG-gated suite joins it by carrying that trait --
+  the leg names no class. **It also asserts it ran something**: a filter matching nothing exits 0, so
+  the step reads the count back from the TRX and fails at zero, or a renamed trait is a green no-op.
 - The recycle loop is complete for DAL (ZWO/QHY), Fake, Alpaca, and ASCOM (the latter two closed in
   the 2026-07-06 buffer audit: Alpaca decodes into a recycled buffer, ASCOM caches the COM
   `ImageArray` marshal once per exposure; cleared on `ReleaseImageData`/`StartExposureAsync`).
@@ -1260,8 +1287,15 @@ must treat the source `Image` as consumed:
 - **`Image.ScaleFloatValuesToUnitInPlace()`**: `internal` rescaler to `[0, 1]`. Returns a
   new `Image` view but reuses the underlying arrays. Original instance's `MaxValue` field
   becomes inconsistent with its samples after the call.
-- **`Image.DebayerAsync(..., normalizeToUnit: true)`**; passthrough for non-Bayer images
-  calls `ScaleFloatValuesToUnitInPlace` and returns the result; mutates the input.
+- **`Calibrator.Apply(Image light)`**: CONSUMES the light and the caller owns the result, whatever
+  the configuration (P1 of `docs/plans/frame-lifecycle.md`). Each step releases what it consumed --
+  a no-op for an unbuffered intermediate, the real handback for a pooled or camera-owned input.
+  The one deliberate exception to "ownership transfer is visible in the name": an established
+  domain verb, so it is documented and pinned by `CalibratorOwnershipTests` instead of renamed.
+- **`Image.DebayerAsync` no longer consumes anything** (P4). It used to, but only for a mono/colour
+  sensor AND only with `normalizeToUnit` AND only when the samples were not already unit-scaled --
+  convention 5 on the INPUT side. It scales into a fresh image now; nothing ever reached the
+  consuming path. **Membership of convention 4 is a property of the METHOD, never of an argument.**
 - **`AstroImageDocument.AdoptImageAsync(Image, ...)`**: public ownership-transfer factory
   (was `CreateFromImageAsync` until the rename). Internally normalises the input via
   `ScaleFloatValuesToUnitInPlace`. **Caller must not retain or use `image` after this call.**
@@ -1272,10 +1306,10 @@ The rename to `AdoptImageAsync` is the canonical signal: any other public API th
 its `Image` input should follow the same naming convention (`Adopt*` / verb-form ownership
 transfer), not the neutral `CreateFrom*` factory pattern.
 
-**A third mutation exists and is deliberately invisible: plane RESIDENCY** (`TryReleaseFloatPlanes`,
+**A third mutation exists and is deliberately invisible: plane RESIDENCY** (`TryEvictFloatPlanes`,
 D1 of [docs/plans/viewer-memory-footprint.md](docs/plans/viewer-memory-footprint.md)). It breaks the
 pattern of the two above on purpose -- it is not announced, not opt-in, and the caller is *expected*
-to keep using the image -- because a released 8-bit image rebuilds its planes from the retained
+to keep using the image -- because an evicted 8-bit image rebuilds its planes from the retained
 raster on the next read, so the mutation is unobservable **by value**. That only holds if it is also
 unobservable **by timing**, which is why: residency is DERIVED from the one `_planes` array rather
 than tracked in a flag beside it (a flag and the array it describes are the same fact twice, and a
@@ -1286,14 +1320,32 @@ publication race discards its work rather than interleaving. **`Image` is public
 published package**: a consumer reading two channels from two threads is entitled to do so against a
 type documented as immutable, and cannot be expected to know a read can rebuild them. `volatile` on a
 residency flag would NOT have bought this -- the tear is in the array, not the flag. Pinned by
-`ImagePlaneResidencyConcurrencyTests`, whose racing-release case fails against the per-channel
+`ImagePlaneResidencyConcurrencyTests`, whose racing-eviction case fails against the per-channel
 version.
 
+**Deriving residency is the expensive half, and `Image.ResidentPlanes()` is what pays for it.**
+`WarpBenchmarks` ablates four variants, and the split matters: **D1' itself cost nothing** (a
+predicted-not-taken bool), while the thread-safe derivation costs **+8.7% to +20.3%** on the bilinear
+resample loops -- a second five-field `Channel` copy plus a dependent `.Data` load, 12.6M times for a
+2048-square colour pass. Neither fact argues for going back to a flag; both argue for resolving
+residency ONCE per operation and handing the loop plain `float[,]`, which returns to parity under
+AOT. Two rules follow: **anything per-sample gets hoisted to a scope rather than made cheaper**, and
+**a before/after pair spanning two commits is a band, not an attribution** -- it took four columns to
+land this cost on the change that caused it.
+
+**Eviction is NOT release, and they no longer share the word** (P0 of
+[docs/plans/frame-lifecycle.md](docs/plans/frame-lifecycle.md)). `Image.Release()` spends OWNERSHIP:
+the frame goes back to the camera or the pool and must never be touched again. `TryEvictFloatPlanes`
+drops the float planes to save memory and is reversible, so an evicted image stays perfectly usable.
+The two facts have opposite implications for a caller and were one word apart, which is the most
+likely way to write the inverted guard; residency now says evict / restore / resident throughout, and
+"released" means ownership and nothing else.
+
 **Every read must go through the `Planes` accessor.** Three did not (`GetChannelArray`, the subpixel
-sampler, `ScaleFloatValuesToUnitInPlace`) and so read the released 0x0 stub: a FITS write of a
-released image emitted nothing and the in-place rescale threw on `plane[0, 0]`. Residency is also why
+sampler, `ScaleFloatValuesToUnitInPlace`) and so read the evicted 0x0 stub: a FITS write of an
+evicted image emitted nothing and the in-place rescale threw on `plane[0, 0]`. Residency is also why
 `TryLease` seeds from the LIVE planes -- seeding from the constructor argument handed a borrower the
-float planes the image had since dropped, resurrecting exactly what D1 released.
+float planes the image had since dropped, resurrecting exactly what D1 evicted.
 
 **Test fixtures must not share `Image` instances across tests.** `SharedTestData` caches the
 extracted *temp file path* (cheap to re-parse) but constructs a fresh `Image` per call; do
