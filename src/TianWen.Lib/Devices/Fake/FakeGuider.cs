@@ -534,49 +534,67 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
 
     public async ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
     {
-        // Save the last guide or loop frame if available
-        var image = _guideLoop?.LastFrame ?? _lastLoopFrame;
-        if (image is null)
+        // Save the last guide or loop frame if available -- BORROWED, not merely referenced. The
+        // guide loop does LastFrame?.Release(); LastFrame = frame; on every exposure, and this method
+        // awaits the mount below, so holding the bare reference across that await writes a buffer the
+        // camera has already taken back. It used to produce a plausible FITS full of the NEXT frame's
+        // pixels; now that reading a recycled frame throws, this is the call site that surfaced.
+        // Losing the lease race is "no frame right now", the honest answer for a caller that will ask
+        // again, and not an error.
+        if ((_guideLoop?.LastFrame ?? _lastLoopFrame) is not { } source || !source.TryLease(out var image))
         {
             return null;
         }
 
-        Directory.CreateDirectory(outputFolder);
-        var path = Path.Combine(outputFolder, $"guider_{TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
-
-        // Write WCS headers from current mount pointing so FakePlateSolver can read them.
-        // FITS WCS is a J2000 quantity: convert from the mount's native (typically JNOW) frame.
-        // A plate solve reports the TRUE sky, so prefer the fake mount's hidden-error seam
-        // (polar misalignment / drift) over the public believed read; this is what feeds the
-        // polar-align routine its misalignment signal. Real mounts only have believed reads.
-        WCS? wcs = null;
-        if (_mount is { Connected: true } mount)
+        try
         {
-            var mountJ2000 = mount is IFakeTruePointingSource trueSource
-                ? (await mount.TryGetTransformAsync(cancellationToken) is { } transform
-                    ? await trueSource.GetTruePointingJ2000Async(transform, updateTime: false, cancellationToken)
-                    : null)
-                : await mount.GetRaDecJ2000Async(cancellationToken);
-            var ra = double.IsNaN(PointingRA) ? mountJ2000?.RaJ2000 : PointingRA;
-            var dec = double.IsNaN(PointingDec) ? mountJ2000?.DecJ2000 : PointingDec;
-            if (ra is { } raJ2000 && dec is { } decJ2000)
+            Directory.CreateDirectory(outputFolder);
+            var path = Path.Combine(outputFolder, $"guider_{TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
+
+            // Write WCS headers from current mount pointing so FakePlateSolver can read them.
+            // FITS WCS is a J2000 quantity: convert from the mount's native (typically JNOW) frame.
+            // A plate solve reports the TRUE sky, so prefer the fake mount's hidden-error seam
+            // (polar misalignment / drift) over the public believed read; this is what feeds the
+            // polar-align routine its misalignment signal. Real mounts only have believed reads.
+            WCS? wcs = null;
+            if (_mount is { Connected: true } mount)
             {
-                wcs = new WCS(raJ2000, decJ2000);
+                var mountJ2000 = mount is IFakeTruePointingSource trueSource
+                    ? (await mount.TryGetTransformAsync(cancellationToken) is { } transform
+                        ? await trueSource.GetTruePointingJ2000Async(transform, updateTime: false, cancellationToken)
+                        : null)
+                    : await mount.GetRaDecJ2000Async(cancellationToken);
+                var ra = double.IsNaN(PointingRA) ? mountJ2000?.RaJ2000 : PointingRA;
+                var dec = double.IsNaN(PointingDec) ? mountJ2000?.DecJ2000 : PointingDec;
+                if (ra is { } raJ2000 && dec is { } decJ2000)
+                {
+                    wcs = new WCS(raJ2000, decJ2000);
+                }
             }
+            else if (!double.IsNaN(PointingRA) && !double.IsNaN(PointingDec))
+            {
+                wcs = new WCS(PointingRA, PointingDec);
+            }
+
+            image.WriteToFitsFile(path, wcs);
+
+            return path;
         }
-        else if (!double.IsNaN(PointingRA) && !double.IsNaN(PointingDec))
+        finally
         {
-            wcs = new WCS(PointingRA, PointingDec);
+            // The LEASE, never the guide loop's own frame: releasing that would drop the ref the
+            // loop still holds.
+            image.Release();
         }
-
-        image.WriteToFitsFile(path, wcs);
-
-        return path;
     }
 
+    /// <summary>
+    /// Stops the loop synchronously, so <paramref name="timeout"/> and
+    /// <paramref name="cancellationToken"/> are deliberately unused -- see the remarks on
+    /// <see cref="IGuider.StopCaptureAsync"/> for why an in-process guider has nothing to wait for.
+    /// </summary>
     public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
-
         _loopCts?.Cancel();
         _loopCts = null;
         ForceState(GuiderState.Idle);

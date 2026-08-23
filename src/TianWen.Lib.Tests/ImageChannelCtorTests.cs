@@ -81,6 +81,46 @@ public class ImageChannelCtorTests
         releases.ShouldBe(1); // idempotent
     }
 
+    /// <summary>
+    /// The asymmetry that makes the loud failure safe to add: a RECYCLED frame throws on read, a
+    /// self-owned one does not.
+    /// </summary>
+    /// <remarks>
+    /// <para>Reading a frame whose arrays went back to a camera or the pool used to return whatever
+    /// the driver had since put there. <c>ChannelBuffer.Data</c> guarded itself and always had, but
+    /// nothing ever called it -- pixels come through <c>Channel.Data</c>, a plain field -- so the
+    /// "conventions 1 and 3 fail loudly" claim in the policy was not true until the check moved onto
+    /// the <c>Planes</c> accessor.</para>
+    /// <para>The second half matters as much as the first. The guard keys on arrays having been
+    /// HANDED BACK, not on release having happened, because release is a no-op for a self-owned frame
+    /// and "release the image and go on reading it" is a correct, deliberately pinned pattern. A
+    /// guard on <c>_released</c> would have broken every one of those call sites.</para>
+    /// </remarks>
+    [Fact]
+    public void ReadingARecycledFrameThrows_WhileASelfOwnedOneStaysReadable()
+    {
+        var recycledData = new float[2, 2] { { 1f, 2f }, { 3f, 4f } };
+        var buffer = new ChannelBuffer(recycledData, onRelease: _ => { });
+        var recycled = new Image(
+            [new Channel(recycledData, default, 1f, 4f, 0) { Buffer = buffer }],
+            BitDepth.Float32, 0f, new ImageMeta());
+
+        recycled[0, 0, 0].ShouldBe(1f, "readable while it is still owned");
+        recycled.Release();
+
+        Should.Throw<ObjectDisposedException>(() => recycled[0, 0, 0]);
+        Should.Throw<ObjectDisposedException>(() => recycled.GetChannelSpan(0).Length);
+
+        // Convention 2, untouched: no buffer means nothing was handed back, so nothing is poisoned.
+        var selfOwned = new Image(
+            [new Channel(new float[2, 2] { { 5f, 6f }, { 7f, 8f } }, default, 5f, 8f, 0)],
+            BitDepth.Float32, 0f, new ImageMeta());
+
+        selfOwned.Release();
+        selfOwned[0, 0, 0].ShouldBe(5f, "release is a no-op for a self-owned frame and must stay one");
+        selfOwned.GetChannelSpan(0).Length.ShouldBe(4);
+    }
+
     [Fact]
     public void ScaleFloatValuesToUnitInPlace_DoesNotCarryTheBufferIntoTheRewrappedImage()
     {

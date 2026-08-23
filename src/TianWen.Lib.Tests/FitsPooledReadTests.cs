@@ -197,7 +197,12 @@ namespace TianWen.Lib.Tests
             master[0, 0, 0].ShouldBe(0f);
             master[0, Height - 1, Width - 1].ShouldBe((Height - 1) * Width + Width - 1);
 
-            Array2DPool<float>.ReturnCount.ShouldBe(returnsBefore + Frames,
+            // At LEAST, not exactly. The fixture's odd frame shape keeps this test's BUCKET to
+            // itself, but HitCount and ReturnCount are process-wide, and Image.Debayer,
+            // Session.Focus and Session.IO all rent from the same pool in collections that run in
+            // parallel with this one. An exact delta here is a race, and it flaked as one before
+            // being written down.
+            Array2DPool<float>.ReturnCount.ShouldBeGreaterThanOrEqualTo(returnsBefore + Frames,
                 "each loaded frame is released once the combine has read it");
             Array2DPool<float>.HitCount.ShouldBeGreaterThan(hitsBefore,
                 "and the second frame onwards must be renting what the first handed back");

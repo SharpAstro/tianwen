@@ -887,6 +887,11 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     public ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
         => ValueTask.FromResult<string?>(null);
 
+    /// <summary>
+    /// Stops the loop synchronously, so <paramref name="timeout"/> and
+    /// <paramref name="cancellationToken"/> are deliberately unused -- see the remarks on
+    /// <see cref="IGuider.StopCaptureAsync"/> for why an in-process guider has nothing to wait for.
+    /// </summary>
     public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         CancelGuideLoop();

@@ -111,8 +111,21 @@ public interface IGuider : IDeviceDriver
     /// <summary>
     /// Stop looping and guiding.
     /// </summary>
-    /// <param name="timeout">Timeout after which an exception is thrown.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <remarks>
+    /// <b>An in-process guider legitimately ignores both parameters, and that is not drift.</b> They
+    /// exist for a guider that must ask ANOTHER PROCESS to stop and then wait for it to say it did:
+    /// <c>OpenPHD2GuiderDriver</c> passes the token to the RPC and to each poll, and spends
+    /// <paramref name="timeout"/> waiting for PHD2 to report <c>Stopped</c>. <c>BuiltInGuiderDriver</c>
+    /// and <c>FakeGuider</c> stop by cancelling the loop's own token source, which completes
+    /// synchronously -- there is no window in which to time out, and nothing a caller could usefully
+    /// cancel. Abandoning a stop half-way would be worse than not offering it: the caller would
+    /// believe guiding had stopped while the loop kept running.
+    /// </remarks>
+    /// <param name="timeout">
+    /// How long to wait for the guider to confirm it stopped. Ignored by implementations that stop
+    /// synchronously; see the remarks.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation token. Also ignored by a synchronous stop.</param>
     /// <exception cref="GuiderException">Throws if not connected or command could not be issued (see timeout).</exception>
     ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default);
 

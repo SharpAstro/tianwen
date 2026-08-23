@@ -119,10 +119,19 @@ public sealed class OnnxBackgroundExtractor(
         var normalised = NormaliseForModel(padded, medians, mads);
         padded.Release();
 
-        // 5) Mono -> RGB by triplication if needed (model is RGB-only).
-        var modelInput = channels == 1 ? MonoToRgb(normalised) : normalised;
-        // Same predicate that built it, not a reference comparison (P1 of docs/plans/frame-lifecycle.md).
-        if (channels == 1) normalised.Release();
+        // 5) Mono -> RGB by triplication if needed (model is RGB-only). The branch that ALLOCATES is
+        // the branch that releases, so the predicate is written once and nothing can be inserted
+        // between them (P1 of docs/plans/frame-lifecycle.md).
+        Image modelInput;
+        if (channels == 1)
+        {
+            modelInput = MonoToRgb(normalised);
+            normalised.Release();
+        }
+        else
+        {
+            modelInput = normalised;
+        }
         var prepMs = prepSw.ElapsedMilliseconds;
 
         // 6) Run inference (single shot, NHWC).
@@ -156,8 +165,16 @@ public sealed class OnnxBackgroundExtractor(
         var stitchSw = Stopwatch.StartNew();
         var denormed = DenormaliseFromModel(raw, medians, mads);
         raw.Release();
-        var backgroundPadded = channels == 1 ? RgbToMonoAverage(denormed) : denormed;
-        if (channels == 1) denormed.Release();
+        Image backgroundPadded;
+        if (channels == 1)
+        {
+            backgroundPadded = RgbToMonoAverage(denormed);
+            denormed.Release();
+        }
+        else
+        {
+            backgroundPadded = denormed;
+        }
 
         // 8) Crop off the 8px padding -> 240x240.
         var backgroundCropped = Crop(backgroundPadded, Padding, Padding, ShrinkSize, ShrinkSize);
