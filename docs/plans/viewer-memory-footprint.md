@@ -546,6 +546,29 @@ measured.
 the open path for D3', it inverts what "slow open" meant, and shipping D3' on top of the conflation
 would have made a correctness bug harder to see rather than easier.
 
+### What D1' cost once it shipped, and which change the cost belonged to
+
+D1' is in (`Image.TryEvictFloatPlanes`, raster-backed, with `GetChannelSpan` restoring lazily rather
+than throwing -- the third option above, chosen because auditing every caller was the cost that made
+the honest one expensive). `WarpBenchmarks` prices it on the bilinear resample loops, the only place
+in the library that touches a plane per DESTINATION PIXEL: 12.6M samples for a 2048-square colour
+pass. The full table lives in that file's header; what belongs here is which change the cost was.
+
+**D1' itself cost nothing.** As shipped it was one predicted-not-taken bool check ahead of the same
+field read the pre-D1' code already did, and seven of the eight measured cases land within **1.3%**
+of pre-D1'. The **+8.7% to +20.3%** band belongs to the *follow-up* that made residency observable
+from two threads by DERIVING it from the plane array instead of keeping a flag beside it -- a second
+copy of a five-field `Channel` plus a dependent `.Data` load, 12.6M times. That fix is not
+negotiable (the tear a flag permits is in the array, so `volatile` would not have bought it), and the
+thing that pays for it is `Image.ResidentPlanes()`: resolve residency ONCE per operation, hand the
+loop plain `float[,]`, back to parity under AOT.
+
+**The first reading of this got the attribution wrong**, billing the whole band to D1', because it
+compared two builds that differed by two changes. It took a four-column ablation to separate them.
+That generalises past this plan and is recorded as a rule in
+[frame-lifecycle.md](frame-lifecycle.md), which takes its per-frame-never-per-sample budget from
+this same measurement: **a before/after pair spanning two commits is a band, not an attribution.**
+
 **Verification must be allocation- and device-memory-based, never working set.** Established the hard
 way in M2: run-to-run variance on this document exceeds 1,200 MB, which is larger than anything M3
 would deliver. `GC.GetAllocatedBytesForCurrentThread` for the CPU half; the pipeline's own image
