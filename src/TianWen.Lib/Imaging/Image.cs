@@ -170,7 +170,7 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// type is documented as immutable and ships in a package: a consumer reading two channels from
     /// two threads is entitled to do so, and cannot be expected to know that a read can rebuild them.</para>
     /// <para><b>Deriving it is the expensive half, and the hoist is what pays for it.</b> Asking
-    /// <see cref="IsEvicted"/> costs a second copy of a five-field <see cref="Channel"/> plus a
+    /// <see cref="IsEvicted"/> costs a second 72-byte <see cref="Channel"/> copy plus a
     /// dependent <c>.Data</c> load and a length check -- nothing once, and <b>+8.7% to +20.3%</b> on
     /// the bilinear resample loops at 12.6M samples for a 2048-square colour pass (`WarpBenchmarks`,
     /// which also shows that D1' itself, a predicted-not-taken bool, cost nothing). That is not an
