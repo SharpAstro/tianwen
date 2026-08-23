@@ -426,7 +426,42 @@ public sealed class StackingPipeline(
         }
 
         hostTracker.Log(logger, "end");
+        ReportOutstandingChannelBuffers(logger);
         logger.LogInformation("[end]");
+    }
+
+    /// <summary>
+    /// End-of-run buffer-ownership check (P2 of <c>docs/plans/frame-lifecycle.md</c>). DEBUG only;
+    /// the call itself is compiled out of Release.
+    /// </summary>
+    /// <remarks>
+    /// <para>This is the hook the plan exists for. Both tile-pipelined strategies read their raw
+    /// frame and never released it, which was free while file loads owned their arrays and became a
+    /// real leak the instant the read was pooled -- and nothing said so, in the type system or
+    /// anywhere else, until someone watched process memory. Nothing should still be outstanding once
+    /// the last group has been written, so anything here names the producer that forgot.</para>
+    /// <para>No forced collection: a dropped frame is reported as outstanding whether or not the
+    /// collector has got to it yet, so the cheap sweep answers the same question as the blocking one
+    /// and a stack run does not pay a Gen2 pause to ask.</para>
+    /// </remarks>
+    [Conditional("DEBUG")]
+    private static void ReportOutstandingChannelBuffers(ILogger logger)
+    {
+        var report = ChannelBufferLeakTracker.Report();
+        if (report.LiveCount == 0 && report.LeakCount == 0)
+        {
+            return;
+        }
+
+        // The pool's own accounting beside it, because the two answer halves of one question: the
+        // tracker says how many arrays were lent and never handed back, the pool says how much it is
+        // holding and how much it refused. A shortfall in the first with the second at its ceiling is
+        // a different diagnosis from a shortfall on an empty pool.
+        logger.LogWarning(
+            "[end] channel buffers were not released: {Report} | pool retained {RetainedMiB} MiB, budget evictions {Evictions}",
+            report.Describe(),
+            Array2DPool<float>.RetainedBytes >> 20,
+            Array2DPool<float>.BudgetEvictionCount);
     }
 
     // =====================================================================
