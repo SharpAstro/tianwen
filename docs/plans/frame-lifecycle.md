@@ -121,7 +121,35 @@ did not address it at all. The refcount layer is the part that has been thought 
   field, readers work off a snapshot, and a restorer that loses the race discards its own build.
   Pinned by `ImagePlaneResidencyConcurrencyTests`.
 
-So there is no gap in the refcount. There are four elsewhere, and they are what a policy has to cover:
+**There WAS one gap in the refcount, found 2026-08-23 and now closed as far as a shared count can
+close it.** `Release` was documented idempotent and clamped a negative count back to zero, which
+guards the benign case -- a lone holder releasing twice, where the array was going back anyway -- and
+is silent on the dangerous one. Probed: two holders at count 2, one of them releasing twice takes the
+count to zero and fires the recycle callback with the other still reading. The hazard sat behind all
+239 `Release()` call sites without ever firing, because the only production holder is an `Image`,
+whose `Release` is one-shot.
+
+The fix is a throw, and its limit is worth stating because it is the same limit the typed-ownership
+section below runs into. **A shared count can DETECT a double-release; it cannot prevent one.** The
+offending call is byte-identical to a legitimate last release -- same method, same resulting count,
+no holder identity anywhere -- so it is served, and the throw lands on the *next* release, the
+innocent one. That is strictly better than silent absorption and it is not prevention. Prevention
+needs per-holder identity, which is what `Image` already supplies and what a `ChannelBuffer` handed
+out raw does not. Both halves pinned by `ImageLeaseTests`.
+
+**And a second find the same day, in a PRODUCER rather than the count: the published-pointer
+dangle.** `GuideLoop.RunAsync` and `FakeGuider`'s capture loops all did release-then-AWAIT-then-publish,
+so for the duration of every capture the published frame pointer (`LastFrame` / `_lastLoopFrame`)
+aimed at a frame whose ownership was already spent, and any borrower in that window lost its
+`TryLease` to pure scheduling. Invisible while `SaveImageAsync` read the bare reference (it "won" by
+writing a spent frame's pixels); the moment that reader became honest, the guider-focus functional
+test started failing under suite load -- 4 of 6 runs -- while passing in isolation and in CI. The
+invariant, now stated at every publisher: **a published frame pointer always points at a live frame
+-- capture, swap, THEN release the superseded frame** (and unpublish before releasing on the teardown
+path). With swap-first publishers a failed lease has exactly one meaning, "superseded between read
+and lease", so the reader re-reads and converges in one step.
+
+Otherwise the refcount holds. There are four gaps elsewhere, and they are what a policy has to cover:
 
 1. **Convention 4 has no runtime enforcement whatsoever, and it is the only one that MUTATES.**
    `ScaleFloatValuesToUnitInPlace`, `DebayerAsync(normalizeToUnit: true)` and `AdoptImageAsync` write
@@ -584,6 +612,22 @@ read surface and its own `Dispose` is the shape that can actually constrain a bo
 forwarding. And **whether `Release` becomes `Dispose`**: a `using` is the only thing that makes the
 obligation hard to forget, but `Image.Release` is refcount semantics rather than disposal, and
 conflating the two is how a double-release gets written.
+
+**2026-08-23 -- the second question is now half answered, by the double-release above.** `Dispose` on
+`Image` itself is the wrong move and for a sharper reason than "the semantics differ": `Release` is a
+no-op on a self-owned frame and several call sites read after it, so `Image` fails the one clause
+that matters (`ObjectDisposedException` afterwards), while `IDisposable` would point CA2000 at all
+239 sites including every borrowed frame and make `using` appear on frames the code does not own --
+the exact bug, blessed by the compiler. `Dispose` on a **per-holder wrapper** has none of that: it is
+one obligation, one holder, one shot, and it is `Interlocked`-exchange-shaped exactly as
+`Image.Release` already is.
+
+That is also the whole difference between detecting and preventing a double-release. A shared count
+cannot see which holder is calling; a token IS the holder. So the wrapper is not merely a nicer way
+to spell the obligation -- it is the only shape that closes the hazard, and the refcount's throw is
+the runtime backstop for code that bypasses it. When this is picked up, the producers to convert are
+the ones that hand out an obligation: `TryLease` first (it already returns this thing without naming
+it), then the camera `GetImageAsync` path.
 
 ### Rejected: a subclass carrying FAST accessors
 

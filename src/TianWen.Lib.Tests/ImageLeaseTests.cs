@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Immutable;
 using System.Threading;
 using System.Threading.Tasks;
@@ -49,6 +50,70 @@ public class ImageLeaseTests
         buffer.IsReleased.ShouldBeFalse(); // the creator's ref is still outstanding
         buffer.Release();
         buffer.IsReleased.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A shared refcount DETECTS a double-release; it cannot prevent one. This pins both halves,
+    /// because the gap between them is the reason <see cref="Image"/> has to be the token.
+    /// </summary>
+    /// <remarks>
+    /// The offending call is byte-identical to a legitimate last release -- same method, same
+    /// count, no holder identity anywhere -- so it is served, the array goes back, and only the
+    /// NEXT release finds the till empty. What the throw buys is that the excess stops being
+    /// absorbed in silence: before it, the whole sequence completed with no signal of any kind.
+    /// </remarks>
+    [Fact]
+    public void ADoubleReleaseRecyclesUnderTheOtherHolderAndIsCaughtOnlyAfterwards()
+    {
+        var recycled = 0;
+        var buffer = new ChannelBuffer(new float[2, 2], onRelease: _ => recycled++);
+
+        buffer.TryAddRef().ShouldBeTrue();
+        buffer.RefCount.ShouldBe(2, "creator plus borrower");
+
+        buffer.Release();                       // creator, legitimate: 2 -> 1
+        recycled.ShouldBe(0);
+
+        buffer.Release();                       // creator AGAIN, the bug: 1 -> 0
+        recycled.ShouldBe(1,
+            "indistinguishable from the borrower's legitimate release, so it is served -- the array "
+            + "goes back while the borrower is still reading, and no shared counter can see it coming");
+
+        // The borrower's own legitimate release is the one that finds the till empty. It is the
+        // innocent party, and it is where the evidence surfaces.
+        Should.Throw<ObjectDisposedException>(() => buffer.Release());
+        buffer.RefCount.ShouldBe(0, "the refused release put the count back rather than leaving it negative");
+    }
+
+    /// <summary>
+    /// And the reason the hazard above is not reachable from production: every holder is an
+    /// <see cref="Image"/>, whose <c>Release</c> is one-shot. Prevention lives HERE, in the token,
+    /// not in the counter.
+    /// </summary>
+    [Fact]
+    public void ReleasingTheSameImageTwiceSpendsExactlyOneRef()
+    {
+        var recycled = 0;
+        var data = new float[2, 2];
+        var buffer = new ChannelBuffer(data, onRelease: _ => recycled++);
+        var image = new Image(
+            [new Channel(data, default, 0f, 1f, 0) { Buffer = buffer }],
+            BitDepth.Float32,
+            pedestal: 0f,
+            new ImageMeta());
+
+        buffer.TryAddRef().ShouldBeTrue();      // stand in for a second holder
+        buffer.RefCount.ShouldBe(2);
+
+        image.Release();
+        image.Release();
+        image.Release();
+
+        buffer.RefCount.ShouldBe(1, "three calls, one ref spent -- the exchange makes the rest no-ops");
+        recycled.ShouldBe(0, "the other holder's ref is intact, so the array has not gone back");
+
+        buffer.Release();
+        recycled.ShouldBe(1);
     }
 
     [Fact]
