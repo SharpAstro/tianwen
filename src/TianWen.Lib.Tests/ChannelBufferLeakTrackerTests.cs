@@ -117,11 +117,15 @@ namespace TianWen.Lib.Tests
             OutstandingAt(nameof(ReleaseClearsTheEntryWhileTheBufferItselfIsStillAlive)).ShouldBe(before + 1);
 
             buffer.Release();
-            buffer.Release();
 
             // Object liveness is not the fact being tracked: OWNERSHIP is. The buffer is still very
-            // much alive here and must be gone from the table anyway, and the second release must not
-            // disturb an entry that is already gone.
+            // much alive here and must be gone from the table anyway.
+            OutstandingAt(nameof(ReleaseClearsTheEntryWhileTheBufferItselfIsStillAlive)).ShouldBe(before);
+
+            // The second release used to be a documented no-op, which is what let a two-holder
+            // double-release recycle an array another holder was still reading. It throws now, and
+            // the already-cleared entry must stay cleared rather than being disturbed by the attempt.
+            Should.Throw<ObjectDisposedException>(() => buffer.Release());
             OutstandingAt(nameof(ReleaseClearsTheEntryWhileTheBufferItselfIsStillAlive)).ShouldBe(before);
             GC.KeepAlive(buffer);
         }
