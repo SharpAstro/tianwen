@@ -50,9 +50,26 @@ public sealed record FrameInfo(
     /// <exception cref="IOException">The file disappeared between enumeration
     /// and load, or could not be parsed as FITS.</exception>
     public Task<Image> LoadFullAsync(CancellationToken cancellationToken = default)
+        => LoadFullAsync(pooled: false, cancellationToken);
+
+    /// <summary>
+    /// As <see cref="LoadFullAsync(CancellationToken)"/>, but with the channel arrays optionally
+    /// rented from <c>Array2DPool</c> so a bulk reader recycles them instead of handing the GC a
+    /// large-object array per frame.
+    /// </summary>
+    /// <param name="pooled">
+    /// <see langword="true"/> turns the release obligation the summary above already describes into
+    /// a REAL one: the frame becomes pool-owned (frame-ownership convention 3 on
+    /// <see cref="Image"/>), <see cref="Image.Release"/> stops being a no-op, and touching the frame
+    /// afterwards reads pixels the pool may already have lent to someone else. Pass it only from a
+    /// stage that owns the frame outright for a bounded scope and releases it there -- P3 of
+    /// <c>docs/plans/frame-lifecycle.md</c> has the audit of which stages those are.
+    /// </param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    public Task<Image> LoadFullAsync(bool pooled, CancellationToken cancellationToken = default)
         => Task.Run(() =>
         {
-            if (!Image.TryReadFitsFile(Path, out var image))
+            if (!Image.TryReadFitsFile(Path, out var image, out _, pooled))
             {
                 throw new IOException($"Failed to read FITS file: {Path}");
             }
