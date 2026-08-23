@@ -42,9 +42,10 @@ internal class SessionFactory(
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
         Justification = "The wrappers are IAsyncDisposable-only and this factory is synchronous, so disposing on "
-            + "a mid-assembly throw would mean sync-over-async. Nothing leaks on that path: a fresh driver is not "
-            + "yet connected (DisposeAsync would only unsubscribe an event on an object that is garbage anyway) "
-            + "and a borrowed driver stays the hub's, deliberately. Ownership transfers to the returned Setup.")]
+            + "a mid-assembly throw would mean sync-over-async -- and there is nothing to dispose: a wrapper "
+            + "holds no resource until its driver connects (see ControllableDeviceBase.DisposeAsync), a fresh "
+            + "driver has not connected yet, and a borrowed driver stays the hub's, deliberately. Ownership "
+            + "transfers to the returned Setup, which Session disposes.")]
     private (Setup Setup, ProfileData ProfileData) CreateSetup(Guid profileId)
     {
         var profileDeviceId = Profile.DeviceIdFromUUID(profileId);
