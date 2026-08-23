@@ -404,9 +404,14 @@ internal sealed class GuideLoop
                 var frameStart = GetTimestamp();
 
                 // Capture and process frame: release previous frame's ChannelBuffer
-                LastFrame?.Release();
+                // Capture BEFORE swapping and only then release the superseded frame. The published
+                // pointer must always point at a live frame: releasing first left LastFrame dangling
+                // at a spent frame for the whole capture, so any borrower in that window (the hosted
+                // preview, the guider save path) lost its TryLease for no better reason than timing.
                 var frame = await captureFrame(cancellationToken);
+                var superseded = LastFrame;
                 LastFrame = frame;
+                superseded?.Release();
                 var result = _tracker.ProcessFrame(frame.GetChannelArray(0));
                 LastCentroidResult = result;
 
