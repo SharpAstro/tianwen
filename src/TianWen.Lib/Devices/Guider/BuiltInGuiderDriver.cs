@@ -457,8 +457,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         if (!tracker.IsAcquired)
         {
-            frame.Release();
+            // Unpublish BEFORE releasing: the published pointer must never point at a spent frame,
+            // even for the two statements this window used to last.
             LastCapturedFrame = null;
+            frame.Release();
             // Return null without raising a guiding error -- the caller retries (a cloud / poor seeing
             // is often transient) and raises the terminal error only once all attempts are exhausted.
             Logger.LogWarning("Built-in guider: calibration could not acquire a guide star (cloud / poor seeing?).");

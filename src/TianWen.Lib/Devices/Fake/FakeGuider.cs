@@ -461,17 +461,24 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
                     break;
                 }
 
-                _lastLoopFrame?.Release();
+                // Capture -> publish -> release the superseded frame, in that order. Release-first
+                // left the published pointer dangling at a spent frame for an entire capture, and the
+                // very first iteration released the frame LoopAsync had just published -- so a
+                // SaveImageAsync racing this loop lost its lease exactly when a caller had been told
+                // looping was ready. Same invariant as GuideLoop.RunAsync.
                 var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, ct);
+                var superseded = _lastLoopFrame;
                 LastLoopFrame = frame;
+                superseded?.Release();
             }
 
             // Continue capturing during settle: keeps the guider view updating
             while (!TryCompleteSettle() && CurrentState is GuiderState.Settling && !ct.IsCancellationRequested)
             {
-                _lastLoopFrame?.Release();
                 var settleFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, ct);
+                var supersededBySettle = _lastLoopFrame;
                 LastLoopFrame = settleFrame;
+                supersededBySettle?.Release();
             }
 
             if (ct.IsCancellationRequested || CurrentState is GuiderState.Idle) return;
@@ -479,7 +486,9 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
             // Phase 2: Guided capture; acquire guide star, then run GuideLoop
             var tracker = new GuiderCentroidTracker(maxStars: 1);
             var initFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, ext, pollInterval, ct);
+            var supersededByInit = _lastLoopFrame;
             LastLoopFrame = initFrame;
+            supersededByInit?.Release(); // was silently leaked before: assigned over, never released
             tracker.ProcessFrame(initFrame.GetChannelArray(0));
             tracker.SetLockPosition();
 
@@ -534,14 +543,28 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
 
     public async ValueTask<string?> SaveImageAsync(string outputFolder, CancellationToken cancellationToken = default)
     {
-        // Save the last guide or loop frame if available -- BORROWED, not merely referenced. The
-        // guide loop does LastFrame?.Release(); LastFrame = frame; on every exposure, and this method
-        // awaits the mount below, so holding the bare reference across that await writes a buffer the
-        // camera has already taken back. It used to produce a plausible FITS full of the NEXT frame's
-        // pixels; now that reading a recycled frame throws, this is the call site that surfaced.
-        // Losing the lease race is "no frame right now", the honest answer for a caller that will ask
-        // again, and not an error.
-        if ((_guideLoop?.LastFrame ?? _lastLoopFrame) is not { } source || !source.TryLease(out var image))
+        // Save the last guide or loop frame if available -- BORROWED, not merely referenced: this
+        // method awaits the mount below, and holding a bare reference across that await once wrote a
+        // plausible FITS full of the NEXT frame's pixels. Publishers swap the pointer BEFORE
+        // releasing the superseded frame, so a failed lease has exactly one meaning: the frame was
+        // superseded between our read and the lease. Re-reading then observes the successor, which
+        // is live until the capture after it completes -- one retry converges; the extras are
+        // insurance against stacked swaps. No frame at all is a real "no", not a race.
+        Image? image = null;
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            if ((_guideLoop?.LastFrame ?? _lastLoopFrame) is not { } source)
+            {
+                return null;
+            }
+
+            if (source.TryLease(out image))
+            {
+                break;
+            }
+        }
+
+        if (image is null)
         {
             return null;
         }
