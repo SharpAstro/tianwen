@@ -189,7 +189,7 @@ public sealed class AstroImageDocument : IPreviewSource
         // D1: the stats pass was the last thing that needed the float planes at load, and for a
         // document whose source was 8-bit they are pure duplication of a raster that can rebuild them
         // in memory. Declined for anything without one, so a float master is untouched.
-        image.TryReleaseFloatPlanes();
+        image.TryEvictFloatPlanes();
     }
 
     /// <summary>
@@ -204,6 +204,9 @@ public sealed class AstroImageDocument : IPreviewSource
     /// original <see cref="Image.MaxValue"/> field is no longer consistent with the
     /// underlying samples on the source instance. Pass a freshly constructed image
     /// you own, or build a document via the file-loading overload instead.
+    /// <para><b>Frame ownership: convention 4, a CONSUMED input</b> -- which is what the
+    /// <c>Adopt</c> in the name states, per the rule that ownership transfer is visible in the name.
+    /// See the frame-ownership notes on <see cref="Image"/>.</para>
     /// </remarks>
     public static async Task<AstroImageDocument> AdoptImageAsync(Image image, DebayerAlgorithm algorithm = DebayerAlgorithm.AHD, WCS? wcs = null, string filePath = "", CancellationToken cancellationToken = default)
     {
@@ -763,7 +766,7 @@ public sealed class AstroImageDocument : IPreviewSource
         }
 
         // Read from the source raster where there is one. Not an optimisation: this runs on every
-        // mouse move, and the indexer restores released float planes on access -- so reading it here
+        // mouse move, and the indexer restores evicted float planes on access -- so reading it here
         // would rebuild 8-bit planes on the first hover and quietly undo D1 for the whole session.
         // The values are identical rather than close: the plane was normalised by the sample-format
         // maximum from these very bytes, so this is the same division over the same data.

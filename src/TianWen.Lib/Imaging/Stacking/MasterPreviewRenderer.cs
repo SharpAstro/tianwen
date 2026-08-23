@@ -357,7 +357,10 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
         }
         finally
         {
-            if (!ReferenceEquals(boosted, stretched))
+            // MaskedBoost returns its input untouched for a no-op options set, and that is exactly
+            // the predicate below -- asked of the OPTIONS rather than of the reference, so this and
+            // the method it calls cannot drift apart. See P1 of docs/plans/frame-lifecycle.md.
+            if (!boost.IsNoOp)
             {
                 boosted.Release();
             }

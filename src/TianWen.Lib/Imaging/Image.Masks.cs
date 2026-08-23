@@ -210,6 +210,12 @@ public partial class Image
     /// cores rolled off, nebulosity a few percent of peak), so callers apply this AFTER the
     /// stretch, never before. Returns the same instance when <paramref name="options"/> is a
     /// no-op (no allocation).
+    /// <para><b>Frame ownership: the caller owns the result only when it is a new image, and
+    /// <see cref="MaskedBoostOptions.IsNoOp"/> is how it knows -- STATICALLY, without a reference
+    /// comparison.</b> `if (!options.IsNoOp) result.Release();` is the whole rule, and it is the same
+    /// predicate this method branches on, so the two cannot disagree. P1 of
+    /// <c>docs/plans/frame-lifecycle.md</c>: never derive "may I release this?" from
+    /// <c>ReferenceEquals</c>, which answers "is this a different instance?" and merely coincides.</para>
     /// </summary>
     /// <param name="options">Saturation multiplier + contrast boost amount; see
     /// <see cref="MaskedBoostOptions"/>.</param>
@@ -221,23 +227,33 @@ public partial class Image
         }
 
         var mask = LuminanceRangeMask();
+
+        // `processed` starts as the caller's frame and each optional stage replaces it with one of
+        // ours. Which of those two it currently is decides whether releasing it is right or is a
+        // release of somebody else's frame -- and the code KNOWS, because it just took the branch.
+        // Tracking that in a flag rather than re-deriving it from a reference comparison is P1 of
+        // docs/plans/frame-lifecycle.md in miniature: the comparison answers "is this a different
+        // instance?", which is a different question that merely coincides with this one.
         var processed = this;
+        var processedIsOurs = false;
         if (options.Saturation != 1f)
         {
             processed = Saturate(options.Saturation);
+            processedIsOurs = true;
         }
         if (options.ContrastBoost != 0f)
         {
             var boosted = processed.ContrastBoost(options.ContrastBoost);
-            if (!ReferenceEquals(processed, this))
+            if (processedIsOurs)
             {
                 processed.Release();
             }
             processed = boosted;
+            processedIsOurs = true;
         }
 
         var result = BlendThroughMask(processed, mask);
-        if (!ReferenceEquals(processed, this))
+        if (processedIsOurs)
         {
             processed.Release();
         }

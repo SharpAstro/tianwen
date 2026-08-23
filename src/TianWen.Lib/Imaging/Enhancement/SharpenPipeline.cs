@@ -28,6 +28,16 @@ namespace TianWen.Lib.Imaging.Enhancement;
 /// are registered; it throws only when <see cref="ProcessAsync"/> sees a
 /// step whose enhancer wasn't supplied.</para>
 ///
+/// <para><b>Frame ownership: a step owns what it produces, and every release here is gated on the
+/// predicate that produced it</b> -- <c>Blend &lt; 1f</c> for the four blended steps (a blend always
+/// allocates, so that branch IS "did this make a new image?"), and an explicit ownership flag for the
+/// stretch accumulator. This file held six of the fourteen <c>ReferenceEquals</c>-before-release
+/// guards P1 of <c>docs/plans/frame-lifecycle.md</c> retired, being the volume user; do not
+/// reintroduce the idiom. The one identity check left is a control-flow test for an enhancer that
+/// DECLINES the plate (an unlicensed deblurrer hands its input straight back), which is a question
+/// about the enhancer, not about ownership. See the frame-ownership notes on
+/// <see cref="Image"/>.</para>
+///
 /// <para>Step semantics are documented on the individual records;
 /// <see cref="SharpenRequest.Canonical"/> wires up the recommended order
 /// for a "sharpen everything" workflow. Validation is topological -- each
@@ -185,10 +195,19 @@ public sealed class SharpenPipeline(
                             timings.Add(("deblur(skipped)", phaseSw.ElapsedMilliseconds, default));
                             break;
                         }
-                        deblurred = deblurStep.Blend < 1f
-                            ? source.Lerp(raw, deblurStep.Blend)
-                            : raw;
-                        if (!ReferenceEquals(deblurred, raw)) raw.Release();
+                        // Lerp always allocates, so "did the blend produce a new image?" IS
+                        // `Blend < 1f` -- the branch above. Asking the reference instead was P1's
+                        // convention 5 in its most avoidable form: a runtime restatement of a
+                        // condition already in hand. See docs/plans/frame-lifecycle.md.
+                        if (deblurStep.Blend < 1f)
+                        {
+                            deblurred = source.Lerp(raw, deblurStep.Blend);
+                            raw.Release();
+                        }
+                        else
+                        {
+                            deblurred = raw;
+                        }
                         timings.Add(("deblur", phaseSw.ElapsedMilliseconds, deblurred.EstimateNoiseProfile()));
                         break;
                     }
@@ -250,10 +269,15 @@ public sealed class SharpenPipeline(
                         // ran earlier in the same request.
                         var inputPlate = Require(starsOnly);
                         var raw = await Require(stellarSharpener).EnhanceAsync(inputPlate, options, stepProgress, cancellationToken);
-                        sharpenedStars = sharpStep.Blend < 1f
-                            ? inputPlate.Lerp(raw, sharpStep.Blend)
-                            : raw;
-                        if (!ReferenceEquals(sharpenedStars, raw)) raw.Release();
+                        if (sharpStep.Blend < 1f)
+                        {
+                            sharpenedStars = inputPlate.Lerp(raw, sharpStep.Blend);
+                            raw.Release();
+                        }
+                        else
+                        {
+                            sharpenedStars = raw;
+                        }
                         timings.Add(("sharpen-stars", phaseSw.ElapsedMilliseconds, sharpenedStars.EstimateNoiseProfile()));
                         break;
                     }
@@ -262,10 +286,15 @@ public sealed class SharpenPipeline(
                     {
                         var inputPlate = Require(starless);
                         var raw = await Require(nonStellarDeconvolver).EnhanceAsync(inputPlate, options, stepProgress, cancellationToken);
-                        deconvolvedStarless = deconvStep.Blend < 1f
-                            ? inputPlate.Lerp(raw, deconvStep.Blend)
-                            : raw;
-                        if (!ReferenceEquals(deconvolvedStarless, raw)) raw.Release();
+                        if (deconvStep.Blend < 1f)
+                        {
+                            deconvolvedStarless = inputPlate.Lerp(raw, deconvStep.Blend);
+                            raw.Release();
+                        }
+                        else
+                        {
+                            deconvolvedStarless = raw;
+                        }
                         linearStarlessNoise = deconvolvedStarless.EstimateNoiseProfile();
                         timings.Add(("deconv-starless", phaseSw.ElapsedMilliseconds, linearStarlessNoise));
                         // starless is dead once deconv lands -- downstream
@@ -286,10 +315,15 @@ public sealed class SharpenPipeline(
                         // otherwise the raw starless plate.
                         var inputPlate = deconvolvedStarless ?? Require(starless);
                         var raw = await Require(denoiser).EnhanceAsync(inputPlate, denoiseStep.Variant, options, stepProgress, cancellationToken);
-                        denoisedStarless = denoiseStep.Blend < 1f
-                            ? inputPlate.Lerp(raw, denoiseStep.Blend)
-                            : raw;
-                        if (!ReferenceEquals(denoisedStarless, raw)) raw.Release();
+                        if (denoiseStep.Blend < 1f)
+                        {
+                            denoisedStarless = inputPlate.Lerp(raw, denoiseStep.Blend);
+                            raw.Release();
+                        }
+                        else
+                        {
+                            denoisedStarless = raw;
+                        }
                         linearStarlessNoise = denoisedStarless.EstimateNoiseProfile();
                         timings.Add(("denoise-starless", phaseSw.ElapsedMilliseconds, linearStarlessNoise));
                         // deconvolvedStarless is dead once denoise lands
@@ -682,7 +716,11 @@ public sealed class SharpenPipeline(
         double autoTargetValue, Image.GhsConvergeTarget autoTarget)
     {
         var channelCount = input.ChannelCount;
+        // `current` starts as the caller's frame and each pass replaces it with one of ours; the
+        // flag is which of those two it is. Derived from the assignment that made it true rather
+        // than from a reference comparison against `input` -- P1 of docs/plans/frame-lifecycle.md.
         var current = input;
+        var currentIsOurs = false;
         string spLabel;
         var convergenceLabel = "";
 
@@ -726,8 +764,9 @@ public sealed class SharpenPipeline(
                 var stretched = current.GeneralizedHyperbolicStretchPerChannel(
                     perChannelLnD, perChannelB, perChannelSp,
                     perChannelLp, perChannelHp);
-                if (!ReferenceEquals(current, input)) current.Release();
+                if (currentIsOurs) current.Release();
                 current = stretched;
+                currentIsOurs = true;
             }
             // Telemetry: show the metric the bisection targeted (med vs mode);
             // both numbers are computed regardless of target so the operator can
@@ -763,8 +802,9 @@ public sealed class SharpenPipeline(
                 var stretched = current.GeneralizedHyperbolicStretch(
                     lnD: effectiveLnD, b: b, sp: sp,
                     lp: lp, hp: hp);
-                if (!ReferenceEquals(current, input)) current.Release();
+                if (currentIsOurs) current.Release();
                 current = stretched;
+                currentIsOurs = true;
             }
             spLabel = userSp is null ? $"sp~{sp:F4}auto" : $"sp={sp:F3}";
         }

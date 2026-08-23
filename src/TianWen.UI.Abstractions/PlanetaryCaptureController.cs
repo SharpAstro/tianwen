@@ -299,8 +299,10 @@ public sealed class PlanetaryCaptureController(
                         received, stream.FrameCount, MeasuredFps, DroppedFrames);
                 }
 
-                // The split is a transient (the ring deep-copied it); release it separately from the camera frame.
-                if (!ReferenceEquals(toPush, frame))
+                // The split is a transient (the ring deep-copied it); release it separately from the
+                // camera frame. Gated on the SAME layout test that produced it one branch above, not
+                // on a reference comparison -- P1 of docs/plans/frame-lifecycle.md.
+                if (stream.Layout == PlanetaryFrameLayout.SplitCfa)
                 {
                     toPush.Release();
                 }

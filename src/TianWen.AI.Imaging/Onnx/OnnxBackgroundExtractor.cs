@@ -121,7 +121,8 @@ public sealed class OnnxBackgroundExtractor(
 
         // 5) Mono -> RGB by triplication if needed (model is RGB-only).
         var modelInput = channels == 1 ? MonoToRgb(normalised) : normalised;
-        if (!ReferenceEquals(modelInput, normalised)) normalised.Release();
+        // Same predicate that built it, not a reference comparison (P1 of docs/plans/frame-lifecycle.md).
+        if (channels == 1) normalised.Release();
         var prepMs = prepSw.ElapsedMilliseconds;
 
         // 6) Run inference (single shot, NHWC).
@@ -156,7 +157,7 @@ public sealed class OnnxBackgroundExtractor(
         var denormed = DenormaliseFromModel(raw, medians, mads);
         raw.Release();
         var backgroundPadded = channels == 1 ? RgbToMonoAverage(denormed) : denormed;
-        if (!ReferenceEquals(backgroundPadded, denormed)) denormed.Release();
+        if (channels == 1) denormed.Release();
 
         // 8) Crop off the 8px padding -> 240x240.
         var backgroundCropped = Crop(backgroundPadded, Padding, Padding, ShrinkSize, ShrinkSize);

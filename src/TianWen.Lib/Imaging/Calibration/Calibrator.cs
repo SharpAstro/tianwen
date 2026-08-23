@@ -96,22 +96,45 @@ public sealed record Calibrator(
     }
 
     /// <summary>
-    /// Returns a calibrated copy of <paramref name="light"/>. Bias and dark are
-    /// subtracted (with pedestal applied on the dark step), the result is
-    /// clamped to non-negative, then divided by the flat. Each master's
-    /// presence is optional; null masters skip that step.
+    /// Calibrates <paramref name="light"/>: bias and dark are subtracted (with
+    /// pedestal applied on the dark step), the result is clamped to
+    /// non-negative, then divided by the flat. Each master's presence is
+    /// optional; null masters skip that step.
+    /// <para><b>Frame ownership: this CONSUMES <paramref name="light"/> and the caller owns the
+    /// result</b> (convention 4). Release the result, exactly once, and never touch the input again.
+    /// One rule, whatever the configuration.</para>
+    /// <para><b>It used to be convention 5, and this was the load-bearing example.</b> With no
+    /// masters every step is skipped and the return value IS the input, so ownership of the result
+    /// depended on runtime configuration and thirteen call sites wrote
+    /// <c>if (!ReferenceEquals(calibrated, raw)) raw.Release();</c> longhand -- silently wrong if
+    /// they got it backwards, because releasing a frame you do not own recycles pixels another
+    /// holder is still reading. Taking ownership at the door retires that: each step releases the
+    /// frame it just consumed (a no-op for an unbuffered intermediate, and the real handback for a
+    /// pooled or camera-owned input), and the no-masters path returns the input with its ownership
+    /// passed along. No copy, no allocation change, and nothing for a caller to decide.</para>
+    /// <para>The alternative the plan expected to take -- always copy -- was measured and refuted:
+    /// it adds 7.2 ms and 32 MiB per light and removes no allocation, because the copy's destination
+    /// is the frame the caller keeps either way. See "The P1 measurement" in
+    /// <c>docs/plans/frame-lifecycle.md</c>.</para>
     /// </summary>
     /// <exception cref="ArgumentException">A master's shape doesn't match the
     /// light's. Surfaced from <see cref="Image.Subtract"/> / <see cref="Image.Divide"/>.</exception>
     public Image Apply(Image light)
     {
+        // Ownership arrives with the argument, so every step below can release what it consumed
+        // WITHOUT asking whether it owns it -- the answer is always yes. For an intermediate with no
+        // ref-counted buffer that release is a no-op and the frame stays readable (convention 2);
+        // for a pooled or camera-owned input it is the handback that makes unconditional pooling
+        // possible upstream.
         var result = light;
 
         if (Bias is { } bias)
         {
             // Bias subtraction with no pedestal: bias is small (~camera
             // electronic offset), shouldn't drive pixels negative.
-            result = result.Subtract(bias);
+            var next = result.Subtract(bias);
+            result.Release();
+            result = next;
         }
 
         if (Dark is { } dark)
@@ -127,12 +150,16 @@ public sealed record Calibrator(
             // Pedestal applied here, on the deeper subtract. Subtract clamps
             // to >= 0 after adding the pedestal so the dark-pedestal trick
             // takes effect at the right time.
-            result = result.Subtract(dark, addedPedestal: Pedestal);
+            var next = result.Subtract(dark, addedPedestal: Pedestal);
+            result.Release();
+            result = next;
         }
 
         if (Flat is { } flat)
         {
-            result = result.Divide(flat, epsilon: FlatEpsilon);
+            var next = result.Divide(flat, epsilon: FlatEpsilon);
+            result.Release();
+            result = next;
         }
 
         return result;

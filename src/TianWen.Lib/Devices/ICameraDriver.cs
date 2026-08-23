@@ -293,6 +293,17 @@ public interface ICameraDriver : IDeviceDriver
     /// </summary>
     ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// The exposure just taken, as an <see cref="Image"/> whose channels carry the driver's recycled
+    /// buffer, or null while no complete frame is available.
+    /// </summary>
+    /// <remarks>
+    /// <b>Frame ownership: convention 1, DRIVER-OWNED and recycled.</b> The caller owns the returned
+    /// frame and must <see cref="Image.Release"/> it exactly once, must not read it afterwards, and
+    /// must not hold it across an <c>await</c> without <see cref="Image.TryLease"/> -- releasing hands
+    /// the pixel array straight back to the camera. See the frame-ownership notes on
+    /// <see cref="Image"/>.
+    /// </remarks>
     async ValueTask<Image?> GetImageAsync(CancellationToken cancellationToken = default)
     {
         if (!Connected) return null;
