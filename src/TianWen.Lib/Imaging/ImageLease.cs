@@ -13,9 +13,11 @@ namespace TianWen.Lib.Imaging;
 /// legitimate last release, so <see cref="ChannelBuffer"/> can only throw at the NEXT, innocent
 /// release. A token is 1:1 with a claim -- disposing it ends this borrower's whole claim,
 /// unconditionally, and the frame's fate is computed from the surviving claims rather than asserted
-/// by whoever called last. It also hands the obligation to the compiler: CA2000 flags a forgotten
-/// lease, a borrowed frame offers no <c>Release</c> to call by mistake, and <c>using</c> makes the
-/// common shape the correct one.</para>
+/// by whoever called last. It also puts the obligation where the language can carry it: a borrowed
+/// frame offers no <c>Release</c> to call by mistake, and <c>using</c> makes the common shape the
+/// correct one. (NOT the analyzers: CA2000 ignores value-type disposables -- measured with a
+/// forgotten lease beside a forgotten <c>FileStream</c>, and only the stream fired -- so a dropped
+/// lease is caught by the DEBUG <see cref="ChannelBufferLeakTracker"/>, not at compile time.)</para>
 /// <para>The wrapped image is DISTINCT from the source frame -- it shares the pixel planes and holds
 /// its own buffer refs -- so disposing a lease can never mark the source released, and repeated
 /// borrow cycles against the same published frame all succeed. <c>default(ImageLease)</c> is inert:
