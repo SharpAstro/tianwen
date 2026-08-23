@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics.Tensors;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -50,6 +51,20 @@ namespace TianWen.Lib.Imaging;
 /// silently, in the pixels. <b>Membership is a property of the METHOD, never of an argument</b> --
 /// <see cref="DebayerAsync"/> used to consume only for some sensor types and only with
 /// <c>normalizeToUnit</c> set, which P4 removed.</item>
+/// </list>
+///
+/// <para><b>Conventions 1 and 3 fail loudly, and that took a fix rather than a claim.</b> Reading a
+/// frame whose arrays went back to a camera or the pool throws <see cref="ObjectDisposedException"/>
+/// from the <c>Planes</c> accessor every read funnels through. It did NOT before:
+/// <see cref="ChannelBuffer.Data"/> had guarded itself since it was written and had never had one
+/// call site, because pixels are read through <see cref="Channel.Data"/>, a plain field -- so a
+/// released camera frame returned whatever the driver had since put in that array. Convention 2 is
+/// unaffected: release is a no-op there, "release and keep reading" stays correct, and the guard
+/// keys on whether arrays were actually handed back rather than on release having happened.</para>
+/// <list type="bullet">
+/// <item><b>Convention 4 still fails silently</b>, in the pixels, and cannot be guarded the same way:
+/// the hazard is a write THROUGH the array, not a swap of it, so there is no accessor to put a check
+/// on. A consumed input is a discipline, not an enforced rule.</item>
 /// </list>
 ///
 /// <para><b>There was a fifth -- "identity or copy, decided at runtime" -- and it was not a
@@ -182,14 +197,47 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// </remarks>
     private ImmutableArray<Channel> Planes
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get
         {
+            // Reading a recycled frame is the one way to be wrong here that used to be SILENT, so it
+            // throws. See _recycled for why the check is not simply "_released".
+            //
+            // The throw lives in a NoInlining helper rather than here: an inline throw carries the
+            // string, the ObjectDisposedException construction and its call into this accessor's IL,
+            // and the JIT sizes an inlining candidate by that IL. Keeping the cold path out of the
+            // body is what lets the whole property fold into its caller, so the check costs one
+            // predicted-not-taken branch over a load-acquire. Same shape as the BCL's ThrowHelper.
+            if (_recycled)
+            {
+                ThrowRecycled();
+            }
+
             // ONE reference read, then work off the snapshot: re-reading the field mid-method is how a
             // caller ends up mixing two generations of the array.
             var snapshot = _planes;
             return IsEvicted(snapshot) ? RestorePlanesFromRaster(snapshot) : snapshot;
         }
     }
+
+    /// <summary>
+    /// The cold half of the recycled-frame check, kept out of <see cref="Planes"/> so that accessor
+    /// stays small enough to inline.
+    /// </summary>
+    /// <remarks>
+    /// <b>Not folded into the residency check, deliberately</b>, although it could be: publishing the
+    /// evicted (0x0) plane form from <see cref="Release"/> would make the resident path pay nothing at
+    /// all, since <c>IsEvicted</c> is already tested there. That buys one load-acquire on a path that
+    /// is per-OPERATION for every loop that hoists <see cref="ResidentPlanes"/> as it must -- and it
+    /// pays for it by having ownership write to the residency field, re-entangling the two mutable
+    /// facts this type spent P0 separating. Not worth it.
+    /// </remarks>
+    [DoesNotReturn]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ThrowRecycled()
+        => throw new ObjectDisposedException(nameof(Image),
+            "This frame's arrays went back to the camera or the pool when it was released. "
+            + "Take a TryLease if you need the pixels past the owner's release.");
 
     /// <summary>Whether the float planes are currently resident.</summary>
     public bool PlanesResident => !IsEvicted(_planes);
@@ -511,6 +559,29 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// </summary>
     private volatile bool _released;
 
+    /// <summary>
+    /// Set when <see cref="Release"/> actually handed arrays back, which makes every subsequent read
+    /// through <see cref="Planes"/> throw instead of returning pixels somebody else now owns.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why this is not simply <see cref="_released"/>.</b> Release is a no-op for a
+    /// self-owned frame, and convention 2's "release the image and go on reading it" call sites are
+    /// correct -- an invariant of <c>docs/plans/frame-lifecycle.md</c> and pinned by
+    /// <c>FitsPooledReadTests.UnpooledRead_CarriesNoBuffer_SoReleaseStaysANoOp</c>. Throwing on
+    /// <see cref="_released"/> would break every one of them. What is never correct is reading a
+    /// frame whose arrays went back to a camera or a pool, and that is exactly the case where
+    /// <c>HarvestBuffers</c> found something to release.</para>
+    /// <para><b>Why the check had to move here at all.</b> <see cref="ChannelBuffer.Data"/> has
+    /// guarded itself since it was written -- and has never had a single call site, because every
+    /// pixel read in the tree goes through <see cref="Channel.Data"/>, a plain field. So the loud
+    /// failure the policy claimed for conventions 1 and 3 did not exist: reading a released camera
+    /// frame returned whatever the driver had since put in that array. One choke point, one volatile
+    /// read, at frame granularity for any loop that hoists <see cref="ResidentPlanes"/> as it must.</para>
+    /// <para>Set BEFORE the buffers are released, so a racing reader cannot slip between the handback
+    /// and the poison.</para>
+    /// </remarks>
+    private volatile bool _recycled;
+
     private static ChannelBuffer?[]? HarvestBuffers(ImmutableArray<Channel> channels)
     {
         ChannelBuffer?[]? buffers = null;
@@ -545,6 +616,10 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
 
         if (Interlocked.Exchange(ref _channelBuffers, null) is { } buffers)
         {
+            // Before the handback, not after: a reader racing this call must meet the exception
+            // rather than the window in which the array is already somebody else's.
+            _recycled = true;
+
             for (var c = 0; c < buffers.Length; c++)
             {
                 buffers[c]?.Release();
