@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace TianWen.Lib.Imaging;
@@ -12,10 +13,28 @@ namespace TianWen.Lib.Imaging;
 /// to additional consumers. Each consumer calls <see cref="Release"/> when done.
 /// </para>
 /// </summary>
-internal sealed class ChannelBuffer(float[,] data, Action<float[,]>? onRelease = null)
+internal sealed class ChannelBuffer(
+    float[,] data,
+    Action<float[,]>? onRelease = null,
+    [CallerMemberName] string producer = "",
+    [CallerLineNumber] int producerLine = 0)
 {
     private int _refCount = 1;
     private volatile bool _released;
+
+    /// <summary>
+    /// Handle into the DEBUG-only <see cref="ChannelBufferLeakTracker"/> table, cleared on final
+    /// release so anything left over is a buffer nobody released. Always zero in Release, where
+    /// <c>Register</c> has an empty body and inlines away.
+    /// </summary>
+    /// <remarks>
+    /// The caller-info parameters above are what attribute a survivor to its producer. Two literals
+    /// pushed per buffer is per-FRAME-CHANNEL work on a type wrapping a multi-megabyte array, which
+    /// is the granularity the ownership policy allows; <c>[CallerFilePath]</c> is deliberately NOT
+    /// among them, because it would bake the build machine's absolute source paths into a shipped
+    /// package to buy a detail the member and line already give.
+    /// </remarks>
+    private readonly long _trackingId = ChannelBufferLeakTracker.Register(data, producer, producerLine);
 
     /// <summary>The backing pixel data (row-major [Height, Width]).</summary>
     /// <exception cref="ObjectDisposedException">Thrown if accessed after all refs released.</exception>
@@ -91,6 +110,7 @@ internal sealed class ChannelBuffer(float[,] data, Action<float[,]>? onRelease =
         if (count == 0)
         {
             _released = true;
+            ChannelBufferLeakTracker.Unregister(_trackingId);
             onRelease?.Invoke(data);
         }
         else if (count < 0)

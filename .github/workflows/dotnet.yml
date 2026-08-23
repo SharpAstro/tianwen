@@ -322,6 +322,41 @@ jobs:
         DOTNET_DbgMiniDumpName: /tmp/coredump-%e-%p-%t.dmp
       run: dotnet test TianWen.Lib.Tests -c $BUILD_CONF --no-build --logger "console;verbosity=detailed" --blame-crash --blame-hang --blame-hang-timeout 5min --results-directory test-results/
       working-directory: src
+    # ---------------------------------------------------------------------------------------
+    # DEBUG leg. Some instrumentation is compiled out of Release, so the Release run above
+    # SKIPS the tests that cover it and is no cover at all. ChannelBufferLeakTracker (P2 of
+    # docs/plans/frame-lifecycle.md) is the first of these: its tests open with
+    # Assert.SkipUnless(ChannelBufferLeakTracker.IsActive), which is the honest report for a
+    # Release run but would otherwise leave the feature verified nowhere.
+    #
+    # Selected by TRAIT, never by a list of class names, so a future DEBUG-gated suite is
+    # picked up by adding [Trait("Category", "DebugOnly")] and nothing here has to be
+    # remembered. It runs on both matrix architectures: the tests are arch-independent, but
+    # the Debug COMPILE is its own cover, and the job is ~6m against a 25m budget.
+    - name: Build (Debug, for the DEBUG-gated suites)
+      # Same version properties as the Release build above, and GeneratePackageOnBuild off:
+      # TianWen.Lib packs on build, and a Debug pack would drop a second .nupkg beside the
+      # Release one. Harmless in this job (publish runs elsewhere and globs its own runner)
+      # but it costs time and it is the exact shape that has bitten sibling repos.
+      run: dotnet build TianWen.Lib.Tests -c Debug --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true -p:GeneratePackageOnBuild=false
+      working-directory: src
+    - name: Unit Tests (DEBUG-gated instrumentation)
+      # The guard is not optional. `dotnet test` with a filter that matches NOTHING prints
+      # "No test matches the given testcase filter" and exits 0, so a renamed or mistyped
+      # trait would turn this whole leg into a green no-op -- the same vacuous pass the
+      # SkipUnless above exists to prevent, one level up. Read the count back from the TRX
+      # and fail when it is zero.
+      run: |
+        dotnet test TianWen.Lib.Tests -c Debug --no-build --filter "Category=DebugOnly" \
+          --logger "console;verbosity=detailed" --logger "trx;LogFileName=debug-only.trx" \
+          --results-directory test-results-debug/
+        RAN=$(sed -n 's/.*<Counters total="\([0-9]*\)".*/\1/p' test-results-debug/debug-only.trx)
+        echo "DEBUG-gated tests executed: ${RAN:-0}"
+        if [ "${RAN:-0}" -lt 1 ]; then
+          echo "::error::The DEBUG leg ran no tests. Category=DebugOnly matched nothing, so the instrumentation it covers is unverified."
+          exit 1
+        fi
+      working-directory: src
     # On a native testhost crash (SIGSEGV -> exit 139), symbolicate the runtime minidump HERE, on
     # the same runner, while the crashed process's shared libraries are still on disk -- lldb reads
     # the minidump's module list and loads those .so from their recorded paths, so the backtrace
@@ -372,6 +407,7 @@ jobs:
         name: test-blame-${{ matrix.runner }}
         path: |
           src/test-results/
+          src/test-results-debug/
           /tmp/coredump-*.dmp
         if-no-files-found: ignore
         retention-days: 14
