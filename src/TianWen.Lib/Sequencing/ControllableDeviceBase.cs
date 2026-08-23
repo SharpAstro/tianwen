@@ -18,12 +18,12 @@ public abstract record ControllableDeviceBase<TDriver> : IAsyncDisposable
         var hub = sp.GetService<IDeviceHub>();
         if (hub is not null && hub.TryGetConnectedDriver<TDriver>(device.DeviceUri, out var hubDriver))
         {
-            (Driver = hubDriver).DeviceConnectedEvent += Driver_DeviceConnectedEvent;
+            Driver = hubDriver;
             _borrowed = true;
         }
         else if (device.TryInstantiateDriver<TDriver>(sp, out var driver))
         {
-            (Driver = driver).DeviceConnectedEvent += Driver_DeviceConnectedEvent;
+            Driver = driver;
             _borrowed = false;
         }
         else
@@ -31,8 +31,6 @@ public abstract record ControllableDeviceBase<TDriver> : IAsyncDisposable
             throw new ArgumentException($"Could not instantiate driver {typeof(TDriver)} for device {device.DisplayName} which is a {device.DeviceType}", nameof(device));
         }
     }
-
-    protected abstract void Driver_DeviceConnectedEvent(object? sender, DeviceConnectedEventArgs e);
 
     public DeviceBase Device { get; }
 
@@ -46,10 +44,17 @@ public abstract record ControllableDeviceBase<TDriver> : IAsyncDisposable
 
     public override string ToString() => Device.DisplayName;
 
+    /// <summary>
+    /// Disconnects a driver this wrapper created itself; a borrowed driver stays the hub's. This is
+    /// the wrapper's ONLY resource: it deliberately subscribes to nothing on the driver (an earlier
+    /// <c>DeviceConnectedEvent</c> subscription fed an abstract handler that every subclass
+    /// implemented empty, and its only observable effect was that a wrapper orphaned by a
+    /// mid-assembly throw in <c>SessionFactory</c> stayed subscribed to a hub-lived driver forever).
+    /// A wrapper whose driver never connected therefore holds nothing, and disposing it is a true
+    /// no-op -- the fact SessionFactory's CA2000 suppression relies on.
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
-        Driver.DeviceConnectedEvent -= Driver_DeviceConnectedEvent;
-
         if (!_borrowed && Driver.Connected)
         {
             await Driver.DisconnectAsync();
