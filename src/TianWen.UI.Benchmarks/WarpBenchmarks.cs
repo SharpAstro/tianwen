@@ -45,11 +45,18 @@ namespace TianWen.UI.Benchmarks;
 /// predicted not-taken branch is free: seven of the eight cases land within <b>1.3%</b> of pre-D1'.
 /// The regression arrived with the fix that made residency observable from two threads, which DERIVES
 /// residency from the plane array instead of keeping a flag beside it -- so <c>IsEvicted(planes[0])</c>
-/// is a SECOND copy of a five-field struct plus a dependent <c>.Data</c> load and a <c>Length</c>
+/// is a SECOND 72-byte <c>Channel</c> copy plus a dependent <c>.Data</c> load and a <c>Length</c>
 /// check, 12.6M times. That step is <b>+8.7% to +20.3%</b> over D1' and <b>+11.6% to +20.7%</b> over
 /// pre-D1': the whole of the band once billed to D1' belongs to it. Which does not make the fix
 /// wrong -- a torn read of a half-restored plane array is not a cost worth saving -- it makes the
 /// hoist below the thing that pays for it.</para>
+/// <para><b>72 bytes, not the five slots the primary constructor suggests.</b> It reads as
+/// <c>(float[,], Filter, float, float, byte)</c>, but <c>Filter</c> is ITSELF a 40-byte
+/// <c>readonly record struct</c> of four strings and an enum, and <c>Channel</c> carries a sixth
+/// field the parameter list does not show (the <c>ChannelBuffer?</c> init property). Flattened
+/// that is six reference slots plus two floats, an enum and a byte -- measured with
+/// <c>Unsafe.SizeOf</c>, because counting constructor parameters is how the earlier
+/// "five-field" figure in this comment got there.</para>
 /// <para>The hoist recovers most of that, and under AOT -- which is what ships -- returns to parity
 /// with D1' as shipped (-1% to +6% across the four cases). It helps MORE under AOT because the JIT
 /// has dynamic PGO and can hoist a repeated struct copy on its own. And AOT is not uniformly faster:

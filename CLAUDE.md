@@ -1326,7 +1326,7 @@ version.
 **Deriving residency is the expensive half, and `Image.ResidentPlanes()` is what pays for it.**
 `WarpBenchmarks` ablates four variants, and the split matters: **D1' itself cost nothing** (a
 predicted-not-taken bool), while the thread-safe derivation costs **+8.7% to +20.3%** on the bilinear
-resample loops -- a second five-field `Channel` copy plus a dependent `.Data` load, 12.6M times for a
+resample loops -- a second 72-byte `Channel` copy plus a dependent `.Data` load, 12.6M times for a
 2048-square colour pass. Neither fact argues for going back to a flag; both argue for resolving
 residency ONCE per operation and handing the loop plain `float[,]`, which returns to parity under
 AOT. Two rules follow: **anything per-sample gets hoisted to a scope rather than made cheaper**, and

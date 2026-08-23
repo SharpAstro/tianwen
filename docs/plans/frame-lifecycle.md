@@ -167,8 +167,8 @@ ablation into four variants instead of three shows that is wrong:
 **D1' as shipped cost nothing** -- it put one predicted-not-taken bool check ahead of the same field
 read pre-D1' already did, and seven of eight cases land within 1.3%. **The band belongs to the
 thread-safety fix**, the one this plan's Thread-safety section praises for DERIVING residency from
-the plane array instead of keeping a flag beside it: that derivation is a SECOND copy of a five-field
-struct plus a dependent `.Data` load and a length check, 12.6M times, and it costs +8.7% to +20.3%.
+the plane array instead of keeping a flag beside it: that derivation is a SECOND 72-byte `Channel`
+copy plus a dependent `.Data` load and a length check, 12.6M times, and it costs +8.7% to +20.3%.
 Both facts stand -- a torn read of a half-restored array is not a cost worth saving -- and the
 resolution is `Image.ResidentPlanes()`, which hoists the resolution out of the loop and returns to
 parity under AOT, which is what ships.

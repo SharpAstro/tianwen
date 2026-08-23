@@ -558,7 +558,7 @@ pass. The full table lives in that file's header; what belongs here is which cha
 field read the pre-D1' code already did, and seven of the eight measured cases land within **1.3%**
 of pre-D1'. The **+8.7% to +20.3%** band belongs to the *follow-up* that made residency observable
 from two threads by DERIVING it from the plane array instead of keeping a flag beside it -- a second
-copy of a five-field `Channel` plus a dependent `.Data` load, 12.6M times. That fix is not
+72-byte `Channel` copy plus a dependent `.Data` load, 12.6M times. That fix is not
 negotiable (the tear a flag permits is in the array, so `volatile` would not have bought it), and the
 thing that pays for it is `Image.ResidentPlanes()`: resolve residency ONCE per operation, hand the
 loop plain `float[,]`, back to parity under AOT.
