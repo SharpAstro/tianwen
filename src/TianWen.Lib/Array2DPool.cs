@@ -18,7 +18,27 @@ namespace TianWen.Lib;
 public static class Array2DPool<T>
 {
     /// <summary>When false, Rent always allocates fresh and Return is a no-op. Prevents cross-test data races in parallel test runs.</summary>
-    public static bool Enabled { get; set; } = true;
+    /// <remarks>
+    /// <para><b>Volatile, because it is a process-wide switch flipped from one thread and read from
+    /// every other.</b> It used to be a plain auto-property while every counter beside it was a
+    /// <see cref="Volatile"/> read, which is the sort of inconsistency that stays harmless only while
+    /// nothing depends on it: <c>FakeExternal</c> turns pooling off once at construction and the
+    /// benchmarks toggle it around a measurement, so a stale read cost at most one unpooled
+    /// allocation. P3 of <c>docs/plans/frame-lifecycle.md</c> makes the pool load-bearing in
+    /// production, and a switch with no barrier is the wrong shape to promote -- gap 4 of that
+    /// plan.</para>
+    /// <para>A <c>volatile</c> field rather than <see cref="Interlocked"/>: this is a
+    /// publish-and-observe flag, never a read-modify-write, so ordering is all that was missing.
+    /// It stays a field-with-property because C# does not allow <c>volatile</c> on an auto-property's
+    /// generated backing store.</para>
+    /// </remarks>
+    public static bool Enabled
+    {
+        get => _enabled;
+        set => _enabled = value;
+    }
+
+    private static volatile bool _enabled = true;
 
     private static readonly ConcurrentDictionary<long, ConcurrentQueue<PoolEntry>> _buckets = new();
 

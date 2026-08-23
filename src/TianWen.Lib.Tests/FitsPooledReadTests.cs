@@ -1,8 +1,11 @@
 ﻿using Shouldly;
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using TianWen.Lib;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
 using Xunit;
 using nom.tam.fits;
 using nom.tam.util;
@@ -155,6 +158,52 @@ namespace TianWen.Lib.Tests
             }
             Array2DPool<float>.RetainedBytes.ShouldBeGreaterThanOrEqualTo(0);
             Array2DPool<float>.RetainedBytes.ShouldBeLessThanOrEqualTo(before + 256L * 1024 * 1024);
+        }
+
+        /// <summary>
+        /// P3 of <c>docs/plans/frame-lifecycle.md</c>: master building is the first bulk reader
+        /// switched to pooled, and this is what says the arrays actually come back rather than the
+        /// stage merely compiling.
+        /// </summary>
+        /// <remarks>
+        /// Asserted on the pool's RETURN accounting, not on the master's pixels alone -- a build that
+        /// silently stopped pooling would still produce a correct master, which is exactly the kind
+        /// of regression that goes unnoticed for a release. The pixel check is here too, because a
+        /// rented array arrives dirty and a combine that failed to write every pixel would surface as
+        /// the previous frame's data rather than as an error.
+        /// </remarks>
+        [Fact]
+        public async Task MasterBuild_RentsEveryFrameAndHandsThemAllBack()
+        {
+            const int Frames = 3;
+            var infos = new List<FrameInfo>(Frames);
+            for (var i = 0; i < Frames; i++)
+            {
+                var path = WriteShortFrame($"bias_{i}.fits");
+                Image.TryReadFitsFile(path, out var probe, out _).ShouldBeTrue();
+                probe.ShouldNotBeNull();
+                infos.Add(new FrameInfo(path, probe.Width, probe.Height, probe.ChannelCount, probe.BitDepth, probe.ImageMeta));
+                probe.Release();
+            }
+
+            var returnsBefore = Array2DPool<float>.ReturnCount;
+            var hitsBefore = Array2DPool<float>.HitCount;
+
+            var master = await MasterFrameBuilder.BuildBiasMasterAsync(infos, TestContext.Current.CancellationToken);
+
+            master.Width.ShouldBe(Width);
+            master.Height.ShouldBe(Height);
+            // Every frame carries the same ramp, so the median is that ramp exactly.
+            master[0, 0, 0].ShouldBe(0f);
+            master[0, Height - 1, Width - 1].ShouldBe((Height - 1) * Width + Width - 1);
+
+            Array2DPool<float>.ReturnCount.ShouldBe(returnsBefore + Frames,
+                "each loaded frame is released once the combine has read it");
+            Array2DPool<float>.HitCount.ShouldBeGreaterThan(hitsBefore,
+                "and the second frame onwards must be renting what the first handed back");
+
+            // The master itself is NOT pooled: it outlives the build and is the thing the caller keeps.
+            master.GetChannel(0).Buffer.ShouldBeNull();
         }
 
         [Fact]

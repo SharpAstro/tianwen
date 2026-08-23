@@ -86,8 +86,7 @@ public static class MasterFrameBuilder
         IReadOnlyList<FrameInfo> frames, CancellationToken cancellationToken = default)
     {
         ValidateInput(frames);
-        var images = await LoadAllAsync(frames, cancellationToken);
-        return BuildBiasMaster(images);
+        return await CombinePooledAsync(frames, BuildBiasMaster, cancellationToken);
     }
 
     /// <summary>Combines dark frames via per-pixel median. Frames must share
@@ -99,8 +98,7 @@ public static class MasterFrameBuilder
         IReadOnlyList<FrameInfo> frames, CancellationToken cancellationToken = default)
     {
         ValidateInput(frames);
-        var images = await LoadAllAsync(frames, cancellationToken);
-        return BuildDarkMaster(images);
+        return await CombinePooledAsync(frames, BuildDarkMaster, cancellationToken);
     }
 
     /// <summary>Combines flat frames: subtract the <paramref name="pedestal"/> (master bias or
@@ -136,8 +134,7 @@ public static class MasterFrameBuilder
         IReadOnlyList<FrameInfo> frames, Image? pedestal = null, CancellationToken cancellationToken = default)
     {
         ValidateInput(frames);
-        var images = await LoadAllAsync(frames, cancellationToken);
-        return BuildFlatMaster(images, pedestal);
+        return await CombinePooledAsync(frames, images => BuildFlatMaster(images, pedestal), cancellationToken);
     }
 
     // ---------- Pure-math overloads (testable without FITS I/O) ----------
@@ -210,14 +207,46 @@ public static class MasterFrameBuilder
         }
     }
 
-    private static async Task<Image[]> LoadAllAsync(IReadOnlyList<FrameInfo> frames, CancellationToken ct)
+    /// <summary>
+    /// Loads every frame POOLED, combines, and hands the inputs back to the pool.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The one bulk reader in the tree whose ownership was already unambiguous</b>, which is
+    /// why P3 of <c>docs/plans/frame-lifecycle.md</c> starts here. <see cref="IFrameSource"/> has
+    /// always documented that a consumer "releases the returned Image as soon as they're done with
+    /// it"; nothing did, and that was free while file loads owned their arrays outright. Here the
+    /// contract is not merely documented but structural: the loaded frames exist only to feed the
+    /// combine, <see cref="BuildFlatMaster"/> normalises them IN PLACE precisely because they are
+    /// throwaway, and the combine allocates its own output. Nothing can be holding them afterwards.</para>
+    /// <para>This is also where pooling pays most: a master is built from tens of same-shape frames
+    /// in one pass, so every rent after the first is a hit and the whole set is recycled between
+    /// masters instead of being handed to the large-object heap once each.</para>
+    /// <para><b>The release is in a finally.</b> A shape mismatch throws out of the middle of the
+    /// combine, and a stack run that fails on one master goes on to build the others -- leaking a
+    /// pooled frame there would be a real leak rather than a tidy-up the GC eventually performs.</para>
+    /// </remarks>
+    private static async Task<Image> CombinePooledAsync(
+        IReadOnlyList<FrameInfo> frames, Func<IReadOnlyList<Image>, Image> combine, CancellationToken ct)
     {
         var images = new Image[frames.Count];
-        for (var i = 0; i < frames.Count; i++)
+        var loaded = 0;
+        try
         {
-            images[i] = await frames[i].LoadFullAsync(ct);
+            for (var i = 0; i < frames.Count; i++)
+            {
+                images[i] = await frames[i].LoadFullAsync(pooled: true, ct);
+                loaded++;
+            }
+
+            return combine(images);
         }
-        return images;
+        finally
+        {
+            for (var i = 0; i < loaded; i++)
+            {
+                images[i].Release();
+            }
+        }
     }
 
     private static void ValidateShapes(IReadOnlyList<Image> images)
