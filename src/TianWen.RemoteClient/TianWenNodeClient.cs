@@ -185,9 +185,10 @@ namespace TianWen.RemoteClient
         /// <c>SessionConfiguration</c> defaults.
         /// </summary>
         public Task<NodeResult<string>> StartFlatsAsync(FlatsRequestDto request, Guid? profileId, CancellationToken cancellationToken) =>
-            PostAsync(
+            SendJsonAsync(
+                HttpMethod.Post,
                 profileId is { } id ? $"api/v1/session/flats?profileId={id}" : "api/v1/session/flats",
-                JsonContent.Create(request, HostingJsonContext.Default.FlatsRequestDto),
+                request, HostingJsonContext.Default.FlatsRequestDto,
                 HostingJsonContext.Default.ResponseEnvelopeString,
                 _timeouts.Control, cancellationToken);
 
@@ -205,9 +206,10 @@ namespace TianWen.RemoteClient
 
         /// <summary><c>POST /session/targets</c>.</summary>
         public Task<NodeResult<string>> AddTargetAsync(PendingTarget target, CancellationToken cancellationToken) =>
-            PostAsync(
+            SendJsonAsync(
+                HttpMethod.Post,
                 "api/v1/session/targets",
-                JsonContent.Create(target, HostingJsonContext.Default.PendingTarget),
+                target, HostingJsonContext.Default.PendingTarget,
                 HostingJsonContext.Default.ResponseEnvelopeString,
                 _timeouts.Control, cancellationToken);
 
@@ -227,9 +229,10 @@ namespace TianWen.RemoteClient
         /// over whatever it drains from the queue.
         /// </summary>
         public Task<NodeResult<string>> SetScheduleAsync(ScheduledObservationDto[] schedule, CancellationToken cancellationToken) =>
-            PostAsync(
+            SendJsonAsync(
+                HttpMethod.Post,
                 "api/v1/session/schedule",
-                JsonContent.Create(schedule, HostingJsonContext.Default.ScheduledObservationDtoArray),
+                schedule, HostingJsonContext.Default.ScheduledObservationDtoArray,
                 HostingJsonContext.Default.ResponseEnvelopeString,
                 _timeouts.Control, cancellationToken);
 
@@ -400,10 +403,10 @@ namespace TianWen.RemoteClient
         /// the error -- surface that verbatim rather than inventing a client-side message.
         /// </summary>
         public Task<NodeResult<string>> SetActiveProfileAsync(Guid profileId, CancellationToken cancellationToken) =>
-            SendAsync(
+            SendJsonAsync(
                 HttpMethod.Put,
                 "api/v1/session/profile",
-                JsonContent.Create(new SetProfileRequest { ProfileId = profileId }, HostingJsonContext.Default.SetProfileRequest),
+                new SetProfileRequest { ProfileId = profileId }, HostingJsonContext.Default.SetProfileRequest,
                 HostingJsonContext.Default.ResponseEnvelopeString,
                 _timeouts.Control, cancellationToken);
 
@@ -418,6 +421,20 @@ namespace TianWen.RemoteClient
         private Task<NodeResult<T>> PostAsync<T>(string path, HttpContent? content,
             JsonTypeInfo<ResponseEnvelope<T>> typeInfo, TimeSpan budget, CancellationToken cancellationToken) =>
             SendAsync(HttpMethod.Post, path, content, typeInfo, budget, cancellationToken);
+
+        /// <summary>
+        /// JSON-body variant that creates the content HERE, in the same scope that disposes it -- the
+        /// request's own dispose in <see cref="SendAsync"/> covers the transfer, but creating at the call
+        /// sites left four copies of an ownership hand-off no analyzer can verify. One owner, provably
+        /// disposed on every path.
+        /// </summary>
+        private async Task<NodeResult<T>> SendJsonAsync<TBody, T>(HttpMethod method, string path, TBody body,
+            JsonTypeInfo<TBody> bodyInfo, JsonTypeInfo<ResponseEnvelope<T>> typeInfo, TimeSpan budget,
+            CancellationToken cancellationToken)
+        {
+            using var content = JsonContent.Create(body, bodyInfo);
+            return await SendAsync(method, path, content, typeInfo, budget, cancellationToken).ConfigureAwait(false);
+        }
 
         private async Task<NodeResult<T>> SendAsync<T>(HttpMethod method, string path, HttpContent? content,
             JsonTypeInfo<ResponseEnvelope<T>> typeInfo, TimeSpan budget, CancellationToken cancellationToken)

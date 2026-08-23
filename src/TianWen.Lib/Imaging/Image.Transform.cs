@@ -37,7 +37,8 @@ public partial class Image
 
         if (starLists[0].Count >= minStars && starLists[1].Count >= minStars)
         {
-            return await new SortedStarList(starLists[0]).FindOffsetAndRotationAsync(starLists[1], minStars / 4, quadTolerance);
+            using var sorted = new SortedStarList(starLists[0]);
+            return await sorted.FindOffsetAndRotationAsync(starLists[1], minStars / 4, quadTolerance);
         }
 
         return null;

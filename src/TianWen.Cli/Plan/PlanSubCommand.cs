@@ -384,7 +384,7 @@ internal class PlanSubCommand(
             return;
         }
 
-        var renderer = new SixelRgbaImageRenderer((uint)chartW, (uint)chartH);
+        using var renderer = new SixelRgbaImageRenderer((uint)chartW, (uint)chartH);
 
         renderer.FillRectangle(
             new RectInt(new PointInt(chartW, chartH), new PointInt(0, 0)),

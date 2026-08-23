@@ -135,6 +135,10 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         return new FakeMountDriver(this, sp);
     }
 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000:Dispose objects before losing scope",
+        Justification = "Ownership of the connection transfers to the caller, exactly as with a real serial port: "
+            + "the mount protocol driver that requested it disposes it. The analyzer cannot see through "
+            + "ValueTask.FromResult.")]
     public override ValueTask<ISerialConnection?> ConnectSerialDeviceAsync(IExternal external, ILogger logger, ITimeProvider timeProvider, int baud = 9600, Encoding? encoding = null, CancellationToken cancellationToken = default)
         => ValueTask.FromResult<ISerialConnection?>(DeviceType switch
         {

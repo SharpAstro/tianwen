@@ -76,6 +76,27 @@ internal partial record Session
     private DeviceLeaseSet AcquireEquipment(string ownerLabel)
         => DeviceLeaseSet.Acquire(ServiceProvider.GetService<IDeviceHub>(), Setup.DeviceUris(), ownerLabel);
 
+    /// <summary>
+    /// <see cref="AcquireEquipment"/> with the run-entry failure protocol both callers were repeating:
+    /// a conflict is a plain failure (log + <see cref="FailureReason"/> + <see cref="SessionPhase.Failed"/>),
+    /// reported as <see langword="null"/> so the caller's <c>using var</c> takes the lease set straight
+    /// from creation -- which is also what lets CA2000 prove the lease is disposed on every path.
+    /// </summary>
+    private DeviceLeaseSet? TryAcquireEquipmentForRun(string ownerLabel)
+    {
+        try
+        {
+            return AcquireEquipment(ownerLabel);
+        }
+        catch (DeviceLeasedException ex)
+        {
+            _logger.LogError(ex, "Cannot start {OwnerLabel}: equipment already owned.", ownerLabel);
+            _failureReason = ex.Message;
+            SetPhase(SessionPhase.Failed);
+            return null;
+        }
+    }
+
     internal async ValueTask Finalise(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Executing session run finaliser: Stop guiding, stop tracking, disconnect guider, close covers, cool to ambient temp, turn off cooler, park scope.");

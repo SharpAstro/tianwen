@@ -164,6 +164,10 @@ var ctx = NativeLoaderDiagnostics.InitNative(logger, "Vulkan device",
 var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
 
 var bus = new SignalBus();
+// Not a using var (CA2000): disposal order is load-bearing -- the ordered teardown at the end of this
+// file disposes guiRenderer BEFORE the VkRenderer and VulkanContext it draws with, whereas a using
+// declared here would dispose it after them, into destroyed Vulkan handles.
+#pragma warning disable CA2000
 var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH, bus, logger)
 {
     DpiScale = sdlWindow.DisplayScale
@@ -173,12 +177,14 @@ var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH, bus, logge
 var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();
 guiRenderer.PlanetaryCapture = planetaryCapture;
 
+#pragma warning restore CA2000
+
 // Event handler setup
-var cts = new CancellationTokenSource();
+using var cts = new CancellationTokenSource();
 // Separate CTS for non-session background work (planner init, weather, live planetary capture) -- cancelled
 // on quit (RequestQuit) without tearing down the SDL loop early or affecting running sessions. Its token is
 // handed to the planetary capture's Start, so quitting cancels the capture (and its token-polling loops).
-var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+using var backgroundCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
 var tracker = new BackgroundTaskTracker();
 var lastWindowTitle = "\U0001F52D TianWen";
 var handlers = new GuiEventHandlers(sp, appState, plannerState, guiRenderer, cts, backgroundCts.Token, external, tracker)

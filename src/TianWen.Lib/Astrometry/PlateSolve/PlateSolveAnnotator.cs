@@ -77,7 +77,7 @@ public static class PlateSolveAnnotator
             lumaStats: null,
             imageMaxValue: image.MaxValue);
 
-        var renderer = new RgbaImageRenderer((uint)width, (uint)height);
+        using var renderer = new RgbaImageRenderer((uint)width, (uint)height);
         image.RenderStretchedRgba(uniforms, renderer.Surface.Pixels.AsSpan());
 
         // 2. Walk each detected star, find its nearest catalog candidate, draw the overlay.
