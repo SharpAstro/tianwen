@@ -24,8 +24,8 @@ namespace TianWen.Lib.Imaging;
 ///
 /// <para><b>Own</b> -- the frame was handed to you, so you <see cref="Release"/> it exactly once and
 /// never touch it afterwards. <b>Borrow</b> -- you did not receive ownership, so take
-/// <see cref="TryLease"/> if you need the pixels beyond the current frame, and release the LEASE,
-/// never the original. <b>Consume</b> -- you hand your frame to a method that writes through its
+/// <see cref="TryLease"/> if you need the pixels beyond the current frame, and dispose the
+/// <see cref="ImageLease"/>, never release the original. <b>Consume</b> -- you hand your frame to a method that writes through its
 /// arrays and returns a view of them; the input is spent, and only the result may be used.</para>
 ///
 /// <para><b>Four conventions coexist and an <see cref="Image"/> carries no runtime indication of

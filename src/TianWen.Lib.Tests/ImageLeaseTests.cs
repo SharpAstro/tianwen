@@ -10,8 +10,8 @@ namespace TianWen.Lib.Tests;
 
 /// <summary>
 /// Pins the borrow path a hosted consumer needs to read a live driver frame: <see cref="ChannelBuffer.TryAddRef"/>
-/// never resurrecting a released buffer, and <see cref="Image.TryLease"/> handing out an independently
-/// releasable image (or refusing) so the camera cannot recycle the pixels mid-read.
+/// never resurrecting a released buffer, and <see cref="Image.TryLease"/> handing out a disposable
+/// <see cref="ImageLease"/> token (or refusing) so the camera cannot recycle the pixels mid-read.
 /// <para>
 /// The race test below is the reason <c>TryAddRef</c> is a CAS loop rather than a liveness check followed
 /// by an increment. The old shape would let a borrower observe "alive", lose the count to zero on the
@@ -176,29 +176,29 @@ public class ImageLeaseTests
         var channel = BufferedChannel(out _, out var releases);
         var owner = new Image([channel], BitDepth.Float32, pedestal: 0f, new ImageMeta());
 
-        owner.TryLease(out var leased).ShouldBeTrue();
-        leased.ShouldNotBeNull();
+        owner.TryLease(out var lease).ShouldBeTrue();
 
         // The owner publishing its next frame must not pull the pixels out from under the borrower.
         owner.Release();
         releases[0].ShouldBe(0);
 
-        leased.Release();
+        lease.Dispose();
         releases[0].ShouldBe(1); // recycled exactly once, by the last holder
     }
 
     [Fact]
-    public void TryLease_HandsBackADistinctImage_SoTheTwoReleasesAreIndependent()
+    public void TryLease_HandsBackADistinctImage_SoDisposeAndTheOwnersReleaseAreIndependent()
     {
         var channel = BufferedChannel(out _, out var releases);
         var owner = new Image([channel], BitDepth.Float32, pedestal: 0f, new ImageMeta());
 
-        owner.TryLease(out var leased).ShouldBeTrue();
-        leased.ShouldNotBeSameAs(owner);
+        owner.TryLease(out var lease).ShouldBeTrue();
+        lease.Image.ShouldNotBeSameAs(owner);
 
-        // Releasing the lease twice must not consume the owner's ref: Image.Release is one-shot.
-        leased.Release();
-        leased.Release();
+        // Disposing the lease twice must not consume the owner's ref: the leased image's Release is
+        // one-shot, which is what makes a copied lease struct harmless.
+        lease.Dispose();
+        lease.Dispose();
         releases[0].ShouldBe(0);
 
         owner.Release();
@@ -206,15 +206,29 @@ public class ImageLeaseTests
     }
 
     [Fact]
-    public void TryLease_AfterTheFrameIsReleased_Refuses()
+    public void TryLease_AfterTheFrameIsReleased_RefusesWithAnInertLease()
     {
         var channel = BufferedChannel(out _, out var releases);
         var owner = new Image([channel], BitDepth.Float32, pedestal: 0f, new ImageMeta());
         owner.Release();
         releases[0].ShouldBe(1);
 
-        owner.TryLease(out var leased).ShouldBeFalse();
-        leased.ShouldBeNull();
+        owner.TryLease(out var lease).ShouldBeFalse();
+
+        // The refused lease is default(ImageLease): reading it is a call-site bug and says so, and
+        // disposing it is a no-op rather than a second spend of anything.
+        Should.Throw<InvalidOperationException>(() => lease.Image);
+        lease.Dispose();
+        releases[0].ShouldBe(1);
+    }
+
+    [Fact]
+    public void ADefaultLease_IsInert()
+    {
+        var lease = default(ImageLease);
+
+        lease.Dispose(); // must not throw: an empty lease has nothing to give back
+        Should.Throw<InvalidOperationException>(() => lease.Image);
     }
 
     [Fact]
@@ -238,23 +252,31 @@ public class ImageLeaseTests
         // the ref taken on the healthy plane is unwound rather than leaked to a caller who cannot see it.
         doomedBuffer.Release();
 
-        image.TryLease(out var leased).ShouldBeFalse();
-        leased.ShouldBeNull();
+        image.TryLease(out var lease).ShouldBeFalse();
+        Should.Throw<InvalidOperationException>(() => lease.Image);
         aliveBuffer.RefCount.ShouldBe(1);
     }
 
     [Fact]
-    public void TryLease_OnAnImageWithNoRecycledBuffers_LeasesItselfAndStaysUsable()
+    public void TryLease_OnAnImageWithNoRecycledBuffers_Succeeds_AndTheSourceStaysLeasable()
     {
         // File loads, debayer output and the synthetic fake frames carry no ChannelBuffer at all, and
         // this is the common case for a remote preview - it has to succeed, not fall through to a 404.
         var image = PlainImage();
 
-        image.TryLease(out var leased).ShouldBeTrue();
-        leased.ShouldBeSameAs(image);
+        image.TryLease(out var first).ShouldBeTrue();
 
-        leased.Release(); // a no-op, so the image is still readable afterwards
+        // Distinct, so disposing the borrow cannot mark the SOURCE released. When the lease was the
+        // source itself, one borrow cycle poisoned every later lease of the same published frame: a
+        // repeat-polling preview got its first frame and then 404s until the frame happened to swap.
+        first.Image.ShouldNotBeSameAs(image);
+        first.Dispose();
         image.Width.ShouldBe(4);
+
+        // The regression the distinct lease closes: the SECOND borrow of the same frame.
+        image.TryLease(out var second).ShouldBeTrue();
+        second.Image.Width.ShouldBe(4);
+        second.Dispose();
     }
 
     [Fact]
@@ -263,7 +285,7 @@ public class ImageLeaseTests
         var image = PlainImage();
         image.Release();
 
-        image.TryLease(out var leased).ShouldBeFalse();
-        leased.ShouldBeNull();
+        image.TryLease(out var lease).ShouldBeFalse();
+        Should.Throw<InvalidOperationException>(() => lease.Image);
     }
 }

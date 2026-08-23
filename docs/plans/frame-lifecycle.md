@@ -598,7 +598,23 @@ Out of a review of D1: *"maybe a LeasedImage subclass that has the fast access m
 splits into two, and they land differently -- worth recording both, because the appealing half is the
 one that does not work.
 
-### Adopted in principle: type the OWNERSHIP obligation
+### Adopted in principle: type the OWNERSHIP obligation -- SHIPPED 2026-08-23 as `ImageLease`
+
+**Shipped the day after the paragraph below resolved the design question.** `ImageLease` is a public
+`readonly struct : IDisposable` wrapping the leased image; `TryLease(out Image?)` became
+`TryLease(out ImageLease)` in one wave (two production consumers -- `GuidePreview`, the
+`FakeGuider.SaveImageAsync` retry -- plus the test suite; no compatibility overload left behind, a
+BREAKING public-API change on the package). `default(ImageLease)` is inert: `Dispose` no-ops,
+`Image` throws. The own-side counterpart stays `Release` on `Image` itself, mirrored privately by
+`ArchiveSolveSurvey.OwnedFrame`.
+
+**The cut also closed a latent poison: the bufferless lease is now a DISTINCT image.** The old
+bufferless branch returned `this`, so the borrower's release marked the SOURCE released and every
+later `TryLease` of the same published frame refused -- a repeat-polling preview got one frame and
+then 404s until the frame swapped. The lease is now always a fresh `Image` sharing the planes (the
+harvest finds no buffers, so disposing it is a self-owned no-op); pinned by
+`TryLease_OnAnImageWithNoRecycledBuffers_Succeeds_AndTheSourceStaysLeasable`, seen to fail against
+the `this`-wrapping form.
 
 `TryLease` hands back an `Image` whose "you MUST `Release()` this" lives only in a doc comment, which
 is convention 3 of the table above in its purest form: a rule that exists, is real, and is enforced

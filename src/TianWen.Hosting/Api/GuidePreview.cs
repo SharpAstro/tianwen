@@ -44,22 +44,19 @@ namespace TianWen.Hosting.Api
                 return (null, frameNumber, NoFrameFailure);
             }
 
-            // The guide loop does LastFrame?.Release() before publishing the next one, so holding
-            // `published` across the encode would be reading a buffer the camera may already have taken
-            // back. Losing that race is normal at guiding cadence and simply means "not right now".
-            if (!published.TryLease(out var leased))
+            // The guide loop swaps its published pointer before releasing the superseded frame, but
+            // the superseded frame IS then released -- so holding `published` across the encode
+            // without a lease would be reading a buffer the camera may already have taken back.
+            // Losing the lease race is normal at guiding cadence and simply means "not right now".
+            if (!published.TryLease(out var lease))
             {
                 return (null, frameNumber, NoFrameFailure);
             }
 
-            try
+            using (lease)
             {
-                var jpeg = await PreviewEncoder.EncodeJpegAsync(leased, quality, scale, cancellationToken);
+                var jpeg = await PreviewEncoder.EncodeJpegAsync(lease.Image, quality, scale, cancellationToken);
                 return (jpeg, frameNumber, null);
-            }
-            finally
-            {
-                leased.Release();
             }
         }
     }

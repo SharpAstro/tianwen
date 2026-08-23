@@ -550,26 +550,24 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         // superseded between our read and the lease. Re-reading then observes the successor, which
         // is live until the capture after it completes -- one retry converges; the extras are
         // insurance against stacked swaps. No frame at all is a real "no", not a race.
-        Image? image = null;
-        for (var attempt = 0; attempt < 3; attempt++)
+        var lease = default(ImageLease);
+        var haveLease = false;
+        for (var attempt = 0; attempt < 3 && !haveLease; attempt++)
         {
             if ((_guideLoop?.LastFrame ?? _lastLoopFrame) is not { } source)
             {
                 return null;
             }
 
-            if (source.TryLease(out image))
-            {
-                break;
-            }
+            haveLease = source.TryLease(out lease);
         }
 
-        if (image is null)
+        if (!haveLease)
         {
             return null;
         }
 
-        try
+        using (lease)
         {
             Directory.CreateDirectory(outputFolder);
             var path = Path.Combine(outputFolder, $"guider_{TimeProvider.GetUtcNow().UtcDateTime:yyyyMMdd_HHmmss}.fits");
@@ -599,15 +597,9 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
                 wcs = new WCS(PointingRA, PointingDec);
             }
 
-            image.WriteToFitsFile(path, wcs);
+            lease.Image.WriteToFitsFile(path, wcs);
 
             return path;
-        }
-        finally
-        {
-            // The LEASE, never the guide loop's own frame: releasing that would drop the ref the
-            // loop still holds.
-            image.Release();
         }
     }
 
