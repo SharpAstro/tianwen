@@ -608,6 +608,17 @@ BREAKING public-API change on the package). `default(ImageLease)` is inert: `Dis
 `Image` throws. The own-side counterpart stays `Release` on `Image` itself, mirrored privately by
 `ArchiveSolveSurvey.OwnedFrame`.
 
+**The bespoke analyzer is deliberately NOT built, and the reasoning is worth keeping.** Two rules
+were on the table. "Never release a parameter" (own-side): audited universally true in P4, but the
+naive form only catches the direct spelling -- `Calibrator.Apply` launders through a local, so a real
+guard needs dataflow, and the runtime tripwires (the recycled-read throw, the over-release throw, the
+DEBUG leak tracker) already make a violation loud in tests. "A lease must be disposed" (borrow-side):
+**CA2000 cannot do this -- it ignores value-type disposables** (measured: a forgotten `ImageLease`
+beside a forgotten `FileStream`, only the stream fired), so it would need a bespoke analyzer too --
+for a pattern with two production call sites, both `using`. A dropped buffered lease surfaces in the
+DEBUG leak tracker instead. Revisit if either mistake actually appears in a PR; the repo also carries
+36 latent CA2000 warnings on CLASS disposables (measured 2026-08-24), a separate cleanup if wanted.
+
 **The cut also closed a latent poison: the bufferless lease is now a DISTINCT image.** The old
 bufferless branch returned `this`, so the borrower's release marked the SOURCE released and every
 later `TryLease` of the same published frame refused -- a repeat-polling preview got one frame and
