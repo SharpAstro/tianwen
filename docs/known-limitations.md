@@ -365,11 +365,34 @@ visible. A wrong curve is used as if it described the glass in the light path: t
 skewed a real SPCC fit until it was found by hand, and it is recorded in
 `StretchTests_NewPipeline` as one of four causes that "each moved the fit".
 
+**A second route to the same wrong answer, found by adding a curve.** `OPTOLONG_L_QUAD_ENHANCE`
+captured L-eNhance, L-eXtreme and L-Ultimate, and `OPTOLONG_L_ULTIMATE` would capture L-eNhance and
+L-eXtreme -- not through a two-token key this time, but because `optolong` plus the single letter `l`
+already clears half-coverage on a three- or four-token key. Two gates, because one does not cover the
+other:
+
+| gate | rejects because | catches |
+|---|---|---|
+| document frequency | an unmatched KEY token names exactly one curve, so it is what makes that curve specific | `L-eNhance` -> L-Quad Enhance (`quad` names one curve) |
+| two-sided token difference | needle has a token the key lacks AND key has one the needle lacks, so the names diverge | `L-eNhance` -> L-Ultimate (`ultimate` names SEVEN, so frequency is silent) |
+
+Frequency is measured over the catalogue rather than hand-listed, because the distinction is not
+lexical: `idas` unmatched by `LPS-D3` must be ALLOWED (three curves, a brand), `light`/`pollution`
+unmatched by `IDAS LPS P3` must be allowed (two each, a series suffix), `quad` names one.
+
+The two-sided rule is far narrower than it sounds, because **a one-sided difference still resolves in
+both directions** -- a name that says LESS (`LPS-D3` leaves `{idas}`, `Askar D1` leaves
+`{colourmagic}`) and a name that says MORE, which is what a real filter-wheel slot looks like
+(`Baader R CCD 31mm` leaves `{ccd, 31, mm}`). Single-character tokens deliberately COUNT: `Baader B`
+against `BAADER_R` is `{b}` versus `{r}`, exactly the divergence that must be refused. And a
+tokenisation artifact cannot trigger it, because `Askar Colour Magic D1` normalises to the curve's own
+name and returns on the exact path first.
+
 **Fix:** a key of two tokens or fewer must be covered in FULL. The bare-channel-letter path (a needle
 of `R` or `Ha`, which shares no token with any key but ends one) is explicitly exempt, since one
 token is all it ever had to offer. Pinned by `ABrandTokenAloneIsNotAFilterMatch` over all six rows
-above, and by `TheColourMagicDuoBandsPassTheirOwnLineAndBlockTheOther`, which pins the names beside
-the physics.
+above, by `AOneSidedTokenDifferenceStillResolves` / `ATwoSidedTokenDifferenceIsRefused`, and by
+`TheColourMagicDuoBandsPassTheirOwnLineAndBlockTheOther`, which pins the names beside the physics.
 
 **Optolong's duo-bands genuinely are not in the database except pre-convolved with a sensor**
 (`SONY_CMOS_*-UVIRCUT` / `CANON_FULL_SPECTRUM_*` x L-eNhance / L-eXtreme / L-ULTIMATE), so "no match"

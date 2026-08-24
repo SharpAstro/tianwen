@@ -39,6 +39,7 @@ Available in `.claude/skills/<name>/SKILL.md`: auto-invocable when the request m
 | `test-image-diff` | Diff test-output PNGs across run folders to flag visual regressions |
 | `test-output-prune` | Delete old `yyyyMMdd` test-output folders, keeping the N most recent |
 | `stack` | Run `tianwen stack` against a folder of FITS lights + calibration |
+| `digitize-filter` | Digitise a vendor filter chart into `FilterCurveDatabase` (three chart families, the validation gates, the matcher re-check) |
 | `tick-todo` | Mark a TODO item done and update CLAUDE.md, PLAN files, and memory |
 
 ## Project Overview
@@ -880,7 +881,7 @@ with the algorithms + thirteen ADRs in
 [docs/plans/narrowband-colour.md](docs/plans/narrowband-colour.md); root cause also recorded in
 [docs/known-limitations.md](docs/known-limitations.md).
 
-**The filter-curve matcher must never answer with a brand.** `FilterCurveDatabase` carries 180 curves
+**The filter-curve matcher must never answer with a brand, nor with a MORE SPECIFIC product.** `FilterCurveDatabase` carries 183 curves
 and matches a written `FILTER` card by token overlap, and its coverage gate only ever asked about the
 KEY -- so for a two-token key like `OPTOLONG_B` (BRAND + CHANNEL) the brand alone satisfied it, while
 the needle's own unmatched tokens cost nothing. `Optolong L-eNhance` therefore resolved to a broadband
@@ -888,17 +889,69 @@ blue LRGB dichroic, a bare `IDAS` to `IDAS_NBZ`, and `CFA_R` to `BAADER_R` (that
 dichroic into a modelled OSC throughput and skewed a real SPCC fit). **A key of two tokens or fewer
 must be covered in full**, the bare-channel-letter path (`R`, `Ha`) exempt because one token is all it
 ever had. A wrong curve is worse than none: it is used as if it described the glass in the light path,
-where declining is visible. Pinned by `ABrandTokenAloneIsNotAFilterMatch`; measurements in
+where declining is visible.
+
+The mirror case bites when you ADD a curve: a new name containing an existing product's name as a
+token SUBSET answers for it. `OPTOLONG_L_QUAD_ENHANCE` captured L-eNhance, L-eXtreme and L-Ultimate,
+because "optolong" plus the single letter "l" already clears the half-coverage gate on a four-token
+key. **An unmatched key token that appears in no other filter name is what makes that curve specific,
+so the match is refused** -- and the test is DOCUMENT FREQUENCY over the catalogue, never a
+stop-list, because the distinction is not lexical: "idas" unmatched by `LPS-D3` must be allowed
+(three curves, so a brand), "light"/"pollution" unmatched by `IDAS LPS P3` must be allowed (two each,
+a series suffix), while "quad" names exactly one. **Always re-run
+`ReportKnownLightPollutionFilters` after adding a curve** and read every line, including the ones you
+did not touch.
+
+**Frequency does not cover the general case, and a two-sided token difference does.** If the written
+name carries a token the curve lacks AND the curve carries one the written name lacks, they are naming
+DIFFERENT products -- neither is a more specific version of the other, they diverge -- so the match is
+refused. That is what catches the collision frequency sleeps through: adding `OPTOLONG_L_ULTIMATE`
+captures L-eNhance and L-eXtreme, because "ultimate" appears in SEVEN names (the six pre-convolved
+combos plus the standalone) so it is not rare, while `optolong` plus the single letter `l` already
+clears half-coverage on a three-token key. `{enhance}` against `{ultimate}` is two-sided, and refused.
+
+It is much narrower than it sounds, because **a one-sided difference still resolves in both
+directions**: a name that says LESS (`LPS-D3` leaves `{idas}` on the key side, `Askar D1` leaves
+`{colourmagic}`) and a name that says MORE, which is what a real filter-wheel slot looks like
+(`Baader R CCD 31mm` leaves `{ccd, 31, mm}` on the needle side). Single-character tokens deliberately
+COUNT -- `Baader B` against `BAADER_R` is `{b}` versus `{r}`, exactly the divergence this must reject.
+A tokenisation artifact cannot trigger it either: `Askar Colour Magic D1` normalises to the curve's
+own name and returns on the exact path first.
+
+Pinned by `ABrandTokenAloneIsNotAFilterMatch`, `AddingASpecificProductDoesNotCaptureItsSiblings`,
+`AOneSidedTokenDifferenceStillResolves` and `ATwoSidedTokenDifferenceIsRefused`; measurements in
 [docs/known-limitations.md](docs/known-limitations.md).
 
 **Standalone light-pollution / duo-band coverage is small and four of them are ours.** `IDAS_LPS_D3`,
-`IDAS_NBZ`, `ASKAR_COLOURMAGIC_D1` (OIII+Ha) and `ASKAR_COLOURMAGIC_D2` (OIII+SII) were digitised
+`IDAS_NBZ`, `ASKAR_COLOURMAGIC_D1` (OIII+Ha), `ASKAR_COLOURMAGIC_D2` (OIII+SII),
+`OPTOLONG_L_QUAD_ENHANCE` (quad-band), `OPTOLONG_L_ULTIMATE` (dual 3 nm) and `OPTOLONG_L_ENHANCE`
+(tri-line) were digitised
 from vendor charts by `tools/digitize-filter-curve/` and live as chart-unit CSVs under
 `tools/import-sasp-data/local-filters/` (nm + percent, so a row is checkable against the chart; the
-importer converts to the database's Angstrom + fraction). Upstream adds only
-`IDAS_LPS_P3_LIGHT_POLLUTION`, `OPTOLONG_L-PRO_LIGHT_POLLUTION` and `SVBONY_SV260`. **Optolong's
-duo-bands exist only PRE-CONVOLVED with a sensor** (`SONY_CMOS_*-UVIRCUT` / `CANON_FULL_SPECTRUM_*` x
-L-eNhance / L-eXtreme / **L-ULTIMATE**), so a bare product name correctly returns no match. SPCC declines on the
+importer converts to the database's Angstrom + fraction). **Deleting a CSV and re-merging RETRACTS
+its curve**, via the checked-in `local-filters/.merged-names.txt`: the `.gs.gz` is the merge's own
+input, so a merge could otherwise only ever add, and `ORIGIN` cannot identify a locally-injected
+curve because the upstream SASP data was itself built from CSVs. Upstream adds only
+`IDAS_LPS_P3_LIGHT_POLLUTION`, `OPTOLONG_L-PRO_LIGHT_POLLUTION` and `SVBONY_SV260`. **L-eXtreme still exists only PRE-CONVOLVED with a sensor**
+(`SONY_CMOS_*-UVIRCUT` / `CANON_FULL_SPECTRUM_*` x L-eNhance / L-eXtreme / L-ULTIMATE), so that bare
+product name correctly returns no match.
+
+**L-eNhance is TRI-LINE, not a duo-band, and that is a correctness matter rather than a label.** Its
+blue window is 23 nm wide (the vendor annotates it "FWHM OIII&Hb"), so the channel that looks like
+OIII carries OIII **plus H-beta** summed together -- anything unmixing an OSC frame shot through it on
+a strictly two-line Ha/OIII model is solving the wrong system (see
+[docs/plans/narrowband-colour.md](docs/plans/narrowband-colour.md)). Nor is the band flat: H-beta 486.1
+reads **96.4%** against OIII 500.7's **85.9%**, because the band centres near 490 and 500.7 sits on
+its falling shoulder. **Hb 486.1 is also the identity check against L-Ultimate**, whose 3 nm blue band
+reads 0.0% there -- Optolong have published charts under the L-Ultimate name that are actually
+L-eNhance, and that one wavelength separates them. Pinned as a pair by
+`TheEnhanceIsTriLineAndPassesHBeta` and `TheUltimateIsTwoNarrowBandsAndDoesNotReachHBeta`.
+
+**Which is why the ZOOMED charts matter.** At the ~1 px/nm of a full-range chart you cannot tell
+whether Hb falls inside the blue band; at 9 px/nm you can. A wide chart yields a curve that looks fine
+and loses the one fact that distinguishes the filter. The cost: L-eNhance has no full-range chart, so
+its out-of-band is ASSERTED (zeros at 350/460/525/630/680/800) rather than measured -- each band is
+bracketed by measured zeros, but UV/IR leakage is invisible to it. SPCC declines on the
 two ColourMagic curves, and **the curve is not what is missing** -- the SED library is (see the
 narrowband note above). They are here for sensor-matched luma weights, for the narrowband colour work
 where which line lands in which CFA channel is the whole question, and as the pre-convolved response a
