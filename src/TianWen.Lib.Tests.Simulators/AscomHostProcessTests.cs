@@ -20,6 +20,26 @@ namespace TianWen.Lib.Tests.Simulators;
 [SupportedOSPlatform("windows")] // AscomHostProcess is windows-only; the runtime SkipUnless guards execution
 public class AscomHostProcessTests
 {
+    /// <summary>
+    /// The connect-timeout path: a helper that starts but never connects (here cmd.exe, which treats
+    /// the pipe name as a command, errors and idles or exits) must fail the spawn with the named
+    /// IOException within the budget -- not hang on the accept, and not crash a background thread
+    /// during teardown. This path had no coverage while it carried the suppressed-then-deleted
+    /// ManualResetEventSlim; the bounded wait is Thread.Join now, and this is what pins it.
+    /// </summary>
+    [Fact(Timeout = 30_000)]
+    public void GivenAProcessThatNeverConnectsWhenSpawningThenFailsWithinTheBudget()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "The ASCOM COM host is Windows-only.");
+
+        var comSpec = Environment.GetEnvironmentVariable("ComSpec");
+        Assert.SkipWhen(string.IsNullOrEmpty(comSpec), "No ComSpec on this host.");
+
+        var ex = Should.Throw<System.IO.IOException>(
+            () => AscomHostProcess.Spawn(comSpec, TimeSpan.FromSeconds(2)));
+        ex.Message.ShouldContain("did not connect");
+    }
+
     [Fact]
     public void GivenTheBuiltHelperWhenDrivingRawJsonRpcThenCreateGetSetReleaseRoundTrip()
     {

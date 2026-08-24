@@ -73,6 +73,12 @@ internal sealed class AscomHostProcess : IDisposable
 
             if (!WaitForConnection(pipe, connectTimeout))
             {
+                // Kill BEFORE reading stderr: ReadToEnd blocks until the process exits, so a helper
+                // that hangs without connecting (rather than crashing) used to wedge the spawn here
+                // forever -- found by the never-connects test, which sat in this line for its whole
+                // 30s budget. A crashed helper is unaffected: it has already exited, and its stderr
+                // is intact either way.
+                TryKill(process);
                 var stderr = process.StandardError.ReadToEnd();
                 throw new IOException($"ASCOM host did not connect to pipe '{pipeName}' within {connectTimeout}. stderr: {stderr}");
             }
@@ -93,16 +99,17 @@ internal sealed class AscomHostProcess : IDisposable
 
     private static bool WaitForConnection(NamedPipeServerStream pipe, TimeSpan timeout)
     {
-        // WaitForConnection has no timeout overload; run it on a background thread and bound the wait so
-        // a helper that dies before connecting (or hangs) can't block the caller forever.
+        // WaitForConnection has no timeout overload and a synchronous accept cannot be cancelled, so
+        // run it on a background thread and bound the wait with Thread.Join -- which needs no separate
+        // completion event (an earlier ManualResetEventSlim here was redundant with Join and was the
+        // one disposable that could be neither disposed nor fixed, only suppressed). Join is also the
+        // memory barrier that makes `connected` safe to read.
+        //
+        // On timeout the caller's failure path disposes the pipe, which throws the accept out and
+        // ends the thread. InstanceGate (SharpAstro.AppShell) instead wakes its accepter by connecting
+        // to itself, because a GATE must keep its pipe alive across the wake; a one-shot spawn that is
+        // about to tear the pipe down has no such constraint, so the simpler shutdown is the right one.
         var connected = false;
-        // Deliberately NOT disposed (CA2000): on the timeout path the accept thread is still blocked in
-        // WaitForConnection and will Set() this event whenever it finally unblocks -- disposing here would
-        // turn a slow helper into an ObjectDisposedException on a background thread. An MRES whose
-        // WaitHandle property is never touched holds no kernel object, so there is nothing to reclaim.
-#pragma warning disable CA2000
-        var done = new ManualResetEventSlim(false);
-#pragma warning restore CA2000
         var thread = new Thread(() =>
         {
             try
@@ -114,14 +121,10 @@ internal sealed class AscomHostProcess : IDisposable
             {
                 // pipe disposed / connection failed; connected stays false
             }
-            finally
-            {
-                done.Set();
-            }
         })
         { IsBackground = true, Name = "ascomhost-pipe-accept" };
         thread.Start();
-        return done.Wait(timeout) && connected;
+        return thread.Join(timeout) && connected;
     }
 
     /// <summary>
