@@ -1,5 +1,6 @@
 using Shouldly;
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -108,8 +109,19 @@ namespace TianWen.Lib.Tests
                 TestFraction = 0.15,
             };
 
-            var progress = new Progress<string>(output.WriteLine);
+            // Progress<T> marshals every callback onto the thread pool, so a report can land AFTER
+            // this test method has returned. ITestOutputHelper then throws "There is no currently
+            // active test", which xUnit v3 raises as a CATASTROPHIC failure: the whole run fails with
+            // a zero failed-test count, on whichever arch loses the race. So buffer the reports and
+            // write them once the run is over; a late enqueue is then harmless.
+            var progressLines = new ConcurrentQueue<string>();
+            var progress = new Progress<string>(progressLines.Enqueue);
             var result = await DatasetBuildRunner.RunAsync(options, logger: null, progress: progress, cancellationToken: ct);
+
+            while (progressLines.TryDequeue(out var progressLine))
+            {
+                output.WriteLine(progressLine);
+            }
 
             // Both sessions discovered; the good one registered, the broken one fault-isolated
             // (counted, logged, skipped) instead of aborting the run.
