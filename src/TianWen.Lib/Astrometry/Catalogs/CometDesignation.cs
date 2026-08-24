@@ -78,8 +78,14 @@ public readonly partial record struct CometDesignation
     public bool IsNumbered => PeriodicNumber > 0;
 
     // Numbered: "12P/Pons-Brooks", "73P-C", "1I/'Oumuamua" -- optional fragment (letter, or letter+digit
-    // for SL9 sub-fragments), optional /Name tail.
-    [GeneratedRegex(@"^([0-9]{1,4})([PDI])(?:-([A-Z][A-Z0-9]?))?(?:/.*)?$", RegexOptions.CultureInvariant)]
+    // for SL9 sub-fragments), optional name tail.
+    //
+    // The tail separator is a slash OR A SPACE, because a FITS OBJECT card is typed by a human and
+    // "10P Tempel 2" is how one gets written at the telescope. Accepting the space costs nothing in
+    // precision: the pattern still demands the P/D/I immediately against the digits, so "30 Doradus"
+    // (digits, then a space, then the letter) cannot match. That adjacency is the ONLY thing carrying
+    // the distinction, which is why IsNumberedShape must be given the un-stripped string to see it.
+    [GeneratedRegex(@"^([0-9]{1,4})([PDI])(?:-([A-Z][A-Z0-9]?))?(?:[/ ].*)?$", RegexOptions.CultureInvariant)]
     private static partial Regex NumberedPattern { get; }
 
     // Provisional: "C/2024 A1", "C/2019 Y4-D", "C/2001 OG108", "C/1942 EA" (no order), "C/-146 P1" (BC).
@@ -295,9 +301,17 @@ public readonly partial record struct CometDesignation
     }
 
     /// <summary>
-    /// Cheap shape probe for a numbered comet designation ("13P", "73P-C", "1I/'Oumuamua"): 1-4 digits,
-    /// then P/D/I, then end / fragment / name tail. Used by the catalog-format guesser to route
-    /// digit-leading input to <see cref="Catalog.Comet"/> before the 2MASS arms claim it.
+    /// Cheap shape probe for a numbered comet designation ("13P", "73P-C", "1I/'Oumuamua",
+    /// "10P Tempel 2"): 1-4 digits, then P/D/I, then end / fragment / name tail. Used by the
+    /// catalog-format guesser to route digit-leading input to <see cref="Catalog.Comet"/> before the
+    /// 2MASS arms claim it.
+    ///
+    /// <para><b>A space is a valid tail separator only while the spaces are still there.</b> The orbit
+    /// letter must sit immediately against the number, so "10P Tempel" is a comet and "30 Doradus" is
+    /// not -- but stripping spaces destroys that distinction, leaving "10PTEMPEL" and "30DORADUS" the
+    /// same shape. The guesser therefore probes the space-stripped form AND the original, and this must
+    /// never be loosened to accept a bare letter tail: that would route every
+    /// "&lt;digits&gt;D&lt;letters&gt;" object to the comet catalog.</para>
     /// </summary>
     internal static bool IsNumberedShape(ReadOnlySpan<char> input)
     {
@@ -312,7 +326,7 @@ public readonly partial record struct CometDesignation
             return false;
         }
 
-        return input.Length == digits + 1 || input[digits + 1] is '-' or '/';
+        return input.Length == digits + 1 || input[digits + 1] is '-' or '/' or ' ';
     }
 
     public override string ToString() => ToCanonical();
