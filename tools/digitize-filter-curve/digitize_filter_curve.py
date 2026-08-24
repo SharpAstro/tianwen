@@ -205,6 +205,29 @@ def fit_excel_grid(hi_ch, sat, width, height, val_min, val_max, value_step):
     return y_at_max, y_at_min, x_left, x_right, centres, spacing
 
 
+def sample_curve(curve, nm):
+    """Linear interpolation over the extracted curve, for the validation checks.
+
+    An exact bin lookup fails on any wavelength the extraction had to skip -- an occluded column, a
+    coarser --sample-step -- and reports "no sample" where the curve is perfectly well determined
+    either side. The database interpolates these curves at query time anyway, so validating an
+    interpolated value tests what will actually be read.
+    """
+    if not curve:
+        return None
+    if nm <= curve[0][0]:
+        return curve[0][1]
+    if nm >= curve[-1][0]:
+        return curve[-1][1]
+    for i in range(1, len(curve)):
+        x1, v1 = curve[i]
+        if x1 >= nm:
+            x0, v0 = curve[i - 1]
+            t = 0.0 if x1 == x0 else (nm - x0) / (x1 - x0)
+            return v0 + t * (v1 - v0)
+    return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -230,6 +253,44 @@ def main():
                          "nothing at all and says so.")
     ap.add_argument("--ink-tol", type=int, default=60,
                     help="per-channel tolerance around --ink-rgb")
+    ap.add_argument("--dark-chart", action="store_true",
+                    help="chart is drawn light-on-dark (white trace, bright gridlines on black). "
+                         "Inverts the luminance conventions for both gridline and default ink "
+                         "selection.")
+    ap.add_argument("--y-anchors", metavar="PCT:PX,PCT:PX",
+                    help="two or more value:pixel pairs fixing the VALUE axis, the counterpart of "
+                         "--x-anchors. For a chart whose gridlines cannot be fitted because the "
+                         "detected set mixes majors with partially-visible minors -- a uniform-grid "
+                         "fit has no way to tell which is which, and refuses. Take them from the "
+                         "axis LABELS. Least-squares fitted, residuals reported.")
+    ap.add_argument("--x-anchors", metavar="NM:PX,NM:PX",
+                    help="two or more wavelength:pixel pairs fixing the wavelength axis, for a "
+                         "chart with no vertical gridlines whose plot box does NOT end on a "
+                         "labelled value. Take them from the TICK LABEL positions, never by eye: "
+                         "on the L-Quad chart the box runs 295-947nm while the outermost labels "
+                         "read 300 and 900, so edge-to-edge would have been 47nm out at the right. "
+                         "Fitted by least squares and the residuals are reported.")
+    ap.add_argument("--drop-annotation-columns", action="store_true",
+                    help="skip columns occupied by a SATURATED vertical line spanning most of the "
+                         "plot. Vendor charts often draw emission-line markers ON TOP of the "
+                         "curve, so those columns hold annotation rather than data -- and they sit "
+                         "at exactly the wavelengths one wants to validate. Dropped and "
+                         "interpolated across, which is honest; sampled, they read as a notch that "
+                         "is not there.")
+    ap.add_argument("--ink-longest-run", action="store_true",
+                    help="per column, keep only the LONGEST contiguous run of ink. For a chart "
+                         "whose gridlines are the same colour as the trace, where the trace is the "
+                         "thick one -- selecting on colour alone cannot separate them.")
+    ap.add_argument("--x-from-plot-box", action="store_true",
+                    help="in auto mode, take the wavelength axis edge-to-edge across the plot box "
+                         "(measured from the horizontal gridlines' extent) instead of fitting the "
+                         "vertical gridlines. For a chart with a dense DOTTED minor grid, where a "
+                         "count-matched fit locks onto the wrong subset. Requires --expect-peaks.")
+    ap.add_argument("--legend-rect", metavar="X0,Y0,X1,Y1",
+                    help="exclude this pixel rect instead of guessing at the legend, for a chart "
+                         "whose legend sits INSIDE the plot area and holds a line sample")
+    ap.add_argument("--no-legend", action="store_true",
+                    help="skip legend detection entirely")
     ap.add_argument("--grid-mode", choices=["auto", "excel"], default="auto",
                     help="auto: gridlines on BOTH axes (vendor spectrophotometer charts). "
                          "excel: dense horizontal gridlines only, wavelength axis spans the plot "
@@ -239,6 +300,15 @@ def main():
                     help="wavelengths the passbands must peak at, e.g. the emission lines a "
                          "narrowband filter is cut for. Validates the axis mapping against "
                          "physics rather than against the chart it came from.")
+    ap.add_argument("--expect-passed", nargs="*", type=float, default=[],
+                    help="wavelengths the filter must TRANSMIT. Use this instead of --expect-peaks "
+                         "when one passband covers several lines: a window passing both Hb 486.1 "
+                         "and OIII 500.7 has ONE peak, so a peak-position test measures the "
+                         "distance from a line to the band's centre and calls a correct curve "
+                         "mis-calibrated. Paired with --expect-notches this is a strong axis "
+                         "check, because the passed and blocked wavelengths interleave.")
+    ap.add_argument("--pass-min", type=float, default=50.0,
+                    help="minimum transmission, in percent, for an --expect-passed wavelength")
     ap.add_argument("--peak-tol", type=float, default=2.0,
                     help="how far, in nm, an extracted peak may sit from --expect-peaks")
     ap.add_argument("--expect-notches", nargs="*", type=float, default=[],
@@ -252,7 +322,15 @@ def main():
     sat = hi_ch - lo_ch
 
     # --- 1. calibrate off the gridlines -------------------------------------------------------
-    grey = (sat < 25) & (hi_ch >= 100) & (hi_ch < 235)
+    # On a dark chart the gridlines are the BRIGHT neutral pixels, not the mid-dark ones. Same
+    # role, opposite end of the luminance range.
+    # --dark-chart says the TRACE is light-on-dark. It says nothing about how bright the gridlines
+    # are, and the two are independent: the L-Quad chart draws them bright white, while the
+    # L-Ultimate wide chart draws them dim grey on the same black. A mask keyed to bright only
+    # found 2 gridlines of 11 there and the tool refused the chart -- correctly, but for the wrong
+    # reason. So on a dark chart accept anything neutral above the background, and let the uniform
+    # -lattice fit reject whatever is not a gridline.
+    grey = ((sat < 50) & (hi_ch >= 90)) if args.dark_chart         else ((sat < 25) & (hi_ch >= 100) & (hi_ch < 235))
     wl_min, wl_max = args.wavelength_range
     val_min, val_max = args.value_range
     h_rejected, v_rejected = [], []
@@ -285,27 +363,100 @@ def main():
         v_expected = int(round((wl_max - wl_min) / args.wavelength_step)) + 1
         h_expected = int(round((val_max - val_min) / args.value_step)) + 1
 
-        h_fit = fit_grid(h_cand, h_expected)
-        v_fit = fit_grid(v_cand, v_expected)
+        h_fit = None if args.y_anchors else fit_grid(h_cand, h_expected)
+        x_given = args.x_from_plot_box or bool(args.x_anchors)
+        v_fit = None if x_given else fit_grid(v_cand, v_expected)
 
         # A chart that cannot be calibrated must FAIL, not guess. A wrongly-scaled curve is far
         # worse than no curve: it is wrong by a smooth factor, so nothing downstream looks
         # anomalous.
-        if h_fit is None or len(h_fit[2]) < h_expected - 1:
+        if args.y_anchors:
+            ypairs = []
+            for part in args.y_anchors.split(","):
+                pct_s, px_s = part.split(":")
+                ypairs.append((float(pct_s), float(px_s)))
+            if len(ypairs) < 2:
+                sys.exit("--y-anchors needs at least two pct:px pairs")
+            pcts = np.array([p[0] for p in ypairs])
+            ypxs = np.array([p[1] for p in ypairs])
+            ydesign = np.stack([np.ones_like(pcts), pcts], axis=1)
+            (yc, ym), *_ = np.linalg.lstsq(ydesign, ypxs, rcond=None)
+            yres = np.abs(ydesign @ [yc, ym] - ypxs).max()
+            y_at_min = float(yc + ym * val_min)
+            y_at_max = float(yc + ym * val_max)
+            h_lines, h_rejected = [], []
+            print(f"y axis     : fitted to {len(ypairs)} anchors, {val_max:g}% at px "
+                  f"{y_at_max:.1f}, {val_min:g}% at px {y_at_min:.1f}, worst residual "
+                  f"{yres:.1f}px ({yres / abs(ym) if ym else 0:.2f}%)")
+        elif h_fit is None or len(h_fit[2]) < h_expected - 1:
             sys.exit(f"could not fit {h_expected} horizontal gridlines to {h_cand}; "
-                     f"check --value-range / --value-step")
-        if v_fit is None or len(v_fit[2]) < 3:
+                     f"check --value-range / --value-step, or pass --y-anchors")
+        if not x_given and (v_fit is None or len(v_fit[2]) < 3):
             sys.exit(f"could not fit {v_expected} vertical gridlines to {v_cand}; "
-                     f"check --wavelength-range / --wavelength-step")
+                     f"check --wavelength-range / --wavelength-step, or pass --x-from-plot-box")
 
-        y_at_max, y_at_min, h_lines, h_rejected = h_fit
-        x_at_min, x_at_max, v_lines, v_rejected = v_fit
-        px_per_nm = (x_at_max - x_at_min) / (wl_max - wl_min)
+        if h_fit is not None:
+            y_at_max, y_at_min, h_lines, h_rejected = h_fit
 
-        print(f"x axis     : {wl_min:g}nm at px {x_at_min:.1f}, {wl_max:g}nm at px "
-              f"{x_at_max:.1f} ({px_per_nm:.4f} px/nm, {len(v_lines)}/{v_expected} on grid)")
-        print(f"y axis     : {val_max:g}% at px {y_at_max:.1f}, {val_min:g}% at px "
-              f"{y_at_min:.1f} ({len(h_lines)}/{h_expected} gridlines on grid)")
+        # The plot box, measured from the horizontal gridlines' full extent. Reported alongside an
+        # anchor fit so the box's true end wavelengths are visible -- that is what shows an
+        # edge-to-edge assumption would have been wrong.
+        _spans = [row_grey_extent(grey[int(round(y))], min_run=6) for y in h_lines]
+        _spans = [t for t in _spans if t is not None]
+        x0_box = float(np.median([t[0] for t in _spans])) if _spans else 0.0
+        x1_box = float(np.median([t[1] for t in _spans])) if _spans else float(width - 1)
+
+        if args.x_anchors:
+            pairs = []
+            for part in args.x_anchors.split(","):
+                nm_s, px_s = part.split(":")
+                pairs.append((float(nm_s), float(px_s)))
+            if len(pairs) < 2:
+                sys.exit("--x-anchors needs at least two nm:px pairs")
+            nms = np.array([p[0] for p in pairs])
+            pxs = np.array([p[1] for p in pairs])
+            design = np.stack([np.ones_like(nms), nms], axis=1)
+            (intercept, slope), *_ = np.linalg.lstsq(design, pxs, rcond=None)
+            resid = design @ [intercept, slope] - pxs
+            px_per_nm = float(slope)
+            x_at_min = float(intercept + slope * wl_min)
+            x_at_max = float(intercept + slope * wl_max)
+            v_lines, v_rejected = [], []
+            print(f"x axis     : fitted to {len(pairs)} anchors, {px_per_nm:.4f} px/nm, worst "
+                  f"residual {np.abs(resid).max():.1f}px "
+                  f"({np.abs(resid).max() / px_per_nm:.2f}nm)")
+            print(f"             plot box px {x0_box:.0f}..{x1_box:.0f} is "
+                  f"{(x0_box - intercept) / slope:.1f}..{(x1_box - intercept) / slope:.1f}nm")
+        elif args.x_from_plot_box:
+            if not args.expect_peaks:
+                sys.exit("--x-from-plot-box requires --expect-peaks: the wavelength axis is being "
+                         "assumed rather than measured, and the peaks are what test that")
+            # min_run=6: a DASHED gridline is a row of short runs, and the default 20px floor
+            # discards every one of them, so the box could not be measured at all on the wide
+            # L-Ultimate chart. The extent of the dashes is still the extent of the line.
+            spans = [row_grey_extent(grey[int(round(y))], min_run=6) for y in h_lines]
+            spans = [t for t in spans if t is not None]
+            # One row is enough, and often it is all there is: a chart whose interior gridlines are
+            # DASHED yields an extent only for its solid top and bottom borders, and those already
+            # span the box exactly. Requiring three rejected the wide L-Ultimate chart, which had
+            # fitted all eleven of its gridlines correctly.
+            if not spans:
+                sys.exit("could not measure the plot box from the horizontal gridlines")
+            x_at_min = float(np.median([t[0] for t in spans]))
+            x_at_max = float(np.median([t[1] for t in spans]))
+            v_lines, v_rejected = [], []
+            px_per_nm = (x_at_max - x_at_min) / (wl_max - wl_min)
+            print(f"x axis     : plot box px {x_at_min:.1f}..{x_at_max:.1f} taken as "
+                  f"{wl_min:g}..{wl_max:g}nm ({px_per_nm:.4f} px/nm) -- ASSUMED edge-to-edge, "
+                  f"checked below against --expect-peaks")
+        else:
+            x_at_min, x_at_max, v_lines, v_rejected = v_fit
+            px_per_nm = (x_at_max - x_at_min) / (wl_max - wl_min)
+            print(f"x axis     : {wl_min:g}nm at px {x_at_min:.1f}, {wl_max:g}nm at px "
+                  f"{x_at_max:.1f} ({px_per_nm:.4f} px/nm, {len(v_lines)}/{v_expected} on grid)")
+        if not args.y_anchors:
+            print(f"y axis     : {val_max:g}% at px {y_at_max:.1f}, {val_min:g}% at px "
+                  f"{y_at_min:.1f} ({len(h_lines)}/{h_expected} gridlines on grid)")
         if h_rejected or v_rejected:
             print(f"off-grid   : rows {[round(r) for r in h_rejected]}, "
                   f"cols {[round(c) for c in v_rejected]} (legend borders, not gridlines)")
@@ -315,7 +466,15 @@ def main():
     # region where gridlines are missing. Detected rather than hand-entered so a differently-laid-
     # out chart from the same vendor still works.
     interior = np.zeros_like(grey)
-    y0p, y1p = int(y_at_max), int(y_at_min)
+    # One value_step of headroom past the outermost GRIDLINES, because the plot area does not end
+    # there. A chart labelled to 90 with minor lines every 2.5 draws its box at 91.25, and a curve
+    # is perfectly entitled to peak in that margin -- L-Ultimate's H-alpha band reaches ~91%, so
+    # clipping at the 90 line truncated the whole top of it and left a 0.7nm FWHM on a 3nm filter.
+    # The value mapping extrapolates linearly, so a sample in the margin reads back correctly as
+    # over 90. A no-op for a chart whose axis maximum is a gridline with nothing drawn above it.
+    _steps = max(1.0, (val_max - val_min) / args.value_step)
+    _margin = (y_at_min - y_at_max) / _steps
+    y0p, y1p = max(0, int(y_at_max - _margin)), min(height - 1, int(y_at_min + _margin))
     x0p, x1p = int(x_at_min), int(x_at_max)
     interior[y0p:y1p + 1, x0p:x1p + 1] = True
 
@@ -323,11 +482,35 @@ def main():
     # that did NOT land on the grid. Nothing is hand-entered, so the same invocation works on a
     # chart from the same vendor with the legend placed somewhere else.
     legend = None
-    if len(h_rejected) >= 2 and len(v_rejected) >= 2:
-        legend = (min(v_rejected), min(h_rejected), max(v_rejected), max(h_rejected))
+    if args.legend_rect:
+        legend = tuple(float(v) for v in args.legend_rect.split(","))
+        if len(legend) != 4:
+            sys.exit("--legend-rect needs x0,y0,x1,y1")
         print(f"legend     : excluded rect x {legend[0]:.0f}..{legend[2]:.0f}, "
-              f"y {legend[1]:.0f}..{legend[3]:.0f} -- it holds a black line SAMPLE, which is ink "
-              f"of exactly the right colour at a wavelength where the filter is opaque")
+              f"y {legend[1]:.0f}..{legend[3]:.0f} (given)")
+    elif args.no_legend:
+        print("legend     : detection disabled")
+    elif len(h_rejected) >= 2 and len(v_rejected) >= 2:
+        box = (min(v_rejected), min(h_rejected), max(v_rejected), max(h_rejected))
+        plot_area = max(1.0, (x1p - x0p) * (y1p - y0p))
+        share = ((box[2] - box[0]) * (box[3] - box[1])) / plot_area
+        # A legend covering most of the plot is not a legend. The hypothesis is built from the long
+        # grey runs that missed the grid, and a chart with a fine DOTTED minor grid produces those
+        # everywhere -- on the L-eNhance charts it "found" a legend spanning 87% of the plot and
+        # masked the curve itself, leaving fringe pixels that read a 33% floor and a peak 19nm off.
+        # The peak check caught it, but only because these are narrowband charts with a known line;
+        # on a broadband chart it would have emitted a quietly mutilated curve. So bound it, and say
+        # which way the decision went either way.
+        if share > 0.30:
+            print(f"legend     : hypothesis REJECTED -- the box spans {share:.0%} of the plot, so "
+                  f"these are minor gridlines, not legend borders. Pass --legend-rect if there is "
+                  f"a legend inside the plot area holding a line sample.")
+        else:
+            legend = box
+            print(f"legend     : excluded rect x {legend[0]:.0f}..{legend[2]:.0f}, "
+                  f"y {legend[1]:.0f}..{legend[3]:.0f} ({share:.0%} of the plot) -- it holds a line "
+                  f"SAMPLE, which is ink of exactly the right colour at a wavelength where the "
+                  f"filter is opaque")
     else:
         print("legend     : none detected")
 
@@ -339,7 +522,20 @@ def main():
         ink = interior.copy()
         for c in range(3):
             ink &= np.abs(rgb[:, :, c] - want[c]) <= args.ink_tol
-        print(f"ink        : colour {tuple(want)} +/-{args.ink_tol}, {int(ink.sum())} px")
+        # Naming a colour is asking to separate a COLOURED trace from neutral chrome, so require
+        # saturation too. A per-channel tolerance alone does not: at +/-70 around (213, 90, 92) a
+        # mid-grey (150, 150, 150) satisfies all three bounds, so the L-eNhance charts' faint dotted
+        # minor grid was selected as curve and dragged the off-band baseline from 0 to 33%. It read
+        # as a plausible curve and passed the peak check, because the passband itself was fine.
+        want_sat = max(want) - min(want)
+        if want_sat >= args.ink_sat:
+            ink &= sat >= args.ink_sat
+        print(f"ink        : colour {tuple(want)} +/-{args.ink_tol} and sat>={args.ink_sat} "
+              f"(the colour's own is {want_sat}), {int(ink.sum())} px")
+    elif args.dark_chart:
+        ink = (hi_ch >= 255 - args.ink_max) & (sat < args.ink_sat) & interior
+        print(f"ink        : white (min>{255 - args.ink_max}, sat<{args.ink_sat}), "
+              f"{int(ink.sum())} px")
     else:
         ink = (hi_ch < args.ink_max) & (sat < args.ink_sat) & interior
         print(f"ink        : black (max<{args.ink_max}, sat<{args.ink_sat}), {int(ink.sum())} px")
@@ -347,13 +543,67 @@ def main():
         lx0, ly0, lx1, ly1 = (int(v) for v in legend)
         ink[ly0:ly1 + 1, lx0:lx1 + 1] = False
 
+    if args.ink_longest_run:
+        # Blank the gridline ROWS. --ink-longest-run says the gridlines are the same colour as the
+        # trace, and thickness separates them only where the trace is present: in a BLOCKED region
+        # the curve is one or two pixels on the baseline, so the solid axis-max gridline wins the
+        # longest-run contest and every blocked wavelength read 100%. Every one of the L-Quad
+        # chart's five light-pollution notches came back "NOT BLOCKED" at exactly 100.0%, which is
+        # the tell -- a real curve does not sit on a round number.
+        #
+        # Two rows out of a 615-row scale is 0.3% of the range, and a curve crossing a gridline
+        # still has the rest of its thickness to take a centroid from, so this costs far less than
+        # it buys.
+        # ALL of them except the axis-minimum line. A blocking filter's curve LIES ON the zero
+        # gridline through every blocked region, so blanking that row deletes the curve exactly
+        # where the filter does its job: 204 of 652 samples went missing and the lines the filter
+        # is specified to pass came back "no sample". Nothing is lost by keeping it -- where the
+        # trace and the zero line coincide there is nothing to separate, and the value the gridline
+        # yields is the value the trace has.
+        # h_rejected as well as h_lines: the PLOT BORDER is a long white row that did not land on
+        # the value grid, so it is exactly what the grid fit rejects -- and being a pixel or two
+        # above the axis-max gridline it reads as 100%, drawing a solid line across every blocked
+        # wavelength in the output. Anything spanning the plot horizontally is chrome, whether or
+        # not it belongs to the grid.
+        rows_to_blank = list(h_lines) + list(h_rejected)
+        keep = min(rows_to_blank, key=lambda y: abs(y - y_at_min))
+        blanked = 0
+        for y in rows_to_blank:
+            if y == keep:
+                continue
+            yi = int(round(y))
+            ink[max(0, yi - 1):yi + 2, :] = False
+            blanked += 1
+        print(f"chrome rows: {blanked} row(s) blanked (same colour as the trace); kept the "
+              f"{val_min:g}% line at px {keep:.0f}, which the curve lies on where it blocks")
+
     # --- 4. per-column centroid, then bin to the requested sampling ---------------------------
     per_nm = {}
     ambiguous = 0
+    annotation_cols = set()
+    if args.drop_annotation_columns:
+        band_h = max(1, y1p - y0p)
+        for x in range(x0p, x1p + 1):
+            if int((sat[y0p:y1p + 1, x] > 55).sum()) > 0.70 * band_h:
+                annotation_cols.add(x)
+        print(f"annotation : {len(annotation_cols)} column(s) dropped as emission-line markers "
+              f"drawn over the curve")
+
     for x in range(x0p, x1p + 1):
+        if x in annotation_cols:
+            continue
         ys = np.flatnonzero(ink[:, x])
         if ys.size == 0:
             continue
+        if args.ink_longest_run and ys.size > 1:
+            # Keep the longest contiguous run. On the L-Quad chart the gridlines are dashed WHITE
+            # and the trace is white, so no colour test can separate them -- but the trace is
+            # several pixels thick and a gridline dash is one or two, so thickness can.
+            breaks = np.flatnonzero(np.diff(ys) > 1)
+            starts = np.concatenate([[0], breaks + 1])
+            ends = np.concatenate([breaks, [ys.size - 1]])
+            best = int(np.argmax(ends - starts))
+            ys = ys[starts[best]:ends[best] + 1]
         if ys.max() - ys.min() > 0.25 * (y1p - y0p):
             ambiguous += 1
         y = float(ys.mean())
@@ -432,13 +682,27 @@ def main():
                      f"{args.peak_tol:g}nm) -- the wavelength axis mapping is wrong, refusing "
                      f"to emit a curve that would look authoritative and be wrong")
 
+    if args.expect_passed:
+        print("pass check (the filter is specified to transmit these lines):")
+        worst_pass = 100.0
+        for nm in args.expect_passed:
+            got = sample_curve(curve, nm)
+            if got is None:
+                print(f"  {nm:7.1f}nm -> no sample")
+                worst_pass = 0.0
+                continue
+            worst_pass = min(worst_pass, got)
+            print(f"  {nm:7.1f}nm -> {got:5.1f} %  "
+                  f"{'OK' if got >= args.pass_min else 'NOT TRANSMITTED'}")
+        if worst_pass < args.pass_min:
+            sys.exit(f"a line the filter is specified to pass reads {worst_pass:.1f} % "
+                     f"(need {args.pass_min:g} %) -- refusing to emit")
+
     if args.expect_notches:
-        lookup = dict(curve)
         print("notch check (vendor says these lines are blocked):")
         worst_notch = 0.0
         for nm in args.expect_notches:
-            key = round(nm / args.sample_step) * args.sample_step
-            got = lookup.get(key)
+            got = sample_curve(curve, nm)
             if got is None:
                 print(f"  {nm:7.1f}nm -> no sample")
                 continue
