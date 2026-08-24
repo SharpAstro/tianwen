@@ -119,13 +119,39 @@ internal sealed class FrameCache
     /// the strong-cap. <c>null</c> (default) -> <see cref="ScaledBudgetFraction"/>
     /// picks based on total physical RAM (0.65 on a 16 GB host scaling up to
     /// 0.95 on 128 GB+). Tests can pin an explicit fraction.</param>
-    public static int DecideCacheCap(int frameCount, long frameBytes, double? budgetFraction = null)
+    /// <param name="availableBytes">
+    /// RAM the caller says is available, in place of sampling this process's live GC state.
+    /// <para>
+    /// This exists because the two callers are asking different questions.
+    /// <see cref="IIntegrationStrategy.RunAsync"/> is about to allocate, so live free memory IS
+    /// the truth and it passes <c>null</c>. <see cref="IIntegrationStrategy.Evaluate"/> is
+    /// PLANNING, and every other number it uses comes from the <see cref="IntegrationProbe"/> --
+    /// so sampling the machine there made the plan disagree with the budget it was handed, and
+    /// made <c>Pick</c> depend on how much RAM the developer's box happened to have free. On a
+    /// roomy host it decided all 244 frames of a big group fit in cache, reported zero spill, and
+    /// from there reported zero staging disk: a strategy needing ~20 GB claimed it would run in
+    /// 1 MB, and the HDD-vs-SSD seek penalty vanished because there was no IO left to penalise.
+    /// Both of those were pinned by tests that consequently only passed on a small-RAM host.
+    /// </para>
+    /// </param>
+    public static int DecideCacheCap(int frameCount, long frameBytes, double? budgetFraction = null,
+        long? availableBytes = null)
     {
         if (frameCount <= 0 || frameBytes <= 0) return 0;
-        var info = GC.GetGCMemoryInfo();
-        var fraction = budgetFraction ?? ScaledBudgetFraction(info.TotalAvailableMemoryBytes);
+        long currentlyFree, totalForScaling;
+        if (availableBytes is { } declared)
+        {
+            currentlyFree = Math.Max(0, declared);
+            totalForScaling = currentlyFree;
+        }
+        else
+        {
+            var info = GC.GetGCMemoryInfo();
+            currentlyFree = Math.Max(0, info.TotalAvailableMemoryBytes - info.MemoryLoadBytes);
+            totalForScaling = info.TotalAvailableMemoryBytes;
+        }
+        var fraction = budgetFraction ?? ScaledBudgetFraction(totalForScaling);
         if (fraction <= 0.0 || fraction > 1.0) throw new ArgumentOutOfRangeException(nameof(budgetFraction));
-        var currentlyFree = Math.Max(0, info.TotalAvailableMemoryBytes - info.MemoryLoadBytes);
         var cacheBudget = (long)(currentlyFree * fraction);
         var maxByBytes = cacheBudget / frameBytes;
         if (maxByBytes <= 0) return 0;

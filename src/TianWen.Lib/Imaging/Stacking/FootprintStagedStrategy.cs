@@ -73,7 +73,10 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
         // overflow gets staged. Use canvas bytes for the cap (worst-case
         // sizing), same as the runtime FrameCache.DecideCacheCap call.
         var perFrameStaged = (long)(probe.CanvasBytes * _footprintFraction);
-        var strongCap = FrameCache.DecideCacheCap(probe.FrameCount, probe.CanvasBytes);
+        // From the PROBE's budget, not this process's live GC state: planning has to answer for
+        // the host it was told about. See the availableBytes remark on DecideCacheCap.
+        var strongCap = FrameCache.DecideCacheCap(probe.FrameCount, probe.CanvasBytes,
+            availableBytes: budget.AllowedRam(probe));
         var diskFrames = Math.Max(0, probe.FrameCount - strongCap);
         var diskBytes = perFrameStaged * diskFrames;
         var diskCap = budget.AllowedDisk(probe);
