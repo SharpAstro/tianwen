@@ -110,14 +110,44 @@ public class UnitScaleClassificationTests
         overshoot.Count.ShouldBe(clean.Count);
     }
 
+    [Fact]
+    public async Task AnIntegratedMastersSaturatedCoresDoNotEmptyTheStarList()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // 1.025 is not decode noise, it is what a real 135-frame stack measured: saturated star cores
+        // sit at the top of the scale and per-frame normalisation lifts them a little past one. The
+        // old 1e-3 bound called that ADU, so the histogram binned [0,1] data at face value, Background
+        // reported 0, and FindStarsAsync returned an empty list -- which surfaced only as the stacking
+        // pipeline's plate solve failing with a warning and no WCS.
+        var master = Build(blueOutlier: 1.025f);
+        master.MaxValue.ShouldBeGreaterThan(1.0f, "the fixture must actually exceed one");
+        master.HasUnitScalePeak.ShouldBeTrue("a 2.5% overshoot is still unit-referred, not ADU");
+
+        var clean = await Build(blueOutlier: Sky).FindStarsAsync(
+            channel: 0, snrMin: 10f, maxStars: 2000, cancellationToken: ct);
+        var stars = await master.FindStarsAsync(
+            channel: 0, snrMin: 10f, maxStars: 2000, cancellationToken: ct);
+
+        stars.Count.ShouldBe(clean.Count);
+    }
+
     [Theory]
     // Unit-referred: at one, a hair over from decode noise, and comfortably under.
     [InlineData(1.0f, true)]
     [InlineData(1.0000018f, true)]
     [InlineData(0.4f, true)]
-    // The tolerance band's far edge, and just past it.
+    // Flat-division overshoot on a real integrated master: a saturated pixel normalises to exactly
+    // 1.0, and dividing it by a vignetted flat below one must exceed one. Measured 1.025 on a
+    // 135-frame stack, at saturated stars off axis (flat 0.949 there, 1.018 at the centre where
+    // nothing overshoots). Classifying that as ADU emptied the star list on re-read.
     [InlineData(1.0009f, true)]
-    [InlineData(1.01f, false)]
+    [InlineData(1.01f, true)]
+    [InlineData(1.025f, true)]
+    // The band's far edge, and past it. 2.0 is two orders of magnitude below the nearest competing
+    // scale, so the bound can be this generous without ever mistaking 8-bit data for unit-referred.
+    [InlineData(2.0f, true)]
+    [InlineData(2.5f, false)]
     // ADU scale, which must keep binning at face value.
     [InlineData(255f, false)]
     [InlineData(65535f, false)]

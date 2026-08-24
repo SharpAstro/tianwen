@@ -858,14 +858,32 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// How far above 1.0 a peak may sit and still count as unit-referred.
     /// </summary>
     /// <remarks>
-    /// A tolerance is required, not merely nice: the exact maximum is not a property of the SCALE, it
-    /// is one pixel. A quantized <c>.fz</c> decode is 1-ulp noisy, so a master written normalised reads
-    /// back a hair over one -- and on the frame that exposed this, exactly ONE pixel of 24.9 million
-    /// exceeded 1.0, by 15 ulps, in the BLUE channel, while <see cref="MaxValue"/> is image-wide, so it
-    /// changed how the RED channel was measured. This bound sits four orders of magnitude above that
-    /// noise and five below the nearest competing scale (8-bit, 255), so it cannot confuse the two.
+    /// <para>A tolerance is required, not merely nice: the exact maximum is not a property of the
+    /// SCALE, it is one pixel. A quantized <c>.fz</c> decode is 1-ulp noisy, so a master written
+    /// normalised reads back a hair over one -- and on the frame that exposed this, exactly ONE pixel
+    /// of 24.9 million exceeded 1.0, by 15 ulps, in the BLUE channel, while <see cref="MaxValue"/> is
+    /// image-wide, so it changed how the RED channel was measured.</para>
+    /// <para>Decode noise is NOT the only way a unit-referred frame overshoots, which is what a
+    /// 1e-3 bound got wrong, and the other way is arithmetic rather than noise: FLAT DIVISION. A
+    /// saturated pixel normalises to exactly 1.0, and dividing it by a normalised flat that sits
+    /// BELOW one -- which is what vignetting means -- must land above one. So every saturated star
+    /// off the optical axis exceeds unit scale by construction, and the ceiling is
+    /// <c>1 / min(flat)</c>.</para>
+    /// <para>Measured on a 135-frame 10P/Tempel stack (QHY294C, SV 545 at f/4.5): 45 samples of 12.1
+    /// million reached 1.025, twenty-five times the old bound. Each sits at a saturated star well off
+    /// axis -- flat 0.9591 at (4095,1485) gives 1.0427, flat 0.9487 at (71,2303) gives 1.0541 --
+    /// while the same arithmetic at the field centre (flat 1.0183) yields 0.9820 and overshoots
+    /// nothing. Read back from disk that master was classified ADU, so the histogram binned [0,1]
+    /// data at face value and <c>FindStarsAsync</c> returned NO stars.</para>
+    /// <para>So the bound is a factor, not an epsilon: anything at or under 2.0 is unit-referred.
+    /// Real vignetting reaches perhaps 30-40%, i.e. an overshoot ceiling near 1.4-1.7, and 2.0 is two
+    /// orders of magnitude below the nearest competing scale (8-bit, 255) -- so it covers the physics
+    /// without ever mistaking one scale for the other, while a float image carrying real ADU peaks in
+    /// the thousands and is nowhere near it. It is a bound and not a guarantee: a pathological flat
+    /// (this one dips to 0.0218 in an unilluminated corner, implying 45.96) could still exceed it, so
+    /// a producer must not rely on this to launder an unnormalised frame.</para>
     /// </remarks>
-    private const float UnitScaleTolerance = 1e-3f;
+    private const float UnitScaleTolerance = 1.0f;
 
     /// <summary>
     /// Is the peak at or near 1.0 -- i.e. are the samples unit-referred rather than ADU?
