@@ -27,7 +27,7 @@ verbs `bxt` / `sxt` / `nxt`, driven through `RcAstroEnhancerBase`'s NDJSON proto
 |---|---|
 | lights | `C:/temp/10p_tempel/2026-08-16/LIGHT`, 135 x 60 s (was `C:/temp/astro/2026-08 SV545/...` on the other box) |
 | camera | QHY294C Pro, gain 1600, offset 20, -5 C, RGGB 4164x2795 |
-| optics | SV 545 (f/4.5 petzval), `FOCALLEN` 205 mm nominal |
+| optics | SV 545 (f/4.5 petzval), **203 mm**; the frames' `FOCALLEN` says 205, entered by mistake |
 | filter | IDAS LPS-D3, **now stamped into the 135 lights and the 51 flats** (see "The headers were amended") |
 | target | 10P/Tempel 2 |
 | site | -37.876389, 145.178056 |
@@ -57,13 +57,21 @@ The field, which is what says the rate is usable:
 
 | | |
 |---|---|
-| solved plate scale | **4.7172"/px**, so true focal length is about 202.4 mm |
-| header `PIXSCALE` | 4.6586, i.e. **1.2% wrong**; `FOCALLEN` is only ever a hint |
+| solved plate scale | **4.7172"/px**, i.e. a focal length of 202.4 mm against an actual **202.5 mm** |
+| header `FOCALLEN` | 205, entered by mistake, so anything derived from it (4.6586"/px) is 1.2% out |
 | dither / drift | 88.6 px, i.e. **twice the comet's own track** |
 | field rotation | 0.0368 deg, monotonic across the run |
 | scale stability | 0.028% |
 | median FWHM | 2.15 px (HFD 2.65), already at critical sampling |
 | SIP rms after the solver fix | 0.11 px |
+
+**That first row is an independent check on the solve, not a complaint about the header.** The
+solver recovered 202.4 mm knowing only the pixel size and the stars; the optics are 202.5. Agreeing
+to 0.05% with a number it never saw is the strongest evidence here that the WCS can be trusted
+quantitatively -- which is exactly what the ephemeris-to-pixel step in item 1 needs of it. The 205 in
+`FOCALLEN` was a configuration slip rather than an optical fact, so the 1.2% was never the glass
+disagreeing with the solve; it was the profile disagreeing with both. Treat 203 mm as the figure of
+record for this rig.
 
 ## Two things that decide the design
 

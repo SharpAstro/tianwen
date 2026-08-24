@@ -133,8 +133,11 @@ the window it needs (342 database stars for this field). This measurement is the
 The substantive one. Build quads from the top-K detected stars (existing machinery), build quads
 from the catalog window, match on the five scaled distances, take the plate scale from the median
 longest-side ratio. This replaces the iterative proximity loop and also removes our dependence on
-the header scale -- right independently of speed, since `FOCALLEN` was 1.2% wrong on this rig
-(205 mm nominal against a solved 202.4 mm) and is only ever a hint.
+the header scale -- right independently of speed, since `FOCALLEN` was 1.2% wrong on this rig and is
+only ever a hint. Worth noting WHICH side was wrong: the header said 205 mm because that was typed
+into the profile by mistake, while the optics are 202.5 mm and the solver recovered 202.4 mm from
+the stars alone. So the header scale is unreliable not because solving is hard but because nothing
+validates what a human entered, which is the argument for not depending on it.
 
 Keep the pair-RANSAC seed: it is what makes dense fields work (see the Vela notes) and it is cheap
 once phase A stops paying for its losing parity. The quad path replaces the REFINEMENT loop, not
