@@ -1,6 +1,7 @@
 ﻿using System.CommandLine;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.AI.Imaging;
 using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
 using TianWen.UI.Abstractions.Extensions;
@@ -255,6 +256,15 @@ using var gpu = new GpuStack<VkImageRenderer>(logger, sdlWindow, (uint)pixW, (ui
         Logger = logger,
         // SharpenPipeline is registered (AddRcAstroAi above), so surface the Enhance toolbar button.
         EnhanceAvailable = true,
+        // What the "?" panel reports under "AI enhancement". A delegate, not a value: each RC product
+        // license check launches a process, and AddRcAstroAi deliberately defers that to first use so
+        // that composing services spawns nothing. The panel asks once, on first open, via the
+        // tracker's keyed slot.
+        AiCapabilityProbe = async ct =>
+            (await AiCapabilities.ProbeAsync(
+                sp.GetRequiredService<IModelResolver>(),
+                sp.GetService<IRcAstroCli>(),
+                ct)).Describe(),
         // Cache the image content in an offscreen layer, so a redraw that only changes the chrome
         // blits instead of re-running the demosaic + stretch over the whole pane. The renderer owns
         // ONE set of layer targets, so exactly one viewer per renderer may claim them; this process

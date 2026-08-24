@@ -112,6 +112,47 @@ public sealed class ModelResolver : IModelResolver
     /// </summary>
     public static ImmutableArray<string> DefaultDirectories => DefaultSearchPaths();
 
+    /// <inheritdoc/>
+    public ImmutableArray<string> SearchPaths => _searchPaths;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Three states, not two, because a Git LFS pointer stub is present-but-not-real: it passes
+    /// <c>File.Exists</c>, and handing it to ONNX Runtime fails with an opaque protobuf error.
+    /// <see cref="TryResolve"/> already skips one and keeps probing, so a caller asking only
+    /// "found?" cannot tell a stub from an absence -- which are different problems with different
+    /// remedies ('git lfs pull' vs the fetch script).
+    /// </remarks>
+    public ModelPresence Probe(string modelFileName)
+    {
+        var probed = ImmutableArray.CreateBuilder<string>(_searchPaths.Length);
+        foreach (var dir in _searchPaths)
+        {
+            if (string.IsNullOrEmpty(dir)) continue;
+            var candidate = Path.Combine(dir, modelFileName);
+            probed.Add(candidate);
+            if (!File.Exists(candidate)) continue;
+
+            if (IsLfsPointerStub(candidate))
+            {
+                return new ModelPresence(modelFileName, ModelPresenceKind.PointerStub, candidate, 0, probed.ToImmutable());
+            }
+
+            long bytes;
+            try
+            {
+                bytes = new FileInfo(candidate).Length;
+            }
+            catch (IOException)
+            {
+                bytes = 0;
+            }
+            return new ModelPresence(modelFileName, ModelPresenceKind.Present, candidate, bytes, probed.ToImmutable());
+        }
+
+        return new ModelPresence(modelFileName, ModelPresenceKind.Absent, null, 0, probed.ToImmutable());
+    }
+
     private static bool IsLfsPointerStub(string path)
     {
         // Pointer files are ~130 bytes of ASCII starting with the spec line below; every real

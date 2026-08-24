@@ -47,7 +47,7 @@ public sealed class OnnxBackgroundExtractor(
     ILogger<OnnxBackgroundExtractor>? logger = null)
     : IGradientCorrector, IDisposable
 {
-    private const string ModelName = "graxpert_bge.onnx";
+    internal const string ModelName = "graxpert_bge.onnx";
     private const int ModelInputSize = 256;
     private const int Padding = 8;
     private const int ShrinkSize = ModelInputSize - 2 * Padding;  // 240

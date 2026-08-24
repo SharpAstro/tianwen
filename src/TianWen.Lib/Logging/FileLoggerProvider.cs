@@ -26,7 +26,47 @@ public sealed class FileLoggerProvider : ILoggerProvider
 
         var logFile = Path.Combine(logDir, $"{appName}_{timestamp}.log");
         _writer = new StreamWriter(logFile, append: false) { AutoFlush = true };
+
+        WriteBanner(_writer, appName, now);
     }
+
+    /// <summary>
+    /// First line of every log file: which binary, from which commit, out of which install.
+    /// <para>
+    /// Written here rather than by each host because this constructor is the one choke point every
+    /// binary passes through (CLI, Server, GUI, FitsViewer via <c>AddFileLogging</c>, ...), so a new
+    /// host cannot forget it -- and because being written at file-creation time makes it the first
+    /// line unconditionally, with no dependence on log filters or DI ordering.
+    /// </para>
+    /// <para>
+    /// The gap it closes: until now a log opened straight into its first event, so a log sent in by
+    /// a user identified neither the version nor the install. On this box the Store package sat at
+    /// 6.3.1352.0 while the working tree was 7.0, and nothing in a log said which one you were
+    /// reading. <see cref="BuildInfo.InstallFolder"/> is the tell-tale -- an MSIX path names the
+    /// package, version and architecture outright.
+    /// </para>
+    /// <para>
+    /// Best-effort by construction: a banner is a diagnostic, so failing to write one must never
+    /// stop a process from starting or logging.
+    /// </para>
+    /// </summary>
+    private static void WriteBanner(StreamWriter writer, string appName, DateTimeOffset now)
+    {
+        try
+        {
+            var stamp = now.ToString("HH:mm:ss.fff zzz");
+            writer.WriteLine($"[{stamp}] [INF] {BannerCategory}: {appName} {BuildInfo.Describe()}");
+            writer.WriteLine($"[{stamp}] [INF] {BannerCategory}: install {BuildInfo.InstallFolder}");
+        }
+        catch (IOException)
+        {
+            // The log file is already open; a failure here is not worth taking the process down for.
+        }
+    }
+
+    /// <summary>Category the banner is filed under. Its own name so a reader can grep the provenance
+    /// of a run without knowing which app wrote it.</summary>
+    private const string BannerCategory = "TianWen.Build";
 
     public ILogger CreateLogger(string categoryName)
     {

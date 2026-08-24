@@ -22,7 +22,7 @@ public sealed class OnnxStellarSharpener(
     int overlap = 64)
     : IStellarSharpener, IDisposable
 {
-    private const string Model = "deep_sharp_stellar_AI4.onnx";
+    internal const string Model = "deep_sharp_stellar_AI4.onnx";
 
     private readonly object _gate = new();
     private InferenceSession? _session;

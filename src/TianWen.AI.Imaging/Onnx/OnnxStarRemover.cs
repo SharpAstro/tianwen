@@ -38,8 +38,8 @@ public sealed class OnnxStarRemover(
     int overlap = 64)
     : IStarRemover, IDisposable
 {
-    private const string MonoModel = "darkstar_mono_AI4.onnx";
-    private const string ColorModel = "darkstar_color_AI4.onnx";
+    internal const string MonoModel = "darkstar_mono_AI4.onnx";
+    internal const string ColorModel = "darkstar_color_AI4.onnx";
 
     private readonly object _gate = new();
     private InferenceSession? _monoSession;
