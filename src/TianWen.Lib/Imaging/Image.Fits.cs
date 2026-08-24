@@ -917,8 +917,8 @@ public partial class Image
         AddHeaderValueIfHasValue("SITELONG", imageMeta.Longitude, "degrees");
         if (!double.IsNaN(imageMeta.TargetRA) && !double.IsNaN(imageMeta.TargetDec))
         {
-            AddHeaderValueIfHasValue("OBJCTRA", Astrometry.CoordinateUtils.HoursToHMS(imageMeta.TargetRA, ' '), "");
-            AddHeaderValueIfHasValue("OBJCTDEC", Astrometry.CoordinateUtils.DegreesToDMS(imageMeta.TargetDec, degreeSign: ' '), "");
+            AddHeaderValueIfHasValue("OBJCTRA", Astrometry.CoordinateUtils.HoursToHMS(imageMeta.TargetRA, ' ', minuteSeparator: ' '), "");
+            AddHeaderValueIfHasValue("OBJCTDEC", Astrometry.CoordinateUtils.DegreesToDMS(imageMeta.TargetDec, degreeSign: ' ', arcMinuteSign: ' '), "");
             AddHeaderValueIfHasValue("RA", imageMeta.TargetRA * 15.0, "degrees");
             AddHeaderValueIfHasValue("DEC", imageMeta.TargetDec, "degrees");
         }
