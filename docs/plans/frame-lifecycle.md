@@ -616,8 +616,16 @@ DEBUG leak tracker) already make a violation loud in tests. "A lease must be dis
 **CA2000 cannot do this -- it ignores value-type disposables** (measured: a forgotten `ImageLease`
 beside a forgotten `FileStream`, only the stream fired), so it would need a bespoke analyzer too --
 for a pattern with two production call sites, both `using`. A dropped buffered lease surfaces in the
-DEBUG leak tracker instead. Revisit if either mistake actually appears in a PR; the repo also carries
-36 latent CA2000 warnings on CLASS disposables (measured 2026-08-24), a separate cleanup if wanted.
+DEBUG leak tracker instead. Revisit if either mistake actually appears in a PR. The
+36 latent CA2000 warnings that same measurement surfaced on CLASS disposables were cleaned up the
+same day (branch `chore/ca2000`): CA2000 is ON for production code, 242 test findings are exempted
+in `.editorconfig` with reasoning, 13 were real fixes, and 3 site-justified suppressions remain --
+transfer-by-argument (`FakeDevice`), async-only disposal with nothing to dispose (`SessionFactory`),
+and a cache borrow (`OnnxStarRemover.AcquireSession`). Two suppressions that started in that set
+were eliminated structurally instead, and each deletion surfaced a live bug: the GUI's ordered GPU
+teardown became `GpuStack<TTop>` (TianWen.UI.Shared, both hosts), and the ASCOM host's pipe wait
+dropped a redundant event for `Thread.Join` -- whose new timeout test caught `Spawn` reading the
+helper's stderr to end BEFORE killing it, wedging forever on a helper that hangs without connecting.
 
 **The cut also closed a latent poison: the bufferless lease is now a DISTINCT image.** The old
 bufferless branch returned `this`, so the borrower's release marked the SOURCE released and every
