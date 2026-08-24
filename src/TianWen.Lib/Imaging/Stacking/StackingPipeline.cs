@@ -726,6 +726,19 @@ public sealed class StackingPipeline(
                         break;
                 }
             }
+            // Comet tracking: re-reference this frame onto the MOVING target. The star solution put it
+            // on the reference's star grid; subtracting the target's drift since the reference epoch
+            // pins the target instead. Composed AFTER the star solution so it acts in canvas space,
+            // which is the only basis where the target's motion is separable from dither and field
+            // rotation. The reference frame needs no special case: its dt is zero.
+            if (options.CometRatePxPerHour is { } cometRate && transform is { } starSolution)
+            {
+                var driftHours = (candidate.Frame.Meta.ExposureStartTime - reference.Meta.ExposureStartTime).TotalHours;
+                transform = starSolution * Matrix3x2.CreateTranslation(
+                    (float)(-cometRate.X * driftHours),
+                    (float)(-cometRate.Y * driftHours));
+            }
+
             if (transform is null) { skipCount++; continue; }
 
             matched.Add((candidate.Frame, transform.Value, frameMetrics));

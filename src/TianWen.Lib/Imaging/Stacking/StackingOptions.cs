@@ -1,4 +1,5 @@
 using System;
+using System.Numerics;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Enhancement;
 
@@ -158,4 +159,22 @@ public sealed record StackingOptions(
     // Linear display headroom for the Ultra HDR rendition (MasterRenderOutputs.UltraHdr):
     // peak nits / 203-nit BT.2408 SDR reference white sets how far the recovered cores roll
     // off above SDR white. Ignored unless RenderOutputs includes UltraHdr.
-    float UltraHdrPeakNits = 1000f);
+    float UltraHdrPeakNits = 1000f,
+    // Comet / moving-target integration: the target's apparent motion in CANVAS PIXELS PER HOUR,
+    // stated in the reference frame's pixel basis. Set it and every frame's star-registration
+    // solution is composed with a translation of -(rate * dt) from the reference frame's own epoch,
+    // so the MOVING target lands on a fixed canvas pixel instead of the star field: stars trail,
+    // the comet integrates sharp.
+    //
+    // Why canvas pixels rather than a sky rate. The star solution has already absorbed dither and
+    // any field rotation by the time this applies, so canvas space is the one basis where the
+    // target's own motion is clean -- measured on the 10P/Tempel set, dither was 88.6 px against a
+    // 44.7 px comet track, so in FRAME pixels the dither dominates and a frame-space shift would be
+    // wrong. A rate is also invariant under the later canvas shift (a constant translation), so it
+    // needs no knowledge of the final canvas origin.
+    //
+    // A single linear rate is deliberate: over a 3.5 h run the apparent path departed from linear by
+    // 0.185 px worst case (0.080 rms), under the registration's own residual, while plate scale held
+    // to 0.028%. If a longer run ever needs it, this is where a quadratic term would go.
+    // Null = the ordinary star-aligned stack, byte-identical to before.
+    Vector2? CometRatePxPerHour = null);
