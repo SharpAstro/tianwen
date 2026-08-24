@@ -240,31 +240,32 @@ using var sdlWindow = NativeLoaderDiagnostics.InitNative(logger, "SDL3 + Vulkan 
     () => SdlVulkanWindow.Create("Fits viewer", 1536, 1080));
 sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 
-var ctx = NativeLoaderDiagnostics.InitNative(logger, "Vulkan device",
-    () => VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH));
-var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
-
 var bus = new SignalBus();
-var imageRenderer = new VkImageRenderer(renderer, (uint)pixW, (uint)pixH)
-{
-    Bus = bus,
-    DpiScale = sdlWindow.DisplayScale,
-    CelestialObjectDB = celestialObjectDB,
-    // The viewer starts its own background work (colour calibration): give it the same tracker and
-    // logger the controller uses, so it is drained at shutdown and its failures reach the app log.
-    Tracker = tracker,
-    Logger = logger,
-    // SharpenPipeline is registered (AddRcAstroAi above), so surface the Enhance toolbar button.
-    EnhanceAvailable = true,
-    // Cache the image content in an offscreen layer, so a redraw that only changes the chrome
-    // blits instead of re-running the demosaic + stretch over the whole pane. The renderer owns
-    // ONE set of layer targets, so exactly one viewer per renderer may claim them; this process
-    // has exactly one viewer, which is what makes the claim unambiguous here and why the GUI (two
-    // embedded viewers on a shared renderer) does not set it.
-    UseCachedImageLayer = true
-};
+// One owner for the GPU trio (see GpuStack): disposed at scope end top-down -- imageRenderer,
+// renderer, context -- still ahead of sdlWindow's own using above.
+using var gpu = new GpuStack<VkImageRenderer>(logger, sdlWindow, (uint)pixW, (uint)pixH,
+    r => new VkImageRenderer(r, (uint)pixW, (uint)pixH)
+    {
+        Bus = bus,
+        DpiScale = sdlWindow.DisplayScale,
+        CelestialObjectDB = celestialObjectDB,
+        // The viewer starts its own background work (colour calibration): give it the same tracker and
+        // logger the controller uses, so it is drained at shutdown and its failures reach the app log.
+        Tracker = tracker,
+        Logger = logger,
+        // SharpenPipeline is registered (AddRcAstroAi above), so surface the Enhance toolbar button.
+        EnhanceAvailable = true,
+        // Cache the image content in an offscreen layer, so a redraw that only changes the chrome
+        // blits instead of re-running the demosaic + stretch over the whole pane. The renderer owns
+        // ONE set of layer targets, so exactly one viewer per renderer may claim them; this process
+        // has exactly one viewer, which is what makes the claim unambiguous here and why the GUI (two
+        // embedded viewers on a shared renderer) does not set it.
+        UseCachedImageLayer = true
+    });
+var renderer = gpu.Renderer;
+var imageRenderer = gpu.Top;
 
-var cts = new CancellationTokenSource();
+using var cts = new CancellationTokenSource();
 imageRenderer.AppToken = cts.Token;
 
 // The cached image layer is a render pass of its own, and render passes cannot nest -- so it has
@@ -482,9 +483,7 @@ loop.Run(cts.Token);
 cts.Cancel();
 ShutdownDrain.PumpUntilComplete(loop, controller.ShutdownAsync(), logger);
 instanceGate?.Dispose();
-imageRenderer.Dispose();
-renderer.Dispose();
-ctx.Dispose();
+// The GPU trio is disposed by `using var gpu` at scope end, top-down, ahead of sdlWindow's using.
 
 return 0;
 
