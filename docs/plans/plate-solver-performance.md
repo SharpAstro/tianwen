@@ -77,12 +77,12 @@ comparisons once; we do millions, repeatedly.
 
 Ordered by return per unit of risk; each independently shippable and measurable.
 
-| # | change | expected | risk |
-|---|---|---|---|
-| A | Short-circuit the losing parity | -200 ms | low |
-| B | Tycho-2 pre-baked region index (TODO 2C) | -500 ms | low |
-| C | Quad-descriptor matching against the catalog | -300 ms | medium |
-| D | Cap the star list (bin only if sampling allows) | -60 ms | low / see D |
+| # | change | saves | costs accuracy? | risk |
+|---|---|---|---|---|
+| A | Cancel the losing parity (916k wasted hypotheses) | ~200 ms | nothing | low |
+| B | Tycho-2 pre-baked region index -- this is TODO 2C, now justified | ~500 ms | nothing | low |
+| C | Quad-descriptor matching, reusing `FrameRegistration`'s existing matcher | ~300 ms | nothing, and it *removes* our reliance on `FOCALLEN` | medium |
+| D | Cap the star list to ~500 -> yes; bin -> **no** | ~60 ms | binning does, so it is gated on measured FWHM and default off | low |
 
 Target after A-C: **~260 ms**, against ASTAP's 162 ms. D is optional and mostly will not apply
 (see below), so it is not counted on.
