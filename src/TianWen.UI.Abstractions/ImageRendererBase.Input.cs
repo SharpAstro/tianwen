@@ -356,7 +356,12 @@ namespace TianWen.UI.Abstractions
 
         private async Task CalibrateColorAsync(AstroImageDocument document, ViewerState state, CancellationToken cancellationToken)
         {
-            var db = CelestialObjectDB is { IsValueCreated: true } lazy
+            // Force the catalog rather than only using an already-warm one. SPCC MATCHES STARS against
+            // it, so an unforced lazy meant the better method was handed nothing and the run silently
+            // became a sky-background estimate -- the cost this was avoiding (a one-off Tycho-2
+            // decode, ~500 ms) is one the user has just explicitly asked for by pressing the button,
+            // and a plate-solved frame has usually paid it already (CatalogPlateSolver self-inits).
+            var db = CelestialObjectDB is { } lazy
                 ? await lazy.WithCancellation(cancellationToken)
                 : null!;
 
@@ -364,12 +369,30 @@ namespace TianWen.UI.Abstractions
             var (matched, diag) = await document.ComputeSpccColorCalibrationAsync(db);
             if (matched <= 0)
             {
+                // Log WHY SPCC declined before the fallback overwrites its diagnostic. Without this
+                // the log showed only "Sky background R=1.003 ..." -- a successful-looking line that
+                // says nothing about the better method having been tried and refused, and on an
+                // already-background-neutralised master the fallback returns ~neutral, so the whole
+                // thing reads like a calibration that worked. That is precisely the trail that has to
+                // exist when someone asks why SPCC "did nothing".
+                Logger?.LogInformation("SPCC declined, falling back to sky background: {Reason}", diag);
                 (matched, diag) = await document.ComputeColorCalibrationAsync(db);
             }
 
             if (document.ColorCalibration is { } wb)
             {
                 ViewerActions.SetColorCalibrationEnabled(state, true);
+
+                // Re-solve background neutralisation against the calibration that just landed. The
+                // gains are chosen so the background is neutral AFTER the WB multiply, so they are a
+                // function of the WB -- and a user who neutralised BEFORE calibrating would otherwise
+                // keep gains solved for no calibration at all, which is exactly the cast this whole
+                // coupling exists to prevent. Cheap: the per-(method, WB) cache makes it a lookup
+                // once seen, and the background scan itself is already done.
+                if (state.BackgroundNeutralizationEnabled)
+                {
+                    document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
+                }
 
                 // The manual triple is dropped, because the pipeline MULTIPLIES the two
                 // (StretchSolver.ComposeWhiteBalance is auto x manual) and what just landed is an
@@ -382,10 +405,18 @@ namespace TianWen.UI.Abstractions
                 // The reset itself now lives in ViewerActions.SetColorCalibrationEnabled above, which
                 // also REMEMBERS the triple so switching the calibration off restores it.
 
-                if (state.StretchMode is StretchMode.Unlinked)
-                {
-                    state.StretchMode = StretchMode.Linked;
-                }
+                // NO automatic stretch-mode change. Calibrating colour used to silently flip
+                // Unlinked to Linked, which is irritating in the obvious way -- the user picked a
+                // display mode and a colour operation moved it -- and it was papering over the real
+                // defect rather than fixing it: Unlinked auto-normalises each channel independently
+                // and so cancels any per-channel gain, which is why a WB looked like it did nothing
+                // there. Linked is not actually a cure either (StretchSolver still folds the WB into
+                // each channel's stats before deriving its shadow/midtone), so the flip traded one
+                // wrong render for another while also taking away the user's choice.
+                //
+                // The fix belongs in the stretch, not here: ONE common curve with the WB shifting the
+                // channels relative to it -- which is what PixInsight's linked STF after SPCC does,
+                // and why a PI linked stretch looks like what this viewer calls Unlinked.
 
                 // To the logger, not Console.Error. Stderr is only a channel for whoever thought to
                 // redirect it, so these lines were absent from the app log where anyone looking for

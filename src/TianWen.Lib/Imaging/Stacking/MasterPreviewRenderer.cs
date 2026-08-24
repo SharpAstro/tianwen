@@ -500,11 +500,19 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
                     {
                         await FilterCurveDatabase.LoadAsync(ct);
                     }
+
+                    // Tycho-2 is what SPCC matches against, and nothing upstream of a bare
+                    // `image render` loads it -- the same reason CatalogPlateSolver self-inits at
+                    // the top of SolveImageAsync. Without this the matcher finds no catalog star
+                    // near any detection and the run reports "insufficient matches", which reads
+                    // like a hard field rather than an uninitialised database. InitDBAsync is
+                    // idempotent, so a caller that already loaded it pays nothing.
+                    await db.InitDBAsync(waitForTycho2BulkLoad: true, ct);
                     var throughputs = FilterCurveDatabase.BuildChannelThroughputs(sensorMeta);
                     if (throughputs is { } t)
                     {
                         var spcc = Tycho2ColorCalibration.ComputeSpectrophotometricWhiteBalance(
-                            stats, statsStars, w, db, t.R, t.G, t.B);
+                            stats, statsStars, w, db, t.R, t.G, t.B, logger: logger);
                         if (spcc is { } gains)
                         {
                             wbGains = (gains.R, gains.G, gains.B);
@@ -588,8 +596,19 @@ public sealed class MasterPreviewRenderer(ICelestialObjectDB? catalogDb, ILogger
             var adjMad = s.Mad * MathF.Abs(bn);
             perChannelStats[c] = new ChannelStretchStats(s.Pedestal, adjMed, adjMad);
         }
+        // LINKED, so the white balance this method just went to the trouble of measuring actually
+        // reaches the PNG. Unlinked auto-normalises each channel against its own stats and therefore
+        // absorbs any per-channel gain: three very different SPCC triples (1.003/1/0.999,
+        // 0.341/1/0.850, 0.536/1/1.186) rendered to within noise of each other here -- mean channel
+        // values identical to 0.02 of a byte -- so SPCC's colour never reached this output at all,
+        // and anything judging a WB change from one of these PNGs was measuring nothing.
+        //
+        // Linked shares ONE curve across the channels (see StretchSolver), which is PixInsight's
+        // linked STF and the order the rest of the pipeline already assumes: background
+        // neutralisation flattens the sky (applied below, and pre-folded into the stats above), then
+        // the shared curve lets the calibrated channels keep their relative levels.
         var uniforms = StretchSolver.ComputeStretchUniforms(
-            StretchMode.Unlinked,
+            StretchMode.Linked,
             StretchParameters.Default,
             perChannelStats,
             lumaStats: null,

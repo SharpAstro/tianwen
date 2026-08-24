@@ -778,6 +778,10 @@ namespace TianWen.UI.Abstractions
                 RenderImage(source, state, _preparedStretch, _preparedGridWcs);
             }
 
+            // Hand-off point for the AI capability probe: the Task IS the synchronisation primitive,
+            // so nothing shared crosses threads and there is no lock on the render path.
+            CollectAiCapabilities(state);
+
             // UI chrome (drawn on top of image). Skipped wholesale for an embedded chromeless preview.
             if (!state.HideChrome)
             {
@@ -1074,6 +1078,28 @@ namespace TianWen.UI.Abstractions
         /// The host's lifetime token, so background work the viewer starts ends when the app does.
         /// </summary>
         public CancellationToken AppToken { get; set; }
+
+        /// <summary>
+        /// Optional host hook that reports what AI capability this install has, already formatted for
+        /// display. Shown in the "?" panel; <c>null</c> means the host wired no AI stack and the panel
+        /// says so rather than implying anything is broken.
+        /// <para>
+        /// Returns lines rather than a report object on purpose: this assembly does not reference
+        /// <c>TianWen.AI.Imaging</c>, and it should not start doing so to render a list of strings.
+        /// The host owns the model resolver and the RC-Astro wrapper, so it is also the only place
+        /// that can answer honestly for the install it IS.
+        /// </para>
+        /// <para>
+        /// It is a delegate rather than a value because the probe launches processes (one license
+        /// check per RC product) and must never run at DI time or on the render thread -- the whole
+        /// point of <c>AddRcAstroAi()</c> deferring its license probe to first use. So the panel asks
+        /// for it, once, on the first open.
+        /// </para>
+        /// </summary>
+        /// <remarks><c>IReadOnlyList</c> rather than <c>ImmutableArray</c> because
+        /// <c>BackgroundTaskTracker.TryCollect&lt;TResult&gt;</c> constrains TResult to a reference
+        /// type, and ImmutableArray is a struct.</remarks>
+        public Func<CancellationToken, Task<IReadOnlyList<string>>>? AiCapabilityProbe { get; set; }
 
         /// <summary>Design-unit width of the drawn before/after divider.</summary>
         private const float BaseSplitDividerWidth = 2f;

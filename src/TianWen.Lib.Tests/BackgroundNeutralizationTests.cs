@@ -176,4 +176,88 @@ public class BackgroundNeutralizationTests(ITestOutputHelper output)
         gains.G.ShouldBeInRange(0f, 10f);
         gains.B.ShouldBeInRange(0f, 10f);
     }
+
+    // ----------------------------------------------------------------------------------
+    // Post-WB neutrality. The gains run BEFORE the white-balance multiply in both the shader
+    // and the CPU mirror, so neutralising the pre-WB background and then multiplying by a
+    // non-neutral triple simply re-tints what was just flattened.
+    // ----------------------------------------------------------------------------------
+
+    // The real SMC master: APP had already equalised its background, and the SPCC fit on it.
+    private static readonly float[] SmcBackground = [0.0019f, 0.0020f, 0.0018f];
+    private static readonly (float R, float G, float B) SmcSpcc = (0.464f, 1.000f, 1.301f);
+
+    private static (double R, double G, double B) PostWbBackground(
+        ReadOnlySpan<float> bg, (float R, float G, float B) gains, (float R, float G, float B) wb)
+        => ((bg[0] * gains.R + (1f - gains.R)) * wb.R,
+            (bg[1] * gains.G + (1f - gains.G)) * wb.G,
+            (bg[2] * gains.B + (1f - gains.B)) * wb.B);
+
+    [Theory]
+    [InlineData(BackgroundNeutralizationMethod.Mean)]
+    [InlineData(BackgroundNeutralizationMethod.GreenPivot)]
+    [InlineData(BackgroundNeutralizationMethod.MinPivot)]
+    public void ComputeGains_WithWhiteBalance_LeavesThePostWbBackgroundNeutral(
+        BackgroundNeutralizationMethod method)
+    {
+        // Every method, because Mean is the DEFAULT and used to ignore the argument outright --
+        // only MinPivot honoured it, so the one path a user actually gets was the broken one.
+        var gains = BackgroundNeutralization.ComputeGains(SmcBackground, method, SmcSpcc);
+        var post = PostWbBackground(SmcBackground, gains, SmcSpcc);
+
+        output.WriteLine($"{method}: gains R={gains.R:F5} G={gains.G:F5} B={gains.B:F5}");
+        output.WriteLine($"{method}: post-WB bg R={post.R:F6} G={post.G:F6} B={post.B:F6}");
+
+        // Neutral to a part in 10^4 of the background level itself, not merely "close in absolute
+        // terms" -- the stretch amplifies this by two orders of magnitude, which is exactly why a
+        // 0.0009-vs-0.0023 imbalance was a visibly blue image.
+        post.G.ShouldBe(post.R, post.R * 1e-3);
+        post.B.ShouldBe(post.R, post.R * 1e-3);
+    }
+
+    [Fact]
+    public void ComputeGains_WithoutWhiteBalance_IsUnchanged()
+    {
+        // The compatibility statement: a neutral (or absent) WB must reduce to the old arithmetic
+        // exactly, so an uncalibrated image renders bit-identically to before the coupling existed.
+        foreach (var method in (BackgroundNeutralizationMethod[])[
+            BackgroundNeutralizationMethod.Mean,
+            BackgroundNeutralizationMethod.GreenPivot,
+            BackgroundNeutralizationMethod.MinPivot])
+        {
+            var withNull = BackgroundNeutralization.ComputeGains(SmcBackground, method);
+            var withNeutral = BackgroundNeutralization.ComputeGains(SmcBackground, method, (1f, 1f, 1f));
+
+            withNeutral.R.ShouldBe(withNull.R, 1e-7f, method.ToString());
+            withNeutral.G.ShouldBe(withNull.G, 1e-7f, method.ToString());
+            withNeutral.B.ShouldBe(withNull.B, 1e-7f, method.ToString());
+        }
+    }
+
+    [Fact]
+    public void ComputeGains_UncoupledFromWhiteBalance_LeavesAVisibleCast()
+    {
+        // The bug, stated as the measurement that found it. Neutralising without the WB on this
+        // already-equalised background returns ~identity -- a correct answer to the wrong question --
+        // and the calibration then takes the post-WB background to a 2.66x blue-over-red imbalance.
+        var uncoupled = BackgroundNeutralization.ComputeGains(SmcBackground, BackgroundNeutralizationMethod.Mean);
+        var post = PostWbBackground(SmcBackground, uncoupled, SmcSpcc);
+
+        output.WriteLine($"uncoupled gains  R={uncoupled.R:F5} G={uncoupled.G:F5} B={uncoupled.B:F5}");
+        output.WriteLine($"post-WB bg       R={post.R:F6} G={post.G:F6} B={post.B:F6}  B/R={post.B / post.R:F2}");
+
+        (post.B / post.R).ShouldBeGreaterThan(2.0,
+            "this is the cast the WB-coupled gains exist to remove; if it has gone, so has the reason");
+    }
+
+    [Fact]
+    public void ComputeGains_GreenPivot_PassesGreenThroughWhateverTheWhiteBalance()
+    {
+        // The defining property of the method, and it must survive the coupling: green is the
+        // reference channel, so its gain stays exactly 1 and only R and B move.
+        var gains = BackgroundNeutralization.ComputeGains(
+            SmcBackground, BackgroundNeutralizationMethod.GreenPivot, SmcSpcc);
+
+        gains.G.ShouldBe(1f, 1e-6f);
+    }
 }

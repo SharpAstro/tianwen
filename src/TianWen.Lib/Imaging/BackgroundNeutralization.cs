@@ -39,13 +39,15 @@ public static class BackgroundNeutralization
     /// <param name="method">Pivot target choice: affects which channel(s) stay fixed.
     /// Defaults to <see cref="BackgroundNeutralizationMethod.Mean"/> to preserve
     /// the behaviour expected by existing tests + call sites.</param>
-    /// <param name="whiteBalance">Optional per-channel WB multiply applied AFTER bg-neut in the
-    /// shader (<c>out = (val*g + (1-g)) * wb</c>). Only honoured for
-    /// <see cref="BackgroundNeutralizationMethod.MinPivot"/>, where the gains are solved so the
-    /// POST-WB background is neutral: pivot <c>K = min(bg_X*wb_X)</c>, per-channel target
-    /// <c>t_X = K/wb_X</c>. Null (or a neutral triple) reduces to the WB-uncoupled MinPivot
-    /// (<c>K = min(bg)</c>, one shared target): bit-identical to the prior behaviour. Ignored by
-    /// Mean / GreenPivot (no in-pipeline caller couples those to WB).</param>
+    /// <param name="whiteBalance">Per-channel WB multiply applied AFTER bg-neut in the shader
+    /// (<c>out = (val*g + (1-g)) * wb</c>). Honoured by EVERY method: the gains are solved so the
+    /// POST-WB background is neutral, with the pivot level <c>K</c> chosen per method over the
+    /// WB-applied backgrounds and the per-channel target then <c>t_X = K/wb_X</c>. Null or a neutral
+    /// triple reduces exactly to the WB-uncoupled form, so an uncalibrated image is unchanged.
+    /// <para>
+    /// Passing null when a calibration IS active is a bug, not an optimisation -- it neutralises the
+    /// background the WB is about to re-tint. See the remarks in the body.
+    /// </para></param>
     /// <returns>Per-channel gains where out = val * g + (1-g). Default (1,1,1) = no change.</returns>
     public static (float R, float G, float B) ComputeGains(
         ReadOnlySpan<float> perChannelBg,
@@ -59,29 +61,38 @@ public static class BackgroundNeutralization
         var mG = perChannelBg[1];
         var mB = perChannelBg[2];
 
-        if (method is BackgroundNeutralizationMethod.MinPivot)
-        {
-            // Post-WB MinPivot: choose gains so every channel's background lands on the same
-            // post-WB level K. With wb=(1,1,1) the per-channel targets all collapse to min(bg) --
-            // exactly the WB-uncoupled MinPivot. This is the in-pipeline preview/plate path
-            // (MasterPreviewRenderer); the WB-coupling keeps the background neutral AFTER the
-            // shader's per-channel WB multiply.
-            var wb = whiteBalance ?? (1f, 1f, 1f);
-            var k = MathF.Min(mR * wb.R, MathF.Min(mG * wb.G, mB * wb.B));
-            return (ComputeChannelGain(mR, k / wb.R), ComputeChannelGain(mG, k / wb.G), ComputeChannelGain(mB, k / wb.B));
-        }
+        // EVERY method solves for a neutral POST-WB background, because the WB multiply happens
+        // AFTER these gains in both the shader and the CPU mirror (pedestal -> bg-neut -> WB -> ...).
+        // Neutralising the pre-WB background and then multiplying by a non-neutral triple simply
+        // re-tints the thing that was just flattened.
+        //
+        // That is not hypothetical: on an SMC master whose background APP had already equalised
+        // (bg = 0.0019 / 0.0020 / 0.0018) the Mean gains came out (1.00, 1.00, 1.00) -- a correct
+        // answer to the wrong question -- and the SPCC triple (0.464, 1.000, 1.301) then took the
+        // post-WB background to 0.00088 / 0.0020 / 0.00234, a 2.7x blue-over-red cast. The image
+        // rendered visibly, wrongly blue while every individual step reported success.
+        //
+        // The pivot LEVEL is what the method chooses; the per-channel target is then that level
+        // divided back through the WB, so the multiply lands on it. MinPivot already worked this
+        // way; Mean and GreenPivot ignored the argument entirely, and Mean is the default.
+        var wb = whiteBalance ?? (1f, 1f, 1f);
+        var pR = mR * wb.R;
+        var pG = mG * wb.G;
+        var pB = mB * wb.B;
 
-        var t = method switch
+        var k = method switch
         {
-            BackgroundNeutralizationMethod.GreenPivot => mG,
-            _                                         => (mR + mG + mB) / 3f,
+            BackgroundNeutralizationMethod.GreenPivot => pG,
+            BackgroundNeutralizationMethod.MinPivot => MathF.Min(pR, MathF.Min(pG, pB)),
+            _ => (pR + pG + pB) / 3f,
         };
 
-        var gR = ComputeChannelGain(mR, t);
-        var gG = ComputeChannelGain(mG, t);
-        var gB = ComputeChannelGain(mB, t);
-
-        return (gR, gG, gB);
+        // With a neutral WB every target collapses to the method's own pivot over the raw
+        // backgrounds, so this is bit-identical to the WB-uncoupled form it replaces. GreenPivot
+        // still passes green through untouched (t_G = pG/wb_G = mG, so g_G = 1) whatever the WB is.
+        return (ComputeChannelGain(mR, k / wb.R),
+                ComputeChannelGain(mG, k / wb.G),
+                ComputeChannelGain(mB, k / wb.B));
     }
 
     private static float ComputeChannelGain(float m, float t)

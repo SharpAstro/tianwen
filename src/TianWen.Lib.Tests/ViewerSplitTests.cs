@@ -209,9 +209,12 @@ namespace TianWen.Lib.Tests
             // plain declaration order two SHARED controls filled the two-name quota and collapsed the
             // one that actually differed into "+1" -- hiding the only thing the split was open to
             // show. A control both halves share is context; one they disagree about is the point.
+            // Unlinked, because it is the non-default mode: Linked is what a fresh viewer shows
+            // (ViewerActions.DefaultStretchMode), so setting it here would name nothing and this test
+            // needs a SECOND shared-but-changed control for the quota to have something to collapse.
             var pinned = DisplayControls.Defaults with
             {
-                StretchMode = StretchMode.Linked,
+                StretchMode = StretchMode.Unlinked,
                 StretchParameters = new StretchParameters(0.15, -5.0),
                 ColorCalibrationEnabled = true,
             };
@@ -243,14 +246,14 @@ namespace TianWen.Lib.Tests
 
             var live = DisplayControls.Defaults with
             {
-                StretchMode = StretchMode.Linked,
+                StretchMode = StretchMode.Unlinked,
                 CurvesBoost = 0.5f,
                 HdrAmount = 1.5f,
                 ColorCalibrationEnabled = true,
             };
 
             // A label that grew without bound would run off its own half of the pane.
-            split.HalfLabels(live).Right.ShouldBe("Live: +Linked, +Boost 50% +2");
+            split.HalfLabels(live).Right.ShouldBe("Live: +Unlinked, +Boost 50% +2");
         }
 
         [Fact]
@@ -284,10 +287,11 @@ namespace TianWen.Lib.Tests
         public void AModeFallingBackToItsDefaultIsNamedByThatDefault()
         {
             // Stretch mode has no "off" state -- every mode IS a mode -- so going back to the default
-            // is a CHANGE to Unlinked, not the absence of Linked. "No Linked" would be nonsense.
-            var split = PinnedAt(DisplayControls.Defaults with { StretchMode = StretchMode.Linked });
+            // is a CHANGE to that default, not the absence of the pinned one. "No Unlinked" would be
+            // nonsense. The default is Linked, so Unlinked is what gets pinned to move away from it.
+            var split = PinnedAt(DisplayControls.Defaults with { StretchMode = StretchMode.Unlinked });
 
-            split.HalfLabels(DisplayControls.Defaults).ShouldBe(("Pinned: Linked", "Live: Unlinked"));
+            split.HalfLabels(DisplayControls.Defaults).ShouldBe(("Pinned: Unlinked", "Live: Linked"));
         }
 
         [Fact]

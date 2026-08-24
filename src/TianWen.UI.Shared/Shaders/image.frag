@@ -325,8 +325,11 @@ void main() {
     // stretchMode values are the C# StretchMode enum cast to int:
     //   0 = None (passthrough), 1 = Linked, 2 = Unlinked, 3 = Luma.
     // Linked and Unlinked both use per-channel stretchChannel; the difference is
-    // already encoded in the per-channel uniforms (Linked replicates channel 0,
-    // Unlinked uses each channel's own stats). Luma is its own pipeline.
+    // already encoded in the per-channel uniforms. Linked writes ONE curve into all
+    // three slots (the shared-curve STF: the white balance then survives as colour);
+    // Unlinked writes each channel's own auto-normalised curve (which absorbs the
+    // auto calibration and neutralises the background). See StretchSolver.
+    // Luma is its own pipeline.
     if (ubo.stretchMode == 1 || ubo.stretchMode == 2) {
         r = stretchChannel(r, 0);
         g = stretchChannel(g, 1);

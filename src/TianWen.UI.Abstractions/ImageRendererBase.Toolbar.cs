@@ -371,7 +371,7 @@ namespace TianWen.UI.Abstractions
                 DrawText(box.Label, r.X + ButtonPaddingH + box.MarkWidth + MarkGap(box.MarkWidth, box.Label),
                     textY, ToolbarFontSize, inkColor);
 
-                if (hovered && GetToolbarButtonTooltip(box.Action, state) is { Length: > 0 } tip)
+                if (hovered && GetToolbarButtonTooltip(box.Action, state, _document) is { Length: > 0 } tip)
                 {
                     _hoveredTooltip = (tip, r.X, r.Bottom, null);
                 }
@@ -579,7 +579,13 @@ namespace TianWen.UI.Abstractions
                     // A list, not a menu: selecting a row does nothing. The dropdown is reused because
                     // it already solves the two hard parts -- painting over everything, and scrolling
                     // when the list outgrows the window (DIR.Lib 6.19).
-                    OpenDropdown(state, bounds, ShortcutLines, (_, _) => { });
+                    //
+                    // Remember the bounds: when the AI probe lands a moment later, the panel is
+                    // usually still open and has to be rebuilt to show the result, and Open needs
+                    // somewhere to anchor.
+                    _shortcutsBounds = bounds;
+                    StartAiCapabilityProbe();
+                    OpenDropdown(state, bounds, BuildHelpLines(), (_, _) => { });
                     return true;
 
                 case ToolbarAction.StretchLink:
@@ -678,7 +684,14 @@ namespace TianWen.UI.Abstractions
                             var gain = _document?.ComputeBackgroundNeutralization(m);
                             state.BackgroundNeutralizationEnabled = true;
                             state.StatusMessage = gain is { } g
-                                ? $"NeutBg: {label}  R={g.R:F2} G={g.G:F2} B={g.B:F2}"
+                                // FOUR decimals, because two are useless here and actively
+                                // misleading. The gain is affine about 1.0 (out = v*g + (1-g)) while
+                                // an astro sky background sits around 0.002, so the gain needed to
+                                // move it is a hair either side of unity: the measured triple that
+                                // takes a 2.66x blue-over-red post-WB cast to exactly neutral is
+                                // (0.9981, 1.0003, 1.0005), which at F2 prints as three 1.00s and
+                                // reads as "this did nothing" over an image it visibly fixed.
+                                ? $"NeutBg: {label}  R={g.R:F4} G={g.G:F4} B={g.B:F4}"
                                 : $"NeutBg: {label} (no background data)";
                         }
                         else
@@ -1151,11 +1164,16 @@ namespace TianWen.UI.Abstractions
         /// half of the same statement -- and it is what makes the short labels above safe: "RGB" alone is
         /// terse, "RGB" plus "Channel view (C cycles)" on hover is not.
         /// </summary>
-        private static string? GetToolbarButtonTooltip(ToolbarAction action, ViewerState state) => action switch
+        /// <remarks>
+        /// Takes the document as well as the state because the one thing a calibration button most
+        /// needs to report -- what the calibration MEASURED -- lives on the document, not the state.
+        /// </remarks>
+        private static string? GetToolbarButtonTooltip(
+            ToolbarAction action, ViewerState state, AstroImageDocument? document) => action switch
         {
             ToolbarAction.Open => "Open a FITS / TIFF / SER file",
             ToolbarAction.StretchToggle => "Screen transfer function on / off (T)",
-            ToolbarAction.StretchLink => "Stretch mode: unlinked, linked or luma",
+            ToolbarAction.StretchLink => "Stretch mode: linked keeps colour, unlinked neutralises the background, luma stretches luminance",
             ToolbarAction.StretchParams => "Stretch strength preset (+ / -)",
             ToolbarAction.Channel => "Channel view: RGB or one channel (C cycles)",
             ToolbarAction.Debayer => "Demosaic algorithm; the swatch is the sensor's CFA phase (D cycles)",
@@ -1173,6 +1191,17 @@ namespace TianWen.UI.Abstractions
             ToolbarAction.Grid => "WCS coordinate grid (G)",
             ToolbarAction.Overlays => "Deep-sky object overlays (O)",
             ToolbarAction.Stars => "Detect stars and show HFD / FWHM (S)",
+            // A calibration that has RUN reports what it measured. This is the whole answer to "did
+            // SPCC do anything, and can I trust it": the triple, the survivor count and the white
+            // reference, which is the one number a PixInsight user can line up against their own.
+            // The button label only has room for R and B, and the info panel is a different place
+            // from the pointer -- so the tooltip is where the full statement belongs.
+            //
+            // Gated on ColorCalibrationEnabled, not merely on the summary being present, so a
+            // switched-OFF calibration does not describe a correction the image is not receiving.
+            ToolbarAction.ColorCalibrate or ToolbarAction.SpccCalibrate
+                when state.ColorCalibrationEnabled && document?.ColorCalibrationSummary is { } done =>
+                $"{done.Describe()} -- click to turn off (W)",
             ToolbarAction.ColorCalibrate => "Photometric colour calibration (W)",
             ToolbarAction.BackgroundNeutralize => "Neutralise the background (N)",
             ToolbarAction.SpccCalibrate => "Spectrophotometric colour calibration (W)",
@@ -1189,6 +1218,130 @@ namespace TianWen.UI.Abstractions
         /// rather than just a delete: zoom ratios, playback and the panel toggles are otherwise
         /// undiscoverable.
         /// </summary>
+        /// <summary>Keyed tracker slot for the capability probe. One key means repeated "?" opens
+        /// share the one probe instead of each launching another round of process spawns.</summary>
+        private const string AiProbeKey = "viewer.ai-capabilities";
+
+        private ImmutableArray<string> _aiLines = ImmutableArray<string>.Empty;
+        private bool _aiProbeStarted;
+        private RectF32? _shortcutsBounds;
+
+        /// <summary>
+        /// Starts the capability probe under <see cref="AiProbeKey"/>, at most once.
+        /// <para>
+        /// Guarded on <c>IsRunning</c> rather than just calling <c>RunExclusive</c>, because
+        /// RunExclusive CANCELS its predecessor -- which is right for a superseding query like a
+        /// re-search, and wrong here: reopening the panel while the probe is in flight would kill it
+        /// and restart from nothing, so a user clicking "?" twice would never see a result.
+        /// </para>
+        /// </summary>
+        private void StartAiCapabilityProbe()
+        {
+            if (_aiProbeStarted || AiCapabilityProbe is not { } probe || Tracker is not { } tracker)
+            {
+                return;
+            }
+
+            if (tracker.IsRunning(AiProbeKey))
+            {
+                return;
+            }
+
+            _aiProbeStarted = true;
+            tracker.RunExclusive<IReadOnlyList<string>>(
+                AiProbeKey,
+                async ct => (IReadOnlyList<string>?)await probe(ct).ConfigureAwait(false),
+                AppToken,
+                Logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
+                "AI capability probe",
+                // A failed probe must not leave the panel saying "probing..." forever, and it is not
+                // worth a dialog: the panel is where a user looks when something is already odd.
+                onError: ex => _aiLines = [$"probe failed: {ex.GetType().Name}: {ex.Message}"]);
+        }
+
+        /// <summary>
+        /// Collects a finished probe and refreshes the panel if it is still open. Called once per
+        /// frame; <c>TryCollect</c> is a no-op until the work completes.
+        /// </summary>
+        private void CollectAiCapabilities(ViewerState state)
+        {
+            if (Tracker is not { } tracker || !tracker.TryCollect<IReadOnlyList<string>>(AiProbeKey, out var lines))
+            {
+                return;
+            }
+
+            _aiLines = lines is null ? ImmutableArray<string>.Empty : [.. lines];
+            state.NeedsRedraw = true;
+
+            // Rebuild an open panel in place. Reopening resets its scroll, which is why the probe is
+            // not started earlier and speculatively: it lands within a moment of the first open, so
+            // the reset happens once and before anyone has scrolled.
+            if (state.ToolbarDropdown.IsOpen && _shortcutsBounds is { } bounds)
+            {
+                OpenDropdown(state, bounds, BuildHelpLines(), (_, _) => { });
+            }
+        }
+
+        /// <summary>
+        /// The "?" panel: what this build IS, what it can do, then how to drive it.
+        /// <para>
+        /// Provenance leads because it is the half a user can read back to you. The keyboard list was
+        /// the whole panel before, which meant the one screen a user opens when something looks wrong
+        /// could not tell them which version they were running.
+        /// </para>
+        /// </summary>
+        private ImmutableArray<string> BuildHelpLines()
+        {
+            var lines = ImmutableArray.CreateBuilder<string>(ShortcutLines.Length + _aiLines.Length + 6);
+            lines.Add($"TianWen {TianWen.Lib.BuildInfo.Describe()}");
+            lines.Add(Ellipsize(TianWen.Lib.BuildInfo.InstallFolder));
+            lines.Add("");
+
+            lines.Add("AI enhancement");
+            if (AiCapabilityProbe is null)
+            {
+                lines.Add("  no AI stack configured in this build");
+            }
+            else if (_aiLines.IsEmpty)
+            {
+                lines.Add("  probing...");
+            }
+            else
+            {
+                foreach (var line in _aiLines)
+                {
+                    lines.Add(Ellipsize("  " + line));
+                }
+            }
+            lines.Add("");
+
+            lines.AddRange(ShortcutLines);
+            return lines.ToImmutable();
+        }
+
+        /// <summary>
+        /// Shortens a line to fit the window, ellipsing in the MIDDLE, via DIR.Lib's
+        /// <see cref="TextFit"/>.
+        /// <para>
+        /// Middle rather than end because every long line here is a path, and a path's two informative
+        /// ends are the drive/root and the file name. Why that is the right policy, and why a cell
+        /// surface honours it too, is stated once on <see cref="TextTrim.Middle"/> -- this was a private
+        /// re-implementation until the policy was upstreamed, which is the same two-copies-of-a-rule
+        /// mistake the slider primitives and the window activation both had to be walked back from.
+        /// </para>
+        /// <para>Budget is the window minus a margin, not the dropdown's own width, because the
+        /// dropdown's width is DERIVED from these labels -- asking it first would be circular.</para>
+        /// </summary>
+        private string Ellipsize(string line)
+            => Ellipsize(line, Width - (4 * ToolbarFontSize), ToolbarFontSize);
+
+        /// <summary>
+        /// Middle-ellipsis to an explicit pixel budget and font size, for a caller whose width is not
+        /// the window's -- the info panel, which has its own column and its own font size.
+        /// </summary>
+        private string Ellipsize(string line, float budget, float fontSize)
+            => TextFit.ForWidth(Renderer, line, FontPath, FontFallback, fontSize, budget, TextTrim.Middle).Text;
+
         private static readonly ImmutableArray<string> ShortcutLines =
         [
             "Wheel / Ctrl+Wheel   Zoom",

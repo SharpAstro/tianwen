@@ -115,13 +115,64 @@ public static class StretchSolver
 
         if (mode is StretchMode.Linked)
         {
-            ch1 = ch0;
-            ch2 = ch0;
+            // ONE curve, derived from the mean of the per-channel WB-applied stats and applied
+            // IDENTICALLY to all three channels. This is PixInsight's linked STF (and Siril's linked
+            // autostretch): the reference implementation averages the per-channel medians and MADs,
+            // computes a single (shadows, midtones, highlights), and shares it across R/G/B.
+            //
+            // Sharing the CURVE is the whole point, and replicating the STATS is not the same thing.
+            // The previous form did the latter -- ch1 = ch2 = ch0, then each channel's copy scaled by
+            // its OWN white-balance multiplier -- which yields three DIFFERENT curves whose anchors
+            // move in lockstep with the very multipliers they are supposed to reveal. Channel c's
+            // curve was fitted so that median0 * wb_c lands on the stretch target while its data
+            // arrives as median_c * wb_c, so the rendered ratio came out as median_c / median0 with
+            // wb_c divided out exactly. A white balance therefore had NO effect on a linked render:
+            // three wildly different SPCC triples rendered to within noise of each other, which is
+            // what made a correct photometric calibration look like a no-op.
+            //
+            // Unlinked keeps that absorbing behaviour on purpose: a per-channel auto-normalised
+            // curve neutralises the background, which is exactly what an unlinked STF is FOR (see
+            // the shaderWhiteBalance note above -- the AUTO calibration is meant to be re-absorbed
+            // there, and only the MANUAL multiply survives). Linked is the mode that must preserve
+            // colour, so the two now differ in BEHAVIOUR and not merely in which stats they copy.
+            //
+            // The WB still scales the stats that POSITION the shared curve, because the shader
+            // multiplies before the curve and the shadow clip has to land in that same post-WB
+            // space. It cannot cancel any more: one common anchor against three differently
+            // multiplied channels leaves the ratios between them intact.
+            var jointMedian = stats.Length >= 3
+                ? (ch0.Median * wb.R + ch1.Median * wb.G + ch2.Median * wb.B) / 3f
+                : ch0.Median * wb.R;
+            var jointMad = stats.Length >= 3
+                ? (ch0.Mad * wb.R + ch1.Mad * wb.G + ch2.Mad * wb.B) / 3f
+                : ch0.Mad * wb.R;
+
+            var pl = Image.ComputeStretchParameters(jointMedian, jointMad, factor, clipping);
+            var shadows = (float)pl.Shadows;
+            var midtones = (float)pl.Midtones;
+            var highlights = (float)pl.Highlights;
+            var rescale = (float)pl.Rescale;
+
+            return new StretchUniforms(
+                Mode: mode,
+                NormFactor: normFactor,
+                // Pedestal stays per-slot, but every slot holds the same number: it is derived from
+                // the image-wide MinValue (see Image.GetPedestralMedianAndMADScaledToUnit), not per
+                // channel. Were it ever to become genuinely per-channel it would have to be averaged
+                // here too -- a per-channel additive offset ahead of a shared curve IS a background
+                // neutralisation, and would quietly undo part of what this mode exists to preserve.
+                Pedestal: (ch0.Pedestal, ch1.Pedestal, ch2.Pedestal),
+                Shadows: (shadows, shadows, shadows),
+                Midtones: (midtones, midtones, midtones),
+                Highlights: (highlights, highlights, highlights),
+                Rescale: (rescale, rescale, rescale))
+            { WhiteBalance = shaderWb, LumaWeights = weights };
         }
 
-        // WB scales each channel's value range linearly: post-WB_median = wb * pre-WB_median,
-        // post-WB_mad = wb * pre-WB_mad. Compute stretch params from those scaled stats so
-        // shadows/rescale/midtones are consistent with the post-WB norm the shader sees.
+        // Unlinked: each channel auto-normalises against its own stats. WB scales each channel's
+        // value range linearly (post-WB_median = wb * pre-WB_median, post-WB_mad = wb * pre-WB_mad),
+        // so the stretch params come from the scaled stats and the shadow clip stays consistent with
+        // the post-WB norm the shader sees.
         var p0 = Image.ComputeStretchParameters(ch0.Median * wb.R, ch0.Mad * wb.R, factor, clipping);
         var p1 = Image.ComputeStretchParameters(ch1.Median * wb.G, ch1.Mad * wb.G, factor, clipping);
         var p2 = Image.ComputeStretchParameters(ch2.Median * wb.B, ch2.Mad * wb.B, factor, clipping);
@@ -205,6 +256,27 @@ public static class StretchSolver
         var a = auto ?? (R: 1f, G: 1f, B: 1f);
         return (a.R * m.R, a.G * m.G, a.B * m.B);
     }
+
+    /// <summary>
+    /// The inverse of <see cref="ComposeWhiteBalance"/>: the MANUAL triple that, composed over
+    /// <paramref name="auto"/>, produces <paramref name="effective"/>.
+    ///
+    /// <para>Exists because the white-balance sliders display and edit the EFFECTIVE multiplier --
+    /// what the shader actually multiplies by, and the only number worth showing -- while the
+    /// pipeline has to keep the auto and manual halves separate underneath, since only the auto half
+    /// scales the stretch stats. Dropping a slider handle is therefore a statement about the
+    /// effective value that has to be turned back into a manual factor.</para>
+    ///
+    /// <para>Lives here, beside the forward direction, so the two cannot disagree about composition
+    /// order -- and so the arithmetic is unit-testable without a renderer, which a private helper on
+    /// the widget was not. A zero or negative auto component (never produced by a calibration, but
+    /// cheap to be safe about) passes the target through rather than dividing.</para>
+    /// </summary>
+    public static (float R, float G, float B) DecomposeWhiteBalance(
+        (float R, float G, float B) auto, (float R, float G, float B) effective)
+        => (auto.R > 0f ? effective.R / auto.R : effective.R,
+            auto.G > 0f ? effective.G / auto.G : effective.G,
+            auto.B > 0f ? effective.B / auto.B : effective.B);
 
     /// <summary>
     /// Resolves a <see cref="LumaWeighting"/> profile to the concrete (R,G,B) triple stored in

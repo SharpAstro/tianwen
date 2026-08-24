@@ -35,13 +35,17 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private static void CyclePreviewStretch(ViewerState s)
         {
+            // Enters at Linked, not Unlinked: leaving linear should land on the mode that PRESERVES a
+            // colour calibration, and only then offer the one that discards it. Same order as
+            // ViewerActions.StretchLinkModes; None stays in this cycle because a live preview wants
+            // the linear look one keypress away.
             s.StretchMode = s.StretchMode switch
             {
-                StretchMode.None => StretchMode.Unlinked,
-                StretchMode.Unlinked => StretchMode.Linked,
-                StretchMode.Linked => StretchMode.Luma,
+                StretchMode.None => StretchMode.Linked,
+                StretchMode.Linked => StretchMode.Unlinked,
+                StretchMode.Unlinked => StretchMode.Luma,
                 StretchMode.Luma => StretchMode.None,
-                _ => StretchMode.Unlinked
+                _ => StretchMode.Linked
             };
         }
 

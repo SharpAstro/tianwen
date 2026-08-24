@@ -22,8 +22,18 @@ namespace TianWen.UI.Abstractions
         // White-balance slider range (canonical values live on GrayWorldWhiteBalance so the slider extent and
         // the auto-WB clamp stay in lock-step). Log-mapped so neutral (1.0) sits at the track midpoint and an
         // equal gain/cut is symmetric (0.5x left edge <-> 2.0x right edge).
-        private const float WbMin = GrayWorldWhiteBalance.MinMultiplier;
-        private const float WbMax = GrayWorldWhiteBalance.MaxMultiplier;
+        // Slider TRAVEL, and deliberately NOT GrayWorldWhiteBalance's clamp, which is what these two
+        // used to be. They are different concerns that happened to share a value: [0.5, 2] bounds
+        // what a gray-world ESTIMATE is allowed to return, whereas this is the range the sliders can
+        // DISPLAY -- and a photometric calibration routinely lands outside it (an LPS-filtered
+        // IMX492 SMC master fits R = 0.463). Borrowing the estimator's clamp silently rounded a real
+        // measurement up to 0.50 on the way to the handle, so the slider disagreed with the render it
+        // exists to report.
+        //
+        // 0.25 and 4 keep neutral 1.0 exactly at the track midpoint under the log mapping
+        // (sqrt(0.25 * 4) = 1), which is the property the handle position depends on.
+        private const float WbMin = 0.25f;
+        private const float WbMax = 4.0f;
 
         // Wavelet-sharpen layer slider track rects (6 a-trous scales, finest first), captured in
         // RenderWaveletControls each frame; map a cursor-X <-> per-layer gain. Only drawn for the live
@@ -136,18 +146,23 @@ namespace TianWen.UI.Abstractions
         {
             DrawSectionHeading(ref y, x, "White Balance", panelWidth);
 
-            // Name the active calibration. The sliders show only the MANUAL triple, so with a
-            // photometric calibration applied they sit at 1.00 while the image is visibly colour
-            // corrected -- a panel that reads neutral over an image that is not. The sliders stay
-            // manual-only on purpose (they are the thing the user drags); this line is what stops
-            // their neutrality being read as "no white balance at all".
-            if (state.ColorCalibrationEnabled && _document?.ColorCalibration is { } auto)
+            // PROVENANCE, not the numbers: the numbers are on the sliders now. Method, survivor
+            // count and white reference are the part a triple cannot carry, and the part that says
+            // whether to trust it -- a 104-star photometric fit and a grey-world guess can both
+            // read "R = 0.46".
+            if (state.ColorCalibrationEnabled && _document?.ColorCalibrationSummary is { } summary)
             {
-                DrawTextLine(ref y, x, $"Calibrated R={auto.Item1:F3} B={auto.Item3:F3}",
+                DrawTextLine(ref y, x, Ellipsize(summary.Describe(), panelWidth, FontSize),
                     ViewerTheme.Palette.DimText);
             }
 
-            var wb = state.ManualWhiteBalance;
+            // The sliders show the EFFECTIVE multiplier -- the calibration composed with the manual
+            // fine-tune, which is exactly what the shader receives. They used to show the manual
+            // triple alone, so a calibrated image sat at 1.00/1.00/1.00 on a panel whose whole job is
+            // to report the white balance: a control reading neutral over an image that visibly is
+            // not. Composed through the pipeline's own ComposeWhiteBalance so the panel cannot drift
+            // from the render.
+            var wb = EffectiveWhiteBalance(state);
             ReadOnlySpan<(string Label, float Value, RGBAColor32 Fill)> rows =
             [
                 ("R", wb.R, RGBAColor32.FromFloat(0.85f, 0.32f, 0.32f, 1f)),
@@ -201,14 +216,23 @@ namespace TianWen.UI.Abstractions
             RegisterClickable(x, y, autoW, btnH, new HitResult.ButtonHit("AutoWhiteBalance"),
                 _ =>
                 {
-                    if (_source is { } src && AutoWhiteBalance.GrayWorld(src) is { } auto)
+                    if (_source is { } src && AutoWhiteBalance.GrayWorld(src) is { } grayWorld)
                     {
-                        state.ManualWhiteBalance = auto;
+                        // Gray-world returns an ABSOLUTE answer, so it belongs on the effective
+                        // value. Writing the manual slot directly would compose it on top of an
+                        // active photometric calibration -- two absolute corrections multiplied,
+                        // which is the same double-correction the SPCC path documents at length.
+                        SetEffectiveWhiteBalance(state, grayWorld);
                         state.NeedsRedraw = true;
                     }
                 });
 
-            const string resetLabel = "Reset WB";
+            // "Reset" and not "Reset WB": with a calibration active this returns to the CALIBRATED
+            // triple (manual identity), not to no-white-balance-at-all, and the sliders visibly jump
+            // back to it. Switching the calibration off is the other button.
+            var resetLabel = state.ColorCalibrationEnabled && _document?.ColorCalibration is not null
+                ? "Reset to calibrated"
+                : "Reset WB";
             var resetW = MeasureText(resetLabel, FontSize) + gap * 2f;
             var resetX = x + autoW + gap;
             FillRect(resetX, y, resetW, btnH, ToolbarButtonBg);
@@ -225,6 +249,42 @@ namespace TianWen.UI.Abstractions
                 });
             y += btnH + FontSize;
         }
+
+        /// <summary>
+        /// The auto calibration currently in force, or neutral. Gated on
+        /// <see cref="ViewerState.ColorCalibrationEnabled"/> and not merely on the triple existing,
+        /// so a switched-off calibration reports neutral -- which is what the render is doing.
+        /// </summary>
+        private (float R, float G, float B) ActiveAutoWhiteBalance(ViewerState state)
+            => state.ColorCalibrationEnabled && _document?.ColorCalibration is { } auto
+                ? auto
+                : (1f, 1f, 1f);
+
+        /// <summary>
+        /// What the shader actually multiplies by: the auto calibration composed with the manual
+        /// fine-tune. Routed through <see cref="StretchSolver.ComposeWhiteBalance"/> rather than
+        /// multiplying here, so the panel and the pipeline cannot disagree about composition order
+        /// or about what a neutral triple means.
+        /// </summary>
+        private (float R, float G, float B) EffectiveWhiteBalance(ViewerState state)
+            => StretchSolver.ComposeWhiteBalance(ActiveAutoWhiteBalance(state), state.ManualWhiteBalance)
+               ?? (1f, 1f, 1f);
+
+        /// <summary>
+        /// Writes <paramref name="target"/> as the EFFECTIVE white balance, by solving for the manual
+        /// factor that lands there once composed over the active calibration.
+        /// <para>
+        /// This is what makes the sliders directly editable while the auto/manual split stays intact
+        /// underneath -- and the split has to stay, because only the AUTO half scales the stretch
+        /// stats (see StretchSolver): collapsing the two into one number would change what an
+        /// unlinked stretch does with the calibration. The arithmetic itself is
+        /// <see cref="StretchSolver.DecomposeWhiteBalance"/>, beside its forward counterpart, so the
+        /// panel and the pipeline cannot disagree about composition order.
+        /// </para>
+        /// </summary>
+        private void SetEffectiveWhiteBalance(ViewerState state, (float R, float G, float B) target)
+            => state.ManualWhiteBalance =
+                StretchSolver.DecomposeWhiteBalance(ActiveAutoWhiteBalance(state), target);
 
         private static float WbValueToFrac(float value)
         {
@@ -268,13 +328,19 @@ namespace TianWen.UI.Abstractions
 
             var frac = TrackFrac(_wbTrackRects[ch], px);
             var value = WbFracToValue(frac);
-            var wb = state.ManualWhiteBalance;
-            state.ManualWhiteBalance = ch switch
+
+            // The handle was dragged to an EFFECTIVE multiplier, because that is what the track
+            // displays; the manual factor needed to land there is solved for. Setting the manual slot
+            // to the dropped value instead would move the handle somewhere else entirely whenever a
+            // calibration is active -- drop red on 0.60 over a 0.463 calibration and it would render
+            // 0.28 and snap to that, so the slider would run away from the pointer.
+            var wb = EffectiveWhiteBalance(state);
+            SetEffectiveWhiteBalance(state, ch switch
             {
                 0 => (value, wb.G, wb.B),
                 1 => (wb.R, value, wb.B),
                 _ => (wb.R, wb.G, value),
-            };
+            });
             state.NeedsRedraw = true;
         }
 

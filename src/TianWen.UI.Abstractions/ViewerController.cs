@@ -293,7 +293,7 @@ public sealed class ViewerController(
                 }
                 else if (state.StretchMode is StretchMode.None && !newDoc.IsPreStretched)
                 {
-                    state.StretchMode = StretchMode.Unlinked;
+                    state.StretchMode = ViewerActions.DefaultStretchMode;
                 }
                 state.HistogramLogScale = state.StretchMode is StretchMode.None;
 

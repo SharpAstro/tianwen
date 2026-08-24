@@ -417,12 +417,36 @@ public class StretchTests_NewPipeline(ITestOutputHelper output)
         wb.B.ShouldBeInRange(0.5f, 2f, "blue WB clamped to algorithm bounds");
         (Math.Abs(wb.R - 1f) + Math.Abs(wb.B - 1f)).ShouldBeGreaterThan(0.02f,
             "SPCC should produce non-identity WB on a synthesis where the model differs from BMinusVToRGB");
-        // Synth bg is very slightly blue (R=0.073, G=0.092, B=0.101) and stars span B-V values
-        // skewing toward the red end via Pickles SEDs vs blackbody; net SPCC effect should be
-        // boosting R and reducing B (or close to it). A WB that does the opposite means the
-        // photometry path is mis-aligned.
-        wb.R.ShouldBeGreaterThan(1f, "SPCC on this synthesis should boost the underexposed-red channel");
-        wb.B.ShouldBeLessThan(1f, "SPCC on this synthesis should reduce the over-blue channel");
+        // Value-pinned rather than direction-pinned, and the history is why. Two throughput bugs
+        // sat under this assertion, and each one moved the fit:
+        //
+        //  * BuildChannelThroughputs looked up "CFA_R" / "CFA_G" / "CFA_B" for a colour sensor,
+        //    no such curve exists in filter_curves.gs.gz, and the fuzzy TryMatchFilter returned
+        //    BAADER_R / _G / _B -- so the modelled throughput was QE x SonyCFA x a MONO dichroic
+        //    filter that is not in the light path. Removing it took the fit to R 0.743 / B 0.725.
+        //  * ComputeExpectedRgbFromSed had no white reference, so "expected" was the raw
+        //    instrumental band ratio and the fit drove the median star to the SENSOR's ratio
+        //    rather than to display-neutral. A white reference took it to R 1.137 / B 1.067 --
+        //    but as a B-V-matched STELLAR template standing in for a galaxy. The SWIRE galaxy
+        //    templates turned out to be in pickles_sed.gs.gz already (only the B-V index excludes
+        //    them, by design), so the reference is now the real Sb spectrum resolved by name, and
+        //    the fit lands at R 0.999 / B 1.137.
+        //
+        // The match count also drops here (64 -> 43): the synthetic renderer saturates its bright
+        // stars, and clipped apertures are now rejected. That is the intended behaviour, not a
+        // regression -- see Tycho2ColorCalibration.DefaultSaturationFraction.
+        //
+        // The original assertion here was a DIRECTION -- wb.R > 1, wb.B < 1 -- and its red half
+        // happened to agree with the fully-broken state, so it went green throughout and pinned
+        // nothing. Direction is the wrong thing to pin: the WB on this synthesis is a
+        // model-vs-model residual (the synth colours stars by blackbody, SPCC measures via Pickles
+        // SED through the system throughput), so its sign carries no physical claim and flips on
+        // any throughput change. The value does carry one -- synthesis and catalog are
+        // deterministic (noiseSeed 42), so a mis-aligned photometry path moves the fit far more
+        // than the tolerance. Re-baseline deliberately when the QE / CFA / SED data or the white
+        // reference changes; never to make a red test pass.
+        wb.R.ShouldBe(0.999f, 0.05f, "SPCC fit on the synthetic Sony OSC field (red)");
+        wb.B.ShouldBe(1.137f, 0.05f, "SPCC fit on the synthetic Sony OSC field (blue)");
 
         // Synthesis has near-uniform bg (deterministic shot noise -> tiny MAD), default stretch
         // would saturate everything to white. Convergence finds the stretchFactor that puts the
