@@ -11,15 +11,16 @@ namespace TianWen.Lib.Tests;
 public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
 {
     [Fact]
-    public async Task LoadAsync_LoadsAll180Curves()
+    public async Task LoadAsync_LoadsAll183Curves()
     {
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
 
         FilterCurveDatabase.IsLoaded.ShouldBeTrue();
-        // 176 upstream (SETI Astro's SASP_data.fits) + 2 local, digitised from vendor charts and
-        // merged by tools/import-sasp-data --merge-only: IDAS_LPS_D3 and IDAS_NBZ. Local curves live
-        // in tools/import-sasp-data/local-filters/.
-        FilterCurveDatabase.AllCurves.Length.ShouldBe(180);
+        // 176 upstream (SETI Astro's SASP_data.fits) + 7 local, digitised from vendor charts and
+        // merged by tools/import-sasp-data --merge-only: IDAS_LPS_D3, IDAS_NBZ,
+        // ASKAR_COLOURMAGIC_D1/D2, OPTOLONG_L_QUAD_ENHANCE, OPTOLONG_L_ULTIMATE and OPTOLONG_L_ENHANCE. Local curves live in
+        // tools/import-sasp-data/local-filters/.
+        FilterCurveDatabase.AllCurves.Length.ShouldBe(183);
 
         foreach (var curve in FilterCurveDatabase.AllCurves)
         {
@@ -93,10 +94,7 @@ public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData("L-Ultimate")]
-    [InlineData("L-eNhance")]
     [InlineData("L-eXtreme")]
-    [InlineData("L-Quad Enhance")]
     private async Task TryMatchCurve_NarrowbandWithoutCamera_ReturnsFalse(string input)
     {
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
@@ -694,10 +692,7 @@ public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
     }
 
     [Theory]
-    [InlineData("Optolong L-eNhance")]
     [InlineData("Optolong L-eXtreme")]
-    [InlineData("Optolong L-Ultimate")]
-    [InlineData("Optolong L-Quad Enhance")]
     [InlineData("IDAS")]
     [InlineData("CFA_R")]
     public async Task ABrandTokenAloneIsNotAFilterMatch(string written)
@@ -712,10 +707,178 @@ public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
         // if it described the glass in the light path, where declining would have been correct and
         // visible. The Optolong duo-bands genuinely are not in the database except pre-convolved
         // with a sensor, so "no match" is the honest answer for them.
+        //
+        // Adding OPTOLONG_L_QUAD_ENHANCE later re-broke exactly these names by a DIFFERENT route:
+        // "optolong" plus the single letter "l" already covers half of that four-token key, so
+        // L-eNhance, L-eXtreme and L-Ultimate all landed on the quad-band. What rejects them is
+        // that "quad" is unmatched and names exactly one curve in the catalogue -- see the
+        // document-frequency gate. Which is why these cases stay here after that fix: they are the
+        // same wrong answer reached two different ways, and a third route would go unnoticed.
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
 
         FilterCurveDatabase.TryMatchFilter(written, out var curve).ShouldBeFalse(
             $"'{written}' names no curve we carry, so it must not resolve to one -- got '{curve.Name}'");
+    }
+
+    [Theory]
+    [InlineData("Optolong L-Quad Enhance")]
+    [InlineData("L-Quad Enhance")]
+    public async Task TheQuadBandPassesFourLinesAndBlocksTheLightPollutionBetweenThem(string written)
+    {
+        // The strongest axis check in the database, because the nine annotated wavelengths
+        // INTERLEAVE pass with block: Hg 435.8 sits between passbands one and two, Hg 546.1 between
+        // two and three, the Na lines between three and four. A wavelength axis off by any amount
+        // moves a passband onto a line the vendor marks as suppressed, so both halves cannot hold
+        // at once unless the calibration is right. None of these went into building the curve.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchFilter(written, out var quad).ShouldBeTrue($"'{written}' must resolve");
+        quad.Name.ShouldBe("OPTOLONG_L_QUAD_ENHANCE");
+
+        foreach (var (nm, name) in ((double Nm, string Name)[])[
+            (486.1, "Hb"), (500.7, "OIII"), (656.3, "Ha"), (671.6, "SII")])
+        {
+            var t = quad.Interpolate(nm * 10.0);
+            output.WriteLine($"pass    {name,-4} {nm,7:F1} -> {t:P1}");
+            t.ShouldBeGreaterThan(0.85, $"{name} {nm} is one of the four lines this filter is cut for");
+        }
+
+        foreach (var (nm, name) in ((double Nm, string Name)[])[
+            (435.8, "Hg"), (546.1, "Hg"), (589.0, "Na"), (589.6, "Na"), (615.4, "Na")])
+        {
+            var t = quad.Interpolate(nm * 10.0);
+            output.WriteLine($"blocked {name,-4} {nm,7:F1} -> {t:P1}");
+            t.ShouldBeLessThan(0.05, $"{name} {nm} is a light-pollution line between the passbands");
+        }
+    }
+
+    [Theory]
+    // A written name that says LESS than the curve's still resolves: only the KEY has tokens of its
+    // own, so the two do not diverge -- one is a shorter way of naming the same thing.
+    [InlineData("LPS-D3", "IDAS_LPS_D3")]
+    [InlineData("Askar D1", "ASKAR_COLOURMAGIC_D1")]
+    [InlineData("IDAS LPS P3", "IDAS_LPS_P3_LIGHT_POLLUTION")]
+    [InlineData("Optolong L-Pro", "OPTOLONG_L-PRO_LIGHT_POLLUTION")]
+    // And so does one that says MORE, which is what a real FITS card looks like: a filter wheel
+    // slot name carries the size, the mount, the batch. Only the NEEDLE has tokens of its own.
+    [InlineData("Baader R CCD 31mm", "BAADER_R")]
+    [InlineData("Chroma G 36mm unmounted", "CHROMA_G")]
+    public async Task AOneSidedTokenDifferenceStillResolves(string written, string expected)
+    {
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchFilter(written, out var curve).ShouldBeTrue($"'{written}' must resolve");
+        curve.Name.ShouldBe(expected);
+        output.WriteLine($"'{written}' -> {curve.Name}");
+    }
+
+    [Theory]
+    // A TWO-SIDED difference means the names diverge, so they are different products and neither is
+    // a match for the other. This is the rule document frequency cannot reach, because the
+    // distinguishing tokens on each side may both be perfectly common.
+    [InlineData("Johnson Z")]      // {z} against JOHNSON_V's {v} -- single chars must count
+    [InlineData("Baader Q")]
+    [InlineData("IDAS LPS-D5")]    // {d5} against {d3}, a filter in a family we carry
+    [InlineData("Chroma Ha 5nm")]  // {ha, 5, nm} against CHROMA_R's {r}
+    public async Task ATwoSidedTokenDifferenceIsRefused(string written)
+    {
+        // Every one of these has a plausible near-neighbour in the database that shares its brand,
+        // which is exactly what makes them dangerous: the brand alone used to be enough, and a
+        // half-covered key was enough after that. A filter we do not carry must read as absent.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchFilter(written, out var curve).ShouldBeFalse(
+            $"'{written}' names a different product from anything we carry -- got '{curve.Name}'");
+    }
+
+    [Theory]
+    [InlineData("Optolong L-Ultimate")]
+    [InlineData("L-Ultimate")]
+    public async Task TheUltimateIsTwoNarrowBandsAndDoesNotReachHBeta(string written)
+    {
+        // Hb 486.1 is the identity check, not merely an out-of-band probe. Optolong publish charts
+        // under this product's name that are actually L-eNhance, whose blue band is 23 nm wide and
+        // passes Hb outright, where L-Ultimate's is 3 nm and is 14.6 nm away from it. So a curve
+        // that transmits OIII and H-alpha while BLOCKING Hb is the shape only the 3 nm filter has,
+        // and it is what a mislabelled chart could not satisfy.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchFilter(written, out var ult).ShouldBeTrue($"'{written}' must resolve");
+        ult.Name.ShouldBe("OPTOLONG_L_ULTIMATE");
+
+        // 0.7 rather than 0.85: the chart is 1.11 px/nm, so a 3 nm band is three pixels of
+        // near-vertical ink and the column centroid averages its own peak down. The vendor's zoomed
+        // charts measure 87.6 % and 91.5 %; this reads 80.2 % and 85.6 % AT the lines. Conservative
+        // by construction, and the header records the offset -- so the bound is set where the
+        // measurement actually is rather than where the glass is.
+        ult.Interpolate(5007.0).ShouldBeGreaterThan(0.7, "OIII 500.7 is one of the two bands");
+        ult.Interpolate(6563.0).ShouldBeGreaterThan(0.7, "H-alpha 656.3 is the other");
+
+        ult.Interpolate(4861.0).ShouldBeLessThan(0.05,
+            "Hb 486.1 is 14.6nm from OIII -- a 3nm band cannot reach it, a 23nm L-eNhance band can");
+        foreach (var blockedNm in (double[])[400, 450, 546.1, 589.0, 600, 671.6, 700, 780])
+        {
+            ult.Interpolate(blockedNm * 10.0)
+                .ShouldBeLessThan(0.05, $"{blockedNm} nm is outside both bands");
+        }
+    }
+
+    [Theory]
+    [InlineData("Optolong L-eNhance")]
+    [InlineData("L-eNhance")]
+    public async Task TheEnhanceIsTriLineAndPassesHBeta(string written)
+    {
+        // The pair with TheUltimateIsTwoNarrowBandsAndDoesNotReachHBeta is the whole point: these two
+        // filters are told apart by ONE wavelength. L-eNhance's blue window is 23 nm and swallows
+        // H-beta 486.1 along with both OIII lines; L-Ultimate's is 3 nm and cannot reach it. So the
+        // same probe must come out opposite on the two curves, and a chart mislabelled as the other
+        // product -- which Optolong have published -- cannot satisfy both tests.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchFilter(written, out var enh).ShouldBeTrue($"'{written}' must resolve");
+        enh.Name.ShouldBe("OPTOLONG_L_ENHANCE");
+
+        enh.Interpolate(4861.0).ShouldBeGreaterThan(0.8, "Hb 486.1 is INSIDE the 23nm blue band");
+        enh.Interpolate(4959.0).ShouldBeGreaterThan(0.8, "OIII 495.9 too");
+        enh.Interpolate(5007.0).ShouldBeGreaterThan(0.7, "and OIII 500.7, on the band's shoulder");
+        enh.Interpolate(6563.0).ShouldBeGreaterThan(0.7, "H-alpha 656.3 is the red band");
+
+        // Not flat across the blue band: H-beta gets MORE than OIII 500.7, because the band is
+        // centred near 490 and 500.7 sits on the falling edge. Worth pinning -- anyone assuming a
+        // duo-band's two channels are symmetric would get this backwards.
+        enh.Interpolate(4861.0).ShouldBeGreaterThan(enh.Interpolate(5007.0),
+            "Hb sits nearer the band centre than OIII 500.7 does");
+
+        foreach (var blockedNm in (double[])[400, 450, 470, 515, 550, 600, 640 - 5, 700, 780])
+        {
+            enh.Interpolate(blockedNm * 10.0)
+                .ShouldBeLessThan(0.05, $"{blockedNm} nm is outside both bands");
+        }
+    }
+
+    [Fact]
+    public async Task AddingASpecificProductDoesNotCaptureItsSiblings()
+    {
+        // The regression that adding OPTOLONG_L_QUAD_ENHANCE caused and the document-frequency gate
+        // fixed, stated as the property rather than as a list of names: a curve whose name CONTAINS
+        // another product's name as a token subset must not answer for it. "Optolong L-eNhance"
+        // tokenises to a strict subset of "Optolong L-Quad Enhance", and "optolong" plus the single
+        // letter "l" already clears the half-coverage gate on a four-token key.
+        //
+        // What rejects it is that the unmatched token "quad" names exactly ONE curve, so it is the
+        // word that makes this curve specific rather than a brand or a series suffix. That is
+        // measured from the catalogue, so this test also guards the measurement: if a future curve
+        // happened to make "quad" common, the gate would stop firing and this would go red.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchFilter("Optolong L-Quad Enhance", out var quad).ShouldBeTrue();
+        quad.Name.ShouldBe("OPTOLONG_L_QUAD_ENHANCE");
+
+        foreach (var sibling in (string[])["Optolong L-eXtreme"])
+        {
+            FilterCurveDatabase.TryMatchFilter(sibling, out var got).ShouldBeFalse(
+                $"'{sibling}' is a different filter and we carry no standalone curve for it -- got '{got.Name}'");
+        }
     }
 
     [Fact]

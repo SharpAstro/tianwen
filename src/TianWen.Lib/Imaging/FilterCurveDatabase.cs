@@ -24,6 +24,11 @@ public static class FilterCurveDatabase
     private static readonly ConcurrentDictionary<string, FilterCurve> _filtersByNormalizedName = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, FilterCurve> _sensorsByNormalizedName = new(StringComparer.Ordinal);
     private static ImmutableArray<FilterCurve> _allFilters = ImmutableArray<FilterCurve>.Empty;
+    // How many filter names each token appears in. Lets the matcher ask whether an unmatched token
+    // is a generic qualifier or the word that makes one curve specific, WITHOUT a hand-kept
+    // stop-list -- the answer is a property of the catalogue, so it stays right as curves are added.
+    private static FrozenDictionary<string, int> _filterTokenFrequency =
+        FrozenDictionary<string, int>.Empty;
     private static ImmutableArray<FilterCurve> _allSensors = ImmutableArray<FilterCurve>.Empty;
     private static ImmutableArray<FilterCurve> _allSeds = ImmutableArray<FilterCurve>.Empty;
     // Sorted by synthetic B-V for binary-search lookup via TryGetSedByBv
@@ -98,6 +103,16 @@ public static class FilterCurveDatabase
         LoadResource(assembly, manifestNames, "filter_curves.gs.gz", _filtersByNormalizedName,
             indexOriginStems: true, out var filters);
         ImmutableInterlocked.Update(ref _allFilters, (_, incoming) => incoming, filters);
+
+        var freq = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var f in _allFilters)
+        {
+            foreach (var t in TokenizeFromUnderscores(f.Name).Distinct(StringComparer.Ordinal))
+            {
+                freq[t] = freq.TryGetValue(t, out var n) ? n + 1 : 1;
+            }
+        }
+        _filterTokenFrequency = freq.ToFrozenDictionary(StringComparer.Ordinal);
 
         LoadResource(assembly, manifestNames, "sensor_qe.gs.gz", _sensorsByNormalizedName,
             indexOriginStems: false, out var sensors);
@@ -377,6 +392,80 @@ public static class FilterCurveDatabase
             // So a short key must be covered in FULL. The suffix path is exempt: it never had more
             // than one token to offer.
             if (!viaSuffix && keyTokens.Count <= 2 && shared < keyTokens.Count) continue;
+
+            // An unmatched key token that appears in NO OTHER filter name is the word that makes
+            // this curve specific, and the written name did not use it -- so this is a more specific
+            // product than the card names, not a match for it. Adding OPTOLONG_L_QUAD_ENHANCE made
+            // four other Optolong names resolve to it (L-eNhance, L-eXtreme, L-Ultimate, and the
+            // bare forms), because "optolong" plus the single letter "l" already covers half a
+            // four-token key. The discriminating word is "quad", and it is unmatched in every one.
+            //
+            // Frequency rather than a stop-list, because the distinction is not lexical: "idas" is
+            // unmatched by "LPS-D3" and must be ALLOWED (it names three curves, so it is a brand),
+            // "light" and "pollution" are unmatched by "IDAS LPS P3" and must be allowed (two curves
+            // each, a series suffix), while "quad" names exactly one. Nothing here is hand-listed,
+            // so a curve added later cannot silently invalidate it.
+            if (!viaSuffix)
+            {
+                var tooSpecific = false;
+                foreach (var kt in keyTokens)
+                {
+                    if (needleTokens.Contains(kt, StringComparer.Ordinal)) continue;
+                    if (_filterTokenFrequency.TryGetValue(kt, out var df) && df <= 1)
+                    {
+                        tooSpecific = true;
+                        break;
+                    }
+                }
+                if (tooSpecific) continue;
+            }
+
+            // And the general form, which is what document frequency cannot reach: if the written
+            // name carries a token the curve's name lacks AND the curve's name carries one the
+            // written name lacks, the two are naming DIFFERENT products. Neither is a more specific
+            // version of the other; they diverge.
+            //
+            // This is the collision that adding OPTOLONG_L_ULTIMATE creates and the frequency gate
+            // sleeps through: "ultimate" appears in seven names (the six pre-convolved Canon/Sony
+            // combos plus the standalone), so it is not rare, while "optolong" plus the single
+            // letter "l" already clears the half-coverage bar on a three-token key -- so L-eNhance
+            // and L-eXtreme both landed on the L-Ultimate curve. Here {enhance} against {ultimate}
+            // is a two-sided difference and the match is refused.
+            //
+            // It is strictly narrower than it looks, because a needle that merely says LESS than the
+            // key still matches: "LPS-D3" leaves {idas} unmatched on the key side only, "IDAS LPS P3"
+            // leaves {light, pollution}, "Askar D1" leaves {colourmagic}, and a verbose card like
+            // "Baader R CCD 31mm" leaves {ccd, 31, mm} on the needle side only. All still resolve.
+            // A tokenisation artifact cannot trigger it either: "Askar Colour Magic D1" normalises
+            // to the curve's own name and returns on the exact path above, never reaching here.
+            //
+            // Single-character tokens deliberately COUNT: "Baader B" against BAADER_R is {b} versus
+            // {r}, which is exactly the two-sided difference this rejects, and must be.
+            if (!viaSuffix)
+            {
+                var needleHasOwn = false;
+                foreach (var nt in needleTokens)
+                {
+                    if (!keyTokens.Contains(nt, StringComparer.Ordinal))
+                    {
+                        needleHasOwn = true;
+                        break;
+                    }
+                }
+                if (needleHasOwn)
+                {
+                    var keyHasOwn = false;
+                    foreach (var kt in keyTokens)
+                    {
+                        if (!needleTokens.Contains(kt, StringComparer.Ordinal))
+                        {
+                            keyHasOwn = true;
+                            break;
+                        }
+                    }
+                    if (keyHasOwn) continue;
+                }
+            }
 
             var extraTokens = keyTokens.Count - shared;
             var score = shared * 10 - extraTokens;
