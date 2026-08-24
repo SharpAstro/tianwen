@@ -328,7 +328,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildCoverageCommand(consoleHost), BuildTagFilterCommand() },
+            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand() },
         };
     }
 
@@ -512,30 +512,98 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
     /// the summary lists them and the dry run lists them first.</para>
     /// </summary>
     private Command BuildTagFilterCommand()
+        => BuildTagCardCommand(
+            label: "tag-filter",
+            keyword: "FILTER",
+            cardComment: "Filter name",
+            valueOptionName: "--filter",
+            valueDescription: "Filter name to write, exactly as the capture software would have (e.g. \"Optolong L-Ultimate 3nm\").",
+            summary: "Write a FILTER card into frames that never recorded one (header-surgical; dry run by default).",
+            defaultFrameTypes: ["Light", "Flat", "DarkFlat"],
+            frameTypeDescription: "IMAGETYP values to tag. Defaults to Light+Flat+DarkFlat, the types a filter is " +
+                                  "meaningful for, so bad-pixel maps and master darks sitting in the same folder are left alone.",
+            refusalAdvice: "Pass --hard-links relink to bring the other names along (they name the same frame, so the " +
+                           "same filter applies to all of them), or declare the filter with a .tianwen-meta.json " +
+                           "sidecar instead, which writes nothing and breaks no links.",
+            readCurrent: meta => meta.Filter.IdentityKey);
+
+    /// <summary>
+    /// <c>tianwen dataset tag-object</c> corrects the <c>OBJECT</c> card, which is the target's name as
+    /// it was typed into the sequence and therefore the one piece of capture metadata with a spelling
+    /// mistake in it.
+    ///
+    /// <para>It is not cosmetic. <c>LightGroupKey</c> partitions a folder of lights by <c>OBJECT</c>, so
+    /// the card decides what groups with what and names the master that comes out; and for a comet the
+    /// card is the only place the frame says which body it is, which <c>CometDesignation.TryParse</c>
+    /// then has to read back. A typo is a target the catalog cannot resolve and a master filed under a
+    /// misspelling forever.</para>
+    ///
+    /// <para>Unlike <c>tag-filter</c>, this one <b>relabels</b> rather than fills in a blank, so the
+    /// safety is the other way round: <c>--overwrite-existing</c> is implied, and <c>--expect</c> is
+    /// the guard, refusing any frame whose <c>OBJECT</c> is not exactly the string being corrected.
+    /// Without it, pointing this at a folder that happens to hold two targets renames both.</para>
+    /// </summary>
+    private Command BuildTagObjectCommand()
+        => BuildTagCardCommand(
+            label: "tag-object",
+            keyword: "OBJECT",
+            cardComment: "Name of the object of interest",
+            valueOptionName: "--object",
+            valueDescription: "Object name to write. For a comet prefer a form its own catalog can read back, " +
+                              "e.g. \"10P/Tempel 2\" -- CometDesignation.TryParse takes the designation off the front.",
+            summary: "Correct the OBJECT card on frames whose target was mistyped at capture (header-surgical; dry run by default).",
+            defaultFrameTypes: ["Light"],
+            frameTypeDescription: "IMAGETYP values to relabel. Defaults to Light alone: a flat or a dark carries " +
+                                  "whatever the capture software parked in OBJECT (\"FlatWizard\", \"Target\") and " +
+                                  "naming a sky target on one would be a lie about what it is.",
+            refusalAdvice: "Pass --hard-links relink to bring the other names along (they name the same frame, so the " +
+                           "same target applies to all of them).",
+            readCurrent: meta => meta.ObjectName,
+            relabels: true);
+
+    private Command BuildTagCardCommand(
+        string label,
+        string keyword,
+        string cardComment,
+        string valueOptionName,
+        string valueDescription,
+        string summary,
+        string[] defaultFrameTypes,
+        string frameTypeDescription,
+        string refusalAdvice,
+        Func<ImageMeta, string?> readCurrent,
+        bool relabels = false)
     {
         var pathOpt = new Option<string>("--path")
         {
             Description = "Directory holding the frames to tag (see --recursive).",
             Required = true,
         };
-        var filterOpt = new Option<string>("--filter")
+        var valueOpt = new Option<string>(valueOptionName)
         {
-            Description = "Filter name to write, exactly as the capture software would have (e.g. \"Optolong L-Ultimate 3nm\").",
+            Description = valueDescription,
             Required = true,
+        };
+        var expectOpt = new Option<string?>("--expect")
+        {
+            Description = $"Only touch a frame whose current {keyword} reads exactly this. The guard against " +
+                          "relabelling a folder that turns out to hold more than one target; the dry run reports " +
+                          "every frame it refused and what that frame actually says.",
         };
         var recursiveOpt = new Option<bool>("--recursive") { Description = "Descend into subdirectories.", DefaultValueFactory = _ => true };
         var applyOpt = new Option<bool>("--apply") { Description = "Actually write. Omit for a dry run that reports what would change." };
         var overwriteOpt = new Option<bool>("--overwrite-existing")
         {
-            Description = "Also replace a FILTER card that already has a value. Off by default: filling in what " +
-                          "was never recorded is a different and far safer act than relabelling a frame that stated its own.",
+            Description = relabels
+                ? $"Ignored: correcting {keyword} is by definition a replacement, so this is always on. Use --expect to bound it."
+                : $"Also replace a {keyword} card that already has a value. Off by default: filling in what " +
+                  "was never recorded is a different and far safer act than relabelling a frame that stated its own.",
         };
         var frameTypesOpt = new Option<string[]>("--frame-type")
         {
-            Description = "IMAGETYP values to tag. Defaults to Light+Flat+DarkFlat, the types a filter is " +
-                          "meaningful for, so bad-pixel maps and master darks sitting in the same folder are left alone.",
+            Description = frameTypeDescription,
             AllowMultipleArgumentsPerToken = true,
-            DefaultValueFactory = _ => ["Light", "Flat", "DarkFlat"],
+            DefaultValueFactory = _ => defaultFrameTypes,
         };
         var hardLinksOpt = new Option<FitsHeaderEditor.HardLinkPolicy>("--hard-links")
         {
@@ -547,9 +615,9 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             DefaultValueFactory = _ => FitsHeaderEditor.HardLinkPolicy.Refuse,
         };
 
-        var command = new Command("tag-filter", "Write a FILTER card into frames that never recorded one (header-surgical; dry run by default).")
+        var command = new Command(label, summary)
         {
-            pathOpt, filterOpt, recursiveOpt, applyOpt, overwriteOpt, frameTypesOpt, hardLinksOpt,
+            pathOpt, valueOpt, expectOpt, recursiveOpt, applyOpt, overwriteOpt, frameTypesOpt, hardLinksOpt,
         };
 
         command.SetAction(async (parseResult, ct) =>
@@ -560,9 +628,12 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 consoleHost.WriteError($"Directory does not exist: {path}");
                 return 1;
             }
-            var filterName = parseResult.GetValue(filterOpt)!;
+            var cardValue = parseResult.GetValue(valueOpt)!;
+            var expect = parseResult.GetValue(expectOpt);
             var apply = parseResult.GetValue(applyOpt);
-            var overwrite = parseResult.GetValue(overwriteOpt);
+            // A relabelling command replaces by definition: the card it corrects already has the wrong
+            // value in it, so honouring the default here would skip every frame it exists to fix.
+            var overwrite = relabels || parseResult.GetValue(overwriteOpt);
             var hardLinks = parseResult.GetValue(hardLinksOpt);
 
             var allowed = new HashSet<FrameType>();
@@ -586,7 +657,9 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 .ToArray();
 
             consoleHost.WriteScrollable(
-                $"[tag-filter] {(apply ? "APPLYING" : "DRY RUN")}: FILTER='{filterName}' over {files.Length} FITS file(s) under {path}");
+                $"[{label}] {(apply ? "APPLYING" : "DRY RUN")}: {keyword}='{cardValue}'"
+                + (expect is null ? "" : $" where {keyword}='{expect}'")
+                + $" over {files.Length} FITS file(s) under {path}");
 
             var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
             var failures = 0;
@@ -600,8 +673,24 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 ct.ThrowIfCancellationRequested();
                 try
                 {
+                    // The --expect guard is checked here rather than inside the editor because it is a
+                    // question about the CALLER's intent ("I believe this folder is all one target"),
+                    // not about whether the frame can be amended. Reading the header first costs one
+                    // 2880-byte block against a file we are about to rewrite anyway.
+                    if (expect is not null)
+                    {
+                        var current = Image.TryReadFitsHeader(file, out var head)
+                            ? readCurrent(head.Meta) : null;
+                        if (!string.Equals(current, expect, StringComparison.Ordinal))
+                        {
+                            var reason = $"skipped (--expect: {keyword} is {current ?? "unreadable"})";
+                            counts[reason] = counts.GetValueOrDefault(reason) + 1;
+                            continue;
+                        }
+                    }
+
                     var result = await FitsHeaderEditor.SetStringCardAsync(
-                        file, "FILTER", filterName, "Filter name", allowed,
+                        file, keyword, cardValue, cardComment, allowed,
                         overwriteExisting: overwrite, hardLinks: hardLinks, apply: apply,
                         cancellationToken: ct);
                     var key = result.Outcome switch
@@ -632,22 +721,20 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                     // Report and continue: one locked or bad file must not abandon the rest, and the
                     // editor guarantees it left that original untouched.
                     failures++;
-                    consoleHost.WriteError($"[tag-filter] FAILED {file}: {ex.Message}");
+                    consoleHost.WriteError($"[{label}] FAILED {file}: {ex.Message}");
                 }
             }
 
             foreach (var (key, count) in counts)
             {
-                consoleHost.WriteScrollable($"[tag-filter]   {key}: {count}");
+                consoleHost.WriteScrollable($"[{label}]   {key}: {count}");
             }
             if (refused > 0)
             {
                 consoleHost.WriteScrollable(
-                    $"[tag-filter] {refused} file(s) are hard-linked, so another path holds the same frame and would " +
+                    $"[{label}] {refused} file(s) are hard-linked, so another path holds the same frame and would " +
                     "keep the untagged header. That is how one night ends up filed twice and grouped as two " +
-                    "different sessions. Pass --hard-links relink to bring the other names along (they name the " +
-                    "same frame, so the same filter applies to all of them), or declare the filter with a " +
-                    ".tianwen-meta.json sidecar instead, which writes nothing and breaks no links.");
+                    $"different sessions. {refusalAdvice}");
             }
             // Names already in the walked set are reported by their own outcome line, so what is left
             // is the honest answer to "what did this change that I did not point it at". Subtracting
@@ -661,20 +748,20 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 // and this is what it touches beyond it. Unavoidable, since a shared frame has no
                 // per-name header to differ in, but never something to discover afterwards.
                 consoleHost.WriteScrollable(
-                    $"[tag-filter] {reached.Count} further file(s) are OTHER NAMES for the same frames, outside the " +
+                    $"[{label}] {reached.Count} further file(s) are OTHER NAMES for the same frames, outside the " +
                     $"{files.Length} walked, and are amended with them (a shared frame cannot carry two headers):");
                 foreach (var other in reached.Take(20))
                 {
-                    consoleHost.WriteScrollable($"[tag-filter]     {other}");
+                    consoleHost.WriteScrollable($"[{label}]     {other}");
                 }
                 if (reached.Count > 20)
                 {
-                    consoleHost.WriteScrollable($"[tag-filter]     ... and {reached.Count - 20} more");
+                    consoleHost.WriteScrollable($"[{label}]     ... and {reached.Count - 20} more");
                 }
             }
             if (!apply)
             {
-                consoleHost.WriteScrollable("[tag-filter] nothing was written; re-run with --apply to commit.");
+                consoleHost.WriteScrollable($"[{label}] nothing was written; re-run with --apply to commit.");
             }
             return failures > 0 ? 1 : 0;
         });

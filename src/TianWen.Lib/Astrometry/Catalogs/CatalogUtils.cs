@@ -444,7 +444,11 @@ public static partial class CatalogUtils
         {
             // Numbered comets ("13P", "73P-C", "24P/Schaumasse") must be probed before the 2MASS arms:
             // "24P/S..." would otherwise satisfy the '2' + [4]=='S' check.
-            >= '0' and <= '9' when CometDesignation.IsNumberedShape(noSpaces) => ("", Catalog.Comet),
+            // Probed on BOTH forms: the space-stripped one is what the other arms use, but a named
+            // comet ("10P Tempel 2") only looks like one while its spaces survive -- stripped, it is
+            // "10PTEMPEL", indistinguishable from "30DORADUS". See IsNumberedShape.
+            >= '0' and <= '9' when CometDesignation.IsNumberedShape(noSpaces)
+                                   || CometDesignation.IsNumberedShape(trimmedInput) => ("", Catalog.Comet),
             '2' when noSpaces.Length > 5 && noSpaces[4] == 'S' => ("", Catalog.TwoMass),
             '2' when noSpaces.Length > 5 && noSpaces[4] == 'X' => ("", Catalog.TwoMassX),
             // Provisional comet designations are recognised by their type-letter + slash ("C/2024 A1",

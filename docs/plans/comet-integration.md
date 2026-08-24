@@ -25,11 +25,11 @@ verbs `bxt` / `sxt` / `nxt`, driven through `RcAstroEnhancerBase`'s NDJSON proto
 
 | | |
 |---|---|
-| lights | `C:/temp/astro/2026-08 SV545/2026-08-16/LIGHT`, 135 x 60 s |
+| lights | `C:/temp/10p_tempel/2026-08-16/LIGHT`, 135 x 60 s (was `C:/temp/astro/2026-08 SV545/...` on the other box) |
 | camera | QHY294C Pro, gain 1600, offset 20, -5 C, RGGB 4164x2795 |
 | optics | SV 545 (f/4.5 petzval), `FOCALLEN` 205 mm nominal |
-| filter | IDAS LPS D3. **The frames carry no `FILTER` card**, so the curve we digitised cannot resolve |
-| target | 10P/Tempel |
+| filter | IDAS LPS-D3, **now stamped into the 135 lights and the 51 flats** (see "The headers were amended") |
+| target | 10P/Tempel 2 |
 | site | -37.876389, 145.178056 |
 | span | 10:53:18 to 14:25:34 UTC, 3.538 h |
 
@@ -95,6 +95,19 @@ Roughly in dependency order.
    and the exposure epochs from the frames, fetch a Horizons OBSERVER ephemeris, convert two sky
    positions to canvas pixels through the reference frame's WCS, and divide. The plate-solve fix that
    makes the WCS trustworthy here is merged (SIP rms 0.11 px), which is why this is now worth doing.
+   **Which body to ask Horizons about can come from the frames**, now that `OBJECT` is corrected and
+   `CometDesignation.TryParse` reads a space-separated name tail: `10P/Tempel 2` and `10P Tempel 2`
+   both answer `10P`. So `stack --comet` in item 3 wants a designation only to OVERRIDE the header,
+   not to supply what the header already knows.
+
+   The same change fixed the search box, which is a separate function and would otherwise have made
+   the leniency look done while still failing: `CatalogUtils.TryGuessCatalogFormat` decides a
+   digit-leading string is a comet via `IsNumberedShape`, and was handing it SPACE-STRIPPED input.
+   That is fatal to the distinction, because the only thing separating a named comet from a
+   catalogued object that merely starts with digits is the orbit letter sitting immediately against
+   the number -- and stripped, `10P Tempel` and `30 Doradus` are both `<digits><PDI><letters>`. The
+   guesser now probes the original string too, and the probe still refuses a bare letter tail, so
+   30 Doradus keeps its own catalog. Both directions are pinned.
 2. **Treat the ephemeris as a SEED, not the answer.** Then centroid the nucleus per frame as if it
    were a star, fit a smooth track through the centroids with outlier rejection, and use that. The
    fit residuals double as a per-frame quality gate, which the ephemeris alone cannot give.
@@ -106,8 +119,52 @@ Roughly in dependency order.
 6. **Tests.** Nothing pins any of this yet. The cheap and valuable one is the compose itself: a
    synthetic pair with a known rate and a known dither, asserting the target lands on the same canvas
    pixel and the stars do not. That would have caught an operand-order slip.
-7. **The missing `FILTER` card.** Adding `FILTER = 'IDAS LPS D3'` to these frames would let the curve
-   we digitised resolve, which matters for the colour path rather than for registration.
+
+## The headers were amended (was item 7, done)
+
+The frames now carry the two cards they should have carried at capture. Both were written with
+`FitsHeaderEditor` through the CLI, which rewrites only the primary header and copies every other
+byte verbatim; all 186 frames were digested from the data section before and after and **0 had
+altered pixel data or size**.
+
+```
+tianwen dataset tag-object --path <LIGHT> --object "10P/Tempel 2" --expect "10p Temepl" --apply
+tianwen dataset tag-filter --path <LIGHT> --filter "IDAS LPS-D3" --apply
+tianwen dataset tag-filter --path <FLAT>  --filter "IDAS LPS-D3" --apply
+```
+
+**`FILTER = 'IDAS LPS-D3'`, on the flats as well as the lights.** The flat panel's light went through
+the same glass, and `MasterGroupKey` compares lights to flat masters on filter, so tagging only the
+lights would leave the pair disagreeing about the optical train. It would not have *broken* anything
+here -- a filter mismatch is a 1000-point penalty in `MatchMaster`, not a gate, and this dataset has
+exactly one flat group, so it would still have won on being the only candidate -- but the agreement
+should be true rather than merely harmless. Bias, darks and dark-flats were left alone: no light
+passes, and `MasterGroupKey` documents the filter as empty for them.
+
+What the card buys, measured through `FilterCurveDatabase.BuildChannelThroughputs` on frame 0001:
+
+| | R | G | B |
+|---|---|---|---|
+| before (no `FILTER`) | 0.3550 | 0.4064 | 0.2386 |
+| after (`IDAS LPS-D3`) | 0.2488 | 0.4562 | 0.2951 |
+
+Red loses 30% of its weight, which is the D3 being what it is: a notch filter suppressing NaI
+589.0/589.6 and OI 630.0/636.4, all of them in the red CFA passband. Before the card, SPCC integrated
+its stellar SEDs against QE x CFA alone -- i.e. modelled an optical train with no filter in it -- and
+returned a white balance for a camera that was never used. This is the whole reason the digitised
+curve exists; the frames just could not reach it.
+
+**`OBJECT = '10P/Tempel 2'`, corrected from `'10p Temepl'`.** Not cosmetic in two ways.
+`LightGroupKey` partitions lights by `OBJECT` and its slug names the master, so the typo was being
+baked into every output filename (`master_10pTemepl_...`). And the card is the only place a frame
+says which body it is, which the ephemeris work in item 1 has to read back -- so the *form* matters
+as much as the spelling: `CometDesignation.TryParse` takes the designation off the front of
+`10P/Tempel 2` and answers `10P`.
+
+Two things deliberately left as they were. The `PROC/` outputs carry the same typo and
+`FILTER = 'RGB'`, but they are Siril products of this data rather than inputs, and for the `-cbg`
+plates already colour-calibrated `RGB` is the honest answer. And the `MASTER/` calibration masters
+are another tool's, which TianWen rebuilds from the raw frames anyway.
 
 ## Also worth knowing
 
