@@ -16,7 +16,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
     {
         // given: camera starts at 20°C, target is -10°C
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         var initialTemp = await ctx.Camera.GetCCDTemperatureAsync(ct);
         output.WriteLine($"Initial CCD temp: {initialTemp:F1} °C");
@@ -51,7 +51,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
     {
         // given: cool camera down first
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
@@ -88,7 +88,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         var coolerBefore = await ctx.Camera.GetCoolerOnAsync(ct);
         coolerBefore.ShouldBeFalse("cooler should be off initially");
@@ -112,7 +112,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         // when: cancel after 10 fake-time seconds via timer on the FakeTimeProvider.
         // With totalRampTime=60s for 30°C delta, each step sleeps ~2s of fake time.
@@ -141,7 +141,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
     {
         // given: camera at 20°C
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         // when: cool to CCD sensor temp (should stabilize at current temp)
         var reached = await ctx.Session.CoolCamerasToSensorTempAsync(TimeSpan.FromSeconds(1), ct);
@@ -159,7 +159,7 @@ public class SessionCoolingTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         // when: cool to -10°C
         var reached = await ctx.Session.CoolCamerasToSetpointAsync(

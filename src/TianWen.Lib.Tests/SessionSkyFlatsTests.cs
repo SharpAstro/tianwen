@@ -45,7 +45,7 @@ public class SessionSkyFlatsTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
 
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: SkyFlatConfig, withFilterWheel: true, cancellationToken: ct);
 
         // Persist every flat (FakeExternal only writes the first frame by default).
@@ -90,7 +90,7 @@ public class SessionSkyFlatsTests(ITestOutputHelper output)
         // to -90 makes any sun altitude "past" -> the run is skipped without slewing or writing frames.
         var config = SkyFlatConfig with { FlatSkySunAltitudeBrightDeg = -90 };
 
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withFilterWheel: true, cancellationToken: ct);
         ctx.External.MaxFitsWrites = 100;
 

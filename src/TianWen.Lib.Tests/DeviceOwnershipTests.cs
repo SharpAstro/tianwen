@@ -264,7 +264,7 @@ namespace TianWen.Lib.Tests
         {
             // Proves the session actually claims its Setup: the only way it can notice a pre-existing
             // owner is by trying to take the same claim.
-            using var ctx = await SessionTestHelper.CreateSessionAsync(_output, cancellationToken: TestContext.Current.CancellationToken);
+            await using var ctx = await SessionTestHelper.CreateSessionAsync(_output, cancellationToken: TestContext.Current.CancellationToken);
             var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
 
             hub.TryAcquireLease(ctx.Session.Setup.Mount.Device.DeviceUri, "a polar alignment", out _).ShouldBeTrue();
@@ -281,7 +281,7 @@ namespace TianWen.Lib.Tests
         {
             // A leaked lease is invisible until the NEXT run refuses to start -- by which point the user
             // has lost a night and has no idea why. Assert the release explicitly.
-            using var ctx = await SessionTestHelper.CreateSessionAsync(_output, cancellationToken: TestContext.Current.CancellationToken);
+            await using var ctx = await SessionTestHelper.CreateSessionAsync(_output, cancellationToken: TestContext.Current.CancellationToken);
             var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
 
             await ctx.Session.RunAsync(TestContext.Current.CancellationToken);
@@ -295,7 +295,7 @@ namespace TianWen.Lib.Tests
             // The case every previous guard missed: FlatsBootstrapper leaves LiveSessionState.IsRunning
             // false, so a UI-flag guard waves a focuser jog / mount pulse / video capture straight through
             // while the flat run is metering.
-            using var ctx = await SessionTestHelper.CreateSessionAsync(_output, cancellationToken: TestContext.Current.CancellationToken);
+            await using var ctx = await SessionTestHelper.CreateSessionAsync(_output, cancellationToken: TestContext.Current.CancellationToken);
             var hub = ctx.Session.ServiceProvider.GetRequiredService<IDeviceHub>();
 
             hub.TryAcquireLease(ctx.Session.Setup.Telescopes[0].Camera.Device.DeviceUri, "a planetary capture", out _).ShouldBeTrue();

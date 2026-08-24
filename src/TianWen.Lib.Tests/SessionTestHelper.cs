@@ -1,5 +1,6 @@
 using NSubstitute;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Collections.Specialized;
 using System.Globalization;
@@ -164,7 +165,7 @@ internal static class SessionTestHelper
 
         var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(obs));
 
-        return new SessionTestContext(session, external, timeProvider, cameraDriver, focuserDriver, mount.Driver, cover?.Driver, filterWheel?.Driver);
+        return new SessionTestContext(session, external, timeProvider, cameraDriver, focuserDriver, mount.Driver, cover?.Driver, filterWheel?.Driver, cancellationToken);
     }
 
     /// <summary>
@@ -290,7 +291,7 @@ internal static class SessionTestHelper
 
         var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(obs));
 
-        return new DualOTATestContext(session, external, timeProvider, oscCameraDriver, monoCameraDriver, oscFocuserDriver, monoFocuserDriver, filterWheelDriver, mount.Driver);
+        return new DualOTATestContext(session, external, timeProvider, oscCameraDriver, monoCameraDriver, oscFocuserDriver, monoFocuserDriver, filterWheelDriver, mount.Driver, cancellationToken);
     }
 
     /// <summary>
@@ -309,6 +310,10 @@ internal static class SessionTestHelper
         narrowbandExposure: TimeSpan.FromSeconds(300));
 }
 
+/// <summary>
+/// Session under test plus its fakes. Async-disposable because it OWNS the background tasks the
+/// test starts: see <see cref="BackgroundWork"/> for why that matters and what breaks without it.
+/// </summary>
 internal record DualOTATestContext(
     Session Session,
     FakeExternal External,
@@ -318,13 +323,22 @@ internal record DualOTATestContext(
     FakeFocuserDriver OSCFocuser,
     FakeFocuserDriver MonoFocuser,
     FakeFilterWheelDriver FilterWheel,
-    IMountDriver Mount
-) : IDisposable
+    IMountDriver Mount,
+    CancellationToken TestCancellation = default
+) : IAsyncDisposable
 {
-    public void Dispose()
-    {
-        // No-op: pool arrays are returned via Image finalizer when GC collects naturally
-    }
+    private readonly BackgroundWork _work = new BackgroundWork(TestCancellation);
+
+    /// <summary>Token for anything <see cref="Track(Task)"/>ed; cancelled by <see cref="DisposeAsync"/>.</summary>
+    public CancellationToken Token => _work.Token;
+
+    /// <inheritdoc cref="BackgroundWork.Track(Task)"/>
+    public Task Track(Task task) => _work.Track(task);
+
+    /// <inheritdoc cref="BackgroundWork.Track{T}(Task{T})"/>
+    public Task<T> Track<T>(Task<T> task) => _work.Track(task);
+
+    public ValueTask DisposeAsync() => _work.DisposeAsync();
 }
 
 /// <summary>
@@ -343,6 +357,10 @@ internal sealed record BrokenCoverDevice() : DeviceBase(new Uri("covercalibrator
     }
 }
 
+/// <summary>
+/// Session under test plus its fakes. Async-disposable because it OWNS the background tasks the
+/// test starts: see <see cref="BackgroundWork"/> for why that matters and what breaks without it.
+/// </summary>
 internal record SessionTestContext(
     Session Session,
     FakeExternal External,
@@ -351,12 +369,95 @@ internal record SessionTestContext(
     FakeFocuserDriver Focuser,
     IMountDriver Mount,
     ICoverDriver? Cover = null,
-    IFilterWheelDriver? FilterWheel = null
-) : IDisposable
+    IFilterWheelDriver? FilterWheel = null,
+    CancellationToken TestCancellation = default
+) : IAsyncDisposable
 {
-    public void Dispose()
+    private readonly BackgroundWork _work = new BackgroundWork(TestCancellation);
+
+    /// <summary>Token for anything <see cref="Track(Task)"/>ed; cancelled by <see cref="DisposeAsync"/>.</summary>
+    public CancellationToken Token => _work.Token;
+
+    /// <inheritdoc cref="BackgroundWork.Track(Task)"/>
+    public Task Track(Task task) => _work.Track(task);
+
+    /// <inheritdoc cref="BackgroundWork.Track{T}(Task{T})"/>
+    public Task<T> Track<T>(Task<T> task) => _work.Track(task);
+
+    public ValueTask DisposeAsync() => _work.DisposeAsync();
+}
+
+/// <summary>
+/// Owns the background tasks a test starts, so none of them can outlive it.
+/// <para>
+/// This is not tidiness. Session logging is routed to <c>ITestOutputHelper</c> by
+/// <see cref="FakeExternal.CreateLogger"/>, and that helper THROWS once its test is over
+/// ("There is no currently active test"), which xUnit v3 raises as a CATASTROPHIC failure: the whole
+/// run fails while reporting a zero failed-test count. So a session loop still running when its test
+/// returns does not merely leak a thread, it can destroy the result of every other test in the
+/// assembly. That is what made the old hand-rolled time pump doubly bad: its
+/// <c>IsCompleted.ShouldBeTrue(...)</c> failure ended the test with the loop still logging.
+/// </para>
+/// <para>
+/// <see cref="Track(Task)"/> registers a task; <see cref="DisposeAsync"/> cancels <see cref="Token"/>
+/// and then awaits it. Because <c>await using</c> disposes INSIDE the test method, that
+/// cancel-and-await runs while the test is still active, so the loop's final log lines land legally
+/// rather than after the end. Pass <see cref="Token"/> and NOT the raw test token to anything
+/// tracked, or teardown can only wait for the task rather than stop it.
+/// </para>
+/// <para>
+/// Deliberately <see cref="IAsyncDisposable"/> and NOT <see cref="IDisposable"/>: a type carrying
+/// both lets a plain <c>using</c> silently pick the sync path and skip the await, so declaring only
+/// the async form turns every stale call site into a compile error. Teardown never throws, because a
+/// <c>using</c> whose body AND dispose both throw propagates the dispose exception and loses the
+/// body's, which would mask the test's real verdict.
+/// </para>
+/// </summary>
+internal sealed class BackgroundWork(CancellationToken testCancellation) : IAsyncDisposable
+{
+    private readonly CancellationTokenSource _cts = CancellationTokenSource.CreateLinkedTokenSource(testCancellation);
+    private readonly ConcurrentBag<Task> _tracked = new ConcurrentBag<Task>();
+
+    /// <summary>Token for anything <see cref="Track(Task)"/>ed; cancelled by <see cref="DisposeAsync"/>.</summary>
+    public CancellationToken Token => _cts.Token;
+
+    /// <summary>Registers a background task so teardown cancels and awaits it. Returns it unchanged.</summary>
+    public Task Track(Task task)
     {
-        // Prompt GC to finalize Image objects, returning pooled float[,] arrays
-        // No-op: pool arrays are returned via Image finalizer when GC collects naturally
+        _tracked.Add(task);
+        return task;
+    }
+
+    /// <summary>
+    /// Result-preserving <see cref="Track(Task)"/>, so a caller can still <c>await</c> the value.
+    /// Without this overload the non-generic form erases <c>Task&lt;T&gt;</c> to <c>Task</c> and every
+    /// <c>var result = await tracked;</c> stops compiling.
+    /// </summary>
+    public Task<T> Track<T>(Task<T> task)
+    {
+        _tracked.Add(task);
+        return task;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _cts.CancelAsync();
+
+        foreach (var task in _tracked)
+        {
+            try
+            {
+                // Real time, never the fake clock: an unpumped FakeTimeProvider would never reach a
+                // timeout, so a wedged loop would hang the suite here instead of being abandoned.
+                await task.WaitAsync(TimeSpan.FromSeconds(30));
+            }
+            catch (Exception)
+            {
+                // Cancellation is the expected outcome, and a fault or a timeout is the test's own
+                // problem which it has already asserted on. Teardown must not overwrite that verdict.
+            }
+        }
+
+        _cts.Dispose();
     }
 }

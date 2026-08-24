@@ -27,7 +27,7 @@ public class WaitForDarkTests(ITestOutputHelper output)
         var now = new DateTimeOffset(2025, 12, 15, 20, 0, 0, TimeSpan.Zero);
         var obsStart = now - TimeSpan.FromMinutes(30);
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await CreateSessionAsync(obsStart, now, ct);
+        await using var ctx = await CreateSessionAsync(obsStart, now, ct);
 
         var before = ctx.TimeProvider.GetUtcNow();
 
@@ -47,7 +47,7 @@ public class WaitForDarkTests(ITestOutputHelper output)
         var now = new DateTimeOffset(2025, 12, 15, 18, 0, 0, TimeSpan.Zero);
         var obsStart = now + TimeSpan.FromHours(2);
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await CreateSessionAsync(obsStart, now, ct);
+        await using var ctx = await CreateSessionAsync(obsStart, now, ct);
 
         var before = ctx.TimeProvider.GetUtcNow();
 
@@ -68,7 +68,7 @@ public class WaitForDarkTests(ITestOutputHelper output)
         var now = new DateTimeOffset(2025, 12, 15, 20, 0, 0, TimeSpan.Zero);
         var obsStart = now + TimeSpan.FromMinutes(5);
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await CreateSessionAsync(obsStart, now, ct);
+        await using var ctx = await CreateSessionAsync(obsStart, now, ct);
 
         var before = ctx.TimeProvider.GetUtcNow();
 

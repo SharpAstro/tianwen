@@ -30,7 +30,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     {
         // Dec 15, 22:00 UTC from Vienna; astronomical twilight rise on Dec 16 ~05:00–06:00 UTC
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
         var startTime = ctx.TimeProvider.GetUtcNow().UtcDateTime;
         var endTime = await ctx.Session.SessionEndTimeAsync(startTime, ct);
@@ -54,7 +54,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // and runs instead of crashing.
         var ct = TestContext.Current.CancellationToken;
         var solsticeEvening = new DateTimeOffset(2026, 6, 20, 22, 0, 0, TimeSpan.FromHours(2)); // 22:00 CEST
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, now: solsticeEvening, latitude: 50.9, longitude: 8.2, cancellationToken: ct);
 
         var startTime = ctx.TimeProvider.GetUtcNow().UtcDateTime;
@@ -87,7 +87,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
                 Offset: 0
             )
         };
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, observations: observations, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, observations: observations, cancellationToken: ct);
 
         var timeBefore = ctx.TimeProvider.GetUtcNow();
 
@@ -104,7 +104,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     public async Task GivenCooledCameraWhenCoolToAmbientThenReturnsSuccess()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
         // Cool camera down first using thresPower=80 (same as RunAsync) to fully ramp
         await ctx.Session.CoolCamerasToSetpointAsync(
@@ -138,14 +138,14 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // fixed altitude (90 - |lat|) regardless of season, so it is well clear of the horizon from
         // both sites, and CalibrateGuiderAsync does not gate on darkness.
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, now: WinterNight, latitude: latitude, longitude: longitude, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
 
         // Run calibration: slews 30 min east of meridian at dec=0, then starts guiding
-        var calibrateTask = Task.Run(async () => await ctx.Session.CalibrateGuiderAsync(ct), ct);
+        var calibrateTask = ctx.Track(Task.Run(async () => await ctx.Session.CalibrateGuiderAsync(ctx.Token), ctx.Token));
 
         while (!calibrateTask.IsCompleted && !ct.IsCancellationRequested)
         {
@@ -184,10 +184,10 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     public async Task GivenFreshSessionWhenInitialisationThenAllDevicesConnected()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
         // Run initialisation: connects, unparks (no-op), sets UTC, cools to sensor temp, opens covers (null=ok)
-        var initTask = Task.Run(async () => await ctx.Session.InitialisationAsync(ct), ct);
+        var initTask = ctx.Track(Task.Run(async () => await ctx.Session.InitialisationAsync(ctx.Token), ctx.Token));
 
         while (!initTask.IsCompleted && !ct.IsCancellationRequested)
         {
@@ -215,7 +215,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     public async Task GivenActiveSessionWhenFinaliseThenShutdownCompletes()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -229,7 +229,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         (await mount.IsTrackingAsync(ct)).ShouldBeTrue("mount should be tracking before finalise");
 
         // Run finalise with time pump
-        var finaliseTask = Task.Run(async () => await ctx.Session.Finalise(ct), ct);
+        var finaliseTask = ctx.Track(Task.Run(async () => await ctx.Session.Finalise(ctx.Token), ctx.Token));
 
         while (!finaliseTask.IsCompleted && !ct.IsCancellationRequested)
         {
@@ -313,7 +313,11 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         (await coverDriver.GetCoverStateAsync(ct)).ShouldBe(CoverStatus.Closed);
 
         // Open covers: needs time pump for the Moving → Open transition and calibrator check
-        var openTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Open, ct), ct);
+        // No SessionTestContext here (this test builds its own session), so own the background
+        // task directly: teardown cancels work.Token and awaits it, which keeps the loop from
+        // logging into a finished test.
+        await using var work = new BackgroundWork(ct);
+        var openTask = work.Track(Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Open, work.Token), work.Token));
 
         while (!openTask.IsCompleted && !ct.IsCancellationRequested)
         {
@@ -342,7 +346,11 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         (await coverDriver.GetCoverStateAsync(ct)).ShouldBe(CoverStatus.Open);
 
         // Close covers
-        var closeTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Closed, ct), ct);
+        // No SessionTestContext here (this test builds its own session), so own the background
+        // task directly: teardown cancels work.Token and awaits it, which keeps the loop from
+        // logging into a finished test.
+        await using var work = new BackgroundWork(ct);
+        var closeTask = work.Track(Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Closed, work.Token), work.Token));
 
         while (!closeTask.IsCompleted && !ct.IsCancellationRequested)
         {
@@ -371,7 +379,11 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         (await coverDriver.GetBrightnessAsync(ct)).ShouldBe(128);
 
         // Open cover: should turn off calibrator first, then open
-        var openTask = Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Open, ct), ct);
+        // No SessionTestContext here (this test builds its own session), so own the background
+        // task directly: teardown cancels work.Token and awaits it, which keeps the loop from
+        // logging into a finished test.
+        await using var work = new BackgroundWork(ct);
+        var openTask = work.Track(Task.Run(async () => await session.MoveTelescopeCoversToStateAsync(CoverStatus.Open, work.Token), work.Token));
 
         while (!openTask.IsCompleted && !ct.IsCancellationRequested)
         {
@@ -395,7 +407,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     public async Task GivenConnectedGuiderWhenGuiderFocusLoopThenPlateSolveSucceeds()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
         // Set guider pointing so SaveImageAsync writes WCS headers
         var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
@@ -423,7 +435,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         // LX200 mount needed: InitialRoughFocusAsync slews internally via WaitForSlewCompleteAsync
         // which requires the serial protocol's timer-based slew to interleave with SleepAsync pumping.
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, mountPort: "LX200", cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, mountPort: "LX200", cancellationToken: ct);
 
         // Enable synthetic star field rendering at best focus
         ctx.Camera.TrueBestFocus = 1000;
@@ -441,8 +453,8 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // InitialRoughFocusAsync: slews to zenith, guider plate solve, then takes
         // short exposures looking for ≥15 stars. With synthetic star field at best
         // focus (1000mm FL, 512×512 sensor), we should detect enough stars.
-        var roughFocusTask = Task.Run(
-            async () => await ctx.Session.InitialRoughFocusAsync(ct), ct);
+        var roughFocusTask = ctx.Track(Task.Run(
+            async () => await ctx.Session.InitialRoughFocusAsync(ctx.Token), ctx.Token));
 
         while (!roughFocusTask.IsCompleted && !ct.IsCancellationRequested)
         {
@@ -523,7 +535,11 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         await focuserDriver.BeginMoveAsync(1000, ct);
 
         // RunAsync on background thread, pump time from test thread
-        var runTask = Task.Run(async () => await session.RunAsync(ct), ct);
+        // No SessionTestContext here (this test builds its own session), so own the background
+        // task directly: teardown cancels work.Token and awaits it, which keeps the loop from
+        // logging into a finished test.
+        await using var work = new BackgroundWork(ct);
+        var runTask = work.Track(Task.Run(async () => await session.RunAsync(work.Token), work.Token));
 
         var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
         for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
@@ -560,7 +576,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     public async Task GivenConnectedMountWhenGetMountUtcNowThenReturnsTimeProviderTime()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
         var mountTime = await ctx.Session.GetMountUtcNowAsync(ct);
         var providerTime = ctx.TimeProvider.GetUtcNow().UtcDateTime;
@@ -582,7 +598,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
     public async Task GivenImageWhenWriteToFitsThenFileCreatedOnDisk()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
         // Create a small synthetic image with valid metadata (Filter.Name must not be empty)
         var array = SyntheticStarFieldRenderer.Render(64, 64, defocusSteps: 0, exposureSeconds: 1, noiseSeed: 42);
@@ -614,7 +630,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // At Dec 15 22:00 UTC from Vienna, Seagull Nebula (RA=7.06, Dec=-10.45) is low and rising.
         // It should clear 30° within a few hours.
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
         var target = new Target(7.06, -10.45, "SeagullNebula", null);
         var result = await ctx.Session.EstimateTimeUntilTargetRisesAsync(target, 30, TimeSpan.FromHours(4), ct);
@@ -632,7 +648,7 @@ public class SessionLifecycleTests(ITestOutputHelper output)
         // At Dec 15 22:00 UTC from Vienna, M45 (RA=3.79, Dec=24.12) is at alt ~64° and setting.
         // It won't rise: it's past the meridian and descending.
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
 
         var target = new Target(3.79, 24.12, "M45", null);
         var result = await ctx.Session.EstimateTimeUntilTargetRisesAsync(target, 70, TimeSpan.FromHours(2), ct);

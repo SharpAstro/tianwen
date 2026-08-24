@@ -44,7 +44,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
         // load-bearing beyond this test's own subject: it is the ordinary unattended rig, and it proves
         // SessionConfiguration.UnattendedPromptResponse (default Decline) never reaches the non-prompting
         // path. Widen the prompt gate in Session.Flats.cs and this test goes red -- verified by doing it.
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withCoverCalibrator: true, withFilterWheel: true, cancellationToken: ct);
 
         // Persist every flat (FakeExternal only writes the first frame by default).
@@ -103,7 +103,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
         // A ManualCoverDevice assigned to the OTA cover slot: it reports no flap (CoverStatus.NotPresent) and
         // the calibrator Ready on demand, so the ordinary Calibrator path drives it and writes flats -- exactly
         // like a real hand-switched analog panel the user turned on.
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
 
         ctx.External.MaxFitsWrites = 100;
@@ -146,7 +146,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
             FlatCalibratorBrightnessPercent = 50,
         };
 
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withCoverCalibrator: true, withFilterWheel: true, cancellationToken: ct);
 
         ctx.External.MaxFitsWrites = 100;
@@ -174,7 +174,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
 
         // Default helper wires no cover/calibrator on the OTA.
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
         ctx.External.MaxFitsWrites = 100;
 
         // Clear any carried-over Flats subtree (shared fake output folder, see the other test).
@@ -197,7 +197,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
         // A cover whose connect throws (realistic for a serial panel: port unplugged/busy, identity
         // mismatch) must be skipped like any other missing-precondition OTA -- an escaping exception
         // here would fail the WHOLE session from the end-of-session flats hook.
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, withFilterWheel: true, coverFactory: sp => new Cover(new BrokenCoverDevice(), sp), cancellationToken: ct);
         ctx.External.MaxFitsWrites = 100;
 
@@ -228,7 +228,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
 
         // A manual panel can't be dimmed by the driver (CanControlBrightness == false), so the flat routine
         // pauses for a user prompt before capturing. An interactive handler that answers Continue lets it proceed.
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
         ctx.External.MaxFitsWrites = 100;
 
@@ -276,7 +276,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
         };
         config.UnattendedPromptResponse.ShouldBe(UnattendedPromptResponse.Decline, "the safe default must not drift");
 
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
         ctx.External.MaxFitsWrites = 100;
 
@@ -310,7 +310,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
             UnattendedPromptResponse = UnattendedPromptResponse.Proceed,
         };
 
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
         ctx.External.MaxFitsWrites = 100;
 
@@ -358,7 +358,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
             UnattendedPromptResponse = UnattendedPromptResponse.Proceed,
         };
 
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
         ctx.External.MaxFitsWrites = 100;
 
@@ -392,7 +392,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
             FlatInitialExposure = TimeSpan.FromSeconds(1),
         };
 
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withManualCover: true, withFilterWheel: true, cancellationToken: ct);
         ctx.External.MaxFitsWrites = 100;
 
@@ -432,7 +432,7 @@ public class SessionFlatsTests(ITestOutputHelper output)
         };
 
         // A driver-controlled calibrator (CanControlBrightness == true) sets its own level -> no prompt.
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, configuration: config, withCoverCalibrator: true, withFilterWheel: true, cancellationToken: ct);
         ctx.External.MaxFitsWrites = 100;
 

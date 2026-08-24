@@ -74,7 +74,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         // time to advance rather than advancing it, preventing concurrent Advance races.
         ctx.TimeProvider.ExternalTimePump = true;
 
-        var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(cancellationToken), cancellationToken);
+        var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ObservationLoopAsync(ctx.Token), ctx.Token));
 
         // Pump time in small increments: the obs loop yields on SleepAsync until
         // we advance past its target time, ensuring deterministic sequencing.
@@ -132,7 +132,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -194,7 +194,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -241,7 +241,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, config, now: nearDropStart, cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, config, now: nearDropStart, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -295,7 +295,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -345,7 +345,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         // Use plain FakeMountDriver (not LX200 serial protocol) to avoid timer interleaving
         // between the slew simulation timer and the imaging loop's faster PeriodicTimer tick.
-        using var ctx = await CreateWinterSessionAsync(observations, mountPort: null, cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, mountPort: null, cancellationToken: ct);
 
         // Run the observation loop with time pump
         await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
@@ -394,7 +394,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, mountPort: null, cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, mountPort: null, cancellationToken: ct);
 
         // Make the (otherwise German) fake report a non-German alignment; a fork or Alt-Az mount.
         ((FakeMountDriver)ctx.Mount).Alignment = alignment;
@@ -441,7 +441,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, mountPort: "SkyWatcher", cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, mountPort: "SkyWatcher", cancellationToken: ct);
 
         // The SkyWatcher driver defaults to NaN site (real mounts learn it via the protocol); the live
         // session pushes it in InitialisationAsync, which this direct-loop harness bypasses. Set it so the
@@ -484,7 +484,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 Offset: 0)
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, cancellationToken: ct);
 
         // CreateWinterSessionAsync advances fake time slightly (focuser-move SleepAsync loop), so
         // anchor the branch boundaries on the live clock rather than WinterNightStart.
@@ -555,7 +555,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 Offset: 0)
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
         await ctx.Mount.EnsureTrackingAsync(cancellationToken: ct);
 
         var frames = CaptureFrames(ctx);
@@ -622,7 +622,7 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 Offset: 0)
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
         await ctx.Mount.EnsureTrackingAsync(cancellationToken: ct);
 
         var frames = CaptureFrames(ctx);
@@ -670,13 +670,13 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
                 Offset: 0)
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, config, cancellationToken: ct);
         await ctx.Mount.EnsureTrackingAsync(cancellationToken: ct);
 
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.Token);
         ctx.TimeProvider.ExternalTimePump = true;
 
-        var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(cts.Token), ct);
+        var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ObservationLoopAsync(cts.Token), ctx.Token));
 
         // Wait until the loop is parked in the scheduled-start wait, then cancel.
         await ctx.TimeProvider.WaitForFirstWaiterAsync(loopTask, ct);
