@@ -1,7 +1,18 @@
 # Plate-solver performance: closing the gap to ASTAP
 
-Status: PLANNED. The correctness work is done and shipped; everything below is performance only,
-and must not cost a single solve.
+Status: PLANNED. The correctness work is done and shipped; everything below is performance only.
+
+## The governing rule
+
+**Optimise only where it is provably free of accuracy cost. Where it is not, take the slower path
+and say so.** A plate solve here is not a yes/no answer, it is a MEASUREMENT: the comet
+ephemeris-to-pixel conversion, the polar-alignment error vector and mosaic panel placement all
+consume the WCS quantitatively. ASTAP is free to trade centroid precision for speed because
+"solved" is its whole output; we are not.
+
+That distinction has teeth. ASTAP binned this very field 2x and solved it fine -- and we
+deliberately will not (see phase D). Every phase below therefore states what it costs accuracy,
+and the answer has to be "nothing" before it ships.
 
 ## Where this came from
 
@@ -71,9 +82,10 @@ Ordered by return per unit of risk; each independently shippable and measurable.
 | A | Short-circuit the losing parity | -200 ms | low |
 | B | Tycho-2 pre-baked region index (TODO 2C) | -500 ms | low |
 | C | Quad-descriptor matching against the catalog | -300 ms | medium |
-| D | Bin before detection, cap the star list | -60 ms | low |
+| D | Cap the star list (bin only if sampling allows) | -60 ms | low / see D |
 
-Target after all four: **~200 ms**, against ASTAP's 162 ms.
+Target after A-C: **~260 ms**, against ASTAP's 162 ms. D is optional and mostly will not apply
+(see below), so it is not counted on.
 
 ### A. Short-circuit the losing parity
 
@@ -128,12 +140,31 @@ Keep the pair-RANSAC seed: it is what makes dense fields work (see the Vela note
 once phase A stops paying for its losing parity. The quad path replaces the REFINEMENT loop, not
 the seed.
 
-### D. Bin before detection, cap the star list
+### D. Cap the star list; bin ONLY where sampling allows it
 
-Follow `report_binning`: bin 2x above ~2500 px height, and cap the list carried into matching at
-~500 brightest. A `detectionScale` downsample path already exists but is gated on a target pixel
-scale, and at 4.66"/px it does not trigger -- a height-based rule is the missing half. Smallest of
-the four, listed because it is nearly free.
+Two halves with very different risk, and they must not be conflated.
+
+**Cap the star list: do it.** Carry ~500 brightest into matching instead of 1600. This costs no
+accuracy at all -- the discarded stars are the faintest, they are not what a fit is anchored on, and
+ASTAP solves this field from 527. Phase C makes this mostly moot anyway, since quad matching is
+driven off the top-K.
+
+**Bin before detection: NO, not on this class of frame, and not on ASTAP's rule.**
+`report_binning` gates on image HEIGHT (> 2500 px -> bin 2). Height is the wrong variable: it is a
+proxy for "big sensor, therefore probably oversampled", and this rig breaks the proxy. Measured on
+frame 0018, median star **FWHM = 2.15 px** (10.16" at 4.7172"/px; HFD 2.65 px, from
+`solve --export-stars`). That is already AT critical sampling, so binning 2x lands at 1.08 px FWHM
+-- below Nyquist. The cost is not a slightly softer centroid, it is aliasing, and a 1 px FWHM star
+stops being reliably separable from a hot pixel. Our unbinned SIP rms is 0.11 px (0.52"); that is
+the number downstream consumers are relying on.
+
+So if this is done at all, gate it on MEASURED sampling rather than on frame size: bin only while
+the binned FWHM stays comfortably above Nyquist, i.e. roughly FWHM >= 4 px before binning. A
+0.5"/px setup in 3" seeing (FWHM ~6 px) can bin to 3 px for free; this field cannot bin at all.
+Detection already measures FWHM/HFD, so the input is in hand.
+
+Default OFF, and skip the whole phase if phases A-C land the budget. It is the smallest win of the
+four and the only one that can cost accuracy.
 
 ## Correctness gates
 
