@@ -1,0 +1,11 @@
+# Names injected into filter_curves.gs.gz from the CSVs beside this file, written by
+# `dotnet run --project tools/import-sasp-data -- --merge-only`. It exists so a DELETED
+# CSV can be retracted from the blob: the blob is the merge's own input, and ORIGIN cannot
+# say who put a curve there (upstream SASP curves also carry .csv origins). Checked in.
+ASKAR_COLOURMAGIC_D1
+ASKAR_COLOURMAGIC_D2
+IDAS_LPS_D3
+IDAS_NBZ
+OPTOLONG_L_ENHANCE
+OPTOLONG_L_QUAD_ENHANCE
+OPTOLONG_L_ULTIMATE

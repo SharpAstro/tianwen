@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
@@ -91,9 +92,55 @@ if (mergeOnly)
 
     var merged = ReadGsGz(existing);
     Console.WriteLine($"Read {merged.Count} existing filter curves from {Path.GetFileName(existing)}.");
+
+    // Retract curves whose CSV has gone. The .gs.gz is this step's own INPUT, so without this a
+    // merge can only ever add: deleting a local CSV left its curve in the blob forever, and backing
+    // one out meant restoring the file from git and re-merging by hand.
+    //
+    // Which needs a manifest, because ORIGIN cannot tell us who put a curve there. The obvious
+    // discriminator -- an origin ending in .csv -- is wrong: SETI Astro built the upstream FITS from
+    // CSVs too, so IDAS_LPS_P3_LIGHT_POLLUTION carries "IDAS-LPS-P3-Light-Pollution.csv" and
+    // pruning on that would delete upstream data. The manifest records exactly what WE injected, so
+    // nothing else can be touched.
+    var manifest = Path.Combine(extraFiltersDir, ".merged-names.txt");
+    var previouslyInjected = File.Exists(manifest)
+        ? new HashSet<string>(File.ReadAllLines(manifest)
+            .Select(l => l.Trim()).Where(l => l.Length > 0 && l[0] != '#'), StringComparer.Ordinal)
+        : new HashSet<string>(StringComparer.Ordinal);
+
+    var nowPresent = new HashSet<string>(
+        Directory.Exists(extraFiltersDir)
+            ? Directory.GetFiles(extraFiltersDir, "*.csv").Select(LocalCurveName)
+            : [],
+        StringComparer.Ordinal);
+
+    var retracted = 0;
+    foreach (var gone in previouslyInjected.Where(n => !nowPresent.Contains(n)).OrderBy(n => n, StringComparer.Ordinal))
+    {
+        var idx = merged.FindIndex(e => e.Name == gone);
+        if (idx >= 0)
+        {
+            merged.RemoveAt(idx);
+            retracted++;
+            Console.WriteLine($"  retracted: {gone} (its CSV is gone)");
+        }
+    }
+
     var added = MergeLocalFilters(merged, extraFiltersDir);
+
+    // The manifest is written only after the merge succeeded, so a failed run cannot leave a
+    // manifest claiming curves the blob does not hold.
+    File.WriteAllLines(manifest, (string[])[
+        "# Names injected into filter_curves.gs.gz from the CSVs beside this file, written by",
+        "# `dotnet run --project tools/import-sasp-data -- --merge-only`. It exists so a DELETED",
+        "# CSV can be retracted from the blob: the blob is the merge's own input, and ORIGIN cannot",
+        "# say who put a curve there (upstream SASP curves also carry .csv origins). Checked in.",
+        .. nowPresent.OrderBy(n => n, StringComparer.Ordinal)]);
+
     WriteGsGz(existing, merged);
-    Console.WriteLine($"Merged {added} local curve(s); wrote {merged.Count} total.");
+    Console.WriteLine(retracted > 0
+        ? $"Merged {added} local curve(s), retracted {retracted}; wrote {merged.Count} total."
+        : $"Merged {added} local curve(s); wrote {merged.Count} total.");
     return 0;
 }
 
@@ -258,6 +305,13 @@ static List<(string Name, string Origin, float[] Wavelengths, float[] Values)> R
 /// Replace-by-name rather than append, so re-running is idempotent and a corrected CSV supersedes
 /// its predecessor instead of leaving two curves with one name for the fuzzy matcher to choose
 /// between.
+// Name from the file stem, in the database's own SHOUTY_UNDERSCORE convention, so TryMatchFilter
+// tokenises it the same way it tokenises every upstream name. Shared with the retraction pass above
+// rather than spelled twice: the manifest is matched against the blob BY NAME, so the two deriving
+// it differently would silently retract nothing.
+static string LocalCurveName(string csvPath)
+    => Path.GetFileNameWithoutExtension(csvPath).ToUpperInvariant().Replace('-', '_').Replace(' ', '_');
+
 static int MergeLocalFilters(
     List<(string Name, string Origin, float[] Wavelengths, float[] Values)> entries, string dir)
 {
@@ -304,10 +358,7 @@ static int MergeLocalFilters(
             continue;
         }
 
-        // Name from the file stem, in the database's own SHOUTY_UNDERSCORE convention, so
-        // TryMatchFilter tokenises it the same way it tokenises every upstream name.
-        var name = Path.GetFileNameWithoutExtension(csv).ToUpperInvariant()
-            .Replace('-', '_').Replace(' ', '_');
+        var name = LocalCurveName(csv);
 
         var idx = entries.FindIndex(e => e.Name == name);
         var entry = (name, Path.GetFileName(csv), wl.ToArray(), val.ToArray());
