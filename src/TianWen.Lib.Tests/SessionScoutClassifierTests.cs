@@ -31,7 +31,7 @@ public class SessionScoutClassifierTests(ITestOutputHelper output)
             classification.ShouldBe(ScoutClassification.Healthy);
             ratio.ShouldBe(0.8f, tolerance: 0.001f);
         }
-        finally { ctx.Dispose(); }
+        finally { await ctx.DisposeAsync(); }
     }
 
     [Fact]
@@ -48,7 +48,7 @@ public class SessionScoutClassifierTests(ITestOutputHelper output)
             classification.ShouldBe(ScoutClassification.Obstruction);
             ratio.ShouldBeLessThan(0.1f);
         }
-        finally { ctx.Dispose(); }
+        finally { await ctx.DisposeAsync(); }
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public class SessionScoutClassifierTests(ITestOutputHelper output)
             classification.ShouldBe(ScoutClassification.Healthy);
             ratio.ShouldBeGreaterThan(1.0f);
         }
-        finally { ctx.Dispose(); }
+        finally { await ctx.DisposeAsync(); }
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public class SessionScoutClassifierTests(ITestOutputHelper output)
 
             classification.ShouldBe(ScoutClassification.Healthy);
         }
-        finally { ctx.Dispose(); }
+        finally { await ctx.DisposeAsync(); }
     }
 
     [Fact]
@@ -104,7 +104,7 @@ public class SessionScoutClassifierTests(ITestOutputHelper output)
             classification.ShouldBe(ScoutClassification.Obstruction);
             ratio.ShouldBe(0.1f, tolerance: 0.001f);
         }
-        finally { ctx.Dispose(); }
+        finally { await ctx.DisposeAsync(); }
     }
 
     [Fact]
@@ -121,6 +121,6 @@ public class SessionScoutClassifierTests(ITestOutputHelper output)
             halfFov.ShouldBeGreaterThan(0.05);
             halfFov.ShouldBeLessThan(0.2);
         }
-        finally { ctx.Dispose(); }
+        finally { await ctx.DisposeAsync(); }
     }
 }

@@ -20,7 +20,7 @@ public class SessionFailureReasonTests(ITestOutputHelper output)
     {
         var ct = TestContext.Current.CancellationToken;
 
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, coverFactory: sp => new Cover(new BrokenCoverDevice(), sp), cancellationToken: ct);
 
         await ctx.Session.RunAsync(ct);

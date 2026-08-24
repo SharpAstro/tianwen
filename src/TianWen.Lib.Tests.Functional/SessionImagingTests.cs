@@ -29,7 +29,11 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // Use a date/time that allows astronomical observations from Vienna (48.2N, 16.3E)
         // June 15, 22:00 UTC = ~midnight local = well into astronomical night
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, config, obs, now: now, cancellationToken: cancellationToken);
+        // NOT 'await using': this is a FACTORY and it hands ownership to the caller, whose own
+        // 'await using' disposes it. Disposing here would cancel the context's token and return a
+        // dead context. That was already true before teardown did anything, the no-op Dispose just
+        // hid it.
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, config, obs, now: now, cancellationToken: cancellationToken);
 
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
         ctx.Camera.FocusPosition = TrueBestFocusPosition; // at perfect focus
@@ -77,7 +81,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+        await using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
 
         // Enable tracking on mount
         IMountDriver mount = ctx.Mount;
@@ -96,7 +100,7 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // when: run imaging loop on thread pool, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
+        var imagingTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
 
         await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
@@ -144,7 +148,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
+        await using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -160,7 +164,7 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // when: run imaging loop on thread pool, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
+        var imagingTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
 
         await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
@@ -200,14 +204,14 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+        await using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
 
         // when: run observation loop on thread pool, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
-        var loopTask = Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct), ct);
+        var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ObservationLoopAsync(ctx.Token), ctx.Token));
 
         await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
@@ -256,7 +260,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
+        await using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -272,7 +276,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         // when: run imaging loop, defocus after baseline is established
         var defocused = false;
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
+        var imagingTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
 
         await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
             onIteration: async iteration =>
@@ -333,7 +337,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+        await using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
 
         // Enable tracking on mount
         IMountDriver mount = ctx.Mount;
@@ -351,7 +355,7 @@ public class SessionImagingTests(ITestOutputHelper output)
 
         // when: run imaging loop, pump fake time cooperatively
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
+        var imagingTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
 
         await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
@@ -400,7 +404,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
+        await using var ctx = await CreateImagingSessionAsync(configuration: config, observations: observations, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -417,7 +421,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         var cloudsInjected = false;
         var cloudsCleared = false;
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
+        var imagingTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
 
         await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
             onIteration: iteration =>
@@ -485,7 +489,7 @@ public class SessionImagingTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+        await using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
 
         IMountDriver mount = ctx.Mount;
         await mount.EnsureTrackingAsync(cancellationToken: ct);
@@ -504,7 +508,7 @@ public class SessionImagingTests(ITestOutputHelper output)
         var attemptsAtRecoveryStart = -1;
         var framesAtRecoveryStart = -1;
         ctx.TimeProvider.ExternalTimePump = true;
-        var imagingTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct));
+        var imagingTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
 
         await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
             onIteration: iteration =>

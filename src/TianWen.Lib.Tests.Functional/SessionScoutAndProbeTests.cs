@@ -84,7 +84,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
             ScoutExposure = TimeSpan.FromSeconds(2),
             FirstScoutOracleEnabled = false,
         };
-        using var ctx = await CreateScoutSessionAsync(observations, configuration: config, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(observations, configuration: config, cancellationToken: ct);
         ctx.Session.AdvanceObservationForTest(); // index 0; prev = -1 → no baseline
 
         // Slew to target so scout has a sky position
@@ -114,7 +114,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var db = await SharedCatalogDB.InitAsync(ct);
         var observations = new[] { Obs(3.79, 24.1, "M45") };
-        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
         ctx.External.CelestialObjectDB = db; // oracle catalog
         ctx.Camera.CelestialObjectDB = db;   // render from the same catalog
         ctx.Camera.CloudCoverage = 0;        // clear
@@ -146,7 +146,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var db = await SharedCatalogDB.InitAsync(ct);
         var observations = new[] { Obs(3.79, 24.1, "M45") };
-        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
         ctx.External.CelestialObjectDB = db;
         InitCameraReadout(ctx);
         var observation = observations[0];
@@ -172,7 +172,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         var ct = TestContext.Current.CancellationToken;
         var db = await SharedCatalogDB.InitAsync(ct);
         var observations = new[] { Obs(3.79, 24.1, "M45") };
-        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
         ctx.External.CelestialObjectDB = db;
         InitCameraReadout(ctx);
 
@@ -196,7 +196,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         // Clear sky on both pre- and post-scout, baseline matches observed star count.
         var ct = TestContext.Current.CancellationToken;
         var observations = new[] { Obs(3.79, 24.1, "M45 prev"), Obs(3.79, 24.1, "M45 next") };
-        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
 
         ctx.Camera.CloudCoverage = 0; // clear
 
@@ -233,7 +233,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         // Classifier flags as Obstruction tentatively, nudge confirms Transparency.
         var ct = TestContext.Current.CancellationToken;
         var observations = new[] { Obs(3.79, 24.1, "M45 prev"), Obs(3.79, 24.1, "M45 next") };
-        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
 
         ctx.Camera.CloudCoverage = 0.98; // near-total cloud → almost no detectable stars
 
@@ -273,7 +273,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         // direct classifier path because driving the full ScoutAndProbeAsync to a 0-star
         // result requires a CloudCoverage that varies between scout and nudge.
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await CreateScoutSessionAsync(SessionTestHelper.DefaultScheduledObservations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(SessionTestHelper.DefaultScheduledObservations, cancellationToken: ct);
 
         // Scout: legitimately took a 2s exposure, found 0 stars (target behind tree)
         var scout = new[]
@@ -301,7 +301,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         //, NOT as 0 stars / obstruction. Otherwise a single transient driver fault would
         // skip a healthy target.
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await CreateScoutSessionAsync(SessionTestHelper.DefaultScheduledObservations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(SessionTestHelper.DefaultScheduledObservations, cancellationToken: ct);
 
         var scout = new[] { default(FrameMetrics) }; // exposure never ran
         var baseline = new[]
@@ -325,7 +325,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         // returned default metrics.
         var ct = TestContext.Current.CancellationToken;
         var observations = new[] { Obs(3.79, 24.1, "M45 prev"), Obs(3.79, 24.1, "M45 next") };
-        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
 
         ctx.Camera.CloudCoverage = 0; // clear sky on the successful attempt
 
@@ -366,7 +366,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         // correct outcome + classification + payload.
         var ct = TestContext.Current.CancellationToken;
         var observations = new[] { Obs(3.79, 24.1, "M45 prev"), Obs(3.79, 24.1, "M45 next") };
-        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
 
         ctx.Camera.CloudCoverage = 0; // healthy field
 
@@ -414,7 +414,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         // is 1, and the retry inside TakeScoutFrameAsync also exhausts its single retry.
         var ct = TestContext.Current.CancellationToken;
         var observations = new[] { Obs(3.79, 24.1, "M45 prev"), Obs(3.79, 24.1, "M45 next") };
-        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
 
         ctx.Session.SetBaselineForObservationForTest(0,
         [
@@ -442,7 +442,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         // a few minutes.
         var ct = TestContext.Current.CancellationToken;
         var observations = new[] { Obs(7.06, -10.7, "Seagull") };
-        using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
+        await using var ctx = await CreateScoutSessionAsync(observations, cancellationToken: ct);
         ctx.Session.AdvanceObservationForTest();
 
         var clearIn = await ctx.Session.EstimateObstructionClearTimeAsync(
@@ -474,7 +474,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
                 Offset: 0)
         };
         var config = SessionTestHelper.DefaultConfiguration with { ScoutExposure = TimeSpan.FromSeconds(2) };
-        using var ctx = await SessionTestHelper.CreateSessionAsync(
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(
             output, config, observations, now: lateNight, focalLength: 480, cancellationToken: ct);
         ctx.Session.AdvanceObservationForTest();
 
@@ -493,7 +493,7 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
         SessionTestContext ctx, Func<CancellationToken, Task> action, CancellationToken ct)
     {
         ctx.TimeProvider.ExternalTimePump = true;
-        var task = Task.Run(async () => await action(ct), ct);
+        var task = ctx.Track(Task.Run(async () => await action(ctx.Token), ctx.Token));
 
         await ctx.TimeProvider.PumpUntilCompletedAsync(task, TimeSpan.FromSeconds(1), TimeSpan.FromMinutes(20), cancellationToken: ct);
 

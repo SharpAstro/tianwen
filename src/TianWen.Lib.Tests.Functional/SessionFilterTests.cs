@@ -61,7 +61,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         };
 
         var config = SessionTestHelper.DefaultConfiguration with { MinHeightAboveHorizon = 10 };
-        using var ctx = await SessionTestHelper.CreateDualOTASessionAsync(output, configuration: config, observations: observations, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateDualOTASessionAsync(output, configuration: config, observations: observations, now: WinterNight, cancellationToken: ct);
 
         // Set up both cameras at best focus so they produce synthetic star images
         ctx.OSCCamera.TrueBestFocus = TrueBestFocusPosition;
@@ -97,7 +97,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         var observation = ctx.Session.ActiveObservation!;
         var hourAngle = await mount.GetHourAngleAsync(ct);
         ctx.TimeProvider.ExternalTimePump = true;
-        var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct), ct);
+        var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
 
         await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
@@ -164,7 +164,7 @@ public class SessionFilterTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, observations: observations, now: WinterNight, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, observations: observations, now: WinterNight, cancellationToken: ct);
 
         // Set up camera at best focus
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
@@ -200,7 +200,7 @@ public class SessionFilterTests(ITestOutputHelper output)
         // frame. PumpUntilCompletedAsync instead paces to the loop, advancing only while it is
         // parked at a waiter, which is starvation-proof under suite load.
         ctx.TimeProvider.ExternalTimePump = true;
-        var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct), ct);
+        var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
 
         await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 

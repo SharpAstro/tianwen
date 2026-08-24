@@ -22,7 +22,11 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     /// </summary>
     private async Task<SessionTestContext> CreateAutoFocusSessionAsync(CancellationToken cancellationToken = default)
     {
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: cancellationToken);
+        // NOT 'await using': this is a FACTORY and it hands ownership to the caller, whose own
+        // 'await using' disposes it. Disposing here would cancel the context's token and return a
+        // dead context. That was already true before teardown did anything, the no-op Dispose just
+        // hid it.
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: cancellationToken);
 
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
 
@@ -47,7 +51,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await CreateAutoFocusSessionAsync(ct);
+        await using var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
         var (converged, baseline) = await ctx.Session.AutoFocusAsync(0, ct);
@@ -69,7 +73,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given: focuser starts above best focus, backlash = 20
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await CreateAutoFocusSessionAsync(ct);
+        await using var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
         var (converged, _) = await ctx.Session.AutoFocusAsync(0, ct);
@@ -87,7 +91,7 @@ public class SessionAutoFocusTests(ITestOutputHelper output)
     {
         // given
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await CreateAutoFocusSessionAsync(ct);
+        await using var ctx = await CreateAutoFocusSessionAsync(ct);
 
         // when
         var allConverged = await ctx.Session.AutoFocusAllTelescopesAsync(ct);

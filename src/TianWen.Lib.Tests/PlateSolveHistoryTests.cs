@@ -14,7 +14,7 @@ public class PlateSolveHistoryTests(ITestOutputHelper output)
     public async Task PlateSolveAndSync_RecordsSuccessInHistory()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         ctx.Session.PlateSolveHistory.ShouldBeEmpty();
 
@@ -35,7 +35,7 @@ public class PlateSolveHistoryTests(ITestOutputHelper output)
     public async Task PlateSolveAndSyncCore_WithCenteringContext_RecordsCorrectContext()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         var (solved, ra, dec) = await ctx.Session.PlateSolveAndSyncCoreAsync(0, TimeSpan.FromSeconds(1), PlateSolveContext.Centering, ct);
         solved.ShouldBeTrue();
@@ -52,7 +52,7 @@ public class PlateSolveHistoryTests(ITestOutputHelper output)
     public async Task PlateSolveCompleted_EventFires()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         PlateSolveRecord? received = null;
         ctx.Session.PlateSolveCompleted += (_, e) => received = e.Record;
@@ -68,7 +68,7 @@ public class PlateSolveHistoryTests(ITestOutputHelper output)
     public async Task MultipleSolves_AccumulateInHistory()
     {
         var ct = TestContext.Current.CancellationToken;
-        using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, cancellationToken: ct);
 
         await ctx.Session.PlateSolveAndSyncAsync(0, TimeSpan.FromSeconds(1), ct);
         await ctx.Session.PlateSolveAndSyncCoreAsync(0, TimeSpan.FromSeconds(1), PlateSolveContext.Centering, ct);

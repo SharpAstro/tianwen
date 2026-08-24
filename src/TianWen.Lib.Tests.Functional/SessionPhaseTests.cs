@@ -41,7 +41,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         // Record phase transitions
         var phases = new ConcurrentQueue<SessionPhase>();
@@ -52,7 +52,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         };
 
         // Run session on background thread, pump time from test thread
-        var runTask = Task.Run(async () => await ctx.Session.RunAsync(ct), ct);
+        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(ctx.Token), ctx.Token));
 
         var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
         for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
@@ -95,7 +95,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
                 Offset: 0
             )
         };
-        using var ctx = await CreateWinterSessionAsync(observations, ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         var phases = new ConcurrentQueue<SessionPhase>();
         ctx.Session.PhaseChanged += (_, e) =>
@@ -105,7 +105,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         };
 
         // Cancel once we've been in Cooling for a few ramp steps
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.Token);
         ctx.Session.PhaseChanged += (_, e) =>
         {
             if (e.NewPhase == SessionPhase.Cooling)
@@ -117,7 +117,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
         };
 
         // Run session: will enter Cooling then get cancelled
-        var runTask = Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ct);
+        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ctx.Token));
 
         // Pump time until complete (including warmup in Finalise)
         while (!runTask.IsCompleted && !ct.IsCancellationRequested)
@@ -163,10 +163,10 @@ public class SessionPhaseTests(ITestOutputHelper output)
                 Offset: 0
             )
         };
-        using var ctx = await CreateWinterSessionAsync(observations, ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         // Cancel once we've been in Cooling for a few ramp steps
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.Token);
         ctx.Session.PhaseChanged += (_, e) =>
         {
             if (e.NewPhase == SessionPhase.Cooling)
@@ -176,7 +176,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             }
         };
 
-        var runTask = Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ct);
+        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ctx.Token));
 
         while (!runTask.IsCompleted && !ct.IsCancellationRequested)
         {
@@ -213,7 +213,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
                 Offset: 0
             )
         };
-        using var ctx = await CreateWinterSessionAsync(observations, ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         var transitions = new ConcurrentQueue<(SessionPhase Old, SessionPhase New)>();
         ctx.Session.PhaseChanged += (_, e) =>
@@ -222,11 +222,11 @@ public class SessionPhaseTests(ITestOutputHelper output)
         };
 
         // Cancel quickly: we just need the first few transitions
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.Token);
         using var cancelTimer = ctx.TimeProvider.CreateTimer(
             _ => cts.Cancel(), null, TimeSpan.FromSeconds(1), Timeout.InfiniteTimeSpan);
 
-        var runTask = Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ct);
+        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ctx.Token));
 
         while (!runTask.IsCompleted && !ct.IsCancellationRequested)
         {
@@ -264,11 +264,11 @@ public class SessionPhaseTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         // Track when we pass AutoFocus
         var passedAutoFocus = false;
-        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.Token);
         ctx.Session.PhaseChanged += (_, e) =>
         {
             output.WriteLine($"Phase: {e.OldPhase} → {e.NewPhase}");
@@ -280,7 +280,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             }
         };
 
-        var runTask = Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ct);
+        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(cts.Token), ctx.Token));
 
         var maxPumps = 1000;
         for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
@@ -327,7 +327,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             )
         };
 
-        using var ctx = await CreateWinterSessionAsync(observations, ct);
+        await using var ctx = await CreateWinterSessionAsync(observations, ct);
 
         var frameEvents = new ConcurrentQueue<ExposureLogEntry>();
         ctx.Session.FrameWritten += (_, e) =>
@@ -336,7 +336,7 @@ public class SessionPhaseTests(ITestOutputHelper output)
             frameEvents.Enqueue(e.Entry);
         };
 
-        var runTask = Task.Run(async () => await ctx.Session.RunAsync(ct), ct);
+        var runTask = ctx.Track(Task.Run(async () => await ctx.Session.RunAsync(ctx.Token), ctx.Token));
 
         var maxPumps = (int)(TimeSpan.FromHours(24) / subExposure);
         for (var i = 0; i < maxPumps && !runTask.IsCompleted && !ct.IsCancellationRequested; i++)
@@ -411,6 +411,6 @@ public class SessionPhaseTests(ITestOutputHelper output)
 
         var session = new Session(setup, config, plateSolver, external, sp, new ScheduledObservationTree(observations));
 
-        return new SessionTestContext(session, external, timeProvider, cameraDriver, focuserDriver, mount.Driver);
+        return new SessionTestContext(session, external, timeProvider, cameraDriver, focuserDriver, mount.Driver, TestCancellation: ct);
     }
 }
