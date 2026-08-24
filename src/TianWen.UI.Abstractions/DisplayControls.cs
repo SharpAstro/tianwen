@@ -38,13 +38,14 @@ public readonly record struct DisplayControls(
     /// What a freshly opened viewer shows, which is the baseline each half is described against.
     /// </summary>
     /// <remarks>
-    /// Must track <see cref="ViewerState"/>'s own property initialisers. NOT <c>default</c>: an
+    /// Must track <see cref="ViewerState"/>'s own property initialisers -- which is why the stretch
+    /// mode reads <see cref="ViewerActions.DefaultStretchMode"/> rather than naming one. NOT <c>default</c>: an
     /// all-zero struct claims a white balance of (0,0,0) and a background-neutralisation strength of
     /// zero, neither of which any viewer has ever displayed, so every snapshot would report controls
     /// the user never touched.
     /// </remarks>
     public static readonly DisplayControls Defaults = new DisplayControls(
-        StretchMode.Unlinked,
+        ViewerActions.DefaultStretchMode,
         StretchParameters.Default,
         0f,
         0,

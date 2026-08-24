@@ -19,7 +19,7 @@ public static class ViewerActions
 {
     public static void ToggleStretch(ViewerState state)
     {
-        state.StretchMode = state.StretchMode is StretchMode.None ? StretchMode.Unlinked : StretchMode.None;
+        state.StretchMode = state.StretchMode is StretchMode.None ? DefaultStretchMode : StretchMode.None;
         state.HistogramLogScale = state.StretchMode is StretchMode.None;
         state.NeedsRedraw = true;
     }
@@ -27,7 +27,24 @@ public static class ViewerActions
     // Cycle order for stretch link: excludes None. Internal so the dropdown
     // selector in <see cref="ImageRendererBase{TSurface}"/> can reuse the same
     // mode list (single source of truth: cycle order matches dropdown order).
-    internal static readonly StretchMode[] StretchLinkModes = [StretchMode.Unlinked, StretchMode.Linked, StretchMode.Luma];
+    internal static readonly StretchMode[] StretchLinkModes = [StretchMode.Linked, StretchMode.Unlinked, StretchMode.Luma];
+
+    /// <summary>
+    /// What a viewer shows when it has to pick a stretch for itself: first entry of
+    /// <see cref="StretchLinkModes"/>.
+    ///
+    /// <para>Linked, which is PixInsight's and Siril's default and now means the same thing here: ONE
+    /// curve shared across R/G/B, so a colour-calibrated image renders with the colour it was
+    /// calibrated to. Unlinked normalises each channel against its own stats, which neutralises the
+    /// background and in doing so discards exactly the per-channel differences a white balance
+    /// consists of -- correct behaviour for that mode, and the wrong thing to open on.</para>
+    ///
+    /// <para>It used to be Unlinked, which made a photometric calibration look like a no-op on a
+    /// fresh viewer: run SPCC, watch nothing happen. Named once here so the several places that need
+    /// a default -- the toggle above, ViewerState's initialiser, DisplayControls.Defaults, the CLI
+    /// view command -- cannot drift apart again.</para>
+    /// </summary>
+    public static StretchMode DefaultStretchMode => StretchLinkModes[0];
 
     public static void CycleStretchLink(ViewerState state, bool reverse = false)
     {

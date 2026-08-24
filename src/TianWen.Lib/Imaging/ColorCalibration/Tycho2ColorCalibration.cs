@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Devices.Fake;
@@ -78,12 +79,92 @@ public static class Tycho2ColorCalibration
         int InitialMatches,
         int FinalMatches,
         int Iterations,
-        SpccFunnel Funnel)
+        SpccFunnel Funnel,
+        string WhiteReferenceName = "")
     {
         /// <summary>Back-compat shim: callers that only want the survivor
         /// count read this; equivalent to <see cref="FinalMatches"/>.</summary>
         public int MatchCount => FinalMatches;
     }
+
+    /// <summary>
+    /// The spectrum that SPCC declares to be white: after calibration, an object with this
+    /// spectral shape renders with equal R, G and B. Everything else is measured relative to it.
+    /// <para>
+    /// Without one, <see cref="ComputeExpectedRgbFromSed"/> returns raw instrumental band
+    /// integrals and the fit forces the median star to the *sensor's* band ratio instead of to
+    /// display-neutral -- which on an IMX492 OSC put a solar-type star at (0.772, 1.000, 0.594),
+    /// i.e. visibly green, no matter how good the photometry was. The white reference is the one
+    /// division that turns a spectral measurement into a white balance.
+    /// </para>
+    /// <para>
+    /// The reference is a REAL spectrum resolved by record name, not a colour index. It was briefly
+    /// a B-V-matched stellar template standing in for a galaxy, on the assumption that
+    /// <c>pickles_sed.gs.gz</c> held only stars -- it does not: 25 SWIRE galaxy templates
+    /// (Polletta et al.) sit alongside the 131 Pickles stellar ones, invisible to the white
+    /// reference only because <c>PrecomputeSedBvIndex</c> excludes <c>GALAXY_*</c> from the B-V
+    /// index. That exclusion is correct and must stay -- a galaxy template must never be matched to
+    /// a STAR's colour index -- but the white reference is a by-name lookup, so it reaches them.
+    /// The proxy was worth measuring and discarding: a B-V 0.70 stellar template gives band ratios
+    /// (0.766, 0.586) against the Sb template's (0.872, 0.544), which on one SMC master was the
+    /// difference between fitting (R 0.527, B 1.205) and (R 0.463, B 1.300).
+    /// </para>
+    /// </summary>
+    /// <param name="Name">Human-readable label, for logs and UI.</param>
+    /// <param name="SedName">
+    /// Record name of the reference spectrum in <c>pickles_sed.gs.gz</c>, resolved through
+    /// <see cref="FilterCurveDatabase.TryGetSedByName"/>. A REAL spectrum, not a colour index:
+    /// the file carries the 25 SWIRE galaxy templates (Polletta et al.) alongside the 131 Pickles
+    /// stellar ones, so both a galaxy and a star reference are exact.
+    /// </param>
+    public readonly record struct WhiteReference(string Name, string SedName)
+    {
+        /// <summary>
+        /// PixInsight's and Siril's default SPCC white reference, and ours, so a TianWen render is
+        /// comparable with a PixInsight one. <c>GALAXY_SB</c> is the SWIRE Sb template -- the middle
+        /// of the spiral sequence, hence "average spiral".
+        /// <para>
+        /// The sub-type is the one judgement call here and it is worth a few percent. Through an
+        /// IMX492 x Sony CFA system the reference band ratios run Sa (0.885, 0.530), Sb
+        /// (0.872, 0.544), Sc (0.851, 0.562), and the fitted multipliers scale as the INVERSE of
+        /// them -- a redder reference means a smaller red multiplier -- so on one SMC master the
+        /// spiral sequence spans R 0.456-0.475 (4 %) and B 1.256-1.333 (6 %). Sb sits mid-sequence
+        /// and within 0.4 % of the mean of Sa/Sb/Sc, so a single named template is used rather than
+        /// an average: reproducible, and no arithmetic anyone has to trust. PixInsight's exact
+        /// template is not published, so if a PI fit disagrees by a few percent the sub-type is the
+        /// knob to reach for, not the maths.
+        /// </para>
+        /// </summary>
+        public static WhiteReference AverageSpiralGalaxy => new("Average spiral galaxy (SWIRE Sb)", "GALAXY_SB");
+
+        /// <summary>A solar-type star: under this reference the Sun renders exactly neutral. Useful
+        /// for checking the calibration against intuition, and for matching a workflow that
+        /// deliberately anchors on G2V rather than on a galaxy.</summary>
+        public static WhiteReference SunG2V => new("Sun (G2V)", "G2V");
+
+        /// <summary>Early-type spiral, the red end of the spiral sequence.</summary>
+        public static WhiteReference SpiralSa => new("Spiral Sa (SWIRE)", "GALAXY_SA");
+
+        /// <summary>Late-type spiral, the blue end of the spiral sequence.</summary>
+        public static WhiteReference SpiralSc => new("Spiral Sc (SWIRE)", "GALAXY_SC");
+    }
+
+    /// <summary>
+    /// Fraction of the frame's peak value above which an aperture pixel counts as clipped, and the
+    /// star is dropped from the fit. A clipped star's channels are all pinned at the ceiling, so its
+    /// measured colour is compressed toward neutral and it drags the whole fit toward identity --
+    /// silently, because it is a perfectly well-formed photometry row.
+    /// <para>
+    /// Measured on a 3837x2619 SMC OSC master (621 matched stars): 101 stars carried a pixel above
+    /// 80 % of peak, 88 above 95 %, 80 above 99 %, 62 above 99.9 %. Rejecting them moved the fit from
+    /// (R 0.536, B 1.186) to (R 0.527, B 1.205) -- about 1.7 % -- and then held: cuts of 0.99, 0.95,
+    /// 0.80 and 0.60 all landed within 0.4 % of each other. That plateau is the reason for trusting
+    /// the rejection rather than the exact threshold, and why 0.98 is not a tuned number. The bias is
+    /// small because the mag gate and the kappa-sigma pass already discard the worst offenders; this
+    /// closes the rest, and costs nothing.
+    /// </para>
+    /// </summary>
+    internal const float DefaultSaturationFraction = 0.98f;
 
     /// <summary>Default kappa for iterative SPCC rejection. 3.0 keeps ~99 %
     /// of a clean Gaussian sample while dropping the photometric outliers
@@ -180,7 +261,12 @@ public static class Tycho2ColorCalibration
             image.Width, image.Height);
         if (matches.Count < minStars) return null;
 
-        var photometry = ExtractPhotometry(image, matches, apertureRadius,
+        // Same clipped-aperture rejection as the SED path; nothing about the blackbody model makes
+        // a pinned channel measurable. NOTE: this overload has no white reference at all (raw
+        // max-normalised blackbody ratios), so it targets the sensor's band ratios rather than
+        // display-neutral -- it is the SED path's predecessor, currently with no callers in the
+        // repo, kept because it is public surface on a published package.
+        var photometry = ExtractPhotometry(image, matches, apertureRadius, DefaultSaturationFraction,
             bv => SyntheticStarFieldRenderer.BMinusVToRGB(bv));
         if (photometry.Count < minStars) return null;
 
@@ -211,7 +297,10 @@ public static class Tycho2ColorCalibration
         int apertureRadius = 6,
         float matchRadiusArcsec = 5.0f,
         float maxMagDiff = 1.5f,
-        int minStars = 5)
+        int minStars = 5,
+        WhiteReference? whiteReference = null,
+        float saturationFraction = DefaultSaturationFraction,
+        ILogger? logger = null)
     {
         if (image.ChannelCount < 3 && image.ImageMeta.SensorType is not SensorType.RGGB) return null;
 
@@ -221,40 +310,122 @@ public static class Tycho2ColorCalibration
         var dtYr = ComputeDtJulianYears(image);
         var (matches, funnel) = MatchStars(stars, wcs, db, matchRadiusArcsec, maxMagDiff, dtYr,
             image.Width, image.Height);
-        if (matches.Count < minStars) return null;
 
-        var photometry = ExtractPhotometry(image, matches, apertureRadius,
-            bv => ComputeExpectedRgbFromSed(bv, tsysR, tsysG, tsysB));
-        if (photometry.Count < minStars) return null;
+        // Both shortfalls below surface to the caller as the same "insufficient matches", which on
+        // its own is a dead end -- it cannot distinguish "the WCS put the stars nowhere near the
+        // catalog" from "they matched but the apertures were unusable". The funnel says which, so
+        // log it here rather than making the next investigation re-derive it.
+        if (matches.Count < minStars)
+        {
+            logger?.LogDebug("SPCC: {Matches} catalog matches < {MinStars} required; funnel {Funnel}",
+                matches.Count, minStars, funnel);
+            return null;
+        }
 
-        return ComputeMultipliers(photometry, funnel);
+        // Resolve the white reference ONCE, not per star: it is the same division for every row,
+        // and re-integrating its SED 600 times would be pure waste.
+        var whiteRef = whiteReference ?? WhiteReference.AverageSpiralGalaxy;
+        var white = (R: 0.0, G: 1.0, B: 0.0);
+        if (FilterCurveDatabase.TryGetSedByName(whiteRef.SedName, out var whiteSed)
+            && IntegrateBandRatios(whiteSed, tsysR, tsysG, tsysB) is { } wr)
+        {
+            white = wr;
+            logger?.LogDebug("SPCC: white reference '{Name}' [{Sed}] band ratios R={R:F4} G=1 B={B:F4}",
+                whiteRef.Name, whiteRef.SedName, white.R, white.B);
+        }
+        else
+        {
+            // Degrade, do not fail: the fit is still worth having, it just lands on the sensor's
+            // own band ratios instead of a display-neutral target, which renders green. Warn,
+            // because that is a data/config fault (a renamed or missing SED record) and it is
+            // invisible in the result -- the numbers look like a successful calibration.
+            logger?.LogWarning("SPCC: white reference '{Name}' [{Sed}] did not resolve; falling back to raw instrumental band ratios, which will render green",
+                whiteRef.Name, whiteRef.SedName);
+        }
+
+        var photometry = ExtractPhotometry(image, matches, apertureRadius, saturationFraction,
+            bv => ComputeExpectedRgbFromSed(bv, tsysR, tsysG, tsysB, white), logger);
+        if (photometry.Count < minStars)
+        {
+            logger?.LogDebug("SPCC: {Photometry} usable apertures of {Matches} matches < {MinStars} required; funnel {Funnel}",
+                photometry.Count, matches.Count, minStars, funnel);
+            return null;
+        }
+
+        // Stamped here rather than inside the fitter: the fitter is shared with the Tycho-2 B-V
+        // path, which has no white reference at all, and an empty name there is the honest answer.
+        return ComputeMultipliers(photometry, funnel) with { WhiteReferenceName = whiteRef.Name };
     }
 
     /// <summary>
-    /// Maps a B-V colour index to expected per-channel RGB via the closest
-    /// Pickles SED integrated through the system throughput curves.
-    /// Normalised so that the maximum channel = 1.0.
+    /// Maps a B-V colour index to the expected per-channel RGB a star of that colour should
+    /// DISPLAY at, by integrating the closest Pickles SED through the system throughput and then
+    /// dividing by the same integral for the white reference. G is exactly 1 by construction, so
+    /// an object whose colour matches the reference comes out (1, 1, 1) and the fit that lands on
+    /// it is a white balance rather than a statement about the sensor's band ratios.
     /// </summary>
+    /// <param name="whiteReferenceRatios">
+    /// Band ratios of the white reference from <see cref="IntegrateBandRatios"/>, resolved once by
+    /// the caller. A non-positive R or B leaves the ratios untouched, so an unresolved reference
+    /// degrades to raw instrumental ratios instead of dividing by zero.
+    /// </param>
     private static (double R, double G, double B) ComputeExpectedRgbFromSed(
+        double bv, FilterCurve tsysR, FilterCurve tsysG, FilterCurve tsysB,
+        (double R, double G, double B) whiteReferenceRatios)
+    {
+        var (r, _, b) = ComputeRawBandRatios(bv, tsysR, tsysG, tsysB);
+
+        if (whiteReferenceRatios.R > 0) r /= whiteReferenceRatios.R;
+        if (whiteReferenceRatios.B > 0) b /= whiteReferenceRatios.B;
+
+        return (r, 1.0, b);
+    }
+
+    /// <summary>
+    /// Integrates the Pickles SED closest to <paramref name="bv"/> through each channel's system
+    /// throughput and returns the band ratios relative to green, i.e. how many electrons R and B
+    /// collect for each one G collects. These are INSTRUMENTAL, not display, values: green is the
+    /// widest and most sensitive band on an OSC, so both ratios come out well below 1 and using
+    /// them directly as a display target renders everything green. Divide by the white reference's
+    /// own ratios to get a display target -- see <see cref="ComputeExpectedRgbFromSed"/>.
+    /// <para>
+    /// Falls back to the blackbody approximation when the SED lookup fails or green integrates to
+    /// nothing. That fallback is max-normalised rather than green-normalised, so it is re-scaled
+    /// here to keep one convention across both paths; without the re-scale a star that missed the
+    /// SED lookup would enter the fit on a different footing from its neighbours.
+    /// </para>
+    /// </summary>
+    private static (double R, double G, double B) ComputeRawBandRatios(
         double bv, FilterCurve tsysR, FilterCurve tsysG, FilterCurve tsysB)
     {
-        if (!FilterCurveDatabase.TryGetSedByBv(bv, out var sed))
-            // Fall back to blackbody if SED lookup fails
-            return SyntheticStarFieldRenderer.BMinusVToRGB(bv);
+        if (FilterCurveDatabase.TryGetSedByBv(bv, out var sed)
+            && IntegrateBandRatios(sed, tsysR, tsysG, tsysB) is { } ratios)
+        {
+            return ratios;
+        }
 
-        var fluxR = FilterCurve.IntegrateSedThroughput(sed, tsysR);
+        var (bbR, bbG, bbB) = SyntheticStarFieldRenderer.BMinusVToRGB(bv);
+        return bbG > 0 ? (bbR / bbG, 1.0, bbB / bbG) : (bbR, bbG, bbB);
+    }
+
+    /// <summary>
+    /// Integrates one spectrum through the three channel throughputs and returns
+    /// <c>(R/G, 1, B/G)</c>, or <c>null</c> when green integrates to nothing (a spectrum with no
+    /// overlap with the passband, which is a data fault rather than a faint star). One helper for
+    /// both the per-star SED and the white reference, so the two can never be integrated by
+    /// different arithmetic -- which matters more than it looks: SPCC divides one by the other, so
+    /// any band-dependent factor common to both (the photon-vs-energy lambda weighting, for
+    /// instance) cancels exactly, and that guarantee only holds while it is literally the same code.
+    /// </summary>
+    private static (double R, double G, double B)? IntegrateBandRatios(
+        FilterCurve sed, FilterCurve tsysR, FilterCurve tsysG, FilterCurve tsysB)
+    {
         var fluxG = FilterCurve.IntegrateSedThroughput(sed, tsysG);
-        var fluxB = FilterCurve.IntegrateSedThroughput(sed, tsysB);
+        if (fluxG <= 0) return null;
 
-        if (fluxG <= 0)
-            return SyntheticStarFieldRenderer.BMinusVToRGB(bv);
-
-        // Normalise so max channel = 1.0 (consistent with BMinusVToRGB convention)
-        var r = fluxR / fluxG;
-        var g = 1.0;
-        var b = fluxB / fluxG;
-        var max = Math.Max(r, Math.Max(g, b));
-        return (r / max, g / max, b / max);
+        return (FilterCurve.IntegrateSedThroughput(sed, tsysR) / fluxG,
+                1.0,
+                FilterCurve.IntegrateSedThroughput(sed, tsysB) / fluxG);
     }
 
     /// <summary>
@@ -657,14 +828,25 @@ public static class Tycho2ColorCalibration
     /// Extracts per-channel aperture photometry for each matched star.
     /// For Bayer (RGGB) images, samples raw sub-pixels to capture the true sensor
     /// channel response including the 2x green oversampling bias.
+    /// <para>
+    /// Stars whose aperture contains a clipped pixel are dropped -- see
+    /// <see cref="DefaultSaturationFraction"/> for why and for the measurement.
+    /// </para>
     /// </summary>
     private static List<StarMatch> ExtractPhotometry(
         Image image, List<(ImagedStar Star, CelestialObject Tycho)> matches, int apertureRadius,
-        ExpectedColorFunc expectedColor)
+        float saturationFraction, ExpectedColorFunc expectedColor, ILogger? logger = null)
     {
         var (channelCount, width, height) = image.Shape;
         var isBayer = channelCount == 1 && image.ImageMeta.SensorType is SensorType.RGGB;
         var result = new List<StarMatch>(matches.Count);
+
+        // The ceiling is the frame's own peak, not a sensor full-scale card: an integrated master
+        // has no meaningful ADU saturation level (the stack rescales), and clipped stars pile up
+        // exactly at the peak whatever it happens to be. If nothing in the frame is clipped this
+        // costs the single brightest star, which is immaterial against a few hundred matches.
+        var clipLevel = saturationFraction > 0 ? saturationFraction * image.MaxValue : float.PositiveInfinity;
+        var clipped = 0;
 
         foreach (var (star, tycho) in matches)
         {
@@ -673,6 +855,7 @@ public static class Tycho2ColorCalibration
             var annulusOuter = apertureRadius + 5;
 
             var obsR = 0.0; var obsG = 0.0; var obsB = 0.0;
+            var aperturePeak = float.NegativeInfinity;
             var apR = 0; var apG = 0; var apB = 0;
             var bgR = 0.0; var bgG = 0.0; var bgB = 0.0;
             var bgRc = 0; var bgGc = 0; var bgBc = 0;
@@ -694,6 +877,7 @@ public static class Tycho2ColorCalibration
                         var v = image[0, y, x];
                         if (float.IsNaN(v)) continue;
                         var ch = BayerChannel(x, y);
+                        if (isAp && v > aperturePeak) aperturePeak = v;
                         if (isAp) { AddChannel(ch, v, ref obsR, ref obsG, ref obsB, ref apR, ref apG, ref apB); }
                         else { AddChannel(ch, v, ref bgR, ref bgG, ref bgB, ref bgRc, ref bgGc, ref bgBc); }
                     }
@@ -702,7 +886,13 @@ public static class Tycho2ColorCalibration
                         if (float.IsNaN(image[0, y, x])) continue;
                         if (isAp)
                         {
-                            obsR += image[0, y, x]; obsG += image[1, y, x]; obsB += image[2, y, x];
+                            var pr = image[0, y, x]; var pg = image[1, y, x]; var pb = image[2, y, x];
+                            // Any channel clipping disqualifies the star: the ratio is what SPCC
+                            // measures, so one pinned channel is enough to corrupt it.
+                            if (pr > aperturePeak) aperturePeak = pr;
+                            if (pg > aperturePeak) aperturePeak = pg;
+                            if (pb > aperturePeak) aperturePeak = pb;
+                            obsR += pr; obsG += pg; obsB += pb;
                             apR++;
                         }
                         else
@@ -717,6 +907,12 @@ public static class Tycho2ColorCalibration
             var apPixels = isBayer ? apR + apG + apB : apR;
             var bgPixels = isBayer ? bgRc + bgGc + bgBc : bgRc;
             if (apPixels < 3 || bgPixels < 5) continue;
+
+            if (aperturePeak >= clipLevel)
+            {
+                clipped++;
+                continue;
+            }
 
             if (isBayer)
             {
@@ -737,6 +933,12 @@ public static class Tycho2ColorCalibration
                 var (expR, expG, expB) = expectedColor((double)tycho.BMinusV);
                 result.Add(new StarMatch(netR, netG, netB, expR, expG, expB, (double)tycho.V_Mag));
             }
+        }
+
+        if (clipped > 0)
+        {
+            logger?.LogDebug("SPCC: dropped {Clipped} of {Matches} matched stars for a clipped aperture pixel (>= {Level:F4}, {Frac:P0} of frame peak {Peak:F4})",
+                clipped, matches.Count, clipLevel, saturationFraction, image.MaxValue);
         }
 
         return result;
@@ -821,6 +1023,10 @@ public static class Tycho2ColorCalibration
         }
 
         var fit = FitIterativeKappaSigma(rRatios.AsSpan(0, k), bRatios.AsSpan(0, k));
+        // The reference name rides along because a bare triple cannot be judged: the same image
+        // against Sa / Sb / Sc spans 4 % in R and 6 % in B (see WhiteReference), which is the single
+        // largest term in the error budget. A number reported without it invites a comparison
+        // against a PixInsight run that may have used a different reference entirely.
         return new SpccWhiteBalanceResult(
             R: Math.Clamp(fit.R, 0.1f, 10f),
             G: 1f,

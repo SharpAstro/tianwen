@@ -28,53 +28,73 @@ public class ViewerActionsTests
     }
 
     [Fact]
-    public void ToggleStretch_WhenNone_SetsUnlinked()
+    public void ToggleStretch_WhenNone_SetsTheDefaultMode()
     {
         var state = new ViewerState { StretchMode = StretchMode.None };
 
         ViewerActions.ToggleStretch(state);
 
-        state.StretchMode.ShouldBe(StretchMode.Unlinked);
+        // Re-enabling lands on whatever a fresh viewer would show, not on a mode named here: the
+        // default was Unlinked and is now Linked, and stating it twice is how the two drift.
+        state.StretchMode.ShouldBe(ViewerActions.DefaultStretchMode);
         state.HistogramLogScale.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void DefaultStretchMode_IsLinked()
+    {
+        // Named explicitly ONCE, because it is a deliberate behavioural choice and not an
+        // implementation detail: Linked is PixInsight's and Siril's default and, since the
+        // shared-curve fix, means the same thing here -- so a colour-calibrated image opens showing
+        // the colour it was calibrated to. Under Unlinked (the old default) each channel
+        // auto-normalises against its own stats, which discards exactly the per-channel differences
+        // a white balance consists of, and SPCC looked like a no-op on a fresh viewer.
+        ViewerActions.DefaultStretchMode.ShouldBe(StretchMode.Linked);
+        new ViewerState().StretchMode.ShouldBe(StretchMode.Linked);
+        DisplayControls.Defaults.StretchMode.ShouldBe(StretchMode.Linked);
     }
 
     // --- CycleStretchLink ---
 
     [Fact]
-    public void CycleStretchLink_Forward_CyclesUnlinkedLinkedLuma()
+    public void CycleStretchLink_Forward_VisitsEveryModeInOrderAndWrapsAround()
     {
-        var state = new ViewerState { StretchMode = StretchMode.Unlinked };
+        // Asserted against the cycle table rather than against three named modes, so re-ordering the
+        // table (which is what changing the default does) does not need this test rewritten.
+        var modes = ViewerActions.StretchLinkModes;
+        var state = new ViewerState { StretchMode = modes[0] };
 
-        ViewerActions.CycleStretchLink(state);
-        state.StretchMode.ShouldBe(StretchMode.Linked);
-
-        ViewerActions.CycleStretchLink(state);
-        state.StretchMode.ShouldBe(StretchMode.Luma);
-
-        ViewerActions.CycleStretchLink(state);
-        state.StretchMode.ShouldBe(StretchMode.Unlinked);
+        for (var i = 1; i <= modes.Length; i++)
+        {
+            ViewerActions.CycleStretchLink(state);
+            state.StretchMode.ShouldBe(modes[i % modes.Length]);
+        }
     }
 
     [Fact]
-    public void CycleStretchLink_Reverse_CyclesBackward()
+    public void CycleStretchLink_Reverse_WalksTheTableBackwards()
     {
-        var state = new ViewerState { StretchMode = StretchMode.Unlinked };
+        var modes = ViewerActions.StretchLinkModes;
+        var state = new ViewerState { StretchMode = modes[0] };
 
-        ViewerActions.CycleStretchLink(state, reverse: true);
-        state.StretchMode.ShouldBe(StretchMode.Luma);
-
-        ViewerActions.CycleStretchLink(state, reverse: true);
-        state.StretchMode.ShouldBe(StretchMode.Linked);
+        for (var i = 1; i <= modes.Length; i++)
+        {
+            ViewerActions.CycleStretchLink(state, reverse: true);
+            state.StretchMode.ShouldBe(modes[(modes.Length - i) % modes.Length]);
+        }
     }
 
     [Fact]
-    public void CycleStretchLink_WhenNone_StartsFromUnlinked()
+    public void CycleStretchLink_WhenNone_StartsFromTheTableHead()
     {
+        // None is not in the cycle, so an unknown index falls back to slot 0 and one step lands on
+        // slot 1 -- the first mode a user reaches from a linear view.
+        var modes = ViewerActions.StretchLinkModes;
         var state = new ViewerState { StretchMode = StretchMode.None };
 
         ViewerActions.CycleStretchLink(state);
 
-        state.StretchMode.ShouldBe(StretchMode.Linked);
+        state.StretchMode.ShouldBe(modes[1]);
     }
 
     // --- CycleCurvesBoost ---

@@ -96,6 +96,18 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>White balance multipliers from Tycho-2 color calibration. null until computed.</summary>
     public (float R, float G, float B)? ColorCalibration { get; private set; }
 
+    /// <summary>
+    /// Provenance for <see cref="ColorCalibration"/>: which method produced it, how many stars it
+    /// stood on, and what it declared white. Null until a calibration has run.
+    /// <para>
+    /// Set on the SAME assignments as the triple, so the two can never describe different runs. The
+    /// numbers used to exist only inside a formatted diagnostic string that went to the log and was
+    /// then dropped, which left the UI able to show a multiplier but not a single thing about where
+    /// it came from.
+    /// </para>
+    /// </summary>
+    public ColorCalibrationSummary? ColorCalibrationSummary { get; private set; }
+
     // SPCC in-flight gate. The compute task runs on a thread-pool thread and
     // writes 0 from its finally; Render reads + tries to set 1 from the UI
     // thread. Plain bool would give no memory-ordering guarantee across the
@@ -141,7 +153,7 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <summary>Per-method cache of computed background-neutralization gains. Switching
     /// method on a loaded document is a dict lookup + uniform write, not a recompute.
     /// Populated lazily by <see cref="ComputeBackgroundNeutralization"/>.</summary>
-    private readonly System.Collections.Generic.Dictionary<Lib.Imaging.BackgroundNeutralizationMethod, (float R, float G, float B)> _bnGainsByMethod = new();
+    private readonly System.Collections.Generic.Dictionary<(Lib.Imaging.BackgroundNeutralizationMethod Method, (float R, float G, float B) WhiteBalance), (float R, float G, float B)> _bnGainsByMethod = new();
 
     /// <summary>When true, the stretch factor is iteratively adjusted so the post-stretch median converges to <see cref="ConvergenceTarget"/>.</summary>
     public bool UseIterativeConvergence { get; set; }
@@ -654,7 +666,11 @@ public sealed class AstroImageDocument : IPreviewSource
             return (0, "No valid bg samples");
 
         ColorCalibration = (w.R, w.G, w.B);
-        var diag = $"skyBg R={w.R:F3} B={w.B:F3}";
+        // No white reference: a sky-background estimate declares the SKY neutral, which is an
+        // assumption about the frame rather than a spectrum, so there is nothing honest to name.
+        ColorCalibrationSummary = new ColorCalibrationSummary(
+            "Sky background", w.R, w.G, w.B, StarCount: 0, WhiteReference: null);
+        var diag = ColorCalibrationSummary.Value.Describe();
         return (1, diag);
     }
 
@@ -670,10 +686,17 @@ public sealed class AstroImageDocument : IPreviewSource
         if (PerChannelBackground is not { Length: >= 3 } bg)
             return null;
 
-        if (!_bnGainsByMethod.TryGetValue(method, out var gains))
+        // The gains depend on the CALIBRATION as well as the method, because they are solved so the
+        // background is neutral AFTER the shader's WB multiply -- so the white balance belongs in the
+        // cache key. Keyed on method alone, a calibration landing after the first neutralisation
+        // would keep serving gains computed for the previous (or absent) triple: the same
+        // stale-cached-projection shape as a palette-derived texture that outlives a theme switch.
+        var wb = ColorCalibration ?? (1f, 1f, 1f);
+        var key = (method, wb);
+        if (!_bnGainsByMethod.TryGetValue(key, out var gains))
         {
-            gains = Lib.Imaging.BackgroundNeutralization.ComputeGains(bg, method);
-            _bnGainsByMethod[method] = gains;
+            gains = Lib.Imaging.BackgroundNeutralization.ComputeGains(bg, method, wb);
+            _bnGainsByMethod[key] = gains;
         }
 
         // Always pin the chosen method's gain onto the document, even when it
@@ -694,7 +717,18 @@ public sealed class AstroImageDocument : IPreviewSource
         if (ColorCalibration.HasValue) return (0, null);
         if (Stars is not { Count: >= 3 } starList) return (0, "Need ≥3 stars");
         if (Wcs is not { HasCDMatrix: true } wcs) return (0, "Need plate-solved WCS");
-        if (!FilterCurveDatabase.IsLoaded) return (0, "Filter curve DB not loaded");
+
+        // SELF-INIT, the same contract CatalogPlateSolver has for the object DB: any caller works
+        // without having remembered to load this upstream. LoadAsync is idempotent and the fast path
+        // is one field read, so a warm process pays nothing.
+        //
+        // This was a bare `if (!IsLoaded) return` guard, and it meant SPCC could never run in the
+        // FITS VIEWER at all: only the stacking renderer and the session loop call LoadAsync, so in
+        // tianwen-fits the database was always cold, the guard always returned 0, and the caller
+        // always fell through to the sky-background estimate. On an already-background-neutralised
+        // master that fallback returns ~(1.00, 1.00, 1.00), which is indistinguishable from a
+        // successful calibration -- so the failure was invisible from the UI and from the log.
+        await FilterCurveDatabase.LoadAsync(cancellationToken);
 
         var calibrateImage = UnstretchedImage;
         if (calibrateImage.ChannelCount < 3 && calibrateImage.ImageMeta.SensorType is SensorType.RGGB)
@@ -717,7 +751,9 @@ public sealed class AstroImageDocument : IPreviewSource
             return (0, "Insufficient SPCC matches");
 
         ColorCalibration = (r.R, r.G, r.B);
-        var diag = $"SPCC R={r.R:F3} B={r.B:F3} ({r.MatchCount} stars)";
+        ColorCalibrationSummary = new ColorCalibrationSummary(
+            "SPCC", r.R, r.G, r.B, r.MatchCount, r.WhiteReferenceName);
+        var diag = ColorCalibrationSummary.Value.Describe();
         return (r.MatchCount, diag);
     }
 

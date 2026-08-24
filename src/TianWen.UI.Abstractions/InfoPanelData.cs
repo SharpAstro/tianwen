@@ -66,7 +66,17 @@ public static class InfoPanelData
         }
         if (meta.Filter.Name is { Length: > 0 })
         {
-            var filterDisplay = meta.Filter.ShortName is { Length: > 0 } shortName ? shortName : meta.Filter.Name;
+            // Prefer the RAW header text whenever the canonical name resolved to Unknown.
+            // Filter.FromName is anchored, so every descriptive header string an imaging app writes
+            // ("IDAS LPS-D3", "Antlia ALP-T", "Ha 3nm") canonicalises to the single Filter.Unknown --
+            // while SPCC matches its throughput curve against that same raw text and uses it happily.
+            // So the panel was reporting "Filter: Unknown" over an image whose colour calibration had
+            // just been computed THROUGH that filter's transmission curve: the panel disclaiming
+            // knowledge the pipeline was demonstrably acting on. Same defect as the WB sliders
+            // reading 1.00 over a calibrated frame, and the same fix -- show what is actually in use.
+            var raw = meta.Filter.FilterNameForFits;
+            var canonical = meta.Filter.ShortName is { Length: > 0 } shortName ? shortName : meta.Filter.Name;
+            var filterDisplay = meta.Filter == Filter.Unknown && raw is { Length: > 0 } ? raw : canonical;
             lines.Add($"Filter: {filterDisplay}");
         }
         if (!float.IsNaN(meta.CCDTemperature))

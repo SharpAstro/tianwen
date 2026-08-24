@@ -960,11 +960,15 @@ internal sealed class TuiLiveSessionTab(
 
             // Preview viewer controls: same shortcuts as FITS viewer
             case InputEvent.KeyDown(InputKey.T, _):
+                // Enters at Linked, not Unlinked: leaving linear should land on the mode that PRESERVES a
+                // colour calibration, and only then offer the one that discards it. Same order as
+                // ViewerActions.StretchLinkModes; None stays in this cycle because a live preview wants
+                // the linear look one keypress away.
                 _viewerState.StretchMode = _viewerState.StretchMode switch
                 {
-                    StretchMode.None => StretchMode.Unlinked,
-                    StretchMode.Unlinked => StretchMode.Linked,
-                    StretchMode.Linked => StretchMode.Luma,
+                    StretchMode.None => StretchMode.Linked,
+                    StretchMode.Linked => StretchMode.Unlinked,
+                    StretchMode.Unlinked => StretchMode.Luma,
                     _ => StretchMode.None,
                 };
                 NeedsRedraw = true;
