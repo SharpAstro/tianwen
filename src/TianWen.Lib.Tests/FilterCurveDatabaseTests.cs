@@ -1,5 +1,6 @@
 using Shouldly;
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using Xunit;
@@ -10,12 +11,15 @@ namespace TianWen.Lib.Tests;
 public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
 {
     [Fact]
-    public async Task LoadAsync_LoadsAll176Curves()
+    public async Task LoadAsync_LoadsAll180Curves()
     {
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
 
         FilterCurveDatabase.IsLoaded.ShouldBeTrue();
-        FilterCurveDatabase.AllCurves.Length.ShouldBe(176);
+        // 176 upstream (SETI Astro's SASP_data.fits) + 2 local, digitised from vendor charts and
+        // merged by tools/import-sasp-data --merge-only: IDAS_LPS_D3 and IDAS_NBZ. Local curves live
+        // in tools/import-sasp-data/local-filters/.
+        FilterCurveDatabase.AllCurves.Length.ShouldBe(180);
 
         foreach (var curve in FilterCurveDatabase.AllCurves)
         {
@@ -127,6 +131,39 @@ public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
         await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
 
         FilterCurveDatabase.TryMatchCurve(input, out _).ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// A duplicate-free database, which is the order-independent form of the count assertions above.
+    ///
+    /// <para>Those count on 178 and 16, and they DID catch the doubling -- but only because two
+    /// tests happened to call <c>LoadAsync</c> close enough together to race, so on a different
+    /// interleaving the suite was green with the bug present. Distinctness holds whatever the load
+    /// order, which is what makes it worth asserting separately: it is the invariant, where a count
+    /// is one consequence of it.</para>
+    /// </summary>
+    [Fact]
+    public async Task ConcurrentLoadsLeaveNoDuplicateCurves()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Eight at once, because the bug needed a race to show: LoadAsync built its Task as the
+        // CompareExchange argument, so every loser ALSO ran a full load and appended its own copy.
+        await Task.WhenAll(Enumerable.Range(0, 8)
+            .Select(_ => Task.Run(async () => await FilterCurveDatabase.LoadAsync(ct), ct)));
+
+        var filterNames = FilterCurveDatabase.AllFilters.Select(f => f.Name).ToArray();
+        filterNames.Distinct(StringComparer.Ordinal).Count().ShouldBe(filterNames.Length,
+            "a filter curve appearing twice means the database was loaded more than once");
+
+        var sensorNames = FilterCurveDatabase.AllSensors.Select(f => f.Name).ToArray();
+        sensorNames.Distinct(StringComparer.Ordinal).Count().ShouldBe(sensorNames.Length,
+            "a sensor QE curve appearing twice means the database was loaded more than once");
+
+        // And the flag must not lead the data. It was raised by the CAS winner BEFORE the load ran,
+        // so a caller that did not await saw IsLoaded == true over an empty database.
+        FilterCurveDatabase.IsLoaded.ShouldBeTrue();
+        FilterCurveDatabase.AllFilters.ShouldNotBeEmpty();
     }
 
     [Fact]
@@ -533,4 +570,176 @@ public sealed class FilterCurveDatabaseTests(ITestOutputHelper output)
         Latitude: float.NaN,
         Longitude: float.NaN,
         SensorModel: sensorModel);
+
+    // ----------------------------------------------------------------------------------
+    // A NEAR MISS MUST STAY A MISS.
+    //
+    // The database has IDAS_LPS_P3_LIGHT_POLLUTION and no D-series curve. P and D are
+    // different filters, not spellings of one: the D3 (ex NGS1) is a NOTCH filter
+    // suppressing OI 557.7, NaI 589.0/589.6 and OI 630.0/636.4 nm, where the P-series is
+    // a broad multi-band shaped to preserve continuum colour. Resolving a D3 header to
+    // the P3 curve would make SPCC integrate a transmission the light never passed
+    // through and return a confidently wrong white balance -- the exact shape of the
+    // phantom CFA_R -> BAADER_R fuzzy match that had to be removed from this database.
+    //
+    // What prevents it is TryMatchFilter's coverage gate (shared * 2 >= keyTokens.Count):
+    // the P3 key tokenises to five and a D3 name shares two, so 4 < 5 rejects. That gate
+    // is load-bearing, and "be more forgiving about filter names" is a natural-looking
+    // change that would quietly break it. Hence these tests.
+    // ----------------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("IDAS LPS-D3")]
+    [InlineData("IDAS LPS D3")]
+    [InlineData("IDAS-LPS-D3")]
+    [InlineData("LPS-D3")]
+    [InlineData("IDAS LPS-D2")]
+    [InlineData("IDAS LPS-D1")]
+    [InlineData("NGS1")]
+    public async Task TryMatchFilter_DSeriesName_DoesNotResolveToThePSeriesCurve(string written)
+    {
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        if (FilterCurveDatabase.TryMatchFilter(written, out var curve))
+        {
+            // Matching something is only acceptable if it is not the P-series stand-in. Should a
+            // real D-series curve ever be added, this test keeps passing on its own.
+            curve.Name.ShouldNotContain("P3", Case.Insensitive,
+                $"'{written}' resolved to '{curve.Name}': a D-series filter must never be modelled " +
+                "by the P-series curve");
+        }
+    }
+
+    [Fact]
+    public async Task TryMatchFilter_ThePSeriesNameItself_StillResolves()
+    {
+        // The other half: the gate must not be so tight that the curve we DO have is unreachable.
+        // Three of five tokens shared, which passes -- and this is the name a header must carry for
+        // the P3 to be modelled at all.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchFilter("IDAS LPS-P3", out var curve).ShouldBeTrue();
+        curve.Name.ShouldContain("P3", Case.Insensitive);
+        output.WriteLine($"'IDAS LPS-P3' -> {curve.Name}");
+    }
+
+    [Fact]
+    public async Task TryMatchFilter_D3NameResolvesToTheD3Curve()
+    {
+        // The D3 curve now EXISTS (digitised from the vendor chart, merged as a local addition), so
+        // the theory above changes character: it no longer says "a D3 header must find nothing", it
+        // says "a D3 header must never find the P3". This is the positive half.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchFilter("IDAS LPS-D3", out var curve).ShouldBeTrue();
+        curve.Name.ShouldBe("IDAS_LPS_D3");
+        output.WriteLine($"'IDAS LPS-D3' -> {curve.Name}");
+    }
+
+    [Fact]
+    public async Task TheNbzCurveIsTwoNarrowBandsAndNothingElse()
+    {
+        // The dual-band shape is its own validation, and a strong one: the chart labels its
+        // passbands OIII 495.9/500.7 and H-alpha 656.3, and a mis-scaled wavelength axis would put
+        // the peaks somewhere else entirely. Two narrow windows with a dead baseline either side is
+        // a signature almost nothing else produces.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+        FilterCurveDatabase.TryMatchFilter("IDAS NBZ", out var nbz).ShouldBeTrue();
+
+        nbz.Interpolate(5007.0).ShouldBeGreaterThan(0.8, "OIII 500.7 is a passband");
+        nbz.Interpolate(6563.0).ShouldBeGreaterThan(0.8, "H-alpha 656.3 is a passband");
+
+        foreach (var blockedNm in (double[])[400, 450, 550, 600, 700, 800, 1000])
+        {
+            nbz.Interpolate(blockedNm * 10.0)
+                .ShouldBeLessThan(0.05, $"{blockedNm} nm is outside both passbands");
+        }
+    }
+
+    [Theory]
+    [InlineData("Askar ColourMagic D1", "ASKAR_COLOURMAGIC_D1", 6563.0, 6716.0)]
+    [InlineData("Askar D1", "ASKAR_COLOURMAGIC_D1", 6563.0, 6716.0)]
+    [InlineData("ColourMagic D1", "ASKAR_COLOURMAGIC_D1", 6563.0, 6716.0)]
+    [InlineData("Askar ColourMagic D2", "ASKAR_COLOURMAGIC_D2", 6716.0, 6563.0)]
+    [InlineData("Askar D2", "ASKAR_COLOURMAGIC_D2", 6716.0, 6563.0)]
+    [InlineData("ColourMagic D2", "ASKAR_COLOURMAGIC_D2", 6716.0, 6563.0)]
+    public async Task TheColourMagicDuoBandsPassTheirOwnLineAndBlockTheOther(
+        string written, string expected, double ownLineAngstrom, double otherLineAngstrom)
+    {
+        // The pair is the test. D1 and D2 share the OIII half and differ ONLY in the red half --
+        // D1 is cut for H-alpha 656.3, D2 for SII 671.6 -- so a curve that passes its own red line
+        // AND blocks the other filter's is placed to better than the 15 nm between them. Nothing
+        // about those wavelengths went into building either curve or calibrating either axis, and
+        // a mis-scaled wavelength axis could not produce this pattern in both directions.
+        //
+        // It also pins the NAMES, which is the half that bit: before the brand-only fix, "Optolong
+        // L-eNhance" resolved to OPTOLONG_B, so a written card naming a duo-band filter could come
+        // back as a broadband dichroic. A duo-band that resolves to the wrong curve is worse than
+        // one that resolves to nothing.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchFilter(written, out var duo).ShouldBeTrue($"'{written}' must resolve");
+        duo.Name.ShouldBe(expected);
+
+        duo.Interpolate(5007.0).ShouldBeGreaterThan(0.8, "OIII 500.7 is a passband on both");
+        duo.Interpolate(ownLineAngstrom).ShouldBeGreaterThan(0.8, "its own red line must pass");
+        duo.Interpolate(otherLineAngstrom).ShouldBeLessThan(0.05, "the other filter's line must not");
+
+        // And a dead baseline everywhere else, or "passes everything" would satisfy the above.
+        foreach (var blockedNm in (double[])[400, 450, 550, 600, 700, 800, 1000])
+        {
+            duo.Interpolate(blockedNm * 10.0)
+                .ShouldBeLessThan(0.05, $"{blockedNm} nm is outside both passbands");
+        }
+    }
+
+    [Theory]
+    [InlineData("Optolong L-eNhance")]
+    [InlineData("Optolong L-eXtreme")]
+    [InlineData("Optolong L-Ultimate")]
+    [InlineData("Optolong L-Quad Enhance")]
+    [InlineData("IDAS")]
+    [InlineData("CFA_R")]
+    public async Task ABrandTokenAloneIsNotAFilterMatch(string written)
+    {
+        // Half-coverage of the KEY is satisfied by the brand alone when the key is BRAND + CHANNEL,
+        // and this cost three separate bugs: "Optolong L-eNhance" (a dual-band Ha+OIII) resolved to
+        // OPTOLONG_B, a broadband blue dichroic; a bare "IDAS" resolved to IDAS_NBZ, whichever
+        // IDAS curve happened to have fewest tokens; and "CFA_R" resolved to BAADER_R, which put a
+        // mono dichroic into a modelled OSC throughput and skewed an SPCC fit.
+        //
+        // All three are the same failure and it is the bad kind: a confident WRONG curve, used as
+        // if it described the glass in the light path, where declining would have been correct and
+        // visible. The Optolong duo-bands genuinely are not in the database except pre-convolved
+        // with a sensor, so "no match" is the honest answer for them.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+
+        FilterCurveDatabase.TryMatchFilter(written, out var curve).ShouldBeFalse(
+            $"'{written}' names no curve we carry, so it must not resolve to one -- got '{curve.Name}'");
+    }
+
+    [Fact]
+    public async Task TheD3CurveBlocksTheLinesItsVendorSaysItBlocks()
+    {
+        // The curve was digitised from a chart image, so it needs a correctness check that does not
+        // come from the chart: the vendor states in PROSE which lines the filter suppresses, and
+        // those wavelengths played no part in building the curve or calibrating the axes. If the
+        // digitisation were mis-scaled -- a wrong axis range, percent left unconverted -- the
+        // notches would not land here.
+        await FilterCurveDatabase.LoadAsync(TestContext.Current.CancellationToken);
+        FilterCurveDatabase.TryMatchFilter("IDAS LPS-D3", out var d3).ShouldBeTrue();
+
+        // Angstrom, matching the database convention.
+        foreach (var (line, name) in (( double Nm, string Name)[])[
+            (557.7, "OI 557.7"), (589.0, "NaI 589.0"), (589.6, "NaI 589.6"), (630.0, "OI 630.0")])
+        {
+            var t = d3.Interpolate(line * 10.0);
+            output.WriteLine($"{name,-12} -> {t:P1}");
+            t.ShouldBeLessThan(0.15, $"{name} is a line the vendor says this filter blocks");
+        }
+
+        // And it must still PASS light, or a "blocks everything" curve would satisfy the above.
+        d3.Interpolate(4300.0).ShouldBeGreaterThan(0.5, "the blue passband must transmit");
+        d3.Interpolate(6600.0).ShouldBeGreaterThan(0.5, "the H-alpha passband must transmit");
+    }
 }

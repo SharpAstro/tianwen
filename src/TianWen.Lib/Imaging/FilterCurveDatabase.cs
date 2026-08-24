@@ -53,18 +53,41 @@ public static class FilterCurveDatabase
     public static ValueTask LoadAsync(CancellationToken ct = default)
     {
         // Fast path: already loaded (check before taking the lock)
-        if (_loadTask is { IsCompletedSuccessfully: true })
+        var current = _loadTask;
+        if (current is { IsCompletedSuccessfully: true })
             return ValueTask.CompletedTask;
+        if (current is not null)
+            return new ValueTask(current);
 
-        // Serialise initialisation through a single Task; subsequent callers
-        // await the same Task instead of racing on the partially-populated state.
-        var existing = Interlocked.CompareExchange(ref _loadTask,
-            Task.Run(() => DoLoad(ct)), null);
+        // Publish the placeholder FIRST, then start the work. Passing Task.Run(...) as the
+        // CompareExchange ARGUMENT evaluates it eagerly, so every racing caller started a DoLoad:
+        // the losers returned the winner's task and then let their own load run on and append a
+        // second copy of every curve, because DoLoad accumulates with AddRange. Two concurrent
+        // callers turned 178 filters into 356 and 16 sensors into 32, which is not merely a wrong
+        // count -- TryMatchFilter walks _allFilters, so every candidate was scored twice.
+        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var existing = Interlocked.CompareExchange(ref _loadTask, tcs.Task, null);
         if (existing is not null)
             return new ValueTask(existing);
 
-        Interlocked.Exchange(ref _loaded, 1);
-        return new ValueTask(_loadTask);
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                DoLoad(ct);
+                // Set AFTER the data is there. This used to be set by the CAS winner before DoLoad
+                // had run, so IsLoaded answered true over an empty database -- the same shape of
+                // failure as the viewer's SPCC guard, which declined against a DB nobody had loaded.
+                Interlocked.Exchange(ref _loaded, 1);
+                tcs.SetResult();
+            }
+            catch (Exception ex)
+            {
+                tcs.SetException(ex);
+            }
+        }, CancellationToken.None);
+
+        return new ValueTask(tcs.Task);
     }
 
     private static void DoLoad(CancellationToken ct)
@@ -74,13 +97,11 @@ public static class FilterCurveDatabase
 
         LoadResource(assembly, manifestNames, "filter_curves.gs.gz", _filtersByNormalizedName,
             indexOriginStems: true, out var filters);
-        ImmutableInterlocked.Update(ref _allFilters, (current, incoming) =>
-            current.AddRange(incoming), filters);
+        ImmutableInterlocked.Update(ref _allFilters, (_, incoming) => incoming, filters);
 
         LoadResource(assembly, manifestNames, "sensor_qe.gs.gz", _sensorsByNormalizedName,
             indexOriginStems: false, out var sensors);
-        ImmutableInterlocked.Update(ref _allSensors, (current, incoming) =>
-            current.AddRange(incoming), sensors);
+        ImmutableInterlocked.Update(ref _allSensors, (_, incoming) => incoming, sensors);
 
         // Sensor model names are short and unambiguous (e.g. "IMX533"); 
         // index by un-normalised upper-case EXTNAME for exact case-insensitive lookup.
@@ -329,16 +350,33 @@ public static class FilterCurveDatabase
                     if (string.Equals(nt, kt, StringComparison.Ordinal))
                         shared++;
 
+            // A single one- or two-character needle is a bare channel letter ('R', 'Ha'), which
+            // shares no token with any key but does end one. Kept deliberately, and flagged,
+            // because it is the ONE case a partial match of a short key is still informative.
+            var viaSuffix = false;
             if (shared == 0)
             {
                 if (needleTokens.Count == 1 && needleTokens[0].Length <= 2 &&
                     NormalizeName(entry.Name).EndsWith(needleTokens[0], StringComparison.Ordinal))
+                {
                     shared = 1;
+                    viaSuffix = true;
+                }
                 else continue;
             }
 
             // Gate: at least half the key's tokens must be covered
             if (shared * 2 < keyTokens.Count) continue;
+
+            // A two-token key is BRAND + CHANNEL ("OPTOLONG_B", "BAADER_R"), so the half-coverage
+            // gate above is satisfied by the brand alone -- and a brand is not a filter. That is a
+            // confidently WRONG answer rather than a missing one, and it has cost this code three
+            // separate bugs: "Optolong L-eNhance" resolved to OPTOLONG_B (a broadband blue dichroic
+            // standing in for a dual-band Ha+OIII), a bare "IDAS" resolved to IDAS_NBZ, and
+            // "CFA_R" resolved to BAADER_R and put a mono dichroic into a modelled OSC throughput.
+            // So a short key must be covered in FULL. The suffix path is exempt: it never had more
+            // than one token to offer.
+            if (!viaSuffix && keyTokens.Count <= 2 && shared < keyTokens.Count) continue;
 
             var extraTokens = keyTokens.Count - shared;
             var score = shared * 10 - extraTokens;
@@ -461,6 +499,11 @@ public static class FilterCurveDatabase
             // NormalizeName lowercases, so keys must be lowercase to match `needle.Contains(modelToken, Ordinal)`.
             ["sv605"] = "IMX533", // SVBony SV605CC / SV605MC (OSC and mono share the IMX533)
             ["sv705"] = "IMX585", // SVBony SV705C
+            // QHY294C/M Pro. The die is the IMX492; "11M MODE" is its 2x2-binned readout and
+            // "47M MODE" the native one, same silicon and same QE either way. The number in the
+            // product name is 294, which no key in sensor_qe.gs.gz contains, so the digit
+            // heuristic below cannot reach it -- an alias is the only route.
+            ["qhy294"] = "IMX492",
         }.ToFrozenDictionary(StringComparer.Ordinal);
 
     /// <summary>Extracts contiguous digit sequences from a normalised string.</summary>
@@ -511,11 +554,19 @@ public static class FilterCurveDatabase
 
     /// <summary>
     /// Builds per-channel system throughput curves from image metadata.
-    /// For OSC cameras (SensorType.RGGB), includes Sony colour sensor CFA curves.
+    /// For colour cameras, includes Sony colour sensor CFA curves.
     /// For mono cameras, <paramref name="redFilter"/>/<paramref name="greenFilter"/>/
     /// <paramref name="blueFilter"/> must be provided per channel.
     /// The additional optical filter from the image (e.g. LP, UV/IR cut) is included
     /// in all channels when its name can be resolved.
+    /// <para>
+    /// "Colour" here means <see cref="SensorType.RGGB"/> OR <see cref="SensorType.Color"/>:
+    /// a debayered OSC integration has exactly the spectral response of the mosaic it came
+    /// from, and its planes are R/G/B in that order, so the CFA curves apply unchanged. Gating
+    /// on RGGB alone returned <c>null</c> for every already-debayered colour master (a 3-plane
+    /// image classifies as Color -- see <c>SensorTypeEx.FromFITSValue</c>), which silently
+    /// disabled SPCC on exactly the files a user opens in the viewer to colour-calibrate.
+    /// </para>
     /// </summary>
     public static (FilterCurve R, FilterCurve G, FilterCurve B)? BuildChannelThroughputs(
         ImageMeta meta,
@@ -538,10 +589,15 @@ public static class FilterCurveDatabase
         var hasOpticalFilter = opticalFilterName is { Length: > 0 }
             && opticalFilterName != meta.Filter.DisplayName; // skip bare coarse name
 
+        // A colour image, whether still a mosaic or already debayered. See the remark on this
+        // method: debayering does not change the per-channel spectral response, so the CFA
+        // curves are the right model for both.
+        var isColour = meta.SensorType is SensorType.RGGB or SensorType.Color;
+
         // For OSC, look up the per-channel CFA curves.
         // Canon/Nikon/Sony CFA curves are in the database keyed by brand.
         FilterCurve? cfaR = null, cfaG = null, cfaB = null;
-        if (meta.SensorType == SensorType.RGGB)
+        if (isColour)
         {
             TryMatchFilter("SONY_COLOR_SENSOR_R", out var cr);
             TryMatchFilter("SONY_COLOR_SENSOR_G", out var cg);
@@ -562,13 +618,18 @@ public static class FilterCurveDatabase
         if (cfaG is { } cg2) curvesG.Add(cg2);
         if (cfaB is { } cb2) curvesB.Add(cb2);
 
-        var rName = redFilter ?? (meta.SensorType == SensorType.RGGB ? "CFA_R" : null);
-        var gName = greenFilter ?? (meta.SensorType == SensorType.RGGB ? "CFA_G" : null);
-        var bName = blueFilter ?? (meta.SensorType == SensorType.RGGB ? "CFA_B" : null);
-
-        if (rName is { Length: > 0 } && TryMatchFilter(rName, out var rf)) curvesR.Add(rf);
-        if (gName is { Length: > 0 } && TryMatchFilter(gName, out var gf)) curvesG.Add(gf);
-        if (bName is { Length: > 0 } && TryMatchFilter(bName, out var bf)) curvesB.Add(bf);
+        // Only the caller's explicit per-channel filters go on top; a colour sensor's own CFA
+        // response is already in via SONY_COLOR_SENSOR_* above. These three used to fall back to
+        // "CFA_R" / "CFA_G" / "CFA_B" for a colour sensor, and NO SUCH CURVE EXISTS in
+        // filter_curves.gs.gz -- the fuzzy TryMatchFilter then scored the two-token needle
+        // ["cfa","r"] against ["baader","r"] and returned BAADER_R, so every OSC throughput was
+        // silently QE x SonyCFA x a MONO dichroic RGB filter that is not in the light path. That
+        // narrows each band well below the CFA's real passband and skews the SED integration SPCC
+        // is built on. Measured on an SMC OSC master (QHY294C, 221x60s): dropping the phantom
+        // filter moved the fit from (R 0.461, B 0.927) to (R 0.411, B 0.695).
+        if (redFilter is { Length: > 0 } && TryMatchFilter(redFilter, out var rf)) curvesR.Add(rf);
+        if (greenFilter is { Length: > 0 } && TryMatchFilter(greenFilter, out var gf)) curvesG.Add(gf);
+        if (blueFilter is { Length: > 0 } && TryMatchFilter(blueFilter, out var bf)) curvesB.Add(bf);
 
         if (hasOpticalFilter && TryMatchFilter(opticalFilterName, out var ofc2))
         {
