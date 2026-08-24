@@ -499,6 +499,19 @@ fast path (`_isInitialized`), so any caller (CLI, hosted API, tests) works witho
 remembering to init upstream. First call pays the Tycho-2 bulk-decode cost (~500 ms
 typical); subsequent calls are free.
 
+**A header hint comes from `OBJCTRA`/`OBJCTDEC` first, and `RA`/`DEC` is NOT the frame centre.**
+`RA`/`DEC` is the position the *mount reported*; `OBJCTRA`/`OBJCTDEC` is the target the framing put on
+the sensor. They agree only on a synced mount, nothing in the header says whether it was, and only the
+second one describes the frame. `WCS.FromHeader` and `Image.Fits.ParseTargetCoords` therefore read
+CRVAL -> OBJCTRA/OBJCTDEC -> RA/DEC, in that order, and must not diverge. Why it is load-bearing: the
+pair-lock anchor pool is the brightest catalog stars that *project inside the frame from the hint*, so
+a hint off by most of a field fills the pool with stars the image does not contain and the seed never
+reaches consensus. Measured on an SMC integration whose mount was unsynced by 2.4 deg -- `RA`/`DEC`
+gave 11-13 hits of 160 against a threshold of 24 (chance 0.9) and fell through to ASTAP, and widening
+the search radius to 8 deg did not help because coverage was never the problem; `OBJCTRA`/`OBJCTDEC`
+locked at 104/160 and passed the acceptance gate 116/120. TianWen writes both keywords from the same
+`ImageMeta.TargetRA/TargetDec`, so the order is invisible on our own files.
+
 **A solver-built WCS answers in DETECTED-CENTROID coordinates -- never subtract 1 from
 `SkyToPixel`.** `AttachCDMatrix` derives the CD matrix from the affine that maps projected
 pixels onto detected centroids and re-derives CRVAL per iteration as the sky at the frame-centre
@@ -853,13 +866,54 @@ broadband frame and meaningless for a 3 nm passband, so an Ha/OIII/SII stack ren
 channel assignment plus per-channel autostretch produce. Two traps follow. **Do not extend SPCC to
 narrowband by swapping in a narrow passband over the existing SEDs**: a Pickles template is a spectral
 *type average*, so over 3 nm it cannot know whether a star shows Ha in absorption or emission, and it
-would return a confidently wrong calibration rather than none (Siril uses Gaia DR3 `xp_sampled`
-per-star spectra for this, which we do not have). And **naive HOO is rank-deficient**: `R = Ha`,
+would return a confidently wrong calibration rather than none. **Narrowband SPCC itself is not
+impossible, only BLOCKED, and on data rather than on maths** -- both PixInsight and Siril ship it, by
+convolving the declared passband against **per-star Gaia DR3 `xp_sampled` spectra**, which we do not
+have; so it is a Gaia project, not a colour project (ADR-3 in the plan below). Two things do NOT
+unblock it, and both look as though they might: a measured filter curve (we have those, and they are
+already a richer model than the centre+FWHM PI asks for), and a least-squares fit over *sensor*
+response curves (that is OSC passband synthesis, a different fit over different data -- see the
+`siril-spectral-extract` note in the plan). And **naive HOO is rank-deficient**: `R = Ha`,
 `G = OIII`, `B = OIII` makes G and B the same array, so every OIII region is exactly cyan and no
 stretch or WB can make blue; a uniformly teal HOO render is the palette, not a renderer bug. Planned
 with the algorithms + thirteen ADRs in
 [docs/plans/narrowband-colour.md](docs/plans/narrowband-colour.md); root cause also recorded in
 [docs/known-limitations.md](docs/known-limitations.md).
+
+**The filter-curve matcher must never answer with a brand.** `FilterCurveDatabase` carries 180 curves
+and matches a written `FILTER` card by token overlap, and its coverage gate only ever asked about the
+KEY -- so for a two-token key like `OPTOLONG_B` (BRAND + CHANNEL) the brand alone satisfied it, while
+the needle's own unmatched tokens cost nothing. `Optolong L-eNhance` therefore resolved to a broadband
+blue LRGB dichroic, a bare `IDAS` to `IDAS_NBZ`, and `CFA_R` to `BAADER_R` (that last one put a mono
+dichroic into a modelled OSC throughput and skewed a real SPCC fit). **A key of two tokens or fewer
+must be covered in full**, the bare-channel-letter path (`R`, `Ha`) exempt because one token is all it
+ever had. A wrong curve is worse than none: it is used as if it described the glass in the light path,
+where declining is visible. Pinned by `ABrandTokenAloneIsNotAFilterMatch`; measurements in
+[docs/known-limitations.md](docs/known-limitations.md).
+
+**Standalone light-pollution / duo-band coverage is small and four of them are ours.** `IDAS_LPS_D3`,
+`IDAS_NBZ`, `ASKAR_COLOURMAGIC_D1` (OIII+Ha) and `ASKAR_COLOURMAGIC_D2` (OIII+SII) were digitised
+from vendor charts by `tools/digitize-filter-curve/` and live as chart-unit CSVs under
+`tools/import-sasp-data/local-filters/` (nm + percent, so a row is checkable against the chart; the
+importer converts to the database's Angstrom + fraction). Upstream adds only
+`IDAS_LPS_P3_LIGHT_POLLUTION`, `OPTOLONG_L-PRO_LIGHT_POLLUTION` and `SVBONY_SV260`. **Optolong's
+duo-bands exist only PRE-CONVOLVED with a sensor** (`SONY_CMOS_*-UVIRCUT` / `CANON_FULL_SPECTRUM_*` x
+L-eNhance / L-eXtreme / **L-ULTIMATE**), so a bare product name correctly returns no match. SPCC declines on the
+two ColourMagic curves, and **the curve is not what is missing** -- the SED library is (see the
+narrowband note above). They are here for sensor-matched luma weights, for the narrowband colour work
+where which line lands in which CFA channel is the whole question, and as the pre-convolved response a
+duo-band OSC frame must be modelled through rather than the bare CFA.
+
+**Two rules for the digitiser, both learned by getting them wrong.** A chart it cannot calibrate must
+FAIL rather than emit a smoothly mis-scaled curve, and the CSV is written only **after** the checks
+pass -- it used to be written before, so a chart that failed its own notch check still left a file that
+looked exactly like a good one. And `--grid-mode excel` (spreadsheet charts: dense horizontal
+gridlines, no vertical ones, so the wavelength axis is ASSUMED to span the plot box) **requires
+`--expect-peaks`**, because a narrowband filter's passbands sit on known emission lines and that is
+the only thing standing between an assumed axis and the database. Where a vendor publishes the same
+curve at two scales, take amplitude from the zoomed chart and coverage from the wide one: at 1.46
+px/nm a 7 nm passband is ten pixels of near-vertical ink and the column centroid averages its own peak
+down by ten points.
 
 **Zero-pedestal render (parity fix -- do not regress).** The stretch derives per-channel shadows from
 the **pedestal-subtracted** median, which is a no-op on raw masters (`MinValue ~ 0`) and the *only*
@@ -1524,6 +1578,33 @@ Linked/Unlinked, luma-Y'/Y for Luma. In Luma mode the producer always populates 
 `StretchUniforms.LumaStretch` (scalar Luma MTF params) AND per-channel `Shadows/Midtones/Rescale`
 (linked branch params) so the shader can blend between them via `LumaBlend`.
 
+**`Linked` and `Unlinked` mean what they mean in PixInsight, and the difference lives ENTIRELY in the
+uniforms** -- neither the GLSL nor `StretchChannelCpu` branches on the mode, so `StretchSolver` is the
+only place the distinction exists and the only place it can silently collapse. **Linked writes ONE
+curve into all three slots**, derived from the mean of the per-channel WB-applied medians and MADs
+(PI's and Siril's linked STF), so a white balance survives as colour. **Unlinked writes each channel's
+own auto-normalised curve**, which absorbs the auto calibration and neutralises the background -- that
+is what the mode is FOR, not a bug. `ViewerActions.DefaultStretchMode` (= `StretchLinkModes[0]` =
+Linked) is the single source for every default; `MasterPreviewRenderer` and `PreviewEncoder` both
+render Linked.
+
+Linked used to replicate channel 0's *stats* and scale each copy by that channel's own multiplier,
+giving three curves whose anchors tracked the multipliers and divided them back out: a WB had **no
+effect** on a linked render, three very different SPCC triples rendered identically, and the default
+mode was Unlinked so SPCC looked like a no-op everywhere. Pinned by `StretchLinkedWhiteBalanceTests`;
+measurements in [docs/known-limitations.md](docs/known-limitations.md). **Never re-derive a per-channel
+curve in the Linked branch.**
+
+**Background neutralisation is solved for a neutral POST-WB background, so its gains depend on the
+calibration.** The gains run before the WB multiply, so neutralising the pre-WB background and then
+multiplying by a non-neutral triple just re-tints it -- which rendered a correctly-calibrated SMC
+master visibly blue while `NeutBg` reported `1.00/1.00/1.00`. Every
+`BackgroundNeutralizationMethod` honours the `whiteBalance` argument (it was MinPivot-only, and Mean
+is the default); a neutral WB reduces to the old arithmetic bit-for-bit. **Anything caching these
+gains owes the WB in its cache key** -- `AstroImageDocument` keys on `(method, WB)`. Gains print at
+**F4**: they are affine about 1.0 against a ~0.002 background, so the triple that fixes a 2.66x cast
+is `(0.9981, 1.0003, 1.0005)` and F2 shows three 1.00s.
+
 `AstroImageDocument.ComputeStretchUniforms` is the single producer of `StretchUniforms`; it scales
 per-channel stats by WB before deriving shadows/midtones/rescale so the post-WB norm and shadow
 are in the same coordinate space. `ConvergeStretchFactor` takes a `whiteBalance` scalar and
@@ -1536,7 +1617,15 @@ neutral. A MANUAL WB multiplier that ALSO scaled the stats would be cancelled by
 auto-normalised stretch (Unlinked / linear), so the producer takes a separate `shaderWhiteBalance`
 (= auto × manual) that goes to `StretchUniforms.WhiteBalance` while only the auto WB scales the stats.
 A neutral manual triple leaves `shaderWhiteBalance == whiteBalance`, so the auto-only path is
-bit-identical. (2) **WB is applied in the `StretchMode.None` (linear) path** in the GLSL `else`
+bit-identical. This split is also why the two halves must stay separate rather than being collapsed
+into one number: the auto half changes what an Unlinked stretch does with the calibration. **The
+sliders show the composed EFFECTIVE triple** (`auto x manual`, via `StretchSolver.ComposeWhiteBalance`
+so the panel cannot drift from the render) and a drag solves back for the manual factor; they showed
+the manual triple alone until then, so a calibrated image sat at 1.00/1.00/1.00 on the one control
+whose job is to report the white balance. Their travel is its OWN constant (`[0.25, 4]`), never
+`GrayWorldWhiteBalance`'s `[0.5, 2]` clamp -- that bounds what the *estimator* may return, and a real
+photometric fit lands outside it (R = 0.463), which the shared constant silently rounded to 0.50.
+(2) **WB is applied in the `StretchMode.None` (linear) path** in the GLSL `else`
 branch + the CPU `RenderStretchedRgba`/`RenderStretchedRgba16` + `ConsoleImageRenderer` None branches.
 This is load-bearing: a SER opens in linear mode (`ViewerController`), and the old None path was a
 pure passthrough that ignored `WhiteBalance`, so WB (manual OR auto Calibrate/SPCC) did nothing
@@ -1746,6 +1835,13 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
   almost always avoidable with a Task hand-off or an atomic swap. (Canonical example: `SkyMapTab`'s
   async Milky Way load uses `Task<DecodedMilkyWay?>` polled on the render thread, mirroring
   `TryApplyPendingStarBuild`.)
+- **Never build the value for a `CompareExchange` inside the call.** An argument is evaluated before
+  the call it is passed to, so `Interlocked.CompareExchange(ref _task, Task.Run(Work), null)` starts
+  `Work` on **every** racing caller, not just the CAS winner. The losers return the winner's task and
+  look correct while their own copy runs on. In `FilterCurveDatabase.LoadAsync` that appended a second
+  copy of every curve (180 filters became 360). Publish a `TaskCompletionSource` placeholder first, do
+  the work behind it, and raise any "ready" flag only once the data is there -- a flag set by the CAS
+  winner *before* the work runs answers true over empty state.
 - **Standing rule for `lock () {}`** (any lock, anywhere): (1) it needs a strong justification as a
   comment at the lock site -- why a Task hand-off / `Interlocked` / ImmutableArray-CAS swap doesn't
   fit; (2) the locked path should not be reachable from a rendering thread (a contended lock there
