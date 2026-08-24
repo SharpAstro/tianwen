@@ -26,7 +26,7 @@ public sealed class OnnxNonStellarDeconvolver(
     int overlap = 64)
     : INonStellarDeconvolver, IDisposable
 {
-    private const string Model = "deep_nonstellar_sharp_conditional_psf_AI4.onnx";
+    internal const string Model = "deep_nonstellar_sharp_conditional_psf_AI4.onnx";
 
     private readonly object _gate = new();
     private InferenceSession? _session;

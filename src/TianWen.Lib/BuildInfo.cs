@@ -73,8 +73,35 @@ namespace TianWen.Lib
         public static DateTime? BuiltUtc => _self.Value.BuiltUtc;
 
         /// <summary>
+        /// Directory the running binary was launched from -- the single most diagnostic field in a
+        /// log someone else sent you, because on Windows it names the INSTALL KIND without anything
+        /// having to detect it.
+        /// <para>
+        /// A Store / MSIX install answers
+        /// <c>C:\Program Files\WindowsApps\SharpAstro.AstroPhotoViewer_6.3.1352.0_x64__jgmekrdtdb020\</c>
+        /// -- which carries the package name, its version, the architecture and the package family
+        /// in one string, so packaged-ness is derivable from the path and needs no
+        /// <c>GetCurrentPackageFullName</c> P/Invoke. A dev run answers a <c>bin\Debug\net10.0</c>
+        /// path, an AOT publish answers wherever it was unpacked to. It is also where
+        /// <c>ModelResolver</c> probes for app-local weights first, so "which models can this
+        /// install even see" starts here.
+        /// </para>
+        /// <para>
+        /// <see cref="AppContext.BaseDirectory"/> rather than <c>Assembly.Location</c>: the latter
+        /// is empty under single-file publish, which is exactly the shape the AOT binaries ship in.
+        /// </para>
+        /// </summary>
+        public static string InstallFolder => AppContext.BaseDirectory;
+
+        /// <summary>
         /// One line, safe to print before any logging is configured. Shows local time because it is
         /// read by a human comparing it against when they last built, not by a machine.
+        /// <para>
+        /// Deliberately WITHOUT <see cref="InstallFolder"/>: this is the CLI's console greeting and
+        /// a 90-character path would swamp it. The log banner
+        /// (<c>TianWen.Lib.Logging.FileLoggerProvider</c>) pairs the two, because a log is read
+        /// after the fact by someone who does not know which install produced it.
+        /// </para>
         /// </summary>
         public static string Describe()
         {

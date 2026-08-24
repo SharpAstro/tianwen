@@ -100,6 +100,18 @@ public sealed class OnnxDenoiser(
         return result.Output;
     }
 
+    internal const string MonoDefault = "deep_denoise_mono_AI4.onnx";
+    internal const string ColorDefault = "deep_denoise_color_AI4.onnx";
+
+    /// <summary>The double dot is upstream's, see <see cref="ModelFileNameFor"/>. Its colour
+    /// counterpart has a single dot, so the pair is asymmetric and whichever way upstream
+    /// normalises it, one of the two breaks -- tolerate both by probing both names, never by
+    /// editing one to match the other.</summary>
+    internal const string MonoLite = "deep_denoise_mono_AI4_lite..onnx";
+    internal const string ColorLite = "deep_denoise_color_AI4_lite.onnx";
+    internal const string MonoWalking = "deep_denoise_mono_AI4_1w.onnx";
+    internal const string ColorWalking = "deep_denoise_color_AI4_1w.onnx";
+
     /// <summary>
     /// Resolves the (channels, variant) pair to the on-disk ONNX file name.
     /// Mono lite has an upstream filename typo (<c>..lite..onnx</c>); we
@@ -109,12 +121,12 @@ public sealed class OnnxDenoiser(
     /// </summary>
     internal static string ModelFileNameFor(int channels, DenoiseVariant variant) => (channels, variant) switch
     {
-        (1, DenoiseVariant.Default) => "deep_denoise_mono_AI4.onnx",
-        (3, DenoiseVariant.Default) => "deep_denoise_color_AI4.onnx",
-        (1, DenoiseVariant.Lite)    => "deep_denoise_mono_AI4_lite..onnx",
-        (3, DenoiseVariant.Lite)    => "deep_denoise_color_AI4_lite.onnx",
-        (1, DenoiseVariant.Walking) => "deep_denoise_mono_AI4_1w.onnx",
-        (3, DenoiseVariant.Walking) => "deep_denoise_color_AI4_1w.onnx",
+        (1, DenoiseVariant.Default) => MonoDefault,
+        (3, DenoiseVariant.Default) => ColorDefault,
+        (1, DenoiseVariant.Lite)    => MonoLite,
+        (3, DenoiseVariant.Lite)    => ColorLite,
+        (1, DenoiseVariant.Walking) => MonoWalking,
+        (3, DenoiseVariant.Walking) => ColorWalking,
         _ => throw new ArgumentOutOfRangeException(nameof(variant), variant, $"Unsupported (channels={channels}, variant={variant}) pair."),
     };
 
