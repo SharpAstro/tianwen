@@ -69,6 +69,17 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     private const double GateTolerancePx = 3.0;
 
     /// <summary>
+    /// How many rungs of the proximity-match tolerance schedule a successful pair-lock seed skips.
+    /// </summary>
+    /// <remarks>
+    /// The seed verifies its transform at <c>PairRansacLock</c>'s 4 px radius across the whole frame,
+    /// so the first rung it justifies is the 0.3%-of-diagonal one (15 px on a 4164x2795 field) rather
+    /// than the blind 10% rung (229 px). Three rungs, not more: the point is to enter the loop at a
+    /// tolerance the seed has earned, while still leaving the loop room to tighten.
+    /// </remarks>
+    private const int SeededToleranceRungOffset = 3;
+
+    /// <summary>
     /// Acceptance-gate sample: the brightest N detected stars. Kept to the bright end where
     /// Tycho-2 is complete, so every genuine detected star in the sample has a catalog
     /// counterpart and a real solve scores near 100%.
@@ -485,6 +496,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // frame edges of any field rotated more than ~0.1 degrees, because projections are
         // axis-aligned and rotation only ever lived in the final CD matrix.
         Matrix3x2? lastFitted = null;
+        var seeded = false;
 
         // Geometric pair-lock seed (see PairRansacLock): locks translation + rotation + scale
         // from bright-pair hypotheses verified against the whole detected field, immune to the
@@ -509,6 +521,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 lastMinv = seedInv;
                 hasMinv = true;
                 lastFitted = locked.Transform;
+                seeded = true;
             }
         }
 
@@ -557,7 +570,21 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             // stars) from overlapping multiple catalog candidates per detection.
             var diagonal = Math.Sqrt(dim.Width * dim.Width + dim.Height * dim.Height);
             var avgSpacing = Math.Sqrt((double)dim.Width * dim.Height / Math.Max(projected.Count, 1));
-            var diagFraction = iteration switch
+
+            // A pair-lock seed has ALREADY verified this WCS to within PairRansacLock's 4 px verify
+            // radius over the whole field, so the coarse rungs below do not apply to it. They exist
+            // for the blind case the schedule was written for ("mount pointing may be 45deg off"),
+            // and re-opening the tolerance to 10% of the diagonal after a lock does not add slack, it
+            // adds AMBIGUITY: on a 4164x2795 field the rung is 229 px while mean star spacing is only
+            // 76 px, so several catalog stars sit inside tolerance for every detection, the affine fit
+            // is pulled onto the wrong ones, and the WCS walks away from the seed. Measured on a
+            // 5.4 deg 4.72"/px frame: the seed locked at consensus 101/160 (chance 1.1) and the loop
+            // still ended at 27.75 px rms on 620 pairs, whereupon iteration 3's tighter rung found
+            // almost nothing, tripped the divergence floor, and rolled back to that loose set -- the
+            // exact rollback the comment on divergeFloor below describes. The gate then rejected a
+            // field ASTAP solves every time.
+            var toleranceIteration = seeded ? iteration + SeededToleranceRungOffset : iteration;
+            var diagFraction = toleranceIteration switch
             {
                 0 => 0.10,
                 1 => 0.03,
@@ -565,7 +592,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 3 => 0.003,
                 _ => 0.001,
             };
-            var spacingFraction = iteration == 0 ? 3.0 : iteration == 1 ? 2.0 : iteration == 2 ? 1.0 : 0.5;
+            var spacingFraction = toleranceIteration == 0 ? 3.0 : toleranceIteration == 1 ? 2.0 : toleranceIteration == 2 ? 1.0 : 0.5;
             var matchTolerance = (float)Math.Min(diagonal * diagFraction, avgSpacing * spacingFraction);
 
             // In dense fields (>500 projected), limit early iterations to brightest
