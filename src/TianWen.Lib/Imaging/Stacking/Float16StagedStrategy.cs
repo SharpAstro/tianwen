@@ -60,9 +60,11 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
         var perFrameStaged = probe.CanvasBytes / 2;
 
         // Spill-to-disk: frames fitting in the FrameCache strong tier skip the
-        // disk hit entirely. Project the strong cap from currently-free RAM
-        // (same heuristic the runtime uses in FrameCache.DecideCacheCap).
-        var strongCap = FrameCache.DecideCacheCap(probe.FrameCount, probe.CanvasBytes);
+        // disk hit entirely. Project the strong cap from the PROBE's RAM budget -- the same
+        // heuristic the runtime uses, but fed the host we were told about rather than this
+        // process's live GC state. See the availableBytes remark on DecideCacheCap.
+        var strongCap = FrameCache.DecideCacheCap(probe.FrameCount, probe.CanvasBytes,
+            availableBytes: budget.AllowedRam(probe));
         var diskFrames = Math.Max(0, probe.FrameCount - strongCap);
         var diskBytes = perFrameStaged * diskFrames;
         var diskCap = budget.AllowedDisk(probe);
