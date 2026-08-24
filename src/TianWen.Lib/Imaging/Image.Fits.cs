@@ -173,22 +173,16 @@ public partial class Image
     }
 
     // Pointing intent for the master / re-solve hint. Captures the INTENDED
-    // target -- decimal RA/DEC degrees (NINA writes these; never throws),
-    // falling back to sexagesimal OBJCTRA/OBJCTDEC -- NOT the solved WCS centre
+    // target -- sexagesimal OBJCTRA/OBJCTDEC, falling back to decimal RA/DEC
+    // degrees (NINA writes both; neither throws) -- NOT the solved WCS centre
     // (CRVAL, which WCS.FromHeader handles separately). Mirrors WCS.FromHeader's
-    // RA/DEC -> OBJCTRA/OBJCTDEC fallback order so a master written WITHOUT an
-    // embedded WCS still carries the coordinates needed to (re-)plate-solve it.
+    // OBJCTRA/OBJCTDEC -> RA/DEC fallback order (see the reasoning there: RA/DEC
+    // is the position the mount REPORTED and is only as good as its sync) so a
+    // master written WITHOUT an embedded WCS still carries the coordinates needed
+    // to (re-)plate-solve it, and so the two parse sites cannot answer differently.
     private static (double RaHours, double DecDeg) ParseTargetCoords(Header header)
     {
-        var raDeg = header.GetDoubleValue("RA", double.NaN);
-        var decDeg = header.GetDoubleValue("DEC", double.NaN);
-        if (!double.IsNaN(raDeg) && !double.IsNaN(decDeg))
-        {
-            return (raDeg / 15.0, decDeg);
-        }
-
-        // OBJCTRA "HH MM SS", OBJCTDEC "+DD MM SS" (space-separated). Only
-        // reached when RA/DEC are absent, matching WCS.FromHeader's order.
+        // OBJCTRA "HH MM SS", OBJCTDEC "+DD MM SS" (space-separated).
         var objctRa = header.GetStringValue("OBJCTRA");
         var objctDec = header.GetStringValue("OBJCTDEC");
         if (!string.IsNullOrWhiteSpace(objctRa) && !string.IsNullOrWhiteSpace(objctDec))
@@ -199,6 +193,14 @@ public partial class Image
             {
                 return (hours, deg);
             }
+        }
+
+        // Only reached when OBJCTRA/OBJCTDEC are absent or unparseable.
+        var raDeg = header.GetDoubleValue("RA", double.NaN);
+        var decDeg = header.GetDoubleValue("DEC", double.NaN);
+        if (!double.IsNaN(raDeg) && !double.IsNaN(decDeg))
+        {
+            return (raDeg / 15.0, decDeg);
         }
 
         return (double.NaN, double.NaN);

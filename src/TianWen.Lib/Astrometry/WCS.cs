@@ -275,17 +275,30 @@ public record struct WCS(double CenterRA, double CenterDec)
     /// </summary>
     public static WCS? FromHeader(Header header)
     {
-        // Try CRVAL1/2 first (degrees), then RA/DEC (degrees), then OBJCTRA/OBJCTDEC (HMS/DMS strings)
+        // Try CRVAL1/2 first (degrees), then OBJCTRA/OBJCTDEC (HMS/DMS strings), then RA/DEC (degrees).
         // IMPORTANT: Always pass double.NaN as default; GetDoubleValue returns 0.0 for missing keys
         // if no default is specified, which would silently produce coordinates at (0, 0).
+        //
+        // OBJCTRA/OBJCTDEC beats RA/DEC because the two mean different things and only one of them
+        // describes THIS frame. OBJCTRA is the target the framing put on the sensor -- intent, and
+        // wrong only if the slew failed. RA/DEC is the position the MOUNT REPORTED, which is intent
+        // plus whatever the pointing model got wrong, and nothing in the header says whether the
+        // mount was synced. On an unsynced rig the gap is not small: an SMC integration whose
+        // reference sub carries RA/DEC = (0.4621h, -71.164) and OBJCTRA/OBJCTDEC = (0.8778h,
+        // -72.795) plate-solves to (0.9016h, -72.386) -- the mount readout is 2.39 deg out and the
+        // target 0.42 deg. That matters because CatalogPlateSolver's pair-lock anchor pool is the
+        // brightest catalog stars that PROJECT INSIDE the frame from the hint, so a hint off by
+        // most of a field fills the pool with stars the image does not contain and the seed never
+        // reaches consensus (measured: 11-13 hits against a threshold of 24, and widening the
+        // search radius to 8 deg does not help, because coverage was never the problem). With the
+        // target as the hint the same file locks at 104/160 consensus and passes the acceptance
+        // gate 116/120.
+        //
+        // TianWen writes both keywords from the same ImageMeta.TargetRA/TargetDec (Image.Fits.cs),
+        // so this reorder is a no-op on our own files; it only changes third-party files that
+        // distinguish the two. Image.Fits.ParseTargetCoords deliberately mirrors this order.
         var raDeg = header.GetDoubleValue("CRVAL1", double.NaN);
         var dec = header.GetDoubleValue("CRVAL2", double.NaN);
-
-        if (double.IsNaN(raDeg) || double.IsNaN(dec))
-        {
-            raDeg = header.GetDoubleValue("RA", double.NaN);
-            dec = header.GetDoubleValue("DEC", double.NaN);
-        }
 
         if (double.IsNaN(raDeg) || double.IsNaN(dec))
         {
@@ -297,6 +310,12 @@ public record struct WCS(double CenterRA, double CenterDec)
                 raDeg = CoordinateUtils.HMSToDegree(objctRa.Replace(' ', ':'));
                 dec = CoordinateUtils.DMSToDegree(objctDec.Replace(' ', ':'));
             }
+        }
+
+        if (double.IsNaN(raDeg) || double.IsNaN(dec))
+        {
+            raDeg = header.GetDoubleValue("RA", double.NaN);
+            dec = header.GetDoubleValue("DEC", double.NaN);
         }
 
         if (double.IsNaN(raDeg) || double.IsNaN(dec))
