@@ -159,25 +159,17 @@ using var sdlWindow = NativeLoaderDiagnostics.InitNative(logger, "SDL3 + Vulkan 
 
 sdlWindow.GetSizeInPixels(out var pixW, out var pixH);
 
-var ctx = NativeLoaderDiagnostics.InitNative(logger, "Vulkan device",
-    () => VulkanContext.Create(sdlWindow.Instance, sdlWindow.Surface, (uint)pixW, (uint)pixH));
-var renderer = new VkRenderer(ctx, (uint)pixW, (uint)pixH);
-
 var bus = new SignalBus();
-// Not a using var (CA2000): disposal order is load-bearing -- the ordered teardown at the end of this
-// file disposes guiRenderer BEFORE the VkRenderer and VulkanContext it draws with, whereas a using
-// declared here would dispose it after them, into destroyed Vulkan handles.
-#pragma warning disable CA2000
-var guiRenderer = new VkGuiRenderer(renderer, (uint)pixW, (uint)pixH, bus, logger)
-{
-    DpiScale = sdlWindow.DisplayScale
-};
+// One owner for the GPU trio: created here, disposed at scope end in top-down order (gui, renderer,
+// context) by its own Dispose -- and before sdlWindow, whose using is declared above this line.
+using var gpu = new GpuStack<VkGuiRenderer>(logger, sdlWindow, (uint)pixW, (uint)pixH,
+    r => new VkGuiRenderer(r, (uint)pixW, (uint)pixH, bus, logger) { DpiScale = sdlWindow.DisplayScale });
+var renderer = gpu.Renderer;
+var guiRenderer = gpu.Top;
 // The 🪐 planetary tab renders the live capture/stack via this shared controller (also driven by
 // StartVideoCaptureSignal/StopVideoCaptureSignal in AppSignalHandler).
 var planetaryCapture = sp.GetRequiredService<PlanetaryCaptureController>();
 guiRenderer.PlanetaryCapture = planetaryCapture;
-
-#pragma warning restore CA2000
 
 // Event handler setup
 using var cts = new CancellationTokenSource();
@@ -873,9 +865,8 @@ async Task DrainShutdownAsync()
 ShutdownDrain.PumpUntilComplete(loop, DrainShutdownAsync(), logger);
 lanDiscovery.Dispose();
 
-guiRenderer.Dispose();
-renderer.Dispose();
-ctx.Dispose();
+// The GPU trio (guiRenderer, renderer and the Vulkan context) is disposed by `using var gpu` at
+// scope end, top-down, still ahead of sdlWindow's own using.
 
 // Raises the window when another launch asks for it. The payload is empty for this app
 // (there is no document to open), so activation is the whole of the work.
