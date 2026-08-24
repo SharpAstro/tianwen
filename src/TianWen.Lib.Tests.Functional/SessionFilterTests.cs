@@ -35,7 +35,7 @@ public class SessionFilterTests(ITestOutputHelper output)
     /// </summary>
     private const int TrueBestFocusPosition = 1000;
 
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenDualPlateWithFilterWheelWhenImagingThenBothCamerasProduceFrames()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -145,7 +145,7 @@ public class SessionFilterTests(ITestOutputHelper output)
     /// Verifies that a single-filter plan (no filter wheel, e.g. fixed L-Ultimate)
     /// works correctly in the imaging loop: no filter switching attempted.
     /// </summary>
-    [Fact]
+    [Fact(Timeout = 120_000)]
     public async Task GivenSingleFilterPlanWhenImagingThenFramesCapturedWithoutFilterSwitch()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -194,16 +194,15 @@ public class SessionFilterTests(ITestOutputHelper output)
 
         var observation = ctx.Session.ActiveObservation!;
         var hourAngle = await mount.GetHourAngleAsync(ct);
+        // Drive fake time SOLELY from the pump. With auto-advance left on, this loop's own
+        // SleepAsync calls advance the clock as well as the pump's, and two racing clocks can
+        // close the 3-minute observation window before the Task.Run continuation has captured a
+        // frame. PumpUntilCompletedAsync instead paces to the loop, advancing only while it is
+        // parked at a waiter, which is starvation-proof under suite load.
+        ctx.TimeProvider.ExternalTimePump = true;
         var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ct), ct);
 
-        for (var i = 0; i < 30 && !loopTask.IsCompleted && !ct.IsCancellationRequested; i++)
-        {
-            await ctx.TimeProvider.SleepAsync(subExposure, ct);
-            for (var spin = 0; spin < 10 && !loopTask.IsCompleted; spin++)
-            {
-                await Task.Delay(10, ct);
-            }
-        }
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
 
         loopTask.IsCompleted.ShouldBeTrue("imaging loop should complete within timeout");
         await loopTask;
