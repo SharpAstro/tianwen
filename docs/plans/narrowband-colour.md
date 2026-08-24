@@ -875,6 +875,51 @@ because it was discovered late and would have saved earlier guessing:
 | 5 | `VeraLux/VeraLux_Curves.py` | Lab `L`/`C` curve domains |
 | 6 | `processing/NB_2_RGB.py` | Narrowband star colour |
 
+### A published OSC->passband synthesiser, and what it does NOT solve
+
+[`Ionfreefly01/siril-spectral-extract`](https://github.com/Ionfreefly01/siril-spectral-extract)
+(Python/PyQt6, GPL-3.0-or-later, so ADR-2 applies: algorithm only). It synthesises a requested
+passband as a **weighted sum of the three CFA response curves**, regularised, then applies those
+coefficients to the pixels:
+
+```
+minimise  || T(lambda) - (aR*QE_R + aG*QE_G + aB*QE_B) ||^2 + alpha*||a||^2
+extracted = aR*R + aG*G + aB*B
+```
+
+The passband `T` is declared as centre + FWHM + a **shape order** (1 = Gaussian, 3-5 = flat-top with
+steep shoulders, mimicking a real interference filter). Coefficients may be **negative**, which is
+what lets the synthesised response be narrower than any single channel, and the result is normalised
+to unity at the centre. Continuum rejection is a separate **Lagrange-multiplier constraint** -- the
+coefficients must not respond to broadband light -- solved exactly and then blended in by a slider
+amount, which is a cleaner formulation than subtracting a scaled continuum after the fact and is
+worth taking for phase 0 alongside `ContinuumSubtraction.py`.
+
+**Its own README states the limit plainly: "three broadband measurements cannot be unmixed into a
+3 nm passband."** So this is the best CFA-basis APPROXIMATION to a requested response, not recovery
+of a narrowband signal, and it must not be described as extraction. That makes it a phase 0 / phase 3
+reference and the concrete form of the ADR-12 on-ramp -- **not** a phase 4 one.
+
+**It does not unblock ADR-3, and the distinction is easy to lose.** Both PixInsight's narrowband SPCC
+and this tool "fit curves", but over different things: SPCC fits over **per-star Gaia DR3
+`xp_sampled` spectra**, which is the data ADR-3 is blocked on, while this fits over **sensor response
+curves**, which say nothing about any star. Nothing here supplies a spectrum, so phase 4 stays exactly
+where it was.
+
+**We are better placed to run this fit than the reference is.** Its four built-in presets are, in its
+own words, "representative shapes, not measured data for any specific camera", with measured QE
+loadable from CSV as an optional extra -- and measured curves are the one input we have in quantity:
+`FilterCurveDatabase` carries 180, including real sensor QE (IMX533/571/455/585/183/462), the Sony and
+Canon CFA families, and the pre-convolved sensor x CFA x filter sets.
+
+**One trap that follows directly.** For a frame shot THROUGH a duo-band filter, the `QE_R/G/B` in that
+fit must be the **pre-convolved sensor x CFA x filter** response, never the bare CFA -- the filter is
+in the light path and dominates the shape. Getting this wrong is not hypothetical: the fuzzy matcher
+used to resolve `CFA_R` to `BAADER_R`, putting a mono dichroic into a modelled OSC throughput and
+skewing a real SPCC fit (see [known-limitations.md](../known-limitations.md)). The duo-band curves
+this needs for the ColourMagic filters are now in the database
+(`ASKAR_COLOURMAGIC_D1`/`D2`), digitised from the vendor charts.
+
 ## Pros and cons
 
 (Historical note: this table compares the three techniques known when ADR-1 was decided, and it is
