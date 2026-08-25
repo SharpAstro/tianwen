@@ -8,6 +8,10 @@ using Xunit;
 
 namespace TianWen.Lib.Tests;
 
+// Drives a real Session end to end, so it belongs in the Session collection even though its
+// NAME does not start with "Session": the rule is about what a test DOES, and this class was
+// outside every collection, running concurrently with the session suite it contends with.
+[Collection("Session")]
 public class SessionFaultCounterTests(ITestOutputHelper output)
 {
     [Fact]

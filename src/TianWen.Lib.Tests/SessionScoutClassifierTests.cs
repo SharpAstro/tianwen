@@ -12,6 +12,10 @@ namespace TianWen.Lib.Tests;
 /// <c>ScoutAndProbeAsync</c> integration flow lives in
 /// <c>SessionScoutAndProbeTests</c> in the Functional test project.
 /// </summary>
+// Drives a real Session end to end, so it belongs in the Session collection even though its
+// NAME does not start with "Session": the rule is about what a test DOES, and this class was
+// outside every collection, running concurrently with the session suite it contends with.
+[Collection("Session")]
 public class SessionScoutClassifierTests(ITestOutputHelper output)
 {
     private static FrameMetrics M(int starCount, double exposureSec = 10.0)
