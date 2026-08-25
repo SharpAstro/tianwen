@@ -1384,6 +1384,28 @@ first HDU that carries an image, and **every reader of an image file uses them**
   `FitsFolderFrameSource.FitsExtensions` and `FileAssociationRegistrar`.
   `Path.GetExtension("x.fit.fz")` returns `.fz`, so a `.fit.fz` entry would be dead code.
 
+### A FITS header becomes an `ImageMeta` in exactly ONE place
+
+`ParseImageMetaFromHeader`, called by BOTH `Image.TryReadFitsFile` (pixels) and
+`Image.TryReadFitsHeader` (headers only, what the calibration scan walks). They used to be separate
+copies of the same ~35-card parse ending in identical `new ImageMeta(...)` blocks, and had drifted
+into three dead locals and two defects: a `PIXSCALE` parsed and dropped by one path and unparsed by
+the other, and a fallback list reading `{ EXPTIME, EXPTIME, 0 }` that made `EXPOSURE` dead everywhere
+-- so a frame carrying only that card read as a **zero-second exposure**, which `MasterGroupKey` then
+used to choose its dark. **A card added to one read path is a bug in the other**;
+`FitsPixelScaleTests.TheTwoReadPathsAgreeOnEveryMetadataField` compares the whole record so the next
+divergence fails on its own. Full write-up:
+[docs/architecture/image-pipeline.md](docs/architecture/image-pipeline.md).
+
+- **A declared pixel scale beats `FOCALLEN`, which is only ever a hint** (it is whatever a human typed
+  into a capture profile; on the 10P set it read 205 mm for a 202.5 mm rig, and the solver recovered
+  202.4 mm from the stars alone). `Image.GetImageDim` prefers `ImageMeta.DeclaredPixelScale`
+  (`PIXSCALE`, else `SCALE`), falls back to pixel size x binning x focal length, and returns `null`
+  rather than guess when it has neither.
+- **`DeclaredPixelScale` and `DerivedPixelScale` are in different conventions.** The declared one is
+  the ACTUAL image scale and already includes binning; the derived one is per unbinned photosite.
+  Collapsing them into one property double-counts `BinX` on a binned frame.
+
 ### Image Mutability: Almost-Immutable with In-Place Escape Hatches
 
 `Image` is logically immutable: there is no public setter, the `data` arrays live as a
