@@ -58,7 +58,8 @@ public sealed class StackingPipeline(
     ICelestialObjectDB? catalogDb = null,
     IProgress<StackingProgress>? progress = null,
     Enhancement.SharpenPipeline? sharpenPipeline = null,
-    IProgress<Enhancement.EnhanceProgress>? enhanceProgress = null)
+    IProgress<Enhancement.EnhanceProgress>? enhanceProgress = null,
+    Enhancement.IStarRemover? starRemover = null)
 {
     /// <summary>
     /// Picks a pixel rejector for the integration step based on frame
@@ -1015,6 +1016,100 @@ public sealed class StackingPipeline(
                 Stages: timings.Snapshot());
         }
 
+        // Per-frame star removal, the comet LAYER (artifact 3 of docs/plans/comet-integration.md).
+        //
+        // <para>Placed HERE, between registration and integration, because that is the only point
+        // where both halves are true: the frames have already been registered WITH their stars (a
+        // starless plate has no quads and cannot be registered at all), and nothing has integrated
+        // yet. Removing the stars per frame before integrating is what keeps the trails out, rather
+        // than trying to reject them statistically afterwards.</para>
+        //
+        // <para><b>sxt must see CALIBRATED pixels.</b> It is a network trained on astronomical
+        // images, and a raw frame carries a pedestal, dark current, hot pixels and vignetting -- hot
+        // pixels look like faint stars, and vignetting moves the local background it separates star
+        // from sky against. So each frame is calibrated here and the starless result is written out
+        // ALREADY CALIBRATED, and integration is then handed a no-op calibrator. Calibrating twice
+        // is the failure this avoids, and it would be silent: bias and dark subtracted twice, flat
+        // divided twice, and a master that merely looks a bit wrong.</para>
+        var integrationCalibrator = calibrator;
+        if (options.RemoveStarsPerFrame)
+        {
+            if (starRemover is null)
+            {
+                var reason = "--remove-stars needs an IStarRemover; register one (AddRcAstroAi() or AddTianWenAi()) in the composition root";
+                logger.LogError("  [starless] {Reason}", reason);
+                try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
+                return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
+                    PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: reason, Stages: timings.Snapshot());
+            }
+
+            var starlessDir = Path.Combine(stagingDir, "starless");
+            Directory.CreateDirectory(starlessDir);
+            var starlessStart = StageTimings.Start();
+            long starlessPixels = 0;
+            for (var i = 0; i < matched.Count; i++)
+            {
+                ct.ThrowIfCancellationRequested();
+                var (light, transform, frameMetrics) = matched[i];
+                var starlessPath = Path.Combine(starlessDir, Path.GetFileNameWithoutExtension(light.Path) + "_starless.fits");
+
+                var calibrated = RawLightDecoder.DecodeCalibrate(new RawLightSource(light.Path, transform), calibrator, nameof(StackingPipeline));
+                Image starless;
+                try
+                {
+                    // sxt must see [0, 1] pixels, not ADU. A star remover normalises internally and
+                    // CLIPS what is already above its range, so handing it a 16-bit calibrated frame
+                    // (sky background ~3900 ADU) returns a plate that is uniformly 1.0 -- every pixel
+                    // white, no error, no warning. Measured on a real sub: ADU in (min 1796 / med 3928
+                    // / max 65535) came back min = med = max = 1, while the same frame divided by
+                    // 65535 came back min 0.028 / med 0.055 / max 0.14, which is a correct starless
+                    // plate (background preserved, saturated peaks gone with the stars).
+                    //
+                    // The divisor is the CONTAINER full scale, not the frame's own peak: every frame
+                    // in the group must be divided by the same number or the integration sums
+                    // inconsistently scaled data. See ScaleToFullScaleInPlace.
+                    var fullScale = light.BitDepth.UnsignedFullScale is { } scale ? (float)scale : calibrated.MaxValue;
+                    starless = await starRemover.EnhanceAsync(calibrated.ScaleToFullScaleInPlace(fullScale), ct);
+                }
+                finally
+                {
+                    // Apply consumed the raw and handed us ownership; the enhancer returns a new
+                    // plate, so the calibrated input is ours to release either way.
+                    calibrated.Release();
+                }
+
+                starlessPixels += (long)starless.Width * starless.Height;
+                starless.WriteToFitsFile(starlessPath, null, new Dictionary<string, (object Value, string Comment)>
+                {
+                    // Provenance, so the plate is not mistakable for a light if it outlives the run,
+                    // and so a manifest-driven consumer can match it back without a filename rule.
+                    [FrameProvenance.SourceDigestKeyword] = (FrameProvenance.SourceDigestOf(light.Path), "Data digest of the frame this was derived from"),
+                    ["STARLESS"] = (true, "Stars removed per-frame before integration"),
+                    // The plate is [0, 1] by construction (above), so DECLARE that rather than leave
+                    // the integrator to infer a scale from the plate's own observed peak. A starless
+                    // plate's peak is far below full scale -- the brightest thing in the frame was a
+                    // star and the stars are gone -- so an inferred scale would divide the master by
+                    // ~0.14 and land it 7x brighter than the star-aligned master it has to be
+                    // screen-combined with. SATURATE is what Image.TryReadFitsFile parses back into
+                    // ImageMeta.SensorFullScaleAdu, hence into UnitScaleDivisor.
+                    ["SATURATE"] = (1.0, "Full scale of these pixels; the plate is unit-referred"),
+                });
+                starless.Release();
+
+                matched[i] = (light with { Path = starlessPath }, transform, frameMetrics);
+                if ((i + 1) % 15 == 0 || i + 1 == matched.Count)
+                {
+                    logger.LogInformation("  [starless] {Done}/{Total}", i + 1, matched.Count);
+                }
+            }
+            timings.Record(StageNames.Measure, starlessStart, matched.Count, starlessPixels);
+            // Everything downstream reads ALREADY-CALIBRATED pixels from here on.
+            integrationCalibrator = new Calibrator(null, null, null);
+            logger.LogInformation(
+                "  [starless] {Count} frames written to {Dir} in {ElapsedMs} ms; integration calibration disabled",
+                matched.Count, starlessDir, (long)Stopwatch.GetElapsedTime(starlessStart).TotalMilliseconds);
+        }
+
         // BayerDrizzle is opt-in only (--strategy BayerDrizzle). Gate up
         // front so we fail fast with a clear reason rather than producing
         // a NaN-riddled master at low frame count or on a Mono / Color
@@ -1098,7 +1193,10 @@ public sealed class StackingPipeline(
             {
                 token.ThrowIfCancellationRequested();
                 var lightRaw = await lightInfo.LoadFullAsync(token);
-                var calibrated = calibrator.Apply(lightRaw);
+                // integrationCalibrator, NOT calibrator: under --remove-stars these frames are the
+                // starless plates, already calibrated before star removal. Calibrating again would
+                // subtract bias and dark twice and divide by the flat twice, silently.
+                var calibrated = integrationCalibrator.Apply(lightRaw);
                 // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
                 // three lines the dataset registrar runs, so the two paths cannot drift here.
                 var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
@@ -1119,7 +1217,10 @@ public sealed class StackingPipeline(
             {
                 token.ThrowIfCancellationRequested();
                 var lightRaw = await lightInfo.LoadFullAsync(token);
-                var calibrated = calibrator.Apply(lightRaw);
+                // integrationCalibrator, NOT calibrator: under --remove-stars these frames are the
+                // starless plates, already calibrated before star removal. Calibrating again would
+                // subtract bias and dark twice and divide by the flat twice, silently.
+                var calibrated = integrationCalibrator.Apply(lightRaw);
                 var shifted = transformOrig * canvasShift;
                 yield return new RawBayerFrame(calibrated, shifted);
             }
@@ -1213,7 +1314,7 @@ public sealed class StackingPipeline(
             StatsRect: statsRect,
             FrameFootprints: frameFootprints,
             RawLightSources: rawSources,
-            Calibrator: calibrator,
+            Calibrator: integrationCalibrator,
             DebayerAlgorithm: options.StackDebayerAlg,
             CanvasWidth: outWidth,
             CanvasHeight: outHeight,

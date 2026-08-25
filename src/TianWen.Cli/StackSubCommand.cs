@@ -26,7 +26,10 @@ internal sealed class StackSubCommand(
     IConsoleHost consoleHost,
     ILogger<StackingPipeline> pipelineLogger,
     ICelestialObjectDB catalogDb,
-    TianWen.Lib.Imaging.Enhancement.SharpenPipeline sharpenPipeline)
+    TianWen.Lib.Imaging.Enhancement.SharpenPipeline sharpenPipeline,
+    // Optional: --remove-stars needs it, nothing else does, and a host that registered no AI backend
+    // must still be able to run an ordinary stack.
+    TianWen.Lib.Imaging.Enhancement.IStarRemover? starRemover = null)
 {
     public Command Build()
     {
@@ -139,6 +142,20 @@ internal sealed class StackSubCommand(
                           + "share one calibration or their colours will not match. Background neutralisation is NOT "
                           + "inherited: each plate solves its own from its own pixels.",
         };
+        var removeStarsOpt = new Option<bool>("--remove-stars")
+        {
+            Description = "Remove the stars from every frame AFTER registration and BEFORE integration: the comet LAYER. "
+                          + "Removing them per frame is what keeps star trails out of a comet-aligned stack; statistical rejection "
+                          + "afterwards is a second line, not the method. It runs inside ONE stack run on purpose -- the frames are "
+                          + "registered while they still have stars (a starless plate has no quads and cannot be registered at all), "
+                          + "the remover is handed CALIBRATED pixels (it is trained on astronomical images; a raw frame's pedestal, "
+                          + "hot pixels and vignetting are out of distribution, and a hot pixel looks like a faint star), and "
+                          + "integration is then given a no-op calibrator because the plates are already calibrated. Doing those "
+                          + "steps as separate runs is what makes double-calibration possible, and double-calibration is silent. "
+                          + "Needs an IStarRemover (tianwen registers RC-Astro when its CLI is installed and licensed); the run "
+                          + "fails rather than quietly producing a star layer under a comet layer's name. Pair with --manifest so "
+                          + "this layer shares the star layer's frames and reference.",
+        };
         var manifestOpt = new Option<string?>("--manifest")
         {
             Description = "Build this run from an earlier run's manifest (master_<slug>.manifest.json). It DRIVES the run rather than informing it: "
@@ -229,7 +246,7 @@ internal sealed class StackSubCommand(
                 formatOpt, hdrPeakNitsOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
-                qualityRejectSigmaOpt, referenceFrameHintOpt, manifestOpt,
+                qualityRejectSigmaOpt, referenceFrameHintOpt, manifestOpt, removeStarsOpt,
                 cometOpt, cometRateOpt,
                 inheritWbOpt,
                 noBayerDrizzleOpt, includeIntegrationsOpt,
@@ -244,6 +261,18 @@ internal sealed class StackSubCommand(
             if (!Directory.Exists(dataRoot))
             {
                 consoleHost.WriteError($"Data root does not exist: {dataRoot}");
+                return 1;
+            }
+
+            // Checked HERE rather than inside the pipeline. A missing star remover is a USAGE error,
+            // not a data condition, so it must not cost a 506-file scan and a full measure pass first
+            // -- and it must not exit 0. A skipped GROUP is a legitimate outcome the run reports and
+            // survives; a capability that was asked for and cannot exist is not.
+            if (parseResult.GetValue(removeStarsOpt) && starRemover is null)
+            {
+                consoleHost.WriteError(
+                    "--remove-stars needs an IStarRemover, and none is registered. Install the RC-Astro CLI "
+                    + "(StarXTerminator, licensed) or register a star remover in the composition root.");
                 return 1;
             }
 
@@ -377,6 +406,7 @@ internal sealed class StackSubCommand(
                 QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
                 ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
                 ManifestPath: parseResult.GetValue(manifestOpt),
+                RemoveStarsPerFrame: parseResult.GetValue(removeStarsOpt),
                 CometRatePxPerHour: cometRate,
                 CometDesignation: cometDesignation,
                 InheritedWhiteBalance: inheritedWb,
@@ -511,7 +541,8 @@ internal sealed class StackSubCommand(
                 sharpenPipeline: options.Enhance ? sharpenPipeline : null,
                 // Per-step enhance progress (deblur / denoise can run for minutes) -- only
                 // wired when enhancing; otherwise ProcessAsync is never reached.
-                enhanceProgress: options.Enhance ? EnhanceProgressConsole.Create(consoleHost, "[stack] enhance:") : null);
+                enhanceProgress: options.Enhance ? EnhanceProgressConsole.Create(consoleHost, "[stack] enhance:") : null,
+                starRemover: options.RemoveStarsPerFrame ? starRemover : null);
             // The preview PNG + split-plate TIFFs are rendered INSIDE the pipeline
             // (MasterPostProcessor) now, so they share one WB + bg-neut solve and the
             // plates come out colour-matched to the preview. EXR is still written here

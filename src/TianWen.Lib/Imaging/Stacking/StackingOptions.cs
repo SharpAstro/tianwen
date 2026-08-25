@@ -131,6 +131,17 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <para>A run supplies its own compose (the comet translation) ON TOP of transforms it did not
 /// re-derive, which is why the manifest stores the star solution rather than whatever the producing
 /// run composed.</para></param>
+/// <param name="RemoveStarsPerFrame">Remove the stars from every frame AFTER registration and BEFORE
+/// integration, producing the comet layer. Removing them per frame is what keeps the trails out of a
+/// comet-aligned stack; rejection afterwards is a second line, not the method.
+/// <para>It happens inside one run on purpose. The frames are registered while they still HAVE stars
+/// (a starless plate has no quads), the star remover is handed CALIBRATED pixels (it is trained on
+/// astronomical images, and a raw frame's pedestal, hot pixels and vignetting are out of
+/// distribution -- a hot pixel looks like a faint star), and integration is then given a no-op
+/// calibrator because the plates are already calibrated. Splitting those steps across runs is what
+/// makes double-calibration possible, and double-calibration is silent.</para>
+/// <para>Requires an <c>IStarRemover</c> in the composition root; the run fails with that message
+/// rather than quietly producing a star layer under a comet layer's name.</para></param>
 public sealed record StackingOptions(
     string DataRoot,
     string OutputDir,
@@ -149,6 +160,7 @@ public sealed record StackingOptions(
     float? QualityRejectSigma = null,
     string? ReferenceFrameHint = null,
     string? ManifestPath = null,
+    bool RemoveStarsPerFrame = false,
     bool DisableBayerDrizzle = false,
     bool IncludeIntegrations = false,
     bool Enhance = false,

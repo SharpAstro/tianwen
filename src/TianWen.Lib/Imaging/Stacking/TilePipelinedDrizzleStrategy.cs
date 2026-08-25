@@ -195,7 +195,10 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         var calibratedBytes = (long)firstCalibrated.Width * firstCalibrated.Height * firstCalibrated.ChannelCount * sizeof(float);
         var cache = new FrameCache(n, FrameCache.DecideCacheCap(n, calibratedBytes));
         var refMeta = firstCalibrated.ImageMeta;
-        var sourceMaxValue = firstCalibrated.MaxValue;
+        // UnitScaleDivisor, not MaxValue -- see the note on the same line in DrizzleStrategy. The two
+        // drizzle producers must agree on the divisor or the same input stacks to two brightnesses
+        // depending on which one the host's memory budget picked.
+        var sourceMaxValue = firstCalibrated.UnitScaleDivisor;
         // Cache the first frame BEFORE the loop so pass-2 can refer to it
         // through the cache uniformly with the other frames -- no special
         // "is this the first one?" branch.

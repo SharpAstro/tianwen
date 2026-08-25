@@ -266,6 +266,44 @@ tests here show it does no structural harm and adds no noise; they do not compar
 against a debayer-first run, which would need a way to emit a debayered single sub (no CLI does today).
 The visual check was clean and the comet survived, so this is a refinement rather than a risk.
 
+### `sxt` must be handed `[0, 1]`, and on ADU it fails SILENTLY (measured 2026-08-25)
+
+Every prior caller of `IStarRemover` was `SharpenPipeline` on a MASTER, which is unit-scaled by the
+time it gets there, so nothing in the repo had ever handed a star remover ADU. A calibrated 16-bit
+sub is the first thing that does, and RC-Astro normalises internally and CLIPS what is already above
+its range. The whole plate comes back **uniformly 1.0**: no exception, no warning, exit code 0, a
+135-frame run that takes its full 18.7 minutes and writes a master that is a white rectangle.
+
+The same real sub, through the same `rc-astro sxt` call, either side of one division:
+
+| input | min | med | p99.9 | max |
+|---|---|---|---|---|
+| ADU in | 1796 | 3928 | 5372 | 65535 |
+| **ADU out** | **1** | **1** | **1** | **1** |
+| `/65535` in | 0.0274 | 0.0599 | 0.0820 | 1.0 |
+| `/65535` out | 0.0276 | 0.0550 | 0.0729 | 0.1425 |
+
+Two consequences worth stating separately, because fixing only the first leaves a subtler bug:
+
+- **The divisor is the CONTAINER full scale (`BitDepth.UnsignedFullScale`), never the frame's own
+  peak.** `Image.UnitScaleDivisor` falls back to the observed peak when nothing declares a saturation
+  point, and that peak moves frame to frame -- a different star saturates, calibration divides by a
+  different flat value at whichever pixel is brightest. Normalising a SEQUENCE frame-by-frame
+  therefore rescales each frame slightly differently, which is invisible per plate and shows up in
+  the master as photometric scatter. Hence `Image.ScaleToFullScaleInPlace(fullScale)`. Measured on
+  the 10P set, plates written with the shared divisor agree to 0.3% (medians 0.033968 / 0.033854).
+- **The plate then DECLARES its scale with `SATURATE = 1.0`**, and the two drizzle producers ask
+  `UnitScaleDivisor` rather than `MaxValue`. A starless plate's brightest pixel was a star, and the
+  stars are gone, so its peak understates its full scale by ~7x; a producer inferring the scale from
+  the peak lands the comet layer 7x brighter than the star layer it exists to be screen-combined
+  with. The switch is a no-op for raw subs, which declare no `SATURATE` and fall back to the peak
+  exactly as before.
+
+Pinned by `StackingPipelineStarlessTest`, which records what the remover was handed. Its bound is
+`max <= 1` **plus** "at least one frame below full scale": the second half is what distinguishes a
+shared divisor from a per-frame one, since dividing each frame by its own peak also satisfies the
+first half, at exactly 1.0 every time.
+
 ## The rejector is tuned backwards for a comet stack (raised by the user, being measured)
 
 In Astro Pixel Processor the user reached for **average + MAD rejection** on comet stacks,
