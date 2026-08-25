@@ -1114,7 +1114,8 @@ public sealed class StackingPipeline(
             enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates,
             enhanceOptions: options.EnhanceOptions ?? Enhancement.EnhanceOptions.Default,
             outputs: options.RenderOutputs, previewBoost: options.PreviewBoost,
-            ultraHdrPeakNits: options.UltraHdrPeakNits, ct: ct);
+            ultraHdrPeakNits: options.UltraHdrPeakNits,
+            inheritedWhiteBalance: options.InheritedWhiteBalance, ct: ct);
         timings.Record(StageNames.Post, postStart, 1, (long)outWidth * outHeight);
         if (intResult.TotalRejections > 0)
         {

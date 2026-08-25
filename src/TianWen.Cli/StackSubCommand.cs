@@ -130,6 +130,15 @@ internal sealed class StackSubCommand(
         {
             Description = "Debug knob: pin the reference frame to the first candidate whose path contains this case-insensitive substring (e.g. '_0233' to pin to that filename). Falls back to the composite-quality score picker when unset or no match. Use to isolate per-frame artifacts that correlate with reference choice - a frame near the session's temporal middle keeps per-frame rotation residuals symmetric, which balances per-channel drizzle coverage.",
         };
+        var inheritWbOpt = new Option<string?>("--inherit-wb")
+        {
+            Description = "Take the white balance from an already-calibrated master FITS instead of solving SPCC here. "
+                          + "Point it at the star-aligned master (its WBRED/WBGREEN/WBBLUE cards). This is not a shortcut: "
+                          + "SPCC fits against CATALOGUE STARS, so a star-removed plate -- a comet layer, a starless "
+                          + "integration -- has nothing to fit and can only inherit. Two layers meant to be combined must "
+                          + "share one calibration or their colours will not match. Background neutralisation is NOT "
+                          + "inherited: each plate solves its own from its own pixels.",
+        };
         var cometOpt = new Option<string?>("--comet")
         {
             Description = "Comet / moving-target integration: register on the BODY instead of the star field, so the comet integrates sharp and the stars trail. Pass a designation ('10P', 'C/2023 A3') or leave the value empty to read it from the frames' own OBJECT card. The rate is derived by plate-solving the reference frame and asking JPL Horizons for a TOPOCENTRIC track over the session's own span, from the site the frames record in SITELAT/SITELONG/SITEELEV - a geocentric ephemeris is NOT good enough (diurnal parallax moved 10P by 2.7 px across one night, 25x the registration residual). Needs network; use --comet-rate offline.",
@@ -211,6 +220,7 @@ internal sealed class StackSubCommand(
                 splitByPierSideOpt, hotPixelSigmaOpt,
                 qualityRejectSigmaOpt, referenceFrameHintOpt,
                 cometOpt, cometRateOpt,
+                inheritWbOpt,
                 noBayerDrizzleOpt, includeIntegrationsOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
                 aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt,
@@ -265,6 +275,31 @@ internal sealed class StackSubCommand(
                     return 1;
                 }
                 cometRate = explicitRate;
+            }
+
+            // An inherited white balance is read from the DONOR master's own header, so the number
+            // never passes through a human. Failing loudly matters here: silently falling back to a
+            // fresh SPCC solve would produce a plate calibrated differently from the one it is meant
+            // to be combined with, and the mismatch shows only once they are composited.
+            ColourCalibration? inheritedWb = null;
+            if (parseResult.GetValue(inheritWbOpt) is { Length: > 0 } donorPath)
+            {
+                if (!File.Exists(donorPath))
+                {
+                    consoleHost.WriteError($"--inherit-wb: no such file: {donorPath}");
+                    return 1;
+                }
+                if (!Image.TryReadFitsHeader(donorPath, out var donor) || donor.Meta.ColourCalibration is not { } donorWb)
+                {
+                    consoleHost.WriteError(
+                        $"--inherit-wb: {donorPath} states no white balance (needs WBRED/WBGREEN/WBBLUE). "
+                        + "Stack the star layer first -- a master gets those cards when its preview render solves SPCC.");
+                    return 1;
+                }
+                inheritedWb = donorWb;
+                consoleHost.WriteScrollable(
+                    $"[stack] inheriting {donorWb.Source} white balance ({donorWb.R:F3}, {donorWb.G:F3}, {donorWb.B:F3}) "
+                    + $"from {Path.GetFileName(donorPath)}");
             }
 
             // --enhance-blend is the implicit gate for --enhance: passing a
@@ -332,6 +367,7 @@ internal sealed class StackSubCommand(
                 ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
                 CometRatePxPerHour: cometRate,
                 CometDesignation: cometDesignation,
+                InheritedWhiteBalance: inheritedWb,
                 DisableBayerDrizzle: disableBayerDrizzle,
                 IncludeIntegrations: parseResult.GetValue(includeIntegrationsOpt),
                 Enhance: enhanceArg,

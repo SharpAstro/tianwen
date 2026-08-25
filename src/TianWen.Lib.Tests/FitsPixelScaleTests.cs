@@ -24,7 +24,8 @@ namespace TianWen.Lib.Tests;
 public class FitsPixelScaleTests
 {
     private static ImageMeta Meta(int focalLength, float declaredPixelScale, TimeSpan? exposure = null,
-        float latitude = float.NaN, float longitude = float.NaN, float siteElevation = float.NaN)
+        float latitude = float.NaN, float longitude = float.NaN, float siteElevation = float.NaN,
+        ColourCalibration? colourCalibration = null)
         => new(
             Instrument: "Test Camera",
             ExposureStartTime: new DateTimeOffset(2026, 8, 16, 10, 53, 18, TimeSpan.Zero),
@@ -46,7 +47,8 @@ public class FitsPixelScaleTests
             Latitude: latitude,
             Longitude: longitude,
             DeclaredPixelScale: declaredPixelScale,
-            SiteElevation: siteElevation);
+            SiteElevation: siteElevation,
+            ColourCalibration: colourCalibration);
 
     private static Image ImageWith(ImageMeta meta)
         => new([new float[8, 8]], BitDepth.Int16, maxValue: 100f, minValue: 0f, pedestal: 0f, meta);
@@ -121,6 +123,59 @@ public class FitsPixelScaleTests
         viaPixels.ImageMeta.Longitude.ShouldBe(145.178056f, tolerance: 1e-4f);
         viaPixels.ImageMeta.SiteElevation.ShouldBe(120f, tolerance: 1e-3f);
         viaHeader.Meta.SiteElevation.ShouldBe(120f, tolerance: 1e-3f);
+    }
+
+    [Fact]
+    public void TheColourCalibrationSurvivesTheRoundTripOnBothReadPaths()
+    {
+        // The whole point of stamping it: a STAR-REMOVED plate cannot re-derive a white balance,
+        // because SPCC fits against catalogue stars and a starless frame has none. So a comet layer
+        // must read the star layer's calibration off the file or the two cannot be combined.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "colour-cal.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN,
+                colourCalibration: new ColourCalibration(1.522f, 1.0f, 1.776f, ColourCalibration.SpccSource)))
+            .WriteToFitsFile(fitsPath);
+
+        Image.TryReadFitsFile(fitsPath, out var viaPixels).ShouldBeTrue();
+        Image.TryReadFitsHeader(fitsPath, out var viaHeader).ShouldBeTrue();
+
+        var wb = viaPixels!.ImageMeta.ColourCalibration.ShouldNotBeNull();
+        wb.R.ShouldBe(1.522f, tolerance: 1e-4f);
+        wb.G.ShouldBe(1.0f, tolerance: 1e-4f);
+        wb.B.ShouldBe(1.776f, tolerance: 1e-4f);
+        wb.Source.ShouldBe("SPCC");
+        viaHeader.Meta.ColourCalibration.ShouldBe(viaPixels.ImageMeta.ColourCalibration);
+    }
+
+    [Fact]
+    public void APartialWhiteBalanceIsNoWhiteBalanceAtAll()
+    {
+        // A missing channel is worse than a missing calibration: a consumer would apply two channels
+        // of somebody else's white balance and leave the third at unity, which is a colour cast that
+        // looks like data. All four cards or none.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "partial-wb.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN,
+                colourCalibration: new ColourCalibration(1.522f, 1.0f, 1.776f, ColourCalibration.SpccSource)))
+            .WriteToFitsFile(fitsPath);
+        RenameCard(fitsPath, "WBBLUE", "WBBLUEX");
+
+        Image.TryReadFitsFile(fitsPath, out var reread).ShouldBeTrue();
+
+        reread!.ImageMeta.ColourCalibration.ShouldBeNull();
+    }
+
+    [Fact]
+    public void AFrameThatStatesNoCalibrationReadsAsNone()
+    {
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "no-wb.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(fitsPath);
+
+        Image.TryReadFitsFile(fitsPath, out var reread).ShouldBeTrue();
+
+        reread!.ImageMeta.ColourCalibration.ShouldBeNull();
     }
 
     [Fact]

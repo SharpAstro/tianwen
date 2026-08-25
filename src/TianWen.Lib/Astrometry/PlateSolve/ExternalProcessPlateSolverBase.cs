@@ -2,6 +2,7 @@
 using nom.tam.fits;
 using nom.tam.util;
 using System;
+using System.Collections.Immutable;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
@@ -88,6 +89,15 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
         {
             var normalisedFilePath = await NormaliseFilePathAsync(solveFilePath, cancellationToken).ConfigureAwait(false);
 
+            // Clear STALE sidecars before the solver runs, never after. This is a correctness
+            // measure, not tidiness: the success check below is `File.Exists(wcsFile)`, and neither
+            // the failure path (the throw precedes the inner try) nor a cancelled WaitForExitAsync
+            // deletes anything -- so a solve that failed or was interrupted leaves its .wcs behind,
+            // and the NEXT solve of that file reads it and returns a PREVIOUS frame's solution as
+            // this one's. Silent, and worst exactly where it matters: a mosaic panel or a comet
+            // reference frame quietly solved to the wrong sky.
+            DeleteSidecars(solveFilePath);
+
             var solveFieldArgs = FormatSolveProcessArgs(normalisedFilePath, FormatImageDimenstions(imageDim, range), FormatSearchPosition(searchOrigin, searchRadius));
             var solveFieldProc = StartRedirectedProcess(CommandFile, solveFieldArgs);
             if (solveFieldProc is null)
@@ -104,15 +114,6 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
 
             await solveFieldProc.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
-            // Derived from the file the solver was actually GIVEN. The tool writes its sidecars beside
-            // its input, so deriving them from the original would look for them next to a file the solver
-            // never saw whenever a conversion happened.
-            var axyFile = Path.ChangeExtension(solveFilePath, ".axy");
-            if (File.Exists(axyFile))
-            {
-                File.Delete(axyFile);
-            }
-
             var wcsFile = Path.ChangeExtension(solveFilePath, ".wcs");
             var hasWCSFile = File.Exists(wcsFile);
             if (solveFieldProc.ExitCode != 0 || !hasWCSFile)
@@ -120,22 +121,61 @@ public abstract class ExternalProcessPlateSolverBase : IPlateSolver
                 throw new PlateSolverException($"Failed to solve {normalisedFilePath} file, exit code {solveFieldProc.ExitCode}, has WCS: {hasWCSFile}, log: {string.Join('\n', outputLines)}");
             }
 
-            try
-            {
-                using var wcsReader = new BufferedFile(wcsFile, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
-                using var wcs = new Fits(wcsReader);
-                return new PlateSolveResult(WCS.FromFits(wcs), sw.Elapsed);
-            }
-            finally
-            {
-                File.Delete(wcsFile);
-            }
+            // The sidecars STAY. They are this run's artifacts and other tools read them --
+            // PixInsight, Siril and DS9 all take a .wcs, and .axy / .corr are the detected source
+            // list and the star-to-catalogue correspondences we otherwise have no record of. The
+            // original justification for deleting them was keeping the tree clean, which they never
+            // did: ASTAP writes a .ini we have never deleted, so the policy only ever removed the
+            // files we could actually use.
+            using var wcsReader = new BufferedFile(wcsFile, FileAccess.ReadWrite, FileShare.Read, 1000 * 2088);
+            using var wcs = new Fits(wcsReader);
+            return new PlateSolveResult(WCS.FromFits(wcs), sw.Elapsed);
         }
         finally
         {
-            if (isConverted && File.Exists(solveFilePath))
+            if (isConverted)
             {
-                File.Delete(solveFilePath);
+                // A converted input is a temp file, so its sidecars name a file that is about to stop
+                // existing -- which makes them stale by the same rule that keeps the real ones.
+                DeleteSidecars(solveFilePath);
+                if (File.Exists(solveFilePath))
+                {
+                    File.Delete(solveFilePath);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sidecars the supported external solvers write beside their INPUT file.
+    ///
+    /// <para>astrometry.net's <c>solve-field</c> emits most of these; ASTAP writes <c>.wcs</c> plus a
+    /// <c>.ini</c> carrying the solution as key/value pairs. Derived from the file the solver was
+    /// actually GIVEN, never the original: a converted input means the tool wrote its sidecars beside
+    /// the temp file, and looking beside the original would find somebody else's leftovers.</para>
+    /// </summary>
+    private static readonly ImmutableArray<string> SolverSidecarExtensions =
+        [".wcs", ".axy", ".ini", ".corr", ".rdls", ".match", ".solved", ".new"];
+
+    /// <summary>
+    /// Removes any sidecar left beside <paramref name="solveInputPath"/>. Best-effort: a sidecar we
+    /// cannot delete (locked by a viewer, read-only media) must not fail a solve that would otherwise
+    /// succeed, and the staleness it guards against is caught by the caller's own checks either way.
+    /// </summary>
+    private static void DeleteSidecars(string solveInputPath)
+    {
+        foreach (var extension in SolverSidecarExtensions)
+        {
+            var sidecar = Path.ChangeExtension(solveInputPath, extension);
+            try
+            {
+                if (File.Exists(sidecar))
+                {
+                    File.Delete(sidecar);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
             }
         }
     }

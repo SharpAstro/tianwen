@@ -56,6 +56,15 @@ namespace TianWen.Lib.Imaging;
 /// <param name="RowOrder">Pixel row order: TopDown or BottomUp (FITS: ROWORDER).</param>
 /// <param name="Latitude">Observatory latitude in decimal degrees (FITS: SITELAT). NaN if unknown.</param>
 /// <param name="Longitude">Observatory longitude in decimal degrees (FITS: SITELONG). NaN if unknown.</param>
+/// <param name="ColourCalibration">The white balance this frame was calibrated with, and where it came
+/// from (FITS: <c>WBSOURCE</c>, <c>WBRED</c>, <c>WBGREEN</c>, <c>WBBLUE</c>). Null when the frame states
+/// no calibration.
+///
+/// <para>It is stamped because a STAR-REMOVED plate cannot re-derive it: SPCC fits against catalogue
+/// stars, so a starless comet layer has nothing to fit and must INHERIT the star layer's calibration or
+/// the two cannot be combined. Only the white balance travels -- background neutralisation stays
+/// per-plate, computed from a plate's own pixels, because grafting one plate's bg-neut onto another
+/// whose background differs double-corrects it into a colour cast.</para></param>
 /// <param name="SiteElevation">Observatory elevation above mean sea level in metres (FITS:
 /// SITEELEV). NaN if unknown. Carried because a TOPOCENTRIC ephemeris is stated for a place, not
 /// a planet: <see cref="Astrometry.Comets.HorizonsObserverSource"/> puts it in SITE_COORD. Its own
@@ -91,6 +100,22 @@ namespace TianWen.Lib.Imaging;
 /// frames (e.g. the planetary live-stack accumulator, <see cref="Planetary.LiveCameraFrameStream"/>)
 /// should use this instead of <see cref="Image.MaxValue"/>; a consumer that wants to auto-stretch a
 /// single frame to its own dynamic range should keep using MaxValue.</param>
+/// <summary>How a frame's colour was calibrated, and to what.</summary>
+/// <param name="R">Red multiplier.</param>
+/// <param name="G">Green multiplier.</param>
+/// <param name="B">Blue multiplier.</param>
+/// <param name="Source">Where the triple came from: <c>SPCC</c> (a photometric fit against Tycho-2)
+/// or <c>SKYBG</c> (the sky-background fallback). Kept because the two are not equally trustworthy and
+/// a consumer inheriting a calibration deserves to know which it got.</param>
+public readonly record struct ColourCalibration(float R, float G, float B, string Source)
+{
+    /// <summary>The photometric fit against catalogue stars.</summary>
+    public const string SpccSource = "SPCC";
+
+    /// <summary>The sky-background fallback, used when SPCC could not converge.</summary>
+    public const string SkyBackgroundSource = "SKYBG";
+}
+
 public record struct ImageMeta(
     string Instrument,
     DateTimeOffset ExposureStartTime,
@@ -125,7 +150,8 @@ public record struct ImageMeta(
     float? SensorFullScaleAdu = null,
     int Iso = -1,
     float DeclaredPixelScale = float.NaN,
-    float SiteElevation = float.NaN
+    float SiteElevation = float.NaN,
+    ColourCalibration? ColourCalibration = null
 )
 {
     /// <summary>

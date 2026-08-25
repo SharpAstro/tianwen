@@ -177,37 +177,61 @@ sitting immediately against the number -- and stripped, `10P Tempel` and `30 Dor
 `<digits><PDI><letters>`. The guesser now probes the original string too, and the probe still refuses
 a bare letter tail, so 30 Doradus keeps its own catalog. Both directions are pinned.
 
+## The colour calibration is stamped, and inheritable (was item 1, done)
+
+The master now carries `WBSOURCE` / `WBRED` / `WBGREEN` / `WBBLUE`, and `stack --inherit-wb <master.fits>`
+takes a calibration off another master instead of solving its own. It reads back as
+`ImageMeta.ColourCalibration`.
+
+**The justification turned out to be broader than "the comet layer is starless", and the stamp is what
+revealed it.** The first comet-aligned master stamped `WBSOURCE = SKYBG` with a triple of
+(2.000, 1.000, 1.667) -- both outer values pinned at the grey-world clamp -- where the star-aligned
+master of the same night solved a real `SPCC` (1.522, 1.000, 1.776). A comet-aligned stack **cannot
+calibrate itself even with its stars present**: they are 45 px streaks, so the photometric fit has
+nothing to match against the catalogue and silently falls back. That was equally true before this
+change; there was simply no way to see it. So artifact 2 needs an inherited calibration just as much as
+artifact 3 does, and the header is now the thing that says which one a file got.
+
+Two design points worth keeping:
+
+- **The stamp is an APPEND, not a card in `IntegrationFitsWriter`.** The white balance does not exist
+  when the FITS is written -- SPCC is solved inside `MasterPreviewRenderer`, by which point the file is
+  on disk. Appending with `FitsHeaderEditor` costs milliseconds; reordering the write around the render
+  would be a real refactor for nothing.
+- **Only the white balance is inherited.** Background neutralisation stays per-plate, solved from a
+  plate's own pixels, because grafting one plate's bg-neut onto another whose background differs
+  double-corrects it into a cast -- the regression `--split-plates` already learned. The measured sky
+  background is NOT stamped -- but see the open question below, because that call rests on a precedent
+  that may not transfer.
+
+`FitsHeaderEditor` grew `SetNumericCardAsync` for this (a WB multiplier is a number, and the string
+setter would have quoted it, making it a string to any reader that types its cards).
+
 ## Not done
 
 Roughly in dependency order.
 
-1. **Stamp the colour calibration into the master.** The comet layer (item 3) is starless by
-   construction, so SPCC -- which fits against catalogue stars -- **cannot be re-derived for it**, and
-   the screen combine in item 4 needs both layers on one calibration or it is meaningless. Nothing
-   carries it today: `IntegrationFitsWriter` stamps `STACK_N` / `NUMFRAME` / `SWCREATE` / `REJ_*` and
-   no colour at all, and `SpccDiagnostics` only ever reaches `GroupResult.Spcc` in memory, where it
-   dies with the process. Worse, the ordering rules out simply adding cards at the write: SPCC is
-   solved inside `MasterPreviewRenderer.RenderAsync`, which runs *after* `IntegrationFitsWriter.Write`,
-   so the FITS is already on disk when the calibration comes into existence. A header-append with the
-   existing `FitsHeaderEditor` (what `dataset tag-filter` uses) fits the ordering without a reorder.
-
-   Split, following the `--split-plates` rule that already governs this: the **WB triple is
-   inherited** (`WBSOURCE` = `SPCC`/`SKYBG`/`NONE`, plus `WBRED`/`WBGREEN`/`WBBLUE`) because the
-   starless plate has nothing to fit, while **background neutralisation stays per-plate**, computed
-   from the plate's own pixels *using* that inherited WB -- grafting the star master's bg-neut onto a
-   plate with a different background is the documented double-correction that tints it. Stamping the
-   measured sky background too (`BKGR`/`BKGG`/`BKGB`) lets a later pass sanity-check its own rather
-   than trust blindly.
-2. **Treat the ephemeris as a SEED, not the answer.** Then centroid the nucleus per frame as if it
+0. **Does the background need to travel too?** Open, and deliberately not answered by assertion. The
+   `--split-plates` rule says each plate solves its own background neutralisation, and that is why only
+   the white balance is inherited -- but that rule governs plates carved from ONE stack, sharing the
+   same pixels, whereas the star layer and the comet layer are independent integrations. There is a
+   specific mechanism that could break the analogy: a comet-aligned stack SMEARS star flux across the
+   frame, and field starlight is not colour-neutral, so its measured per-channel background may be
+   biased relative to the star-aligned master's. A screen combine would show that as a cast.
+   **Measurable rather than arguable**: once artifact 3 exists, compute both masters' background
+   triples and compare. If they differ by more than the bg-neut gains' own scale (they are affine
+   about 1.0 against a ~0.002 background, so read them at F4), the background has to be inherited as
+   well and `BKGR`/`BKGG`/`BKGB` join the stamp.
+1. **Treat the ephemeris as a SEED, not the answer.** Then centroid the nucleus per frame as if it
    were a star, fit a smooth track through the centroids with outlier rejection, and use that. The
    fit residuals double as a per-frame quality gate, which the ephemeris alone cannot give. **This is
    also the only check that can catch a wrong heading**, since the straightness residual demonstrably
    prefers the wrong track: a heading error shows here as a GROWING cross-track offset, ~2.7 px by the
    end of this run against a 2.15 px FWHM.
-3. **Per-frame SXT over 135 lights**, keeping the starless plate, then integrate those comet-aligned.
+2. **Per-frame SXT over 135 lights**, keeping the starless plate, then integrate those comet-aligned.
    Needs item 1 first, or the layer has no colour.
-4. **The screen combine** of artifacts 1 and 3.
-5. **A test pinning the compose itself.** A synthetic pair with a known rate and a known dither,
+3. **The screen combine** of artifacts 1 and 3.
+4. **A test pinning the compose itself.** A synthetic pair with a known rate and a known dither,
    asserting the target lands on the same canvas pixel and the stars do not. That would catch an
    operand-order slip, which is the one failure the derivation chain cannot.
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Drawing;
@@ -63,6 +63,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         MasterRenderOutputs outputs,
         MaskedBoostOptions? previewBoost = null,
         float ultraHdrPeakNits = 1000f,
+        ColourCalibration? inheritedWhiteBalance = null,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -230,7 +231,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         WCS? croppedWcs = solvedWcs is { } cw && croppedResult is not null
             ? cw with { CRPix1 = cw.CRPix1 - autocropRect.X, CRPix2 = cw.CRPix2 - autocropRect.Y }
             : null;
-        SpccDiagnostics? spcc = null;
+        PreviewRender? render = null;
 
         // 2.5) AI enhancement: BlurX-first / SAS-shaped pipeline on the master ->
         //      _sharpened.fits (+ _sharpened_autocrop.fits). The raw masters are never
@@ -241,10 +242,10 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         //      starless TIFFs, so all three share the one colour calibration.
         if (enhance && sharpenPipeline is not null)
         {
-            spcc = await EnhanceAndWriteAsync(
+            render = await EnhanceAndWriteAsync(
                 result, masterPath, solvedWcs, croppedWcs, strategy,
                 croppedResult, autocropRect, enhanceBlend, splitPlates, enhanceOptions,
-                refMeta, renderer, outputs, previewBoost, ultraHdrPeakNits, ct);
+                refMeta, renderer, outputs, previewBoost, ultraHdrPeakNits, inheritedWhiteBalance, ct);
         }
         else if (enhance && sharpenPipeline is null)
         {
@@ -273,13 +274,93 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         //      is its own stats source here (no gradient correction available pre-enhance).
         if (!enhance && (renderPreviewPng || emitUltraHdr) && renderer is not null)
         {
-            spcc = await RenderPreviewAsync(
+            render = await RenderPreviewAsync(
                 renderer, master, croppedResult?.Master, refMeta, solvedWcs, croppedWcs,
-                masterPath, autocropRect, previewBoost, outputs, ultraHdrPeakNits, ct);
+                masterPath, autocropRect, previewBoost, outputs, ultraHdrPeakNits, inheritedWhiteBalance, ct);
+        }
+
+        // 4) Stamp the colour calibration onto every linear master this run produced.
+        //
+        // It has to be an append rather than a card in IntegrationFitsWriter, because the white
+        // balance does not EXIST when the FITS is written: SPCC is solved inside the renderer at
+        // step 2.5/3.5, by which point the file is already on disk. The alternative would be
+        // reordering the whole write around the render, for a header edit that costs milliseconds.
+        if (render is { WhiteBalance: { } wb })
+        {
+            // Provenance travels WITH the numbers. An inherited triple keeps the donor's source,
+            // because how a white balance was derived is a fact about the white balance -- asking
+            // "did SPCC run in THIS process" labels a real photometric calibration as a grey-world
+            // fallback the moment it is inherited.
+            var source = inheritedWhiteBalance?.Source
+                ?? (render.Value.Spcc is not null
+                    ? ColourCalibration.SpccSource
+                    : ColourCalibration.SkyBackgroundSource);
+            await StampColourCalibrationAsync(masterPath, croppedResult is not null, enhance, wb, source, ct);
         }
 
         logger.LogInformation("  [post] total {Ms} ms", sw.ElapsedMilliseconds);
-        return new MasterWriteResult(result, solvedWcs, spcc);
+        return new MasterWriteResult(result, solvedWcs, render?.Spcc);
+    }
+
+    /// <summary>
+    /// Writes <c>WBSOURCE</c> / <c>WBRED</c> / <c>WBGREEN</c> / <c>WBBLUE</c> onto the linear masters.
+    ///
+    /// <para><b>Why the white balance has to be ON the file.</b> SPCC fits against catalogue stars, so a
+    /// STAR-REMOVED plate cannot re-derive it -- not merely with difficulty, but at all. A comet layer is
+    /// starless by construction, so unless it inherits the star layer's calibration the two cannot be
+    /// combined into one image. In memory the triple only ever reached <c>GroupResult.Spcc</c>, where it
+    /// died with the process.</para>
+    ///
+    /// <para><b>Only the white balance travels.</b> Background neutralisation stays per-plate, solved
+    /// from a plate's own pixels: grafting one plate's bg-neut onto another whose background differs
+    /// double-corrects it into a colour cast, which is the regression --split-plates already learned.</para>
+    ///
+    /// <para>Best-effort by design. A master that fails to take the cards is still a perfectly good
+    /// master, so a stamping failure is a warning and never fails the group.</para>
+    /// </summary>
+    private async Task StampColourCalibrationAsync(
+        string masterPath, bool hasAutocrop, bool enhanced, (float R, float G, float B) wb,
+        string source, CancellationToken ct)
+    {
+        var targets = ImmutableArray.CreateBuilder<string>();
+        targets.Add(masterPath);
+        if (hasAutocrop) { targets.Add(WithSuffix(masterPath, "_autocrop")); }
+        if (enhanced)
+        {
+            targets.Add(WithSuffix(masterPath, "_sharpened"));
+            if (hasAutocrop) { targets.Add(WithSuffix(masterPath, "_sharpened_autocrop")); }
+        }
+
+        var stamped = 0;
+        foreach (var target in targets)
+        {
+            if (!File.Exists(target))
+            {
+                continue;
+            }
+            try
+            {
+                // overwriteExisting: a re-run must be able to correct a calibration, and these cards are
+                // ours -- nothing else writes them, so there is no user value to preserve.
+                await FitsHeaderEditor.SetStringCardAsync(target, "WBSOURCE", source,
+                    "How the white balance was derived", overwriteExisting: true, apply: true, cancellationToken: ct);
+                await FitsHeaderEditor.SetNumericCardAsync(target, "WBRED", wb.R,
+                    "Red white-balance multiplier", overwriteExisting: true, apply: true, cancellationToken: ct);
+                await FitsHeaderEditor.SetNumericCardAsync(target, "WBGREEN", wb.G,
+                    "Green white-balance multiplier", overwriteExisting: true, apply: true, cancellationToken: ct);
+                await FitsHeaderEditor.SetNumericCardAsync(target, "WBBLUE", wb.B,
+                    "Blue white-balance multiplier", overwriteExisting: true, apply: true, cancellationToken: ct);
+                stamped++;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning("  [colourCal] could not stamp {Path}: {Type}: {Msg}",
+                    target, ex.GetType().Name, ex.Message);
+            }
+        }
+
+        logger.LogInformation("  [colourCal] {Source} WB ({R:F3}, {G:F3}, {B:F3}) stamped onto {Count} master(s)",
+            source, wb.R, wb.G, wb.B, stamped);
     }
 
     /// <summary>
@@ -347,7 +428,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     /// preview. Failures log + return without throwing so a misbehaving model
     /// never breaks the canonical stacking output.
     /// </summary>
-    private async Task<SpccDiagnostics?> EnhanceAndWriteAsync(
+    private async Task<PreviewRender?> EnhanceAndWriteAsync(
         IntegrationResult master,
         string masterPath,
         WCS? solvedWcs,
@@ -363,6 +444,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         MasterRenderOutputs outputs,
         MaskedBoostOptions? previewBoost,
         float ultraHdrPeakNits,
+        ColourCalibration? inheritedWhiteBalance,
         CancellationToken ct)
     {
         Debug.Assert(sharpenPipeline is not null, "EnhanceAndWriteAsync called without SharpenPipeline -- guard upstream");
@@ -449,7 +531,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // above) -- NO second AI pass.
             var renderPreviewPng = (outputs & MasterRenderOutputs.PreviewPng) != 0;
             var emitUltraHdr = (outputs & MasterRenderOutputs.UltraHdr) != 0;
-            SpccDiagnostics? spcc = null;
+            PreviewRender? spcc = null;
             if (renderer is not null && (renderPreviewPng || emitUltraHdr || splitPlates))
             {
                 var solveImg = enhancedCropped ?? enhancedMaster;
@@ -465,8 +547,9 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                 var uhdrPath = emitUltraHdr ? Path.ChangeExtension(pngStem, ".jpg") : null;
                 var render = await renderer.RenderAsync(
                     solveImg, refMeta, solveWcs, statsSource: solveImg, pngPath, statsWcs: solveWcs,
-                    peakNits: ultraHdrPeakNits, maskedBoost: previewBoost, ultraHdrPath: uhdrPath, ct: ct);
-                spcc = render.Spcc;
+                    peakNits: ultraHdrPeakNits, whiteBalanceOverride: inheritedWhiteBalance is { } inh ? (inh.R, inh.G, inh.B) : null,
+                    maskedBoost: previewBoost, ultraHdrPath: uhdrPath, ct: ct);
+                spcc = render;
 
                 if (splitPlates)
                 {
@@ -523,11 +606,12 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
     /// <see cref="EnhanceAndWriteAsync"/>.) Returns the SPCC diagnostics for the CLI
     /// summary.
     /// </summary>
-    private async Task<SpccDiagnostics?> RenderPreviewAsync(
+    private async Task<PreviewRender?> RenderPreviewAsync(
         MasterPreviewRenderer renderer,
         Image fullMaster, Image? cropMaster, ImageMeta sensorMeta,
         WCS? fullWcs, WCS? cropWcs, string masterPath, Rectangle autocropRect,
         MaskedBoostOptions? previewBoost, MasterRenderOutputs outputs, float ultraHdrPeakNits,
+        ColourCalibration? inheritedWhiteBalance,
         CancellationToken ct)
     {
         var previewImg = cropMaster ?? fullMaster;
@@ -543,8 +627,9 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
 
         var render = await renderer.RenderAsync(
             previewImg, sensorMeta, previewWcs, statsSource: previewImg, pngPath, statsWcs: previewWcs,
-            peakNits: ultraHdrPeakNits, maskedBoost: previewBoost, ultraHdrPath: uhdrPath, ct: ct);
-        return render.Spcc;
+            peakNits: ultraHdrPeakNits, whiteBalanceOverride: inheritedWhiteBalance is { } inh ? (inh.R, inh.G, inh.B) : null,
+            maskedBoost: previewBoost, ultraHdrPath: uhdrPath, ct: ct);
+        return render;
     }
 
     /// <summary>Crop the plate to the autocrop AABB (so it matches the preview's stats
