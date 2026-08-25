@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -85,8 +85,10 @@ public static class CameraExposureActions
         }
         camera.Telescope ??= otaName;
 
-        // Site lat/lon from mount -- one-shot.
-        if (mount is not null && (camera.Latitude is null || camera.Longitude is null))
+        // Site lat/lon/elevation from mount -- one-shot. Elevation joins the pair because a
+        // TOPOCENTRIC ephemeris is stated for a place: comet-aligned registration asks Horizons
+        // from the site the frames record, and the mount already knows this number.
+        if (mount is not null && (camera.Latitude is null || camera.Longitude is null || camera.SiteElevation is null))
         {
             try
             {
@@ -98,10 +100,18 @@ public static class CameraExposureActions
                 {
                     camera.Longitude = await mount.GetSiteLongitudeAsync(ct).ConfigureAwait(false);
                 }
+                if (camera.SiteElevation is null)
+                {
+                    // A mount that does not know its elevation reports NaN rather than failing, and
+                    // NaN must not be stored as if it were a measurement -- the FITS writer skips the
+                    // card for NaN, which is the honest outcome.
+                    var elevation = await mount.GetSiteElevationAsync(ct).ConfigureAwait(false);
+                    camera.SiteElevation = double.IsNaN(elevation) ? null : elevation;
+                }
             }
             catch (Exception ex)
             {
-                logger?.LogDebug(ex, "StampDenorm: site lat/lon read failed");
+                logger?.LogDebug(ex, "StampDenorm: site lat/lon/elevation read failed");
             }
         }
 

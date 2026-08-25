@@ -494,6 +494,8 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     public int? Aperture { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
+
+    public double? SiteElevation { get; set; }
     public Filter Filter { get; set; }
     public int FocusPosition { get; set; }
     public Target? Target { get; set; }

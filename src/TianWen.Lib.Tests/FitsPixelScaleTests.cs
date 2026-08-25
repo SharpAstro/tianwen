@@ -1,4 +1,4 @@
-using Shouldly;
+﻿using Shouldly;
 using System;
 using System.IO;
 using TianWen.Lib.Imaging;
@@ -23,7 +23,8 @@ namespace TianWen.Lib.Tests;
 [Collection("Imaging")]
 public class FitsPixelScaleTests
 {
-    private static ImageMeta Meta(int focalLength, float declaredPixelScale, TimeSpan? exposure = null)
+    private static ImageMeta Meta(int focalLength, float declaredPixelScale, TimeSpan? exposure = null,
+        float latitude = float.NaN, float longitude = float.NaN, float siteElevation = float.NaN)
         => new(
             Instrument: "Test Camera",
             ExposureStartTime: new DateTimeOffset(2026, 8, 16, 10, 53, 18, TimeSpan.Zero),
@@ -42,9 +43,10 @@ public class FitsPixelScaleTests
             BayerOffsetX: 0,
             BayerOffsetY: 0,
             RowOrder: RowOrder.TopDown,
-            Latitude: float.NaN,
-            Longitude: float.NaN,
-            DeclaredPixelScale: declaredPixelScale);
+            Latitude: latitude,
+            Longitude: longitude,
+            DeclaredPixelScale: declaredPixelScale,
+            SiteElevation: siteElevation);
 
     private static Image ImageWith(ImageMeta meta)
         => new([new float[8, 8]], BitDepth.Int16, maxValue: 100f, minValue: 0f, pedestal: 0f, meta);
@@ -97,6 +99,44 @@ public class FitsPixelScaleTests
         Image.TryReadFitsHeader(fitsPath, out var viaHeader).ShouldBeTrue();
 
         viaHeader.Meta.ShouldBe(viaPixels!.ImageMeta);
+    }
+
+    [Fact]
+    public void TheObservingSiteSurvivesTheRoundTripIncludingItsElevation()
+    {
+        // A TOPOCENTRIC ephemeris is stated for a PLACE, so comet-aligned registration reads all
+        // three site cards back off the frames. SITEELEV was the one with no home in ImageMeta: the
+        // header carried it and the Horizons query asked for it, but the read path dropped it, so the
+        // query would have been answered at sea level from a frame that knew better.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "observing-site.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN,
+                latitude: -37.876389f, longitude: 145.178056f, siteElevation: 120f))
+            .WriteToFitsFile(fitsPath);
+
+        Image.TryReadFitsFile(fitsPath, out var viaPixels).ShouldBeTrue();
+        Image.TryReadFitsHeader(fitsPath, out var viaHeader).ShouldBeTrue();
+
+        viaPixels!.ImageMeta.Latitude.ShouldBe(-37.876389f, tolerance: 1e-4f);
+        viaPixels.ImageMeta.Longitude.ShouldBe(145.178056f, tolerance: 1e-4f);
+        viaPixels.ImageMeta.SiteElevation.ShouldBe(120f, tolerance: 1e-3f);
+        viaHeader.Meta.SiteElevation.ShouldBe(120f, tolerance: 1e-3f);
+    }
+
+    [Fact]
+    public void AnUnstatedElevationStaysUnknownRatherThanBecomingSeaLevel()
+    {
+        // Zero is a perfectly plausible elevation, so defaulting to zero is indistinguishable from a
+        // measurement of zero. What to do with the absence is the CONSUMER's policy -- the Horizons
+        // query treats it as sea level, deliberately, because it costs under a thousandth of a pixel
+        // -- and that policy must not be baked into the file or the read.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "no-elevation.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(fitsPath);
+
+        Image.TryReadFitsFile(fitsPath, out var reread).ShouldBeTrue();
+
+        float.IsNaN(reread!.ImageMeta.SiteElevation).ShouldBeTrue();
     }
 
     [Fact]

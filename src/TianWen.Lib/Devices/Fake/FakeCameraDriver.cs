@@ -648,6 +648,8 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     public int? Aperture { get; set; }
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
+
+    public double? SiteElevation { get; set; }
     public Filter Filter { get; set; } = Filter.Unknown;
     public int FocusPosition { get; set; }
     public Target? Target { get; set; }
