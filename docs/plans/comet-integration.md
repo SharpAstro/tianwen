@@ -191,3 +191,52 @@ are another tool's, which TianWen rebuilds from the raw frames anyway.
 The nonlinearity number (0.185 px) is the argument for keeping a single linear rate for now, and the
 place a quadratic term would go is documented on the option itself. Do not add one speculatively:
 it is currently below the registration's own residual, so it would be fitting noise.
+
+## Star-tracked capture only, and whether that can be detected
+
+**Everything here assumes the mount tracked the STARS**, which is what this dataset did. The other
+way round is a real technique -- drive the mount at the comet's own rate -- and it is not supported.
+
+**The registration maths is the same either way, which is the non-obvious part.** If the mount
+follows the comet, then between frames the STARS move across the sensor; star registration undoes
+exactly that, so after it the comet drifts across the canvas at the same rate it would have under
+star tracking. `CometRatePxPerHour` therefore applies unchanged. Nothing about the compose needs to
+know which mode produced the frames.
+
+What differs is **which object is trailed INSIDE each sub**, and that is not recoverable by any
+alignment:
+
+| | star-tracked | comet-tracked |
+|---|---|---|
+| stars | points | trailed by rate x exposure |
+| comet | trailed by rate x exposure | point |
+| star layer (artifact 1) | good | trailed, unusable |
+| comet layer (artifact 3) | nucleus slightly trailed | sharp |
+
+So comet tracking buys a better comet and ruins the stars, which is why the usual answer for a slow
+comet is to track the stars and accept a marginally soft nucleus.
+
+**Can an unattended run tell which it got?** In principle yes, from the field stars' elongation and
+its position angle: comet-tracked frames elongate every star along the ephemeris motion vector by
+rate x exposure, and we already measure per-frame median HFD and ellipticity (the inputs
+`--quality-reject-sigma` uses). Comparing the measured elongation axis against the motion vector the
+ephemeris predicts is a clean, cheap discriminator.
+
+**On this dataset it is neither possible nor necessary**, and the numbers say why. At 12.64 px/hr a
+60 s sub trails 0.211 px, which against a 2.15 px FWHM adds in quadrature to 2.160 px -- a **0.48%**
+elongation, far under the frame-to-frame scatter of the measurement itself. Reaching a 10%
+elongation would need a ~1 px trail, i.e. about 59 px/hr at this exposure, five times this comet:
+
+| sub | trail | elongation |
+|---|---|---|
+| 60 s | 0.211 px | 0.48% |
+| 120 s | 0.421 px | 1.90% |
+| 300 s | 1.053 px | 11.4% |
+| 600 s | 2.107 px | 40.0% |
+
+The same arithmetic that makes the mode undetectable makes it **irrelevant**: where the trail is a
+fraction of the seeing disc, the two capture modes produce near-identical data, and the question only
+becomes worth asking when rate x exposure approaches the FWHM. A detector should therefore be gated
+on that product rather than run unconditionally -- below roughly half a FWHM it would be reporting
+noise. Until one exists, an unattended run should assume star tracking, which is both the common case
+and the one that degrades gracefully if it is wrong.
