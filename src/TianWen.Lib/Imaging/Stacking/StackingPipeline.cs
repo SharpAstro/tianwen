@@ -67,13 +67,30 @@ public sealed class StackingPipeline(
     /// LFC for small N (best per-iteration quality, ~8x slower than
     /// sigma at large N), Winsorized for medium, asymmetric SigmaClip
     /// (low=3, high=5) for large N (speed wins; high-kappa keeps stars).
+    ///
+    /// <remarks>
+    /// <para>The KIND is chosen by frame count and the THRESHOLDS are a separate
+    /// decision, which is why the overrides substitute into whichever kind the count
+    /// picked rather than selecting a kind of their own. The count is about how many
+    /// samples the estimator has to work with; the sigma pair is about what the caller
+    /// is trying to throw away.</para>
+    /// <para>The defaults are deliberately asymmetric the STAR-KEEPING way, and a
+    /// comet layer wants the opposite. Comet-aligned, a star touches any given canvas
+    /// cell in a handful of frames out of N, so it is a textbook high outlier -- and
+    /// <c>HighSigma: 5</c> exists precisely to let a real star through. Lowering the
+    /// high side is what makes rejection a second line of defence behind
+    /// <c>--remove-stars</c> instead of working against it.</para>
+    /// </remarks>
     /// </summary>
-    public static IPixelRejector? BuildRejector(int frameCount) => frameCount switch
+    /// <param name="frameCount">Matched frames; picks the rejector kind.</param>
+    /// <param name="lowSigma">Overrides the low (dark-outlier) threshold. Null keeps the per-kind default.</param>
+    /// <param name="highSigma">Overrides the high (bright-outlier) threshold. Null keeps the per-kind default.</param>
+    public static IPixelRejector? BuildRejector(int frameCount, float? lowSigma = null, float? highSigma = null) => frameCount switch
     {
         < 5  => null,
-        < 30 => new LinearFitClipRejector(LowSigma: 3f, HighSigma: 3f, MaxIterations: 5),
-        < 60 => new WinsorizedSigmaClipRejector(LowSigma: 3f, HighSigma: 5f, MaxIterations: 5),
-        _    => new SigmaClipRejector(LowSigma: 3f, HighSigma: 5f, MaxIterations: 5),
+        < 30 => new LinearFitClipRejector(LowSigma: lowSigma ?? 3f, HighSigma: highSigma ?? 3f, MaxIterations: 5),
+        < 60 => new WinsorizedSigmaClipRejector(LowSigma: lowSigma ?? 3f, HighSigma: highSigma ?? 5f, MaxIterations: 5),
+        _    => new SigmaClipRejector(LowSigma: lowSigma ?? 3f, HighSigma: highSigma ?? 5f, MaxIterations: 5),
     };
 
     /// <summary>
@@ -1280,8 +1297,18 @@ public sealed class StackingPipeline(
         logger.LogInformation("  [sink] {Sink} (canvas {GB:F2} GB)", selection.Sink, probe.CanvasBytes / 1e9);
         var sinkFactory = SinkFactories.Create(selection.Sink, stagingDir);
 
-        var rejector = BuildRejector(matched.Count);
-        logger.LogInformation("  rejector: {Rejector}", rejector?.GetType().Name ?? "<none>");
+        var rejector = BuildRejector(matched.Count, options.RejectLowSigma, options.RejectHighSigma);
+        // Log the thresholds, not just the kind: an A/B over the sigma pair is otherwise
+        // indistinguishable in the log from an A/B over anything else in the run.
+        logger.LogInformation("  rejector: {Rejector}{Sigmas}",
+            rejector?.GetType().Name ?? "<none>",
+            rejector switch
+            {
+                SigmaClipRejector s => $" (low {s.LowSigma}, high {s.HighSigma})",
+                WinsorizedSigmaClipRejector w => $" (low {w.LowSigma}, high {w.HighSigma})",
+                LinearFitClipRejector l => $" (low {l.LowSigma}, high {l.HighSigma})",
+                _ => "",
+            });
 
         var rawSources = new List<RawLightSource>(matched.Count);
         foreach (var (lightInfo, transformOrig, _) in matched)
