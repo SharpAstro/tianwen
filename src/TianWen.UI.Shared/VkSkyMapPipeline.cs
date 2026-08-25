@@ -391,19 +391,22 @@ public sealed unsafe class VkSkyMapPipeline : IDisposable
             return;
         }
 
-        // GPU swap. vkDeviceWaitIdle drains any in-flight draw still
+        // GPU swap. TryWaitAllFramesIdle drains every in-flight draw still
         // referencing the old buffer; CreatePersistentVertexBuffer allocates +
         // uploads the new one; DestroyBuffer frees the old. Atomic from the
         // render thread's perspective -- the swap completes inside this method
-        // and the next Draw uses the new buffer. Skip the drain when the GPU is
-        // known wedged: an unbounded wait on a stuck device would hang the render
-        // thread (the event loop already short-circuits OnRender while stuck, so
-        // this is a belt-and-suspenders guard against ever blocking here).
+        // and the next Draw uses the new buffer. The drain is capped and skipped
+        // on a GPU the renderer already knows is stuck, so it can never hang the
+        // render thread the way the unbounded vkDeviceWaitIdle it replaced could
+        // (the event loop already short-circuits OnRender while stuck, so the
+        // skip is belt-and-suspenders). Why the all-frames form rather than the
+        // prior-frames one, and why a timed-out drain may proceed, is written up
+        // on VkFitsImagePipeline.DestroyChannelTexture; the short version for
+        // THIS site is that it destroys AND recreates the buffer, which is the
+        // case the renderer's own resize paths proceed on -- a timeout degrades
+        // to the rebuild already being done (SharpAstro/tianwen#197).
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        if (!_ctx.IsGpuStuck)
-        {
-            _ctx.DeviceApi.vkDeviceWaitIdle();
-        }
+        _ = _ctx.TryWaitAllFramesIdle("star buffer swap");
         var waitMs = sw.Elapsed.TotalMilliseconds;
 
         DestroyBuffer(_starBuffer, _starMemory);
