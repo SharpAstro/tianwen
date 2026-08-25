@@ -241,7 +241,40 @@ come from the original it was derived from.
 
 Roughly in dependency order.
 
-0. **Does the background need to travel too?** Open, and deliberately not answered by assertion. The
+1. **A data-derived comet/sky mask** (raised by the user 2026-08-25; not started, and do not lose
+   it -- with an extended object in the field it stops being optional).
+
+   **The failure it fixes.** `sxt` removes POINT sources, so it correctly LEAVES an extended DSO.
+   On a field like C/2025 R2 (SWAN) beside M16 that is exactly wrong for the comet layer: M16
+   survives star removal, then the comet-aligned integration SMEARS it into streaks. Screen-combine
+   that against the star layer, which has M16 sharp, and the nebula appears TWICE -- once crisp,
+   once as a streak lying over it. 10P's field is empty enough to hide this entirely, which is why
+   it has to be designed against the SWAN data rather than discovered there.
+
+   **The mask comes from data we already produce, with no catalogue and nothing hand-painted.** The
+   two stacks are a discriminator when read together:
+
+   | | star-aligned stack | comet-aligned stack |
+   |---|---|---|
+   | stars, DSOs, nebulosity | sharp | smeared |
+   | the comet | smeared | sharp |
+
+   So *sharp here and smeared there* separates comet from sky by construction. Cheap forms to try
+   first: per-pixel local variance / gradient energy in each stack, or simply the ratio of the two
+   after matching their backgrounds. The comet layer then keeps only what the mask calls comet, and
+   everything else comes from the star layer, where it is sharp.
+
+   **This also subsumes the nucleus-protection use.** If `sxt` ever does eat a nucleus (it did not
+   on 10P -- see the experiment above), the same mask is what restores it, and it is derived rather
+   than a hand-placed disc around an ephemeris prediction.
+
+   Open questions worth measuring rather than arguing: whether the mask needs feathering to avoid a
+   visible seam where the coma meets the sky; whether it should be built at full resolution or
+   downsampled and upscaled (a mask carries structure, not detail); and whether the smeared-M16
+   residue in the comet layer is better masked out or subtracted, given the star layer already has
+   the real thing.
+
+2. **Does the background need to travel too?** Open, and deliberately not answered by assertion. The
    `--split-plates` rule says each plate solves its own background neutralisation, and that is why only
    the white balance is inherited -- but that rule governs plates carved from ONE stack, sharing the
    same pixels, whereas the star layer and the comet layer are independent integrations. There is a
@@ -252,16 +285,16 @@ Roughly in dependency order.
    triples and compare. If they differ by more than the bg-neut gains' own scale (they are affine
    about 1.0 against a ~0.002 background, so read them at F4), the background has to be inherited as
    well and `BKGR`/`BKGG`/`BKGB` join the stamp.
-1. **Treat the ephemeris as a SEED, not the answer.** Then centroid the nucleus per frame as if it
+3. **Treat the ephemeris as a SEED, not the answer.** Then centroid the nucleus per frame as if it
    were a star, fit a smooth track through the centroids with outlier rejection, and use that. The
    fit residuals double as a per-frame quality gate, which the ephemeris alone cannot give. **This is
    also the only check that can catch a wrong heading**, since the straightness residual demonstrably
    prefers the wrong track: a heading error shows here as a GROWING cross-track offset, ~2.7 px by the
    end of this run against a 2.15 px FWHM.
-2. **Per-frame SXT over 135 lights**, keeping the starless plate, then integrate those comet-aligned.
+4. **Per-frame SXT over 135 lights**, keeping the starless plate, then integrate those comet-aligned.
    Needs item 1 first, or the layer has no colour.
-3. **The screen combine** of artifacts 1 and 3.
-4. **A test pinning the compose itself.** A synthetic pair with a known rate and a known dither,
+5. **The screen combine** of artifacts 1 and 3.
+6. **A test pinning the compose itself.** A synthetic pair with a known rate and a known dither,
    asserting the target lands on the same canvas pixel and the stars do not. That would catch an
    operand-order slip, which is the one failure the derivation chain cannot.
 
