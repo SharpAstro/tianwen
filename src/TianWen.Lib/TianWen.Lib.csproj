@@ -182,6 +182,7 @@
     <ProjectReference Include="..\TianWen.Lib.SourceGenerators\TianWen.Lib.SourceGenerators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <PackageReference Include="CommunityToolkit.HighPerformance" />
     <PackageReference Include="DotNext.Threading" />
+    <PackageReference Include="System.IO.Hashing" />
     <PackageReference Include="FC.SDK.Raw" />
     <PackageReference Include="GeoTimeZone" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />

@@ -375,15 +375,13 @@ public static class CalibrationCoverageReport
                     logger?.LogWarning("Unreadable BPM skipped: {Path}", path);
                     continue;
                 }
-                string hash;
-                try
+                // ContentDigest, not SHA-256: this counts DISTINCT bad-pixel maps within one in-memory
+                // census, so it asks "same bytes?" and nothing more. Nothing is signed and nothing is
+                // persisted, so the cryptographic strength was bought and never used.
+                var hash = ContentDigest.OfFile(path);
+                if (hash.Length == 0)
                 {
-                    using var stream = File.OpenRead(path);
-                    hash = Convert.ToHexString(SHA256.HashData(stream));
-                }
-                catch (IOException ex)
-                {
-                    logger?.LogWarning(ex, "BPM could not be hashed, skipped: {Path}", path);
+                    logger?.LogWarning("BPM could not be hashed, skipped: {Path}", path);
                     continue;
                 }
                 var key = (info.Width, info.Height);

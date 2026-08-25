@@ -139,6 +139,17 @@ internal sealed class StackSubCommand(
                           + "share one calibration or their colours will not match. Background neutralisation is NOT "
                           + "inherited: each plate solves its own from its own pixels.",
         };
+        var manifestOpt = new Option<string?>("--manifest")
+        {
+            Description = "Build this run from an earlier run's manifest (master_<slug>.manifest.json). It DRIVES the run rather than informing it: "
+                          + "the frame list, the reference frame and every per-frame star transform come from the manifest, and measure + register "
+                          + "are skipped. This is what makes a starless layer possible at all -- StarXTerminator leaves no point sources, so a "
+                          + "starless plate has no quads and cannot be star-registered at any tolerance; its transform has to come from the original "
+                          + "it was derived from. It is also what keeps two layers combinable: same frames, same reference, so the same canvas origin "
+                          + "and orientation. A comet run still applies its own drift ON TOP of the inherited star solutions. Frames are matched by a "
+                          + "digest of their data section; a derived plate carries SRCDGST naming the frame it came from. A manifest reference that is "
+                          + "not among this run's frames is an error, not a fallback -- silently picking a different one is the failure the manifest exists to prevent.",
+        };
         var cometOpt = new Option<string?>("--comet")
         {
             Description = "Comet / moving-target integration: register on the BODY instead of the star field, so the comet integrates sharp and the stars trail. Pass a designation ('10P', 'C/2023 A3') or leave the value empty to read it from the frames' own OBJECT card. The rate is derived by plate-solving the reference frame and asking JPL Horizons for a TOPOCENTRIC track over the session's own span, from the site the frames record in SITELAT/SITELONG/SITEELEV - a geocentric ephemeris is NOT good enough (diurnal parallax moved 10P by 2.7 px across one night, 25x the registration residual). Needs network; use --comet-rate offline.",
@@ -218,7 +229,7 @@ internal sealed class StackSubCommand(
                 formatOpt, hdrPeakNitsOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
-                qualityRejectSigmaOpt, referenceFrameHintOpt,
+                qualityRejectSigmaOpt, referenceFrameHintOpt, manifestOpt,
                 cometOpt, cometRateOpt,
                 inheritWbOpt,
                 noBayerDrizzleOpt, includeIntegrationsOpt,
@@ -365,6 +376,7 @@ internal sealed class StackSubCommand(
                 HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt),
                 QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
                 ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
+                ManifestPath: parseResult.GetValue(manifestOpt),
                 CometRatePxPerHour: cometRate,
                 CometDesignation: cometDesignation,
                 InheritedWhiteBalance: inheritedWb,
