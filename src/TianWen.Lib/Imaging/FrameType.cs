@@ -9,7 +9,18 @@ public enum FrameType
     Dark,
     Bias,
     Flat,
-    DarkFlat
+    DarkFlat,
+
+    /// <summary>Not a captured frame at all: an integration, a channel composite, or anything else
+    /// a processing package emitted. Astro Pixel Processor writes <c>FRAME = 'Other/Processed'</c>
+    /// for these.
+    ///
+    /// <para>It earns a member rather than mapping to <see cref="None"/> because the two mean
+    /// different things to a scan: None is "we could not tell", which is a reason to look harder,
+    /// while Processed is a positive statement that the file is DERIVED and must never be ingested
+    /// as a light. An APP HOO composite carries no IMAGETYP, no count card and EXPTIME=0, so this
+    /// is the only card that says what it is.</para></summary>
+    Processed
 }
 
 public static class FrameTypeEx
@@ -56,6 +67,15 @@ public static class FrameTypeEx
             if (v.Equals("FLATFIELD", StringComparison.OrdinalIgnoreCase))
             {
                 v = "FLAT";
+            }
+            // Astro Pixel Processor's FRAME card: 'Other/Processed' for a derived product, and the
+            // bare 'Other' that older versions emit. The slash survives the normalisation above, so
+            // match on the whole token rather than trying to split it.
+            if (v.Equals("Other/Processed", StringComparison.OrdinalIgnoreCase)
+                || v.Equals("Other", StringComparison.OrdinalIgnoreCase)
+                || v.Equals("Processed", StringComparison.OrdinalIgnoreCase))
+            {
+                v = nameof(FrameType.Processed);
             }
             return v.Length > 0 && Enum.TryParse(v, true, out FrameType frameType) ? frameType : null;
         }

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -172,7 +172,7 @@ public static class SessionDiscovery
         // carry STACK_N / SWCREATE markers, but a FOREIGN integration (e.g. PixInsight's
         // IMAGETYP='Master Light', which parses as FrameType.Light + IsMaster) has neither --
         // gate on the master flag itself so it can't be ingested as a session frame.
-        if (frame.IsMaster || frame.StackedFrameCount > 0 || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator))
+        if (frame.IsMaster || frame.StackedFrameCount > 0 || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator, frame.Meta.SWModifier))
         {
             return LightGate.Product;
         }

@@ -237,6 +237,112 @@ stack the starless with those offsets.** Step 1 is why the transform cache below
 rather than an optimisation: a starless frame cannot be star-registered, so its transform has to
 come from the original it was derived from.
 
+## Per-frame `sxt` and Bayer drizzle are mutually exclusive
+
+Bayer drizzle "skips the debayer step and projects each raw CFA sample onto the output grid as a
+drop" -- it defers demosaicing to the very end, by design. Whether `sxt` NEEDS a debayered frame is **not yet established**, and
+the answer decides this whole section.
+
+What is measured: handed a mosaic it reports the image as `x1`, processes it as mono, removes the
+stars, keeps the comet -- and noise goes UP 11%, where the same product on a 3-channel stacked
+master took noise DOWN 4.5-7.1%. **That contrast does not isolate the CFA**, because the two runs
+differ in two ways at once: mosaic vs RGB, and a single sub vs a 135-frame stack. The +11% may be
+the CFA grid or may simply be what star removal does at single-sub SNR.
+
+The test that separates them is the SAME sub both ways -- debayer then `sxt`, against mosaic then
+`sxt`. Until that is run, treat the exclusivity below as PROVISIONAL.
+
+**If `sxt` does need a debayered frame, the comet layer cannot be Bayer-drizzled**, since drizzle
+defers demosaicing by design and per-frame star removal cannot wait for it. The cost is real: 135
+dithered OSC subs is drizzle's best case. **If instead `sxt` round-trips a mosaic cleanly, the
+trade disappears entirely** -- remove the stars from the raws and Bayer-drizzle those, keeping both.
+
+| layer | Bayer drizzle |
+|---|---|
+| star layer, and artifact 2 (stars intact) | yes |
+| comet layer / artifact 3 (`sxt` per frame) | **no** -- must debayer first |
+
+**Watch this for the screen combine.** The two layers are then integrated by different strategies.
+Harmless today, because drizzle Phase 1 runs at `OutputScale=10` -- the same grid as the reference
+-- so both masters come out the same size. If Phase 2's classical 2x sub-Bayer drizzle ships, the
+star layer becomes twice the comet layer's scale and the combine needs a resample. Worth a check
+rather than a surprise.
+
+If both are ever wanted at once, the answer is a rejection stage inside drizzle (DrizzlePac does
+this with a median image and blot-back comparison), not abandoning drizzle -- but that is a
+feature, not a flag.
+
+## The rejector is tuned backwards for a comet stack (raised by the user, being measured)
+
+In Astro Pixel Processor the user reached for **average + MAD rejection** on comet stacks,
+"mostly to avoid excessive star streaks". That is not a preference, it is the mechanism, and our
+defaults currently work against it in two ways.
+
+**The logic inverts between the two alignments.** In a star-aligned stack a star occupies the same
+canvas pixel in every frame, so it is signal, and `BuildRejector`'s generous `HighSigma: 5` exists
+precisely to keep it. In a COMET-aligned stack the same star sweeps across the canvas at
+12.64 px/hr against a 2.15 px FWHM, so any given pixel sees it for roughly **10 frames out of
+135** -- it is now an OUTLIER, and rejection is exactly what removes the trail.
+
+**And on this data no rejector runs at all.** 135 RGGB frames auto-select Bayer drizzle, which
+integrates through a per-cell coverage map and has no kappa-sigma stage, so every streak is
+retained faithfully. That, rather than anything about the compose, is why artifact 2's trails are
+so stark.
+
+Two consequences to settle by measurement: whether `--no-bayer-drizzle` alone (which restores
+`SigmaClip(3, 5)`) already suppresses the trails, and whether comet mode should tighten the high
+side further -- there is no knob for the pixel rejector today, only `--quality-reject-sigma`, which
+drops whole FRAMES and is a different thing entirely.
+
+**Rejection is the SECOND line, not the method.** Removing the stars per-frame with `sxt` BEFORE
+stacking stays the plan, and rejection cleans up after it. Two reasons it cannot substitute:
+
+- **It leaves residuals.** MAD rejection in APP was reached for to avoid *excessive* streaks, not
+  to eliminate them -- a partial trail is still a trail.
+- **It costs real signal exactly where the trails were.** Every pixel a trail crossed loses those
+  frames from the average, so the trail PATHS come out noisier than the rest of the frame. Removing
+  the star at frame level leaves clean data everywhere instead, and the integration keeps its full
+  depth.
+
+The two compose well in that order: `sxt` takes the stars, comet alignment smears whatever it
+missed -- faint stars under its detection threshold, and residual cores -- into low-amplitude
+outliers, which is precisely what kappa-sigma is good at. So the measurement below is worth having
+for how much the second line contributes, not as a route to skipping the first.
+
+## A stack MANIFEST, not a star-list cache (raised by the user 2026-08-25)
+
+Earlier framing had this as a per-frame star-list cache, justified by speed and by artifact 3 needing
+the raws' transforms for their starless siblings. That undersold it. **The real requirement is that
+layers meant to be combined are built from IDENTICAL inputs**, and every run currently re-derives
+everything from scratch.
+
+Three things must be pinned, in increasing order of how badly they bite:
+
+1. **The frame list.** A frame the star stack dropped -- `SKIP (too few stars)`, `no quad fit`, or
+   `--quality-reject-sigma` -- must not appear in the comet stack, and vice versa. Otherwise the two
+   layers have different depth and different noise, and a frame excluded for bad stars is exactly the
+   frame you do not want silently contributing to the other layer.
+2. **The per-frame transform.** Artifact 3's starless plates cannot be star-registered at all, so
+   their transforms have to come from the originals they were derived from.
+3. **The reference frame.** Picked by composite PSF score INDEPENDENTLY per run. A different
+   reference means a different canvas origin and orientation, so the two layers do not overlay --
+   the screen combine is then meaningless rather than merely inconsistent. Nothing pins this today;
+   the runs have agreed only because the inputs and the scoring happened to be identical.
+
+So the artifact is a **manifest** written by the star-aligned run and consumed by every later one:
+the ordered frame list with each frame's fate (matched / skipped and why), the reference frame's
+identity, and each matched frame's solved `Matrix3x2`. A later run supplies its own compose -- the
+comet translation -- on top of transforms it did not re-derive.
+
+It subsumes the cache: reusing the transforms skips measure AND register, which the stage table puts
+at 44.6% + 3.8% of wall clock. But speed is the side effect. Reproducibility is the point, and
+"re-run it and get a different reference frame" is the failure it exists to prevent.
+
+Open: whether the manifest keys frames by path or by a digest of the FITS DATA section. The digest is
+more honest -- today's `SITEELEV` amendment rewrote 525 headers and changed every mtime without
+touching a pixel, and star positions depend only on pixels -- but a path is what a human reads in a
+log. Probably both: digest for identity, path for legibility.
+
 ## Not done
 
 Roughly in dependency order.
@@ -275,6 +381,53 @@ Roughly in dependency order.
    The sharp-vs-smeared discriminator needs no shape assumption at all: the tail is sharp in the
    comet-aligned stack and smeared in the star-aligned one wherever it happens to reach, so it is
    selected by the same test as the coma.
+
+   **The rigorous form: subtract a SKY MODEL from every light before comet-stacking** (the user's
+   "scientific albeit extensive" option, and the one that handles stars AND nebulosity in a single
+   operation).
+
+   The star-aligned stack is already a deep, high-SNR model of the sky. For each light, warp that
+   model into the frame's own geometry -- the inverse of the star transform we compute anyway --
+   scale it for transparency and exposure, and subtract. What remains is the comet plus noise.
+   Comet-align those residuals and stack. Stars and M16 both go, because both are sky, so this
+   subsumes `sxt` rather than sitting beside it.
+
+   **Building the model needs no mask, because of the same inversion that removes star trails.** The
+   comet moves, so at any SKY pixel it is present in only ~10 of 135 frames -- an outlier -- and
+   kappa-sigma rejection in the STAR-aligned stack removes it. Each alignment makes the other object
+   the outlier:
+
+   | | star-aligned + rejection | comet-aligned + rejection |
+   |---|---|---|
+   | yields | the sky, comet removed | the comet, sky suppressed |
+
+   So a comet-free sky model falls out of a stack we already build, by turning rejection UP rather
+   than by masking anything.
+
+   What makes it "extensive" rather than obviously-do-this: the subtraction has to be
+   photometrically honest per frame (transparency, airmass and sky level all vary across a night, so
+   a single global scale will leave residuals that themselves smear), it needs the model resampled
+   into each frame without introducing interpolation artifacts at star cores, and any error in it
+   lands directly on the comet, which is the faint thing being measured. Worth prototyping against
+   the SWAN field where the failure is visible, not against 10P where it is not.
+
+   **Two passes, feeding each other** (the user's refinement, for the SWAN field; NOT needed for
+   10P). One mask is not enough, because the thing that must be suppressed in the comet layer is
+   specifically the EXTENDED NON-STELLAR sky -- `sxt` already handles the point sources, and the
+   comet must not be suppressed along with them. So:
+
+   1. From the comet-aligned stack, take what is sharp -> the **comet** mask (coma plus tail).
+   2. From the star-aligned stack, remove the comet using that mask, then take what is sharp and
+      non-stellar -> the **DSO** mask: M16 and any other extended structure.
+   3. Suppress (2) in the comet layer; it comes from the star layer instead, where it is sharp.
+
+   Each stack supplies the exclusion the other one needs, which is what makes it a loop rather than
+   two independent thresholds.
+
+   **10P does not need any of this**, and that is worth stating so the SWAN work is not
+   retro-fitted onto it: its field holds only a few very small background galaxies, which
+   comet-centred stacking smears and rejection then removes -- the desired outcome, reached for
+   free. The mask is a SWAN-class requirement, driven by a bright extended nebula in frame.
 
    Open questions worth measuring rather than arguing: whether the mask needs feathering to avoid a
    visible seam where the coma meets the sky; whether it should be built at full resolution or

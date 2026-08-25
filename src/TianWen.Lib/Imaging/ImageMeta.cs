@@ -84,6 +84,13 @@ namespace TianWen.Lib.Imaging;
 /// <param name="TargetDec">Target declination in degrees (FITS: OBJCTDEC, DEC). NaN if unknown.</param>
 /// <param name="ElectronsPerADU">Electrons per ADU (system gain) (FITS: EGAIN). NaN if unknown.</param>
 /// <param name="SWCreator">Software that created the image (FITS: SWCREATE). Empty if unset.</param>
+/// <param name="SWModifier">Software that last MODIFIED the image (FITS: SWMODIFY). Empty if unset.
+///
+/// <para>Read but deliberately never written from here -- the enhancement layer owns that card and
+/// stamps it through the write-extras path. It is read because it is the ONLY TianWen fingerprint on
+/// a derived file whose source was foreign: an <c>image sharpen</c> of a N.I.N.A. sub keeps
+/// <c>SWCREATE='N.I.N.A. ...'</c>, so a scan that reads only SWCREATE re-ingests our own starless
+/// plate as a fresh light.</para></param>
 /// <param name="Aperture">Effective objective aperture diameter in mm (FITS: APTDIA). -1 if unknown.</param>
 /// <param name="SensorModel">Sensor die model, e.g. "IMX533" (FITS: SENSOR). Empty if unknown.</param>
 /// <param name="PierSide">Mount pointing state at exposure time (FITS: PIERSIDE).
@@ -144,6 +151,7 @@ public record struct ImageMeta(
     double TargetDec = double.NaN,
     float ElectronsPerADU = float.NaN,
     string SWCreator = "",
+    string SWModifier = "",
     int Aperture = -1,
     string SensorModel = "",
     Devices.PointingState PierSide = Devices.PointingState.Unknown,

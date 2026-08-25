@@ -113,3 +113,38 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 
 - [ ] Check if SIMBAD supports angular size + dimensions in queries
 
+## A star-list sidecar, `.axy`-shaped, reusable across the whole app
+
+Raised 2026-08-25 out of the comet work, but **general** -- the comet stack is the loudest consumer,
+not the only one. Detection is pure and deterministic given the pixels and the parameters, so it
+should be computed once per frame and read thereafter.
+
+**Who re-detects the same stars today**
+
+| consumer | when | measured cost |
+|---|---|---|
+| `tianwen-fits` viewer | **every load**, via `ViewerController.StartStarDetection` | `Background` 166-175 ms + passes 29-82 / 57 ms |
+| stacking measure pass | every run, every frame | **44.6% of wall clock** (135 frames) |
+| `CatalogPlateSolver` | every solve | `FindStarsAsync` capped at 500 |
+| external solvers | every solve | astrometry.net writes `.axy` and we USED to delete it |
+
+**Shape.** `.axy` is astrometry.net's augmented xy list and is a FITS BINTABLE -- which
+`FITS.Lib` fully supports (`BinaryTableHDU`, `ColumnTable`) and TianWen has never once used. Writing
+our detections in that shape makes the sidecar readable by astrometry.net, PixInsight and Siril
+rather than being a private format, and a BINTABLE of `(x, y, flux, hfd, fwhm, ecc, snr)` is smaller
+than the equivalent JSON (the Vela fixture is 2.1 MiB of gzipped JSON for exactly this kind of data).
+
+**Staleness must key on a digest of the FITS DATA SECTION, never mtime.** Today's `SITEELEV`
+correction rewrote 525 headers and changed every mtime without touching a pixel, and centroids depend
+only on pixels -- an mtime key would have thrown away a whole archive's cache for a header edit. The
+key also needs the detection parameters (`CentroidDebayerAlg`, `SnrMin`, `MinStars`), since a list
+found at one threshold is not a list found at another.
+
+**Now cheap to adopt, because solver sidecars survive.** `ExternalProcessPlateSolverBase` used to
+delete `.wcs` and `.axy` after reading them; it now clears STALE sidecars before a solve and keeps
+fresh ones, so astrometry.net's own `.axy` is already sitting on disk.
+
+Not to be confused with the stack MANIFEST (see `docs/plans/comet-integration.md`): the manifest pins
+WHICH frames a run used, its reference frame and each solved transform, and exists for reproducibility
+between layers. The sidecar caches detections for a single frame and exists for speed. The manifest
+needs the sidecar; the sidecar is useful without the manifest.

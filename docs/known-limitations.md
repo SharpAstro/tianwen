@@ -539,3 +539,47 @@ nothing. A real tracking mount holds sky-RA roughly constant (sidereal is tracke
 must never be an additive term on reported RA. The coherent fix (believed/true seam, disturbances
 as composable terms, sensor vs pointing stages) is designed in
 [`architecture/fake-disturbance-model.md`](architecture/fake-disturbance-model.md).
+
+## Scan provenance: every package spells it differently
+
+Measured across the 10P archive (540 FITS) and three Astro Pixel Processor stacks, 2026-08-25.
+
+**The first pass at this concluded APP's HOO composite "carries no provenance card at all". That was
+wrong, and wrong in an instructive way: the census searched for `SWCREATE` / `IMAGETYP` / `STACK_N` /
+`NUMFRAME` and APP writes none of them.** The file is in fact richly self-describing --
+
+```
+SOFTWARE= 'Astro Pixel Processor by Aries Productions'
+VERSION = '2.0.0-beta29'
+FRAME   = 'Other/Processed'    / frame was processed by Astro Pixel Processor
+FILT-1  = 'HOO 1 composite'
+```
+
+-- in a vocabulary we simply were not reading. A search that does not cover the space says nothing
+about the space.
+
+| card | who writes it | says |
+|---|---|---|
+| `IMAGETYP` / `FRAMETYP` | N.I.N.A., MaxIm, most capture software | frame type |
+| **`FRAME`** | **Astro Pixel Processor** | frame type, incl. `Other/Processed` for derived output |
+| `SWCREATE` | SharpCap, N.I.N.A. | author |
+| **`SOFTWARE`** | **Astro Pixel Processor** | author |
+| `SWMODIFY` | us (and MaxIm's convention) | who modified someone else's file |
+| `STACK_N` / `NUMFRAME` | us / APP + others | an integration of N frames |
+
+All six are read now: `FRAME` falls in behind `FRAMETYP` and `IMAGETYP`, `SOFTWARE` behind
+`SWCREATE`, and `FrameType.Processed` exists so "this is derived" is a positive statement rather than
+the `None` that means "we could not tell".
+
+**Two traps worth keeping.** `EXPTIME = 0` is NOT usable as "not a real frame" -- a bias is
+legitimately zero-second. And `'Other/Processed'` contains a **slash**, which is also the FITS comment
+separator: a reader that splits on it before extracting the quoted string truncates the value to
+`Other` and the match silently fails. (Both spellings are accepted, so it does not matter which
+arrives.)
+
+**Still open: `SWMODIFY` is overloaded.** Its correct meaning is "our software modified someone else's
+file", which `FitsHeaderEditor` header-tagging also is -- `dataset tag-filter` amended 525 frames of
+the 10P set. The scan needs the narrower "we produced these PIXELS, do not re-ingest". They only fail
+to collide because header surgery writes no `SW*` card, which is a convention rather than a guarantee:
+the day tagging stamps `SWMODIFY` honestly, every frame it touched drops out of its own stack. A
+dedicated "derived pixel product" card would make the guard a fact instead of an accident.
