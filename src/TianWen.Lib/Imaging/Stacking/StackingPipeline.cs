@@ -410,9 +410,9 @@ public sealed class StackingPipeline(
                 var k = ghost.Key.CalibrationKey;
                 var sample = ghost.Frames[0];
                 logger.LogDebug(
-                    "[lights/ghost] {Slug} ({Frames} fr): temp={Temp}C filter={Filter}/{Band} offset={Offset} gain={Gain} dim={W}x{H}x{Ch} sensor={Sensor} sample={Path}",
+                    "[lights/ghost] {Slug} ({Frames} fr): temp={Temp}C filter={Filter} offset={Offset} gain={Gain} dim={W}x{H}x{Ch} sensor={Sensor} sample={Path}",
                     ghost.Slug, ghost.Frames.Count,
-                    k.TemperatureC?.ToString() ?? "n/a", k.FilterName.Length > 0 ? k.FilterName : "(empty)", k.FilterBandpass,
+                    k.TemperatureC?.ToString() ?? "n/a", k.FilterIdentity.Length > 0 ? k.FilterIdentity : "(empty)",
                     k.Offset, k.Gain, k.Width, k.Height, k.ChannelCount, k.SensorType,
                     System.IO.Path.GetFileName(sample.Path));
             }
@@ -1327,7 +1327,7 @@ public sealed class StackingPipeline(
                 {
                     // A flat's exposure says nothing about its dust; its filter says everything.
                     MasterMatchKind.Flat =>
-                        key.FilterName == lightKey.FilterName && key.FilterBandpass == lightKey.FilterBandpass ? 0.0 : 1000.0,
+                        key.SameFilterAs(lightKey) ? 0.0 : 1000.0,
                     _ => Math.Abs((key.Exposure - lightKey.Exposure).TotalSeconds)
                         + (kind is MasterMatchKind.Dark ? CalibrationResolver.OffsetPenalty(key, lightKey) : 0.0),
                 };

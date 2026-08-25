@@ -476,7 +476,7 @@ public static class CalibrationResolver
             // so it must not out-rank a multi-frame flat and leave the session with no flat at all. A
             // foreign master flat is exempt (loaded directly).
             if (!Buildable(g) || !DimensionCompatible(g.Key, lightKey) || !g.Train.TrainCompatibleWith(lightTrain)) continue;
-            var filterMismatch = g.Key.FilterName == lightKey.FilterName && g.Key.FilterBandpass == lightKey.FilterBandpass ? 0.0 : 1000.0;
+            var filterMismatch = g.Key.SameFilterAs(lightKey) ? 0.0 : 1000.0;
             // Time matters a little more for flats than the constant's sizing suggests (dust moves
             // between seasons), but it is still no physical axis: filter and temperature dominate,
             // and time separates two epochs of the SAME train's flats -- the season whose dust

@@ -162,7 +162,7 @@ public static class CalibrationCoverageReport
 
         var filterMatch = flatGroup is null
             ? (bool?)null
-            : flatGroup.Key.FilterName == lightKey.FilterName && flatGroup.Key.FilterBandpass == lightKey.FilterBandpass;
+            : flatGroup.Key.SameFilterAs(lightKey);
         var flatAgeDays = AgeDays(flatGroup?.EpochStart, sessionDate);
         var darkAgeDays = AgeDays(darkGroup?.EpochStart, sessionDate);
         var darkGainMatch = darkGroup is null
@@ -192,7 +192,7 @@ public static class CalibrationCoverageReport
             flatGroup is null ? "" : Clean(flatGroup.Key.Slug()),
             flatGroup is null ? "" : Bool(flatGroup.IsMaster),
             flatGroup is null ? "" : flatGroup.Frames.Length.ToString(CultureInfo.InvariantCulture),
-            flatGroup is null ? "" : Clean(flatGroup.Key.FilterName),
+            flatGroup is null ? "" : Clean(flatGroup.Key.FilterIdentity),
             filterMatch is null ? "" : Bool(filterMatch.Value),
             flatGroup is null ? "" : GainText(flatGroup.Key.Gain),
             flatGroup is null ? "" : OffsetText(flatGroup.Key.Offset),
@@ -275,7 +275,7 @@ public static class CalibrationCoverageReport
                     continue;
                 }
                 flatCandidates++;
-                if (g.Key.FilterName == lightKey.FilterName && g.Key.FilterBandpass == lightKey.FilterBandpass)
+                if (g.Key.SameFilterAs(lightKey))
                 {
                     flatSameFilter++;
                 }
