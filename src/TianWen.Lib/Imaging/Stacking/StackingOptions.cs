@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Numerics;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Enhancement;
@@ -177,4 +177,14 @@ public sealed record StackingOptions(
     // 0.185 px worst case (0.080 rms), under the registration's own residual, while plate scale held
     // to 0.028%. If a longer run ever needs it, this is where a quadratic term would go.
     // Null = the ordinary star-aligned stack, byte-identical to before.
-    Vector2? CometRatePxPerHour = null);
+    Vector2? CometRatePxPerHour = null,
+    // The moving target to DERIVE that rate for, e.g. "10P" or "10P/Tempel 2". This is the
+    // unattended path: the pipeline plate-solves the reference frame, asks JPL Horizons for a
+    // topocentric track over the group's own time span from the site the frames record, and fits
+    // the canvas rate. CometRatePxPerHour wins when both are set, so an explicit rate remains the
+    // offline answer for a run with no network -- and the escape hatch if an ephemeris is ever
+    // wrong.
+    //
+    // "Auto" (the empty string) reads the designation from the frames' own OBJECT card, which is
+    // what makes a whole folder of comet lights stack correctly with no argument beyond the flag.
+    string? CometDesignation = null);

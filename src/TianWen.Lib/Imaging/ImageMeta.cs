@@ -56,6 +56,12 @@ namespace TianWen.Lib.Imaging;
 /// <param name="RowOrder">Pixel row order: TopDown or BottomUp (FITS: ROWORDER).</param>
 /// <param name="Latitude">Observatory latitude in decimal degrees (FITS: SITELAT). NaN if unknown.</param>
 /// <param name="Longitude">Observatory longitude in decimal degrees (FITS: SITELONG). NaN if unknown.</param>
+/// <param name="SiteElevation">Observatory elevation above mean sea level in metres (FITS:
+/// SITEELEV). NaN if unknown. Carried because a TOPOCENTRIC ephemeris is stated for a place, not
+/// a planet: <see cref="Astrometry.Comets.HorizonsObserverSource"/> puts it in SITE_COORD. Its own
+/// contribution is tiny -- 120 m against Earth's radius moves a diurnal parallax of ~3 px by less
+/// than a thousandth of a pixel -- but the query asks for it, so reading it beats passing a zero
+/// that looks like a measurement.</param>
 /// <param name="ObjectName">Target object name, e.g. "M42" (FITS: OBJECT). Empty if unset.</param>
 /// <param name="Gain">Camera gain register setting (FITS: GAIN). -1 if unknown.</param>
 /// <param name="Offset">Camera offset/black-level register setting (FITS: OFFSET, BLKLEVEL). -1 if unknown.
@@ -118,7 +124,8 @@ public record struct ImageMeta(
     Devices.PointingState PierSide = Devices.PointingState.Unknown,
     float? SensorFullScaleAdu = null,
     int Iso = -1,
-    float DeclaredPixelScale = float.NaN
+    float DeclaredPixelScale = float.NaN,
+    float SiteElevation = float.NaN
 )
 {
     /// <summary>

@@ -314,6 +314,7 @@ public partial class Image
         );
         var latitude = hdu.Header.GetFloatValue("SITELAT", float.NaN);
         var longitude = hdu.Header.GetFloatValue("SITELONG", float.NaN);
+        var siteElevation = hdu.Header.GetFloatValue("SITEELEV", float.NaN);
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
         // GAIN/OFFSET are int cards in N.I.N.A. files but float cards in e.g. Astro Pixel Processor
         // masters -- ReadIntegerLikeCard coerces both forms (and rejects NaN/Infinity as unknown).
@@ -376,7 +377,8 @@ public partial class Image
             TargetDec: targetDec,
             PierSide: pierSide,
             SensorFullScaleAdu: saturate > 0 ? saturate : null,
-            DeclaredPixelScale: declaredPixelScale
+            DeclaredPixelScale: declaredPixelScale,
+            SiteElevation: siteElevation
         )
         { IsMaster = isMaster };
     }
@@ -836,6 +838,7 @@ public partial class Image
         AddHeaderValueIfHasValue("YBAYROFF", imageMeta.BayerOffsetY, "");
         AddHeaderValueIfHasValue("SITELAT", imageMeta.Latitude, "degrees");
         AddHeaderValueIfHasValue("SITELONG", imageMeta.Longitude, "degrees");
+        AddHeaderValueIfHasValue("SITEELEV", imageMeta.SiteElevation, "metres above mean sea level");
         if (!double.IsNaN(imageMeta.TargetRA) && !double.IsNaN(imageMeta.TargetDec))
         {
             AddHeaderValueIfHasValue("OBJCTRA", Astrometry.CoordinateUtils.HoursToHMS(imageMeta.TargetRA, ' ', minuteSeparator: ' '), "");

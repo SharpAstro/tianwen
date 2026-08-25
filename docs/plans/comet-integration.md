@@ -135,38 +135,81 @@ Worth being precise about why the mount being polar aligned does not remove this
 is a change in the OBSERVER's position, not a rotation of the field, so no amount of tracking
 accuracy addresses it.
 
+## The rate is derived in code (was items 1 and 3, done)
+
+`stack --comet [designation]` registers on the body with no hand-computed constant anywhere.
+`--comet-rate dx,dy` is the offline counterpart and the override, and wins when both are given.
+
+The chain, all of it inside `ProcessLightGroupAsync` before the first frame is registered:
+
+| Step | Where | Note |
+|---|---|---|
+| Resolve the designation | `CometTrackRequest.TryBuild` | `--comet` with no value reads `OBJECT`; `10P/Tempel 2` compacts to `10P`, which is what Horizons' `DES=` takes |
+| Derive the window | same | spans every frame in the group, padded one step each side so no epoch is extrapolated |
+| Plate-solve the REFERENCE frame | `CatalogPlateSolver` | the one place the pipeline solves anything but the finished master |
+| Fetch a topocentric track | `HorizonsObserverSource` | `SITE_COORD` from the frames' own `SITELAT`/`SITELONG`/`SITEELEV` |
+| Fit the canvas rate | `CometRateSolver` | OLS per axis, reports a straightness residual |
+
+Three decisions worth not re-litigating:
+
+- **The reference frame has to be solved, and nothing solved it before.** Registration is
+  frame-to-frame star-quad matching and never needed to know where the sky was; the only solve was of
+  the finished master, in `MasterPostProcessor`, which is far too late. The master's WCS would
+  actually serve -- it differs from the reference frame's by a translation, which a rate is immune to
+  -- but only after integration, and the rate is needed during it.
+- **An unknown site is a refusal, not a geocentric fallback.** Horizons answers a geocentric query
+  perfectly happily and the result is wrong by 3.4 degrees of heading. Since it also fits a
+  *straighter* line than the correct track, nothing downstream can catch it, so declining and letting
+  the caller pass `--comet-rate` is the only defence. `SITEELEV` is different and does default to sea
+  level: it is worth well under a thousandth of a pixel.
+- **The residual is logged and nothing gates on it.** It measures how straight the track was, never
+  whether it pointed the right way. It is there to catch a body too fast for one linear rate.
+
+`SITEELEV` now round-trips through `ImageMeta.SiteElevation`; the Horizons query already took an
+elevation, so reading it beat passing a zero that looks like a measurement.
+
+**Reading the body off `OBJECT` needed a parser fix, and it also fixed the search box** -- a separate
+function that would otherwise have made the leniency look done while still failing.
+`CatalogUtils.TryGuessCatalogFormat` decides a digit-leading string is a comet via `IsNumberedShape`,
+and was handing it SPACE-STRIPPED input. That is fatal to the distinction, because the only thing
+separating a named comet from a catalogued object that merely starts with digits is the orbit letter
+sitting immediately against the number -- and stripped, `10P Tempel` and `30 Doradus` are both
+`<digits><PDI><letters>`. The guesser now probes the original string too, and the probe still refuses
+a bare letter tail, so 30 Doradus keeps its own catalog. Both directions are pinned.
+
 ## Not done
 
 Roughly in dependency order.
 
-1. **Derive the rate in code.** Today it is a hand-computed constant. Wants: read `SITELAT`/`SITELONG`
-   and the exposure epochs from the frames, fetch a Horizons OBSERVER ephemeris, convert two sky
-   positions to canvas pixels through the reference frame's WCS, and divide. The plate-solve fix that
-   makes the WCS trustworthy here is merged (SIP rms 0.11 px), which is why this is now worth doing.
-   **Which body to ask Horizons about can come from the frames**, now that `OBJECT` is corrected and
-   `CometDesignation.TryParse` reads a space-separated name tail: `10P/Tempel 2` and `10P Tempel 2`
-   both answer `10P`. So `stack --comet` in item 3 wants a designation only to OVERRIDE the header,
-   not to supply what the header already knows.
+1. **Stamp the colour calibration into the master.** The comet layer (item 3) is starless by
+   construction, so SPCC -- which fits against catalogue stars -- **cannot be re-derived for it**, and
+   the screen combine in item 4 needs both layers on one calibration or it is meaningless. Nothing
+   carries it today: `IntegrationFitsWriter` stamps `STACK_N` / `NUMFRAME` / `SWCREATE` / `REJ_*` and
+   no colour at all, and `SpccDiagnostics` only ever reaches `GroupResult.Spcc` in memory, where it
+   dies with the process. Worse, the ordering rules out simply adding cards at the write: SPCC is
+   solved inside `MasterPreviewRenderer.RenderAsync`, which runs *after* `IntegrationFitsWriter.Write`,
+   so the FITS is already on disk when the calibration comes into existence. A header-append with the
+   existing `FitsHeaderEditor` (what `dataset tag-filter` uses) fits the ordering without a reorder.
 
-   The same change fixed the search box, which is a separate function and would otherwise have made
-   the leniency look done while still failing: `CatalogUtils.TryGuessCatalogFormat` decides a
-   digit-leading string is a comet via `IsNumberedShape`, and was handing it SPACE-STRIPPED input.
-   That is fatal to the distinction, because the only thing separating a named comet from a
-   catalogued object that merely starts with digits is the orbit letter sitting immediately against
-   the number -- and stripped, `10P Tempel` and `30 Doradus` are both `<digits><PDI><letters>`. The
-   guesser now probes the original string too, and the probe still refuses a bare letter tail, so
-   30 Doradus keeps its own catalog. Both directions are pinned.
+   Split, following the `--split-plates` rule that already governs this: the **WB triple is
+   inherited** (`WBSOURCE` = `SPCC`/`SKYBG`/`NONE`, plus `WBRED`/`WBGREEN`/`WBBLUE`) because the
+   starless plate has nothing to fit, while **background neutralisation stays per-plate**, computed
+   from the plate's own pixels *using* that inherited WB -- grafting the star master's bg-neut onto a
+   plate with a different background is the documented double-correction that tints it. Stamping the
+   measured sky background too (`BKGR`/`BKGG`/`BKGB`) lets a later pass sanity-check its own rather
+   than trust blindly.
 2. **Treat the ephemeris as a SEED, not the answer.** Then centroid the nucleus per frame as if it
    were a star, fit a smooth track through the centroids with outlier rejection, and use that. The
-   fit residuals double as a per-frame quality gate, which the ephemeris alone cannot give.
-3. **A CLI surface.** `StackingOptions.CometRatePxPerHour` has no flag. Probably
-   `stack --comet <designation>` deriving the rate, with an explicit `--comet-rate <dx>,<dy>` escape
-   hatch, parsed where the other option strings are.
-4. **Per-frame SXT over 135 lights**, keeping the starless plate, then integrate those comet-aligned.
-5. **The screen combine** of artifacts 1 and 3.
-6. **Tests.** Nothing pins any of this yet. The cheap and valuable one is the compose itself: a
-   synthetic pair with a known rate and a known dither, asserting the target lands on the same canvas
-   pixel and the stars do not. That would have caught an operand-order slip.
+   fit residuals double as a per-frame quality gate, which the ephemeris alone cannot give. **This is
+   also the only check that can catch a wrong heading**, since the straightness residual demonstrably
+   prefers the wrong track: a heading error shows here as a GROWING cross-track offset, ~2.7 px by the
+   end of this run against a 2.15 px FWHM.
+3. **Per-frame SXT over 135 lights**, keeping the starless plate, then integrate those comet-aligned.
+   Needs item 1 first, or the layer has no colour.
+4. **The screen combine** of artifacts 1 and 3.
+5. **A test pinning the compose itself.** A synthetic pair with a known rate and a known dither,
+   asserting the target lands on the same canvas pixel and the stars do not. That would catch an
+   operand-order slip, which is the one failure the derivation chain cannot.
 
 ## The headers were amended (was item 7, done)
 

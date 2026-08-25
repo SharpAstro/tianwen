@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Numerics;
 
 namespace TianWen.Lib.Astrometry.Comets;
@@ -90,6 +91,31 @@ public static class CometRateSolver
         }
 
         return new CometRate(new Vector2((float)slopeX, (float)slopeY), worst, n);
+    }
+
+    /// <summary>
+    /// Parses the offline form of a rate, <c>"dx,dy"</c> in canvas pixels per hour, as the CLI's
+    /// <c>--comet-rate</c> takes it. Lives here rather than in the CLI so the hosted API and any
+    /// future UI parse it the same way, the same reason <c>EnhanceOptions.TryParse</c> is shared.
+    /// </summary>
+    public static bool TryParsePxPerHour(ReadOnlySpan<char> text, out Vector2 rate)
+    {
+        rate = default;
+        var comma = text.IndexOf(',');
+        if (comma <= 0)
+        {
+            return false;
+        }
+
+        if (!float.TryParse(text[..comma].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var dx)
+            || !float.TryParse(text[(comma + 1)..].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var dy)
+            || !float.IsFinite(dx) || !float.IsFinite(dy))
+        {
+            return false;
+        }
+
+        rate = new Vector2(dx, dy);
+        return true;
     }
 
     /// <summary>Ordinary least squares of <paramref name="v"/> against <paramref name="t"/>.

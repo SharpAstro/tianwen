@@ -1,11 +1,13 @@
 ﻿using System;
 using System.CommandLine;
 using System.IO;
+using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
@@ -128,6 +130,16 @@ internal sealed class StackSubCommand(
         {
             Description = "Debug knob: pin the reference frame to the first candidate whose path contains this case-insensitive substring (e.g. '_0233' to pin to that filename). Falls back to the composite-quality score picker when unset or no match. Use to isolate per-frame artifacts that correlate with reference choice - a frame near the session's temporal middle keeps per-frame rotation residuals symmetric, which balances per-channel drizzle coverage.",
         };
+        var cometOpt = new Option<string?>("--comet")
+        {
+            Description = "Comet / moving-target integration: register on the BODY instead of the star field, so the comet integrates sharp and the stars trail. Pass a designation ('10P', 'C/2023 A3') or leave the value empty to read it from the frames' own OBJECT card. The rate is derived by plate-solving the reference frame and asking JPL Horizons for a TOPOCENTRIC track over the session's own span, from the site the frames record in SITELAT/SITELONG/SITEELEV - a geocentric ephemeris is NOT good enough (diurnal parallax moved 10P by 2.7 px across one night, 25x the registration residual). Needs network; use --comet-rate offline.",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
+        var cometRateOpt = new Option<string?>("--comet-rate")
+        {
+            Description = "Comet integration with an EXPLICIT canvas rate, as 'dx,dy' in pixels per hour of the reference frame's pixel grid (e.g. '-11.2,5.9'). The offline counterpart to --comet, and the override when an ephemeris is wrong; wins over --comet when both are given. Note this is CANVAS pixels per hour, not a sky rate: the star solution has already absorbed dither and field rotation by the time it applies.",
+        };
+
         var noBayerDrizzleOpt = new Option<bool>("--no-bayer-drizzle")
         {
             Description = "Opt out of drizzle auto-selection. On RGGB sensors with >= 60 matched frames the selector picks BayerDrizzle / TilePipelinedDrizzle by default (3-5x faster than the standard AHD-debayer path on big-N sessions); this flag forces the standard path instead. Useful for A/B against a reference master, or when you specifically want kappa-sigma rejection rather than drizzle's per-cell coverage map. --strategy overrides still win - forcing BayerDrizzle bypasses this flag.",
@@ -198,6 +210,7 @@ internal sealed class StackSubCommand(
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
                 qualityRejectSigmaOpt, referenceFrameHintOpt,
+                cometOpt, cometRateOpt,
                 noBayerDrizzleOpt, includeIntegrationsOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
                 aiBackendOpt, deblurSharpenOpt, denoiseStrengthOpt, denoiseIterationsOpt,
@@ -237,6 +250,23 @@ internal sealed class StackSubCommand(
                 consoleHost.WriteScrollable(
                     $"[stack] warning: --drizzle-* options ignored when --strategy={forcedStrategy} (non-drizzle)");
             }
+            // Comet mode. --comet with NO value means "read the designation off the frames", which
+            // is the unattended case, so absence and empty have to be told apart -- GetValue answers
+            // null for both, and only the parse RESULT knows whether the flag was typed.
+            var cometDesignation = parseResult.GetResult(cometOpt) is not null
+                ? parseResult.GetValue(cometOpt) ?? ""
+                : null;
+            Vector2? cometRate = null;
+            if (parseResult.GetValue(cometRateOpt) is { Length: > 0 } cometRateText)
+            {
+                if (!CometRateSolver.TryParsePxPerHour(cometRateText, out var explicitRate))
+                {
+                    consoleHost.WriteError($"--comet-rate: expected 'dx,dy' in canvas px/hr, got '{cometRateText}'");
+                    return 1;
+                }
+                cometRate = explicitRate;
+            }
+
             // --enhance-blend is the implicit gate for --enhance: passing a
             // blend < 1 without --enhance still enables the pipeline (the
             // blend value would otherwise be silently ignored, which would
@@ -300,6 +330,8 @@ internal sealed class StackSubCommand(
                 HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt),
                 QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
                 ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
+                CometRatePxPerHour: cometRate,
+                CometDesignation: cometDesignation,
                 DisableBayerDrizzle: disableBayerDrizzle,
                 IncludeIntegrations: parseResult.GetValue(includeIntegrationsOpt),
                 Enhance: enhanceArg,
