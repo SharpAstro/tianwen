@@ -1343,7 +1343,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     }
 
     /// <summary>
-    /// Frees a channel's view, image and memory, draining prior in-flight frames first because every
+    /// Frees a channel's view, image and memory, draining the in-flight frames first because every
     /// caller destroys an image a frame still in flight may be sampling.
     /// </summary>
     /// <remarks>
@@ -1360,22 +1360,35 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// lands on the steady-state path, and once the first destroy of a batch has idled the queue the
     /// rest cost nothing until something new is submitted.</para>
     /// <para>Skipped when there is nothing allocated, so a placeholder slot pays no wait.</para>
-    /// <para>Guarded on <see cref="VulkanContext.IsGpuStuck"/> for the same reason
-    /// <see cref="Dispose"/> guards its own drain: an unbounded wait on an already-wedged device would
-    /// hard-freeze the render thread, turning a recoverable stall into a hang. The bounded form
-    /// upstream (<c>TryWaitPriorFramesIdle</c> -- waits every fence except the current frame's, capped,
-    /// and skips a known-stuck GPU) is what this should call; it is <c>internal</c> today.</para>
+    /// <para>The drain is <see cref="VulkanContext.TryWaitAllFramesIdle"/>: capped, and it skips a GPU the
+    /// renderer already knows is stuck, so a destroy coinciding with a wedged device cannot hard-freeze
+    /// the render thread the way the unbounded <c>vkDeviceWaitIdle</c> it replaced could -- and it logs,
+    /// under the label passed here, which of the two it did. Every call site is reached from
+    /// <c>OnRender</c>, i.e. MID-RECORD (the event loop is BeginFrame, OnRender, EndFrame), and the
+    /// renderer resets the current index's fence only inside EndFrame's submit, so at this point that
+    /// fence is still signalled from the frame BeginFrame retired and the all-frames form waits exactly
+    /// what <see cref="VulkanContext.TryWaitPriorFramesIdle"/> would. It is preferred anyway because it
+    /// is the form that stays correct if a caller ever moves BETWEEN frames, where the current index can
+    /// still hold a submit from <c>MaxFramesInFlight</c> frames ago and the prior-frames form skips
+    /// exactly the fence that matters (SharpAstro/tianwen#197).</para>
+    /// <para><b>A timed-out drain still destroys, and that is a decision, not an inherited default.</b>
+    /// <c>false</c> means nothing was waited for. The renderer's own callers proceed because they destroy
+    /// AND recreate their target, so a timeout degrades to the rebuild they were doing anyway. This
+    /// destroy has no rebuild behind it, so proceeding frees an image the GPU may still be reading -- a
+    /// low-probability fault on a device that could not signal its fences inside the cap, set against a
+    /// guaranteed hang of the render thread. The fault was chosen.</para>
     /// </remarks>
     private void DestroyChannelTexture(int channel)
     {
         var api = _ctx.DeviceApi;
 
-        if ((_channelViews[channel] != VkImageView.Null
-                || _channelImages[channel] != VkImage.Null
-                || _channelMemories[channel] != VkDeviceMemory.Null)
-            && !_ctx.IsGpuStuck)
+        if (_channelViews[channel] != VkImageView.Null
+            || _channelImages[channel] != VkImage.Null
+            || _channelMemories[channel] != VkDeviceMemory.Null)
         {
-            api.vkDeviceWaitIdle();
+            // The timed-out (false) return is deliberately not acted on -- see the remarks. The renderer
+            // has already logged it under this label.
+            _ = _ctx.TryWaitAllFramesIdle("channel texture destroy");
         }
 
         if (_channelViews[channel] != VkImageView.Null)

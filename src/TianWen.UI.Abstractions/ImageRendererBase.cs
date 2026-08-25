@@ -57,9 +57,11 @@
 // 4.97 ms with Calibrate + NeutBg -- so the shader, not the chrome, is what a redraw costs.
 //
 // Files to change:
-//   - SdlVulkan.Renderer: a sampleable variant of ThumbnailCapture (finalLayout, no readback), and
-//     make the bounded TryWaitPriorFramesIdle public so a consumer owning GPU images can honour the
-//     rule in constraint 2 without an unbounded vkDeviceWaitIdle
+//   - SdlVulkan.Renderer: a sampleable variant of ThumbnailCapture (finalLayout, no readback). The
+//     bounded-drain half is DONE (7.25.2661): TryWaitAllFramesIdle is public, and it is the form a
+//     consumer owning GPU images should call to honour the rule in constraint 2 -- NOT
+//     TryWaitPriorFramesIdle, which skips the current frame's fence by design and is therefore wrong
+//     for a destroy that runs between frames (SharpAstro/tianwen#197)
 //   - TianWen.UI.Shared/VkFitsImagePipeline.cs: offscreen framebuffer management
 //   - TianWen.UI.Shared/VkImageRenderer.cs: split RenderImageQuad into cached/blit paths
 //   - TianWen.UI.Abstractions/ImageRendererBase.cs: add ImageContentDirty flag logic
