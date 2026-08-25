@@ -332,6 +332,11 @@ It subsumes the cache: reusing the transforms skips measure AND register, which 
 at 44.6% + 3.8% of wall clock. But speed is the side effect. Reproducibility is the point, and
 "re-run it and get a different reference frame" is the failure it exists to prevent.
 
+Also worth pinning if the AHD path is ever used for one layer: **`StackDebayerAlg`** (AHD by default,
+with `CentroidDebayerAlg` VNG for registration only). Two layers debayered differently differ subtly in
+colour and sharpness before any intended processing touches them. Moot while both layers Bayer-drizzle,
+which the mosaic measurement above makes possible.
+
 Open: whether the manifest keys frames by path or by a digest of the FITS DATA section. The digest is
 more honest -- today's `SITEELEV` amendment rewrote 525 headers and changed every mtime without
 touching a pixel, and star positions depend only on pixels -- but a path is what a human reads in a
