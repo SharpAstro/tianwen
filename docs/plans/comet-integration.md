@@ -268,6 +268,14 @@ Roughly in dependency order.
    on 10P -- see the experiment above), the same mask is what restores it, and it is derived rather
    than a hand-placed disc around an ephemeris prediction.
 
+   **The mask must be TAIL-shaped, not disc-shaped, and that rules out the obvious first
+   implementation.** A disc around the ephemeris position is the natural thing to reach for and it
+   clips the tail -- on the SWAN field the tail runs well out from the coma and stays faint where it
+   crosses unrelated red nebulosity, so a generous disc would either cut it or swallow the nebula.
+   The sharp-vs-smeared discriminator needs no shape assumption at all: the tail is sharp in the
+   comet-aligned stack and smeared in the star-aligned one wherever it happens to reach, so it is
+   selected by the same test as the coma.
+
    Open questions worth measuring rather than arguing: whether the mask needs feathering to avoid a
    visible seam where the coma meets the sky; whether it should be built at full resolution or
    downsampled and upscaled (a mask carries structure, not detail); and whether the smeared-M16
