@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -11,6 +11,8 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.Astrometry.Comets;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
 using TianWen.Lib.Stat;
@@ -656,6 +658,24 @@ public sealed class StackingPipeline(
         {
             logger.LogWarning("  [warn] couldn't reread ref FITS for WCS hint: {Path}", reference.Path);
         }
+        // Comet mode: the canvas rate either came from the caller or is derived HERE, before any
+        // frame is registered, because the compose below needs it per frame. Deriving it needs the
+        // reference frame's own WCS, which is why this is the one place in the pipeline that
+        // plate-solves anything other than the finished master -- registration itself is
+        // frame-to-frame star matching and never needed to know where the sky was.
+        //
+        // An explicit rate wins over a designation, so --comet-rate stays the offline answer and the
+        // override for an ephemeris that turns out to be wrong.
+        var cometRate = options.CometRatePxPerHour;
+        if (cometRate is null && options.CometDesignation is not null)
+        {
+            cometRate = await TryResolveCometRateAsync(lightList, referenceRaw, searchHint, ct);
+            if (cometRate is null)
+            {
+                logger.LogWarning("  [comet] no rate could be derived; this group stacks STAR-aligned");
+            }
+        }
+
         using var registerLoop = await RegisterLoop.CreateAsync(refCandidate.Stars, options.QuadStars, ct);
         // State the fingerprint set on SUCCESS, not only when registration collapses. Both counts
         // were already computed here and thrown away, and their absence is what makes the
@@ -731,12 +751,12 @@ public sealed class StackingPipeline(
             // pins the target instead. Composed AFTER the star solution so it acts in canvas space,
             // which is the only basis where the target's motion is separable from dither and field
             // rotation. The reference frame needs no special case: its dt is zero.
-            if (options.CometRatePxPerHour is { } cometRate && transform is { } starSolution)
+            if (cometRate is { } cometDrift && transform is { } starSolution)
             {
                 var driftHours = (candidate.Frame.Meta.ExposureStartTime - reference.Meta.ExposureStartTime).TotalHours;
                 transform = starSolution * Matrix3x2.CreateTranslation(
-                    (float)(-cometRate.X * driftHours),
-                    (float)(-cometRate.Y * driftHours));
+                    (float)(-cometDrift.X * driftHours),
+                    (float)(-cometDrift.Y * driftHours));
             }
 
             if (transform is null) { skipCount++; continue; }
@@ -1127,6 +1147,95 @@ public sealed class StackingPipeline(
     /// rebuilt. This cache trusts any file it finds (no fingerprint), so the name is the only place
     /// a change in how the master is built can be recorded.</param>
     /// <param name="ct">Cancellation.</param>
+    /// <summary>
+    /// Derives the comet's canvas rate for this group: plate-solve the reference frame, ask JPL
+    /// Horizons for a TOPOCENTRIC track over the group's own time span, fit a straight line through
+    /// the projected pixel positions.
+    ///
+    /// <para>Every failure answers <c>null</c> rather than throwing. A comet stack that silently
+    /// becomes a star stack would be a bad outcome, which is why the caller says so loudly -- but a
+    /// stack that dies because JPL was unreachable would be a worse one, and the explicit
+    /// <c>CometRatePxPerHour</c> exists precisely so an offline run has an answer.</para>
+    ///
+    /// <para><b>The residual is logged and nothing gates on it.</b> It measures how STRAIGHT the
+    /// track was, never whether it pointed the right way, and a geocentric (wrong) track fits
+    /// straighter than the correct one because parallax is exactly what bends the correct one. It is
+    /// here to catch a body too fast for one linear rate, not to validate the ephemeris.</para>
+    /// </summary>
+    private async Task<Vector2?> TryResolveCometRateAsync(
+        IReadOnlyList<FrameInfo> lightList,
+        Image referenceRaw,
+        WCS? searchHint,
+        CancellationToken ct)
+    {
+        if (catalogDb is not { } db)
+        {
+            logger.LogWarning("  [comet] no catalog DB, so the reference frame cannot be plate-solved");
+            return null;
+        }
+
+        // The window spans every frame in the group, not just the reference: the compose measures
+        // each frame's drift from the reference epoch, so the fit has to be valid across the lot.
+        var first = DateTimeOffset.MaxValue;
+        var last = DateTimeOffset.MinValue;
+        foreach (var lf in lightList)
+        {
+            var start = lf.Meta.ExposureStartTime;
+            if (start < first) { first = start; }
+            var end = start + lf.Meta.ExposureDuration;
+            if (end > last) { last = end; }
+        }
+
+        var meta = referenceRaw.ImageMeta;
+        if (CometTrackRequest.TryBuild(
+                options.CometDesignation, meta.ObjectName,
+                meta.Latitude, meta.Longitude, meta.SiteElevation, first, last) is not { } request)
+        {
+            logger.LogWarning(
+                "  [comet] no ephemeris request from OBJECT=\"{Object}\" at SITELAT={Lat} SITELONG={Lon}: need a comet designation and a known site",
+                meta.ObjectName, meta.Latitude, meta.Longitude);
+            return null;
+        }
+
+        // Tycho-2 is what the solver matches against; the CLI kicks this off at startup so it has
+        // usually landed by now and this returns through the idempotent fast path.
+        await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+        var solveStart = StageTimings.Start();
+        var solved = await new CatalogPlateSolver(db, logger).SolveImageAsync(
+            referenceRaw, imageDim: referenceRaw.GetImageDim(), searchOrigin: searchHint, cancellationToken: ct);
+        if (solved.Solution is not { } referenceWcs)
+        {
+            logger.LogWarning("  [comet] the reference frame did not plate-solve, so the ephemeris cannot be projected");
+            return null;
+        }
+        logger.LogInformation("  [comet] reference solved in {ElapsedMs} ms",
+            (long)Stopwatch.GetElapsedTime(solveStart).TotalMilliseconds);
+
+        var track = await new HorizonsObserverSource(logger).TryFetchTrackAsync(
+            request.Designation, request.SiteLatDeg, request.SiteLonDeg, request.SiteElevMetres,
+            request.Start, request.Stop, request.Step, ct);
+        if (track.Length < 2)
+        {
+            logger.LogWarning("  [comet] Horizons returned {Count} usable positions for {Designation}",
+                track.Length, request.Designation);
+            return null;
+        }
+
+        if (CometRateSolver.SolveCanvasRatePxPerHour(referenceWcs, track.AsSpan()) is not { } rate)
+        {
+            logger.LogWarning("  [comet] the track could not be fitted to a rate");
+            return null;
+        }
+
+        logger.LogInformation(
+            "  [comet] {Designation} from ({Lat:F4}, {Lon:F4}, {Elev:F0} m): {Count} samples over {Hours:F2} h -> "
+                + "rate ({Vx:F3}, {Vy:F3}) px/hr, |v|={Mag:F2} px/hr, straightness residual {Residual:F3} px",
+            request.Designation, request.SiteLatDeg, request.SiteLonDeg, request.SiteElevMetres,
+            rate.SampleCount, (request.Stop - request.Start).TotalHours,
+            rate.PxPerHour.X, rate.PxPerHour.Y, rate.PxPerHour.Length(), rate.MaxResidualPx);
+        return rate.PxPerHour;
+    }
+
     private async Task<List<(MasterGroupKey Key, Image Master)>> BuildMastersAsync(
         List<FrameInfo>? frames,
         Func<IReadOnlyList<FrameInfo>, CancellationToken, Task<Image>> builder,

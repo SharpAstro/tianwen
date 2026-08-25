@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Net.Http;
@@ -58,6 +58,15 @@ internal sealed class HorizonsObserverSource : IHorizonsObserverSource
     private readonly ILogger _logger;
 
     public HorizonsObserverSource(ILogger<HorizonsObserverSource> logger)
+        : this(s_httpClient, apiUri: null, logger)
+    {
+    }
+
+    /// <summary>For callers that hold a plain <see cref="ILogger"/> rather than a typed one -- the
+    /// stacking pipeline is constructed with one, and a non-generic logger parameter cannot be
+    /// resolved from DI (see the CatalogPlateSolver note in CLAUDE.md), so this ctor is reached by
+    /// direct construction only.</summary>
+    internal HorizonsObserverSource(ILogger logger)
         : this(s_httpClient, apiUri: null, logger)
     {
     }
