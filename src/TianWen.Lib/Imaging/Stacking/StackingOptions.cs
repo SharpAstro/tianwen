@@ -88,6 +88,18 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// recommended starting value -- conservative, catches clear outliers
 /// (low-altitude bloated frames, wind-trailed frames) without biting
 /// into the body of the distribution. See <see cref="FrameQualityFilter"/>.</param>
+/// <param name="RejectLowSigma">Overrides the PIXEL rejector's low
+/// (dark-outlier) threshold. Null keeps the per-kind default of 3.
+/// Distinct from <paramref name="QualityRejectSigma"/>, which drops whole
+/// FRAMES before integration; this one clips individual samples within a
+/// pixel's stack. The rejector KIND is still chosen by frame count.</param>
+/// <param name="RejectHighSigma">Overrides the PIXEL rejector's high
+/// (bright-outlier) threshold. Null keeps the per-kind default, which is 5
+/// at N >= 30 and deliberately generous so a real star is not clipped out of
+/// a sidereal stack. A comet layer wants the opposite -- comet-aligned, a
+/// star is present in a handful of frames at any given canvas cell, so it IS
+/// the outlier -- and something near 2.5-3 is the useful range there.
+/// See <see cref="StackingPipeline.BuildRejector"/>.</param>
 /// <param name="ReferenceFrameHint">Debug knob: when set, pins the
 /// reference frame for each light group to the first candidate whose
 /// path contains this case-insensitive substring. Null falls back to
@@ -158,6 +170,8 @@ public sealed record StackingOptions(
     bool RequireGainMatch = true,
     float HotPixelSigma = 8.0f,
     float? QualityRejectSigma = null,
+    float? RejectLowSigma = null,
+    float? RejectHighSigma = null,
     string? ReferenceFrameHint = null,
     string? ManifestPath = null,
     bool RemoveStarsPerFrame = false,

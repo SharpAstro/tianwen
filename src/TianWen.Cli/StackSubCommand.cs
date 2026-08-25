@@ -129,6 +129,14 @@ internal sealed class StackSubCommand(
         {
             Description = "Enable per-frame quality filtering at this sigma threshold: a frame is dropped from integration when its median HFD or ellipticity exceeds median + sigma * 1.4826 * MAD of the session. An 80% keep floor caps rejection at the worst 20% by severity. 3.0 is a conservative starting value - catches clear outliers (bloated low-altitude frames, wind-trailed frames) without biting into the body of the distribution. Off by default.",
         };
+        var rejectLowSigmaOpt = new Option<float?>("--reject-low-sigma")
+        {
+            Description = "Override the PIXEL rejector's low (dark-outlier) threshold. Default 3. This clips individual samples inside one pixel's stack and is a different knob from --quality-reject-sigma, which drops whole frames. The rejector kind is still chosen by frame count (LinearFitClip under 30 frames, Winsorized under 60, SigmaClip at or above 60); this only moves its thresholds.",
+        };
+        var rejectHighSigmaOpt = new Option<float?>("--reject-high-sigma")
+        {
+            Description = "Override the PIXEL rejector's high (bright-outlier) threshold. Default 5 at 30+ frames, chosen to be generous so a real star is never clipped out of a sidereal stack. A comet layer wants the opposite: comet-aligned, a star lands on any given canvas cell in only a handful of frames, so it IS the outlier. Try 2.5-3.0 with --remove-stars to take out the trailed residuals per-frame star removal leaves behind. Has no effect under BayerDrizzle, which does no kappa-sigma rejection at all - pair it with --no-drizzle.",
+        };
         var referenceFrameHintOpt = new Option<string?>("--reference-frame")
         {
             Description = "Debug knob: pin the reference frame to the first candidate whose path contains this case-insensitive substring (e.g. '_0233' to pin to that filename). Falls back to the composite-quality score picker when unset or no match. Use to isolate per-frame artifacts that correlate with reference choice - a frame near the session's temporal middle keeps per-frame rotation residuals symmetric, which balances per-channel drizzle coverage.",
@@ -246,7 +254,8 @@ internal sealed class StackSubCommand(
                 formatOpt, hdrPeakNitsOpt, noPlateSolveOpt,
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
-                qualityRejectSigmaOpt, referenceFrameHintOpt, manifestOpt, removeStarsOpt,
+                qualityRejectSigmaOpt, rejectLowSigmaOpt, rejectHighSigmaOpt,
+                referenceFrameHintOpt, manifestOpt, removeStarsOpt,
                 cometOpt, cometRateOpt,
                 inheritWbOpt,
                 noBayerDrizzleOpt, includeIntegrationsOpt,
@@ -404,6 +413,8 @@ internal sealed class StackSubCommand(
                 RequireGainMatch: parseResult.GetValue(requireGainMatchOpt),
                 HotPixelSigma: parseResult.GetValue(hotPixelSigmaOpt),
                 QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
+                RejectLowSigma: parseResult.GetValue(rejectLowSigmaOpt),
+                RejectHighSigma: parseResult.GetValue(rejectHighSigmaOpt),
                 ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
                 ManifestPath: parseResult.GetValue(manifestOpt),
                 RemoveStarsPerFrame: parseResult.GetValue(removeStarsOpt),
