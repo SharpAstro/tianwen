@@ -199,7 +199,13 @@ public sealed class DrizzleStrategy : IIntegrationStrategy
             if (refMeta is null)
             {
                 refMeta = frame.RawCfa.ImageMeta;
-                sourceMaxValue = frame.RawCfa.MaxValue;
+                // UnitScaleDivisor, not MaxValue: the canonical [0, 1] divisor, which prefers a
+                // DECLARED full scale (ImageMeta.SensorFullScaleAdu, i.e. a FITS SATURATE card) over
+                // the frame's own observed peak. A no-op for raw subs, which declare nothing and fall
+                // back to the peak exactly as before. It matters for a frame whose peak is not its
+                // full scale -- a per-frame starless plate, whose brightest pixel was a star that has
+                // been removed, so its peak understates its scale by ~7x.
+                sourceMaxValue = frame.RawCfa.UnitScaleDivisor;
             }
 
             var meta = frame.RawCfa.ImageMeta;

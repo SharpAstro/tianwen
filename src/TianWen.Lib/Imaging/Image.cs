@@ -975,8 +975,31 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     /// arrays and carries <c>Buffer = null</c>, so release responsibility stays with this instance and
     /// the input must not be used again. See the frame-ownership notes on <see cref="Image"/>.</para>
     /// </remarks>
-    internal Image ScaleFloatValuesToUnitInPlace(float missingValue = float.NaN)
+    internal Image ScaleFloatValuesToUnitInPlace(float missingValue = float.NaN) => ScaleToFullScaleInPlace(UnitScaleDivisor);
+
+    /// <summary>
+    /// <see cref="ScaleFloatValuesToUnitInPlace"/> against an EXPLICIT full scale rather than this
+    /// frame's own <see cref="UnitScaleDivisor"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>For a SEQUENCE of frames that will be integrated together, every frame has to be divided
+    /// by the SAME number, or the integration sums inconsistently scaled data.
+    /// <see cref="UnitScaleDivisor"/> falls back to the frame's own observed peak when nothing declares
+    /// a saturation point, and that peak moves frame to frame -- a different star saturates, a cosmic
+    /// ray lands, calibration divides by a different flat value at whichever pixel happens to be
+    /// brightest. Normalising a sequence frame-by-frame therefore rescales each frame slightly
+    /// differently, which is invisible per frame and shows up in the master as photometric scatter.</para>
+    /// <para>So a caller normalising a sequence passes a scale that is a property of the CONTAINER
+    /// rather than of the pixels -- <see cref="BitDepth.UnsignedFullScale"/> -- which is identical for
+    /// every frame of the same source.</para>
+    /// <para>Ownership is <see cref="ScaleFloatValuesToUnitInPlace"/>'s: convention 4, a CONSUMED
+    /// input.</para>
+    /// </remarks>
+    /// <param name="fullScale">The value that maps to 1.0. Must be greater than zero.</param>
+    internal Image ScaleToFullScaleInPlace(float fullScale)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(fullScale);
+
         // Already unit-referred: return the image untouched rather than paying a full pass to divide
         // by something indistinguishable from 1. On a 25 MP master that pass is not free.
         if (HasUnitScalePeak)
@@ -984,7 +1007,7 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
             return this;
         }
 
-        var invMax = 1.0f / UnitScaleDivisor;
+        var invMax = 1.0f / fullScale;
 
         // Through Planes, and ONCE: this mutates the arrays in place, so it must operate on resident
         // planes (an evicted channel is a 0x0 stub and plane[0, 0] would throw) and the rewrap below

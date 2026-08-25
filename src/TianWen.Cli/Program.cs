@@ -140,7 +140,10 @@ var rootCommand = new RootCommand
             consoleHost,
             services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.StackingPipeline>>(),
             services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
-            services.GetRequiredService<SharpenPipeline>()).Build(),
+            services.GetRequiredService<SharpenPipeline>(),
+            // GetService, not GetRequiredService: --remove-stars is the only thing that needs it, and
+            // a host with no AI backend must still be able to run an ordinary stack.
+            services.GetService<TianWen.Lib.Imaging.Enhancement.IStarRemover>()).Build(),
         new PlanetaryStackSubCommand(
             consoleHost,
             new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
