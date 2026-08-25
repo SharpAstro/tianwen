@@ -120,6 +120,17 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// drizzle's per-cell coverage map. <see cref="ForcedStrategy"/>
 /// overrides this either way (forcing BayerDrizzle still routes to
 /// the drizzle path even when this flag is true).</param>
+/// <param name="ManifestPath">Path to a <see cref="StackManifest"/> written by an earlier run. When
+/// set it DRIVES the run rather than merely informing it: the frame list, the reference frame and
+/// every per-frame star transform come from the manifest, and measure + register are skipped
+/// entirely.
+/// <para>This is what makes a starless layer possible at all. StarXTerminator leaves no point
+/// sources, so a starless plate cannot be star-registered -- it has no quads to match -- and its
+/// transform has to come from the original it was derived from. It is also what keeps two layers
+/// combinable: same frames, same reference, same canvas origin and orientation.</para>
+/// <para>A run supplies its own compose (the comet translation) ON TOP of transforms it did not
+/// re-derive, which is why the manifest stores the star solution rather than whatever the producing
+/// run composed.</para></param>
 public sealed record StackingOptions(
     string DataRoot,
     string OutputDir,
@@ -137,6 +148,7 @@ public sealed record StackingOptions(
     float HotPixelSigma = 8.0f,
     float? QualityRejectSigma = null,
     string? ReferenceFrameHint = null,
+    string? ManifestPath = null,
     bool DisableBayerDrizzle = false,
     bool IncludeIntegrations = false,
     bool Enhance = false,

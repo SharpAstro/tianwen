@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Numerics;
-using System.Security.Cryptography;
+using System.IO.Hashing;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -86,10 +86,17 @@ namespace TianWen.Lib.Imaging.Stacking
             => Path.ChangeExtension(masterFitsPath, null) + ".manifest.json";
 
         /// <summary>
-        /// SHA-256 over the first image HDU's DATA section. Walks HDUs the way every reader does (see
-        /// <c>FitsHduExtensions</c>): a tile-compressed or multi-extension file opens with an empty
-        /// primary, so stopping at the first END would digest zero bytes for all of them and make
-        /// every such file identical.
+        /// Digest over the first image HDU's DATA section, via <see cref="ContentDigest"/> (which
+        /// carries the reasoning about why this is not a cryptographic hash).
+        ///
+        /// <para>The DATA section rather than the file, which is the whole point: the 2026-08-25
+        /// SITEELEV amendment rewrote 525 headers and changed every mtime without touching a pixel,
+        /// and star positions depend only on pixels. XISF draws the same line, checksumming data
+        /// blocks rather than whole units.</para>
+        ///
+        /// <para>Walks HDUs the way every reader does (see <c>FitsHduExtensions</c>): a tile-compressed
+        /// or multi-extension file opens with an empty primary, so stopping at the first END would
+        /// digest zero bytes for all of them and make every such file identical.</para>
         /// </summary>
         public static string DigestData(string path)
         {
@@ -144,22 +151,7 @@ namespace TianWen.Lib.Imaging.Stacking
                 }
 
                 var dataBytes = Math.Abs(bitpix) / 8 * npix;
-                using var sha = SHA256.Create();
-                var buffer = new byte[1 << 20];
-                var remaining = dataBytes;
-                while (remaining > 0)
-                {
-                    var want = (int)Math.Min(buffer.Length, remaining);
-                    var got = fs.Read(buffer, 0, want);
-                    if (got <= 0)
-                    {
-                        break;
-                    }
-                    _ = sha.TransformBlock(buffer, 0, got, null, 0);
-                    remaining -= got;
-                }
-                _ = sha.TransformFinalBlock([], 0, 0);
-                return Convert.ToHexString(sha.Hash!);
+                return ContentDigest.OfStream(fs, dataBytes);
             }
         }
 

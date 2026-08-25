@@ -594,6 +594,64 @@ public sealed class StackingPipeline(
         }
         timings.Record(StageNames.Measure, measureStart, lightList.Count, measuredPixels);
 
+        // A manifest DRIVES this run rather than informing it: frame list, reference and every star
+        // transform come from the earlier run, and the register pass below is skipped entirely. That
+        // is what makes a starless layer possible -- StarXTerminator leaves no point sources, so a
+        // starless plate has no quads and cannot be star-registered at any tolerance.
+        //
+        // Frames are matched by a digest of their DATA section, except that a DERIVED plate has
+        // different pixels by construction, so it carries SRCDGST naming the frame it came from. A
+        // raw re-run matches on its own digest and needs no such card.
+        StackManifest? manifest = null;
+        Dictionary<string, ManifestFrame>? manifestByDigest = null;
+        Dictionary<DateTime, ManifestFrame>? manifestByEpoch = null;
+        if (options.ManifestPath is { Length: > 0 } manifestPath)
+        {
+            manifest = await StackManifest.TryReadAsync(manifestPath, ct);
+            if (manifest is null)
+            {
+                logger.LogWarning("  [manifest] {Path} could not be read; this group registers normally", manifestPath);
+            }
+            else
+            {
+                if (!string.Equals(manifest.Slug, slug, StringComparison.Ordinal))
+                {
+                    // Not fatal: a manifest is per-master, and re-stacking the same frames under a
+                    // different grouping is legitimate. Worth saying out loud, because the alternative
+                    // reading is that the wrong file was passed.
+                    logger.LogWarning(
+                        "  [manifest] slug is \"{ManifestSlug}\" but this group is \"{Slug}\"; using it anyway",
+                        manifest.Slug, slug);
+                }
+                manifestByDigest = manifest.MatchedByDigest();
+                manifestByEpoch = BuildEpochIndex(manifest, logger);
+                logger.LogInformation(
+                    "  [manifest] {Path}: {Matched} selectable of {Total} frames, reference {Ref}, epoch fallback {Epoch}",
+                    manifestPath, manifestByDigest.Count, manifest.Frames.Length,
+                    Path.GetFileNameWithoutExtension(manifest.ReferencePath),
+                    manifestByEpoch is null ? "unavailable (duplicate epochs)" : "available");
+            }
+        }
+        // Digest every candidate ONCE, here, so both the reference lookup and the per-frame
+        // transform lookup below read the same map.
+        Dictionary<string, FrameInfo>? candidateByDigest = null;
+        if (manifest is not null)
+        {
+            candidateByDigest = new Dictionary<string, FrameInfo>(frameCandidates.Count, StringComparer.Ordinal);
+            var digested = new string[frameCandidates.Count];
+            Parallel.For(0, frameCandidates.Count, new ParallelOptions { CancellationToken = ct }, i =>
+            {
+                digested[i] = FrameProvenance.SourceDigestOf(frameCandidates[i].Frame.Path);
+            });
+            for (var i = 0; i < frameCandidates.Count; i++)
+            {
+                if (digested[i].Length > 0)
+                {
+                    candidateByDigest[digested[i]] = frameCandidates[i].Frame;
+                }
+            }
+        }
+
         // Reference selection: explicit ReferenceFrameHint wins (substring
         // match on path, first hit), otherwise composite-quality score.
         // The hint is a debug knob for isolating Bayer-drizzle artifacts
@@ -602,7 +660,28 @@ public sealed class StackingPipeline(
         // residuals symmetric around zero so per-channel drizzle coverage
         // stays balanced.
         FrameInfo? reference = null;
-        if (!string.IsNullOrEmpty(options.ReferenceFrameHint))
+        // A manifest's reference OUTRANKS both the hint and the score, and a miss is fatal rather
+        // than a fallback. Silently picking a different reference is the exact failure the manifest
+        // exists to prevent: a different canvas origin and orientation, two layers that do not
+        // overlay, and a screen combine that is meaningless rather than merely inconsistent. That
+        // is invisible in every per-frame log line, so it has to stop the run.
+        if (manifest is not null && candidateByDigest is not null)
+        {
+            if (!candidateByDigest.TryGetValue(manifest.ReferenceDigest, out var manifestRef))
+            {
+                var reason =
+                    $"manifest reference {Path.GetFileName(manifest.ReferencePath)} " +
+                    $"(digest {manifest.ReferenceDigest[..Math.Min(12, manifest.ReferenceDigest.Length)]}) " +
+                    $"is not among this run's {frameCandidates.Count} frames";
+                logger.LogError("  [manifest] {Reason}", reason);
+                return new GroupResult(slug, lightList.Count, 0, Result: null, MasterFitsPath: null,
+                    PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: reason,
+                    Stages: timings.Snapshot());
+            }
+            reference = manifestRef;
+            logger.LogInformation("  [manifest] reference pinned to {File}", Path.GetFileName(reference.Path));
+        }
+        if (reference is null && !string.IsNullOrEmpty(options.ReferenceFrameHint))
         {
             var hint = options.ReferenceFrameHint;
             var match = frameCandidates.FirstOrDefault(c =>
@@ -676,7 +755,12 @@ public sealed class StackingPipeline(
             }
         }
 
-        using var registerLoop = await RegisterLoop.CreateAsync(refCandidate.Stars, options.QuadStars, ct);
+        // No registrar at all under a manifest. Not merely unnecessary: for a starless layer the
+        // reference itself has no stars, so building reference quads from its list is meaningless
+        // work on an empty list.
+        using var registerLoop = manifest is null
+            ? await RegisterLoop.CreateAsync(refCandidate.Stars, options.QuadStars, ct)
+            : null;
         // State the fingerprint set on SUCCESS, not only when registration collapses. Both counts
         // were already computed here and thrown away, and their absence is what makes the
         // still-pending port of the dataset builder's two registration fixes (detect pre-debayer
@@ -685,8 +769,11 @@ public sealed class StackingPipeline(
         // up as a change in how many frames register, and a run that registers everything both ways
         // would otherwise look identical. Mirrors SessionRegistrar's line of the same shape so the
         // two paths' logs can be read side by side.
-        logger.LogInformation("  reference {File} stars={Stars} quads={Quads} (top {Cap})",
-            Path.GetFileName(reference.Path), registerLoop.ReferenceStarCount, registerLoop.ReferenceQuadCount, options.QuadStars);
+        if (registerLoop is not null)
+        {
+            logger.LogInformation("  reference {File} stars={Stars} quads={Quads} (top {Cap})",
+                Path.GetFileName(reference.Path), registerLoop.ReferenceStarCount, registerLoop.ReferenceQuadCount, options.QuadStars);
+        }
         // Reference-frame metrics so the matched tuple gets a real
         // FrameMetrics even for the reference (which never goes through
         // the register loop). Used by the post-registration quality
@@ -723,12 +810,45 @@ public sealed class StackingPipeline(
             {
                 transform = Matrix3x2.Identity;
                 frameMetrics = referenceMetrics;
-                registerLoop.AddReference(referenceMetrics);
+                registerLoop?.AddReference(referenceMetrics);
                 manifestFates.Add((candidate.Frame, FrameFate.Matched, Matrix3x2.Identity));
+            }
+            else if (manifestByDigest is not null)
+            {
+                // Selection AND transform both come from the manifest. A frame it does not list as
+                // matched is dropped here rather than registered on its own: the layers must agree on
+                // depth, and a frame the star layer rejected for bad stars is precisely the one that
+                // must not quietly contribute to the comet layer.
+                var digest = FrameProvenance.SourceDigestOf(candidate.Frame.Path);
+                ManifestFrame? entry = null;
+                if (digest.Length > 0)
+                {
+                    _ = manifestByDigest.TryGetValue(digest, out entry);
+                }
+                // A DERIVED plate has different pixels by construction, so it can only be matched by
+                // provenance. SRCDGST states it outright and is preferred; failing that, the exposure
+                // epoch is a join that costs nothing, because sxt preserves DATE-OBS and the manifest
+                // already records it. The uniqueness of those epochs is checked ONCE when the map is
+                // built -- a duplicated epoch would silently hand one frame another's transform, so
+                // the map is simply not offered in that case.
+                entry ??= manifestByEpoch is null
+                    ? null
+                    : manifestByEpoch.TryGetValue(candidate.Frame.Meta.ExposureStartTime.UtcDateTime, out var byEpoch) ? byEpoch : null;
+                if (entry?.AsMatrix() is { } fromManifest)
+                {
+                    transform = fromManifest;
+                    manifestFates.Add((candidate.Frame, FrameFate.Matched, fromManifest));
+                }
+                else
+                {
+                    transform = null;
+                    manifestFates.Add((candidate.Frame, FrameFate.SkippedQualityReject, null));
+                    logger.LogInformation("  [{Name}] -> SKIP (not a matched frame in the manifest)", name);
+                }
             }
             else
             {
-                var attempt = await registerLoop.RegisterAsync(candidate.Stars, candidate.Metrics, ct);
+                var attempt = await registerLoop!.RegisterAsync(candidate.Stars, candidate.Metrics, ct);
                 transform = attempt.Transform;
                 manifestFates.Add((candidate.Frame, attempt.Skip switch
                 {
@@ -778,11 +898,23 @@ public sealed class StackingPipeline(
         // One census, reused by the summary line here and the collapse warning below -- two
         // renderings of the same numbers is how one of them ends up stale (the registrar learned
         // that with its min/max quad range, which is inside the census now).
-        var registrationCensus = RegistrationCensus.Describe(registerLoop.MeasureCensus());
-        logger.LogInformation(
-            "  registered {Matched}/{Attempted} frames (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit) in {ElapsedMs} ms; census {Census}",
-            matched.Count, lightList.Count, skipCount, registerLoop.SkippedTooFewStars, registerLoop.SkippedNoQuadFit,
-            (long)Stopwatch.GetElapsedTime(registerStart).TotalMilliseconds, registrationCensus);
+        var registrationCensus = registerLoop is null
+            ? "n/a (manifest)"
+            : RegistrationCensus.Describe(registerLoop.MeasureCensus());
+        if (registerLoop is null)
+        {
+            logger.LogInformation(
+                "  adopted {Matched}/{Attempted} transforms from the manifest (skipped {Skipped} not listed as matched) in {ElapsedMs} ms",
+                matched.Count, lightList.Count, skipCount,
+                (long)Stopwatch.GetElapsedTime(registerStart).TotalMilliseconds);
+        }
+        else
+        {
+            logger.LogInformation(
+                "  registered {Matched}/{Attempted} frames (skipped {Skipped}: {TooFew} too-few-stars, {NoFit} no-quad-fit) in {ElapsedMs} ms; census {Census}",
+                matched.Count, lightList.Count, skipCount, registerLoop.SkippedTooFewStars, registerLoop.SkippedNoQuadFit,
+                (long)Stopwatch.GetElapsedTime(registerStart).TotalMilliseconds, registrationCensus);
+        }
         // Items = every frame attempted (a failed match still cost its quad-form + tolerance
         // ladder). Pixels are ZERO now, same as the registrar's register stage: this phase works
         // from the retained star lists, and the reload + re-detect pass whose pixel throughput used
@@ -864,10 +996,19 @@ public sealed class StackingPipeline(
             // (plenty of quads on both sides that do not correspond), and those have opposite
             // fixes. Same shape as SessionRegistrar's collapse warning, so the two paths' logs
             // read side by side.
-            logger.LogWarning(
-                "  [skip] fewer than 2 matched frames; integration would be meaningless. reference {RefFile} stars={RefStars} quads={RefQuads}, skipped {TooFew} too-few-stars + {NoFit} no-quad-fit. census {Census}",
-                Path.GetFileName(reference.Path), registerLoop.ReferenceStarCount, registerLoop.ReferenceQuadCount,
-                registerLoop.SkippedTooFewStars, registerLoop.SkippedNoQuadFit, registrationCensus);
+            if (registerLoop is null)
+            {
+                logger.LogWarning(
+                    "  [skip] fewer than 2 matched frames; integration would be meaningless. reference {RefFile}, and the manifest selected too few of this run's frames -- check it describes these frames",
+                    Path.GetFileName(reference.Path));
+            }
+            else
+            {
+                logger.LogWarning(
+                    "  [skip] fewer than 2 matched frames; integration would be meaningless. reference {RefFile} stars={RefStars} quads={RefQuads}, skipped {TooFew} too-few-stars + {NoFit} no-quad-fit. census {Census}",
+                    Path.GetFileName(reference.Path), registerLoop.ReferenceStarCount, registerLoop.ReferenceQuadCount,
+                    registerLoop.SkippedTooFewStars, registerLoop.SkippedNoQuadFit, registrationCensus);
+            }
             try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
             return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
                 PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: "fewer than 2 matched frames",
@@ -1162,7 +1303,7 @@ public sealed class StackingPipeline(
         // layer and pin it to inputs nothing ever integrated.
         try
         {
-            var manifestPath = StackManifest.PathFor(masterPath);
+            var writtenManifestPath = StackManifest.PathFor(masterPath);
             var digestStart = StageTimings.Start();
             // Digest in parallel: this is a second full read of every frame (~3 GB for 135 subs) and
             // it is pure I/O plus SHA-256, so it scales with cores rather than adding a serial tail.
@@ -1191,7 +1332,7 @@ public sealed class StackingPipeline(
                     break;
                 }
             }
-            var manifest = new StackManifest(
+            var writtenManifest = new StackManifest(
                 StackManifest.CurrentSchemaVersion,
                 slug,
                 IntegrationFitsWriter.SoftwareCreator,
@@ -1201,10 +1342,10 @@ public sealed class StackingPipeline(
                 options.SnrMin,
                 options.MinStars,
                 manifestEntries);
-            await manifest.WriteAsync(manifestPath, ct);
+            await writtenManifest.WriteAsync(writtenManifestPath, ct);
             logger.LogInformation(
                 "  wrote {Path} ({Matched} matched / {Total} frames, reference {Ref}, digests in {ElapsedMs} ms)",
-                manifestPath, matched.Count, manifestEntries.Length,
+                writtenManifestPath, matched.Count, manifestEntries.Length,
                 Path.GetFileNameWithoutExtension(reference.Path),
                 (long)Stopwatch.GetElapsedTime(digestStart).TotalMilliseconds);
         }
@@ -1256,6 +1397,41 @@ public sealed class StackingPipeline(
     /// straighter than the correct one because parallax is exactly what bends the correct one. It is
     /// here to catch a body too fast for one linear rate, not to validate the ephemeris.</para>
     /// </summary>
+    /// <summary>
+    /// Matched manifest frames keyed by exposure epoch, or <c>null</c> when any two share one.
+    ///
+    /// <para>This is the join for a DERIVED plate, whose pixels differ from its original by
+    /// construction and can therefore never digest to it. <c>DATE-OBS</c> survives star removal
+    /// (measured: 102 of 106 cards do) and the manifest already records the epoch, so this costs
+    /// nothing to offer -- unlike stamping a provenance card into 135 files.</para>
+    ///
+    /// <para>It is refused outright on a duplicate rather than resolved by some tie-break, because
+    /// the failure mode is handing one frame ANOTHER frame's transform: a plausible-looking master
+    /// that is subtly misregistered, with nothing in any log to say so. One camera cannot start two
+    /// exposures at the same instant, so a duplicate means the input set is not what it looks like
+    /// (two OTAs merged, a frame duplicated) and that deserves to fail loudly.</para>
+    /// </summary>
+    private static Dictionary<DateTime, ManifestFrame>? BuildEpochIndex(StackManifest manifest, ILogger logger)
+    {
+        var byEpoch = new Dictionary<DateTime, ManifestFrame>(manifest.Frames.Length);
+        foreach (var frame in manifest.Frames)
+        {
+            if (frame.Fate is not FrameFate.Matched)
+            {
+                continue;
+            }
+            var epoch = frame.ExposureStartUtc.UtcDateTime;
+            if (!byEpoch.TryAdd(epoch, frame))
+            {
+                logger.LogWarning(
+                    "  [manifest] two matched frames share exposure epoch {Epoch:O}; the epoch fallback is disabled for this run, so a derived plate must carry {Card}",
+                    epoch, FrameProvenance.SourceDigestKeyword);
+                return null;
+            }
+        }
+        return byEpoch;
+    }
+
     private async Task<Vector2?> TryResolveCometRateAsync(
         IReadOnlyList<FrameInfo> lightList,
         Image referenceRaw,
