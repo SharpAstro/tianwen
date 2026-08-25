@@ -124,8 +124,20 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     public ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         => _fake.CreateTimer(callback, state, dueTime, period);
 
+    /// <summary>
+    /// Sleeps in fake time -- and throws <see cref="OperationCanceledException"/> on a cancelled token,
+    /// exactly as the real <c>Task.Delay(duration, timeProvider, ct)</c> does. That second half used to
+    /// be missing from the auto-advance path, which simply advanced and returned, so a background loop
+    /// that had been cancelled kept running to its next natural exit: a <c>FakeGuider</c> capture loop
+    /// cancelled by <c>StopCaptureAsync</c> finished its frame while the next loop was already started
+    /// on the same camera, and the two released each other's frames
+    /// (<c>DeviceOwnershipTests.AFinishedRunGivesTheRigBack</c>, 6 of 9 runs in isolation). A sleep
+    /// that ignores its token is not a faster fake; it is a different contract.
+    /// </summary>
     public async ValueTask SleepAsync(TimeSpan duration, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         if (ExternalTimePump)
         {
             // Wait until the external pump has advanced time past our target.
@@ -151,6 +163,10 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         {
             _fake.Advance(duration);
         }
+
+        // A timer callback fired inside Advance (or the pump) may have cancelled us mid-sleep; the real
+        // sleep surfaces that as cancellation too, not as a normal return.
+        cancellationToken.ThrowIfCancellationRequested();
     }
 
     /// <summary>Returns the underlying <see cref="FakeTimeProvider"/> for BCL interop.</summary>
