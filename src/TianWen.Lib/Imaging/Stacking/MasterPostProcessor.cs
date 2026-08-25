@@ -64,6 +64,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         MaskedBoostOptions? previewBoost = null,
         float ultraHdrPeakNits = 1000f,
         ColourCalibration? inheritedWhiteBalance = null,
+        AlignmentProvenance? alignment = null,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -218,7 +219,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         }
 
         // 2) Write the master FITS with WCS baked into the headers.
-        IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy);
+        IntegrationFitsWriter.Write(masterPath, result, solvedWcs, strategy, alignment: alignment);
         logger.LogInformation("  wrote {Path}{Wcs}", masterPath, solvedWcs is null ? "" : " (WCS embedded)");
 
         // The preview PNG, the Ultra HDR JPEG, and the --split-plates TIFFs are display-side
@@ -245,7 +246,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             render = await EnhanceAndWriteAsync(
                 result, masterPath, solvedWcs, croppedWcs, strategy,
                 croppedResult, autocropRect, enhanceBlend, splitPlates, enhanceOptions,
-                refMeta, renderer, outputs, previewBoost, ultraHdrPeakNits, inheritedWhiteBalance, ct);
+                refMeta, renderer, outputs, previewBoost, ultraHdrPeakNits, inheritedWhiteBalance, alignment, ct);
         }
         else if (enhance && sharpenPipeline is null)
         {
@@ -260,7 +261,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             try
             {
                 var cropFitsPath = WithSuffix(masterPath, "_autocrop");
-                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs, strategy);
+                IntegrationFitsWriter.Write(cropFitsPath, croppedResult, croppedWcs, strategy, alignment: alignment);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", cropFitsPath, autocropRect.Width, autocropRect.Height);
             }
             catch (Exception ex)
@@ -445,6 +446,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
         MaskedBoostOptions? previewBoost,
         float ultraHdrPeakNits,
         ColourCalibration? inheritedWhiteBalance,
+        AlignmentProvenance? alignment,
         CancellationToken ct)
     {
         Debug.Assert(sharpenPipeline is not null, "EnhanceAndWriteAsync called without SharpenPipeline -- guard upstream");
@@ -508,7 +510,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             // MeanRejectionRate) so IntegrationFitsWriter keeps the same provenance
             // headers; just swap Master for the enhanced pixels.
             var sharpenedPath = WithSuffix(masterPath, "_sharpened");
-            IntegrationFitsWriter.Write(sharpenedPath, master with { Master = enhancedMaster }, solvedWcs, strategy,
+            IntegrationFitsWriter.Write(sharpenedPath, master with { Master = enhancedMaster }, solvedWcs, strategy, alignment: alignment,
                 modifiedBy: SharpenPipeline.SoftwareModifier);
             logger.LogInformation("  wrote {Path} (enhance blend={Blend:F2}, {Ms} ms)", sharpenedPath, blend, sw.ElapsedMilliseconds);
 
@@ -517,7 +519,7 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
             {
                 enhancedCropped = CropImage(enhancedMaster, autocropRect);
                 var sharpenedCropPath = WithSuffix(masterPath, "_sharpened_autocrop");
-                IntegrationFitsWriter.Write(sharpenedCropPath, croppedResult with { Master = enhancedCropped }, croppedWcs, strategy,
+                IntegrationFitsWriter.Write(sharpenedCropPath, croppedResult with { Master = enhancedCropped }, croppedWcs, strategy, alignment: alignment,
                     modifiedBy: SharpenPipeline.SoftwareModifier);
                 logger.LogInformation("  wrote {Path} (crop {W}x{H})", sharpenedCropPath, autocropRect.Width, autocropRect.Height);
             }

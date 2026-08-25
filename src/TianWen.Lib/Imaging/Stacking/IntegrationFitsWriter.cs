@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Numerics;
 using nom.tam.fits;
 using nom.tam.util;
 using TianWen.Lib.Astrometry;
@@ -68,7 +69,7 @@ public static class IntegrationFitsWriter
     /// never carries it: the map is the ORIGINAL integration statistic,
     /// re-written verbatim beside the modified pixels. Null (the default)
     /// writes no card.</param>
-    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null, string? modifiedBy = null)
+    public static void Write(string masterPath, IntegrationResult result, WCS? wcs = null, IntegrationStrategyKind? strategy = null, string? modifiedBy = null, AlignmentProvenance? alignment = null)
     {
         var extras = new Dictionary<string, (object Value, string Comment)>
         {
@@ -85,6 +86,29 @@ public static class IntegrationFitsWriter
         if (strategy is { } s)
         {
             extras["STRATEGY"] = (s.ToString(), "Integration strategy used (IntegrationStrategyKind)");
+        }
+        // ALIGNMNT is written ALWAYS, including for an ordinary star-aligned stack. Absence would
+        // otherwise conflate "sidereal" with "written before this card existed", and every master on
+        // disk today is in the second group -- the same ambiguity that let a missing FILTER read as
+        // "no filter in the light path". FITS keywords cap at 8 characters, which is why this is not
+        // spelled ALIGNMENT.
+        var basis = alignment?.Basis ?? AlignmentProvenance.Sidereal.Basis;
+        extras["ALIGNMNT"] = (basis, "Registration basis (Sidereal | Comet)");
+        if (alignment is { } al && al.DriftPxPerHour is { } drift)
+        {
+            // The drift is what makes the alignment reproducible without re-querying an ephemeris,
+            // and CANVAS px/hr is the basis it was applied in: the star solution has already absorbed
+            // dither and field rotation by the time it acts, so a sky rate would not round-trip.
+            extras["DRIFTX"] = ((double)drift.X, "Target drift, canvas px/hr (X)");
+            extras["DRIFTY"] = ((double)drift.Y, "Target drift, canvas px/hr (Y)");
+            if (al.RateSource is { Length: > 0 } src)
+            {
+                extras["DRIFTSRC"] = (src, "How the drift was obtained (Horizons | Manual)");
+            }
+            if (al.TargetBody is { Length: > 0 } body)
+            {
+                extras["TRACKOBJ"] = (body, "Body the stack was registered on");
+            }
         }
         if (modifiedBy is not null)
         {
@@ -197,4 +221,25 @@ public static class IntegrationFitsWriter
         var combined = string.IsNullOrEmpty(dir) ? stem : Path.Combine(dir, stem);
         return combined + RejectionMapSuffix;
     }
+}
+
+/// <summary>
+/// What a master was registered ON, stamped into its header so the file says so rather than only its
+/// directory. A comet-aligned master is otherwise byte-indistinguishable from a star-aligned one by
+/// name and by every existing card.
+/// </summary>
+/// <param name="Basis">"Sidereal" for an ordinary star-aligned stack, "Comet" when registered on a
+/// moving body.</param>
+/// <param name="TargetBody">Designation the run tracked, when it knows one. A bare <c>--comet</c>
+/// reads it from the frames' own OBJECT card, which already states it, so this may be null.</param>
+/// <param name="DriftPxPerHour">The applied drift in CANVAS px/hr.</param>
+/// <param name="RateSource">"Horizons" for a derived ephemeris, "Manual" for an explicit
+/// <c>--comet-rate</c>. Worth distinguishing: only one of them can be wrong in a way re-running fixes.</param>
+public sealed record AlignmentProvenance(
+    string Basis,
+    string? TargetBody = null,
+    Vector2? DriftPxPerHour = null,
+    string? RateSource = null)
+{
+    public static readonly AlignmentProvenance Sidereal = new("Sidereal");
 }

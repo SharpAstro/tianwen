@@ -1136,7 +1136,21 @@ public sealed class StackingPipeline(
             enhanceOptions: options.EnhanceOptions ?? Enhancement.EnhanceOptions.Default,
             outputs: options.RenderOutputs, previewBoost: options.PreviewBoost,
             ultraHdrPeakNits: options.UltraHdrPeakNits,
-            inheritedWhiteBalance: options.InheritedWhiteBalance, ct: ct);
+            inheritedWhiteBalance: options.InheritedWhiteBalance,
+            // Stamped on every master, sidereal included: absence would otherwise mean either
+            // "star-aligned" or "written before the card existed".
+            alignment: cometRate is { } appliedDrift
+                ? new AlignmentProvenance(
+                    "Comet",
+                    // A bare --comet reads the body from the frames' own OBJECT card, so fall back to
+                    // it rather than leaving TRACKOBJ absent on exactly the runs that used it.
+                    string.IsNullOrWhiteSpace(options.CometDesignation)
+                        ? (string.IsNullOrWhiteSpace(referenceRaw.ImageMeta.ObjectName) ? null : referenceRaw.ImageMeta.ObjectName)
+                        : options.CometDesignation,
+                    appliedDrift,
+                    options.CometRatePxPerHour is not null ? "Manual" : "Horizons")
+                : AlignmentProvenance.Sidereal,
+            ct: ct);
         timings.Record(StageNames.Post, postStart, 1, (long)outWidth * outHeight);
         if (intResult.TotalRejections > 0)
         {
