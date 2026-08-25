@@ -225,16 +225,29 @@ jobs:
     # One architecture for it, deliberately: the DebugOnly tests are arch-independent and the only
     # thing the second arch bought was a second Debug COMPILE. That is a thin cover to pay a whole
     # runner for, and the Release legs still compile on both.
+    #
+    # `name:` is set explicitly, and that is a compatibility requirement rather than cosmetics. A
+    # matrix job's check name is generated from its matrix values, so adding a `config` dimension
+    # would have renamed the two existing checks to "test-unit (ubuntu-latest, Release)" and
+    # "test-unit (ubuntu-24.04-arm, Release)". main is protected by an org-level ruleset, and a
+    # required status check is matched BY NAME: renaming one does not relax the rule, it leaves the
+    # rule waiting forever on a check that no longer reports. Naming the legs from `leg` keeps the
+    # two existing names byte-identical and makes this change purely additive -- the new
+    # "test-unit (debug)" simply is not required until somebody adds it.
     strategy:
       fail-fast: false
       matrix:
         include:
           - runner: ubuntu-latest
             config: Release
+            leg: ubuntu-latest
           - runner: ubuntu-24.04-arm
             config: Release
+            leg: ubuntu-24.04-arm
           - runner: ubuntu-latest
             config: Debug
+            leg: debug
+    name: test-unit (${{ matrix.leg }})
     runs-on: ${{ matrix.runner }}
     steps:
     # cache-apt-pkgs-action installs the listed packages (apt-get install behind
@@ -416,7 +429,7 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v7
       with:
-        name: gpu-stretch-test-output-${{ matrix.runner }}-${{ matrix.config }}
+        name: gpu-stretch-test-output-${{ matrix.leg }}
         # Narrow to just the GpuStretchPipelineTests subdir -- /tmp/TianWen.Lib.Tests/
         # aggregates outputs from every test in the suite (>2 GB on a full failure run);
         # this slice is ~15 MB (cpu.tiff + gpu.tiff + diff.tiff per case).
@@ -432,7 +445,7 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v7
       with:
-        name: test-blame-${{ matrix.runner }}-${{ matrix.config }}
+        name: test-blame-${{ matrix.leg }}
         path: |
           src/test-results/
           src/test-results-debug/
