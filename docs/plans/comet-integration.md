@@ -33,14 +33,23 @@ verbs `bxt` / `sxt` / `nxt`, driven through `RcAstroEnhancerBase`'s NDJSON proto
 | site | -37.876389, 145.178056 |
 | span | 10:53:18 to 14:25:34 UTC, 3.538 h |
 
-Staging tree at `C:/temp/comet-stack` is **hard links**, not copies: LIGHT 135, BIAS 200, DARK 60,
-DARKFLAT 60, FLAT 51, 506 files and 11.2 GB referenced with nothing duplicated. Directory junctions
-were tried first and are invisible to recursive enumeration (`Get-ChildItem -Recurse` walks 0 files
-through one), so hard links are the working answer.
+**Only the raw data crossed to the second machine, so everything derived has to be rebuilt** (checked
+2026-08-25). `C:/temp/10p_tempel` holds the lights, the calibration frames, Astro Pixel Processor's
+own masters under `MASTER/` and its integration under `PROC/`, plus `C:/temp/10ptempel` with the
+`comet.tif` / `stars.tif` plates. Absent here: the `C:/temp/comet-stack` staging tree, the
+`C:/temp/comet-out` star-aligned master, and the cached ephemeris below. Treat the three paths that
+follow as a record of what the first box had, not as inputs you can open.
 
-`C:/temp/comet-out` holds the star-aligned master already:
-`master_10pTemepl_light_60s_-5C_g1600_drizzle*.fits`, 4215x2884x3 float, `STACK_N=135`, plus a
-`masters/` calibration cache.
+The staging tree was **hard links**, not copies: LIGHT 135, BIAS 200, DARK 60, DARKFLAT 60, FLAT 51,
+506 files and 11.2 GB referenced with nothing duplicated. Directory junctions were tried first and
+are invisible to recursive enumeration (`Get-ChildItem -Recurse` walks 0 files through one), so hard
+links are the working answer when rebuilding it.
+
+`C:/temp/comet-out` held the star-aligned master, `master_10pTemepl_light_60s_-5C_g1600_drizzle*.fits`,
+4215x2884x3 float, `STACK_N=135`, plus a `masters/` calibration cache. **Its name preserves the
+`OBJECT` typo, which is the tell that it predates the header fix**: a re-run now produces
+`master_10PTempel2_...` and, more to the point, a different white balance, since SPCC can finally see
+the filter. So artifact 1 has to be rebuilt regardless of which machine you are on.
 
 ## Measured
 
@@ -89,7 +98,10 @@ the operands silently gives a frame-space shift that looks plausible and is wron
 **A geocentric ephemeris is not good enough.** Topocentric minus geocentric moves by 2.74 px across
 this run, which is 25x the registration residual. So `CometEphemeris.TryGetEquatorialJ2000`, which is
 geocentric, cannot drive this; it needs a Horizons OBSERVER ephemeris at the site in the header's
-`SITELAT`/`SITELONG`. One is cached at `C:/temp/eph-1min.txt`, 221 samples on a 1-minute grid.
+`SITELAT`/`SITELONG`. One WAS cached at `C:/temp/eph-1min.txt`, 221 samples on a 1-minute grid; it did
+not cross to the second machine, so it needs re-fetching. The target to ask about can now be read off
+the frames rather than typed, since `OBJECT` is `10P/Tempel 2` and `CometDesignation.TryParse` takes
+`10P` off the front of it.
 
 Worth being precise about why the mount being polar aligned does not remove this: diurnal parallax
 is a change in the OBSERVER's position, not a rotation of the field, so no amount of tracking
