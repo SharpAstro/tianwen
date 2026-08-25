@@ -2,6 +2,7 @@
 using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -139,7 +140,7 @@ public static class FitsHeaderEditor
     /// others, and the two copies of what was one night would then disagree.</param>
     /// <param name="apply">When false (the default) nothing is written and the returned outcome is
     /// what *would* happen.</param>
-    public static async Task<TagResult> SetStringCardAsync(
+    public static Task<TagResult> SetStringCardAsync(
         string path,
         string keyword,
         string value,
@@ -152,13 +153,64 @@ public static class FitsHeaderEditor
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentException.ThrowIfNullOrWhiteSpace(keyword);
+        RejectOverlongKeyword(keyword);
+        return SetCardAsync(
+            path, keyword, FormatStringCard(keyword, value, comment),
+            allowedFrameTypes, overwriteExisting, hardLinks, apply, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sets or replaces a NUMERIC card, which FITS formats differently from a string one: the value
+    /// is unquoted and RIGHT-justified to byte 30 rather than quoted and left-justified from byte 11
+    /// (FITS 4.0 section 4.2.3). Writing a number through <see cref="SetStringCardAsync"/> would
+    /// quote it, and a quoted number is a STRING as far as every reader is concerned -- so the card
+    /// would look right to a human and parse as text to everything else.
+    ///
+    /// <para>Everything else -- the frame-type guard, the overwrite rule, the hard-link policy, the
+    /// dry run -- is shared with the string form and cannot drift from it.</para>
+    /// </summary>
+    /// <param name="value">The number to write. Always emitted with a decimal point so it reads as
+    /// floating point rather than an integer, which is what a physical quantity like an elevation or
+    /// a focal length is.</param>
+    public static Task<TagResult> SetNumericCardAsync(
+        string path,
+        string keyword,
+        double value,
+        string comment = "",
+        IReadOnlySet<FrameType>? allowedFrameTypes = null,
+        bool overwriteExisting = false,
+        HardLinkPolicy hardLinks = HardLinkPolicy.Refuse,
+        bool apply = false,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyword);
+        RejectOverlongKeyword(keyword);
+        return SetCardAsync(
+            path, keyword, FormatNumericCard(keyword, value, comment),
+            allowedFrameTypes, overwriteExisting, hardLinks, apply, cancellationToken);
+    }
+
+    private static void RejectOverlongKeyword(string keyword)
+    {
         if (keyword.Length > 8)
         {
             throw new ArgumentException($"FITS keyword '{keyword}' exceeds 8 characters.", nameof(keyword));
         }
+    }
 
-        var newCard = FormatStringCard(keyword, value, comment);
-
+    /// <summary>The half both public setters share: read the primary header, apply every guard, then
+    /// splice in the already-formatted card.</summary>
+    private static async Task<TagResult> SetCardAsync(
+        string path,
+        string keyword,
+        string newCard,
+        IReadOnlySet<FrameType>? allowedFrameTypes,
+        bool overwriteExisting,
+        HardLinkPolicy hardLinks,
+        bool apply,
+        CancellationToken cancellationToken)
+    {
         int headerLength;
         List<string> cards;
         try
@@ -566,6 +618,41 @@ public static class FitsHeaderEditor
         }
         return card.PadRight(CardSize);
     }
+
+    /// <summary>Formats one 80-byte NUMERIC card per FITS 4.0 section 4.2.3: keyword in bytes 1-8,
+    /// <c>"= "</c> in 9-10, and the value RIGHT-justified so it ends at byte 30.</summary>
+    internal static string FormatNumericCard(string keyword, double value, string comment)
+    {
+        if (!double.IsFinite(value))
+        {
+            // FITS has no way to spell NaN or an infinity in a numeric card. A reader would take
+            // whatever text landed there as an unparseable value or, worse, as a string; declining is
+            // the only honest option, and the caller already treats "unknown" as "write no card".
+            throw new ArgumentException($"{keyword} cannot be written as {value}: FITS numeric cards have no non-finite form.", nameof(value));
+        }
+        RejectNonAscii(comment, nameof(comment));
+
+        // Always with a decimal point, so the card reads as floating point. An elevation of exactly
+        // 74 written as "74" is an INTEGER card, and a reader that types its cards would hand back an
+        // int where the quantity is physically continuous.
+        var text = value.ToString("0.0##########", CultureInfo.InvariantCulture);
+        if (text.Length > ValueColumnWidth)
+        {
+            throw new ArgumentException(
+                $"Value {text} does not fit a fixed-format FITS numeric card ({text.Length} > {ValueColumnWidth}).", nameof(value));
+        }
+
+        var card = $"{keyword.PadRight(8)}= {text.PadLeft(ValueColumnWidth)}";
+        if (comment.Length > 0 && card.Length + 4 <= CardSize)
+        {
+            var room = CardSize - card.Length - 3;
+            card += " / " + (comment.Length <= room ? comment : comment[..room]);
+        }
+        return card.PadRight(CardSize);
+    }
+
+    /// <summary>Bytes 11-30, the fixed-format value field a numeric card right-justifies into.</summary>
+    private const int ValueColumnWidth = 20;
 
     /// <summary>Throws unless every character is a printable ASCII the FITS standard permits in a
     /// header (0x20 space through 0x7E tilde).</summary>

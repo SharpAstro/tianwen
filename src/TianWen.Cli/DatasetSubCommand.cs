@@ -1,8 +1,9 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.CommandLine;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using TianWen.AI.Imaging;
@@ -328,7 +329,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand() },
+            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand() },
         };
     }
 
@@ -561,6 +562,46 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
             readCurrent: meta => meta.ObjectName,
             relabels: true);
 
+    /// <summary>
+    /// Corrects <c>SITEELEV</c>, the observing site's elevation in metres.
+    ///
+    /// <para>Unlike the other two this one applies to EVERY frame type, because the site is a
+    /// property of where the rig stood and a dark was taken in the same place as a light. A comet
+    /// stack is the consumer that cares: a topocentric ephemeris is asked from the site the frames
+    /// record. Be clear about the stakes though -- an elevation wrong by 46 m moves a derived comet
+    /// rate by 0.00002 px over a night, so this corrects the RECORD rather than fixing a measurement.
+    /// Latitude and longitude are the site values that actually matter.</para>
+    /// </summary>
+    private Command BuildTagSiteElevationCommand()
+        => BuildTagCardCommand(
+            label: "tag-site-elevation",
+            keyword: "SITEELEV",
+            cardComment: "[m] Observation site elevation",
+            valueOptionName: "--elevation",
+            valueDescription: "Site elevation in METRES above mean sea level, e.g. 74. Written as a numeric card, "
+                              + "right-justified and unquoted, so readers that type their cards get a number.",
+            summary: "Correct the SITEELEV card on frames whose capture profile recorded the wrong site elevation "
+                     + "(header-surgical; dry run by default).",
+            defaultFrameTypes: ["Light", "Dark", "Flat", "Bias", "DarkFlat"],
+            frameTypeDescription: "IMAGETYP values to amend. Defaults to every frame type, unlike tag-filter and "
+                                  + "tag-object: where the rig STOOD is true of a dark, a bias and a dark-flat just as "
+                                  + "much as of a light. DarkFlat is in the list deliberately -- it is a real captured "
+                                  + "frame type in the standard CMOS flat workflow, and leaving it out made this claim "
+                                  + "of \"every frame type\" quietly false.",
+            refusalAdvice: "Pass --hard-links relink to bring the other names along (they name the same frame, so the "
+                           + "same site applies to all of them).",
+            readCurrent: meta => float.IsNaN(meta.SiteElevation)
+                ? null
+                : meta.SiteElevation.ToString(CultureInfo.InvariantCulture),
+            relabels: true,
+            numeric: true);
+
+    /// <summary>Reads a FITS numeric card body (or a --expect value) in the invariant culture, which
+    /// is the only correct reading: a header is ASCII and its numbers are never localised, so a
+    /// machine set to a decimal-comma locale must not parse "74.0" as 740.</summary>
+    private static bool TryParseCard(string? text, out double value)
+        => double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+
     private Command BuildTagCardCommand(
         string label,
         string keyword,
@@ -572,7 +613,8 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
         string frameTypeDescription,
         string refusalAdvice,
         Func<ImageMeta, string?> readCurrent,
-        bool relabels = false)
+        bool relabels = false,
+        bool numeric = false)
     {
         var pathOpt = new Option<string>("--path")
         {
@@ -586,9 +628,12 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
         };
         var expectOpt = new Option<string?>("--expect")
         {
-            Description = $"Only touch a frame whose current {keyword} reads exactly this. The guard against " +
-                          "relabelling a folder that turns out to hold more than one target; the dry run reports " +
-                          "every frame it refused and what that frame actually says.",
+            Description = $"Only touch a frame whose current {keyword} already reads this"
+                          + (numeric
+                              ? ", compared as a NUMBER so 74 matches a card reading 74.0. "
+                              : ", compared exactly. ")
+                          + "The guard against amending a folder that turns out to be less uniform than you "
+                          + "thought; the dry run reports every frame it refused and what that frame actually says.",
         };
         var recursiveOpt = new Option<bool>("--recursive") { Description = "Descend into subdirectories.", DefaultValueFactory = _ => true };
         var applyOpt = new Option<bool>("--apply") { Description = "Actually write. Omit for a dry run that reports what would change." };
@@ -629,6 +674,14 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 return 1;
             }
             var cardValue = parseResult.GetValue(valueOpt)!;
+            // A numeric card is parsed ONCE, here, so a malformed number fails before a single file
+            // is opened rather than 186 times inside the loop.
+            var numericValue = 0.0;
+            if (numeric && !TryParseCard(cardValue, out numericValue))
+            {
+                consoleHost.WriteError($"[{label}] {valueOptionName}: expected a number, got '{cardValue}'");
+                return 1;
+            }
             var expect = parseResult.GetValue(expectOpt);
             var apply = parseResult.GetValue(applyOpt);
             // A relabelling command replaces by definition: the card it corrects already has the wrong
@@ -681,7 +734,15 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                     {
                         var current = Image.TryReadFitsHeader(file, out var head)
                             ? readCurrent(head.Meta) : null;
-                        if (!string.Equals(current, expect, StringComparison.Ordinal))
+                        // A numeric card is compared as a NUMBER, never as text: the same elevation is
+                        // spelled 74, 74.0 and 7.4E1 by different capture software, and a string compare
+                        // would refuse every frame while reporting a value that looks identical to the one
+                        // asked for -- the most confusing possible failure.
+                        var matches = numeric
+                            ? TryParseCard(current, out var currentValue) && TryParseCard(expect, out var expectValue)
+                                && Math.Abs(currentValue - expectValue) <= 1e-6 * Math.Max(1.0, Math.Abs(expectValue))
+                            : string.Equals(current, expect, StringComparison.Ordinal);
+                        if (!matches)
                         {
                             var reason = $"skipped (--expect: {keyword} is {current ?? "unreadable"})";
                             counts[reason] = counts.GetValueOrDefault(reason) + 1;
@@ -689,10 +750,15 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                         }
                     }
 
-                    var result = await FitsHeaderEditor.SetStringCardAsync(
-                        file, keyword, cardValue, cardComment, allowed,
-                        overwriteExisting: overwrite, hardLinks: hardLinks, apply: apply,
-                        cancellationToken: ct);
+                    var result = numeric
+                        ? await FitsHeaderEditor.SetNumericCardAsync(
+                            file, keyword, numericValue, cardComment, allowed,
+                            overwriteExisting: overwrite, hardLinks: hardLinks, apply: apply,
+                            cancellationToken: ct)
+                        : await FitsHeaderEditor.SetStringCardAsync(
+                            file, keyword, cardValue, cardComment, allowed,
+                            overwriteExisting: overwrite, hardLinks: hardLinks, apply: apply,
+                            cancellationToken: ct);
                     var key = result.Outcome switch
                     {
                         FitsHeaderEditor.TagOutcome.Tagged => "tagged",

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -69,6 +69,20 @@ namespace TianWen.Lib.Tests
                 fs.Write(payload);
             }
             return (path, payload);
+        }
+
+        /// <summary>The whole 80-byte card as written, so a test can assert on FORMAT (quoting,
+        /// justification) and not merely on the value a parser recovers from it.</summary>
+        private static string? RawCard(string path, string keyword)
+        {
+            var bytes = File.ReadAllBytes(path);
+            for (var off = 0; off + 80 <= bytes.Length; off += 80)
+            {
+                var card = Encoding.ASCII.GetString(bytes, off, 80);
+                if (card.StartsWith("END", StringComparison.Ordinal)) { break; }
+                if (card.AsSpan(0, 8).Trim().SequenceEqual(keyword)) { return card; }
+            }
+            return null;
         }
 
         private static byte[] Sha(ReadOnlySpan<byte> data) => SHA256.HashData(data);
@@ -279,6 +293,63 @@ namespace TianWen.Lib.Tests
             info.ShouldNotBeNull();
             info.Meta.Filter.IdentityKey.ShouldBe("HydrogenAlpha");
             info.Meta.Filter.RawName.ShouldBe("Ha");
+        }
+
+        [Fact]
+        public async Task GivenANumericCard_WhenTagging_ThenItIsUnquotedAndRightJustifiedAndReadsBackAsANumber()
+        {
+            // A number written through the STRING setter would come out quoted, and a quoted number is
+            // a string to every reader that types its cards -- a card that looks right to a human and
+            // is the wrong type to everything else. So the two formats cannot share a code path, and
+            // this pins the numeric one end to end: bytes on disk, then our own reader.
+            var dir = CreateTempDir();
+            var (path, _) = WriteFits(dir, "l1.fits", ["IMAGETYP= 'LIGHT'", "SITEELEV=                120.0"],
+                payloadBytes: 40 * 36 * 2);
+
+            await FitsHeaderEditor.SetNumericCardAsync(
+                path, "SITEELEV", 74.0, "[m] Observation site elevation", overwriteExisting: true,
+                apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+            var card = RawCard(path, "SITEELEV");
+            card.ShouldNotBeNull();
+            card.ShouldNotContain("'");
+            // Fixed format (FITS 4.0 section 4.2.3): keyword in bytes 1-8, "= " in 9-10, and the
+            // value RIGHT-justified so it ENDS at byte 30. Asserted structurally rather than as one
+            // literal, so a failure says which of those three rules broke.
+            card.ShouldStartWith("SITEELEV= ");
+            card[..30].ShouldEndWith("74.0");
+            card[10..30].TrimStart().ShouldBe("74.0");
+
+            Image.TryReadFitsHeader(path, out var info).ShouldBeTrue();
+            info.ShouldNotBeNull();
+            info.Meta.SiteElevation.ShouldBe(74f);
+        }
+
+        [Theory]
+        [InlineData(74.0, "74.0")]
+        [InlineData(-11.5, "-11.5")]
+        [InlineData(0.0, "0.0")]
+        [InlineData(1234.5678, "1234.5678")]
+        public void GivenAWholeNumber_WhenFormatting_ThenItStillCarriesADecimalPoint(double value, string expected)
+        {
+            // An elevation of exactly 74 written as "74" is an INTEGER card, and a reader that types
+            // its cards hands back an int for a quantity that is physically continuous.
+            var card = FitsHeaderEditor.FormatNumericCard("SITEELEV", value, "");
+
+            card.Length.ShouldBe(80);
+            card[..30].ShouldBe(("SITEELEV= " + expected.PadLeft(20)));
+        }
+
+        [Theory]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        [InlineData(double.NegativeInfinity)]
+        public void GivenANonFiniteValue_WhenFormatting_ThenItThrowsRatherThanWritingNonsense(double value)
+        {
+            // FITS has no spelling for NaN or an infinity in a numeric card, so whatever text landed
+            // there would read as an unparseable value or, worse, as a string. "Unknown" is expressed
+            // by writing NO card, which is what the callers already do.
+            Should.Throw<ArgumentException>(() => FitsHeaderEditor.FormatNumericCard("SITEELEV", value, ""));
         }
 
         [Fact]
