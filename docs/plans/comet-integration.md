@@ -110,6 +110,20 @@ corrupts a rate is the parallax term's CHANGE, not its size: the offset itself r
 0.68 px here, and a constant offset would simply shift where the comet sits on the canvas, which
 registration absorbs without complaint.
 
+**And the solver's own residual will not catch a heading error -- it PREFERS one.** `MaxResidualPx`
+measures how straight a track was, never whether it pointed the right way, and the geocentric track
+is *straighter*: parallax is exactly what bends the topocentric one, so removing the observer removes
+the curvature along with the correctness. Measured, **0.0142 px geocentric against 0.1589 px
+topocentric** -- a factor of ten in favour of the answer that is wrong by 3.44 degrees. A quality gate
+on that number alone would not merely fail to reject a bad ephemeris, it would rank it first.
+
+The budget is tight enough to make this matter: holding the cross-track smear under the WCS's own
+0.11 px residual over a 44.7 px track allows a heading error of **0.141 degrees**, and geocentric is
+24x that. Two defences follow, and neither is the residual. Ask topocentrically by construction,
+which is what `HorizonsObserverSource` does; and check the prediction against the nucleus's own
+measured centroids (item 2 below), where a heading error appears as a GROWING cross-track offset --
+about 2.7 px by the end of this run against a 2.15 px FWHM, which is unmissable.
+
 So `CometEphemeris.TryGetEquatorialJ2000`, which is
 geocentric, cannot drive this; it needs a Horizons OBSERVER ephemeris at the site in the header's
 `SITELAT`/`SITELONG`. One WAS cached at `C:/temp/eph-1min.txt`, 221 samples on a 1-minute grid; it did

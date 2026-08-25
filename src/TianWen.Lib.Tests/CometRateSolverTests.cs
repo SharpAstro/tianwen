@@ -174,6 +174,22 @@ public class CometRateSolverTests(ITestOutputHelper output)
             -1f, 1f)));
         output.WriteLine($"heading difference {headingDeg:F2} deg");
         headingDeg.ShouldBeGreaterThan(1.0);
+
+        // THE RESIDUAL DOES NOT MERELY MISS THIS -- IT PREFERS THE WRONG ANSWER. MaxResidualPx measures
+        // how STRAIGHT a track was, never whether it pointed the right way, and the geocentric track is
+        // straighter: parallax is precisely what bends the topocentric one, so removing the observer
+        // removes the curvature along with the correctness. Measured here at 0.0142 px geocentric
+        // against 0.1589 px topocentric, a factor of TEN in favour of the track that is wrong by
+        // 3.4 degrees of heading.
+        //
+        // So a quality gate on this number alone does not just fail to reject a bad ephemeris, it
+        // ranks it first. The defence is asking topocentrically by construction, and ultimately
+        // checking the prediction against the nucleus's own centroids (item 2 in the plan) -- a
+        // heading error shows there as a GROWING cross-track offset, ~2.7 px by the end of this run
+        // against a 2.15 px FWHM, which is unmissable.
+        output.WriteLine($"residuals: topocentric {topo.Value.MaxResidualPx:F4} px, "
+            + $"geocentric {geo.Value.MaxResidualPx:F4} px -- the WRONG track fits BETTER");
+        geo.Value.MaxResidualPx.ShouldBeLessThan(topo.Value.MaxResidualPx);
     }
 
     [Fact]
