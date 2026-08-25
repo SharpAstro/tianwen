@@ -295,3 +295,14 @@ a launch that happened while nobody was watching. A 200 ms `Win32_Process` poll 
 - [ ] Move `Stat/` DSP suite to DIR.Lib: 12 files: FFT, DFT, 25+ window functions, Catmull-Rom splines, StatisticsHelper, AggregationMethod; all pure math with no astro imports (note: DFT/FFT missing namespace declarations)
 - [ ] Port debayer algos out for FC.SDK.Raw to consume; `Image.Debayer.cs` / `DebayerAlgorithm.cs` / `DebayerAlgorithmExtensions.cs` are pure Bayer-mosaic operations and don't depend on TianWen-specific types beyond `Image`/`Channel`. FC.SDK.Raw currently stops at the raw `ushort[]` mosaic on `CanonRawFile.BayerMosaic` (by design, astronomical stacking only needs the mosaic), but downstream consumers that want a sensible default JPEG render have to roll their own demosaic. Extract to DIR.Lib (or a new `SharpAstro.Imaging`/`SharpAstro.Debayer` package) so both TianWen and FC.SDK.Raw consume the same implementation; keep the 5×5 BilinearMono as the default and the simple 2×2 bilinear as a fallback. As of FC.SDK.Raw 1.4 the parallel ushort-based `CanonDemosaic.Bilinear`/`Ahd` already exist for consumer raw-render use cases; TianWen's float-based copies are intentional duplication for the stretch-aware astronomical path.
 
+## `stack` has no `--masters-dir`, so a fresh `-o` rebuilds every calibration master
+
+`StackingPipeline` puts the cache at `Path.Combine(outputDir, "masters")` with no override. Iterating
+with a different `-o` per run therefore rebuilds bias/dark/flat masters from scratch every time --
+about 7 GB of reads on the 10P set, which pinned the disk at 100% on a 16 GB box and cost minutes per
+run. Four output dirs meant four identical copies of the same masters, ~800 MB each.
+
+`MasterCache`'s own doc describes a **shared** directory "not per-run", and that is what the dataset
+builder gets; `stack` does not. A `--masters-dir` flag (defaulting to the current behaviour) would let
+comparison runs share one cache, which is exactly the workflow that provoked this: the same lights
+stacked star-aligned and comet-aligned into separate directories.
