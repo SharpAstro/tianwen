@@ -207,6 +207,36 @@ Two design points worth keeping:
 `FitsHeaderEditor` grew `SetNumericCardAsync` for this (a WB multiplier is a number, and the string
 setter would have quoted it, making it a string to any reader that types its cards).
 
+## What the star-removal experiment settled (2026-08-25, on the Adreno box)
+
+Measured before building anything, because two of these decide the shape of artifacts 3 and 4.
+
+- **`sxt` does NOT remove the comet, and that is structural rather than lucky.** The worry was
+  reasonable -- a nucleus is point-like and a single 60 s sub has low SNR -- but StarXTerminator
+  removes POINT sources, and a coma is extended, so it reads as nebulosity. Tested on raw light
+  0120: every point star stripped, the coma plainly intact and in fact easier to see with the stars
+  gone. **A protective mask is therefore insurance, not a prerequisite.**
+- **If a mask is ever needed, derive it from the comet-aligned MASTER** (the highest comet SNR we
+  own) and map it back into each frame through the per-frame offsets we already compute. `rc-astro
+  sxt` has no mask option -- only `--stars`, `--unscreen` and device flags -- which is not an
+  omission: PixInsight applies masks at the PROCESS level too, and SXT never sees one there either.
+- **Feed it calibrated RGB, never the raw Bayer mosaic.** The test fed a mosaic, which `sxt` reports
+  as `x1` and processes as mono; it fought the CFA grid and pushed noise **UP 11%**. It still kept
+  the comet, which is the robustness result, but the production path must debayer first.
+- **Registration comes from the STAR-BEARING raws, not from the nucleus alone.** Centroiding the
+  nucleus on a starless frame looks attractive -- the stars that would confuse it are gone -- but a
+  single centroid has no redundancy, and one star `sxt` misses, or a bright DSO, can capture it and
+  wreck the stack silently. The quad match over thousands of stars is robust by construction.
+  Nucleus centroiding is a REFINEMENT on top (item 1), never the primary mechanism.
+- **Cost:** 28.8 s for an 11 MP frame on the Adreno X1-85, so 135 lights is about **65 minutes**.
+  GPU is essential to that: RC-Astro 2.6.5 reports `auto` selecting the Adreno, and an earlier
+  CPU-only run was a stale device verdict from the previous build, cleared by updating.
+
+Which fixes the order for artifact 3: **offsets from the raws -> `sxt` the calibrated lights ->
+stack the starless with those offsets.** Step 1 is why the transform cache below is a prerequisite
+rather than an optimisation: a starless frame cannot be star-registered, so its transform has to
+come from the original it was derived from.
+
 ## Not done
 
 Roughly in dependency order.
