@@ -220,9 +220,10 @@ Measured before building anything, because two of these decide the shape of arti
   own) and map it back into each frame through the per-frame offsets we already compute. `rc-astro
   sxt` has no mask option -- only `--stars`, `--unscreen` and device flags -- which is not an
   omission: PixInsight applies masks at the PROCESS level too, and SXT never sees one there either.
-- **Feed it calibrated RGB, never the raw Bayer mosaic.** The test fed a mosaic, which `sxt` reports
-  as `x1` and processes as mono; it fought the CFA grid and pushed noise **UP 11%**. It still kept
-  the comet, which is the robustness result, but the production path must debayer first.
+- **A raw Bayer mosaic is FINE, contrary to the first reading here.** `sxt` reports a mosaic as `x1`
+  and whole-frame noise appeared to rise 11%, which looked like it was fighting the CFA grid. Measured
+  properly -- per CFA plane, on background cells -- it adds no noise and leaves the CFA structure
+  untouched; the 11% was an artifact of taking a MAD across a mosaic. See the section below.
 - **Registration comes from the STAR-BEARING raws, not from the nucleus alone.** Centroiding the
   nucleus on a starless frame looks attractive -- the stars that would confuse it are gone -- but a
   single centroid has no redundancy, and one star `sxt` misses, or a bright DSO, can capture it and
@@ -237,40 +238,33 @@ stack the starless with those offsets.** Step 1 is why the transform cache below
 rather than an optimisation: a starless frame cannot be star-registered, so its transform has to
 come from the original it was derived from.
 
-## Per-frame `sxt` and Bayer drizzle are mutually exclusive
+## Per-frame `sxt` and Bayer drizzle are COMPATIBLE (measured 2026-08-25)
 
-Bayer drizzle "skips the debayer step and projects each raw CFA sample onto the output grid as a
-drop" -- it defers demosaicing to the very end, by design. Whether `sxt` NEEDS a debayered frame is **not yet established**, and
-the answer decides this whole section.
+This was written the other way round first, on the strength of a single observation -- `sxt` handed a
+mosaic reports it as `x1` and whole-frame noise rose 11% -- and the conclusion was that star removal
+needs a debayered frame, which Bayer drizzle cannot provide since it defers demosaicing by design.
 
-What is measured: handed a mosaic it reports the image as `x1`, processes it as mono, removes the
-stars, keeps the comet -- and noise goes UP 11%, where the same product on a 3-channel stacked
-master took noise DOWN 4.5-7.1%. **That contrast does not isolate the CFA**, because the two runs
-differ in two ways at once: mosaic vs RGB, and a single sub vs a 135-frame stack. The +11% may be
-the CFA grid or may simply be what star removal does at single-sub SNR.
+**Both halves of that were wrong.** Measured on raw light 0120:
 
-The test that separates them is the SAME sub both ways -- debayer then `sxt`, against mosaic then
-`sxt`. Until that is run, treat the exclusivity below as PROVISIONAL.
-
-**If `sxt` does need a debayered frame, the comet layer cannot be Bayer-drizzled**, since drizzle
-defers demosaicing by design and per-frame star removal cannot wait for it. The cost is real: 135
-dithered OSC subs is drizzle's best case. **If instead `sxt` round-trips a mosaic cleanly, the
-trade disappears entirely** -- remove the stars from the raws and Bayer-drizzle those, keeping both.
-
-| layer | Bayer drizzle |
+| check | result |
 |---|---|
-| star layer, and artifact 2 (stars intact) | yes |
-| comet layer / artifact 3 (`sxt` per frame) | **no** -- must debayer first |
+| CFA structure preserved? | `|G1-G2|` median **identical to six decimals** (0.001282 before and after) |
+| inpainting CFA-aware? | channel levels at star sites stay separated (R 0.028 / G 0.045 / B 0.035), tracking the background's own levels rather than converging on a common value |
+| noise added? | per CFA plane, on cells `sxt` barely touched: **+1.1% / +0.1% / +0.1% / -0.3%** |
 
-**Watch this for the screen combine.** The two layers are then integrated by different strategies.
-Harmless today, because drizzle Phase 1 runs at `OutputScale=10` -- the same grid as the reference
--- so both masters come out the same size. If Phase 2's classical 2x sub-Bayer drizzle ships, the
-star layer becomes twice the comet layer's scale and the combine needs a resample. Worth a check
-rather than a surprise.
+**The +11% was a measurement artifact.** A MAD taken across a whole MOSAIC is dominated by the
+photosite levels themselves -- R 0.027, G 0.047, B 0.036 -- not by noise, so removing stars shifts
+that distribution and the number moves for reasons that have nothing to do with the data quality.
+Measuring per CFA plane, on background cells, shows no degradation.
 
-If both are ever wanted at once, the answer is a rejection stage inside drizzle (DrizzlePac does
-this with a median image and blot-back comparison), not abandoning drizzle -- but that is a
-feature, not a flag.
+So `sxt` takes a mosaic and returns a valid mosaic. **Artifact 3 can remove stars from the RAW lights
+and still Bayer-drizzle them**, keeping drizzle's sampling on 135 dithered OSC subs, and no per-frame
+debayer is forced.
+
+Still open, and not answered by the above: whether star removal is as GOOD on a mosaic as on RGB. The
+tests here show it does no structural harm and adds no noise; they do not compare removal quality
+against a debayer-first run, which would need a way to emit a debayered single sub (no CLI does today).
+The visual check was clean and the comet survived, so this is a refinement rather than a risk.
 
 ## The rejector is tuned backwards for a comet stack (raised by the user, being measured)
 
