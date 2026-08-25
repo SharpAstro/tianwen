@@ -135,7 +135,7 @@ internal sealed class StackSubCommand(
         };
         var rejectHighSigmaOpt = new Option<float?>("--reject-high-sigma")
         {
-            Description = "Override the PIXEL rejector's high (bright-outlier) threshold. Default 5 at 30+ frames, chosen to be generous so a real star is never clipped out of a sidereal stack. A comet layer wants the opposite: comet-aligned, a star lands on any given canvas cell in only a handful of frames, so it IS the outlier. Try 2.5-3.0 with --remove-stars to take out the trailed residuals per-frame star removal leaves behind. Has no effect under BayerDrizzle, which does no kappa-sigma rejection at all - pair it with --no-drizzle.",
+            Description = "Override the PIXEL rejector's high (bright-outlier) threshold. Default 5 at 30+ frames, chosen to be generous so a real star is never clipped out of a sidereal stack. A comet layer wants the opposite: comet-aligned, a star lands on any given canvas cell in only a handful of frames, so it IS the outlier. Try 2.5-3.0 with --remove-stars to take out the trailed residuals per-frame star removal leaves behind. Has no effect under BayerDrizzle, which does no kappa-sigma rejection at all - pair it with --no-bayer-drizzle.",
         };
         var referenceFrameHintOpt = new Option<string?>("--reference-frame")
         {
