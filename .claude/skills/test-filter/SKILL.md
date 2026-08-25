@@ -21,4 +21,10 @@ cd src && dotnet test TianWen.Lib.Tests.Functional --filter "FullyQualifiedName~
 IMPORTANT: Never run unit and functional tests concurrently - thread pool
 starvation causes flakes. Run one project at a time.
 
-Show full output - do not pipe through head or tail.
+Show full output - do not pipe through head or tail. A summary line with no test name
+cannot be acted on: you can neither attribute a regression nor recognise a flake.
+
+When the run must leave evidence behind - a full suite, a failure whose name was not
+captured, or anything suspected of being intermittent - use `/test-run` instead. It writes
+a TRX, keeps the console log, and enables `--blame-hang` so a hang is distinguishable from
+a slow test.
