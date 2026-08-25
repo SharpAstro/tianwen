@@ -409,7 +409,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     internal Task? GuideLoopTask => _guideLoopTask;
 
-    public ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
+    public async ValueTask GuideAsync(double settlePixels, double settleTime, double settleTimeout, CancellationToken cancellationToken)
     {
         if (_pulseTarget is null || _camera is null || _mount is null)
         {
@@ -426,8 +426,10 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         _settleTime = settleTime;
         _settleTimeout = settleTimeout;
 
-        // Cancel any previous guide loop
+        // Cancel any previous guide loop -- and wait for it to be gone before the camera is reused, or
+        // its finally ('_guideLoop = null; ForceState(Idle)') lands on top of the loop started below.
         CancelGuideLoop();
+        await WaitForGuideLoopExitAsync().ConfigureAwait(false);
 
         var cts = new CancellationTokenSource();
         _guideCts = cts;
@@ -436,10 +438,30 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
         // Start calibration + guide loop in the background. The task is retained (not discarded)
         // so it can be observed for completion: tests pump fake time until it finishes rather
-        // than guessing a fake-time budget, and a future StopCapture could await a clean unwind.
+        // than guessing a fake-time budget, and StopCaptureAsync awaits its clean unwind.
         _guideLoopTask = RunCalibrateAndGuideAsync(_pulseTarget, _camera, _mount, cts.Token);
+    }
 
-        return ValueTask.CompletedTask;
+    /// <summary>
+    /// Awaits the most recent loop task, if any, swallowing its outcome: the loop reports its own
+    /// failures through <see cref="GuidingErrorEvent"/> and treats cancellation as the normal exit, so
+    /// the only fact a caller needs from it here is that it is GONE before the camera is reused. A
+    /// cancelled loop unwinds at its next await -- one guide frame at most -- so this needs no timeout
+    /// of its own. The reference is left in place for <see cref="GuideLoopTask"/>.
+    /// </summary>
+    private async ValueTask WaitForGuideLoopExitAsync()
+    {
+        if (_guideLoopTask is { IsCompleted: false } loop)
+        {
+            try
+            {
+                await loop.ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Already surfaced by the loop itself; a stop must not fail because a loop did.
+            }
+        }
     }
 
     /// <summary>
@@ -890,15 +912,16 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
         => ValueTask.FromResult<string?>(null);
 
     /// <summary>
-    /// Stops the loop synchronously, so <paramref name="timeout"/> and
-    /// <paramref name="cancellationToken"/> are deliberately unused -- see the remarks on
-    /// <see cref="IGuider.StopCaptureAsync"/> for why an in-process guider has nothing to wait for.
+    /// Cancels the loop and WAITS for it to exit, so the guide camera has exactly one consumer by the
+    /// time this returns. <paramref name="timeout"/> and <paramref name="cancellationToken"/> are
+    /// deliberately unused -- see the remarks on <see cref="IGuider.StopCaptureAsync"/>: a cancelled
+    /// in-process loop unwinds at its next await, so the wait is one guide frame at most.
     /// </summary>
-    public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+    public async ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         CancelGuideLoop();
+        await WaitForGuideLoopExitAsync().ConfigureAwait(false);
         ForceState(GuiderState.Idle);
-        return ValueTask.CompletedTask;
     }
 
     public ValueTask UnpauseAsync(CancellationToken cancellationToken = default)

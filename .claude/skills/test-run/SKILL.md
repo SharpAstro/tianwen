@@ -110,10 +110,16 @@ print([e.get('DisplayName') for e in r.findall('Test') if e.get('Completed') != 
 ```
 
 That is how `DeviceOwnershipTests.AFinishedRunGivesTheRigBack` was identified: 4824 of 4825
-complete, exactly one open. It drove a real `Session` from outside `[Collection("Session")]`
-and starved. **Any test that calls `SessionTestHelper.CreateSessionAsync` belongs in that
-collection and wants `[Fact(Timeout = ...)]`** -- starvation makes such a test hang instead of
-fail, which costs a five-minute timeout and a multi-GB dump instead of one red test.
+complete, exactly one open. The name is all the dump gives you, and it is not a diagnosis: this
+one was called starvation for a day (it drove a `Session` from outside `[Collection("Session")]`,
+and every measurement had been taken on a loaded box), and it was a race -- a cancelled fake
+guider loop that survived its cancellation and fought the next loop for one camera. It failed 6 of
+9 runs **in isolation on a quiet machine**. Once the name is known, run that ONE test alone,
+repeatedly, before believing any environmental story; then instrument (here: fake time traversed
+per thread, and the session log sink wired into the test DI) rather than reason. **Any test that
+calls `SessionTestHelper.CreateSessionAsync` belongs in that collection and wants
+`[Fact(Timeout = ...)]`** -- a wedged run hangs instead of failing, which costs a five-minute
+timeout and a multi-GB dump instead of one red test, and the bound is what made this nameable.
 
 On CI the same artifacts are uploaded as `test-blame-<leg>`. The dump is large (4.8 GB
 uncompressed in one case); the `Sequence_*.xml` beside it is ~2 MB and is usually all you need,

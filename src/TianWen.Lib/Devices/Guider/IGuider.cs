@@ -116,10 +116,14 @@ public interface IGuider : IDeviceDriver
     /// exist for a guider that must ask ANOTHER PROCESS to stop and then wait for it to say it did:
     /// <c>OpenPHD2GuiderDriver</c> passes the token to the RPC and to each poll, and spends
     /// <paramref name="timeout"/> waiting for PHD2 to report <c>Stopped</c>. <c>BuiltInGuiderDriver</c>
-    /// and <c>FakeGuider</c> stop by cancelling the loop's own token source, which completes
-    /// synchronously -- there is no window in which to time out, and nothing a caller could usefully
-    /// cancel. Abandoning a stop half-way would be worse than not offering it: the caller would
-    /// believe guiding had stopped while the loop kept running.
+    /// and <c>FakeGuider</c> stop by cancelling the loop's own token source AND awaiting the loop task:
+    /// cancelling is synchronous, but the loop's exit is not -- it unwinds at its next await, one guide
+    /// frame at most, so it needs no timeout of its own. This remark used to say there was "nothing to
+    /// wait for", and returning before the exit was wrong in a way that mattered: every target start is
+    /// "stop guiding, slew, start guiding", so the next loop began on the guide camera while the previous
+    /// one was still mid-frame -- two consumers of one camera, a guide frame released twice, the new
+    /// loop's state clobbered by the old one's finally. Abandoning a stop half-way would be worse than
+    /// not offering it: the caller would believe guiding had stopped while the loop kept running.
     /// </remarks>
     /// <param name="timeout">
     /// How long to wait for the guider to confirm it stopped. Ignored by implementations that stop

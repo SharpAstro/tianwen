@@ -284,18 +284,31 @@ See [docs/plans/device-simulator-ci.md](docs/plans/device-simulator-ci.md).
 
 Tests grouped into `[Collection("X")]` by functional area. **Any test that drives a `Session` belongs in
 `[Collection("Session")]` -- the rule is about what a test DOES, not what it is CALLED**, and they run
-sequentially to avoid thread pool starvation from concurrent `Task.Run` + `FakeTimeProvider` timer
-callbacks. It used to be written as "all `Session*Tests`", and three classes drove real sessions from
-outside every collection because their names did not match: `DeviceOwnershipTests`,
-`SessionFaultCounterTests` and `SessionScoutClassifierTests`. That is not theoretical --
-`DeviceOwnershipTests.AFinishedRunGivesTheRigBack` **hung a CI leg**, which cost a 4.8 GB hang dump and
-read as an infrastructure flake for two runs. If it calls `SessionTestHelper.CreateSessionAsync`, it is a
-session test.
+sequentially so several sessions' concurrent `Task.Run` + `FakeTimeProvider` timer callbacks cannot
+starve the pool. It used to be written as "all `Session*Tests`", and three classes drove real sessions
+from outside every collection because their names did not match: `DeviceOwnershipTests`,
+`SessionFaultCounterTests` and `SessionScoutClassifierTests`. If it calls
+`SessionTestHelper.CreateSessionAsync`, it is a session test.
+
+**A fake-clock `SleepAsync` must throw on a cancelled token, exactly as the real one does, and a guider's
+`StopCaptureAsync` must not return until its loop has exited.** `FakeTimeProviderWrapper.SleepAsync`
+used to `Advance` and return whatever the token said, so a cancelled background loop ran on to its next
+natural exit; and `FakeGuider` / `BuiltInGuiderDriver.StopCaptureAsync` cancelled their capture loop and
+returned at once ("an in-process guider has nothing to wait for" -- cancelling is synchronous, the exit
+is not). Every target start is "stop guiding, slew, start guiding", so the next loop began on the guide
+camera while the previous one was still mid-frame: two consumers of one camera, one guide frame released
+twice (`ChannelBuffer: more releases than refs`), the new loop's `GuideLoop` nulled by the old one's
+finally, and the session never saw its first exposure complete. That is what
+`DeviceOwnershipTests.AFinishedRunGivesTheRigBack` was -- **a race, not starvation**: it failed 6 of 9
+runs in isolation on a quiet 12-core box and 0 of 10 after the fix. It was called starvation for a day
+because every measurement had been taken under load; instrumenting the fake clock (fake time traversed,
+per thread) is what settled it, and the log then named the double release outright.
 
 **No wall-clock `CancellationTokenSource` timeouts** in session tests; use `[Fact(Timeout = ...)]`; inner
-timeouts cause flakes. **A test that drives a whole run needs that bound**, because starvation makes it
-hang rather than fail, and an unbounded hang is a five-minute `--blame-hang` timeout and a multi-GB dump
-instead of one red test.
+timeouts cause flakes. **A test that drives a whole run needs that bound**: a wedged run hangs rather than
+fails, and an unbounded hang is a five-minute `--blame-hang` timeout and a multi-GB dump instead of one
+red test -- the 60 s bound above is what turned an unattributable CI hang into a named, reproducible
+failure.
 
 **Less parallelism is faster here, and the config only counts if it is copied to the output.** All three
 test projects carry an `xunit.runner.json` (`maxParallelThreads: 4`; Simulators pins 1 +

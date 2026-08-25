@@ -47,6 +47,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
     private bool _equipmentConnected;
     private bool _paused;
     private CancellationTokenSource? _loopCts;
+    private Task? _loopTask;
     private GuideLoop? _guideLoop;
     private volatile Image? _lastLoopFrame;
 
@@ -320,7 +321,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         if (_camera is { Connected: true } camera && _mount is { Connected: true } mount && _loopCts is null)
         {
             _loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _ = Task.Run(() => RunCaptureLoopAsync(camera, mount, _loopCts.Token), _loopCts.Token);
+            _loopTask = Task.Run(() => RunCaptureLoopAsync(camera, mount, _loopCts.Token), _loopCts.Token);
         }
 
         return ValueTask.CompletedTask;
@@ -420,7 +421,7 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
 
                 // Start the unified capture loop in background
                 _loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                _ = Task.Run(() => RunCaptureLoopAsync(camera, _mount!, _loopCts.Token), _loopCts.Token);
+                _loopTask = Task.Run(() => RunCaptureLoopAsync(camera, _mount!, _loopCts.Token), _loopCts.Token);
             }
         }
 
@@ -604,16 +605,33 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
     }
 
     /// <summary>
-    /// Stops the loop synchronously, so <paramref name="timeout"/> and
-    /// <paramref name="cancellationToken"/> are deliberately unused -- see the remarks on
-    /// <see cref="IGuider.StopCaptureAsync"/> for why an in-process guider has nothing to wait for.
+    /// Cancels the capture loop and WAITS for it to exit, so the guide camera has exactly one consumer
+    /// by the time this returns. <paramref name="timeout"/> and <paramref name="cancellationToken"/> are
+    /// deliberately unused -- see the remarks on <see cref="IGuider.StopCaptureAsync"/>: a cancelled
+    /// in-process loop unwinds at its next await, so the wait is one guide frame at most.
+    /// <para>Returning before that exit was the race behind
+    /// <c>DeviceOwnershipTests.AFinishedRunGivesTheRigBack</c>: the session's "stop guiding, slew, start
+    /// guiding" at every target began the next loop while this one was still mid-frame, the two released
+    /// each other's frames (<c>ChannelBuffer</c>: more releases than refs) and the second one's
+    /// <see cref="_guideLoop"/> was nulled by the first one's exit.</para>
     /// </summary>
-    public ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+    public async ValueTask StopCaptureAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         _loopCts?.Cancel();
         _loopCts = null;
+        if (_loopTask is { } loop)
+        {
+            _loopTask = null;
+            try
+            {
+                await loop.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Task.Run observed the cancelled token before the loop body started; equally gone.
+            }
+        }
         ForceState(GuiderState.Idle);
-        return ValueTask.CompletedTask;
     }
 
     public ValueTask UnpauseAsync(CancellationToken cancellationToken = default)
