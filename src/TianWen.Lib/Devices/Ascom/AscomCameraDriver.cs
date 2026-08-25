@@ -522,6 +522,8 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
 
     public double? Longitude { get; set; }
 
+    public double? SiteElevation { get; set; }
+
     public Target? Target { get; set; }
     #endregion
 }

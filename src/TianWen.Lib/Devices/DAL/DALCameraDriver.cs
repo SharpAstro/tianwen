@@ -1015,6 +1015,8 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
 
     public double? Longitude { get; set; }
 
+    public double? SiteElevation { get; set; }
+
     public Target? Target { get; set; }
     #endregion
 }

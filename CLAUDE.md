@@ -837,6 +837,25 @@ stages and the parity notes:
   NaN-ring edges. The autocrop rect is a geometric footprint-intersection AABB, decoupled from the
   NaN-fill guard inside `SharpenPipeline`.
 
+**Comet / moving-target integration (`stack --comet [designation]`)** registers on the BODY, so the
+comet integrates sharp and the stars trail. The rate is derived from the frames -- designation off
+`OBJECT`, site off `SITELAT`/`SITELONG`/`SITEELEV`, window off the exposure epochs, then a topocentric
+JPL Horizons track fitted through the reference frame's WCS. `--comet-rate dx,dy` is the offline
+counterpart and the override. Design + measurements:
+[docs/plans/comet-integration.md](docs/plans/comet-integration.md). Three rules:
+
+- **This is the ONE place the pipeline plate-solves anything but the finished master.** Registration
+  is frame-to-frame star-quad matching and never needed to know where the sky was, so nothing solved a
+  light frame before; the master's solve is far too late for a rate consumed *while* integrating.
+- **An unknown site is a refusal, never a geocentric fallback.** Horizons answers a geocentric query
+  happily and the result is wrong by 3.4 degrees of heading -- and it fits a STRAIGHTER line than the
+  correct track, because parallax is exactly what bends the correct one. So the straightness residual
+  is logged and **nothing may gate on it**: it ranks the wrong answer first. `SITEELEV` is the opposite
+  case and defaults to sea level, being worth under a thousandth of a pixel.
+- **The compose is canvas-space, after the star solution.** Dither was 88.6 px against a 44.7 px comet
+  track, so a frame-space shift is simply the wrong quantity; `Matrix3x2` is row-vector, so
+  `starSolution * translation` is the correct order and reversing it silently gives the wrong basis.
+
 **Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS so a
 processed image parked alongside the lights is never re-stacked as a fresh sub. Two markers, both
 gated by `--include-integrations`: `STACK_N > 0` (a master) OR a TianWen `SWCREATE`

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -371,7 +371,8 @@ public interface ICameraDriver : IDeviceDriver
                 SWCreator: External.SWCreator,
                 Aperture: Aperture ?? -1,
                 SensorModel: SensorModelName ?? "",
-                SensorFullScaleAdu: sensorFullScaleAdu
+                SensorFullScaleAdu: sensorFullScaleAdu,
+                SiteElevation: (float)(SiteElevation ?? double.NaN)
             )
         );
 
@@ -402,6 +403,22 @@ public interface ICameraDriver : IDeviceDriver
     double? Latitude { get; set; }
 
     double? Longitude { get; set; }
+
+    /// <summary>
+    /// Observatory elevation above mean sea level in metres, denormalised onto the camera from the
+    /// mount like <see cref="Latitude"/> and <see cref="Longitude"/>, and written as FITS
+    /// <c>SITEELEV</c>. <c>null</c> = unknown.
+    ///
+    /// <para>Named for the SITE rather than bare <c>Elevation</c> because that word is already taken:
+    /// in this codebase elevation also means altitude above the horizon (<c>ElevationTopocentric</c>),
+    /// which is a different quantity that varies per target per instant.</para>
+    ///
+    /// <para>It exists because a TOPOCENTRIC ephemeris is stated for a place. Comet-aligned
+    /// registration asks JPL Horizons from the site the frames record, so a frame that omits this
+    /// card is answered at sea level -- harmless here (120 m moves a ~3 px diurnal parallax by under
+    /// a thousandth of a pixel) but there is no reason to discard a number the mount already knows.</para>
+    /// </summary>
+    double? SiteElevation { get; set; }
 
     Filter Filter { get; set; }
 

@@ -471,6 +471,8 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
     public Filter Filter { get; set; } = Filter.Unknown;
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
+
+    public double? SiteElevation { get; set; }
     public Target? Target { get; set; }
     #endregion
 }
