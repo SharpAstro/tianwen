@@ -122,6 +122,60 @@ public class CometRateSolverTests(ITestOutputHelper output)
         b.Value.PxPerHour.Y.ShouldBe(a.Value.PxPerHour.Y, tolerance: 1e-4f);
     }
 
+    private static EphemerisSample[] FrozenGeocentricTrack()
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        var name = assembly.GetManifestResourceNames()
+            .Single(n => n.EndsWith("horizons-10p-geocentric-2026-08-16.txt", StringComparison.Ordinal));
+        using var stream = assembly.GetManifestResourceStream(name)!;
+        using var reader = new StreamReader(stream);
+        HorizonsObserverSource.TryParse(reader.ReadToEnd(), out var samples).ShouldBeTrue();
+        return [.. samples];
+    }
+
+    [Fact]
+    public void AGeocentricEphemerisWouldGetTheRateWrong()
+    {
+        // The measured justification for asking Horizons from the SITE rather than reusing the
+        // geocentric CometEphemeris already in the codebase. Both fixtures are the same body over the
+        // same instants, differing only in where the observer stood.
+        //
+        // What corrupts a rate is not the parallax OFFSET but its CHANGE: a constant offset merely
+        // shifts where the comet sits on the canvas, which registration absorbs. Across this run the
+        // offset sweeps 3.27 px down to 0.68 px, so ~2.6 px of apparent motion is pure observer
+        // geometry -- against a 0.11 px SIP residual, and worth several percent of the rate itself.
+        var wcs = FieldWcs(331.74, -30.49);
+        var topo = CometRateSolver.SolveCanvasRatePxPerHour(wcs, FrozenTrack());
+        var geo = CometRateSolver.SolveCanvasRatePxPerHour(wcs, FrozenGeocentricTrack());
+
+        topo.ShouldNotBeNull();
+        geo.ShouldNotBeNull();
+
+        var drift = Vector2.Distance(topo.Value.PxPerHour, geo.Value.PxPerHour);
+        var span = (FrozenTrack()[^1].TimeUtc - FrozenTrack()[0].TimeUtc).TotalHours;
+        output.WriteLine($"topocentric {topo.Value.PxPerHour.Length():F3} px/hr, "
+            + $"geocentric {geo.Value.PxPerHour.Length():F3} px/hr, "
+            + $"rate difference {drift:F3} px/hr = {drift * span:F2} px over {span:F2} h "
+            + $"({100 * drift / topo.Value.PxPerHour.Length():F1}% of the rate)");
+
+        // Accumulated over the run this is ~2.6 px, more than twenty times the registration residual
+        // the WCS achieves (0.11 px), so it is nowhere near ignorable.
+        (drift * span).ShouldBeGreaterThan(2.0);
+        (drift * span).ShouldBeLessThan(3.5);
+
+        // And the error is mostly in DIRECTION, not speed, which is worth pinning because it is the
+        // opposite of what a casual reading suggests: the two SPEEDS are within 0.16 px/hr of each
+        // other (12.65 vs 12.81), so a test comparing magnitudes would conclude the geocentric track
+        // was nearly good enough. The rate VECTORS differ by 0.78 px/hr because the parallax term
+        // sweeps across the field rather than along the comet's path, which is ~3.5 degrees of
+        // heading -- and a heading error is exactly what smears a stack over 3.5 hours.
+        var headingDeg = double.RadiansToDegrees(Math.Acos(Math.Clamp(
+            Vector2.Dot(Vector2.Normalize(topo.Value.PxPerHour), Vector2.Normalize(geo.Value.PxPerHour)),
+            -1f, 1f)));
+        output.WriteLine($"heading difference {headingDeg:F2} deg");
+        headingDeg.ShouldBeGreaterThan(1.0);
+    }
+
     [Fact]
     public void AnUnusableTrackAnswersNullRatherThanAGuess()
     {

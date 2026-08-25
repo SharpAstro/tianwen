@@ -95,8 +95,22 @@ reference frame needs no special case because its dt is zero.
 the star solution first and then translates. That ordering IS the canvas-space property; reversing
 the operands silently gives a frame-space shift that looks plausible and is wrong.
 
-**A geocentric ephemeris is not good enough.** Topocentric minus geocentric moves by 2.74 px across
-this run, which is 25x the registration residual. So `CometEphemeris.TryGetEquatorialJ2000`, which is
+**A geocentric ephemeris is not good enough, and this is now measured rather than asserted.** Two
+frozen Horizons tracks of the same body over the same instants, differing only in where the observer
+stood, are pinned by `CometRateSolverTests.AGeocentricEphemerisWouldGetTheRateWrong`: the fitted
+rates differ by **0.780 px/hr, i.e. 2.73 px accumulated over the run** (the hand-derived figure was
+2.74) against a 0.11 px SIP residual.
+
+**The error is in HEADING, not speed**, which is the opposite of what the numbers first suggest and
+the reason a magnitude comparison would wave it through. The two speeds are 12.646 and 12.805 px/hr,
+within 0.16 of each other; the rate VECTORS differ by 0.780 px/hr because the parallax term sweeps
+ACROSS the field rather than along the comet's path. That is **3.44 degrees** of heading error, and a
+heading error is precisely what smears a stack over three and a half hours. Note also that what
+corrupts a rate is the parallax term's CHANGE, not its size: the offset itself runs 3.27 px down to
+0.68 px here, and a constant offset would simply shift where the comet sits on the canvas, which
+registration absorbs without complaint.
+
+So `CometEphemeris.TryGetEquatorialJ2000`, which is
 geocentric, cannot drive this; it needs a Horizons OBSERVER ephemeris at the site in the header's
 `SITELAT`/`SITELONG`. One WAS cached at `C:/temp/eph-1min.txt`, 221 samples on a 1-minute grid; it did
 not cross to the second machine, so it needs re-fetching. The target to ask about can now be read off
