@@ -337,6 +337,81 @@ public class MasterFrameBuilderTests
 
     // ---------- MasterGroupKey ----------
 
+    private static MasterGroupKey FlatKeyWithFilter(string writtenFilterCard)
+    {
+        var meta = new ImageMeta(
+            Instrument: "test",
+            ExposureStartTime: DateTimeOffset.UnixEpoch,
+            ExposureDuration: TimeSpan.FromSeconds(10),
+            FrameType: FrameType.Flat,
+            Telescope: "scope",
+            PixelSizeX: 3.76f, PixelSizeY: 3.76f, FocalLength: 400, FocusPos: -1,
+            Filter: Filter.FromName(writtenFilterCard) with { RawName = writtenFilterCard },
+            BinX: 1, BinY: 1,
+            CCDTemperature: -10f,
+            SensorType: SensorType.RGGB, BayerOffsetX: 0, BayerOffsetY: 0,
+            RowOrder: RowOrder.TopDown,
+            Latitude: float.NaN, Longitude: float.NaN,
+            Gain: 100, Offset: 50);
+        return MasterGroupKey.FromFrame(new FrameInfo("flat.fits", 100, 100, 1, BitDepth.Float32, meta));
+    }
+
+    /// <summary>
+    /// Two filters that <see cref="Filter.FromName"/> does not recognise must still be two filters.
+    /// The key was <c>Filter.Name</c>, which is the literal string "Unknown" for BOTH of these, so a
+    /// single flat master served both and a light shot through either scored the other as a filter
+    /// MATCH. Every light-pollution and most narrowband product names land outside the anchored set,
+    /// so this was the common case rather than the exotic one.
+    /// </summary>
+    [Fact]
+    public void TwoUnrecognisedFiltersAreNotTheSameFlat()
+    {
+        var d3 = FlatKeyWithFilter("IDAS LPS-D3");
+        var lPro = FlatKeyWithFilter("Optolong L-Pro");
+
+        // Precondition: the bug is only interesting because neither name is recognised.
+        Filter.FromName("IDAS LPS-D3").ShouldBe(Filter.Unknown);
+        Filter.FromName("Optolong L-Pro").ShouldBe(Filter.Unknown);
+
+        d3.SameFilterAs(lPro).ShouldBeFalse();
+        d3.ShouldNotBe(lPro);
+        d3.Slug().ShouldNotBe(lPro.Slug());
+    }
+
+    /// <summary>
+    /// The other half: a name the anchored set DOES recognise must still canonicalise, so the same
+    /// filter written two ways shares one master. This is the "RawName drifts" concern the old
+    /// canonical-name key existed to serve, and it is preserved.
+    /// </summary>
+    [Fact]
+    public void OneFilterWrittenTwoWaysIsStillOneFlat()
+    {
+        FlatKeyWithFilter("Ha").SameFilterAs(FlatKeyWithFilter("H-Alpha")).ShouldBeTrue();
+    }
+
+    /// <summary>An unfiltered flat spells its slug "nofilter"; <c>Filter.None.Name</c> is the literal
+    /// string "None", so under the canonical-name key that fallback was unreachable.</summary>
+    [Fact]
+    public void AnUnfilteredFlatSaysNofilter()
+    {
+        MasterGroupKey.FromFrame(new FrameInfo("flat.fits", 100, 100, 1, BitDepth.Float32,
+            new ImageMeta(
+                Instrument: "test",
+                ExposureStartTime: DateTimeOffset.UnixEpoch,
+                ExposureDuration: TimeSpan.FromSeconds(10),
+                FrameType: FrameType.Flat,
+                Telescope: "scope",
+                PixelSizeX: 3.76f, PixelSizeY: 3.76f, FocalLength: 400, FocusPos: -1,
+                Filter: Filter.None,
+                BinX: 1, BinY: 1,
+                CCDTemperature: -10f,
+                SensorType: SensorType.RGGB, BayerOffsetX: 0, BayerOffsetY: 0,
+                RowOrder: RowOrder.TopDown,
+                Latitude: float.NaN, Longitude: float.NaN,
+                Gain: 100, Offset: 50)))
+            .Slug().ShouldContain("nofilter");
+    }
+
     [Fact]
     public void MasterGroupKey_FromFrame_PopulatesAllFields()
     {
@@ -361,7 +436,7 @@ public class MasterFrameBuilderTests
         key.Type.ShouldBe(FrameType.Dark);
         key.Exposure.ShouldBe(TimeSpan.FromSeconds(300));
         key.TemperatureC.ShouldBe(-10); // Math.Round(-10.3)
-        key.FilterName.ShouldBe(Filter.HydrogenAlpha.Name);
+        key.FilterIdentity.ShouldBe(Filter.HydrogenAlpha.IdentityKey);
         key.Width.ShouldBe(3008);
         key.Height.ShouldBe(3008);
         key.ChannelCount.ShouldBe(1);
@@ -407,9 +482,9 @@ public class MasterFrameBuilderTests
     [Fact]
     public void MasterGroupKey_Slug_BiasSkipsExposure_FlatIncludesFilter()
     {
-        var biasKey = new MasterGroupKey(FrameType.Bias, TimeSpan.FromMilliseconds(1), -10, "L", Bandpass.Luminance, 100, 100, 1, SensorType.Monochrome, -1, -1);
-        var darkKey = new MasterGroupKey(FrameType.Dark, TimeSpan.FromSeconds(300), -10, "L", Bandpass.Luminance, 100, 100, 1, SensorType.Monochrome, -1, -1);
-        var flatKey = new MasterGroupKey(FrameType.Flat, TimeSpan.FromMilliseconds(500), -10, "HydrogenAlpha", Bandpass.Ha, 100, 100, 1, SensorType.RGGB, -1, -1);
+        var biasKey = new MasterGroupKey(FrameType.Bias, TimeSpan.FromMilliseconds(1), -10, "Luminance", 100, 100, 1, SensorType.Monochrome, -1, -1);
+        var darkKey = new MasterGroupKey(FrameType.Dark, TimeSpan.FromSeconds(300), -10, "Luminance", 100, 100, 1, SensorType.Monochrome, -1, -1);
+        var flatKey = new MasterGroupKey(FrameType.Flat, TimeSpan.FromMilliseconds(500), -10, "HydrogenAlpha", 100, 100, 1, SensorType.RGGB, -1, -1);
 
         biasKey.Slug().ShouldBe("bias_-10C");
         darkKey.Slug().ShouldBe("dark_300s_-10C");

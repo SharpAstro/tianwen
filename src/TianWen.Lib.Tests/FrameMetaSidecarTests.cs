@@ -150,7 +150,10 @@ namespace TianWen.Lib.Tests
             frames.Select(f => f.Meta.Filter.IdentityKey).Distinct().ShouldHaveSingleItem().ShouldBe("L-eXtreme");
             var light = frames.Single(f => f.FrameType == FrameType.Light);
             var flat = frames.Single(f => f.FrameType == FrameType.Flat);
-            MasterGroupKey.FromFrame(light).FilterName.ShouldBe(MasterGroupKey.FromFrame(flat).FilterName);
+            // Asserted through SameFilterAs, the one filter-match test. This also got STRONGER:
+            // "L-eXtreme" is not in Filter.FromName's anchored set, so under the old canonical-name
+            // key both sides were the string "Unknown" and matched no matter what the header said.
+            MasterGroupKey.FromFrame(light).SameFilterAs(MasterGroupKey.FromFrame(flat)).ShouldBeTrue();
         }
 
         [Fact]
