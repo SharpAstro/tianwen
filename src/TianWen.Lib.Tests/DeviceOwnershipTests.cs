@@ -31,6 +31,10 @@ namespace TianWen.Lib.Tests
     /// been the right predicate, because two of those four surfaces never see one.
     /// </para>
     /// </summary>
+    // Drives a real Session end to end, so it belongs in the Session collection even though its
+    // NAME does not start with "Session": the rule is about what a test DOES, and this class was
+    // outside every collection, running concurrently with the session suite it contends with.
+    [Collection("Session")]
     public class DeviceOwnershipTests(ITestOutputHelper output)
     {
         private readonly ITestOutputHelper _output = output;
@@ -259,7 +263,7 @@ namespace TianWen.Lib.Tests
 
         // --- A real run, end to end -----------------------------------------------------------------
 
-        [Fact]
+        [Fact(Timeout = 60_000)]
         public async Task ARunRefusesToStartWhenSomethingElseAlreadyOwnsTheRig()
         {
             // Proves the session actually claims its Setup: the only way it can notice a pre-existing
@@ -276,7 +280,7 @@ namespace TianWen.Lib.Tests
             ctx.Session.FailureReason.ShouldContain("a polar alignment");
         }
 
-        [Fact]
+        [Fact(Timeout = 60_000)]
         public async Task AFinishedRunGivesTheRigBack()
         {
             // A leaked lease is invisible until the NEXT run refuses to start -- by which point the user
@@ -289,7 +293,7 @@ namespace TianWen.Lib.Tests
             hub.Leases.ShouldBeEmpty("every claim must be released however the run ended");
         }
 
-        [Fact]
+        [Fact(Timeout = 60_000)]
         public async Task AFlatRunOwnsTheRigJustAsCompletelyAsASession()
         {
             // The case every previous guard missed: FlatsBootstrapper leaves LiveSessionState.IsRunning

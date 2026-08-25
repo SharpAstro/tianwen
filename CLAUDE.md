@@ -281,10 +281,20 @@ See [docs/plans/device-simulator-ci.md](docs/plans/device-simulator-ci.md).
 
 ### Test Collections & Parallelism
 
-Tests grouped into `[Collection("X")]` by functional area. All `Session*Tests` share `[Collection("Session")]`
-and run sequentially to avoid thread pool starvation from concurrent `Task.Run` + `FakeTimeProvider` timer
-callbacks. **No wall-clock `CancellationTokenSource` timeouts** in session tests; use
-`[Fact(Timeout = ...)]`; inner timeouts cause flakes.
+Tests grouped into `[Collection("X")]` by functional area. **Any test that drives a `Session` belongs in
+`[Collection("Session")]` -- the rule is about what a test DOES, not what it is CALLED**, and they run
+sequentially to avoid thread pool starvation from concurrent `Task.Run` + `FakeTimeProvider` timer
+callbacks. It used to be written as "all `Session*Tests`", and three classes drove real sessions from
+outside every collection because their names did not match: `DeviceOwnershipTests`,
+`SessionFaultCounterTests` and `SessionScoutClassifierTests`. That is not theoretical --
+`DeviceOwnershipTests.AFinishedRunGivesTheRigBack` **hung a CI leg**, which cost a 4.8 GB hang dump and
+read as an infrastructure flake for two runs. If it calls `SessionTestHelper.CreateSessionAsync`, it is a
+session test.
+
+**No wall-clock `CancellationTokenSource` timeouts** in session tests; use `[Fact(Timeout = ...)]`; inner
+timeouts cause flakes. **A test that drives a whole run needs that bound**, because starvation makes it
+hang rather than fail, and an unbounded hang is a five-minute `--blame-hang` timeout and a multi-GB dump
+instead of one red test.
 
 **Less parallelism is faster here, and the config only counts if it is copied to the output.** All three
 test projects carry an `xunit.runner.json` (`maxParallelThreads: 4`; Simulators pins 1 +
