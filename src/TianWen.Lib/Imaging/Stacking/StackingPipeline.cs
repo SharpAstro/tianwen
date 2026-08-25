@@ -707,6 +707,10 @@ public sealed class StackingPipeline(
         // (few quads anywhere) from a PURITY one (plenty of quads on both sides that still do not
         // correspond), and those have opposite fixes.
         var matched = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>();
+        // Every candidate's fate and its STAR solution, for the manifest. Parallel to `matched` only
+        // for the frames that survive; a skipped frame is recorded here and absent there, which is the
+        // whole point (see StackManifest: "considered and rejected" and "never offered" differ).
+        var manifestFates = new List<(FrameInfo Frame, FrameFate Fate, Matrix3x2? Star)>(frameCandidates.Count);
         var skipCount = 0;
         foreach (var candidate in frameCandidates)
         {
@@ -720,11 +724,18 @@ public sealed class StackingPipeline(
                 transform = Matrix3x2.Identity;
                 frameMetrics = referenceMetrics;
                 registerLoop.AddReference(referenceMetrics);
+                manifestFates.Add((candidate.Frame, FrameFate.Matched, Matrix3x2.Identity));
             }
             else
             {
                 var attempt = await registerLoop.RegisterAsync(candidate.Stars, candidate.Metrics, ct);
                 transform = attempt.Transform;
+                manifestFates.Add((candidate.Frame, attempt.Skip switch
+                {
+                    RegisterLoop.SkipCause.TooFewStars => FrameFate.SkippedTooFewStars,
+                    RegisterLoop.SkipCause.NoQuadFit => FrameFate.SkippedNoQuadFit,
+                    _ => FrameFate.Matched,
+                }, attempt.Transform));
                 switch (attempt.Skip)
                 {
                     case RegisterLoop.SkipCause.TooFewStars:
@@ -826,6 +837,16 @@ public sealed class StackingPipeline(
                         logger.LogInformation(
                             "  [quality] reject {Name} reason={Reason} hfd={Hfd:F2} ecc={Ecc:F3} stars={Stars}",
                             rejName, reason, m.MedianHfd, m.MedianEllipticity, m.StarCount);
+                        // The manifest must say REJECTED rather than matched, or the other layer
+                        // silently includes a frame this one threw away and the two differ in depth.
+                        for (var f = 0; f < manifestFates.Count; f++)
+                        {
+                            if (ReferenceEquals(manifestFates[f].Frame, matched[i].Light))
+                            {
+                                manifestFates[f] = (manifestFates[f].Frame, FrameFate.SkippedQualityReject, manifestFates[f].Star);
+                                break;
+                            }
+                        }
                     }
                 }
                 matched = filtered;
@@ -1120,6 +1141,64 @@ public sealed class StackingPipeline(
         if (intResult.TotalRejections > 0)
         {
             logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));
+        }
+
+        // The manifest is written AFTER the master, so it can only ever describe a run that produced
+        // one. A manifest beside a missing or failed master would be consumed happily by the next
+        // layer and pin it to inputs nothing ever integrated.
+        try
+        {
+            var manifestPath = StackManifest.PathFor(masterPath);
+            var digestStart = StageTimings.Start();
+            // Digest in parallel: this is a second full read of every frame (~3 GB for 135 subs) and
+            // it is pure I/O plus SHA-256, so it scales with cores rather than adding a serial tail.
+            var digests = new string[manifestFates.Count];
+            Parallel.For(0, manifestFates.Count, new ParallelOptions { CancellationToken = ct }, i =>
+            {
+                digests[i] = StackManifest.DigestData(manifestFates[i].Frame.Path);
+            });
+            var manifestEntries = new ManifestFrame[manifestFates.Count];
+            for (var i = 0; i < manifestFates.Count; i++)
+            {
+                var (frame, fate, star) = manifestFates[i];
+                manifestEntries[i] = new ManifestFrame(
+                    frame.Path,
+                    digests[i],
+                    fate,
+                    frame.Meta.ExposureStartTime,
+                    star is { } m ? ManifestFrame.From(m) : null);
+            }
+            var referenceDigest = "";
+            for (var i = 0; i < manifestFates.Count; i++)
+            {
+                if (string.Equals(manifestFates[i].Frame.Path, reference.Path, StringComparison.OrdinalIgnoreCase))
+                {
+                    referenceDigest = digests[i];
+                    break;
+                }
+            }
+            var manifest = new StackManifest(
+                StackManifest.CurrentSchemaVersion,
+                slug,
+                IntegrationFitsWriter.SoftwareCreator,
+                DateTimeOffset.UtcNow,
+                reference.Path,
+                referenceDigest,
+                options.SnrMin,
+                options.MinStars,
+                manifestEntries);
+            await manifest.WriteAsync(manifestPath, ct);
+            logger.LogInformation(
+                "  wrote {Path} ({Matched} matched / {Total} frames, reference {Ref}, digests in {ElapsedMs} ms)",
+                manifestPath, matched.Count, manifestEntries.Length,
+                Path.GetFileNameWithoutExtension(reference.Path),
+                (long)Stopwatch.GetElapsedTime(digestStart).TotalMilliseconds);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // A manifest is an enabler for a LATER run, so failing to write one must not lose the
+            // master this run just produced.
+            logger.LogWarning(ex, "  [manifest] could not be written; this master is still valid");
         }
         var previewPath = Path.ChangeExtension(masterPath, ".png");
         return new GroupResult(
