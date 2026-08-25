@@ -473,6 +473,23 @@ tianwen dataset tag-filter --path <FLAT>  --filter "IDAS LPS-D3" --apply
 tianwen dataset tag-site-elevation --path <ROOT> --elevation 74 --expect 120 --apply
 ```
 
+**`<ROOT>` is only safe on a single-session folder, and the second box is not one.** The desktop
+archive `C:/temp/astro/2026-08 SV545` carries a second night beside the comet one (Lobster Nebula 354
+lights, SMC 240), so a recursive root run over-reaches in three ways, each of them silent.
+`tag-filter` has **no `--expect` guard**, a card that is absent rather than wrong being the whole
+point, so it stamps the filter onto those 594 unrelated lights as well. `tag-object` picks up the six
+`PROC` products, which declare `IMAGETYP=LIGHT` and still hold the typo, tagging 141 where this box
+tagged 135. And `tag-site-elevation` sweeps `PROC/` and `MASTER/` too, 1120 frames against the 525
+here. Drive it **per subtree by `--path`** instead, and the exclusions hold by construction rather
+than by luck.
+
+That box was amended on 2026-08-25: `OBJECT` on the 135 comet lights only, so `PROC/` keeps its typo;
+`FILTER` on 780, being both nights' lights plus the flats, the operator's own Siril product
+`SMC/PROC/Small_Magellanic_Cloud-RGB-crop-lpc-cbg.fits` having already recorded `IDAS LPS-D3` for that
+night; and `SITEELEV` on the same 780, which leaves its 320 bias, dark and dark-flat frames still
+reading 120. That last divergence is harmless by construction: the elevation feeds the topocentric
+Horizons query, which is driven off light epochs, and `MasterGroupKey` never reads it.
+
 **`SITEELEV = 74.0`, on every frame type rather than the lights alone**, because where the rig stood
 is true of a dark and a bias as much as of a light. The capture profile had recorded 120 m against a
 true 74 m. **This corrects the RECORD, not a measurement**: 46 m is 0.0007% of an Earth radius, so it
