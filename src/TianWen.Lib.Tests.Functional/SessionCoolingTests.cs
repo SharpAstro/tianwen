@@ -122,15 +122,24 @@ public class SessionCoolingTests(ITestOutputHelper output)
         using var cancelTimer = ctx.TimeProvider.CreateTimer(
             _ => cts.Cancel(), null, TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan);
 
-        await ctx.Session.CoolCamerasToSetpointAsync(
+        // then: cancellation surfaces as OperationCanceledException, which is what the REAL clock does --
+        // Task.Delay(duration, timeProvider, ct) throws when the token is cancelled mid-wait, and the timer
+        // above fires inside the loop's own sleep. The loop's graceful break covers only a cancel observed
+        // BETWEEN sleeps, and a 15 s ramp interval means production almost never lands there. Nothing is
+        // swallowed on purpose: RunAsync catches this and sets SessionPhase.Aborted, which is the wanted
+        // outcome, and the one path that must not be cancellable (warming back to ambient) already passes
+        // CancellationToken.None rather than relying on the loop to be lenient.
+        // This test asserted a graceful return until the fake clock started honouring its token; that
+        // return was reachable only under the fake.
+        await Should.ThrowAsync<OperationCanceledException>(async () => await ctx.Session.CoolCamerasToSetpointAsync(
             new SetpointTemp(-10, SetpointTempKind.Normal),
             TimeSpan.FromSeconds(60),
             80,
             SetupointDirection.Down,
             cts.Token
-        );
+        ));
 
-        // then: should not have fully reached setpoint (20°C → -10°C is 30 steps, only 3 completed)
+        // and: it stopped EARLY, which is the substantive claim (20°C -> -10°C is 30 steps)
         var temp = await ctx.Camera.GetCCDTemperatureAsync(ct);
         output.WriteLine($"Temp after cancellation: {temp:F1} °C");
         temp.ShouldBeGreaterThan(-10, "should not have reached setpoint when cancelled early");
