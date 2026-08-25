@@ -100,6 +100,18 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// star is present in a handful of frames at any given canvas cell, so it IS
 /// the outlier -- and something near 2.5-3 is the useful range there.
 /// See <see cref="StackingPipeline.BuildRejector"/>.</param>
+/// <param name="SaveCalibrated">Persist each light's CALIBRATED frame (bias /
+/// dark / flat applied, before registration) under
+/// <c>_staging/&lt;slug&gt;/calibrated/</c>. Off by default. Diagnostic only --
+/// the dumps carry a TianWen <c>SWCREATE</c>, so the scan's provenance skip
+/// drops them and they cannot be re-ingested as lights. Costs one float32
+/// frame per light, so budget accordingly. Under
+/// <paramref name="RemoveStarsPerFrame"/> this captures the frame as the star
+/// remover was handed it, which is the whole point of having it.</param>
+/// <param name="SaveNormalized">Persist each light's NORMALIZED frame (after
+/// the per-frame level match that precedes the combine) under
+/// <c>_staging/&lt;slug&gt;/normalized/</c>. Off by default, same cost and same
+/// provenance rules as <paramref name="SaveCalibrated"/>.</param>
 /// <param name="ReferenceFrameHint">Debug knob: when set, pins the
 /// reference frame for each light group to the first candidate whose
 /// path contains this case-insensitive substring. Null falls back to
@@ -172,6 +184,8 @@ public sealed record StackingOptions(
     float? QualityRejectSigma = null,
     float? RejectLowSigma = null,
     float? RejectHighSigma = null,
+    bool SaveCalibrated = false,
+    bool SaveNormalized = false,
     string? ReferenceFrameHint = null,
     string? ManifestPath = null,
     bool RemoveStarsPerFrame = false,

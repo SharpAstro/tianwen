@@ -137,6 +137,14 @@ internal sealed class StackSubCommand(
         {
             Description = "Override the PIXEL rejector's high (bright-outlier) threshold. Default 5 at 30+ frames, chosen to be generous so a real star is never clipped out of a sidereal stack. A comet layer wants the opposite: comet-aligned, a star lands on any given canvas cell in only a handful of frames, so it IS the outlier. Try 2.5-3.0 with --remove-stars to take out the trailed residuals per-frame star removal leaves behind. Has no effect under BayerDrizzle, which does no kappa-sigma rejection at all - pair it with --no-bayer-drizzle.",
         };
+        var saveCalibratedOpt = new Option<bool>("--save-calibrated")
+        {
+            Description = "Write each light's calibrated frame (bias / dark / flat applied, before registration) to _staging/<slug>/calibrated/. Off by default. This is the intermediate Astro Pixel Processor and PixInsight let you keep, and for the same reason: when a master comes out wrong, the master alone cannot say which stage did it. Under --remove-stars it captures exactly the pixels the star remover was handed. Diagnostic only - the dumps carry a TianWen SWCREATE so the scan's provenance skip drops them and they can never be re-ingested as lights. Costs one float32 frame per light (about 6 GB for a 135-frame session at 11.6 Mpx) and nothing prunes them.",
+        };
+        var saveNormalizedOpt = new Option<bool>("--save-normalized")
+        {
+            Description = "Write each light's normalized frame (after the per-frame level match that precedes the combine) to _staging/<slug>/normalized/. Off by default; same cost, provenance and pruning notes as --save-calibrated.",
+        };
         var referenceFrameHintOpt = new Option<string?>("--reference-frame")
         {
             Description = "Debug knob: pin the reference frame to the first candidate whose path contains this case-insensitive substring (e.g. '_0233' to pin to that filename). Falls back to the composite-quality score picker when unset or no match. Use to isolate per-frame artifacts that correlate with reference choice - a frame near the session's temporal middle keeps per-frame rotation residuals symmetric, which balances per-channel drizzle coverage.",
@@ -255,6 +263,7 @@ internal sealed class StackSubCommand(
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
                 qualityRejectSigmaOpt, rejectLowSigmaOpt, rejectHighSigmaOpt,
+                saveCalibratedOpt, saveNormalizedOpt,
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
                 cometOpt, cometRateOpt,
                 inheritWbOpt,
@@ -415,6 +424,8 @@ internal sealed class StackSubCommand(
                 QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
                 RejectLowSigma: parseResult.GetValue(rejectLowSigmaOpt),
                 RejectHighSigma: parseResult.GetValue(rejectHighSigmaOpt),
+                SaveCalibrated: parseResult.GetValue(saveCalibratedOpt),
+                SaveNormalized: parseResult.GetValue(saveNormalizedOpt),
                 ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
                 ManifestPath: parseResult.GetValue(manifestOpt),
                 RemoveStarsPerFrame: parseResult.GetValue(removeStarsOpt),

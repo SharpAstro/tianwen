@@ -801,6 +801,13 @@ public sealed class StackingPipeline(
 
         // Per-group staging dir. Cleaned up by the chosen strategy.
         var stagingDir = Path.Combine(outputDir, "_staging", slug);
+        // Diagnostic per-frame dumps (--save-calibrated / --save-normalized). Built once and
+        // handed to the strategies; null when neither flag is set, so the off path allocates
+        // nothing and every existing run is byte-identical.
+        var intermediates = options.SaveCalibrated || options.SaveNormalized
+            ? new IntermediateFrameWriter(stagingDir, options.SaveCalibrated, options.SaveNormalized, logger)
+            : null;
+
         if (Directory.Exists(stagingDir)) Directory.Delete(stagingDir, recursive: true);
         Directory.CreateDirectory(stagingDir);
 
@@ -1070,7 +1077,7 @@ public sealed class StackingPipeline(
                 var (light, transform, frameMetrics) = matched[i];
                 var starlessPath = Path.Combine(starlessDir, Path.GetFileNameWithoutExtension(light.Path) + "_starless.fits");
 
-                var calibrated = RawLightDecoder.DecodeCalibrate(new RawLightSource(light.Path, transform), calibrator, nameof(StackingPipeline));
+                var calibrated = RawLightDecoder.DecodeCalibrate(new RawLightSource(light.Path, transform), calibrator, nameof(StackingPipeline), intermediates);
                 Image starless;
                 try
                 {
@@ -1214,6 +1221,12 @@ public sealed class StackingPipeline(
                 // starless plates, already calibrated before star removal. Calibrating again would
                 // subtract bias and dark twice and divide by the flat twice, silently.
                 var calibrated = integrationCalibrator.Apply(lightRaw);
+                // Skipped under --remove-stars: integrationCalibrator is a no-op there and these
+                // frames are the starless plates, which are already on disk.
+                if (!options.RemoveStarsPerFrame)
+                {
+                    intermediates?.SaveCalibrated(calibrated, lightInfo.Path);
+                }
                 // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
                 // three lines the dataset registrar runs, so the two paths cannot drift here.
                 var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
@@ -1238,6 +1251,10 @@ public sealed class StackingPipeline(
                 // starless plates, already calibrated before star removal. Calibrating again would
                 // subtract bias and dark twice and divide by the flat twice, silently.
                 var calibrated = integrationCalibrator.Apply(lightRaw);
+                if (!options.RemoveStarsPerFrame)
+                {
+                    intermediates?.SaveCalibrated(calibrated, lightInfo.Path);
+                }
                 var shifted = transformOrig * canvasShift;
                 yield return new RawBayerFrame(calibrated, shifted);
             }
@@ -1347,9 +1364,14 @@ public sealed class StackingPipeline(
             CanvasHeight: outHeight,
             Progress: integrationProgress,
             MasterSinkFactory: sinkFactory,
+            Intermediates: intermediates,
             RawBayerFrames: isStreamingDrizzle ? RawBayerFramesProducer : null,
             DrizzleOptions: isDrizzle ? (options.DrizzleOptions ?? new DrizzleOptions()) : null,
             BadPixelMask: isDrizzle ? badPixelMask : null);
+
+        // index i in Integrator's frame list is matched[i] here, so a normalized dump can be
+        // named after its light rather than numbered.
+        intermediates?.SetFrameOrder([.. matched.Select(m => m.Item1.Path)]);
 
         var integrateStart = StageTimings.Start();
         IntegrationResult intResult;

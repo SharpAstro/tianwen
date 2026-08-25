@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Threading;
@@ -79,7 +79,8 @@ public static class Integrator
         IReadOnlyList<Image> alignedFrames,
         IntegrationOptions? options = null,
         IIntegrationSink? masterSink = null,
-        IIntegrationSink? rejectSink = null)
+        IIntegrationSink? rejectSink = null,
+        IntermediateFrameWriter? intermediates = null)
     {
         options ??= new IntegrationOptions();
         var combiner = options.Combiner ?? new MeanCombiner();
@@ -99,6 +100,35 @@ public static class Integrator
         var (frameMin, frameScale) = options.ApplyNormalization
             ? ComputeNormalizationScalars(alignedFrames, options.NormalizationTarget, n, channelCount)
             : (null, null);
+
+        // --save-normalized. Dumped HERE rather than in a strategy because this is where the
+        // scalars exist: the combine applies them inline per output pixel and never materialises
+        // a normalized frame, so the only way to hand one to a human is to build it on purpose.
+        // One frame at a time -- the whole set at once would double an already large working set.
+        if (intermediates is { WantsNormalized: true } && frameMin is not null && frameScale is not null)
+        {
+            for (var f = 0; f < n; f++)
+            {
+                var planes = new float[channelCount][,];
+                for (var c = 0; c < channelCount; c++)
+                {
+                    var src = inputChannels[c][f];
+                    var lo = frameMin[c][f];
+                    var scale = frameScale[c][f];
+                    var plane = new float[height, width];
+                    for (var y = 0; y < height; y++)
+                    {
+                        for (var x = 0; x < width; x++)
+                        {
+                            plane[y, x] = (src[y, x] - lo) * scale;
+                        }
+                    }
+                    planes[c] = plane;
+                }
+                var normalized = new Image(planes, alignedFrames[f].BitDepth, 1f, 0f, 0f, alignedFrames[f].ImageMeta);
+                intermediates.SaveNormalizedByIndex(normalized, f);
+            }
+        }
 
         // Caller-supplied sinks must agree with the input shape; null falls
         // back to today's heap-backed ArraySink so this overload stays a
