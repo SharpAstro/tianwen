@@ -472,12 +472,25 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     public ImageMeta ImageMeta => imageMeta;
 
     /// <summary>
-    /// Computes <see cref="ImageDim"/> from image dimensions and metadata (pixel size, binning, focal length).
+    /// Computes <see cref="ImageDim"/> from the image dimensions and whatever the frame says about
+    /// its scale: <see cref="ImageMeta.DeclaredPixelScale"/> when the file stated one, otherwise
+    /// derived from pixel size, binning and focal length.
+    ///
+    /// <para><b>A declared scale wins because FOCALLEN is only ever a hint.</b> It carries whatever
+    /// was typed into a capture profile, and nothing validates it: on the 10P/Tempel 2 set it read
+    /// 205 mm for a 202.5 mm rig, a 1.2% error the solver then had to work against. A frame that
+    /// states its own PIXSCALE is either repeating that same guess (no worse) or reporting a solved
+    /// scale (much better). The declared value is the ACTUAL image scale, so unlike the derived one
+    /// it already accounts for binning and must not be multiplied by <c>BinX</c> again.</para>
     /// </summary>
     /// <returns>Image dimensions with pixel scale, or <c>null</c> if metadata is insufficient.</returns>
     public ImageDim? GetImageDim()
     {
         var meta = ImageMeta;
+        if (meta.DeclaredPixelScale > 0)
+        {
+            return new ImageDim(meta.DeclaredPixelScale, Width, Height);
+        }
         if (meta.PixelSizeX > 0 && meta.FocalLength > 0 && meta.BinX > 0)
         {
             var pixelScale = Astrometry.CoordinateUtils.PixelScaleArcsec(meta.PixelSizeX * meta.BinX, meta.FocalLength);

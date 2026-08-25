@@ -1,4 +1,4 @@
-using CommunityToolkit.HighPerformance;
+﻿using CommunityToolkit.HighPerformance;
 using nom.tam.fits;
 using nom.tam.util;
 using System;
@@ -260,8 +260,15 @@ public partial class Image
     private static ImageMeta ParseImageMetaFromHeader(BasicHDU hdu, int channelCount)
     {
         var exposureStartTime = new DateTime(hdu.ObservationDate.Ticks, DateTimeKind.Utc);
+        // EXPTIME and EXPOSURE are both in the wild for the same quantity (N.I.N.A. writes both,
+        // some capture software only the second), so either will do and 0 is the last resort.
+        // The fallback list read { EXPTIME, EXPTIME, 0 } in BOTH copies of this parse, so EXPOSURE
+        // was dead everywhere and a frame carrying only that card read as a ZERO-second exposure --
+        // which is not inert, because exposure is part of MasterGroupKey and so decides which dark
+        // calibrates what.
         var maybeExpTime = hdu.Header.GetDoubleValue("EXPTIME", double.NaN);
-        var exposureDuration = TimeSpan.FromSeconds(new double[] { maybeExpTime, maybeExpTime, 0.0 }.First(x => !double.IsNaN(x)));
+        var maybeExposure = hdu.Header.GetDoubleValue("EXPOSURE", double.NaN);
+        var exposureDuration = TimeSpan.FromSeconds(new double[] { maybeExpTime, maybeExposure, 0.0 }.First(x => !double.IsNaN(x)));
         var instrument = hdu.Instrument;
         var telescope = hdu.Telescope;
         var pixelSizeX = hdu.Header.GetFloatValue("XPIXSZ", float.NaN);
@@ -331,6 +338,11 @@ public partial class Image
         // (0 = Normal/East, 1 = ThroughThePole/West). Try both.
         var pierSide = ParsePierSide(hdu.Header.GetStringValue("PIERSIDE"));
         var (targetRa, targetDec) = ParseTargetCoords(hdu.Header);
+        // The scale the FILE states for itself, preferred over deriving one from FOCALLEN because
+        // that card is whatever a human typed into a capture profile. The pixel-read path used to
+        // parse this into a local and drop it on the floor while this path never parsed it at all,
+        // so a declared scale was unreachable however you opened the file.
+        var declaredPixelScale = hdu.Header.GetFloatValue("PIXSCALE", hdu.Header.GetFloatValue("SCALE", float.NaN));
 
         return new ImageMeta(
             instrument,
@@ -363,7 +375,8 @@ public partial class Image
             TargetRA: targetRa,
             TargetDec: targetDec,
             PierSide: pierSide,
-            SensorFullScaleAdu: saturate > 0 ? saturate : null
+            SensorFullScaleAdu: saturate > 0 ? saturate : null,
+            DeclaredPixelScale: declaredPixelScale
         )
         { IsMaster = isMaster };
     }
@@ -511,71 +524,14 @@ public partial class Image
                 return false;
         }
 
-        var exposureStartTime = new DateTime(hdu.ObservationDate.Ticks, DateTimeKind.Utc);
-        var maybeExpTime = hdu.Header.GetDoubleValue("EXPTIME", double.NaN);
-        var maybeExposure = hdu.Header.GetDoubleValue("EXPOSURE", double.NaN);
-        var exposureDuration = TimeSpan.FromSeconds(new double[] { maybeExpTime, maybeExpTime, 0.0 }.First(x => !double.IsNaN(x)));
-        var instrument = hdu.Instrument;
-        var telescope = hdu.Telescope;
-        var equinox = hdu.Equinox;
-        var pixelSizeX = hdu.Header.GetFloatValue("XPIXSZ", float.NaN);
-        var pixelSizeY = hdu.Header.GetFloatValue("YPIXSZ", float.NaN);
-        var xbinning = hdu.Header.GetIntValue("XBINNING", 1);
-        var ybinning = hdu.Header.GetIntValue("YBINNING", 1);
+        // Pixel-only locals. Everything else this frame says about itself comes from the ONE
+        // metadata parse below -- the same one the header-only path uses. It used to be copied out
+        // here, and the copies had drifted: this block parsed EXPOSURE, PIXSCALE/SCALE and EQUINOX
+        // into locals it then never read, while the shared parse never learned about them at all.
         var pedestal = hdu.Header.GetFloatValue("PEDESTAL", 0f);
-        var pixelScale = hdu.Header.GetFloatValue("PIXSCALE", hdu.Header.GetFloatValue("SCALE", float.NaN));
-        // FOCALLEN is often written as a float (e.g. "270.0"), and nom.tam.fits's
-        // GetIntValue won't coerce -- falls back to -1, which silently disables
-        // pixel-scale derivation downstream (plate solver bails on null ImageDim).
-        // Some software emits the keyword as "FOCLEN" instead; accept either.
-        var focalLength = (int)Math.Round(hdu.Header.GetDoubleValue("FOCALLEN",
-            hdu.Header.GetDoubleValue("FOCLEN", -1.0)));
-        var aperture = hdu.Header.GetIntValue("APTDIA", -1);
-        var focusPos = hdu.Header.GetIntValue("FOCUSPOS", hdu.Header.GetIntValue("FOCPOS", -1));
-        // FILTER = full manufacturer name (NINA convention); FILTCLAS = coarse classification
-        var filterName = hdu.Header.GetStringValue("FILTER");
-        var filterClassName = hdu.Header.GetStringValue("FILTCLAS");
-        var sensorModel = hdu.Header.GetStringValue("SENSOR") ?? "";
-        var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
-        var rowOrder = RowOrder.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
-        var frameTypeRaw = hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP");
-        var frameType = FrameType.FromFITSValue(frameTypeRaw) ?? FrameType.None;
-        var isMaster = FrameType.IsMasterFITSValue(frameTypeRaw);
-        // Prefer FILTCLAS for coarse classification; fall back to parsing FILTER (backward compat).
-        // The blank guard is load-bearing; see the identical site in TryReadFitsHeader for why.
-        var filter = !string.IsNullOrWhiteSpace(filterClassName) && Filter.FromName(filterClassName) is var f && f != Filter.Unknown
-            ? f : Filter.FromName(filterName);
-        // Carry the raw FILTER value in the Filter for SPCC curve matching
-        filter = filter with { RawName = filterName };
         var bzero = (float)hdu.BZero;
         var bscale = (float)hdu.BScale;
-        var (isCFA, cfaPattern) = ParseCfaImageCard(hdu.Header);
-        var (sensorType, bayerOffsetX, bayerOffsetY) = SensorType.FromFITSValue(
-            isCFA,
-            channelCount,
-            // XBAYROFF/YBAYROFF is the living convention (MaxIm DL, N.I.N.A.). BAYOFFX/BAYOFFY is
-            // the Atik Artemis legacy spelling that TianWen wrote until 2026-08-17 (and old SharpCap
-            // emitted both sets side by side), kept as the read fallback so those files stay
-            // legible. Reading only the legacy name made every N.I.N.A. file's offset silently land
-            // at (0,0) -- benign only when (0,0) happens to be true.
-            hdu.Header.GetIntValue("XBAYROFF", hdu.Header.GetIntValue("BAYOFFX", 0)),
-            hdu.Header.GetIntValue("YBAYROFF", hdu.Header.GetIntValue("BAYOFFY", 0)),
-            [hdu.Header.GetStringValue("BAYERPAT"), hdu.Header.GetStringValue("COLORTYP"), cfaPattern]
-        );
-        var latitude = hdu.Header.GetFloatValue("SITELAT", float.NaN);
-        var longitude = hdu.Header.GetFloatValue("SITELONG", float.NaN);
-        var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
-        // GAIN/OFFSET are int cards in N.I.N.A. files but float cards in e.g. Astro Pixel Processor
-        // masters -- ReadIntegerLikeCard coerces both forms (and rejects NaN/Infinity as unknown).
-        var gain = (short)(ReadIntegerLikeCard(hdu.Header, "GAIN") ?? -1);
-        var camOffset = ReadIntegerLikeCard(hdu.Header, "OFFSET") ?? ReadIntegerLikeCard(hdu.Header, "BLKLEVEL") ?? ReadIntegerLikeCard(hdu.Header, "CAMOFFS") ?? -1;
-        var setCCDTemp = hdu.Header.GetFloatValue("SET-TEMP", float.NaN);
-        var egain = hdu.Header.GetFloatValue("EGAIN", float.NaN);
-        // SATURATE: saturation level in stored-pixel units -> ImageMeta.SensorFullScaleAdu (see the
-        // twin comment in ReadImageMetaFromFitsHeader above).
-        var saturate = hdu.Header.GetFloatValue("SATURATE", float.NaN);
-        var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
-        var pierSide = ParsePierSide(hdu.Header.GetStringValue("PIERSIDE"));
+        var imageMeta = ParseImageMetaFromHeader(hdu, channelCount);
 
         var minValue = (float)hdu.MinimumValue;
         var maxValue = (float)hdu.MaximumValue;
@@ -667,41 +623,6 @@ public partial class Image
             }
         }
 
-        var (targetRa, targetDec) = ParseTargetCoords(hdu.Header);
-        var imageMeta = new ImageMeta(
-            instrument,
-            exposureStartTime,
-            exposureDuration,
-            frameType,
-            telescope,
-            pixelSizeX,
-            pixelSizeY,
-            focalLength,
-            focusPos,
-            filter,
-            xbinning,
-            ybinning,
-            ccdTemp,
-            sensorType,
-            bayerOffsetX,
-            bayerOffsetY,
-            rowOrder,
-            latitude,
-            longitude,
-            objectName,
-            Gain: gain,
-            Offset: camOffset,
-            SetCCDTemperature: setCCDTemp,
-            ElectronsPerADU: egain,
-            SWCreator: swCreator,
-            Aperture: aperture,
-            SensorModel: sensorModel,
-            TargetRA: targetRa,
-            TargetDec: targetDec,
-            PierSide: pierSide,
-            SensorFullScaleAdu: saturate > 0 ? saturate : null
-        )
-        { IsMaster = isMaster };
         image = rented is null
             ? new Image(imgChannels, bitDepth, maxValue, minValue, pedestal, imageMeta)
             : new Image(WrapPooledPlanes(imgChannels, rented, minValue, maxValue), bitDepth, pedestal, imageMeta);

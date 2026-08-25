@@ -38,6 +38,13 @@ namespace TianWen.Lib.Imaging;
 /// <param name="PixelSizeX">Physical pixel width in micrometers (FITS: XPIXSZ).</param>
 /// <param name="PixelSizeY">Physical pixel height in micrometers (FITS: YPIXSZ).</param>
 /// <param name="FocalLength">Effective focal length in mm (FITS: FOCALLEN). -1 if unknown.</param>
+/// <param name="DeclaredPixelScale">The image scale in arcsec/px that the FILE stated
+/// (FITS: PIXSCALE, or SCALE), NaN when it stated none. Kept separate from
+/// <see cref="DerivedPixelScale"/> on purpose: <see cref="FocalLength"/> is whatever a human typed
+/// into a capture profile and is only ever a hint, so a frame that declares its own scale is the
+/// better source. Note the two are in different conventions -- this one is the ACTUAL image scale
+/// and therefore already includes binning, while <see cref="DerivedPixelScale"/> is per unbinned
+/// photosite; do not substitute one for the other without accounting for <c>BinX</c>.</param>
 /// <param name="FocusPos">Focuser position in steps (FITS: FOCUSPOS, FOCPOS). -1 if unknown.</param>
 /// <param name="Filter">Active filter during capture (FITS: FILTCLAS, coarse; FILTER, full name via <see cref="Imaging.Filter.FilterNameForFits"/>).</param>
 /// <param name="BinX">Horizontal binning factor (FITS: XBINNING).</param>
@@ -110,7 +117,8 @@ public record struct ImageMeta(
     string SensorModel = "",
     Devices.PointingState PierSide = Devices.PointingState.Unknown,
     float? SensorFullScaleAdu = null,
-    int Iso = -1
+    int Iso = -1,
+    float DeclaredPixelScale = float.NaN
 )
 {
     /// <summary>

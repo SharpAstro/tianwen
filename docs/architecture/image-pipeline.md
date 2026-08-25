@@ -161,3 +161,39 @@ a private `1/MaxValue` in any normalisation path diverges the moment `SensorFull
 stays unit-consistent with the stored data; the post-scale `MaxValue` stamp is `MaxValue * invMax`,
 never a hardcoded `1.0f`, so an under-exposed live frame correctly lands below 1.0. A source without
 `SensorFullScaleAdu` falls back to the prior observed-peak behaviour unchanged.
+
+## One header parse, and where a frame's pixel scale comes from (2026-08-25)
+
+**`ParseImageMetaFromHeader` is the ONLY place a FITS header becomes an `ImageMeta`, and both read
+paths call it.** `Image.TryReadFitsFile` (pixels) and `Image.TryReadFitsHeader` (headers only, which
+is what the calibration scan walks) used to be separate copies of the same ~35-card parse, ending in
+two argument-for-argument identical `new ImageMeta(...)` blocks. The shared helper already existed --
+its own comment says it was extracted "so the header-only path uses the same logic" -- and the pixel
+path simply never called it.
+
+The copies had drifted, and the drift was carrying three dead locals and two real defects:
+
+| local | what it did |
+|---|---|
+| `pixelScale` | parsed by the pixel path and **discarded**; the header path never parsed it at all, so a declared `PIXSCALE` was unreachable however you opened the file |
+| `maybeExposure` | parsed and **discarded in both**: the fallback list read `{ EXPTIME, EXPTIME, 0 }`, so `EXPOSURE` was dead everywhere and a frame carrying only that card read as a **zero-second exposure** |
+| `equinox` | parsed, never used |
+
+The zero-second exposure is the one with teeth: `ExposureDuration` is part of `MasterGroupKey`, so it
+decides which dark calibrates what. **A card added to one read path is a bug in the other**, which is
+why `FitsPixelScaleTests.TheTwoReadPathsAgreeOnEveryMetadataField` compares the WHOLE `ImageMeta`
+record rather than the fields anyone happened to suspect: a future divergence fails there without
+somebody remembering to extend an assertion.
+
+**`ImageMeta.DeclaredPixelScale` beats `FOCALLEN`, because `FOCALLEN` is only ever a hint.** It holds
+whatever was typed into a capture profile and nothing validates it -- on the 10P/Tempel 2 set it read
+205 mm for a 202.5 mm rig, a 1.2% error the solver had to work against and detected on its own,
+recovering 202.4 mm from the stars alone. So `Image.GetImageDim` prefers a scale the FILE states
+(`PIXSCALE`, else `SCALE`) and falls back to deriving one from pixel size x binning x focal length;
+with neither it returns `null` rather than guess. A declared scale is either repeating the same guess
+(no worse) or reporting a solved one (much better).
+
+**The two scales are in different conventions and must not be substituted for one another.**
+`DeclaredPixelScale` is the ACTUAL image scale, so it already includes binning; `DerivedPixelScale` is
+per unbinned photosite, which is why `GetImageDim` multiplies pixel size by `BinX` only on that
+branch. Collapsing them into one property would silently double-count binning on a binned frame.
