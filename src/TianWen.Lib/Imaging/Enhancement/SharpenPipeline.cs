@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -63,14 +63,17 @@ public sealed class SharpenPipeline(
     /// endpoint's result.
     ///
     /// <para>Why the card earns its keep: an enhance output INHERITS its source's <c>SWCREATE</c>
-    /// (an <c>image sharpen</c> of a N.I.N.A.-authored master keeps <c>SWCREATE='N.I.N.A. ...'</c>),
-    /// so on a foreign source SWMODIFY is the only TianWen fingerprint the file carries -- the
-    /// provenance scan's <see cref="Stacking.IntegrationFitsWriter.IsTianWenProduct"/> reads
-    /// SWCREATE and cannot see such a file today, which re-ingests it as a fresh light. Reading
-    /// SWMODIFY back as a scan guard belongs to the older-years archive bake alongside the other
-    /// foreign-file header guards (CALSTAT, FLIPSTAT); writing it now is what makes that guard
-    /// possible for files produced in the meantime. The
-    /// <c>TianWen.</c> prefix deliberately matches that check's across-version prefix test.</para>
+    /// (an <c>image sharpen</c> of a N.I.N.A.-authored sub keeps <c>SWCREATE='N.I.N.A. ...'</c>) and
+    /// carries no <c>STACK_N</c>, so on a foreign source SWMODIFY is the ONLY TianWen fingerprint
+    /// the file has. <b>The scan guard reads it now</b> --
+    /// <see cref="Stacking.IntegrationFitsWriter.IsTianWenProduct(string?, string?)"/> takes both
+    /// cards and either one disqualifies a file. The <c>TianWen.</c> prefix deliberately matches
+    /// that check's across-version prefix test.</para>
+    ///
+    /// <para>This was deferred once, to "the older-years archive bake", and the deferral cost a
+    /// stack run: star-removing a single light left its starless plate in the lights folder and the
+    /// next scan ingested 137 frames where there were 135. Building a comet layer removes stars
+    /// from every light, so the same folder would have stacked 270 and reported 135.</para>
     /// </summary>
     public const string SoftwareModifier = "TianWen.Imaging.Enhancement";
 

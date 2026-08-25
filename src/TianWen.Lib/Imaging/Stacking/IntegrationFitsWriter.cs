@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -124,6 +124,45 @@ public static class IntegrationFitsWriter
     /// </summary>
     public static bool IsTianWenProduct(string? swcreate)
         => swcreate?.StartsWith(SoftwareCreatorPrefix, StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// True when EITHER card marks the file as ours. <c>SWMODIFY</c> is not a nicety here: a derived
+    /// file INHERITS its source's <c>SWCREATE</c>, so an <c>image sharpen</c> of a N.I.N.A. sub keeps
+    /// <c>SWCREATE='N.I.N.A. ...'</c> and carries no <c>STACK_N</c> either -- invisible to both of the
+    /// older checks, and re-ingested as a fresh light.
+    ///
+    /// <para>That is not hypothetical. Removing stars from 135 lights, which is how a comet layer is
+    /// built, drops 135 such files beside the originals; the next scan of that folder stacks 270
+    /// frames and calls it 135. <see cref="Enhancement.SharpenPipeline.SoftwareModifier"/> was written
+    /// precisely so this guard could exist, and deliberately shares the <c>TianWen.</c> prefix.</para>
+    /// </summary>
+    public static bool IsTianWenProduct(string? swcreate, string? swmodify)
+        => IsTianWenProduct(swcreate) || IsTianWenProduct(swmodify);
+
+    // Provenance signals are NOT equally strong, and it is worth knowing which one caught a file.
+    //
+    // STRONG -- a property of the DATA: STACK_N / NUMFRAME say "this image is an integration of N
+    // frames", which is true regardless of who wrote it. That is what excludes Astro Pixel Processor
+    // integrations, and it has to be: APP behaves exactly like our own enhance layer and PRESERVES the
+    // capture software's SWCREATE, so on this dataset its 10 integrations are indistinguishable from
+    // the 506 raw subs by authorship alone. The count card is the only thing between them.
+    //
+    // WEAK -- a property of AUTHORSHIP: a TianWen SWCREATE or SWMODIFY. Needed anyway, because a
+    // star-removed light is a SINGLE frame and has no count card, so nothing about its data says it is
+    // derived. Prefer the strong signal wherever a file has one.
+    //
+    // AND SWMODIFY IS OVERLOADED HERE, WHICH IS A KNOWN WEAKNESS RATHER THAN A DESIGN. Its correct
+    // meaning is "our software modified someone else's file" -- which FitsHeaderEditor header-tagging
+    // also is: `dataset tag-filter` and friends amended 525 frames of the 10P set. What the scan
+    // actually needs is the narrower "we produced these PIXELS, do not re-ingest". The two only fail
+    // to collide because header surgery writes no SW* card at all, which is a convention and not a
+    // guarantee: the day tagging stamps SWMODIFY honestly, every frame it touched drops out of its own
+    // stack. A dedicated "derived pixel product" card would make this a fact instead of an accident.
+    //
+    // Nor is authorship sufficient on its own. An APP channel composite
+    // (Sag_Triplet_OIII-HOO_1.fits) carries NO provenance card whatsoever -- no SWCREATE, no
+    // SWMODIFY, no count card, no IMAGETYP, EXPTIME=0 -- and is identifiable only by having three
+    // image planes where a raw OSC sub is a 1-channel mosaic. See docs/known-limitations.md.
 
     /// <summary>
     /// Returns true when <paramref name="path"/> is a FITS file whose

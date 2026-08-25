@@ -1,7 +1,11 @@
 ﻿using Shouldly;
 using System;
+using System.Threading.Tasks;
 using System.IO;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.Imaging.Stacking;
+using TianWen.Lib.Imaging.Enhancement;
 using Xunit;
 
 namespace TianWen.Lib.Tests;
@@ -176,6 +180,70 @@ public class FitsPixelScaleTests
         Image.TryReadFitsFile(fitsPath, out var reread).ShouldBeTrue();
 
         reread!.ImageMeta.ColourCalibration.ShouldBeNull();
+    }
+
+    [Fact]
+    public void AStarRemovedSubIsRecognisedAsOursByItsSWMODIFYCard()
+    {
+        // The provenance scan reads SWCREATE, and a DERIVED file inherits its source's: running
+        // `image sharpen` over a N.I.N.A. sub leaves SWCREATE='N.I.N.A. ...' and no STACK_N, so both
+        // of the older checks look straight past it and the next scan re-ingests our own starless
+        // plate as a fresh light. Building a comet layer removes stars from 135 lights, which drops
+        // 135 such files beside the originals -- the folder then stacks 270 frames and reports 135.
+        // This actually happened while testing star removal on this data set.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "starless-sub.fits");
+        var foreignSource = Meta(focalLength: 203, declaredPixelScale: float.NaN) with
+        {
+            SWCreator = "N.I.N.A. 3.2.0.9001 (x64)",
+        };
+        ImageWith(foreignSource).WriteToFitsFile(fitsPath, null, SharpenPipeline.SwModifyHeader());
+
+        Image.TryReadFitsHeader(fitsPath, out var info).ShouldBeTrue();
+        info.ShouldNotBeNull();
+        info.Meta.SWModifier.ShouldBe(SharpenPipeline.SoftwareModifier);
+
+        // SWCREATE alone still says "foreign", which is exactly the trap.
+        IntegrationFitsWriter.IsTianWenProduct(info.Meta.SWCreator).ShouldBeFalse();
+        // Reading both cards is what makes the file recognisable.
+        IntegrationFitsWriter.IsTianWenProduct(info.Meta.SWCreator, info.Meta.SWModifier).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task AProcessedProductIsRecognisedFromTheFRAMECardWhenThereIsNoIMAGETYP()
+    {
+        // Astro Pixel Processor writes FRAME, not IMAGETYP, and a channel composite of its
+        // (Sag_Triplet_OIII-HOO_1.fits) carries NO IMAGETYP, no STACK_N, no NUMFRAME and EXPTIME=0.
+        // Read only the cards we used to read, such a file is a light with a zero-second exposure --
+        // which then picks its dark through MasterGroupKey. FRAME is the one card that says what it
+        // actually is.
+        var testDir = SharedTestData.CreateTempTestOutputDir();
+        var fitsPath = Path.Combine(testDir, "app-composite.fits");
+        ImageWith(Meta(focalLength: 203, declaredPixelScale: float.NaN)).WriteToFitsFile(fitsPath);
+        // Our writer emits both of the usual cards, so hide them to reproduce APP's header shape.
+        RenameCard(fitsPath, "IMAGETYP", "XIMAGETY");
+        RenameCard(fitsPath, "FRAMETYP", "XFRAMETY");
+        await FitsHeaderEditor.SetStringCardAsync(fitsPath, "FRAME", "Other/Processed",
+            apply: true, cancellationToken: TestContext.Current.CancellationToken);
+
+        Image.TryReadFitsHeader(fitsPath, out var info).ShouldBeTrue();
+        info.ShouldNotBeNull();
+
+        info.Meta.FrameType.ShouldBe(FrameType.Processed);
+        // Which is the whole point: it is NOT a light, so the scan never ingests it.
+        info.Meta.FrameType.ShouldNotBe(FrameType.Light);
+    }
+
+    [Theory]
+    [InlineData("Other/Processed")]
+    [InlineData("Other")]
+    [InlineData("Processed")]
+    public void APPsProcessedVocabularyAllMapsToProcessed(string frameCard)
+    {
+        // The value carries a SLASH, which is also the FITS comment separator -- a reader that splits
+        // on it before extracting the quoted string truncates "Other/Processed" to "Other" and the
+        // match silently fails. Both spellings are accepted so it does not matter which arrives.
+        FrameTypeEx.FromFITSValue(frameCard).ShouldBe(FrameType.Processed);
     }
 
     [Fact]

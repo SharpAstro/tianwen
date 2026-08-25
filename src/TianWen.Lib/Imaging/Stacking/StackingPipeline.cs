@@ -196,7 +196,7 @@ public sealed class StackingPipeline(
             // Default policy is to drop both. IncludeIntegrations opts in for
             // two-stage mosaic stacking where each panel is integrated
             // separately, then the panel masters are re-stacked.
-            if (frame.StackedFrameCount > 0 || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator))
+            if (frame.StackedFrameCount > 0 || IntegrationFitsWriter.IsTianWenProduct(frame.Meta.SWCreator, frame.Meta.SWModifier))
             {
                 if (options.IncludeIntegrations)
                 {

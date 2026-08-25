@@ -288,7 +288,12 @@ public partial class Image
         var sensorModel = hdu.Header.GetStringValue("SENSOR") ?? "";
         var ccdTemp = hdu.Header.GetFloatValue("CCD-TEMP", float.NaN);
         var rowOrder = RowOrder.FromFITSValue(hdu.Header.GetStringValue("ROWORDER")) ?? RowOrder.TopDown;
-        var frameTypeRaw = hdu.Header.GetStringValue("FRAMETYP") ?? hdu.Header.GetStringValue("IMAGETYP");
+        // FRAME is Astro Pixel Processor's card and comes LAST, only when neither of the usual two
+        // is present: APP writes it on derived products ('Other/Processed') where there is no
+        // IMAGETYP at all, and that is the only thing distinguishing such a file from a light.
+        var frameTypeRaw = hdu.Header.GetStringValue("FRAMETYP")
+            ?? hdu.Header.GetStringValue("IMAGETYP")
+            ?? hdu.Header.GetStringValue("FRAME");
         var frameType = FrameType.FromFITSValue(frameTypeRaw) ?? FrameType.None;
         var isMaster = FrameType.IsMasterFITSValue(frameTypeRaw);
         // Prefer FILTCLAS, fall back to FILTER. The blank guard is load-bearing: FromName(null)
@@ -326,6 +331,7 @@ public partial class Image
                 hdu.Header.GetStringValue("WBSOURCE") ?? ColourCalibration.SpccSource)
             : (ColourCalibration?)null;
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
+        var swModifier = hdu.Header.GetStringValue("SWMODIFY") ?? "";
         // GAIN/OFFSET are int cards in N.I.N.A. files but float cards in e.g. Astro Pixel Processor
         // masters -- ReadIntegerLikeCard coerces both forms (and rejects NaN/Infinity as unknown).
         var gain = (short)(ReadIntegerLikeCard(hdu.Header, "GAIN") ?? -1);
@@ -343,7 +349,13 @@ public partial class Image
         // genuinely tainted too-LOW claim is defused by the UnitScaleDivisor clamp (never below the
         // observed peak), which degrades exactly to the pre-SATURATE observed-peak behaviour.
         var saturate = hdu.Header.GetFloatValue("SATURATE", float.NaN);
-        var swCreator = hdu.Header.GetStringValue("SWCREATE") ?? "";
+        // SWCREATE is the SharpCap / N.I.N.A. spelling; SOFTWARE is what Astro Pixel Processor
+        // writes. Read both so a file states its author whichever package made it -- APP's
+        // integrations otherwise look authorless, and its SOFTWARE card is the only thing naming
+        // a processing package rather than a capture one.
+        var swCreator = hdu.Header.GetStringValue("SWCREATE")
+            ?? hdu.Header.GetStringValue("SOFTWARE")
+            ?? "";
         // PIERSIDE: N.I.N.A. + most modern capture software write a string ("East"
         // / "West" / "pierEast" / "pierWest"). ASCOM also defines numeric variants
         // (0 = Normal/East, 1 = ThroughThePole/West). Try both.
@@ -381,6 +393,7 @@ public partial class Image
             SetCCDTemperature: setCCDTemp,
             ElectronsPerADU: egain,
             SWCreator: swCreator,
+            SWModifier: swModifier,
             Aperture: aperture,
             SensorModel: sensorModel,
             TargetRA: targetRa,

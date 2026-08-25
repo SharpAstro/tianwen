@@ -25,6 +25,38 @@ Three ways the evidence gets lost, all observed in this repo:
 3. **A failed build followed by `--no-build`.** The tests then execute stale binaries and the
    result is meaningless. The tell is the TRX `total` not matching what you expect.
 
+## FIRST: check there is head-room
+
+**A run started on a loaded box produces a result you cannot use.** Red means nothing (it may be
+starvation), and you will have spent the wall clock anyway. Check before launching, not after
+puzzling over a failure.
+
+```powershell
+$os = Get-CimInstance Win32_OperatingSystem
+$freeGB = [math]::Round($os.FreePhysicalMemory/1MB, 1)
+# Any self-hosted test executable, from ANY repo -- xUnit v3 tests are their own .exe
+$others = Get-Process | Where-Object { $_.Name -like '*Tests*' -or $_.Name -eq 'testhost' } |
+          Select-Object Name, Id, @{n='WS_MB';e={[math]::Round($_.WorkingSet64/1MB)}}
+"free physical: $freeGB GB"
+if ($others) { "OTHER TEST HOSTS RUNNING:"; $others | Format-Table -AutoSize } else { "no other test hosts" }
+```
+
+**Do not start when:**
+
+- another test host is running -- **from any repository**, and
+- free physical memory is under ~6 GB on this 16 GB box (the unit suite peaks around 4-5 GB with
+  `maxParallelThreads: 4`), or the pagefile is already carrying gigabytes.
+
+**The cross-repo case is the one that catches people.** Another Claude session working in a different
+repository runs its own suite on the same machine: a `PDF.Lib.Tests.exe --filter ".../PageVulkanRender/..."`
+run in `drawboard/pdf-viewer` took ~6 GB of a 16 GB box and drove free memory to 0.9 GB with 4.9 GB of
+pagefile in use. A process check for `TianWen.Lib.Tests.exe` sees none of that, reports "nothing
+running", and the run proceeds into a machine that has no room -- which is how a session test that
+passes cleanly gets read as a regression. Match on `*Tests*`, never on this repo's name.
+
+When the box is busy: wait, and say so. Do not "just try it and see" -- that is how a contended red
+gets promoted to a diagnosis.
+
 ## Running
 
 ```bash
@@ -94,9 +126,13 @@ xUnit v3 tests are **self-hosted executables**, so the process is `TianWen.Lib.T
 there is no `testhost`. Looking for `testhost` reports nothing and makes a healthy run look
 dead, which is how two suites ended up running concurrently in one session.
 
-```bash
-tasklist //FI "IMAGENAME eq TianWen.Lib.Tests.exe"
+```powershell
+Get-Process | Where-Object { $_.Name -like '*Tests*' -or $_.Name -eq 'testhost' } |
+  Select-Object Name, Id, @{n='WS_MB';e={[math]::Round($_.WorkingSet64/1MB)}}
 ```
+
+Match on `*Tests*` rather than this project's name, for the same reason as the head-room check: the
+process competing for the box is often another repository's.
 
 ## Never run the unit and functional suites at the same time
 
