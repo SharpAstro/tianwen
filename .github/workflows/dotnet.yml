@@ -210,12 +210,31 @@ jobs:
     needs: build
     env:
       VERSION_PREFIX: ${{ needs.build.outputs.version-prefix }}
-    # Matrix on x86_64 + ARM64 so we cover both architectures. `fail-fast: false` so a
-    # regression on one architecture doesn't cancel the other.
+    # Matrix on x86_64 + ARM64 so we cover both architectures, plus a third leg for the
+    # DEBUG-gated suites. `fail-fast: false` so a regression on one leg doesn't cancel the others.
+    #
+    # The DEBUG leg is a MATRIX LEG rather than a job of its own, and that is the whole point of
+    # the shape. It used to run inside the Release legs, after their tests, so its Debug compile
+    # plus test run was pure serial tail on the critical path of BOTH architectures. It cannot be
+    # merged into them either, because it needs a different CONFIGURATION of the same sources. A
+    # separate job would have to repeat this job's ~85-line preamble (apt + Vulkan, the narrow LFS
+    # cache and pull, the catalog artifact, restore) -- three copies of a setup that is already the
+    # subtlest part of this file. As a leg it inherits all of that unchanged and simply runs
+    # somewhere else, in parallel, so the wall clock is now max(Release, Debug) instead of the sum.
+    #
+    # One architecture for it, deliberately: the DebugOnly tests are arch-independent and the only
+    # thing the second arch bought was a second Debug COMPILE. That is a thin cover to pay a whole
+    # runner for, and the Release legs still compile on both.
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest, ubuntu-24.04-arm]
+        include:
+          - runner: ubuntu-latest
+            config: Release
+          - runner: ubuntu-24.04-arm
+            config: Release
+          - runner: ubuntu-latest
+            config: Debug
     runs-on: ${{ matrix.runner }}
     steps:
     # cache-apt-pkgs-action installs the listed packages (apt-get install behind
@@ -298,9 +317,16 @@ jobs:
       run: dotnet restore
       working-directory: src
     - name: Build
+      # Release legs only. The DEBUG leg builds its own, narrower target below -- it must NOT build
+      # the solution in Debug, because CI resolves siblings as PACKAGES and a published package is
+      # built Release, so the #if DEBUG types the debug-inspector layer consumes are absent from it
+      # (CS0234 on DIR.Lib.Diagnostics and its counterparts). TianWen.Lib.Tests alone does not reach
+      # those projects, which is why the Debug build below is scoped to it.
+      if: matrix.config == 'Release'
       run: dotnet build -c $BUILD_CONF --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
     - name: Unit Tests
+      if: matrix.config == 'Release'
       # verbosity=detailed surfaces ITestOutputHelper messages for Skip+Pass tests too,
       # not just Fail, which is useful for the GPU comp tests' diagnostic dumps.
       #
@@ -331,9 +357,10 @@ jobs:
     #
     # Selected by TRAIT, never by a list of class names, so a future DEBUG-gated suite is
     # picked up by adding [Trait("Category", "DebugOnly")] and nothing here has to be
-    # remembered. It runs on both matrix architectures: the tests are arch-independent, but
-    # the Debug COMPILE is its own cover, and the job is ~6m against a 25m budget.
+    # remembered. It is its own matrix leg (see the strategy block), so it no longer runs as
+    # a serial tail on the Release legs' critical path.
     - name: Build (Debug, for the DEBUG-gated suites)
+      if: matrix.config == 'Debug'
       # Same version properties as the Release build above, and GeneratePackageOnBuild off:
       # TianWen.Lib packs on build, and a Debug pack would drop a second .nupkg beside the
       # Release one. Harmless in this job (publish runs elsewhere and globs its own runner)
@@ -341,6 +368,7 @@ jobs:
       run: dotnet build TianWen.Lib.Tests -c Debug --no-restore -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true -p:GeneratePackageOnBuild=false
       working-directory: src
     - name: Unit Tests (DEBUG-gated instrumentation)
+      if: matrix.config == 'Debug'
       # The guard is not optional. `dotnet test` with a filter that matches NOTHING prints
       # "No test matches the given testcase filter" and exits 0, so a renamed or mistyped
       # trait would turn this whole leg into a green no-op -- the same vacuous pass the
@@ -388,7 +416,7 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v7
       with:
-        name: gpu-stretch-test-output-${{ matrix.runner }}
+        name: gpu-stretch-test-output-${{ matrix.runner }}-${{ matrix.config }}
         # Narrow to just the GpuStretchPipelineTests subdir -- /tmp/TianWen.Lib.Tests/
         # aggregates outputs from every test in the suite (>2 GB on a full failure run);
         # this slice is ~15 MB (cpu.tiff + gpu.tiff + diff.tiff per case).
@@ -404,7 +432,7 @@ jobs:
       if: failure()
       uses: actions/upload-artifact@v7
       with:
-        name: test-blame-${{ matrix.runner }}
+        name: test-blame-${{ matrix.runner }}-${{ matrix.config }}
         path: |
           src/test-results/
           src/test-results-debug/
