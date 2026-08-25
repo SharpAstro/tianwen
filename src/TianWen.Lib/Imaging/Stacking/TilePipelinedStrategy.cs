@@ -194,7 +194,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         // null-forgiving operator anywhere downstream -- the compiler sees
         // them as definitely-assigned non-null locals from here on.
         ct.ThrowIfCancellationRequested();
-        var firstCalibrated = DecodeCalibrate(sources[0], calibrator);
+        var firstCalibrated = DecodeCalibrate(sources[0], calibrator, job.Intermediates);
         var calibratedBytes = (long)firstCalibrated.Width * firstCalibrated.Height * firstCalibrated.ChannelCount * sizeof(float);
         var cache = new FrameCache(n, FrameCache.DecideCacheCap(n, calibratedBytes));
         var metaSeed = await firstCalibrated.DebayerAsync(debayerAlg, cancellationToken: ct);
@@ -209,7 +209,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
         for (var f = 1; f < n; f++)
         {
             ct.ThrowIfCancellationRequested();
-            var calibrated = DecodeCalibrate(sources[f], calibrator);
+            var calibrated = DecodeCalibrate(sources[f], calibrator, job.Intermediates);
 
             // Stats need the debayered frame, but we don't cache it.
             // Allocate locally, compute stats, let GC reclaim between
@@ -272,7 +272,7 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
                 {
                     // Miss in both tiers -- re-decode + recalibrate (no
                     // debayer; we redo that per-strip below).
-                    calibrated = DecodeCalibrate(sources[f], calibrator);
+                    calibrated = DecodeCalibrate(sources[f], calibrator, job.Intermediates);
                     cache.Set(f, calibrated);
                 }
 
@@ -333,8 +333,9 @@ public sealed class TilePipelinedStrategy : IIntegrationStrategy
     /// <para>Delegates to <see cref="RawLightDecoder"/>, which owns the raw
     /// frame's buffer lifetime -- see there for why that rule cannot be
     /// duplicated per strategy.</para></summary>
-    private static Image DecodeCalibrate(RawLightSource source, Calibrator calibrator)
-        => RawLightDecoder.DecodeCalibrate(source, calibrator, nameof(TilePipelinedStrategy));
+    private static Image DecodeCalibrate(RawLightSource source, Calibrator calibrator,
+        IntermediateFrameWriter? intermediates = null)
+        => RawLightDecoder.DecodeCalibrate(source, calibrator, nameof(TilePipelinedStrategy), intermediates);
 
     private static void CopyStripIntoMaster(Image stripImage, float[][,] masterData, int stripY0, int channelCount)
     {

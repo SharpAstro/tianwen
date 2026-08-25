@@ -191,7 +191,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         // FrameCache + cap policy as TilePipelinedStrategy: roomy hosts
         // hold all N; tight hosts evict and re-decode on miss in pass 2.
         ct.ThrowIfCancellationRequested();
-        var firstCalibrated = DecodeCalibrate(sources[0], calibrator);
+        var firstCalibrated = DecodeCalibrate(sources[0], calibrator, job.Intermediates);
         var calibratedBytes = (long)firstCalibrated.Width * firstCalibrated.Height * firstCalibrated.ChannelCount * sizeof(float);
         var cache = new FrameCache(n, FrameCache.DecideCacheCap(n, calibratedBytes));
         var refMeta = firstCalibrated.ImageMeta;
@@ -208,7 +208,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
         for (var f = 1; f < n; f++)
         {
             ct.ThrowIfCancellationRequested();
-            var calibrated = DecodeCalibrate(sources[f], calibrator);
+            var calibrated = DecodeCalibrate(sources[f], calibrator, job.Intermediates);
             cache.Set(f, calibrated);
             job.Progress?.Report(new IntegrationProgress(IntegrationPhase.LoadingFrames, f + 1, n, swStrat.Elapsed));
         }
@@ -276,7 +276,7 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
                 {
                     // Tier miss: re-decode + recalibrate. Re-add to cache;
                     // the cache may evict another frame to make room.
-                    calibrated = DecodeCalibrate(sources[f], calibrator);
+                    calibrated = DecodeCalibrate(sources[f], calibrator, job.Intermediates);
                     cache.Set(f, calibrated);
                 }
 
@@ -359,7 +359,8 @@ public sealed class TilePipelinedDrizzleStrategy : IIntegrationStrategy
     /// <see cref="TilePipelinedStrategy"/>'s helper, and now literally the
     /// same code: see <see cref="RawLightDecoder"/> for why the two copies
     /// were merged once the body grew a buffer-ownership rule.</summary>
-    private static Image DecodeCalibrate(RawLightSource source, Calibrator calibrator)
-        => RawLightDecoder.DecodeCalibrate(source, calibrator, nameof(TilePipelinedDrizzleStrategy));
+    private static Image DecodeCalibrate(RawLightSource source, Calibrator calibrator,
+        IntermediateFrameWriter? intermediates = null)
+        => RawLightDecoder.DecodeCalibrate(source, calibrator, nameof(TilePipelinedDrizzleStrategy), intermediates);
 
 }

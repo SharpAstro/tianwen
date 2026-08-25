@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Numerics;
@@ -99,6 +99,10 @@ public sealed record IntegrationJob(
     // WarpedFrames) so the contracts stay distinct and a misuse would
     // surface as a NullReferenceException rather than as a silent
     // "we got 1-channel where 3-channel was expected" miscompare.
+    // Optional diagnostic sink for per-frame intermediates (--save-calibrated /
+    // --save-normalized). Null (default) writes nothing, which is the behaviour every
+    // existing caller gets. Strategies pass it into RawLightDecoder.DecodeCalibrate.
+    IntermediateFrameWriter? Intermediates = null,
     Func<CancellationToken, IAsyncEnumerable<RawBayerFrame>>? RawBayerFrames = null,
     // Drizzle parameters (pixfrac, output scale, min frame count). Only
     // read by DrizzleStrategy; other strategies ignore. Null means the

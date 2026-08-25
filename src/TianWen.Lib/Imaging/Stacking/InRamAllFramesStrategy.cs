@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -70,7 +70,7 @@ public sealed class InRamAllFramesStrategy : IIntegrationStrategy
         // stays ArraySink internally -- it's 1-channel and small.
         var (c, w, h) = frames[0].Shape;
         var masterSink = job.MasterSinkFactory?.Invoke(c, w, h);
-        return Integrator.Integrate(frames, job.Options, masterSink: masterSink);
+        return Integrator.Integrate(frames, job.Options, masterSink: masterSink, intermediates: job.Intermediates);
     }
 }
 

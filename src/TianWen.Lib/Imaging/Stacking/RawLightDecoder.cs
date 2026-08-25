@@ -36,7 +36,8 @@ internal static class RawLightDecoder
     /// shares one shape, so the bucket hits every time and the pool's byte ceiling is never
     /// approached.</para>
     /// </summary>
-    public static Image DecodeCalibrate(RawLightSource source, Calibrator calibrator, string strategyName)
+    public static Image DecodeCalibrate(RawLightSource source, Calibrator calibrator, string strategyName,
+        IntermediateFrameWriter? intermediates = null)
     {
         var willConsumeRaw = calibrator.Bias is not null || calibrator.Dark is not null || calibrator.Flat is not null;
         if (!Image.TryReadFitsFile(source.Path, out var raw, out _, pooled: willConsumeRaw))
@@ -44,6 +45,10 @@ internal static class RawLightDecoder
             throw new InvalidDataException($"{strategyName}: failed to read raw FITS at {source.Path}");
         }
 
-        return calibrator.Apply(raw);
+        var calibrated = calibrator.Apply(raw);
+        // Captured HERE because this is the one place every strategy calibrates through, so a
+        // dump taken anywhere else would be per-strategy and could disagree with itself.
+        intermediates?.SaveCalibrated(calibrated, source.Path);
+        return calibrated;
     }
 }
