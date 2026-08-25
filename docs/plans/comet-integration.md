@@ -213,16 +213,33 @@ Roughly in dependency order.
 
 ## The headers were amended (was item 7, done)
 
-The frames now carry the two cards they should have carried at capture. Both were written with
+The frames now carry the three cards they should have carried at capture. All were written with
 `FitsHeaderEditor` through the CLI, which rewrites only the primary header and copies every other
-byte verbatim; all 186 frames were digested from the data section before and after and **0 had
-altered pixel data or size**.
+byte verbatim; frames were digested from the data section before and after and **0 had altered pixel
+data or size** (186 for the first two amendments, a 30-frame sample for the third, which also
+confirmed 0 header-length changes -- the card already existed, so it was replaced in place).
 
 ```
 tianwen dataset tag-object --path <LIGHT> --object "10P/Tempel 2" --expect "10p Temepl" --apply
 tianwen dataset tag-filter --path <LIGHT> --filter "IDAS LPS-D3" --apply
 tianwen dataset tag-filter --path <FLAT>  --filter "IDAS LPS-D3" --apply
+tianwen dataset tag-site-elevation --path <ROOT> --elevation 74 --expect 120 --apply
 ```
+
+**`SITEELEV = 74.0`, on every frame type rather than the lights alone**, because where the rig stood
+is true of a dark and a bias as much as of a light. The capture profile had recorded 120 m against a
+true 74 m. **This corrects the RECORD, not a measurement**: 46 m is 0.0007% of an Earth radius, so it
+moves the derived comet rate by 0.00002 px over the night -- against a 0.11 px registration residual,
+which is to say never. The number that would matter is latitude or longitude, and those are why an
+unknown site is a refusal rather than a fallback.
+
+Two things came out of doing it. `FitsHeaderEditor` only knew how to write STRING cards, and a number
+put through that path comes out quoted -- which reads correctly to a human and is a *string* to
+anything that types its cards; `SetNumericCardAsync` + `FormatNumericCard` write the fixed format
+(unquoted, right-justified to byte 30) and share every guard with the string path so the two cannot
+drift. And the first run silently skipped a `MASTERDARKFLAT`, which exposed a `DarkFlat` missing from
+the command's default frame-type list while its own help claimed "every frame type" -- a real gap for
+anyone using the standard CMOS dark-flat workflow, not just for this one derived file.
 
 **`FILTER = 'IDAS LPS-D3'`, on the flats as well as the lights.** The flat panel's light went through
 the same glass, and `MasterGroupKey` compares lights to flat masters on filter, so tagging only the
