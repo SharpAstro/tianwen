@@ -315,6 +315,16 @@ public partial class Image
         var latitude = hdu.Header.GetFloatValue("SITELAT", float.NaN);
         var longitude = hdu.Header.GetFloatValue("SITELONG", float.NaN);
         var siteElevation = hdu.Header.GetFloatValue("SITEELEV", float.NaN);
+        // The white balance travels as four cards. All of them have to be present and finite for the
+        // calibration to mean anything -- a partial triple is worse than none, since a consumer would
+        // apply two channels of somebody else's calibration and leave the third alone.
+        var wbR = hdu.Header.GetFloatValue("WBRED", float.NaN);
+        var wbG = hdu.Header.GetFloatValue("WBGREEN", float.NaN);
+        var wbB = hdu.Header.GetFloatValue("WBBLUE", float.NaN);
+        var colourCalibration = float.IsFinite(wbR) && float.IsFinite(wbG) && float.IsFinite(wbB)
+            ? new ColourCalibration(wbR, wbG, wbB,
+                hdu.Header.GetStringValue("WBSOURCE") ?? ColourCalibration.SpccSource)
+            : (ColourCalibration?)null;
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
         // GAIN/OFFSET are int cards in N.I.N.A. files but float cards in e.g. Astro Pixel Processor
         // masters -- ReadIntegerLikeCard coerces both forms (and rejects NaN/Infinity as unknown).
@@ -378,7 +388,8 @@ public partial class Image
             PierSide: pierSide,
             SensorFullScaleAdu: saturate > 0 ? saturate : null,
             DeclaredPixelScale: declaredPixelScale,
-            SiteElevation: siteElevation
+            SiteElevation: siteElevation,
+            ColourCalibration: colourCalibration
         )
         { IsMaster = isMaster };
     }
@@ -839,6 +850,13 @@ public partial class Image
         AddHeaderValueIfHasValue("SITELAT", imageMeta.Latitude, "degrees");
         AddHeaderValueIfHasValue("SITELONG", imageMeta.Longitude, "degrees");
         AddHeaderValueIfHasValue("SITEELEV", imageMeta.SiteElevation, "metres above mean sea level");
+        if (imageMeta.ColourCalibration is { } wb)
+        {
+            AddHeaderValueIfHasValue("WBSOURCE", wb.Source, "How the white balance was derived");
+            AddHeaderValueIfHasValue("WBRED", wb.R, "Red white-balance multiplier");
+            AddHeaderValueIfHasValue("WBGREEN", wb.G, "Green white-balance multiplier");
+            AddHeaderValueIfHasValue("WBBLUE", wb.B, "Blue white-balance multiplier");
+        }
         if (!double.IsNaN(imageMeta.TargetRA) && !double.IsNaN(imageMeta.TargetDec))
         {
             AddHeaderValueIfHasValue("OBJCTRA", Astrometry.CoordinateUtils.HoursToHMS(imageMeta.TargetRA, ' ', minuteSeparator: ' '), "");

@@ -187,4 +187,18 @@ public sealed record StackingOptions(
     //
     // "Auto" (the empty string) reads the designation from the frames' own OBJECT card, which is
     // what makes a whole folder of comet lights stack correctly with no argument beyond the flag.
-    string? CometDesignation = null);
+    string? CometDesignation = null,
+    // A white balance INHERITED from another master rather than solved here. Set it and the SPCC
+    // solve is skipped entirely -- which is not an optimisation but the only way to colour a plate
+    // that has no stars: SPCC fits against catalogue stars, so a star-removed comet layer has
+    // nothing to fit and must take the star layer's calibration or the two cannot be combined.
+    //
+    // Background neutralisation is deliberately NOT inherited. Each plate solves its own from its
+    // own pixels; grafting one plate's bg-neut onto another whose background differs
+    // double-corrects it into a colour cast.
+    // Carries the donor's SOURCE as well as its numbers: WBSOURCE describes how the triple was
+    // DERIVED, and that provenance is a property of the numbers, not of the run that copies them.
+    // Re-deriving it from "did SPCC run here" stamps SKYBG onto an inherited photometric
+    // calibration -- which is exactly the misreport the card exists to prevent.
+    ColourCalibration? InheritedWhiteBalance = null);
+
