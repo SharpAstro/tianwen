@@ -1,6 +1,6 @@
 ---
 name: stack
-description: Run `tianwen stack` against a folder of FITS lights + calibration. Use when the user asks to stack frames, build a master, integrate a session, or wants a tianwen stack run kicked off (e.g. "stack C:\temp\stack", "integrate the SoL frames", "build a master from the latest session").
+description: Run `tianwen stack` against a folder of FITS lights + calibration. Use when the user asks to stack frames, build a master, integrate a session, or wants a tianwen stack run kicked off (e.g. "stack C:/temp/stack", "integrate the SoL frames", "build a master from the latest session").
 ---
 
 Usage: `/stack <data-root> [options]`
@@ -8,10 +8,10 @@ Usage: `/stack <data-root> [options]`
 Examples:
 
 ```
-/stack C:\temp\stack
-/stack C:\session1 -o C:\masters --strategy TilePipelined
-/stack C:\skull --group-filter skull --no-png
-/stack C:\temp\stack --no-plate-solve --no-png   # fastest -- FITS only
+/stack C:/temp/stack
+/stack C:/session1 -o C:/masters --strategy TilePipelined
+/stack C:/skull --group-filter skull --output-format none
+/stack C:/temp/stack --no-plate-solve --output-format none   # fastest -- FITS only
 ```
 
 The skill runs from `src/`:
@@ -30,7 +30,10 @@ Under `<data-root>/output/` (or `--output` if set):
 - `masters/master_<group>.fits`: cached bias/dark/flat masters (reused across runs)
 - `master_<group>.fits`: integrated light master with WCS embedded
 - `master_<group>_autocrop.fits`: same, cropped to the no-NaN intersection
-- `master_<group>.png`: display-encoded preview with SPCC + bg-neut (unless `--no-png`)
+- `master_<group>.png`: display-encoded preview with SPCC + bg-neut (unless `--output-format none`)
+- `master_<group>.manifest.json`: the stack manifest -- the frame list with each frame's fate, the
+  reference frame, and each matched frame's STAR transform, keyed by a digest of the FITS data
+  section. Feed it to a later run with `--manifest` so both layers are built from identical inputs.
 - `master_<group>.rejection.fits`: per-pixel rejection count map (when rejections > 0)
 
 **Drizzle exception**: when `--strategy BayerDrizzle` is in use, the master + sidecars carry a `_drizzle` infix so a side-by-side run against the default strategy can coexist in the same output dir:
@@ -51,7 +54,11 @@ Every master also carries `SWCREATE = TianWen.Imaging.Stacking.Integrator` + `ST
 | `--drizzle-min-frames <int>` | BayerDrizzle: matched-frame floor before the strategy runs. Default `60`. Drop only if you accept NaN holes in R/B channels (each Bayer colour is only ~25% of input pixels). Ignored unless `--strategy BayerDrizzle`. |
 | `--group-filter <pat>` | Substring on the group slug; only matching groups run. Useful when one session has multiple targets and you only want one. |
 | `--group-exclude <pat>` | Inverse of `--group-filter`. |
-| `--no-png` | Skip the PNG preview render. Use when iterating on the FITS pipeline and don't need visual QA. |
+| `--output-format <fmt>` | Companion written beside the FITS: `png` (default), `uhdr` (Ultra HDR gain-map JPEG), `exr` (float-true linear HDR), or `none` to skip it. **There is no `--no-png`** -- use `--output-format none`. |
+| `--comet [designation]` | Register on the BODY, so the comet integrates sharp and the stars trail. Omit the value to read the designation from the frames' own `OBJECT` card. Derives the rate by plate-solving the reference frame and asking JPL Horizons for a TOPOCENTRIC track from the site in `SITELAT`/`SITELONG`/`SITEELEV`. Needs network. |
+| `--comet-rate dx,dy` | The offline counterpart, in CANVAS px/hr of the reference frame's grid. Wins over `--comet` when both are given. |
+| `--inherit-wb <master.fits>` | Take the white balance from a donor master's `WBRED`/`WBGREEN`/`WBBLUE`. Required for a comet stack: its stars are trailed, so it cannot plate-solve and SPCC has nothing to work with. |
+| `--reference-frame <substr>` | Pin the reference to the first candidate whose path contains this substring. Prefer `--manifest`, which pins the reference along with the frame list and the transforms. |
 | `--no-plate-solve` | Skip plate-solving. Use for synthetic / non-celestial data, or when the catalog DB initialisation is the bottleneck. |
 | `--stack-debayer AHD` (default) | Best colour fidelity, slower per-frame. Swap to `VNG` for ~2-3x speedup at small fidelity cost. Unused under `--strategy BayerDrizzle` (no debayer step happens). |
 
