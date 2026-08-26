@@ -896,12 +896,37 @@ public sealed class StackingPipeline(
         // An explicit rate wins over a designation, so --comet-rate stays the offline answer and the
         // override for an ephemeris that turns out to be wrong.
         var cometRate = options.CometRatePxPerHour;
+        // The full fit, kept alongside the bare rate because the STAR layer needs the one thing a
+        // rate cannot carry: where the body actually IS. A manual --comet-rate has no anchor by
+        // construction (a rate is a difference, and the flag states only the difference), so that
+        // path can register on the comet but cannot mask it out of the companion layer.
+        CometRate? cometFit = null;
         if (cometRate is null && options.CometDesignation is not null)
         {
-            cometRate = await TryResolveCometRateAsync(lightList, referenceRaw, searchHint, ct);
+            cometFit = await TryResolveCometRateAsync(lightList, referenceRaw, searchHint, ct);
+            cometRate = cometFit?.PxPerHour;
             if (cometRate is null)
             {
-                logger.LogWarning("  [comet] no rate could be derived; this group stacks STAR-aligned");
+                // REFUSE, never fall back to a star-aligned stack. The caller asked for the body to
+                // be registered; a star-aligned master is a different product that happens to land
+                // at the same path, carry the same slug and look entirely plausible. Nothing
+                // downstream can tell the two apart -- the header records the strategy, not what the
+                // registration was ON -- so the fallback turned a failed ephemeris lookup into a
+                // silently wrong deliverable. That is the same failure class as an AI enhancer
+                // handed out-of-distribution input: a confident answer to a question nobody asked.
+                //
+                // Found on C/2025 R2 (SWAN), where the designation was being sent to Horizons in its
+                // compact form and rejected. The run went on to spend its whole integration
+                // producing a duplicate of a master that already existed.
+                var wanted = string.IsNullOrWhiteSpace(options.CometDesignation)
+                    ? referenceRaw.ImageMeta.ObjectName
+                    : options.CometDesignation;
+                var reason = $"comet registration was requested for \"{wanted}\" but no rate could be derived; "
+                    + "pass --comet-rate dx,dy to supply one, or drop --comet to stack star-aligned on purpose";
+                logger.LogWarning("  [skip] {Reason}", reason);
+                return new GroupResult(slug, lightList.Count, 0, Result: null, MasterFitsPath: null,
+                    PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: reason,
+                    Stages: timings.Snapshot());
             }
         }
 
@@ -950,7 +975,9 @@ public sealed class StackingPipeline(
         // The skip split by CAUSE matters because a bare tally cannot separate a DETECTION problem
         // (few quads anywhere) from a PURITY one (plenty of quads on both sides that still do not
         // correspond), and those have opposite fixes.
-        var matched = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>();
+        // Starless rides ALONGSIDE the original rather than replacing it: the comet layer wants the
+        // star-removed plate and the star layer wants its stars, and one run now builds both.
+        var matched = new List<(FrameInfo Light, FrameInfo? Starless, Matrix3x2 Transform, Matrix3x2 StarTransform, FrameMetrics Metrics)>();
         // Every candidate's fate and its STAR solution, for the manifest. Parallel to `matched` only
         // for the frames that survive; a skipped frame is recorded here and absent there, which is the
         // whole point (see StackManifest: "considered and rejected" and "never offered" differ).
@@ -1039,6 +1066,13 @@ public sealed class StackingPipeline(
             // pins the target instead. Composed AFTER the star solution so it acts in canvas space,
             // which is the only basis where the target's motion is separable from dither and field
             // rotation. The reference frame needs no special case: its dt is zero.
+            //
+            // The star solution is KEPT rather than overwritten, because the companion star layer is
+            // that same registration without the compose. Re-deriving it later by composing the
+            // inverse translation would be exact arithmetic and still wrong as a design: it would put
+            // the definition of the compose in two places, and the second copy only breaks when the
+            // first one changes.
+            var starOnly = transform;
             if (cometRate is { } cometDrift && transform is { } starSolution)
             {
                 var driftHours = (candidate.Frame.Meta.ExposureStartTime - reference.Meta.ExposureStartTime).TotalHours;
@@ -1049,7 +1083,7 @@ public sealed class StackingPipeline(
 
             if (transform is null) { skipCount++; continue; }
 
-            matched.Add((candidate.Frame, transform.Value, frameMetrics));
+            matched.Add((candidate.Frame, null, transform.Value, starOnly ?? transform.Value, frameMetrics));
             progress?.Report(new StackingProgress(StackingPhase.Registering, slug, matched.Count + skipCount, lightList.Count));
         }
         // One census, reused by the summary line here and the collapse warning below -- two
@@ -1111,7 +1145,7 @@ public sealed class StackingPipeline(
                 // OLD cache[K+]'s pixels -- the wrong calibrated frame under the right transform,
                 // visible as chromatic speckle on SoL pier-side drizzle masters. The producers load
                 // frames themselves when integration streams, indexed off the final matched list.
-                var filtered = new List<(FrameInfo Light, Matrix3x2 Transform, FrameMetrics Metrics)>(filterResult.KeptCount);
+                var filtered = new List<(FrameInfo Light, FrameInfo? Starless, Matrix3x2 Transform, Matrix3x2 StarTransform, FrameMetrics Metrics)>(filterResult.KeptCount);
                 for (var i = 0; i < matched.Count; i++)
                 {
                     var reason = filterResult.Reasons[i];
@@ -1206,7 +1240,7 @@ public sealed class StackingPipeline(
             for (var i = 0; i < matched.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
-                var (light, transform, frameMetrics) = matched[i];
+                var (light, _, transform, starTransform, frameMetrics) = matched[i];
                 var starlessPath = Path.Combine(starlessDir, Path.GetFileNameWithoutExtension(light.Path) + "_starless.fits");
 
                 var calibrated = RawLightDecoder.DecodeCalibrate(new RawLightSource(light.Path, transform), calibrator, nameof(StackingPipeline), intermediates);
@@ -1253,7 +1287,9 @@ public sealed class StackingPipeline(
                 });
                 starless.Release();
 
-                matched[i] = (light with { Path = starlessPath }, transform, frameMetrics);
+                // Keep the original. Replacing it here is what used to make --remove-stars unusable for a
+                // two-layer run: every later consumer, the star layer included, saw only starless plates.
+                matched[i] = (light, light with { Path = starlessPath }, transform, starTransform, frameMetrics);
                 if ((i + 1) % 15 == 0 || i + 1 == matched.Count)
                 {
                     logger.LogInformation("  [starless] {Done}/{Total}", i + 1, matched.Count);
@@ -1330,255 +1366,566 @@ public sealed class StackingPipeline(
             badPixelMask = registrationMask;
         }
 
-        var (canvasShift, outOriginX, outOriginY, outWidth, outHeight) =
-            CanvasGeometry.ComputeUnionCanvas(transforms, referenceRaw.Width, referenceRaw.Height);
-        logger.LogInformation("  [canvas] union bbox = {W}x{H} (origin {X},{Y} in ref space)",
-            outWidth, outHeight, outOriginX, outOriginY);
-
-        var (frameFootprints, statsRect) = CanvasGeometry.ComputeFootprintsAndStatsRect(
-            transforms, canvasShift, referenceRaw.Width, referenceRaw.Height, outWidth, outHeight);
-
-        // Producer that loads each matched frame and warps into the BB canvas, yielding one Image
-        // at a time -- the ONE place this group's pixels are read after the measure pass. Loads
-        // per frame, deliberately uncached: the register phase no longer reads pixels, so the load
-        // that used to fill the pipeline-level cache is gone and per-frame totals are unchanged;
-        // the staged strategies keep their own internal FrameCache for their multi-pass needs.
-        async IAsyncEnumerable<Image> WarpedFramesProducer(
-            [EnumeratorCancellation] CancellationToken token)
+        // One layer's worth of integrate-and-write. A comet run emits TWO masters, and they are
+        // combinable only if they agree on the reference frame, the canvas origin, the debayer, the
+        // rejector and the frame set -- so both come from this one function, differing only in the
+        // four arguments. Two separate runs can differ in every one of those, which is why this is
+        // not simply "run the tool twice".
+        string? layerSkipReason = null;
+        async Task<(string MasterPath, MasterWriteResult Post, int MaskedPixels,
+                    IntegrationResult Integration, Matrix3x2 CanvasShift)?> IntegrateLayerAsync(
+            IReadOnlyList<Matrix3x2> layerTransforms,
+            CometMask? layerMask,
+            CometModel? layerModel,
+            bool useStarless,
+            string layerSuffix,
+            AlignmentProvenance layerAlignment,
+            CancellationToken token)
         {
-            foreach (var (lightInfo, transformOrig, _) in matched)
+            // Which plate this layer consumes, and therefore which calibrator. The starless plates
+            // were calibrated before star removal, so calibrating them again would subtract bias and
+            // dark twice and divide by the flat twice; the originals still need the real thing. With
+            // no --remove-stars the two are the same object and this is a no-op distinction.
+            var layerCalibrator = useStarless ? integrationCalibrator : calibrator;
+            var maskedFramePixels = 0;
+            var modelScaleSum = 0.0;
+            var modelScaleCount = 0;
+            var (canvasShift, outOriginX, outOriginY, outWidth, outHeight) =
+                CanvasGeometry.ComputeUnionCanvas(layerTransforms, referenceRaw.Width, referenceRaw.Height);
+            logger.LogInformation("  [canvas] union bbox = {W}x{H} (origin {X},{Y} in ref space)",
+                outWidth, outHeight, outOriginX, outOriginY);
+
+            var (frameFootprints, statsRect) = CanvasGeometry.ComputeFootprintsAndStatsRect(
+                layerTransforms, canvasShift, referenceRaw.Width, referenceRaw.Height, outWidth, outHeight);
+
+            // Producer that loads each matched frame and warps into the BB canvas, yielding one Image
+            // at a time -- the ONE place this group's pixels are read after the measure pass. Loads
+            // per frame, deliberately uncached: the register phase no longer reads pixels, so the load
+            // that used to fill the pipeline-level cache is gone and per-frame totals are unchanged;
+            // the staged strategies keep their own internal FrameCache for their multi-pass needs.
+            async IAsyncEnumerable<Image> WarpedFramesProducer(
+                [EnumeratorCancellation] CancellationToken token)
             {
-                token.ThrowIfCancellationRequested();
-                var lightRaw = await lightInfo.LoadFullAsync(token);
-                // integrationCalibrator, NOT calibrator: under --remove-stars these frames are the
-                // starless plates, already calibrated before star removal. Calibrating again would
-                // subtract bias and dark twice and divide by the flat twice, silently.
-                var calibrated = integrationCalibrator.Apply(lightRaw);
-                // Skipped under --remove-stars: integrationCalibrator is a no-op there and these
-                // frames are the starless plates, which are already on disk.
-                if (!options.RemoveStarsPerFrame)
+                for (var fi = 0; fi < matched.Count; fi++)
                 {
-                    intermediates?.SaveCalibrated(calibrated, lightInfo.Path);
+                    var lightInfo = useStarless && matched[fi].Starless is { } sl ? sl : matched[fi].Light;
+                    var transformOrig = layerTransforms[fi];
+                    token.ThrowIfCancellationRequested();
+                    var lightRaw = await lightInfo.LoadFullAsync(token);
+                    // integrationCalibrator, NOT calibrator: under --remove-stars these frames are the
+                    // starless plates, already calibrated before star removal. Calibrating again would
+                    // subtract bias and dark twice and divide by the flat twice, silently.
+                    var calibrated = layerCalibrator.Apply(lightRaw);
+                    // Exclude the moving body BEFORE debayer and warp. Doing it here rather than on the
+                    // warped canvas is what lets ONE implementation serve both integration paths: the
+                    // standard path warps below, the drizzle path forward-projects this same raw CFA,
+                    // and both skip a NaN sample without depositing weight, so coverage needs nothing
+                    // added to either.
+                    // Subtracting the body beats excluding it and takes precedence. The mask throws
+                    // away every frame the comet is anywhere near, which is affordable only when the
+                    // body moves much further than its coma is wide -- 10P moves 45 px in 3.5 h and
+                    // masking it is arithmetically impossible. See CometModel.
+                    if (layerModel is { } model && cometRate is { } modelRate && cometFit is { } modelFit)
+                    {
+                        // source -> the COMET-ALIGNED reference grid, the one basis where the body
+                        // does not move, so the model needs no per-frame position of its own.
+                        var driftHours = (lightInfo.Meta.ExposureStartTime - reference.Meta.ExposureStartTime).TotalHours;
+                        var toCometGrid = transformOrig * Matrix3x2.CreateTranslation(
+                            (float)(-modelRate.X * driftHours), (float)(-modelRate.Y * driftHours));
+                        var cfa = calibrated.ImageMeta.SensorType.GetBayerPatternMatrix(
+                            calibrated.ImageMeta.BayerOffsetX, calibrated.ImageMeta.BayerOffsetY);
+                        var onGrid = modelFit.AnchorPx + modelFit.PxPerHour
+                            * (float)(reference.Meta.ExposureStartTime - modelFit.AnchorEpoch).TotalHours;
+                        var amplitude = model.FitScale(calibrated, toCometGrid, onGrid, cfa);
+                        if (amplitude > 0f)
+                        {
+                            maskedFramePixels += model.SubtractFrom(
+                                calibrated, toCometGrid, onGrid, cfa, amplitude);
+                            modelScaleSum += amplitude;
+                            modelScaleCount++;
+                        }
+                    }
+                    else if (layerMask is { } cometMask)
+                    {
+                        // source -> REFERENCE, never source -> canvas. The canvas shift differs per
+                        // layer (each layer's union bounding box comes from its own transforms), and
+                        // the mask must not depend on which layer is being built.
+                        var srcToRef = transformOrig;
+                        if (cometMask.SourcePositionAt(srcToRef, lightInfo.Meta.ExposureStartTime) is { } centre)
+                        {
+                            maskedFramePixels += CometMask.Punch(calibrated, centre, cometMask.SourceRadius(srcToRef));
+                        }
+                    }
+                    // Skipped under --remove-stars: integrationCalibrator is a no-op there and these
+                    // frames are the starless plates, which are already on disk.
+                    if (!options.RemoveStarsPerFrame)
+                    {
+                        intermediates?.SaveCalibrated(calibrated, lightInfo.Path);
+                    }
+                    // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
+                    // three lines the dataset registrar runs, so the two paths cannot drift here.
+                    var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
+                        calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, token);
+                    yield return warped;
                 }
-                // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
-                // three lines the dataset registrar runs, so the two paths cannot drift here.
-                var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
-                    calibrated, transformOrig, canvasShift, options.StackDebayerAlg, outWidth, outHeight, token);
-                yield return warped;
             }
-        }
 
-        // Drizzle producer: yields the calibrated 1-channel raw CFA frame +
-        // composed source->canvas affine. NO debayer, NO warp -- DrizzleStrategy
-        // forward-projects each Bayer sample onto the output grid itself.
-        // Only built when --strategy BayerDrizzle is selected; the strategy
-        // pulls from this and ignores WarpedFrames.
-        async IAsyncEnumerable<RawBayerFrame> RawBayerFramesProducer(
-            [EnumeratorCancellation] CancellationToken token)
-        {
-            foreach (var (lightInfo, transformOrig, _) in matched)
+            // Drizzle producer: yields the calibrated 1-channel raw CFA frame +
+            // composed source->canvas affine. NO debayer, NO warp -- DrizzleStrategy
+            // forward-projects each Bayer sample onto the output grid itself.
+            // Only built when --strategy BayerDrizzle is selected; the strategy
+            // pulls from this and ignores WarpedFrames.
+            async IAsyncEnumerable<RawBayerFrame> RawBayerFramesProducer(
+                [EnumeratorCancellation] CancellationToken token)
             {
-                token.ThrowIfCancellationRequested();
-                var lightRaw = await lightInfo.LoadFullAsync(token);
-                // integrationCalibrator, NOT calibrator: under --remove-stars these frames are the
-                // starless plates, already calibrated before star removal. Calibrating again would
-                // subtract bias and dark twice and divide by the flat twice, silently.
-                var calibrated = integrationCalibrator.Apply(lightRaw);
-                if (!options.RemoveStarsPerFrame)
+                for (var fi = 0; fi < matched.Count; fi++)
                 {
-                    intermediates?.SaveCalibrated(calibrated, lightInfo.Path);
+                    var lightInfo = useStarless && matched[fi].Starless is { } sl ? sl : matched[fi].Light;
+                    var transformOrig = layerTransforms[fi];
+                    token.ThrowIfCancellationRequested();
+                    var lightRaw = await lightInfo.LoadFullAsync(token);
+                    // integrationCalibrator, NOT calibrator: under --remove-stars these frames are the
+                    // starless plates, already calibrated before star removal. Calibrating again would
+                    // subtract bias and dark twice and divide by the flat twice, silently.
+                    var calibrated = layerCalibrator.Apply(lightRaw);
+                    // Exclude the moving body BEFORE debayer and warp. Doing it here rather than on the
+                    // warped canvas is what lets ONE implementation serve both integration paths: the
+                    // standard path warps below, the drizzle path forward-projects this same raw CFA,
+                    // and both skip a NaN sample without depositing weight, so coverage needs nothing
+                    // added to either.
+                    // Subtracting the body beats excluding it and takes precedence. The mask throws
+                    // away every frame the comet is anywhere near, which is affordable only when the
+                    // body moves much further than its coma is wide -- 10P moves 45 px in 3.5 h and
+                    // masking it is arithmetically impossible. See CometModel.
+                    if (layerModel is { } model && cometRate is { } modelRate && cometFit is { } modelFit)
+                    {
+                        // source -> the COMET-ALIGNED reference grid, the one basis where the body
+                        // does not move, so the model needs no per-frame position of its own.
+                        var driftHours = (lightInfo.Meta.ExposureStartTime - reference.Meta.ExposureStartTime).TotalHours;
+                        var toCometGrid = transformOrig * Matrix3x2.CreateTranslation(
+                            (float)(-modelRate.X * driftHours), (float)(-modelRate.Y * driftHours));
+                        var cfa = calibrated.ImageMeta.SensorType.GetBayerPatternMatrix(
+                            calibrated.ImageMeta.BayerOffsetX, calibrated.ImageMeta.BayerOffsetY);
+                        var onGrid = modelFit.AnchorPx + modelFit.PxPerHour
+                            * (float)(reference.Meta.ExposureStartTime - modelFit.AnchorEpoch).TotalHours;
+                        var amplitude = model.FitScale(calibrated, toCometGrid, onGrid, cfa);
+                        if (amplitude > 0f)
+                        {
+                            maskedFramePixels += model.SubtractFrom(
+                                calibrated, toCometGrid, onGrid, cfa, amplitude);
+                            modelScaleSum += amplitude;
+                            modelScaleCount++;
+                        }
+                    }
+                    else if (layerMask is { } cometMask)
+                    {
+                        // source -> REFERENCE, never source -> canvas. The canvas shift differs per
+                        // layer (each layer's union bounding box comes from its own transforms), and
+                        // the mask must not depend on which layer is being built.
+                        var srcToRef = transformOrig;
+                        if (cometMask.SourcePositionAt(srcToRef, lightInfo.Meta.ExposureStartTime) is { } centre)
+                        {
+                            maskedFramePixels += CometMask.Punch(calibrated, centre, cometMask.SourceRadius(srcToRef));
+                        }
+                    }
+                    if (!options.RemoveStarsPerFrame)
+                    {
+                        intermediates?.SaveCalibrated(calibrated, lightInfo.Path);
+                    }
+                    var shifted = transformOrig * canvasShift;
+                    yield return new RawBayerFrame(calibrated, shifted);
                 }
-                var shifted = transformOrig * canvasShift;
-                yield return new RawBayerFrame(calibrated, shifted);
             }
-        }
 
-        // Snapshot host + pick strategy. Snapshot factory probes free
-        // RAM + disk; the selector wants those for its budget gate.
-        // SensorType is pulled from the group key (the canonical scan-time
-        // value), not from the reference frame's meta -- they agree by
-        // construction since grouping keys on SensorType, but the group
-        // key is the source of truth for the whole group's invariants.
-        // Drizzle strategies key CanRun off this in their Evaluate.
-        var probe = IntegrationProbe.Snapshot(
-            frameCount: matched.Count,
-            frameWidth: referenceRaw.Width,
-            frameHeight: referenceRaw.Height,
-            channelCount: 3,
-            canvasWidth: outWidth,
-            canvasHeight: outHeight,
-            stagingDir: stagingDir,
-            sensorType: key.CalibrationKey.SensorType,
-            stagingDiskKind: DiskKind.Ssd);
-        // Build the strategy pool. Two reasons to deviate from the default:
-        //   1) --no-bayer-drizzle: filter both drizzle variants out so
-        //      auto-pick falls back to the standard path.
-        //   2) --drizzle-min-frames N (N != 60): replace the default
-        //      drizzle instances with ones constructed against the
-        //      user-overridden minimum, so the auto-pick gate matches
-        //      what the user asked for. Without this, --drizzle-min-frames
-        //      would only affect the pre-strategy gate (which fires
-        //      ONLY on --strategy=BayerDrizzle/TilePipelinedDrizzle),
-        //      leaving the auto-pick path still using the hardcoded 60.
-        // ForcedStrategy still wins either way (the override bypasses
-        // CanRun and the pool entirely), so a user who passes both
-        // --no-bayer-drizzle and --strategy=BayerDrizzle gets drizzle.
-        IEnumerable<IIntegrationStrategy>? pool = null;
-        if (options.DisableBayerDrizzle)
-        {
-            pool = IntegrationStrategySelector.DefaultStrategies()
-                .Where(s => s.Kind is not IntegrationStrategyKind.BayerDrizzle
-                        and not IntegrationStrategyKind.TilePipelinedDrizzle)
-                .ToArray();
-        }
-        else if (drizzleMinFrames != DrizzleStrategy.AutoSelectMinFrameCount)
-        {
-            pool = IntegrationStrategySelector.DefaultStrategies()
-                .Select(s => s.Kind switch
-                {
-                    IntegrationStrategyKind.BayerDrizzle => (IIntegrationStrategy)new DrizzleStrategy(minFrameCount: drizzleMinFrames),
-                    IntegrationStrategyKind.TilePipelinedDrizzle => new TilePipelinedDrizzleStrategy(minFrameCount: drizzleMinFrames),
-                    _ => s,
-                })
-                .ToArray();
-        }
-        var selection = IntegrationStrategySelector.Pick(probe, preferred: options.ForcedStrategy, pool: pool);
-        logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
-        logger.LogInformation("  [sink] {Sink} (canvas {GB:F2} GB)", selection.Sink, probe.CanvasBytes / 1e9);
-        var sinkFactory = SinkFactories.Create(selection.Sink, stagingDir);
-
-        var rejector = BuildRejector(matched.Count, options.RejectLowSigma, options.RejectHighSigma);
-        // Log the thresholds, not just the kind: an A/B over the sigma pair is otherwise
-        // indistinguishable in the log from an A/B over anything else in the run.
-        logger.LogInformation("  rejector: {Rejector}{Sigmas}",
-            rejector?.GetType().Name ?? "<none>",
-            rejector switch
+            // Snapshot host + pick strategy. Snapshot factory probes free
+            // RAM + disk; the selector wants those for its budget gate.
+            // SensorType is pulled from the group key (the canonical scan-time
+            // value), not from the reference frame's meta -- they agree by
+            // construction since grouping keys on SensorType, but the group
+            // key is the source of truth for the whole group's invariants.
+            // Drizzle strategies key CanRun off this in their Evaluate.
+            var probe = IntegrationProbe.Snapshot(
+                frameCount: matched.Count,
+                frameWidth: referenceRaw.Width,
+                frameHeight: referenceRaw.Height,
+                channelCount: 3,
+                canvasWidth: outWidth,
+                canvasHeight: outHeight,
+                stagingDir: stagingDir,
+                sensorType: key.CalibrationKey.SensorType,
+                stagingDiskKind: DiskKind.Ssd);
+            // Build the strategy pool. Two reasons to deviate from the default:
+            //   1) --no-bayer-drizzle: filter both drizzle variants out so
+            //      auto-pick falls back to the standard path.
+            //   2) --drizzle-min-frames N (N != 60): replace the default
+            //      drizzle instances with ones constructed against the
+            //      user-overridden minimum, so the auto-pick gate matches
+            //      what the user asked for. Without this, --drizzle-min-frames
+            //      would only affect the pre-strategy gate (which fires
+            //      ONLY on --strategy=BayerDrizzle/TilePipelinedDrizzle),
+            //      leaving the auto-pick path still using the hardcoded 60.
+            // ForcedStrategy still wins either way (the override bypasses
+            // CanRun and the pool entirely), so a user who passes both
+            // --no-bayer-drizzle and --strategy=BayerDrizzle gets drizzle.
+            IEnumerable<IIntegrationStrategy>? pool = null;
+            if (options.DisableBayerDrizzle)
             {
-                SigmaClipRejector s => $" (low {s.LowSigma}, high {s.HighSigma})",
-                WinsorizedSigmaClipRejector w => $" (low {w.LowSigma}, high {w.HighSigma})",
-                LinearFitClipRejector l => $" (low {l.LowSigma}, high {l.HighSigma})",
-                _ => "",
-            });
+                pool = IntegrationStrategySelector.DefaultStrategies()
+                    .Where(s => s.Kind is not IntegrationStrategyKind.BayerDrizzle
+                            and not IntegrationStrategyKind.TilePipelinedDrizzle)
+                    .ToArray();
+            }
+            else if (drizzleMinFrames != DrizzleStrategy.AutoSelectMinFrameCount)
+            {
+                pool = IntegrationStrategySelector.DefaultStrategies()
+                    .Select(s => s.Kind switch
+                    {
+                        IntegrationStrategyKind.BayerDrizzle => (IIntegrationStrategy)new DrizzleStrategy(minFrameCount: drizzleMinFrames),
+                        IntegrationStrategyKind.TilePipelinedDrizzle => new TilePipelinedDrizzleStrategy(minFrameCount: drizzleMinFrames),
+                        _ => s,
+                    })
+                    .ToArray();
+            }
+            // A masked layer needs a strategy that (a) consumes the producers above and (b) normalises
+            // per frame. Four kinds fail one or the other, for two quite different reasons, and both
+            // failures are silent:
+            //
+            //   TilePipelined, TilePipelinedDrizzle -- bypass the producers entirely, re-loading,
+            //   calibrating and warping each raw light themselves per tile from RawLightSources. The
+            //   mask is simply never applied and the comet integrates straight back into the layer
+            //   built to exclude it.
+            //
+            //   BayerDrizzle, TilePipelinedDrizzle -- no per-frame normalisation (neither touches
+            //   Normalizer or Integrator). Ordinarily that costs nothing, because every interior pixel
+            //   averages the same frames, so a session-long sky trend is one constant across the whole
+            //   master. A MASK breaks that premise: it removes a different, time-contiguous slice of
+            //   frames at each pixel along the track, which turns the temporal trend into spatial
+            //   structure exactly where the layer is supposed to be cleanest.
+            //
+            // Measured on C/2025 R2, whose sky rose 504 ADU (1.6%) monotonically as the field set. The
+            // masked drizzle layer removed a clean coma profile across the track (2.89 sigma at the
+            // centreline, zero by 70 px) while along the track the removal ran +4.50 sigma at the
+            // late-session end and -1.08 sigma at the early-session end -- negative meaning the mask
+            // made the layer BRIGHTER there. A comet residual cannot do that; it sweeps every track
+            // position equally and must be flat.
+            var preferredStrategy = options.ForcedStrategy;
+            if (layerMask is not null && layerModel is null)
+            {
+                pool = (pool ?? IntegrationStrategySelector.DefaultStrategies())
+                    .Where(s => s.Kind is not IntegrationStrategyKind.TilePipelined
+                            and not IntegrationStrategyKind.TilePipelinedDrizzle
+                            and not IntegrationStrategyKind.BayerDrizzle)
+                    .ToArray();
+                if (preferredStrategy is IntegrationStrategyKind.TilePipelined
+                    or IntegrationStrategyKind.TilePipelinedDrizzle
+                    or IntegrationStrategyKind.BayerDrizzle)
+                {
+                    logger.LogWarning(
+                        "  [comet] --strategy {Kind} cannot build a masked layer correctly "
+                            + "(it either bypasses the mask or does not normalise per frame); "
+                            + "letting the selector pick for this layer",
+                        preferredStrategy);
+                    preferredStrategy = null;
+                }
+            }
+            var selection = IntegrationStrategySelector.Pick(probe, preferred: preferredStrategy, pool: pool);
+            logger.LogInformation("  [strategy] picked {Kind} -- {Notes}", selection.Chosen.Kind, selection.Notes);
+            logger.LogInformation("  [sink] {Sink} (canvas {GB:F2} GB)", selection.Sink, probe.CanvasBytes / 1e9);
+            var sinkFactory = SinkFactories.Create(selection.Sink, stagingDir);
 
-        var rawSources = new List<RawLightSource>(matched.Count);
-        foreach (var (lightInfo, transformOrig, _) in matched)
-        {
-            rawSources.Add(new RawLightSource(Path: lightInfo.Path, TransformToCanvas: transformOrig * canvasShift));
+            var rejector = BuildRejector(matched.Count, options.RejectLowSigma, options.RejectHighSigma);
+            // Log the thresholds, not just the kind: an A/B over the sigma pair is otherwise
+            // indistinguishable in the log from an A/B over anything else in the run.
+            logger.LogInformation("  rejector: {Rejector}{Sigmas}",
+                rejector?.GetType().Name ?? "<none>",
+                rejector switch
+                {
+                    SigmaClipRejector s => $" (low {s.LowSigma}, high {s.HighSigma})",
+                    WinsorizedSigmaClipRejector w => $" (low {w.LowSigma}, high {w.HighSigma})",
+                    LinearFitClipRejector l => $" (low {l.LowSigma}, high {l.HighSigma})",
+                    _ => "",
+                });
+
+            var rawSources = new List<RawLightSource>(matched.Count);
+            for (var fi = 0; fi < matched.Count; fi++)
+            {
+                rawSources.Add(new RawLightSource(
+                    Path: (useStarless && matched[fi].Starless is { } sl ? sl : matched[fi].Light).Path,
+                TransformToCanvas: layerTransforms[fi] * canvasShift));
+            }
+
+            // Forward strategy progress into the StackingProgress channel.
+            var integrationProgress = progress is null
+                ? null
+                : new Progress<IntegrationProgress>(p => progress.Report(
+                    new StackingProgress(StackingPhase.Integrating, slug, p.CompletedItems, p.TotalItems, p)));
+
+            // Drizzle dispatch: BayerDrizzle (streaming, full-canvas accumulator)
+            // and TilePipelinedDrizzle (strip-pipelined accumulator) both run
+            // the drizzle algorithm and need DrizzleOptions + the bad-pixel
+            // mask. They differ in producer plumbing: streaming uses
+            // RawBayerFrames (one-shot, frame-at-a-time), tile-pipelined uses
+            // RawLightSources (multi-pass per strip from cached calibrated
+            // bayer). The bool `isDrizzle` gates BOTH; the producer pick
+            // happens inside that branch.
+            var isStreamingDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle;
+            var isTiledDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.TilePipelinedDrizzle;
+            var isDrizzle = isStreamingDrizzle || isTiledDrizzle;
+            var job = new IntegrationJob(
+                WarpedFrames: WarpedFramesProducer,
+                ExpectedFrameCount: matched.Count,
+                Options: new IntegrationOptions(Rejector: rejector),
+                StagingDir: stagingDir,
+                StatsRect: statsRect,
+                FrameFootprints: frameFootprints,
+                RawLightSources: rawSources,
+                Calibrator: layerCalibrator,
+                DebayerAlgorithm: options.StackDebayerAlg,
+                CanvasWidth: outWidth,
+                CanvasHeight: outHeight,
+                Progress: integrationProgress,
+                MasterSinkFactory: sinkFactory,
+                Intermediates: intermediates,
+                RawBayerFrames: isStreamingDrizzle ? RawBayerFramesProducer : null,
+                DrizzleOptions: isDrizzle ? (options.DrizzleOptions ?? new DrizzleOptions()) : null,
+                BadPixelMask: isDrizzle ? badPixelMask : null);
+
+            // index i in Integrator's frame list is matched[i] here, so a normalized dump can be
+            // named after its light rather than numbered.
+            intermediates?.SetFrameOrder([.. matched.Select(m => m.Item1.Path)]);
+
+            var integrateStart = StageTimings.Start();
+            IntegrationResult intResult;
+            try
+            {
+                intResult = await selection.Chosen.RunAsync(job, ct);
+            }
+            catch (NotImplementedException ex)
+            {
+                logger.LogWarning("  [strategy] {Kind} threw NotImplementedException: {Msg}", selection.Chosen.Kind, ex.Message);
+                try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
+                layerSkipReason = $"strategy {selection.Chosen.Kind} not implemented";
+                return null;
+            }
+            // Same canvas-pixel accounting as the registrar's integrate stage. Warp has no stage of its
+            // own on this path, deliberately: the strategies stream the warp inside their own pass (the
+            // producer yields warped frames), so its cost is inseparable from integration here, whereas
+            // the registrar warps eagerly to scratch FITS and legitimately times it apart.
+            timings.Record(StageNames.Integrate, integrateStart, matched.Count, (long)matched.Count * outWidth * outHeight);
+            logger.LogInformation("  integrated in {ElapsedMs} ms (frames={Frames}, rejections={Rej}, rate={Rate:P2})",
+                (long)Stopwatch.GetElapsedTime(integrateStart).TotalMilliseconds, intResult.FrameCount, intResult.TotalRejections, intResult.MeanRejectionRate);
+            hostTracker.Log(logger, $"integrate/{slug}");
+
+            // 3c. Plate-solve the master + write FITS (+ autocrop). No
+            // SPCC / bg-neut / PNG render: those are display-side, handled
+            // by the caller against the emitted master.
+            progress?.Report(new StackingProgress(StackingPhase.PostProcessing, slug, 0, 0));
+            // Drizzle masters land under master_<slug>_drizzle.fits so a user
+            // A/B-ing drizzle vs the default on the same dataset doesn't
+            // silently overwrite. Other strategies share the canonical
+            // master_<slug>.fits name -- their differences (memory layout,
+            // staging, rejection kernel) are invisible in the output FITS
+            // data itself, so a strategy-per-filename split would just add
+            // noise. The strategy IS recorded in the SWCREATE+STRATEGY
+            // headers regardless of strategy, so provenance stays queryable.
+            // Both drizzle variants emit byte-equivalent output (same kernel,
+            // same final divide), so they share the _drizzle infix. Other
+            // strategies share the canonical master_<slug>.fits name -- their
+            // differences in memory layout / staging / rejection kernel are
+            // invisible in the output FITS bytes.
+            var strategySuffix = selection.Chosen.Kind is IntegrationStrategyKind.BayerDrizzle
+                or IntegrationStrategyKind.TilePipelinedDrizzle
+                ? "_drizzle"
+                : "";
+            var masterPath = Path.Combine(outputDir, $"master_{slug}{layerSuffix}{strategySuffix}.fits");
+            var refImageDim = referenceRaw.GetImageDim();
+            var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null, enhanceProgress);
+            var postStart = StageTimings.Start();
+            var postResult = await postProcessor.WriteMasterAsync(
+                intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind,
+                enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates,
+                enhanceOptions: options.EnhanceOptions ?? Enhancement.EnhanceOptions.Default,
+                outputs: options.RenderOutputs, previewBoost: options.PreviewBoost,
+                ultraHdrPeakNits: options.UltraHdrPeakNits,
+                inheritedWhiteBalance: options.InheritedWhiteBalance,
+                // Stamped on every master, sidereal included: absence would otherwise mean either
+                // "star-aligned" or "written before the card existed".
+                alignment: layerAlignment,
+                ct: ct);
+            timings.Record(StageNames.Post, postStart, 1, (long)outWidth * outHeight);
+            if (intResult.TotalRejections > 0)
+            {
+                logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));
+            }
+
+            if (modelScaleCount > 0)
+            {
+                logger.LogInformation(
+                    "  [comet] model subtracted from {N}/{Total} frames, mean amplitude {Scale:F4}",
+                    modelScaleCount, matched.Count, modelScaleSum / modelScaleCount);
+            }
+            return (masterPath, postResult, maskedFramePixels, intResult, canvasShift);
         }
 
-        // Forward strategy progress into the StackingProgress channel.
-        var integrationProgress = progress is null
-            ? null
-            : new Progress<IntegrationProgress>(p => progress.Report(
-                new StackingProgress(StackingPhase.Integrating, slug, p.CompletedItems, p.TotalItems, p)));
+        // The primary layer: comet-aligned when a rate is in play, an ordinary star stack otherwise.
+        // Never masked -- on a comet-aligned canvas the body is the one thing that must survive.
+        var primaryAlignment = cometRate is { } appliedDrift
+            ? new AlignmentProvenance(
+                "Comet",
+                // A bare --comet reads the body from the frames' own OBJECT card, so fall back to it
+                // rather than leaving TRACKOBJ absent on exactly the runs that used it.
+                string.IsNullOrWhiteSpace(options.CometDesignation)
+                    ? (string.IsNullOrWhiteSpace(referenceRaw.ImageMeta.ObjectName) ? null : referenceRaw.ImageMeta.ObjectName)
+                    : options.CometDesignation,
+                appliedDrift,
+                options.CometRatePxPerHour is not null ? "Manual" : "Horizons")
+            : AlignmentProvenance.Sidereal;
 
-        // Drizzle dispatch: BayerDrizzle (streaming, full-canvas accumulator)
-        // and TilePipelinedDrizzle (strip-pipelined accumulator) both run
-        // the drizzle algorithm and need DrizzleOptions + the bad-pixel
-        // mask. They differ in producer plumbing: streaming uses
-        // RawBayerFrames (one-shot, frame-at-a-time), tile-pipelined uses
-        // RawLightSources (multi-pass per strip from cached calibrated
-        // bayer). The bool `isDrizzle` gates BOTH; the producer pick
-        // happens inside that branch.
-        var isStreamingDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.BayerDrizzle;
-        var isTiledDrizzle = selection.Chosen.Kind == IntegrationStrategyKind.TilePipelinedDrizzle;
-        var isDrizzle = isStreamingDrizzle || isTiledDrizzle;
-        var job = new IntegrationJob(
-            WarpedFrames: WarpedFramesProducer,
-            ExpectedFrameCount: matched.Count,
-            Options: new IntegrationOptions(Rejector: rejector),
-            StagingDir: stagingDir,
-            StatsRect: statsRect,
-            FrameFootprints: frameFootprints,
-            RawLightSources: rawSources,
-            Calibrator: integrationCalibrator,
-            DebayerAlgorithm: options.StackDebayerAlg,
-            CanvasWidth: outWidth,
-            CanvasHeight: outHeight,
-            Progress: integrationProgress,
-            MasterSinkFactory: sinkFactory,
-            Intermediates: intermediates,
-            RawBayerFrames: isStreamingDrizzle ? RawBayerFramesProducer : null,
-            DrizzleOptions: isDrizzle ? (options.DrizzleOptions ?? new DrizzleOptions()) : null,
-            BadPixelMask: isDrizzle ? badPixelMask : null);
-
-        // index i in Integrator's frame list is matched[i] here, so a normalized dump can be
-        // named after its light rather than numbered.
-        intermediates?.SetFrameOrder([.. matched.Select(m => m.Item1.Path)]);
-
-        var integrateStart = StageTimings.Start();
-        IntegrationResult intResult;
-        try
+        if (await IntegrateLayerAsync(transforms, layerMask: null, layerModel: null,
+                useStarless: true, layerSuffix: "", primaryAlignment, ct) is not { } primary)
         {
-            intResult = await selection.Chosen.RunAsync(job, ct);
-        }
-        catch (NotImplementedException ex)
-        {
-            logger.LogWarning("  [strategy] {Kind} threw NotImplementedException: {Msg}", selection.Chosen.Kind, ex.Message);
-            try { Directory.Delete(stagingDir, recursive: true); } catch { /* hygiene */ }
             return new GroupResult(slug, lightList.Count, matched.Count, Result: null, MasterFitsPath: null,
-                PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: $"strategy {selection.Chosen.Kind} not implemented",
+                PreviewPngPath: null, Elapsed: groupSw.Elapsed,
+                SkipReason: layerSkipReason ?? "integration produced no master",
                 Stages: timings.Snapshot());
         }
-        // Same canvas-pixel accounting as the registrar's integrate stage. Warp has no stage of its
-        // own on this path, deliberately: the strategies stream the warp inside their own pass (the
-        // producer yields warped frames), so its cost is inseparable from integration here, whereas
-        // the registrar warps eagerly to scratch FITS and legitimately times it apart.
-        timings.Record(StageNames.Integrate, integrateStart, matched.Count, (long)matched.Count * outWidth * outHeight);
-        logger.LogInformation("  integrated in {ElapsedMs} ms (frames={Frames}, rejections={Rej}, rate={Rate:P2})",
-            (long)Stopwatch.GetElapsedTime(integrateStart).TotalMilliseconds, intResult.FrameCount, intResult.TotalRejections, intResult.MeanRejectionRate);
-        hostTracker.Log(logger, $"integrate/{slug}");
+        var masterPath = primary.MasterPath;
+        var postResult = primary.Post;
 
-        // 3c. Plate-solve the master + write FITS (+ autocrop). No
-        // SPCC / bg-neut / PNG render: those are display-side, handled
-        // by the caller against the emitted master.
-        progress?.Report(new StackingProgress(StackingPhase.PostProcessing, slug, 0, 0));
-        // Drizzle masters land under master_<slug>_drizzle.fits so a user
-        // A/B-ing drizzle vs the default on the same dataset doesn't
-        // silently overwrite. Other strategies share the canonical
-        // master_<slug>.fits name -- their differences (memory layout,
-        // staging, rejection kernel) are invisible in the output FITS
-        // data itself, so a strategy-per-filename split would just add
-        // noise. The strategy IS recorded in the SWCREATE+STRATEGY
-        // headers regardless of strategy, so provenance stays queryable.
-        // Both drizzle variants emit byte-equivalent output (same kernel,
-        // same final divide), so they share the _drizzle infix. Other
-        // strategies share the canonical master_<slug>.fits name -- their
-        // differences in memory layout / staging / rejection kernel are
-        // invisible in the output FITS bytes.
-        var strategySuffix = selection.Chosen.Kind is IntegrationStrategyKind.BayerDrizzle
-            or IntegrationStrategyKind.TilePipelinedDrizzle
-            ? "_drizzle"
-            : "";
-        var masterPath = Path.Combine(outputDir, $"master_{slug}{strategySuffix}.fits");
-        var refImageDim = referenceRaw.GetImageDim();
-        var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null, enhanceProgress);
-        var postStart = StageTimings.Start();
-        var postResult = await postProcessor.WriteMasterAsync(
-            intResult, masterPath, searchHint, refImageDim, referenceRaw.ImageMeta, statsRect, selection.Chosen.Kind,
-            enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates,
-            enhanceOptions: options.EnhanceOptions ?? Enhancement.EnhanceOptions.Default,
-            outputs: options.RenderOutputs, previewBoost: options.PreviewBoost,
-            ultraHdrPeakNits: options.UltraHdrPeakNits,
-            inheritedWhiteBalance: options.InheritedWhiteBalance,
-            // Stamped on every master, sidereal included: absence would otherwise mean either
-            // "star-aligned" or "written before the card existed".
-            alignment: cometRate is { } appliedDrift
-                ? new AlignmentProvenance(
-                    "Comet",
-                    // A bare --comet reads the body from the frames' own OBJECT card, so fall back to
-                    // it rather than leaving TRACKOBJ absent on exactly the runs that used it.
-                    string.IsNullOrWhiteSpace(options.CometDesignation)
-                        ? (string.IsNullOrWhiteSpace(referenceRaw.ImageMeta.ObjectName) ? null : referenceRaw.ImageMeta.ObjectName)
-                        : options.CometDesignation,
-                    appliedDrift,
-                    options.CometRatePxPerHour is not null ? "Manual" : "Horizons")
-                : AlignmentProvenance.Sidereal,
-            ct: ct);
-        timings.Record(StageNames.Post, postStart, 1, (long)outWidth * outHeight);
-        if (intResult.TotalRejections > 0)
+        // The companion STAR layer. Same frames, same reference, same canvas maths -- the comet
+        // excluded per frame instead of registered on. See CometMask for why exclusion rather than
+        // rejection: kappa-sigma removes the compact nucleus trail and structurally cannot remove the
+        // diffuse coma, because at a pixel the body crosses it is present in a large fraction of the
+        // frames rather than a small one.
+        //
+        // A failure here must never lose the comet master that was just written, so every refusal
+        // below logs and carries on rather than returning.
+        if (options.CometStarLayer && cometRate is not null)
         {
-            logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));
+            var starLayerStart = StageTimings.Start();
+            var pixelScale = referenceRaw.GetImageDim()?.PixelScale ?? 0.0;
+            if (cometFit is not { } fit)
+            {
+                // --comet-rate states a difference and nothing else, so there is no anchor and no way
+                // to know WHERE to exclude. Detecting the body in the pixels is the obvious
+                // alternative and is exactly the step that has failed repeatedly on this data (a
+                // star, a negative matched-filter peak, a green-ish star), so it is not attempted.
+                logger.LogWarning(
+                    "  [comet] star layer needs the body's position, which a manual --comet-rate does not carry; "
+                        + "pass --comet <designation> to derive it from the ephemeris");
+            }
+            else if (!(pixelScale > 0.0))
+            {
+                logger.LogWarning(
+                    "  [comet] star layer skipped: the reference frame states no pixel scale, so a {Arcsec:F0}\" "
+                        + "mask cannot be sized in pixels", options.CometMaskArcsec);
+            }
+            else
+            {
+                // Where the body actually sits on the comet-aligned grid, which is NOT the bare
+                // anchor. The compose is translate(-rate * (t_i - t_REF)) while the anchor describes
+                // t_ANCHOR, the first ephemeris sample, so the body settles at
+                // anchor + rate * (t_ref - t_anchor). Those two epochs differ by up to the length of
+                // the session; at 245 px/hr that is several hundred pixels, which is enough to crop
+                // the model out of empty sky. That is exactly what happened on the first run, and it
+                // reported "the star-removed difference holds no comet" rather than anything about
+                // position -- the failure names the symptom, so the position is logged here.
+                var refDriftHours = (reference.Meta.ExposureStartTime - fit.AnchorEpoch).TotalHours;
+                var cometOnGrid = fit.AnchorPx + fit.PxPerHour * (float)refDriftHours;
+                logger.LogInformation(
+                    "  [comet] body sits at ({Gx:F1}, {Gy:F1}) on the comet-aligned grid "
+                        + "(anchor ({Ax:F1}, {Ay:F1}) carried {Hours:F3} h to the reference epoch)",
+                    cometOnGrid.X, cometOnGrid.Y, fit.AnchorPx.X, fit.AnchorPx.Y, refDriftHours);
+
+                var radiusPx = (float)(options.CometMaskArcsec / pixelScale);
+                var mask = new CometMask(
+                    // Used exactly as SkyToPixel returned it. The repo rule about never subtracting a
+                    // pixel applies here and matters more than usual: unlike the rate, an absolute
+                    // position has no cancellation to protect it from a convention mistake.
+                    fit.AnchorPx,
+                    fit.PxPerHour,
+                    fit.AnchorEpoch,
+                    radiusPx);
+                logger.LogInformation(
+                    "  [comet] star layer: excluding r={Radius:F0} px ({Arcsec:F0}\" at {Scale:F3}\"/px) around the body, "
+                        + "anchor ({Ax:F1}, {Ay:F1}) at {Epoch:u}",
+                    radiusPx, options.CometMaskArcsec, pixelScale,
+                    mask.AnchorRefPx.X, mask.AnchorRefPx.Y, fit.AnchorEpoch.UtcDateTime);
+
+                // Prefer SUBTRACTING the body to excluding it. The model comes from the comet
+                // layer just written: a star remover run on a comet-aligned plate removes the comet
+                // (there the coma is the only compact source, every star being a streak), so the
+                // difference is the comet alone. Measured on SWAN, that recovers 100% of it out to
+                // 120 px and leaks no star trails at all. Masking stays as the fallback for a host
+                // with no AI backend registered -- it is strictly worse, and on a slow body like 10P
+                // it cannot work at all.
+                CometModel? model = null;
+                if (starRemover is null)
+                {
+                    logger.LogInformation(
+                        "  [comet] no IStarRemover registered, so the star layer falls back to EXCLUDING the body. "
+                            + "Register one (AddRcAstroAi() or AddTianWenAi()) to subtract it instead, which keeps "
+                            + "every frame and removes the tail and the coma wings a disc cannot reach");
+                }
+                else
+                {
+                    var modelStart = StageTimings.Start();
+                    model = await CometModel.TryBuildAsync(
+                        primary.Integration.Master,
+                        // Already starless when --remove-stars built the comet layer from per-frame
+                        // star-removed plates: the master then holds the comet and nothing else, so
+                        // there is no difference to take and no trail residue to fight.
+                        options.RemoveStarsPerFrame,
+                        Vector2.Transform(cometOnGrid, primary.CanvasShift),
+                        // Stars streak along the drift vector on a comet-aligned plate, which is what
+                        // lets the model's trail residue be removed by shape.
+                        fit.PxPerHour,
+                        starRemover, logger, ct);
+                    if (model is null)
+                    {
+                        logger.LogWarning("  [comet] falling back to EXCLUDING the body; the model could not be built");
+                    }
+                    else
+                    {
+                        logger.LogInformation("  [comet] model ready in {ElapsedMs} ms",
+                            (long)Stopwatch.GetElapsedTime(modelStart).TotalMilliseconds);
+                    }
+                }
+
+                var starTransforms = matched.ConvertAll(m => m.StarTransform);
+                var starLayer = await IntegrateLayerAsync(
+                    starTransforms, model is null ? mask : null, model,
+                    useStarless: false, layerSuffix: "_stars", AlignmentProvenance.Sidereal, ct);
+                if (starLayer is not { } star)
+                {
+                    logger.LogWarning("  [comet] star layer skipped: {Reason}",
+                        layerSkipReason ?? "integration produced no master");
+                }
+                else if (star.MaskedPixels == 0)
+                {
+                    // Nothing was blanked in ANY frame, which no correct run produces: the body is on
+                    // the sensor by construction, it is what the session was pointed at. This is the
+                    // signature of an anchor in the wrong basis, and the resulting master would carry
+                    // an untouched comet while looking entirely plausible. Say so.
+                    logger.LogWarning(
+                        "  [comet] star layer wrote {Path} but {What} touched NO pixels in any frame -- "
+                            + "the anchor is very likely in the wrong basis; treat that master as untouched",
+                        star.MasterPath, model is null ? "the mask" : "the model subtraction");
+                }
+                else
+                {
+                    // Blanked pixels summed over every frame, with the per-frame average beside it:
+                    // the average is the one a reader can check against pi*r^2 at a glance, and a
+                    // total that silently reads as a per-frame count invites exactly that mistake.
+                    logger.LogInformation(
+                        "  [comet] star layer wrote {Path} by {What} ({Px:N0} px over {Frames} frames, "
+                            + "{PerFrame:N0}/frame) in {ElapsedMs} ms",
+                        star.MasterPath, model is null ? "EXCLUDING the body" : "SUBTRACTING the body",
+                        star.MaskedPixels, matched.Count,
+                        star.MaskedPixels / Math.Max(matched.Count, 1),
+                        (long)Stopwatch.GetElapsedTime(starLayerStart).TotalMilliseconds);
+                }
+            }
         }
 
         // The manifest is written AFTER the master, so it can only ever describe a run that produced
@@ -1715,7 +2062,7 @@ public sealed class StackingPipeline(
         return byEpoch;
     }
 
-    private async Task<Vector2?> TryResolveCometRateAsync(
+    private async Task<CometRate?> TryResolveCometRateAsync(
         IReadOnlyList<FrameInfo> lightList,
         Image referenceRaw,
         WCS? searchHint,
@@ -1786,7 +2133,7 @@ public sealed class StackingPipeline(
             request.Designation, request.SiteLatDeg, request.SiteLonDeg, request.SiteElevMetres,
             rate.SampleCount, (request.Stop - request.Start).TotalHours,
             rate.PxPerHour.X, rate.PxPerHour.Y, rate.PxPerHour.Length(), rate.MaxResidualPx);
-        return rate.PxPerHour;
+        return rate;
     }
 
     private async Task<List<(MasterGroupKey Key, Image Master)>> BuildMastersAsync(

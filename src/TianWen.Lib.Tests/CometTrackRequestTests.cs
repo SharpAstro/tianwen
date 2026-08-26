@@ -23,11 +23,39 @@ public class CometTrackRequestTests
     public void TheDesignationIsReadOffTheFramesWhenNoneIsAsked()
     {
         // The unattended case: `stack --comet` with no value on a folder whose OBJECT card says what
-        // it is. ToCompact is what Horizons' DES= takes, so "10P/Tempel 2" has to arrive as "10P".
+        // it is. ToCanonical is what Horizons' DES= takes, so "10P/Tempel 2" has to arrive as "10P".
+        // For a NUMBERED comet the canonical and compact forms coincide, which is precisely why the
+        // compact form survived the whole 10P effort looking correct.
         var request = CometTrackRequest.TryBuild(null, "10P/Tempel 2", Lat, Lon, Elev, s_first, s_last);
 
         request.ShouldNotBeNull();
         request.Value.Designation.ShouldBe("10P");
+    }
+
+    /// <summary>
+    /// A PROVISIONAL designation must reach Horizons in its canonical form, spaces and all.
+    ///
+    /// <para>This is the one shape the numbered case cannot cover, because <c>10P</c> is its own
+    /// compact form -- so every 10P/Tempel 2 run passed while the provisional path was broken, and
+    /// the test that should have caught it asserted the broken value instead.</para>
+    ///
+    /// <para>Measured against the live JPL API over the C/2025 R2 (SWAN) window on 2026-08-26.
+    /// <c>DES=C/2025 R2</c> and <c>DES=2025 R2</c> each returned 6 ephemeris rows; <c>DES=C2025R2</c>
+    /// and <c>DES=C/2025R2</c> both answered "No matches found", so the space is load-bearing and not
+    /// merely cosmetic. A rejected designation is not a degraded result but an absent one: the
+    /// pipeline gets no rate at all.</para>
+    /// </summary>
+    [Theory]
+    [InlineData("C/2025 R2 (SWAN)", "C/2025 R2")]
+    [InlineData("C/2023 A3 (Tsuchinshan-ATLAS)", "C/2023 A3")]
+    [InlineData("10P/Tempel 2", "10P")]
+    [InlineData("12P/Pons-Brooks", "12P")]
+    public void AProvisionalDesignationKeepsTheFormHorizonsAccepts(string objectCard, string expected)
+    {
+        var request = CometTrackRequest.TryBuild(null, objectCard, Lat, Lon, Elev, s_first, s_last);
+
+        request.ShouldNotBeNull();
+        request.Value.Designation.ShouldBe(expected);
     }
 
     [Fact]
@@ -37,7 +65,7 @@ public class CometTrackRequestTests
         var request = CometTrackRequest.TryBuild("C/2023 A3", "10P/Tempel 2", Lat, Lon, Elev, s_first, s_last);
 
         request.ShouldNotBeNull();
-        request.Value.Designation.ShouldBe("C2023A3");
+        request.Value.Designation.ShouldBe("C/2023 A3");
     }
 
     [Theory]
