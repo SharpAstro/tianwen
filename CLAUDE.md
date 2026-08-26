@@ -880,9 +880,13 @@ counterpart and the override. Design + measurements:
   track, so a frame-space shift is simply the wrong quantity; `Matrix3x2` is row-vector, so
   `starSolution * translation` is the correct order and reversing it silently gives the wrong basis.
 - **The companion STAR layer SUBTRACTS the body; it does not exclude it and cannot reject it.** One
-  `--comet` run also writes `master_<slug>_stars.fits` (`--no-star-layer` opts out), because two
-  layers are combinable only if they share a reference frame, canvas origin, debayer, rejector and
-  frame set. Kappa-sigma cannot substitute: at a pixel the body crosses it is present in a THIRD of
+  `--comet` run also writes `master_<slug>_stars.fits` (`--no-star-layer` opts out) AND the finished
+  `master_<slug>_composite.fits` (`--no-composite` opts out): the star layer with the same model added
+  back once at the ephemeris position, through the same `WriteMasterAsync` so it plate-solves and gets
+  its own SPCC. Placement is the reference-space point the subtraction used, carried by the star
+  layer's canvas shift; the gain is the ratio of the two layers' sky medians (measured, not assumed:
+  1.0 when both normalise, ~34 if one drizzled). No WCS, no centroid. Two layers are combinable only if
+  they share a reference frame, canvas origin, debayer, rejector and frame set, which one run guarantees. Kappa-sigma cannot substitute: at a pixel the body crosses it is present in a THIRD of
   the frames, which inflates the very sigma meant to detect it (0.086 rejection along the track
   against 0.036 baseline, leaving a 1.76 sigma ridge). **`CometModel` is the method and `CometMask`
   is only the fallback for a host with no `IStarRemover`** -- masking works only where travel greatly
@@ -895,9 +899,27 @@ counterpart and the override. Design + measurements:
   so a model built by differencing the comet master against its own `sxt` output carries that flux
   and smears each survivor into a dark streak at 89 comet-relative positions (p99 +0.47 sigma at
   r=600-1300; streaks to -0.68 sigma). From starless plates: ridge 2.38 -> **0.30 sigma**, streaks
-  p0.5 **-0.035**. Costs ~10 min of per-frame `sxt`. The amplitude is **fitted per frame**, never
-  derived, which is what absorbs transparency, normalisation and units (it ran 87 on one path and
-  1580 on another).
+  p0.5 **-0.035**. Costs ~10 min of per-frame `sxt` ONCE: the plates are cached at
+  `<out>/starless/<slug>/` (beside `masters/`, never under `_staging`, which is wiped per group) and
+  reused when `SRCDGST` + `STARMODE` match, so a re-run into the same `-o` is 3 min. The amplitude is
+  **fitted per frame**, never derived, which is what absorbs transparency, normalisation and units (it
+  ran 87 on one path and 3500 on another); it is the MEDIAN of per-pixel ratios over an annulus
+  (12 px to the 15%-of-peak radius) against a per-CFA MEDIAN sky, never least squares over the core:
+  the nucleus the remover took out of the model and a bright neighbour's halo both inflate a
+  least-squares amplitude, and on 10P that dug a -1.1 sigma bowl round the track.
+- **The model's reach is decided PER CHANNEL, from where that channel's profile stops falling, never
+  from a fraction of the peak on channel 0.** Channel 0 is red, and on a gas-rich comet red is the
+  faintest channel by 3x: a 1%-of-red-peak floor cut SWAN's model at 100 px while green still held
+  1.4 sigma of coma there and wings to 300 px, and everything outside the box stayed in all 89 frames
+  as a band the radial profile had called clean (0.39 sigma ridge, re-emerging 0.19 at 95-125 px). A
+  coma's wings fall as ~1/r, so at ANY fixed fraction there is coherent signal left. Following each
+  channel's annular-median profile to its minimum (that minimum is the pedestal, its radius the reach:
+  210/420/330 px R/G/B) leaves the track flat to 0.06 sigma across 0-450 px against a 2.36 sigma
+  control, and what came out decays monotonically with no plateau, so it is coma and not a pedestal
+  error. Two absolute-position rules ride with it: the body is evaluated at the reference's
+  MID-exposure (`CometCompose.BodyOnGrid`; 1.0 px at 245 px/h and 30 s), and the model centre is
+  sub-pixel (a whole-pixel crop centre is up to 0.5 px off, which subtracts a dipole). The compose
+  arithmetic lives once, in `CometCompose`. Pinned by `CometModelTests` + `CometComposeTests`.
 - **Five preconditions of the SURROUNDING system break the model silently, and all five are already
   documented elsewhere in this repo.** The anchor epoch is not the reference epoch (the body sits at
   `anchor + rate*(t_ref - t_anchor)` on the comet grid); a comet-aligned canvas carries NaN and

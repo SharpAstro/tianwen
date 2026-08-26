@@ -1075,10 +1075,8 @@ public sealed class StackingPipeline(
             var starOnly = transform;
             if (cometRate is { } cometDrift && transform is { } starSolution)
             {
-                var driftHours = (candidate.Frame.Meta.ExposureStartTime - reference.Meta.ExposureStartTime).TotalHours;
-                transform = starSolution * Matrix3x2.CreateTranslation(
-                    (float)(-cometDrift.X * driftHours),
-                    (float)(-cometDrift.Y * driftHours));
+                transform = CometCompose.ToCometGrid(
+                    starSolution, cometDrift, CometCompose.DriftHours(candidate.Frame.Meta, reference.Meta));
             }
 
             if (transform is null) { skipCount++; continue; }
@@ -1233,15 +1231,38 @@ public sealed class StackingPipeline(
                     PreviewPngPath: null, Elapsed: groupSw.Elapsed, SkipReason: reason, Stages: timings.Snapshot());
             }
 
-            var starlessDir = Path.Combine(stagingDir, "starless");
+            // Beside the calibration-master cache, NOT under _staging: staging is wiped at the start
+            // of every group, and these plates are the one intermediate worth keeping across runs into
+            // the same output directory (see the reuse below). Each carries SRCDGST + STARMODE, which
+            // is what makes reuse safe, and a TianWen SWCREATE, which is what keeps the scan from ever
+            // ingesting one as a light.
+            var starlessDir = Path.Combine(outputDir, "starless", slug);
             Directory.CreateDirectory(starlessDir);
             var starlessStart = StageTimings.Start();
             long starlessPixels = 0;
+            var reusedPlates = 0;
             for (var i = 0; i < matched.Count; i++)
             {
                 ct.ThrowIfCancellationRequested();
                 var (light, _, transform, starTransform, frameMetrics) = matched[i];
                 var starlessPath = Path.Combine(starlessDir, Path.GetFileNameWithoutExtension(light.Path) + "_starless.fits");
+                var sourceDigest = FrameProvenance.SourceDigestOf(light.Path);
+
+                // Reuse a plate an earlier run into this output directory already made of THIS frame in
+                // THIS mode. Star removal is deterministic in its inputs and costs ~7 s a frame, so
+                // iterating on anything downstream of it (the rejector, the star layer, the composite)
+                // would otherwise pay ten minutes per attempt for pixels that cannot come out different.
+                // Identity is the digest, never the filename: the plate carries SRCDGST for exactly this.
+                // A plate with no mode card predates the card and was made in the default mode.
+                if (File.Exists(starlessPath)
+                    && FrameProvenance.TryReadSourceDigest(starlessPath) == sourceDigest
+                    && (FrameProvenance.TryReadCard(starlessPath, StarRemovalModeKeyword) ?? nameof(StarRemovalMode.Mosaic))
+                        == options.StarRemovalMode.ToString())
+                {
+                    reusedPlates++;
+                    matched[i] = (light, light with { Path = starlessPath }, transform, starTransform, frameMetrics);
+                    continue;
+                }
 
                 var calibrated = RawLightDecoder.DecodeCalibrate(new RawLightSource(light.Path, transform), calibrator, nameof(StackingPipeline), intermediates);
                 Image starless;
@@ -1274,8 +1295,12 @@ public sealed class StackingPipeline(
                 {
                     // Provenance, so the plate is not mistakable for a light if it outlives the run,
                     // and so a manifest-driven consumer can match it back without a filename rule.
-                    [FrameProvenance.SourceDigestKeyword] = (FrameProvenance.SourceDigestOf(light.Path), "Data digest of the frame this was derived from"),
+                    [FrameProvenance.SourceDigestKeyword] = (sourceDigest, "Data digest of the frame this was derived from"),
                     ["STARLESS"] = (true, "Stars removed per-frame before integration"),
+                    [StarRemovalModeKeyword] = (options.StarRemovalMode.ToString(), "How the CFA frame was shaped for the star remover"),
+                    // Ours, so the scan's provenance skip drops it if it ever lands beside the lights;
+                    // the star remover otherwise hands back the capture software's own SWCREATE.
+                    ["SWCREATE"] = (IntegrationFitsWriter.SoftwareCreator, "Software that created this plate"),
                     // The plate is [0, 1] by construction (above), so DECLARE that rather than leave
                     // the integrator to infer a scale from the plate's own observed peak. A starless
                     // plate's peak is far below full scale -- the brightest thing in the frame was a
@@ -1299,8 +1324,8 @@ public sealed class StackingPipeline(
             // Everything downstream reads ALREADY-CALIBRATED pixels from here on.
             integrationCalibrator = new Calibrator(null, null, null);
             logger.LogInformation(
-                "  [starless] {Count} frames written to {Dir} in {ElapsedMs} ms; integration calibration disabled",
-                matched.Count, starlessDir, (long)Stopwatch.GetElapsedTime(starlessStart).TotalMilliseconds);
+                "  [starless] {Count} frames in {Dir} ({Reused} reused from an earlier run) in {ElapsedMs} ms; integration calibration disabled",
+                matched.Count, starlessDir, reusedPlates, (long)Stopwatch.GetElapsedTime(starlessStart).TotalMilliseconds);
         }
 
         // BayerDrizzle is opt-in only (--strategy BayerDrizzle). Gate up
@@ -1373,7 +1398,8 @@ public sealed class StackingPipeline(
         // not simply "run the tool twice".
         string? layerSkipReason = null;
         async Task<(string MasterPath, MasterWriteResult Post, int MaskedPixels,
-                    IntegrationResult Integration, Matrix3x2 CanvasShift)?> IntegrateLayerAsync(
+                    IntegrationResult Integration, Matrix3x2 CanvasShift,
+                    Rectangle StatsRect, IntegrationStrategyKind Strategy)?> IntegrateLayerAsync(
             IReadOnlyList<Matrix3x2> layerTransforms,
             CometMask? layerMask,
             CometModel? layerModel,
@@ -1398,6 +1424,67 @@ public sealed class StackingPipeline(
             var (frameFootprints, statsRect) = CanvasGeometry.ComputeFootprintsAndStatsRect(
                 layerTransforms, canvasShift, referenceRaw.Width, referenceRaw.Height, outWidth, outHeight);
 
+            // One preparation for BOTH producers: load, calibrate for this layer, and take the body
+            // out of the raw CFA frame (subtract it, or blank it) before anything debayers or warps.
+            // Doing it on the raw mosaic is what lets one implementation serve both integration
+            // paths: the standard path warps afterwards, the drizzle path forward-projects the same
+            // CFA samples, and both skip a NaN without depositing weight, so coverage needs nothing
+            // added to either. This was two copies of the same block once, and a fix to one of them
+            // was a fix to half the strategies.
+            var bodyOnGrid = cometFit is { } gridFit ? CometCompose.BodyOnGrid(gridFit, reference.Meta) : default;
+            async ValueTask<(Image Calibrated, Matrix3x2 TransformOrig)> PrepareFrameAsync(int fi, CancellationToken token)
+            {
+                var lightInfo = useStarless && matched[fi].Starless is { } sl ? sl : matched[fi].Light;
+                var transformOrig = layerTransforms[fi];
+                token.ThrowIfCancellationRequested();
+                var lightRaw = await lightInfo.LoadFullAsync(token);
+                // integrationCalibrator, NOT calibrator: under --remove-stars these frames are the
+                // starless plates, already calibrated before star removal. Calibrating again would
+                // subtract bias and dark twice and divide by the flat twice, silently.
+                var calibrated = layerCalibrator.Apply(lightRaw);
+                // Subtracting the body beats excluding it and takes precedence. The mask throws away
+                // every frame the comet is anywhere near, which is affordable only when the body moves
+                // much further than its coma is wide -- 10P moves 45 px in 3.5 h and masking it is
+                // arithmetically impossible. See CometModel.
+                // The body's light is centred on the frame's MID-exposure, so that is the instant its
+                // position is evaluated at; the compose itself is indifferent (see CometCompose).
+                var midExposure = lightInfo.Meta.ExposureStartTime + lightInfo.Meta.ExposureDuration / 2;
+                if (layerModel is { } model && cometRate is { } modelRate && cometFit is not null)
+                {
+                    // source -> the COMET-ALIGNED reference grid, the one basis where the body does
+                    // not move, so the model needs no per-frame position of its own.
+                    var toCometGrid = CometCompose.ToCometGrid(
+                        transformOrig, modelRate, CometCompose.DriftHours(lightInfo.Meta, reference.Meta));
+                    var cfa = calibrated.ImageMeta.SensorType.GetBayerPatternMatrix(
+                        calibrated.ImageMeta.BayerOffsetX, calibrated.ImageMeta.BayerOffsetY);
+                    var amplitude = model.FitScale(calibrated, toCometGrid, bodyOnGrid, cfa);
+                    if (amplitude > 0f)
+                    {
+                        maskedFramePixels += model.SubtractFrom(calibrated, toCometGrid, bodyOnGrid, cfa, amplitude);
+                        modelScaleSum += amplitude;
+                        modelScaleCount++;
+                    }
+                }
+                else if (layerMask is { } cometMask)
+                {
+                    // source -> REFERENCE, never source -> canvas. The canvas shift differs per layer
+                    // (each layer's union bounding box comes from its own transforms), and the mask
+                    // must not depend on which layer is being built.
+                    var srcToRef = transformOrig;
+                    if (cometMask.SourcePositionAt(srcToRef, midExposure) is { } centre)
+                    {
+                        maskedFramePixels += CometMask.Punch(calibrated, centre, cometMask.SourceRadius(srcToRef));
+                    }
+                }
+                // Skipped under --remove-stars: integrationCalibrator is a no-op there and these
+                // frames are the starless plates, which are already on disk.
+                if (!options.RemoveStarsPerFrame)
+                {
+                    intermediates?.SaveCalibrated(calibrated, lightInfo.Path);
+                }
+                return (calibrated, transformOrig);
+            }
+
             // Producer that loads each matched frame and warps into the BB canvas, yielding one Image
             // at a time -- the ONE place this group's pixels are read after the measure pass. Loads
             // per frame, deliberately uncached: the register phase no longer reads pixels, so the load
@@ -1408,60 +1495,7 @@ public sealed class StackingPipeline(
             {
                 for (var fi = 0; fi < matched.Count; fi++)
                 {
-                    var lightInfo = useStarless && matched[fi].Starless is { } sl ? sl : matched[fi].Light;
-                    var transformOrig = layerTransforms[fi];
-                    token.ThrowIfCancellationRequested();
-                    var lightRaw = await lightInfo.LoadFullAsync(token);
-                    // integrationCalibrator, NOT calibrator: under --remove-stars these frames are the
-                    // starless plates, already calibrated before star removal. Calibrating again would
-                    // subtract bias and dark twice and divide by the flat twice, silently.
-                    var calibrated = layerCalibrator.Apply(lightRaw);
-                    // Exclude the moving body BEFORE debayer and warp. Doing it here rather than on the
-                    // warped canvas is what lets ONE implementation serve both integration paths: the
-                    // standard path warps below, the drizzle path forward-projects this same raw CFA,
-                    // and both skip a NaN sample without depositing weight, so coverage needs nothing
-                    // added to either.
-                    // Subtracting the body beats excluding it and takes precedence. The mask throws
-                    // away every frame the comet is anywhere near, which is affordable only when the
-                    // body moves much further than its coma is wide -- 10P moves 45 px in 3.5 h and
-                    // masking it is arithmetically impossible. See CometModel.
-                    if (layerModel is { } model && cometRate is { } modelRate && cometFit is { } modelFit)
-                    {
-                        // source -> the COMET-ALIGNED reference grid, the one basis where the body
-                        // does not move, so the model needs no per-frame position of its own.
-                        var driftHours = (lightInfo.Meta.ExposureStartTime - reference.Meta.ExposureStartTime).TotalHours;
-                        var toCometGrid = transformOrig * Matrix3x2.CreateTranslation(
-                            (float)(-modelRate.X * driftHours), (float)(-modelRate.Y * driftHours));
-                        var cfa = calibrated.ImageMeta.SensorType.GetBayerPatternMatrix(
-                            calibrated.ImageMeta.BayerOffsetX, calibrated.ImageMeta.BayerOffsetY);
-                        var onGrid = modelFit.AnchorPx + modelFit.PxPerHour
-                            * (float)(reference.Meta.ExposureStartTime - modelFit.AnchorEpoch).TotalHours;
-                        var amplitude = model.FitScale(calibrated, toCometGrid, onGrid, cfa);
-                        if (amplitude > 0f)
-                        {
-                            maskedFramePixels += model.SubtractFrom(
-                                calibrated, toCometGrid, onGrid, cfa, amplitude);
-                            modelScaleSum += amplitude;
-                            modelScaleCount++;
-                        }
-                    }
-                    else if (layerMask is { } cometMask)
-                    {
-                        // source -> REFERENCE, never source -> canvas. The canvas shift differs per
-                        // layer (each layer's union bounding box comes from its own transforms), and
-                        // the mask must not depend on which layer is being built.
-                        var srcToRef = transformOrig;
-                        if (cometMask.SourcePositionAt(srcToRef, lightInfo.Meta.ExposureStartTime) is { } centre)
-                        {
-                            maskedFramePixels += CometMask.Punch(calibrated, centre, cometMask.SourceRadius(srcToRef));
-                        }
-                    }
-                    // Skipped under --remove-stars: integrationCalibrator is a no-op there and these
-                    // frames are the starless plates, which are already on disk.
-                    if (!options.RemoveStarsPerFrame)
-                    {
-                        intermediates?.SaveCalibrated(calibrated, lightInfo.Path);
-                    }
+                    var (calibrated, transformOrig) = await PrepareFrameAsync(fi, token);
                     // The shared debayer + warp step (FrameRegistration.WarpToCanvasAsync) -- the same
                     // three lines the dataset registrar runs, so the two paths cannot drift here.
                     var (warped, _) = await FrameRegistration.WarpToCanvasAsync(
@@ -1480,60 +1514,8 @@ public sealed class StackingPipeline(
             {
                 for (var fi = 0; fi < matched.Count; fi++)
                 {
-                    var lightInfo = useStarless && matched[fi].Starless is { } sl ? sl : matched[fi].Light;
-                    var transformOrig = layerTransforms[fi];
-                    token.ThrowIfCancellationRequested();
-                    var lightRaw = await lightInfo.LoadFullAsync(token);
-                    // integrationCalibrator, NOT calibrator: under --remove-stars these frames are the
-                    // starless plates, already calibrated before star removal. Calibrating again would
-                    // subtract bias and dark twice and divide by the flat twice, silently.
-                    var calibrated = layerCalibrator.Apply(lightRaw);
-                    // Exclude the moving body BEFORE debayer and warp. Doing it here rather than on the
-                    // warped canvas is what lets ONE implementation serve both integration paths: the
-                    // standard path warps below, the drizzle path forward-projects this same raw CFA,
-                    // and both skip a NaN sample without depositing weight, so coverage needs nothing
-                    // added to either.
-                    // Subtracting the body beats excluding it and takes precedence. The mask throws
-                    // away every frame the comet is anywhere near, which is affordable only when the
-                    // body moves much further than its coma is wide -- 10P moves 45 px in 3.5 h and
-                    // masking it is arithmetically impossible. See CometModel.
-                    if (layerModel is { } model && cometRate is { } modelRate && cometFit is { } modelFit)
-                    {
-                        // source -> the COMET-ALIGNED reference grid, the one basis where the body
-                        // does not move, so the model needs no per-frame position of its own.
-                        var driftHours = (lightInfo.Meta.ExposureStartTime - reference.Meta.ExposureStartTime).TotalHours;
-                        var toCometGrid = transformOrig * Matrix3x2.CreateTranslation(
-                            (float)(-modelRate.X * driftHours), (float)(-modelRate.Y * driftHours));
-                        var cfa = calibrated.ImageMeta.SensorType.GetBayerPatternMatrix(
-                            calibrated.ImageMeta.BayerOffsetX, calibrated.ImageMeta.BayerOffsetY);
-                        var onGrid = modelFit.AnchorPx + modelFit.PxPerHour
-                            * (float)(reference.Meta.ExposureStartTime - modelFit.AnchorEpoch).TotalHours;
-                        var amplitude = model.FitScale(calibrated, toCometGrid, onGrid, cfa);
-                        if (amplitude > 0f)
-                        {
-                            maskedFramePixels += model.SubtractFrom(
-                                calibrated, toCometGrid, onGrid, cfa, amplitude);
-                            modelScaleSum += amplitude;
-                            modelScaleCount++;
-                        }
-                    }
-                    else if (layerMask is { } cometMask)
-                    {
-                        // source -> REFERENCE, never source -> canvas. The canvas shift differs per
-                        // layer (each layer's union bounding box comes from its own transforms), and
-                        // the mask must not depend on which layer is being built.
-                        var srcToRef = transformOrig;
-                        if (cometMask.SourcePositionAt(srcToRef, lightInfo.Meta.ExposureStartTime) is { } centre)
-                        {
-                            maskedFramePixels += CometMask.Punch(calibrated, centre, cometMask.SourceRadius(srcToRef));
-                        }
-                    }
-                    if (!options.RemoveStarsPerFrame)
-                    {
-                        intermediates?.SaveCalibrated(calibrated, lightInfo.Path);
-                    }
-                    var shifted = transformOrig * canvasShift;
-                    yield return new RawBayerFrame(calibrated, shifted);
+                    var (calibrated, transformOrig) = await PrepareFrameAsync(fi, token);
+                    yield return new RawBayerFrame(calibrated, transformOrig * canvasShift);
                 }
             }
 
@@ -1764,8 +1746,91 @@ public sealed class StackingPipeline(
                     "  [comet] model subtracted from {N}/{Total} frames, mean amplitude {Scale:F4}",
                     modelScaleCount, matched.Count, modelScaleSum / modelScaleCount);
             }
-            return (masterPath, postResult, maskedFramePixels, intResult, canvasShift);
+            return (masterPath, postResult, maskedFramePixels, intResult, canvasShift, statsRect, selection.Chosen.Kind);
         }
+
+        // The finished image of a comet run: the star layer plus the body, added back once. Written
+        // through the same post-processor as every other master, so it plate-solves (it has stars),
+        // gets its own SPCC (it has stars AND the comet, which neither layer alone offers) and renders
+        // the same way. Units: the model is in the COMET layer's pixel units and the star layer is in
+        // its own; both are normalised so each channel's sky median sits at the integrator's target,
+        // so the ratio of the two skies is the gain between them -- 1.0 when both layers took the same
+        // strategy, and the right number when one drizzled (no normalisation, sky at 0.0145) and the
+        // other did not. Measured rather than assumed, because the day the two strategies differ is
+        // the day an assumed 1.0 adds a comet 34x too faint and nobody notices.
+        async Task<string?> WriteCompositeAsync(
+            IntegrationResult starLayer, Image cometMaster, CometModel bodyModel, Vector2 bodyOnStarCanvas,
+            Rectangle layerStatsRect, IntegrationStrategyKind layerStrategy, AlignmentProvenance cometAlignment,
+            CancellationToken token)
+        {
+            var compositeStart = StageTimings.Start();
+            var starMaster = starLayer.Master;
+            if (starMaster.ChannelCount != bodyModel.ChannelCount)
+            {
+                logger.LogWarning(
+                    "  [comet] composite skipped: the star layer has {Star} channels and the body model {Model}",
+                    starMaster.ChannelCount, bodyModel.ChannelCount);
+                return null;
+            }
+            var gains = new float[starMaster.ChannelCount];
+            for (var c = 0; c < gains.Length; c++)
+            {
+                var starSky = SkyMedian(starMaster, c);
+                var cometSky = SkyMedian(cometMaster, c);
+                gains[c] = starSky > 0f && cometSky > 0f ? starSky / cometSky : 1f;
+            }
+            var planes = new float[starMaster.ChannelCount][,];
+            for (var c = 0; c < planes.Length; c++)
+            {
+                planes[c] = (float[,])starMaster.GetChannelArray(c).Clone();
+            }
+            var placed = bodyModel.AddTo(planes, bodyOnStarCanvas, gains);
+            if (placed == 0)
+            {
+                // The subtraction touched pixels in every frame, so the model is real; the only way to
+                // place none of it is a position off the star canvas, i.e. the wrong basis.
+                logger.LogWarning(
+                    "  [comet] composite skipped: the body at ({X:F1}, {Y:F1}) lands on no pixel of the {W}x{H} star canvas",
+                    bodyOnStarCanvas.X, bodyOnStarCanvas.Y, starMaster.Width, starMaster.Height);
+                return null;
+            }
+            var min = float.MaxValue;
+            var max = float.MinValue;
+            foreach (var plane in planes)
+            {
+                foreach (var v in plane)
+                {
+                    if (!float.IsFinite(v)) { continue; }
+                    if (v < min) { min = v; }
+                    if (v > max) { max = v; }
+                }
+            }
+            var composite = new Image(planes, BitDepth.Float32, max, min, starMaster.Pedestal, starMaster.ImageMeta);
+            var path = Path.Combine(outputDir, $"master_{slug}_composite.fits");
+            var postProcessor = new MasterPostProcessor(logger, catalogDb, options.Enhance ? sharpenPipeline : null, enhanceProgress);
+            await postProcessor.WriteMasterAsync(
+                starLayer with { Master = composite }, path, searchHint, referenceRaw.GetImageDim(), referenceRaw.ImageMeta,
+                layerStatsRect, layerStrategy,
+                enhance: options.Enhance, enhanceBlend: options.EnhanceBlend, splitPlates: options.SplitPlates,
+                enhanceOptions: options.EnhanceOptions ?? Enhancement.EnhanceOptions.Default,
+                outputs: options.RenderOutputs, previewBoost: options.PreviewBoost,
+                ultraHdrPeakNits: options.UltraHdrPeakNits,
+                inheritedWhiteBalance: options.InheritedWhiteBalance,
+                // Says what this is: registered on the stars, with the body composited in. The drift
+                // and its source travel with it so the placement is reproducible from the header.
+                alignment: new AlignmentProvenance("Composite", cometAlignment.TargetBody, cometAlignment.DriftPxPerHour, cometAlignment.RateSource),
+                ct: token);
+            timings.Record(StageNames.Post, compositeStart, 1, (long)starMaster.Width * starMaster.Height);
+            logger.LogInformation(
+                "  [comet] composite wrote {Path}: body placed at ({X:F2}, {Y:F2}) on the star canvas over {Px:N0} px, "
+                    + "reach {Reach:F0} px, comet->star gain {Gains}, in {ElapsedMs} ms",
+                path, bodyOnStarCanvas.X, bodyOnStarCanvas.Y, placed, bodyModel.ReachPx,
+                string.Join("/", Array.ConvertAll(gains, g => g.ToString("F4", System.Globalization.CultureInfo.InvariantCulture))),
+                (long)Stopwatch.GetElapsedTime(compositeStart).TotalMilliseconds);
+            return path;
+        }
+
+        string? compositePath = null;
 
         // The primary layer: comet-aligned when a rate is in play, an ordinary star stack otherwise.
         // Never masked -- on a comet-aligned canvas the body is the one thing that must survive.
@@ -1825,17 +1890,18 @@ public sealed class StackingPipeline(
                 // Where the body actually sits on the comet-aligned grid, which is NOT the bare
                 // anchor. The compose is translate(-rate * (t_i - t_REF)) while the anchor describes
                 // t_ANCHOR, the first ephemeris sample, so the body settles at
-                // anchor + rate * (t_ref - t_anchor). Those two epochs differ by up to the length of
-                // the session; at 245 px/hr that is several hundred pixels, which is enough to crop
-                // the model out of empty sky. That is exactly what happened on the first run, and it
-                // reported "the star-removed difference holds no comet" rather than anything about
-                // position -- the failure names the symptom, so the position is logged here.
-                var refDriftHours = (reference.Meta.ExposureStartTime - fit.AnchorEpoch).TotalHours;
-                var cometOnGrid = fit.AnchorPx + fit.PxPerHour * (float)refDriftHours;
+                // anchor + rate * (t_ref - t_anchor), evaluated at the reference's MID-exposure where
+                // its light is centred. Those two epochs differ by up to the length of the session;
+                // at 245 px/hr that is several hundred pixels, which is enough to crop the model out
+                // of empty sky. That is exactly what happened on the first run, and it reported "the
+                // star-removed difference holds no comet" rather than anything about position -- the
+                // failure names the symptom, so the position is logged here.
+                var cometOnGrid = CometCompose.BodyOnGrid(fit, reference.Meta);
                 logger.LogInformation(
-                    "  [comet] body sits at ({Gx:F1}, {Gy:F1}) on the comet-aligned grid "
-                        + "(anchor ({Ax:F1}, {Ay:F1}) carried {Hours:F3} h to the reference epoch)",
-                    cometOnGrid.X, cometOnGrid.Y, fit.AnchorPx.X, fit.AnchorPx.Y, refDriftHours);
+                    "  [comet] body sits at ({Gx:F2}, {Gy:F2}) on the comet-aligned grid "
+                        + "(anchor ({Ax:F1}, {Ay:F1}) at {Epoch:u} carried {Hours:F3} h to the reference mid-exposure)",
+                    cometOnGrid.X, cometOnGrid.Y, fit.AnchorPx.X, fit.AnchorPx.Y, fit.AnchorEpoch.UtcDateTime,
+                    (reference.Meta.ExposureStartTime + reference.Meta.ExposureDuration / 2 - fit.AnchorEpoch).TotalHours);
 
                 var radiusPx = (float)(options.CometMaskArcsec / pixelScale);
                 var mask = new CometMask(
@@ -1924,6 +1990,21 @@ public sealed class StackingPipeline(
                         star.MaskedPixels, matched.Count,
                         star.MaskedPixels / Math.Max(matched.Count, 1),
                         (long)Stopwatch.GetElapsedTime(starLayerStart).TotalMilliseconds);
+
+                    // The finished image: the star layer with the body added back ONCE, where the
+                    // ephemeris puts it at the reference epoch. The same model that came out of every
+                    // frame goes in here, so the composite is the star layer plus exactly the comet,
+                    // placed by the same reference-space point the subtraction used -- no WCS, no
+                    // centroid, and no chance of the two disagreeing. The hand-built version of this
+                    // placed the body from a typed RA/Dec through the star layer's WCS and a
+                    // core-weighted centroid that locked onto a star 40 px away and missed by 46 px.
+                    if (options.CometComposite && model is { } bodyModel)
+                    {
+                        compositePath = await WriteCompositeAsync(
+                            star.Integration, primary.Integration.Master, bodyModel,
+                            Vector2.Transform(cometOnGrid, star.CanvasShift),
+                            star.StatsRect, star.Strategy, primaryAlignment, ct);
+                    }
                 }
             }
         }
@@ -1995,7 +2076,37 @@ public sealed class StackingPipeline(
             PreviewPngPath: previewPath,
             Elapsed: groupSw.Elapsed,
             Spcc: postResult.Spcc,
-            Stages: timings.Snapshot());
+            Stages: timings.Snapshot(),
+            CompositeFitsPath: compositePath);
+    }
+
+    /// <summary>FITS card on a per-frame starless plate naming the <see cref="StarRemovalMode"/> it was
+    /// made in, so a later run reuses the plate only for the same mode.</summary>
+    private const string StarRemovalModeKeyword = "STARMODE";
+
+    /// <summary>Median of one channel's finite pixels over a coarse subsample: the sky level of a
+    /// master, for relating two layers' units.</summary>
+    private static float SkyMedian(Image image, int channel)
+    {
+        var step = Math.Max(1, Math.Min(image.Width, image.Height) / 512);
+        var values = new List<float>((image.Width / step + 1) * (image.Height / step + 1));
+        for (var y = 0; y < image.Height; y += step)
+        {
+            for (var x = 0; x < image.Width; x += step)
+            {
+                var v = image[channel, y, x];
+                if (float.IsFinite(v))
+                {
+                    values.Add(v);
+                }
+            }
+        }
+        if (values.Count == 0)
+        {
+            return 0f;
+        }
+        values.Sort();
+        return values[values.Count / 2];
     }
 
     // =====================================================================

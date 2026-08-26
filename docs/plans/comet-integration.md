@@ -491,10 +491,13 @@ Roughly in dependency order.
    end of this run against a 2.15 px FWHM.
 4. **Per-frame SXT over 135 lights**, keeping the starless plate, then integrate those comet-aligned.
    Needs item 1 first, or the layer has no colour.
-5. **The screen combine** of artifacts 1 and 3.
-6. **A test pinning the compose itself.** A synthetic pair with a known rate and a known dither,
-   asserting the target lands on the same canvas pixel and the stars do not. That would catch an
-   operand-order slip, which is the one failure the derivation chain cannot.
+5. ~~**The screen combine** of artifacts 1 and 3.~~ Done 2026-08-27, and not as a screen: the run
+   writes the composite in linear light (see the last section).
+6. ~~**A test pinning the compose itself.**~~ Done 2026-08-27: `CometComposeTests` puts a rotated,
+   dithered frame through `CometCompose.ToCometGrid` and asserts the target lands on the reference
+   pixel while a star is displaced by exactly the drift, and that the reversed operand order is
+   wrong whenever the frame is rotated (at zero rotation both orders agree, which is why the test
+   rotates).
 
 ## The headers were amended (was item 7, done)
 
@@ -774,7 +777,9 @@ removed it, so compositing onto the rejected master directly removes the artifac
   40 px coma mask blanks 100% and leaves a hole. The design is strictly better on a fast mover; on
   this target it only half-applies. Note `DrizzleStrategy` already honours a per-frame bad-pixel mask
   by skipping deposition, so a comet mask is that mechanism with a different source.
-- **No compositing feature exists.** All of the above lives in scratch scripts.
+- ~~**No compositing feature exists.** All of the above lives in scratch scripts.~~ Shipped
+  2026-08-27 as `master_<slug>_composite.fits`; see the last section. The scratch version's mask,
+  feather and opening are all unnecessary once the body is a model rather than a masked crop.
 
 ## The star layer: SUBTRACT the comet, do not exclude it and do not reject it (shipped 2026-08-26)
 
@@ -1009,3 +1014,115 @@ And **never compare a treated layer against a differently-integrated one.** The 
 read "1.53 sigma, ridge still present" against a 1.76 sigma baseline and concluded the mask had
 barely worked; that pair differed in mask AND in drizzle-versus-rejection, and was uninterpretable in
 either direction.
+
+## The model reaches as far as each channel's coma does, and the run writes the composite (2026-08-27)
+
+Yesterday's star layer (panel 2 of `swan-starless-model.png`) still carried a diffuse band along the
+track at 1:1, after the radial profile had called it 0.30 sigma. Measured against the untreated
+control on the same canvas and strategy, with the track pinned ANALYTICALLY from the run log (body at
+the reference epoch, rate, canvas origin) rather than fitted from the residual, luminance, band
+medians in units of the master's own sigma:
+
+| perp px | control | model cut at 100 px (26th) | per-channel asymptote (27th) |
+|---|---|---|---|
+| 0-10 | 2.36 | 0.39 | -0.19 |
+| 35-50 | 1.53 | 0.19 | -0.17 |
+| 70-95 | 0.57 | 0.08 | -0.17 |
+| 95-125 | 0.28 | **0.19** | -0.17 |
+| 125-160 | 0.12 | 0.13 | -0.16 |
+| 200-260 | -0.08 | -0.08 | -0.15 |
+| 340-450 | -0.11 | -0.11 | -0.13 |
+
+The 26th's column tells the story on its own: the ridge falls to 0.08 by 70-95 px and then RISES
+again to 0.19 at 95-125, which is where the model stopped. From there out it is the control,
+untouched.
+
+**Cause: the reach was judged on `planes[0]` (red) against a floor of 1% of the peak.** SWAN is a
+gas-rich comet: green peaks at 0.288 in the comet layer against red's 0.099. Red falls to 1% of its
+peak at ~125 px, and the model was cut at 100. The green profile of the starless comet layer, in that
+plate's own sigma: **1.37 at 100 px, 0.92 at 120, 0.48 at 160, 0.26 at 200, 0.10 at 300, 0.05 at
+400.** Everything past 100 px stayed in all 89 frames and smeared along the track. A relative floor
+is the wrong test regardless of channel: a coma's wings fall roughly as 1/r, so at any fixed fraction
+of the peak there is still coherent signal in the annulus, and the same model is subtracted from
+every frame, so it does not average away.
+
+**Fix: each channel's annular-median profile is followed outward until it stops falling** (three
+consecutive annuli without a new minimum). The minimum IS that channel's pedestal, the radius where
+it sits is that channel's reach, and beyond its reach the plane is zero. Reaches came out **210 / 420
+/ 330 px** (R / G / B). The rule also stops correctly short of the sky gradient, which turns every
+channel's profile back upward past ~440 px (the far-field median at r > 450 was therefore never the
+coma's asymptote either). Pinned by `CometModelTests.TheReachFollowsEachChannelsOwnProfileNotChannelZero`
+against a 1/r^2 coma with SWAN's channel balance, and by `TheAsymptoteIsWhereTheProfileStopsFalling`
+on a profile that falls, flattens and rises.
+
+Three things were changed alongside, each found by reading the code against the measurement:
+
+- **The centre was rounded to a whole pixel while the sampler assumed the exact one.** The crop is
+  cut at `round(centre)`, and `ToModel` mapped the crop centre to the unrounded position, so the
+  model sat up to 0.5 px off, which the code's own comment says subtracts a dipole. The sub-pixel
+  remainder now travels in `_centre`. `TheModelIsPlacedSubPixelWhenAddedBack` recovers a target at
+  (700.35, 380.8) to 0.15 px.
+- **The amplitude is the MEDIAN of per-pixel ratios `d/m` over an annulus of the coma, not a
+  least-squares fit over the core.** Two things bias least squares the same way and neither is
+  clipped away: a bright star's halo inside the fit region (its core is clipped, its wings are not),
+  and the nucleus, which the star remover took OUT of the plates the model was stacked from while
+  every frame still has it, so it is positive `d` exactly where `m` is largest and dominates
+  `sum(d*m)`. On SWAN the least-squares version (core r<80 px, one 3-sigma clip; mean amplitude 1711)
+  left the track flat and hid the problem. **On 10P it dug a bowl: -1.13 sigma at 10-20 px from the
+  track against a 12.2 sigma control, tapering to zero by 125 px, with a +2 to +3.5 sigma LINE of
+  leftover condensation running along the 45 px track inside it** (|perp| < 4 px), the field star 40 px
+  from the body pushing the same way. Each contaminant is a minority of an annulus and a median is
+  blind to a minority. The annulus starts at 12 px (several seeing discs, past any footprint a star
+  remover takes out of a point source) and stops where the brightest channel has fallen to 15% of its
+  peak, because a ratio amplifies a sky error by `1/m`. Pinned by
+  `AMissingNucleusAndABrightNeighbourDoNotInflateTheAmplitude` (a 30% core deficit plus a
+  12000-count halo star 40 px out; amplitude within 3%) and `...AndTheBodySubtractsOut` (2000
+  recovered within 2% from a frame carrying 60 stars). The re-measurement of both datasets with this
+  estimator is the next entry.
+- **The body is evaluated at the reference frame's MID-exposure**, where its light is centred
+  (`CometCompose.BodyOnGrid`). At 245 px/h and 30 s that is 1.0 px along the track. The comet layer's
+  peak pixel sits on the start-of-exposure prediction and its squared-weighted centroid 2.1 px further
+  along, 1.1 px past the mid-exposure one; the coma's asymmetry explains a pixel, and the ridge
+  measurement cannot resolve the remainder. The compose itself is indifferent (every frame shares one
+  exposure length, so start differences equal mid differences); only the absolute position moves.
+
+**Is the new layer over-subtracted?** Its band medians sit at -0.13 to -0.19 where the control's far
+bands read -0.11, so the question is fair. Two readings say no. What was removed (control minus new)
+runs **2.55, 1.71, 1.17, 0.74, 0.45, 0.29, 0.15, 0.07, 0.04, 0.02** sigma from the track out to
+340-450 px: monotone, no plateau, no step at the 420 px reach. A pedestal error in the model would be
+a disc, constant to the reach and then a drop, and there is none. And the new layer's own medians
+vary by 0.06 sigma across 0-450 px against the control's 2.5 sigma; the absolute offset from the
+reference strip (perp 500-800, in M16's neighbourhood) is the strip's, not the layer's. The p0.5
+column (-0.78 to -0.86 in the track bands, -0.96 at 340-450) shows no dug holes either.
+
+**The composite is written by the run.** `master_<slug>_composite.fits` is the star layer with the
+body added back ONCE (`CometModel.AddTo`), at `BodyOnGrid` carried onto the star canvas by that
+layer's own shift: the same reference-space point the subtraction used, so there is no WCS, no
+centroid and no way for the two to disagree. Units are measured, not assumed: the model is in the
+comet layer's pixels and the gain per channel is the ratio of the two masters' sky medians, which came
+out **0.9993 / 1.0020 / 1.0021** because both layers normalise to 0.5, and would come out ~34 if one
+of them had drizzled. It goes through the same `WriteMasterAsync` as every master, so it plate-solves
+and gets its own SPCC (it has stars AND the comet, which neither layer alone offers), and is stamped
+`ALIGNON = Composite` with the drift and its source. `--no-composite` skips it. The scratch version
+(`composite_linear.py`) needed a typed RA/Dec, a centroid that locked onto a star 40 px away and
+missed by 46 px, a feathered disc, and an opening across the trails; with the body a model, none of
+that exists.
+
+**Iterating no longer costs ten minutes of `sxt`.** The per-frame starless plates now live at
+`<out>/starless/<slug>/`, beside the `masters/` cache and NOT under `_staging`, which is wiped at the
+start of every group. A re-run into the same `-o` reuses a plate whose `SRCDGST` and `STARMODE`
+match the light and the requested mode (a plate with no mode card predates the card and was made in
+the default). The plates also carry a TianWen `SWCREATE` now, so the scan's provenance skip drops
+them; they used to inherit the capture software's. This run: **13.0 min -> 3.3 min**, 89 of 89
+reused.
+
+The two `PrepareFrame` copies inside `IntegrateLayerAsync` (one per producer) are one local function
+now, and the compose arithmetic lives once in `CometCompose` rather than three times inline.
+
+Still open from the list above: `sxt` taking the central condensation, and the two-mask design where
+the coverage arithmetic allows it. The first is no longer only a comet-layer matter: with the
+amplitude read off the annulus, the condensation the model lacks stays in every frame of the star
+layer and shows as a thin line along the track (10P: +2 to +3.5 sigma, |perp| < 4 px, over the 45 px
+of travel). The model's core has to come from somewhere the remover did not touch, i.e. a
+comet-aligned stack of the RAW frames' central few pixels, where rejection copes with the occasional
+trail. The star layer and the composite are otherwise done.
