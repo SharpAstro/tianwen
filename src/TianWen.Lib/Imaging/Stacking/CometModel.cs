@@ -97,8 +97,16 @@ internal sealed class CometModel
     /// <summary>The largest per-channel reach; beyond this every plane is zero.</summary>
     public float ReachPx { get; }
 
-    /// <summary>Radius of the core the per-frame amplitude is fitted over.</summary>
+    /// <summary>Outer radius of the annulus the per-frame amplitude is fitted over.</summary>
     public float FitRadiusPx { get; }
+
+    /// <summary>Radius inside which the model's core came from the raw frames
+    /// (<see cref="SpliceCore"/>) and takes its own per-frame amplitude; zero when never spliced.</summary>
+    public float CoreRadiusPx { get; private set; }
+
+    /// <summary>Band beyond <see cref="CoreRadiusPx"/> over which the core amplitude hands over to the
+    /// coma's.</summary>
+    public float CoreFeatherPx { get; private set; }
 
     /// <summary>Per channel: where that channel's profile reached its asymptote. Zero for a channel
     /// that held no comet, whose plane is then all zero.</summary>
@@ -785,13 +793,36 @@ internal sealed class CometModel
     /// colour -- subtracting a luminance average would leave a coloured residue exactly where the
     /// comet was.</param>
     /// <param name="scale">Amplitude for this frame, from <see cref="FitScale"/>.</param>
+    /// <param name="coreScale">Amplitude for the spliced core, from <see cref="FitCoreScale"/>; equal to
+    /// <paramref name="scale"/> when the model has no spliced core. Blended into the coma's amplitude
+    /// over <see cref="CoreFeatherPx"/>.</param>
     public int SubtractFrom(
-        Image frame, Matrix3x2 sourceToCometFrame, Vector2 bodyOnGrid, int[,] pattern, float scale)
+        Image frame, Matrix3x2 sourceToCometFrame, Vector2 bodyOnGrid, int[,] pattern, float scale, float? coreScale = null)
     {
-        if (!Matrix3x2.Invert(sourceToCometFrame, out _) || scale == 0f || !float.IsFinite(scale))
+        Span<float> scales = stackalloc float[_planes.Length];
+        scales.Fill(scale);
+        Span<float> cores = stackalloc float[_planes.Length];
+        cores.Fill(coreScale ?? scale);
+        return SubtractFrom(frame, sourceToCometFrame, bodyOnGrid, pattern, scales, cores);
+    }
+
+    /// <summary>Per-channel form of <see cref="SubtractFrom(Image, Matrix3x2, Vector2, int[,], float, float?)"/>:
+    /// each photosite takes the amplitude of the channel its CFA colour names. A channel whose
+    /// amplitude is zero or not finite is left untouched in the frame.</summary>
+    public int SubtractFrom(
+        Image frame, Matrix3x2 sourceToCometFrame, Vector2 bodyOnGrid, int[,] pattern,
+        ReadOnlySpan<float> scales, ReadOnlySpan<float> coreScales)
+    {
+        if (scales.Length != _planes.Length || coreScales.Length != _planes.Length)
+        {
+            throw new ArgumentException($"the model has {_planes.Length} channels; {scales.Length} and {coreScales.Length} amplitudes were given");
+        }
+        if (!Matrix3x2.Invert(sourceToCometFrame, out _))
         {
             return 0;
         }
+        var coreOuter = CoreRadiusPx + CoreFeatherPx;
+        var hasCore = CoreRadiusPx > 0f;
 
         var plane = frame.GetChannelArray(0);
         var touched = 0;
@@ -800,13 +831,33 @@ internal sealed class CometModel
         {
             for (var x = x0; x <= x1; x++)
             {
+                var c = Math.Min(pattern[y & 1, x & 1], _planes.Length - 1);
+                var scale = scales[c];
+                if (!(scale > 0f) || !float.IsFinite(scale))
+                {
+                    continue;
+                }
                 var mp = ToModel(new Vector2(x, y), sourceToCometFrame, bodyOnGrid);
-                var v = Sample(pattern[y & 1, x & 1], mp.X, mp.Y);
+                var v = Sample(c, mp.X, mp.Y);
                 if (v == 0f)
                 {
                     continue;
                 }
-                plane[y, x] -= scale * v;
+                var amplitude = scale;
+                var core = coreScales[c];
+                if (hasCore && core > 0f && float.IsFinite(core) && core != scale)
+                {
+                    var dx = mp.X - _centre.X;
+                    var dy = mp.Y - _centre.Y;
+                    var r = MathF.Sqrt(dx * dx + dy * dy);
+                    if (r < coreOuter)
+                    {
+                        var t = r <= CoreRadiusPx ? 1f : 1f - (r - CoreRadiusPx) / CoreFeatherPx;
+                        var w = t * t * (3f - 2f * t);
+                        amplitude = w * core + (1f - w) * scale;
+                    }
+                }
+                plane[y, x] -= amplitude * v;
                 touched++;
             }
         }
@@ -835,111 +886,73 @@ internal sealed class CometModel
     /// </remarks>
     public float FitScale(Image frame, Matrix3x2 sourceToCometFrame, Vector2 bodyOnGrid, int[,] pattern)
     {
-        var plane = frame.GetChannelArray(0);
-        var (x0, y0, x1, y1) = SourceBounds(frame, sourceToCometFrame, bodyOnGrid, ReachPx);
-        if (x1 <= x0 || y1 <= y0)
-        {
-            return 0f;
-        }
+        Span<float> scales = stackalloc float[_planes.Length];
+        return FitScales(frame, sourceToCometFrame, bodyOnGrid, pattern, scales) ? MedianOfPositive(scales, 0f) : 0f;
+    }
 
+    /// <summary>
+    /// Per-channel form of <see cref="FitScale"/>: fills <paramref name="scales"/> with each model
+    /// channel's amplitude, read from the photosites of its own colour, zero for a channel that could
+    /// not be fitted. Returns whether any channel could.
+    /// </summary>
+    /// <remarks>
+    /// Per channel and not pooled, because the comet layer normalised each channel to its own sky, so
+    /// the model's channels are in different units. Pooled, the median lands near the channel with
+    /// the most photosites and the others are wrong by the ratio of the units: on SWAN that was red
+    /// over-subtracted by a third and blue under-subtracted by a fifth, a colour cast along the track
+    /// that a luminance measurement cancels out. A channel with too few ratios borrows the median of
+    /// the channels that had enough, which is the pooled answer and better than nothing.
+    /// </remarks>
+    public bool FitScales(Image frame, Matrix3x2 sourceToCometFrame, Vector2 bodyOnGrid, int[,] pattern, Span<float> scales)
+    {
+        if (scales.Length != _planes.Length)
+        {
+            throw new ArgumentException($"the model has {_planes.Length} channels; {scales.Length} amplitudes were asked for");
+        }
+        scales.Clear();
         // Sky under the body, per CFA colour, as a MEDIAN of what lies beyond the reach inside the
         // box: the comet sits on sky, the sky level differs between the R, G and B photosites, and a
         // mean would let every star in the corners lift it.
-        var sky = new List<float>[4];
-        for (var k = 0; k < 4; k++)
-        {
-            sky[k] = new List<float>(4096);
-        }
-        var reach2 = ReachPx * ReachPx;
-        for (var y = y0; y <= y1; y += 3)
-        {
-            for (var x = x0; x <= x1; x += 3)
-            {
-                var mp = ToModel(new Vector2(x, y), sourceToCometFrame, bodyOnGrid);
-                var dx = mp.X - _centre.X;
-                var dy = mp.Y - _centre.Y;
-                if (dx * dx + dy * dy < reach2)
-                {
-                    continue;
-                }
-                var v = plane[y, x];
-                if (!float.IsFinite(v))
-                {
-                    continue;
-                }
-                sky[((y & 1) << 1) | (x & 1)].Add(v);
-            }
-        }
         Span<float> skyLevel = stackalloc float[4];
         Span<bool> skyKnown = stackalloc bool[4];
-        for (var k = 0; k < 4; k++)
+        if (!ReadSky(frame, sourceToCometFrame, bodyOnGrid, skyLevel, skyKnown))
         {
-            if (sky[k].Count < 16)
-            {
-                continue;
-            }
-            sky[k].Sort();
-            skyLevel[k] = sky[k][sky[k].Count / 2];
-            skyKnown[k] = true;
+            return false;
         }
 
         // The annulus samples: one ratio per pixel where the model has weight and is trusted.
-        var fit2 = FitRadiusPx * FitRadiusPx;
-        var inner2 = FitInnerRadiusPx * FitInnerRadiusPx;
-        var (fx0, fy0, fx1, fy1) = SourceBounds(frame, sourceToCometFrame, bodyOnGrid, FitRadiusPx);
-        var capacity = Math.Max(16, (fx1 - fx0 + 1) * (fy1 - fy0 + 1));
-        var ratios = ArrayPool<float>.Shared.Rent(capacity);
-        try
+        var ratios = CollectRatios(frame, sourceToCometFrame, bodyOnGrid, pattern, FitInnerRadiusPx, FitRadiusPx, skyLevel, skyKnown);
+        var any = false;
+        for (var c = 0; c < _planes.Length; c++)
         {
-            var count = 0;
-            for (var y = fy0; y <= fy1; y++)
+            if (ratios[c].Count < 64)
             {
-                for (var x = fx0; x <= fx1; x++)
-                {
-                    var k = ((y & 1) << 1) | (x & 1);
-                    if (!skyKnown[k])
-                    {
-                        continue;
-                    }
-                    var mp = ToModel(new Vector2(x, y), sourceToCometFrame, bodyOnGrid);
-                    var dx = mp.X - _centre.X;
-                    var dy = mp.Y - _centre.Y;
-                    var r2 = dx * dx + dy * dy;
-                    if (r2 >= fit2 || r2 < inner2)
-                    {
-                        continue;
-                    }
-                    var m = Sample(pattern[y & 1, x & 1], mp.X, mp.Y);
-                    if (m <= 0f)
-                    {
-                        continue;
-                    }
-                    var v = plane[y, x];
-                    if (!float.IsFinite(v))
-                    {
-                        continue;
-                    }
-                    ratios[count++] = (v - skyLevel[k]) / m;
-                }
+                continue;
             }
-            if (count < 64)
-            {
-                return 0f;
-            }
-            var sorted = ratios.AsSpan(0, count);
-            sorted.Sort();
-            var scale = sorted[count / 2];
-
+            ratios[c].Sort();
+            var scale = ratios[c][ratios[c].Count / 2];
             // A negative or absurd amplitude means the fit found something other than the comet.
             // Bounded, but not by a magic number: the units depend on how the master was normalised
             // against the frames' own scale, and the fit legitimately lands near 87 on one path and
             // 3500 on another. Only reject what cannot be a real amplitude.
-            return scale is > 0f and < 1e6f ? scale : 0f;
+            if (scale is > 0f and < 1e6f)
+            {
+                scales[c] = scale;
+                any = true;
+            }
         }
-        finally
+        if (any)
         {
-            ArrayPool<float>.Shared.Return(ratios);
+            var borrowed = MedianOfPositive(scales, 0f);
+            for (var c = 0; c < scales.Length; c++)
+            {
+                if (!(scales[c] > 0f))
+                {
+                    scales[c] = borrowed;
+                }
+            }
         }
+        return any;
     }
 
     /// <summary>
@@ -993,6 +1006,355 @@ internal sealed class CometModel
             }
         }
         return touched;
+    }
+
+    /// <summary>
+    /// Replaces the model's nucleus with the body's core from a raw comet-aligned stack
+    /// (<see cref="CometRawCore"/>), so the model carries the central condensation the star remover
+    /// took out of the plates it was built from. Returns the per-channel gain and offset that related
+    /// the two, or null for a channel that could not be fitted and was left as it was.
+    /// </summary>
+    /// <param name="rawCore">Planes of odd size with the body at the centre cell, in the frames' own
+    /// units, NaN where unknown.</param>
+    /// <param name="innerPx">Inside this the raw core replaces the model outright.</param>
+    /// <param name="featherPx">Over this band beyond <paramref name="innerPx"/> the two blend.</param>
+    /// <remarks>
+    /// The raw core and the model are in different units (calibrated ADU against the comet layer's
+    /// normalised pixels), so each channel is related by <c>raw = a * model + b</c>, fitted over the
+    /// annulus just outside the splice where BOTH are trusted: the model has its coma there and the
+    /// raw stack's median has rejected the trails. The core is then <c>(raw - b) / a</c>. One clipping
+    /// pass, because the annulus is small and a star that survived the median would otherwise tilt
+    /// the gain. Mutates the planes in place; the model is built and spliced before any frame reads it.
+    /// </remarks>
+    public (float Gain, float Offset)?[] SpliceCore(float[][,] rawCore, float innerPx, float featherPx, ILogger logger)
+    {
+        if (rawCore.Length != _planes.Length)
+        {
+            throw new ArgumentException($"the raw core has {rawCore.Length} planes; the model has {_planes.Length}");
+        }
+        var radius = (rawCore[0].GetLength(0) - 1) / 2;
+        var fitOuter = MathF.Min(radius - 1, MathF.Max(innerPx + featherPx + 4f, 2.5f * innerPx));
+        var results = new (float Gain, float Offset)?[_planes.Length];
+        for (var c = 0; c < _planes.Length; c++)
+        {
+            var raw = rawCore[c];
+            // Pairs over the fit annulus, both read at the same offset from the body.
+            var xs = new List<float>(4096);
+            var ys = new List<float>(4096);
+            for (var dy = -radius; dy <= radius; dy++)
+            {
+                for (var dx = -radius; dx <= radius; dx++)
+                {
+                    var r = MathF.Sqrt(dx * dx + dy * dy);
+                    if (r < innerPx || r >= fitOuter)
+                    {
+                        continue;
+                    }
+                    var y = raw[radius + dy, radius + dx];
+                    if (!float.IsFinite(y))
+                    {
+                        continue;
+                    }
+                    var x = ValueAt(c, new Vector2(dx, dy));
+                    xs.Add(x);
+                    ys.Add(y);
+                }
+            }
+            if (xs.Count < 200)
+            {
+                logger.LogWarning("  [comet] raw core: channel {C} has only {N} usable annulus cells; nucleus left as modelled", c, xs.Count);
+                continue;
+            }
+            var fit = FitLine(xs, ys, null);
+            if (fit is { } first)
+            {
+                // Clip against the first fit and refit: the annulus is small enough that one bright
+                // survivor tilts the gain.
+                var res = new float[xs.Count];
+                for (var i = 0; i < xs.Count; i++) { res[i] = MathF.Abs(ys[i] - (first.Gain * xs[i] + first.Offset)); }
+                var sorted = (float[])res.Clone();
+                Array.Sort(sorted);
+                var sigma = sorted[sorted.Length / 2] * 1.4826f;
+                if (sigma > 0f)
+                {
+                    fit = FitLine(xs, ys, (first, 3f * sigma, res));
+                }
+            }
+            if (fit is not { Gain: > 0f } line || !float.IsFinite(line.Gain) || !float.IsFinite(line.Offset))
+            {
+                logger.LogWarning("  [comet] raw core: channel {C} did not relate to the model (gain {Gain}); nucleus left as modelled",
+                    c, fit?.Gain);
+                continue;
+            }
+
+            var plane = _planes[c];
+            var replaced = 0;
+            var outer = innerPx + featherPx;
+            for (var my = (int)MathF.Floor(_centre.Y - outer) - 1; my <= (int)MathF.Ceiling(_centre.Y + outer) + 1; my++)
+            {
+                for (var mx = (int)MathF.Floor(_centre.X - outer) - 1; mx <= (int)MathF.Ceiling(_centre.X + outer) + 1; mx++)
+                {
+                    if ((uint)mx >= (uint)_size || (uint)my >= (uint)_size)
+                    {
+                        continue;
+                    }
+                    var ox = mx - _centre.X;
+                    var oy = my - _centre.Y;
+                    var r = MathF.Sqrt(ox * ox + oy * oy);
+                    if (r >= outer)
+                    {
+                        continue;
+                    }
+                    var rawValue = SampleRaw(raw, radius + ox, radius + oy);
+                    if (!float.IsFinite(rawValue))
+                    {
+                        continue;
+                    }
+                    var core = (rawValue - line.Offset) / line.Gain;
+                    var t = r <= innerPx ? 1f : 1f - (r - innerPx) / featherPx;
+                    var w = t * t * (3f - 2f * t);
+                    plane[my, mx] = w * core + (1f - w) * plane[my, mx];
+                    replaced++;
+                }
+            }
+            results[c] = line;
+            CoreRadiusPx = innerPx;
+            CoreFeatherPx = featherPx;
+            logger.LogInformation(
+                "  [comet] raw core spliced into channel {C}: gain {Gain:F3}, offset {Offset:F3}, {N} px inside r<{Outer:F0}, centre now {Centre:F6}",
+                c, line.Gain, line.Offset, replaced, outer, ValueAt(c, Vector2.Zero));
+        }
+        return results;
+    }
+
+    /// <summary>
+    /// The nucleus's own amplitude in this frame: the median of <c>d / m</c> inside
+    /// <see cref="CoreRadiusPx"/>, against the same per-CFA sky the coma fit used. Answers
+    /// <paramref name="comaScale"/> when the model has no spliced core or the core is too thin to read.
+    /// </summary>
+    /// <remarks>
+    /// The spliced core is ONE nucleus, the median over the session, but the nucleus in a given frame
+    /// is as sharp as that frame's seeing and as bright as its transparency, and the coma's amplitude
+    /// knows nothing about either. Subtracting the median nucleus at the coma's scale left a -0.6 sigma
+    /// trough along the 10P track with +26 sigma spikes where a frame's nucleus was sharper than the
+    /// median. Scaling the core per frame matches its flux; the width mismatch that remains is what a
+    /// median stack of a seeing-varying point source cannot avoid.
+    /// </remarks>
+    public float FitCoreScale(Image frame, Matrix3x2 sourceToCometFrame, Vector2 bodyOnGrid, int[,] pattern, float comaScale)
+    {
+        Span<float> coma = stackalloc float[_planes.Length];
+        coma.Fill(comaScale);
+        Span<float> core = stackalloc float[_planes.Length];
+        FitCoreScales(frame, sourceToCometFrame, bodyOnGrid, pattern, coma, core);
+        return MedianOfPositive(core, comaScale);
+    }
+
+    /// <summary>Per-channel form of <see cref="FitCoreScale"/>: each model channel's nucleus amplitude
+    /// from the photosites of its own colour, falling back to that channel's coma amplitude.</summary>
+    public void FitCoreScales(
+        Image frame, Matrix3x2 sourceToCometFrame, Vector2 bodyOnGrid, int[,] pattern,
+        ReadOnlySpan<float> comaScales, Span<float> coreScales)
+    {
+        comaScales.CopyTo(coreScales);
+        if (CoreRadiusPx <= 0f)
+        {
+            return;
+        }
+        Span<float> skyLevel = stackalloc float[4];
+        Span<bool> skyKnown = stackalloc bool[4];
+        if (!ReadSky(frame, sourceToCometFrame, bodyOnGrid, skyLevel, skyKnown))
+        {
+            return;
+        }
+        var ratios = CollectRatios(frame, sourceToCometFrame, bodyOnGrid, pattern, 0f, CoreRadiusPx, skyLevel, skyKnown);
+        for (var c = 0; c < _planes.Length; c++)
+        {
+            if (ratios[c].Count < 16)
+            {
+                continue;
+            }
+            ratios[c].Sort();
+            var scale = ratios[c][ratios[c].Count / 2];
+            if (scale is > 0f and < 1e6f)
+            {
+                coreScales[c] = scale;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Ratios <c>d / m</c> per MODEL CHANNEL over the annulus <c>[rInner, rOuter)</c> about the body,
+    /// each photosite contributing to the channel its CFA colour names. Per channel because the comet
+    /// layer normalised each channel to its own sky, so the model's channels are in different units
+    /// and one amplitude cannot serve all three: on SWAN the raw-core gains read 1237 / 1700 / 1996
+    /// (R / G / B) against a pooled amplitude of 1641, which over-subtracted red by a third and
+    /// under-subtracted blue by a fifth, a colour cast along the track that a luminance measurement
+    /// cancels out and cannot see.
+    /// </summary>
+    private List<float>[] CollectRatios(
+        Image frame, Matrix3x2 sourceToCometFrame, Vector2 bodyOnGrid, int[,] pattern,
+        float rInner, float rOuter, ReadOnlySpan<float> skyLevel, ReadOnlySpan<bool> skyKnown)
+    {
+        var plane = frame.GetChannelArray(0);
+        var ratios = new List<float>[_planes.Length];
+        for (var c = 0; c < ratios.Length; c++)
+        {
+            ratios[c] = new List<float>(1024);
+        }
+        var outer2 = rOuter * rOuter;
+        var inner2 = rInner * rInner;
+        var (x0, y0, x1, y1) = SourceBounds(frame, sourceToCometFrame, bodyOnGrid, rOuter);
+        for (var y = y0; y <= y1; y++)
+        {
+            for (var x = x0; x <= x1; x++)
+            {
+                var k = ((y & 1) << 1) | (x & 1);
+                if (!skyKnown[k])
+                {
+                    continue;
+                }
+                var mp = ToModel(new Vector2(x, y), sourceToCometFrame, bodyOnGrid);
+                var dx = mp.X - _centre.X;
+                var dy = mp.Y - _centre.Y;
+                var r2 = dx * dx + dy * dy;
+                if (r2 >= outer2 || r2 < inner2)
+                {
+                    continue;
+                }
+                var c = Math.Min(pattern[y & 1, x & 1], _planes.Length - 1);
+                var m = Sample(c, mp.X, mp.Y);
+                var v = plane[y, x];
+                if (m <= 0f || !float.IsFinite(v))
+                {
+                    continue;
+                }
+                ratios[c].Add((v - skyLevel[k]) / m);
+            }
+        }
+        return ratios;
+    }
+
+    /// <summary>Median of the positive entries, or <paramref name="fallback"/> when there are none.</summary>
+    private static float MedianOfPositive(ReadOnlySpan<float> values, float fallback)
+    {
+        Span<float> positive = stackalloc float[values.Length];
+        var n = 0;
+        foreach (var v in values)
+        {
+            if (v > 0f && float.IsFinite(v))
+            {
+                positive[n++] = v;
+            }
+        }
+        if (n == 0)
+        {
+            return fallback;
+        }
+        var used = positive[..n];
+        used.Sort();
+        return used[n / 2];
+    }
+
+    /// <summary>Per-CFA-colour sky as a median of what lies beyond the reach inside the model's
+    /// source box. False when the box is empty.</summary>
+    private bool ReadSky(Image frame, Matrix3x2 sourceToCometFrame, Vector2 bodyOnGrid, Span<float> skyLevel, Span<bool> skyKnown)
+    {
+        var plane = frame.GetChannelArray(0);
+        var (x0, y0, x1, y1) = SourceBounds(frame, sourceToCometFrame, bodyOnGrid, ReachPx);
+        if (x1 <= x0 || y1 <= y0)
+        {
+            return false;
+        }
+        var sky = new List<float>[4];
+        for (var k = 0; k < 4; k++)
+        {
+            sky[k] = new List<float>(4096);
+        }
+        var reach2 = ReachPx * ReachPx;
+        for (var y = y0; y <= y1; y += 3)
+        {
+            for (var x = x0; x <= x1; x += 3)
+            {
+                var mp = ToModel(new Vector2(x, y), sourceToCometFrame, bodyOnGrid);
+                var dx = mp.X - _centre.X;
+                var dy = mp.Y - _centre.Y;
+                if (dx * dx + dy * dy < reach2)
+                {
+                    continue;
+                }
+                var v = plane[y, x];
+                if (!float.IsFinite(v))
+                {
+                    continue;
+                }
+                sky[((y & 1) << 1) | (x & 1)].Add(v);
+            }
+        }
+        for (var k = 0; k < 4; k++)
+        {
+            skyKnown[k] = false;
+            if (sky[k].Count < 16)
+            {
+                continue;
+            }
+            sky[k].Sort();
+            skyLevel[k] = sky[k][sky[k].Count / 2];
+            skyKnown[k] = true;
+        }
+        return true;
+    }
+
+    /// <summary>Least squares <c>y = a x + b</c>, optionally dropping pairs whose residual against a
+    /// previous fit exceeds a clip.</summary>
+    private static (float Gain, float Offset)? FitLine(
+        List<float> xs, List<float> ys, ((float Gain, float Offset) Previous, float Clip, float[] Residuals)? clip)
+    {
+        double sx = 0, sy = 0, sxx = 0, sxy = 0;
+        var n = 0;
+        for (var i = 0; i < xs.Count; i++)
+        {
+            if (clip is { } k && k.Residuals[i] > k.Clip)
+            {
+                continue;
+            }
+            sx += xs[i];
+            sy += ys[i];
+            sxx += (double)xs[i] * xs[i];
+            sxy += (double)xs[i] * ys[i];
+            n++;
+        }
+        if (n < 16)
+        {
+            return null;
+        }
+        var den = n * sxx - sx * sx;
+        if (den <= 0)
+        {
+            return null;
+        }
+        var a = (n * sxy - sx * sy) / den;
+        var b = (sy - a * sx) / n;
+        return ((float)a, (float)b);
+    }
+
+    /// <summary>Bilinear read of a raw-core plane at fractional cell coordinates; NaN off the plane
+    /// or next to an unknown cell.</summary>
+    private static float SampleRaw(float[,] raw, float x, float y)
+    {
+        var n = raw.GetLength(0);
+        if (x < 0f || y < 0f || x >= n - 1 || y >= n - 1)
+        {
+            return float.NaN;
+        }
+        var x0 = (int)x;
+        var y0 = (int)y;
+        var fx = x - x0;
+        var fy = y - y0;
+        var a = raw[y0, x0];
+        var b = raw[y0, x0 + 1];
+        var c = raw[y0 + 1, x0];
+        var d = raw[y0 + 1, x0 + 1];
+        return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
     }
 
     /// <summary>The model's value at an offset from the body, per channel: for tests and for the

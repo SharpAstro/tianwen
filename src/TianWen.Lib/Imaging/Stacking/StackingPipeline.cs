@@ -1414,7 +1414,7 @@ public sealed class StackingPipeline(
             // no --remove-stars the two are the same object and this is a no-op distinction.
             var layerCalibrator = useStarless ? integrationCalibrator : calibrator;
             var maskedFramePixels = 0;
-            var modelScaleSum = 0.0;
+            double[]? modelScaleSum = null;
             var modelScaleCount = 0;
             var (canvasShift, outOriginX, outOriginY, outWidth, outHeight) =
                 CanvasGeometry.ComputeUnionCanvas(layerTransforms, referenceRaw.Width, referenceRaw.Height);
@@ -1432,6 +1432,10 @@ public sealed class StackingPipeline(
             // added to either. This was two copies of the same block once, and a fix to one of them
             // was a fix to half the strategies.
             var bodyOnGrid = cometFit is { } gridFit ? CometCompose.BodyOnGrid(gridFit, reference.Meta) : default;
+            // One amplitude PER CHANNEL, per frame (see below); allocated once here and refilled per
+            // frame, since the producers hand out one frame at a time.
+            var amplitudes = new float[layerModel?.ChannelCount ?? 0];
+            var coreAmplitudes = new float[layerModel?.ChannelCount ?? 0];
             async ValueTask<(Image Calibrated, Matrix3x2 TransformOrig)> PrepareFrameAsync(int fi, CancellationToken token)
             {
                 var lightInfo = useStarless && matched[fi].Starless is { } sl ? sl : matched[fi].Light;
@@ -1457,11 +1461,20 @@ public sealed class StackingPipeline(
                         transformOrig, modelRate, CometCompose.DriftHours(lightInfo.Meta, reference.Meta));
                     var cfa = calibrated.ImageMeta.SensorType.GetBayerPatternMatrix(
                         calibrated.ImageMeta.BayerOffsetX, calibrated.ImageMeta.BayerOffsetY);
-                    var amplitude = model.FitScale(calibrated, toCometGrid, bodyOnGrid, cfa);
-                    if (amplitude > 0f)
+                    // One amplitude PER CHANNEL: the comet layer normalised each channel to its own
+                    // sky, so the model's channels are in different units and a pooled amplitude
+                    // paints a colour cast along the track (SWAN: red -0.84 sigma, blue +0.36).
+                    if (model.FitScales(calibrated, toCometGrid, bodyOnGrid, cfa, amplitudes))
                     {
-                        maskedFramePixels += model.SubtractFrom(calibrated, toCometGrid, bodyOnGrid, cfa, amplitude);
-                        modelScaleSum += amplitude;
+                        // The nucleus takes its own amplitude: it is as sharp as this frame's seeing
+                        // and the coma's amplitude does not know that. A no-op without a spliced core.
+                        model.FitCoreScales(calibrated, toCometGrid, bodyOnGrid, cfa, amplitudes, coreAmplitudes);
+                        maskedFramePixels += model.SubtractFrom(calibrated, toCometGrid, bodyOnGrid, cfa, amplitudes, coreAmplitudes);
+                        modelScaleSum ??= new double[model.ChannelCount];
+                        for (var c = 0; c < amplitudes.Length; c++)
+                        {
+                            modelScaleSum[c] += amplitudes[c];
+                        }
                         modelScaleCount++;
                     }
                 }
@@ -1740,11 +1753,12 @@ public sealed class StackingPipeline(
                 logger.LogInformation("  wrote {Path}", IntegrationFitsWriter.RejectionPathFor(masterPath));
             }
 
-            if (modelScaleCount > 0)
+            if (modelScaleCount > 0 && modelScaleSum is { } sums)
             {
                 logger.LogInformation(
-                    "  [comet] model subtracted from {N}/{Total} frames, mean amplitude {Scale:F4}",
-                    modelScaleCount, matched.Count, modelScaleSum / modelScaleCount);
+                    "  [comet] model subtracted from {N}/{Total} frames, mean amplitude per channel {Scales}",
+                    modelScaleCount, matched.Count,
+                    string.Join("/", Array.ConvertAll(sums, s => (s / modelScaleCount).ToString("F1", System.Globalization.CultureInfo.InvariantCulture))));
             }
             return (masterPath, postResult, maskedFramePixels, intResult, canvasShift, statsRect, selection.Chosen.Kind);
         }
@@ -1955,6 +1969,30 @@ public sealed class StackingPipeline(
                     {
                         logger.LogInformation("  [comet] model ready in {ElapsedMs} ms",
                             (long)Stopwatch.GetElapsedTime(modelStart).TotalMilliseconds);
+                        if (options.RemoveStarsPerFrame)
+                        {
+                            // The plates the model came from had their stars removed, and a star
+                            // remover takes a comet's central condensation with them. The frames still
+                            // have it, so without this the nucleus stays in every frame of the star
+                            // layer as a line along the track (10P: +2 to +3.5 sigma). Restore it from a
+                            // small comet-aligned median stack of the RAW frames, which the remover
+                            // never saw. Costs one read + calibration per frame.
+                            var coreStart = StageTimings.Start();
+                            var rawFrames = new List<(FrameInfo Light, Matrix3x2 StarTransform)>(matched.Count);
+                            foreach (var m in matched)
+                            {
+                                rawFrames.Add((m.Light, m.StarTransform));
+                            }
+                            var rawCore = await CometRawCore.StackAsync(
+                                rawFrames, fit.PxPerHour, reference.Meta, cometOnGrid, model.ChannelCount,
+                                CometRawCore.DefaultRadiusPx, calibrator, logger, ct);
+                            if (rawCore is not null)
+                            {
+                                model.SpliceCore(rawCore, innerPx: 12f, featherPx: 6f, logger);
+                            }
+                            logger.LogInformation("  [comet] nucleus restored from the raw frames in {ElapsedMs} ms",
+                                (long)Stopwatch.GetElapsedTime(coreStart).TotalMilliseconds);
+                        }
                     }
                 }
 
