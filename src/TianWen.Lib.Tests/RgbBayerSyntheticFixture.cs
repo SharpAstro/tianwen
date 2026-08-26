@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using TianWen.Lib.Devices.Fake;
@@ -29,6 +29,14 @@ internal static class RgbBayerSyntheticFixture
     public const int DarkCount = 2;
     public const int StarCount = 50;
     public const float DarkLevel = 80.0f;
+
+    /// <summary>Pedestal a synthetic BIAS carries. Deliberately BELOW <see cref="DarkLevel"/>:
+    /// a dark is bias plus thermal signal, so a bias that matched the dark would make the two
+    /// indistinguishable and a test could not tell which one had been subtracted.</summary>
+    public const float BiasLevel = 55.0f;
+
+    /// <summary>How many synthetic bias frames <see cref="WriteSyntheticBiases"/> writes.</summary>
+    public const int BiasCount = 3;
 
     /// <summary>Per-frame sub-pixel dither -- mirrors real-world capture
     /// (mount/atmosphere drift is never Bayer-aligned). Frame 0 sits at
@@ -154,6 +162,56 @@ internal static class RgbBayerSyntheticFixture
                 pedestal: 0f,
                 imageMeta: meta);
             img.WriteToFitsFile(Path.Combine(darksDir, $"dark_{i:D2}.fits"));
+        }
+    }
+
+    /// <summary>
+    /// Noise-only ZERO-exposure frames sharing the lights' sensor signature, gain and offset, so
+    /// MasterFrameBuilder yields one bias master the light group can match.
+    /// <para>Written for the no-dark case: with a dark present the bias is deliberately not passed
+    /// to the calibrator (the dark already contains it), so a bias only has work to do when no dark
+    /// matches -- which is the situation any set whose exposure was never darked is permanently
+    /// in.</para>
+    /// </summary>
+    public static void WriteSyntheticBiases(string biasDir)
+    {
+        for (var i = 0; i < BiasCount; i++)
+        {
+            var pixels = new float[FrameSize, FrameSize];
+            var rng = new Random(31 + i);
+            for (var y = 0; y < FrameSize; y++)
+            {
+                for (var x = 0; x < FrameSize; x++)
+                {
+                    pixels[y, x] = BiasLevel + (float)(rng.NextDouble() * 3.0);
+                }
+            }
+
+            var meta = new ImageMeta
+            {
+                Instrument = "SynthBayer",
+                ExposureStartTime = new DateTimeOffset(2026, 5, 17, 0, 1, i, TimeSpan.Zero),
+                ExposureDuration = TimeSpan.Zero,
+                FrameType = FrameType.Bias,
+                PixelSizeX = 3.76f,
+                PixelSizeY = 3.76f,
+                FocalLength = 1000,
+                BinX = 1,
+                BinY = 1,
+                CCDTemperature = -5f,
+                SensorType = SensorType.RGGB,
+                ObjectName = "SynthRgb",
+                Gain = 100,
+                Offset = 25,
+            };
+            var img = new Image(
+                data: [pixels],
+                bitDepth: BitDepth.Int16,
+                maxValue: 4096f,
+                minValue: 0f,
+                pedestal: 0f,
+                imageMeta: meta);
+            img.WriteToFitsFile(Path.Combine(biasDir, $"bias_{i:D2}.fits"));
         }
     }
 

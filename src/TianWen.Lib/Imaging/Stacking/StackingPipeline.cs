@@ -552,7 +552,7 @@ public sealed class StackingPipeline(
         {
             ct.ThrowIfCancellationRequested();
             var result = await ProcessLightGroupAsync(
-                key, slug, frames, darkMasters, flatMasters, outputDir, hostTracker, ct);
+                key, slug, frames, darkMasters, flatMasters, biasMasters, outputDir, hostTracker, ct);
             yield return result;
         }
 
@@ -605,6 +605,7 @@ public sealed class StackingPipeline(
         List<FrameInfo> lightList,
         List<(MasterGroupKey Key, Image Master)> darkMasters,
         List<(MasterGroupKey Key, Image Master)> flatMasters,
+        List<(MasterGroupKey Key, Image Master)> biasMasters,
         string outputDir,
         HostSnapshotTracker hostTracker,
         CancellationToken ct)
@@ -621,18 +622,38 @@ public sealed class StackingPipeline(
         var timings = new StageTimings();
         logger.LogInformation("=== Light group: {Slug} ({Count} frames) ===", slug, lightList.Count);
 
-        // Calibration path: bias is intentionally NOT passed to the
-        // Calibrator. The master dark was built from raw darks (no bias
-        // pre-subtraction), so its bias signal is already baked in --
-        // subtracting both bias AND dark would double-subtract the bias
-        // pedestal. Matched-exposure stacking works cleanly with
-        // light - dark - flat alone.
+        // Calibration path. WITH a dark, bias is deliberately NOT passed: the master dark was built
+        // from raw darks with no bias pre-subtraction, so the bias signal is already baked into it
+        // and subtracting both would remove the pedestal twice. light - dark - flat is complete.
+        //
+        // WITHOUT a dark, the bias has to stand in, because otherwise NOTHING removes the pedestal
+        // and the flat then divides a frame that still carries it. That is not merely a missing
+        // step, it is the wrong ORDER: (signal + pedestal) / flat imprints the flat's inverse shape
+        // onto what should be a constant offset. Measured on a SVBONY SV605CC set whose 30 s lights
+        // have no dark at any temperature -- an 804 ADU pedestal divided by a flat spanning
+        // 0.950-1.019 spreads to 789-846 ADU, a 57 ADU gradient across a frame whose real sky signal
+        // is 948 ADU. Six percent, shaped exactly like inverse vignetting, so it reads as light
+        // pollution and a later gradient correction would happily 'fix' it.
         var groupDate = lightList[0].Meta.ExposureStartTime;
         var (dark, darkKey) = MatchMaster(darkMasters, calKey, MasterMatchKind.Dark, groupDate, options.RequireGainMatch);
         var (flat, flatKey) = MatchMaster(flatMasters, calKey, MasterMatchKind.Flat, groupDate);
+        var (bias, biasKey) = dark is null
+            ? MatchMaster(biasMasters, calKey, MasterMatchKind.Bias, groupDate, options.RequireGainMatch)
+            : (null, null);
         logger.LogInformation("  dark master: {Dark}", darkKey is null ? "NONE" : darkKey.Slug());
         logger.LogInformation("  flat master: {Flat}", flatKey is null ? "NONE" : flatKey.Slug());
-        var calibrator = new Calibrator(Bias: null, Dark: dark, Flat: flat, Pedestal: 0f);
+        if (dark is null)
+        {
+            logger.LogInformation("  bias master: {Bias} (no dark matched, so the bias carries the pedestal)",
+                biasKey is null ? "NONE" : biasKey.Slug());
+            if (biasKey is null && flat is not null)
+            {
+                logger.LogWarning(
+                    "  no dark AND no bias matched, but a flat did: the flat will divide an "
+                    + "un-pedestal-corrected frame and imprint its inverse shape as a gradient");
+            }
+        }
+        var calibrator = new Calibrator(Bias: bias, Dark: dark, Flat: flat, Pedestal: 0f);
         // Build hot-pixel mask from the dark master only when drizzle is
         // forced -- mask consumption lives entirely in DrizzleStrategy
         // because applying it upstream (in Calibrator) would NaN-poison
@@ -1824,7 +1845,7 @@ public sealed class StackingPipeline(
     /// FLAT must carry the same filter's dust/vignetting (exposure is irrelevant, gain a score); a
     /// flat PEDESTAL keeps the legacy exposure-proximity ranking (its exposure term is a proxy for
     /// the thermal signal the candidate removes; the caller pre-gates the candidate pool).</summary>
-    internal enum MasterMatchKind { Dark, Flat, FlatPedestal }
+    internal enum MasterMatchKind { Dark, Flat, FlatPedestal, Bias }
 
     /// <summary>Find the best master for a light group. The gates and penalties are the dataset
     /// resolver's own (<see cref="CalibrationResolver"/>), so the two paths' matching arithmetic
@@ -1851,6 +1872,14 @@ public sealed class StackingPipeline(
             {
                 continue;
             }
+            // A bias is the ZERO-exposure frame, so there is no exposure to be compatible with --
+            // but it is a readout offset, and read offset is a property of gain and offset, so
+            // those gates still apply.
+            if (kind is MasterMatchKind.Bias
+                && !CalibrationResolver.GainCompatible(key, lightKey, requireGainMatch))
+            {
+                continue;
+            }
             var score = CalibrationResolver.TempPenalty(key, lightKey) * 10.0
                 + CalibrationResolver.GainPenalty(key, lightKey)
                 + CalibrationResolver.TimePenalty(master.ImageMeta.ExposureStartTime, targetDate)
@@ -1859,6 +1888,9 @@ public sealed class StackingPipeline(
                     // A flat's exposure says nothing about its dust; its filter says everything.
                     MasterMatchKind.Flat =>
                         key.SameFilterAs(lightKey) ? 0.0 : 1000.0,
+                    // Charging a bias for its exposure difference would price in the one thing a
+                    // bias is defined by. Offset still counts -- it is what a bias measures.
+                    MasterMatchKind.Bias => CalibrationResolver.OffsetPenalty(key, lightKey),
                     _ => Math.Abs((key.Exposure - lightKey.Exposure).TotalSeconds)
                         + (kind is MasterMatchKind.Dark ? CalibrationResolver.OffsetPenalty(key, lightKey) : 0.0),
                 };
