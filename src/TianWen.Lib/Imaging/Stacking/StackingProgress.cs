@@ -34,6 +34,9 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// never entered the per-group pipeline. NOTE: an ImmutableArray member
 /// makes record equality reference-based for this field; consumers
 /// compare fields, never whole GroupResults.</param>
+/// <param name="CompositeFitsPath">Absolute path to <c>master_&lt;slug&gt;_composite.fits</c>, the
+/// finished image of a comet run (star layer plus the body added back). Null for every other run,
+/// and for a comet run whose star layer had to exclude the body rather than subtract it.</param>
 public sealed record GroupResult(
     string GroupSlug,
     int FramesAttempted,
@@ -44,7 +47,8 @@ public sealed record GroupResult(
     TimeSpan Elapsed,
     string SkipReason = "",
     SpccDiagnostics? Spcc = null,
-    ImmutableArray<StageTimings.Stage> Stages = default);
+    ImmutableArray<StageTimings.Stage> Stages = default,
+    string? CompositeFitsPath = null);
 
 /// <summary>
 /// Coarse phase markers used by <see cref="StackingPipeline.RunAsync"/>

@@ -43,6 +43,19 @@ Under `<data-root>/output/` (or `--output` if set):
 - `master_<group>_drizzle.png`
 - `master_<group>_drizzle.rejection.fits`  (here this is the per-channel **coverage map**, not a rejection-fraction map)
 
+**Comet runs** (`--comet`) write three masters from the one run, all on the same reference frame:
+
+- `master_<group>.fits`: the COMET layer, registered on the body (stars trail). With `--remove-stars`
+  it is built from per-frame star-removed plates and holds the comet alone.
+- `master_<group>_stars.fits`: the STAR layer, registered on the stars with the body SUBTRACTED from
+  every frame (or EXCLUDED, when no star remover is registered; `--no-star-layer` skips it).
+- `master_<group>_composite.fits`: the finished image, the star layer with the body added back once at
+  its ephemeris position for the reference epoch. Plate-solved and SPCC'd like any master, since it has
+  both stars and comet. Written only when the body was subtracted (`--no-composite` skips it).
+- `starless/<group>/*_starless.fits`: the per-frame star-removed plates, a CACHE beside `masters/`.
+  A re-run into the same `-o` reuses a plate whose `SRCDGST` + `STARMODE` match instead of paying
+  ~7 s of `sxt` per frame again, which turns a 13-minute iteration into a 3-minute one.
+
 Every master also carries `SWCREATE = TianWen.Imaging.Stacking.Integrator` + `STRATEGY = <kind>` in its FITS header so provenance stays queryable even if the file gets renamed.
 
 ## Knobs worth knowing
@@ -56,7 +69,9 @@ Every master also carries `SWCREATE = TianWen.Imaging.Stacking.Integrator` + `ST
 | `--group-exclude <pat>` | Inverse of `--group-filter`. |
 | `--output-format <fmt>` | Companion written beside the FITS: `png` (default), `uhdr` (Ultra HDR gain-map JPEG), `exr` (float-true linear HDR), or `none` to skip it. **There is no `--no-png`** -- use `--output-format none`. |
 | `--comet [designation]` | Register on the BODY, so the comet integrates sharp and the stars trail. Omit the value to read the designation from the frames' own `OBJECT` card. Derives the rate by plate-solving the reference frame and asking JPL Horizons for a TOPOCENTRIC track from the site in `SITELAT`/`SITELONG`/`SITEELEV`. Needs network. |
-| `--comet-rate dx,dy` | The offline counterpart, in CANVAS px/hr of the reference frame's grid. Wins over `--comet` when both are given. |
+| `--comet-rate dx,dy` | The offline counterpart, in CANVAS px/hr of the reference frame's grid. Wins over `--comet` when both are given. Carries no position, so it cannot drive the star layer or the composite. |
+| `--remove-stars` | Per-frame star removal after registration, before integration: the comet LAYER. Needs a registered `IStarRemover` (RC-Astro CLI or the SAS models). Pair with `--no-bayer-drizzle` so both layers take the same normalising strategy. |
+| `--no-star-layer` / `--no-composite` | Skip the companion star layer / the finished composite of a `--comet` run. |
 | `--inherit-wb <master.fits>` | Take the white balance from a donor master's `WBRED`/`WBGREEN`/`WBBLUE`. Required for a comet stack: its stars are trailed, so it cannot plate-solve and SPCC has nothing to work with. |
 | `--reference-frame <substr>` | Pin the reference to the first candidate whose path contains this substring. Prefer `--manifest`, which pins the reference along with the frame list and the transforms. |
 | `--no-plate-solve` | Skip plate-solving. Use for synthetic / non-celestial data, or when the catalog DB initialisation is the bottleneck. |

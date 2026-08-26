@@ -39,10 +39,14 @@ namespace TianWen.Lib.Imaging.Stacking
             return declared is { Length: > 0 } ? declared : StackManifest.DigestData(path);
         }
 
-        /// <summary>Reads <c>SRCDGST</c> from the first header, or null when absent. Deliberately a
-        /// raw block walk rather than a full FITS open: this runs once per frame per manifest-driven
-        /// run and only ever needs one card out of the first header.</summary>
-        public static string? TryReadSourceDigest(string path)
+        /// <summary>Reads <c>SRCDGST</c> from the first header, or null when absent.</summary>
+        public static string? TryReadSourceDigest(string path) => TryReadCard(path, SourceDigestKeyword);
+
+        /// <summary>Reads one card's value (string cards unquoted, others as written, comment
+        /// stripped) from the first header, or null when absent. Deliberately a raw block walk rather
+        /// than a full FITS open: this runs once per frame per run and only ever needs one card out of
+        /// the first header.</summary>
+        public static string? TryReadCard(string path, string keyword)
         {
             try
             {
@@ -68,7 +72,7 @@ namespace TianWen.Lib.Imaging.Stacking
                         {
                             return null;
                         }
-                        if (!key.SequenceEqual(SourceDigestKeyword))
+                        if (!key.SequenceEqual(keyword))
                         {
                             continue;
                         }

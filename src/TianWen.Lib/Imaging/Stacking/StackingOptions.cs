@@ -267,6 +267,12 @@ public sealed record StackingOptions(
     // Sized generously on purpose -- too small leaves the residue this exists to remove, while too
     // large only spends frames in a band, and the band is under 1% of the canvas.
     float CometMaskArcsec = 240f,
+    // The finished image: the star layer with the body ADDED back once, at the ephemeris position
+    // for the reference epoch, as master_<slug>_composite.fits. Only possible when the body was
+    // SUBTRACTED from the star layer (the model is what gets added), so a masked star layer has no
+    // composite. Placement is astrometric and needs no WCS and no centroid: both layers share the
+    // reference frame, so the body's position is the same reference-space point the subtraction used.
+    bool CometComposite = true,
     // A white balance INHERITED from another master rather than solved here. Set it and the SPCC
     // solve is skipped entirely -- which is not an optimisation but the only way to colour a plate
     // that has no stars: SPCC fits against catalogue stars, so a star-removed comet layer has
