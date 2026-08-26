@@ -7,7 +7,12 @@ namespace TianWen.Lib.Astrometry.Comets;
 /// Everything needed to ask JPL Horizons for the track behind a comet-aligned stack, derived from
 /// the frames themselves.
 /// </summary>
-/// <param name="Designation">Compact form, e.g. <c>10P</c>, which is what Horizons' <c>DES=</c> takes.</param>
+/// <param name="Designation">Canonical form, e.g. <c>10P</c> or <c>C/2025 R2</c>, which is what
+/// Horizons' <c>DES=</c> takes. NOT the compact form: that is only valid for a NUMBERED comet, where
+/// the two happen to coincide. For a provisional designation the compact <c>C2025R2</c> is rejected
+/// outright, and so is <c>C/2025R2</c> - Horizons needs the space. Measured against the live API on
+/// the C/2025 R2 (SWAN) window: <c>C/2025 R2</c> and <c>2025 R2</c> both return an ephemeris, while
+/// <c>C2025R2</c> and <c>C/2025R2</c> answer "No matches found".</param>
 /// <param name="SiteLatDeg">Observatory latitude, degrees north.</param>
 /// <param name="SiteLonDeg">Observatory longitude, degrees EAST (Horizons' convention, and the FITS
 /// <c>SITELONG</c> convention, so no sign flip belongs anywhere on this path).</param>
@@ -87,8 +92,12 @@ public readonly record struct CometTrackRequest(
         // is a straight line and would extrapolate happily, but an extrapolated endpoint is exactly
         // where a track's curvature is least constrained, and the first and last frames are the two
         // that pay the most for a wrong slope.
+        // Canonical, never compact. They coincide for a numbered comet ("10P"), which is why the
+        // compact form survived the 10P work looking correct, and they diverge for a provisional
+        // one: Horizons rejects "C2025R2" and wants "C/2025 R2". A rejected designation costs a
+        // whole run, because the pipeline then has no rate.
         return new CometTrackRequest(
-            designation.ToCompact(),
+            designation.ToCanonical(),
             siteLatDeg,
             siteLonDeg,
             double.IsNaN(siteElevMetres) ? 0.0 : siteElevMetres,

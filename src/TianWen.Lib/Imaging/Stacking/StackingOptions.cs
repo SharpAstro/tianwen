@@ -248,6 +248,25 @@ public sealed record StackingOptions(
     // "Auto" (the empty string) reads the designation from the frames' own OBJECT card, which is
     // what makes a whole folder of comet lights stack correctly with no argument beyond the flag.
     string? CometDesignation = null,
+    // The companion STAR layer, emitted by the same comet run as master_<slug>_stars.fits. Both
+    // layers exist to be combined, so producing them from one run is not a convenience: it is the
+    // only way they are guaranteed to share a reference frame, a canvas origin, a debayer and a
+    // frame set. Two runs can differ in all four, and then the layers do not overlay.
+    //
+    // The comet is EXCLUDED from it per frame rather than rejected out of it (see CometMask for the
+    // measurements). Off gives the plain comet-aligned run, byte-identical to before.
+    bool CometStarLayer = true,
+    // Radius of that exclusion, in ARCSECONDS. Angular because a coma's apparent size is a property
+    // of the body and its distance, not of the telescope it is pointed through, so a pixel default
+    // would be right for one rig and wrong for the next. Converted per group via the reference
+    // frame's own pixel scale.
+    //
+    // The 240" default is where C/2025 R2's coma reached the background: measured on the
+    // comet-aligned master, 60" per wedge typical and 100 px (287") in its worst, against a smear in
+    // the star-aligned master that was 1.76 sigma at the track and 0.33 sigma by 80 px (230").
+    // Sized generously on purpose -- too small leaves the residue this exists to remove, while too
+    // large only spends frames in a band, and the band is under 1% of the canvas.
+    float CometMaskArcsec = 240f,
     // A white balance INHERITED from another master rather than solved here. Set it and the SPCC
     // solve is skipped entirely -- which is not an optimisation but the only way to colour a plate
     // that has no stars: SPCC fits against catalogue stars, so a star-removed comet layer has

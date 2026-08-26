@@ -195,7 +195,16 @@ internal sealed class StackSubCommand(
         };
         var cometRateOpt = new Option<string?>("--comet-rate")
         {
-            Description = "Comet integration with an EXPLICIT canvas rate, as 'dx,dy' in pixels per hour of the reference frame's pixel grid (e.g. '-11.2,5.9'). The offline counterpart to --comet, and the override when an ephemeris is wrong; wins over --comet when both are given. Note this is CANVAS pixels per hour, not a sky rate: the star solution has already absorbed dither and field rotation by the time it applies.",
+            Description = "Comet integration with an EXPLICIT canvas rate, as 'dx,dy' in pixels per hour of the reference frame's pixel grid (e.g. '-11.2,5.9'). The offline counterpart to --comet, and the override when an ephemeris is wrong; wins over --comet when both are given. Note this is CANVAS pixels per hour, not a sky rate: the star solution has already absorbed dither and field rotation by the time it applies. Carries no POSITION, only a rate, so it cannot drive the companion star layer - use --comet for that.",
+        };
+        var noStarLayerOpt = new Option<bool>("--no-star-layer")
+        {
+            Description = "Skip the companion STAR layer that a --comet run writes beside the comet master as master_<slug>_stars.fits. That layer is the same frames registered on the STARS, with the comet EXCLUDED from each frame rather than rejected out of the stack - kappa-sigma removes the compact nucleus trail and structurally cannot remove the diffuse coma, because at a pixel the body crosses it is present in a large fraction of the frames rather than a small one (measured on C/2025 R2: rejection ran 0.086 along the track against 0.036 baseline, about five points extra, leaving a 1.76 sigma ridge). The two layers exist to be combined, and building them in one run is what guarantees they share a reference frame, canvas origin, debayer and frame set.",
+        };
+        var cometMaskArcsecOpt = new Option<float>("--comet-mask-arcsec")
+        {
+            Description = "Radius of the region excluded from the star layer, in ARCSECONDS (default 240). Angular rather than pixels because a coma's apparent size belongs to the body, not to the telescope; converted per group via the reference frame's own pixel scale. Cost is small and self-limiting: a pixel is blanked only while the body is within the radius, so a pixel at perpendicular distance p loses 2*sqrt(R^2-p^2)/travel of the session and the average over the affected band is pi*R/(2*travel). On C/2025 R2 that was 35% of frames over a band covering 0.9% of the canvas. Prefer too large over too small - too small leaves the residue this exists to remove.",
+            DefaultValueFactory = _ => 240f,
         };
 
         var noBayerDrizzleOpt = new Option<bool>("--no-bayer-drizzle")
@@ -270,7 +279,7 @@ internal sealed class StackSubCommand(
                 qualityRejectSigmaOpt, rejectLowSigmaOpt, rejectHighSigmaOpt,
                 starRemovalModeOpt, saveCalibratedOpt, saveNormalizedOpt,
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
-                cometOpt, cometRateOpt,
+                cometOpt, cometRateOpt, noStarLayerOpt, cometMaskArcsecOpt,
                 inheritWbOpt,
                 noBayerDrizzleOpt, includeIntegrationsOpt,
                 enhanceOpt, enhanceBlendOpt, splitPlatesOpt,
@@ -437,6 +446,8 @@ internal sealed class StackSubCommand(
                 RemoveStarsPerFrame: parseResult.GetValue(removeStarsOpt),
                 CometRatePxPerHour: cometRate,
                 CometDesignation: cometDesignation,
+                CometStarLayer: !parseResult.GetValue(noStarLayerOpt),
+                CometMaskArcsec: parseResult.GetValue(cometMaskArcsecOpt),
                 InheritedWhiteBalance: inheritedWb,
                 DisableBayerDrizzle: disableBayerDrizzle,
                 IncludeIntegrations: parseResult.GetValue(includeIntegrationsOpt),
@@ -570,7 +581,12 @@ internal sealed class StackSubCommand(
                 // Per-step enhance progress (deblur / denoise can run for minutes) -- only
                 // wired when enhancing; otherwise ProcessAsync is never reached.
                 enhanceProgress: options.Enhance ? EnhanceProgressConsole.Create(consoleHost, "[stack] enhance:") : null,
-                starRemover: options.RemoveStarsPerFrame ? starRemover : null);
+                // Two callers now: --remove-stars builds the comet layer from starless frames, and a
+                // --comet run's companion STAR layer uses the remover on the comet-aligned master to
+                // isolate the body it then subtracts from every frame. Passing it costs nothing when
+                // unused -- the RC-vs-SAS choice and its licence probe are deferred to the first
+                // EnhanceAsync, so merely holding the reference spawns no process.
+                starRemover: options.RemoveStarsPerFrame || options.CometStarLayer ? starRemover : null);
             // The preview PNG + split-plate TIFFs are rendered INSIDE the pipeline
             // (MasterPostProcessor) now, so they share one WB + bg-neut solve and the
             // plates come out colour-matched to the preview. EXR is still written here

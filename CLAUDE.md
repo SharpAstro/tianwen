@@ -879,6 +879,49 @@ counterpart and the override. Design + measurements:
 - **The compose is canvas-space, after the star solution.** Dither was 88.6 px against a 44.7 px comet
   track, so a frame-space shift is simply the wrong quantity; `Matrix3x2` is row-vector, so
   `starSolution * translation` is the correct order and reversing it silently gives the wrong basis.
+- **The companion STAR layer SUBTRACTS the body; it does not exclude it and cannot reject it.** One
+  `--comet` run also writes `master_<slug>_stars.fits` (`--no-star-layer` opts out), because two
+  layers are combinable only if they share a reference frame, canvas origin, debayer, rejector and
+  frame set. Kappa-sigma cannot substitute: at a pixel the body crosses it is present in a THIRD of
+  the frames, which inflates the very sigma meant to detect it (0.086 rejection along the track
+  against 0.036 baseline, leaving a 1.76 sigma ridge). **`CometModel` is the method and `CometMask`
+  is only the fallback for a host with no `IStarRemover`** -- masking works only where travel greatly
+  exceeds the coma, and 10P moves **45 px in 3.5 h**, so every radius past 23 px masks 100% of the
+  session. Stopping short is worse than not masking: the bar it leaves at the edge is as bright as
+  the coma is at whatever radius you stopped.
+- **The model MUST come from a comet layer stacked from per-frame star-removed plates**
+  (`--remove-stars`, artifact 3), and this is the single decision that makes it work. On a
+  comet-aligned plate every star IS a trail and a star remover takes trails as readily as the comet,
+  so a model built by differencing the comet master against its own `sxt` output carries that flux
+  and smears each survivor into a dark streak at 89 comet-relative positions (p99 +0.47 sigma at
+  r=600-1300; streaks to -0.68 sigma). From starless plates: ridge 2.38 -> **0.30 sigma**, streaks
+  p0.5 **-0.035**. Costs ~10 min of per-frame `sxt`. The amplitude is **fitted per frame**, never
+  derived, which is what absorbs transparency, normalisation and units (it ran 87 on one path and
+  1580 on another).
+- **Five preconditions of the SURROUNDING system break the model silently, and all five are already
+  documented elsewhere in this repo.** The anchor epoch is not the reference epoch (the body sits at
+  `anchor + rate*(t_ref - t_anchor)` on the comet grid); a comet-aligned canvas carries NaN and
+  RC-Astro answers an all-NaN plate for any NaN input; a star remover cares where its input sits in
+  [0,1] and `BayerDrizzle` does not normalise (background 0.0145 against the 0.5 it was proven on);
+  `--remove-stars` must NOT replace the frame list or the star layer loses its stars; and each layer
+  needs its own calibrator, since `integrationCalibrator` is a no-op under `--remove-stars` while the
+  star layer reads raw originals. Full write-up + the measurements:
+  [docs/plans/comet-integration.md](docs/plans/comet-integration.md).
+- **A NaN in a pixel's sample column switched rejection off entirely, in every rejector, and always
+  had.** Comparisons against NaN are all false, so the median is nonsense, MAD is NaN, the
+  `mad <= 0` guard does not fire, both bounds are NaN and nothing is ever rejected. Warped frames
+  carry NaN borders, so **canvas edges have never had rejection**; `CometMask` only made it visible
+  mid-frame (0.0000 against 0.026-0.034 outside) as surviving hot-pixel clumps. Fixed via
+  `PixelRejection.MarkAbsent` in all five; an absent sample counts as NOT rejected in the tally, or
+  the rejection map paints every edge as heavily rejected. Pinned by `RejectorAbsentSampleTests`.
+- **Judge these layers at 1:1, not by a band median.** Three real defects (the mask's edge bars, a
+  correlated-noise texture, the trail streaks) were found by eye after the radial profile called the
+  frame clean: a median across a band averages over exactly the edges, thin streaks and texture
+  changes that matter. Use p0.5/min for streaks, a fine 15 px profile for edges, and autocorrelation
+  for texture (the "checkerboard" was NOT CFA -- sub-lattice spread 0.006 sigma on track vs 0.015
+  off, no bump at lag 2 -- but 1.09x rms with ~2x the correlation at 6-8 px). And **never compare a
+  treated layer against a differently-integrated one**: mask-vs-drizzle changed two variables and
+  read as "barely worked".
 
 **Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS so a
 processed image parked alongside the lights is never re-stacked as a fresh sub. Two markers, both

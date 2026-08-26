@@ -775,3 +775,237 @@ removed it, so compositing onto the rejected master directly removes the artifac
   this target it only half-applies. Note `DrizzleStrategy` already honours a per-frame bad-pixel mask
   by skipping deposition, so a comet mask is that mechanism with a different source.
 - **No compositing feature exists.** All of the above lives in scratch scripts.
+
+## The star layer: SUBTRACT the comet, do not exclude it and do not reject it (shipped 2026-08-26)
+
+A `--comet` run now writes two masters, `master_<slug>.fits` (comet-aligned) and
+`master_<slug>_stars.fits` (star-aligned, comet excluded per frame). One run, because the two layers
+are combinable only if they agree on the reference frame, the canvas origin, the debayer, the
+rejector and the frame set, and two separate runs can differ in all five. `--no-star-layer` opts out;
+`--comet-mask-arcsec` sizes the exclusion (default 240").
+
+Raised by the user: the comet moves far enough across a session that a pixel it ruins early is clean
+background late, so the frames where it is in the way can simply be dropped per pixel.
+
+### Rejection provably cannot do this job, and the rejection map says so
+
+The idea it replaces was "tighten the sigma and let the comet fall out as an outlier". Measured on
+C/2025 R2 (SWAN), the rejection map of a star-aligned AHD stack runs **0.086 along the track against
+0.036 baseline** -- about five points extra, where the body is actually present in a third of the
+frames at those pixels. A third of the samples being elevated is not an outlier population; it is
+enough to inflate the very sigma meant to detect it. This is the same split the 10P work found from
+the other side: rejection took the compact nucleus trail from 35.28% of sky to 9.85%, and left the
+diffuse coma untouched because it is present in EVERY frame at those pixels.
+
+Exclusion has no such limit because it never has to detect anything. The ephemeris already says where
+the body is in each frame, and it is the same rate the comet compose consumes.
+
+### The geometry, measured before anything was written
+
+| | |
+|---|---|
+| travel across session | 357 px (ephemeris fit; 356 px from star-trail length, independently) |
+| rate | 245.2 px/h at PA 8.9 deg, straightness residual 0.156 px |
+| coma reach | 60 px per wedge typical, 100 px in its worst |
+| tail | **none measurable** -- 2.1-2.6 sigma in four wedges anti-trailward, 60 px elsewhere |
+| smear left in the star master | 1.76 sigma ridge, 1.03 at 40 px, 0.33 at 80 px, gone by 125 |
+
+No tail means a ROUND mask suffices, which removes the awkward part of the idea. A body with a real
+tail needs an elongated region and `CometMask` is where that would go.
+
+The cost is smaller than it first looks and is self-limiting. A pixel is blanked only while the body
+is within R of it, so a pixel at perpendicular distance p loses `2*sqrt(R^2-p^2)/travel` of the
+session, NOT `2R/travel`; averaged across the band that is `pi*R/(2*travel)`, tapering to zero at the
+band edge. At R=84 px against 357 px of travel: 35% of frames over a band covering **0.9% of the
+canvas**, about 1.24x the noise there, in exchange for deleting a smooth 1.76 sigma ridge. A smooth
+ridge is far more damaging than pixel noise, because it is exactly what subtracts as a negative ghost
+when the layers are combined.
+
+### The anchor is the one new quantity, and it is the one that can be silently wrong
+
+A rate is a difference, so any constant offset cancels and the fit is immune to the 0-based/1-based
+`SkyToPixel` question. An absolute position has no such protection, so the repo rule ("never subtract
+1 from a solver-built WCS") is load-bearing here in a way it is not for the rate. `CometRate` now
+carries `AnchorPx` + `AnchorEpoch`, which is the fit's own intercept -- already computed and
+previously discarded, and a better answer than projecting one sample because the same least-squares
+averaging that makes the slope robust makes it robust too.
+
+**In REFERENCE space, never canvas space.** Each layer computes its own union bounding box from its
+own transforms, so the canvas shift DIFFERS PER LAYER and a canvas anchor built for one is wrong for
+the other. The shift is a pure translation, so the rate is the same number in either basis; the
+anchor is not. Staying in reference space means neither the mask nor the anchor ever has to know
+which layer is being built.
+
+`CometMask.Punch` returns the pixels it blanked and the pipeline warns when that is zero across every
+frame. The body is on the sensor by construction -- it is what the session was pointed at -- so zero
+is the signature of an anchor in the wrong basis, and the resulting master would carry an untouched
+comet while looking entirely plausible. Nothing about the pixels says so, so the count has to.
+
+### A masked layer needs a strategy that NORMALISES, which an unmasked one does not
+
+This is the part the measurement found and the design did not anticipate. The first working version
+picked `BayerDrizzle` (auto-selected at 89 RGGB frames) and the result was wrong in a way that looked
+almost right.
+
+Differencing masked against unmasked isolates exactly what the mask removed. Across the track it was
+a clean coma -- 2.89 sigma at the centreline, zero by 70 px, and `+0.0000` sigma over the 7.75M pixels
+further than 700 px away. Along the track it should be roughly FLAT, because the body sweeps every
+track position equally. It was not:
+
+| along track | removed |
+|---|---|
+| -150..-50 (late-session end) | +4.50 sigma |
+| -50..0 | +2.67 |
+| 0..50 | +0.55 |
+| 50..200 (early-session end) | **-1.08, -0.72, -0.82** |
+
+Negative means masking made the layer BRIGHTER there, which no comet residual can do.
+
+**Cause: the sky rose 504 ADU (1.6%) monotonically across the session as the field set, and
+`DrizzleStrategy` does no per-frame normalisation** (it touches neither `Normalizer` nor
+`Integrator`; `TilePipelinedDrizzle` likewise). Ordinarily that costs nothing, because every interior
+pixel averages the same frames and a session-long trend is one constant across the whole master. A
+mask breaks that premise: it removes a different, time-contiguous slice of frames at each pixel along
+the track, turning the temporal trend into spatial structure precisely where the layer is supposed to
+be cleanest.
+
+So a masked layer excludes four strategy kinds, for two different reasons, both silent:
+
+- `TilePipelined`, `TilePipelinedDrizzle` -- bypass the producers entirely, re-loading and warping
+  each raw light themselves per tile from `RawLightSources`. The mask is never applied at all.
+- `BayerDrizzle`, `TilePipelinedDrizzle` -- no per-frame normalisation, as above.
+
+A forced `--strategy` of any of them is dropped for that layer with a warning rather than honoured.
+
+### Result, same strategy on both sides
+
+`InRamAllFrames`, sidereal, 89 frames, identical 3065x3037 canvas, mask the only difference:
+
+| perp px | unmasked | masked |
+|---|---|---|
+| 0-10 | 2.43 sigma | **0.39** |
+| 10-20 | 2.49 | **0.40** |
+| 20-35 | 2.15 | **0.38** |
+| 35-50 | 1.58 | **0.33** |
+| 50-70 | 1.03 | **0.32** |
+| 70-95 | 0.58 | 0.43 |
+| 95-125 | 0.28 | 0.27 |
+| 125-160 | 0.11 | 0.11 |
+
+The peaked ridge is gone (**-84%**) and what remains is flat at ~0.35 sigma, converging with the
+control beyond 95 px -- that is the real sky of this field (18h22m -14d, beside M16), correctly left
+alone. Along-track removal runs +0.52 to +2.11 sigma with no negative lobe, tapering to 0.00 outside
+the track; the mid-track hump is geometry, not bias, since a mid-track pixel collects coma from the
+body both approaching and receding while an end-of-track pixel only gets one side.
+
+**Do not compare a masked layer against a differently-integrated one.** The first verification did,
+reading 1.53 sigma "still present" against a 1.76 sigma AHD+rejection baseline, and concluded the
+mask had barely worked. Two variables had changed at once (mask, and drizzle's absence of rejection),
+and the pair was uninterpretable in either direction.
+
+### The mask is the FALLBACK. Subtracting a model of the body is the method.
+
+Everything above about masking is true and it still ships, but only for a host with no `IStarRemover`
+registered. Two measurements retired it as the default.
+
+**Masking is arithmetically impossible on a slow body.** It works only where the travel greatly
+exceeds the coma, and that is not the common case. C/2025 R2 travels 357 px against a smear reaching
+165 px, so full coverage costs `2*165/357` = 92% of the session at the centreline, which is marginal.
+**10P/Tempel 2 travels 45 px in 3.5 hours** (12.8 px/h; Horizons, topocentric, over the real session),
+so every radius past 23 px masks 100% of the frames and nothing is left to stack. Not worse than
+subtraction there: impossible.
+
+**And stopping short leaves a worse artifact than the smear.** At R=84 the removal fell to exactly
+0.00 beyond 90 px while the coma was still 0.38 sigma there, so the profile ran dip-then-step and put
+two bars either side of the track. The bar's brightness IS the coma's brightness at whatever radius
+the mask stops.
+
+Subtraction has no geometry to satisfy. Every frame survives, so there is no coverage hole, no noise
+band, no edge and no bars, and the wings and tail come out because they are in the model rather than
+approximated by a circle.
+
+### Where the model comes from, and the one thing that decides whether it works
+
+`CometModel`: the body's own light, isolated, subtracted from each frame at the comet-relative
+position, with the amplitude FITTED per frame (`sum(d*m)/sum(m*m)` against a per-CFA-colour local
+background) rather than derived. Fitting is what makes it robust to transparency, to the master's
+normalisation, and to the units of whatever produced it. The fitted amplitude ran 87 on one path and
+1580 on another, and neither needed a constant anywhere.
+
+**The model must come from a comet layer built from PER-FRAME star-removed plates** (`--remove-stars`,
+artifact 3). That is the whole difference between working and not:
+
+| model source | comet at ridge | streaks away from track (p0.5 / min) |
+|---|---|---|
+| untreated control | 2.38 sigma | -- |
+| mask, R=84 | 0.40 sigma | -- (but 56 of 89 frames, and bars) |
+| comet master minus its own `sxt` | 0.04 sigma | **-0.415 / -0.68 sigma** |
+| **stacked from starless plates** | **0.30 sigma** | **-0.035 / -0.29 sigma** |
+
+The third row is the trap. On a comet-aligned plate **every star IS a trail, and a star remover takes
+trails as readily as it takes the comet**, so the difference holds the body PLUS whatever trail flux
+went with it. Subtracted at 89 comet-relative positions, each survivor smears into a dark streak.
+Measured on the manual pair at r=600-1300: median +0.20 sigma, p99 **+0.47 sigma**. An earlier check
+passed that same plate as clean by asking only for the fraction above 1 sigma, which was 0.0000. The
+wrong question, and it cost several rounds of trying to filter trails back out afterwards
+(`OpenAcrossTrails`, a rank opening, three competing reach criteria, all retained only for the
+fallback path). Stack the comet layer from starless plates and none of it is needed.
+
+Cost: per-frame `sxt` ran 602 s for 89 frames, so the comet layer goes from ~40 s to ~10 min.
+
+### Five preconditions that are NOT properties of this feature, and each broke it silently
+
+Every one belongs to the surrounding system, was already known somewhere in the repo, and produced a
+plausible wrong answer rather than an error.
+
+1. **The anchor epoch is not the reference epoch.** `CometRate.AnchorPx` describes the first
+   ephemeris sample; the compose is `translate(-rate * (t_i - t_REF))`, so on the comet grid the body
+   sits at `anchor + rate * (t_ref - t_anchor)`. At 245 px/hr that is hundreds of pixels, and the
+   model was cropped from blank sky.
+2. **A comet-aligned canvas carries NaN**, and RC-Astro answers an ALL-NaN plate for an input holding
+   any. `SharpenPipeline` already guards this way. Crop first: the box is inside the covered region.
+3. **A star remover is a neural net and cares where its input sits in [0,1].** The comet layer is
+   auto-picked as `BayerDrizzle`, which does not normalise, so its background sits at 0.0145 against
+   the 0.5 the technique was proven on. `sxt` then found only the peak and left the whole coma
+   (radial medians 0.000028 at r=20 against a 0.000077 noise floor). Normalise the crop first.
+4. **`--remove-stars` used to REPLACE the frame list**, so both layers saw starless plates. The
+   starless frame now rides alongside the original in `matched`.
+5. **Each layer needs the calibrator its own input wants.** `integrationCalibrator` is deliberately a
+   no-op under `--remove-stars` because those plates were calibrated before removal; the star layer
+   reads raw originals and needs the real one. Getting this wrong integrates uncalibrated frames into
+   a perfectly plausible master.
+
+### Rejection was switched off wherever a frame did not contribute, and always had been
+
+Not a comet bug at all, found through one. **No `IPixelRejector` handled NaN.** Every comparison
+against NaN is false, so quickselect returns nonsense, MAD comes out NaN, the `mad <= 0` degenerate
+guard does not fire (also false), both bounds become NaN, and `v < NaN` / `v > NaN` are both false.
+Nothing is rejected and the loop breaks on its first pass. Silently.
+
+Warped frames carry NaN borders, so **canvas edges have never had rejection** in any stack this
+codebase has produced. It became visible only when `CometMask` put NaN mid-frame and hot pixels
+survived there as clumps: rejection rate 0.0000 inside the band against 0.026-0.034 outside.
+
+Fixed across all five rejectors via `PixelRejection.MarkAbsent`, plus the two order-statistic ones now
+take their percentiles over the REAL sample count (a NaN sorts to an unspecified end, so "drop the
+highest k" could spend the whole budget on samples that were never there). An absent sample counts as
+NOT rejected in the returned tally, or the rejection map paints every canvas edge as heavily rejected
+when nothing was. Pinned by `RejectorAbsentSampleTests`, verified to fail 4/16 with the fix removed.
+
+### Measuring this: the band median is the wrong statistic
+
+Three real defects were found by looking at the rendered frame at 1:1 after the radial profile had
+called it clean. A median across a band averages over exactly the structures that matter: an edge, a
+thin streak, a texture change. What each needed instead:
+
+- **the bars** at the mask edge: a FINE profile (15 px bins), not 25 px ones;
+- **the "checkerboard"**: not CFA at all (sub-lattice spread 0.006 sigma on track against 0.015 off,
+  and no autocorrelation bump at lag 2) but correlated noise. Only 1.09x the rms yet ~2x the
+  correlation at 6-8 px, so the blobs grow while the per-pixel scatter barely moves;
+- **the streaks**: p0.5 and min of the difference, never its median, which read +0.001 while
+  individual pixels ran to -0.68.
+
+And **never compare a treated layer against a differently-integrated one.** The first verification
+read "1.53 sigma, ridge still present" against a 1.76 sigma baseline and concluded the mask had
+barely worked; that pair differed in mask AND in drizzle-versus-rejection, and was uninterpretable in
+either direction.

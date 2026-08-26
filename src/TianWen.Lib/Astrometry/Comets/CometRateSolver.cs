@@ -14,7 +14,26 @@ namespace TianWen.Lib.Astrometry.Comets;
 /// rather than assumed: the plan measured 0.185 px over 3.5 h for 10P, comfortably under the
 /// registration residual, but a faster body or a longer night need not be so kind.</param>
 /// <param name="SampleCount">Ephemeris samples the fit consumed.</param>
-public readonly record struct CometRate(Vector2 PxPerHour, double MaxResidualPx, int SampleCount);
+/// <param name="AnchorPx">Where the body WAS, in the reference frame's pixel basis, at
+/// <paramref name="AnchorEpoch"/>. This is the fit's intercept, so it is a least-squares answer over
+/// every sample rather than one projected position, and it is what a consumer needs to know where
+/// the body is at some other instant rather than merely how fast it moves.
+///
+/// <para><b>The pixel convention DOES bite here, unlike the rate.</b> A rate is a difference, so any
+/// constant offset cancels and the fit is immune to whether <see cref="WCS.SkyToPixel"/> answers
+/// 0-based or 1-based. An absolute position has no such protection. The repo rule applies and is not
+/// optional: a solver-built WCS answers in detected-centroid coordinates, so this is used AS
+/// RETURNED and never adjusted by a pixel. The plausible-looking correction injects a constant bias
+/// that no test of the rate can ever see.</para></param>
+/// <param name="AnchorEpoch">The instant <paramref name="AnchorPx"/> describes: the first sample's
+/// time, which is the fit's own origin. Carried rather than assumed, because "the first sample" is
+/// not a fact a caller should have to reconstruct from a track it may no longer hold.</param>
+public readonly record struct CometRate(
+    Vector2 PxPerHour,
+    double MaxResidualPx,
+    int SampleCount,
+    Vector2 AnchorPx,
+    DateTimeOffset AnchorEpoch);
 
 /// <summary>
 /// Turns a topocentric ephemeris track into the canvas-space rate the comet compose consumes, by
@@ -90,7 +109,15 @@ public static class CometRateSolver
             worst = Math.Max(worst, Math.Sqrt(dx * dx + dy * dy));
         }
 
-        return new CometRate(new Vector2((float)slopeX, (float)slopeY), worst, n);
+        // The intercepts are the fitted position at `epoch`, which the fit already had to compute.
+        // Returning them costs nothing and is strictly better than re-projecting one sample: the
+        // same least-squares averaging that makes the slope robust makes this robust too.
+        return new CometRate(
+            new Vector2((float)slopeX, (float)slopeY),
+            worst,
+            n,
+            new Vector2((float)interceptX, (float)interceptY),
+            epoch);
     }
 
     /// <summary>
