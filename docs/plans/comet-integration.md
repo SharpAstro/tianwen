@@ -1119,10 +1119,115 @@ reused.
 The two `PrepareFrame` copies inside `IntegrateLayerAsync` (one per producer) are one local function
 now, and the compose arithmetic lives once in `CometCompose` rather than three times inline.
 
-Still open from the list above: `sxt` taking the central condensation, and the two-mask design where
-the coverage arithmetic allows it. The first is no longer only a comet-layer matter: with the
-amplitude read off the annulus, the condensation the model lacks stays in every frame of the star
-layer and shows as a thin line along the track (10P: +2 to +3.5 sigma, |perp| < 4 px, over the 45 px
-of travel). The model's core has to come from somewhere the remover did not touch, i.e. a
-comet-aligned stack of the RAW frames' central few pixels, where rejection copes with the occasional
-trail. The star layer and the composite are otherwise done.
+Still open from the list above: the two-mask design where the coverage arithmetic allows it. `sxt`
+taking the central condensation stopped being open the same day: with the amplitude read off the
+annulus, the condensation the model lacked stayed in every frame of the star layer as a thin line
+along the track (10P: +7 sigma at 2-4 px over the 45 px of travel), and the fix, a comet-aligned
+median stack of the RAW frames' central window spliced into the model, is the next section.
+
+## The nucleus comes from the raw frames, and every channel has its own amplitude (2026-08-27, later)
+
+Three findings on the way from the baseline commit to a clean 10P star layer, each measured before
+it was fixed and each pinned by a test afterwards.
+
+### The annular median took the bowl out and left the line
+
+With the amplitude read as the median of `d/m` over the 12 px to 15%-of-peak annulus (never the
+centre), 10P's star layer against the untreated control, luminance:
+
+| perp px | control | least squares over the core | annular median |
+|---|---|---|---|
+| 0-10 | 12.18 | -0.43 | +0.95 |
+| 10-20 | 7.07 | **-1.13** | -0.11 |
+| 20-35 | 4.45 | -0.72 | -0.08 |
+| 35-50 | 3.10 | -0.40 | +0.03 |
+| 50-95 | 1.92 / 1.21 | -0.24 / -0.16 | +0.02 / +0.01 |
+
+The bowl is gone (amplitude 3540 -> 3107, -12%), and what the bowl had been partly cancelling now
+stands alone: a line along the 45 px track, **+4.9 / +7.0 / +2.9 sigma at 0-2 / 2-4 / 4-7 px**, the
+condensation the star remover took out of the plates. SWAN kept its flat track (-0.04 at 0-10 against
+-0.16 far, a 0.12 sigma spread; amplitude 1711 -> 1641).
+
+### The condensation is a star, and it is bright
+
+Measured on the reference frame's raw pixels: the nucleus peaks at **8656 ADU, +5544 above the green
+sky**, within one pixel of the ephemeris position, while the coma 12-16 px out is +178 above sky. So
+it is a point source thirty times the surface brightness of the coma it sits in, and exactly what a
+star remover is built to take. The model built from starless plates cannot carry it, whatever the fit
+does.
+
+**`CometRawCore`**: a comet-aligned MEDIAN stack of the RAW frames' 81x81 window around the body,
+deposited forward per photosite into the nearest cell of that colour's plane, with the body on the
+centre cell whatever its sub-pixel position (135 frames in 9.6 s; 89 in 4.2 s). A median over frames
+is enough because on the comet grid every star trails through a cell for a few frames out of
+many. **`CometModel.SpliceCore`** relates the two by `raw = a * model + b` over the annulus just
+outside the splice (12-30 px), where the model has its coma and the raw stack's median has shed the
+trails, and replaces the model inside 12 px (feathered to 18) with `(raw - b) / a`. On 10P the gains
+came back 3145 / 3133 / 3037 against a fitted coma amplitude of 3107, which is the consistency check
+the two estimates owe each other, and the model's centre went from 0.069 to 1.61 in green: the
+nucleus is 23x the diffuse core it sits in.
+
+| 10P, |perp| bands within the track | 0-2 | 2-4 | 4-7 | 7-10 | 10-15 | 15-20 |
+|---|---|---|---|---|---|---|
+| annular median, no core | +4.85 | +7.00 | +2.87 | +0.53 | -0.12 | -0.27 |
+| annular median + raw core | -0.54 | -0.77 | -0.69 | -0.43 | -0.19 | -0.26 |
+
+The line is gone. What replaced it is a shallow trough with a few positive spikes (p99 +26 sigma in
+the track strip): the spliced core is ONE nucleus, the median over the session, while each frame's
+nucleus is as sharp as that frame's seeing, and the coma's amplitude knows nothing about that. So the
+core takes **its own per-frame amplitude** (`FitCoreScales`, the median ratio inside 12 px), blended
+into the coma's over the feather. Flux is then matched per frame; the width mismatch a seeing-varying
+point source leaves against a median stack is what remains, and it is small.
+
+### One amplitude for three channels was wrong from the start
+
+The raw-core splice logged its gains per channel, and on SWAN they were **1237 / 1700 / 1996**
+(R / G / B) against a single fitted amplitude of 1641. The comet layer normalises each channel to its
+own sky, so the model's three channels are in three different units, and a pooled amplitude sits near
+the channel with the most photosites (green) while the others are wrong by the ratio of the units.
+Per channel against the control, SWAN's star layer read **R -0.84 sigma, G -0.10, B +0.36** at the
+track: red over-subtracted by a third, blue under-subtracted by a fifth, a colour cast along the track
+that every luminance measurement above had cancelled out and could not see. 10P did not show it only
+because its gains happened to agree (3145 / 3133 / 3037). `FitScales` / `FitCoreScales` /
+`SubtractFrom` now work per model channel, each photosite contributing to and taking from the channel
+its CFA colour names; a channel too thin to fit borrows the median of the others.
+
+SWAN, per channel, at the track (0-20 px) against each channel's own far-field floor (260-450 px):
+
+| | R | G | B |
+|---|---|---|---|
+| control | +1.80 (floor -0.16) | +2.65 (-0.10) | +1.97 (-0.08) |
+| pooled amplitude 1641 | **-0.85** | -0.10 | **+0.36** |
+| per-channel amplitudes 1172 / 1650 / 1959 | -0.07 | -0.14 | -0.08 |
+
+The per-channel amplitudes agree with the raw-core splice's independently fitted gains
+(1237 / 1700 / 1996) to within 5%, which is the cross-check the two estimates owe each other.
+
+### Where 10P ends up
+
+Everything above together, against the untreated control on the same canvas:
+
+| 10P star layer | 0-10 px | 10-20 | 20-35 | 35-50 | fine bins 0-2 / 2-4 / 4-7 / 7-10 |
+|---|---|---|---|---|---|
+| control | 12.18 | 7.07 | 4.45 | 3.10 | |
+| least squares over the core | -0.43 | -1.13 | -0.72 | -0.40 | +2.1 / +3.5 / -0.2 / -2.1 |
+| annular median | +0.95 | -0.11 | -0.08 | +0.03 | +4.9 / +7.0 / +2.9 / +0.5 |
+| + nucleus from the raw frames | -0.31 | -0.13 | -0.07 | +0.03 | -0.5 / -0.8 / -0.7 / -0.4 |
+| + per-channel and per-frame core amplitudes | **-0.06** | **-0.06** | **-0.07** | +0.04 | **+0.1 / 0.0 / -0.2 / -0.1** |
+
+Per channel at 0-20 px: R +0.08, G -0.14, B -0.06 against a control of +4.98 / +9.06 / +8.21;
+amplitudes 2974 / 3153 / 3043. A 12 sigma smear on the slowest mover in the archive is under a tenth
+of a sigma in every band, every channel and every fine bin, and the composite carries the nucleus at
+its measured brightness. What is left in the track strip is the frame-to-frame width mismatch of a
+point source against a median nucleus (p99 +27 sigma over a few pixels), which no single core can
+remove and which the composite does not show.
+
+Pinned by `AMissingNucleusAndABrightNeighbourDoNotInflateTheAmplitude`,
+`TheNucleusIsRestoredFromTheRawCoreInTheModelsOwnUnits` (a 30% core deficit restored; a frame whose
+nucleus is 40% brighter than the median reads a 1.4x core amplitude and subtracts clean),
+`EachChannelGetsItsOwnAmplitude` (1500 / 2000 / 2500 recovered within 3%, under 1% of each channel's
+core left), and `CometRawCoreTests` (the body on the centre cell in every colour from 36 dithered,
+drifting frames, and a fixed star trailing out of the median).
+
+**Measure colour work per channel.** A luminance mean is the right statistic for a ridge and the wrong
+one for a cast: it averages red's deficit against blue's excess and reports flat.

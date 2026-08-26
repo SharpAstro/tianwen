@@ -906,7 +906,17 @@ counterpart and the override. Design + measurements:
   ran 87 on one path and 3500 on another); it is the MEDIAN of per-pixel ratios over an annulus
   (12 px to the 15%-of-peak radius) against a per-CFA MEDIAN sky, never least squares over the core:
   the nucleus the remover took out of the model and a bright neighbour's halo both inflate a
-  least-squares amplitude, and on 10P that dug a -1.1 sigma bowl round the track.
+  least-squares amplitude, and on 10P that dug a -1.1 sigma bowl round the track. **It is fitted PER
+  CHANNEL** (`FitScales`): the comet layer normalised each channel to its own sky, so the model's
+  channels are in different units, and one pooled amplitude painted SWAN's track red -0.84 / blue
+  +0.36 sigma while the luminance mean read flat. Measure colour work per channel.
+- **The nucleus comes from the RAW frames (`CometRawCore` + `CometModel.SpliceCore`).** A star remover
+  takes a comet's central condensation with the stars (10P's peaks at 8656 ADU, +5544 over sky, thirty
+  times the coma's surface brightness at 12 px), so a model from starless plates cannot carry it and it
+  stays in every frame of the star layer as a +7 sigma line along the track. A comet-aligned MEDIAN
+  stack of the raw frames' 81 px window (a star trails through any cell for a few frames of many) is
+  related to the model by a gain and offset fitted over 12-30 px and spliced in under 12 px; the core
+  then takes its own per-frame amplitude, because it is as sharp as that frame's seeing.
 - **The model's reach is decided PER CHANNEL, from where that channel's profile stops falling, never
   from a fraction of the peak on channel 0.** Channel 0 is red, and on a gas-rich comet red is the
   faintest channel by 3x: a 1%-of-red-peak floor cut SWAN's model at 100 px while green still held

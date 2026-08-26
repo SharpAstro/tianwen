@@ -269,6 +269,145 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public async Task TheNucleusIsRestoredFromTheRawCoreInTheModelsOwnUnits()
+        {
+            var body = new Vector2(450.4f, 449.7f);
+            var master = StarlessCometMaster(900, body, sky: 0.5f, noise: 0.002f, seed: 21, coreDeficit: 0.7f);
+            var model = await BuildAsync(master, body);
+            model.ShouldNotBeNull();
+            // Short by 30% at the centre, as a starless plate is.
+            model.ValueAt(1, Vector2.Zero).ShouldBeLessThan(Peaks[1] * 0.8f);
+
+            // The raw core stack: the FULL coma in frame units (a gain of 3500 and a sky offset), noisy.
+            const int radius = 40;
+            const float gain = 3500f;
+            float[] sky = [1000f, 1400f, 1200f];
+            var rng = new Random(23);
+            var rawCore = new float[3][,];
+            for (var c = 0; c < 3; c++)
+            {
+                rawCore[c] = new float[2 * radius + 1, 2 * radius + 1];
+                for (var dy = -radius; dy <= radius; dy++)
+                {
+                    for (var dx = -radius; dx <= radius; dx++)
+                    {
+                        var r = MathF.Sqrt(dx * dx + dy * dy);
+                        rawCore[c][radius + dy, radius + dx] = sky[c] + gain * Peaks[c] * Coma(r) + 2f * Gaussian(rng);
+                    }
+                }
+            }
+
+            var fits = model.SpliceCore(rawCore, innerPx: 12f, featherPx: 6f, NullLogger.Instance);
+
+            for (var c = 0; c < 3; c++)
+            {
+                fits[c].ShouldNotBeNull();
+                fits[c]!.Value.Gain.ShouldBe(gain, gain * 0.03f);
+                fits[c]!.Value.Offset.ShouldBe(sky[c], 30f);
+                // The centre is back to the full coma, and the wings were not touched.
+                model.ValueAt(c, Vector2.Zero).ShouldBe(Peaks[c], Peaks[c] * 0.05f);
+                model.ValueAt(c, new Vector2(40f, 0f)).ShouldBe(Peaks[c] * Coma(40f), Peaks[c] * 0.03f);
+            }
+            model.CoreRadiusPx.ShouldBe(12f);
+
+            // A frame whose nucleus is 40% brighter than the session's median (better seeing) while
+            // its coma is at the fitted amplitude: the core reads its own scale, and the subtraction
+            // uses it inside the core and the coma's outside.
+            var toCometGrid = Matrix3x2.CreateTranslation(15.5f, -7.25f);
+            var bodyInFrame = new Vector2(480.3f, 510.6f);
+            var bodyOnGrid = Vector2.Transform(bodyInFrame, toCometGrid);
+            var frame = MosaicFrame(1000, 1000, bodyInFrame, sky, gain, noise: 3f, stars: 0, seed: 27);
+            var plane = frame.GetChannelArray(0);
+            for (var y = 0; y < frame.Height; y++)
+            {
+                for (var x = 0; x < frame.Width; x++)
+                {
+                    var r = Vector2.Distance(new Vector2(x, y), bodyInFrame);
+                    if (r < 12f)
+                    {
+                        var c = Rggb[y & 1, x & 1];
+                        plane[y, x] += 0.4f * gain * Peaks[c] * Coma(r);
+                    }
+                }
+            }
+            var comaScale = model.FitScale(frame, toCometGrid, bodyOnGrid, Rggb);
+            comaScale.ShouldBe(gain, gain * 0.03f);
+            var coreScale = model.FitCoreScale(frame, toCometGrid, bodyOnGrid, Rggb, comaScale);
+            coreScale.ShouldBe(gain * 1.4f, gain * 0.08f);
+
+            model.SubtractFrom(frame, toCometGrid, bodyOnGrid, Rggb, comaScale, coreScale);
+            double sum = 0; var n = 0;
+            for (var y = (int)bodyInFrame.Y - 6; y <= (int)bodyInFrame.Y + 6; y++)
+            {
+                for (var x = (int)bodyInFrame.X - 6; x <= (int)bodyInFrame.X + 6; x++)
+                {
+                    if (Vector2.Distance(new Vector2(x, y), bodyInFrame) > 6f) { continue; }
+                    sum += plane[y, x] - sky[Rggb[y & 1, x & 1]];
+                    n++;
+                }
+            }
+            // The brightened nucleus came out along with the coma: under 3% of the core's excess left.
+            Math.Abs(sum / n).ShouldBeLessThan(0.03 * 1.4 * gain * Peaks[1]);
+        }
+
+        [Fact]
+        public async Task EachChannelGetsItsOwnAmplitude()
+        {
+            // The comet layer normalised each channel to its own sky, so the model's channels are in
+            // different units: a frame whose comet is red 1500, green 2000, blue 2500 in the model's
+            // per-channel units must come out with three amplitudes, not one. Pooled, SWAN's red was
+            // over-subtracted by a third and its blue under-subtracted by a fifth.
+            var body = new Vector2(450.4f, 449.7f);
+            var master = StarlessCometMaster(900, body, sky: 0.5f, noise: 0.002f, seed: 41);
+            var model = await BuildAsync(master, body);
+            model.ShouldNotBeNull();
+
+            var toCometGrid = Matrix3x2.CreateTranslation(-9.5f, 4.25f);
+            var bodyInFrame = new Vector2(500.3f, 470.6f);
+            var bodyOnGrid = Vector2.Transform(bodyInFrame, toCometGrid);
+            float[] sky = [1000f, 1400f, 1200f];
+            float[] perChannel = [1500f, 2000f, 2500f];
+            var frame = MosaicFrame(1000, 1000, bodyInFrame, sky, amplitude: 1f, noise: 3f, stars: 30, seed: 43);
+            var plane = frame.GetChannelArray(0);
+            for (var y = 0; y < frame.Height; y++)
+            {
+                for (var x = 0; x < frame.Width; x++)
+                {
+                    var c = Rggb[y & 1, x & 1];
+                    var r = Vector2.Distance(new Vector2(x, y), bodyInFrame);
+                    // MosaicFrame put the coma in at amplitude 1; restate it at this channel's amplitude.
+                    plane[y, x] += (perChannel[c] - 1f) * Peaks[c] * Coma(r);
+                }
+            }
+
+            var scales = new float[3];
+            model.FitScales(frame, toCometGrid, bodyOnGrid, Rggb, scales).ShouldBeTrue();
+            for (var c = 0; c < 3; c++)
+            {
+                scales[c].ShouldBe(perChannel[c], perChannel[c] * 0.03f);
+            }
+
+            model.SubtractFrom(frame, toCometGrid, bodyOnGrid, Rggb, scales, scales);
+            Span<double> sum = stackalloc double[3];
+            Span<int> n = stackalloc int[3];
+            for (var y = 0; y < frame.Height; y++)
+            {
+                for (var x = 0; x < frame.Width; x++)
+                {
+                    if (Vector2.Distance(new Vector2(x, y), bodyInFrame) > 50f) { continue; }
+                    var c = Rggb[y & 1, x & 1];
+                    sum[c] += plane[y, x] - sky[c];
+                    n[c]++;
+                }
+            }
+            for (var c = 0; c < 3; c++)
+            {
+                // Under 1% of that channel's own core left, in every colour.
+                Math.Abs(sum[c] / n[c]).ShouldBeLessThan(0.01 * perChannel[c] * Peaks[c]);
+            }
+        }
+
+        [Fact]
         public async Task TheModelIsPlacedSubPixelWhenAddedBack()
         {
             var body = new Vector2(450.4f, 449.7f);
