@@ -94,6 +94,112 @@ public sealed class StackingPipeline(
     };
 
     /// <summary>
+    /// Remove stars from ONE frame, splitting a Bayer mosaic into its four photosite planes first
+    /// and running the remover on each.
+    ///
+    /// <remarks>
+    /// <para>A star in a CFA mosaic is a CHECKERBOARD, not a point spread function: neighbouring
+    /// pixels are different colours, and a remover trained on ordinary astronomical images is asked
+    /// to read them as adjacent samples of one signal. Measured on a real calibrated 60 s sub over
+    /// 419 stars, residuals in units of the frame's own noise: whole-mosaic leaves red with a
+    /// +15.94 sigma tail while green digs -6.35 sigma holes -- red-positive, green-negative, which
+    /// is MAGENTA, and is exactly the coloured streaking that showed up in the comet layer. Split
+    /// into planes, the same frame gives R/G/B tails of 5.73 / 5.67 / 4.81 and holes of
+    /// -3.71 / -3.61 / -3.68: the channel asymmetry is gone.</para>
+    /// <para>Each plane is enhanced SEPARATELY as a single-channel image, which is how the
+    /// measurement was taken; handing the remover one four-channel image would invite it to read the
+    /// planes as colour plus alpha. Full RGB demosaicing first scores slightly better again (tails
+    /// 4.17 / 3.93 / 3.83) but yields a three-channel plate, which cannot feed Bayer drizzle --
+    /// splitting keeps the raw CFA, so it buys most of the gain and forces no downstream choice.
+    /// White-balancing first was measured and does NOTHING (identical to two decimals), so the
+    /// interleaving is the mechanism and the colour balance is not.</para>
+    /// <para>Cost is four half-resolution calls against one full-resolution call: about 12 s versus
+    /// 8 s per frame on this box, so roughly 50% slower rather than faster.</para>
+    /// </remarks>
+    /// </summary>
+    private static async ValueTask<Image> RemoveStarsFromFrameAsync(
+        Image frame, Enhancement.IStarRemover starRemover, ILogger logger, CancellationToken ct)
+    {
+        // Anything that is not an RGGB mosaic (mono, or already-debayered colour) has no
+        // interleaving to undo, so it goes to the remover whole.
+        if (frame.ChannelCount != 1 || frame.ImageMeta.SensorType is not SensorType.RGGB)
+        {
+            return await starRemover.EnhanceAsync(frame, ct);
+        }
+
+        // OWNERSHIP: this method BORROWS frame -- it never releases it, and never returns it. The
+        // caller owns frame (and releases it in its own finally) and owns whatever comes back. That
+        // is the same contract IStarRemover.EnhanceAsync has, so the mosaic branch above can simply
+        // forward. Getting it wrong here is silent: releasing frame would hand the same buffer back
+        // to the camera twice, and returning frame would make the caller release one image twice.
+        var split = frame.SplitBayerChannels();
+        var cleaned = new Image[4];
+        Image merged;
+        try
+        {
+            for (var c = 0; c < 4; c++)
+            {
+                // AsSingleChannel is a borrowed VIEW onto split (shared array, no buffer), so it is
+                // not released; split owns those arrays and is released below.
+                cleaned[c] = await starRemover.EnhanceAsync(split.AsSingleChannel(c), ct);
+            }
+
+            // MergeBayerChannels allocates the mosaic and COPIES into it, so the cleaned planes are
+            // dead the moment it returns -- which is what makes releasing them in the finally safe.
+            var quad = new Image(
+                [cleaned[0].GetChannelArray(0), cleaned[1].GetChannelArray(0), cleaned[2].GetChannelArray(0), cleaned[3].GetChannelArray(0)],
+                BitDepth.Float32, frame.MaxValue, frame.MinValue, frame.Pedestal, frame.ImageMeta);
+            merged = quad.MergeBayerChannels();
+        }
+        finally
+        {
+            split.Release();
+            foreach (var plane in cleaned)
+            {
+                plane?.Release();
+            }
+        }
+
+        if (merged.Width == frame.Width && merged.Height == frame.Height)
+        {
+            return merged;
+        }
+
+        // SplitBayerChannels floor-divides, so an ODD width or height loses its last row / column and
+        // the merge returns smaller. Real frames ARE odd -- this sensor is 4164 x 2795. The geometry
+        // cannot change, because every per-frame transform in the manifest was solved against the
+        // original raster. So build a FULL-SIZE result seeded from the calibrated frame and overwrite
+        // the region that was actually processed; the surviving edge keeps its calibrated pixels,
+        // leaving stars in at most one row and one column at the frame boundary, which the footprint
+        // autocrop trims off a dithered session. A fabricated fill would be worse: it invents data
+        // where the sensor has some. Seeded by COPY rather than by handing back frame, because frame
+        // belongs to the caller.
+        var padded = Image.CreateChannelData(1, frame.Height, frame.Width);
+        var dst = padded[0];
+        var edge = frame.GetChannelArray(0);
+        for (var y = 0; y < frame.Height; y++)
+        {
+            for (var x = 0; x < frame.Width; x++)
+            {
+                dst[y, x] = edge[y, x];
+            }
+        }
+        var core = merged.GetChannelArray(0);
+        for (var y = 0; y < merged.Height; y++)
+        {
+            for (var x = 0; x < merged.Width; x++)
+            {
+                dst[y, x] = core[y, x];
+            }
+        }
+        logger.LogDebug("  [starless] odd raster {W}x{H}: kept {DX} column(s), {DY} row(s) of calibrated edge",
+            frame.Width, frame.Height, frame.Width - merged.Width, frame.Height - merged.Height);
+        merged.Release();
+        return new Image(padded, BitDepth.Float32, frame.MaxValue, frame.MinValue, frame.Pedestal, frame.ImageMeta);
+    }
+
+
+    /// <summary>
     /// Run the pipeline, yielding one <see cref="GroupResult"/> per
     /// light group as it finishes. Groups stream in
     /// <see cref="LightGroupKey"/> order; an empty enumerable means no
@@ -1093,7 +1199,8 @@ public sealed class StackingPipeline(
                     // in the group must be divided by the same number or the integration sums
                     // inconsistently scaled data. See ScaleToFullScaleInPlace.
                     var fullScale = light.BitDepth.UnsignedFullScale is { } scale ? (float)scale : calibrated.MaxValue;
-                    starless = await starRemover.EnhanceAsync(calibrated.ScaleToFullScaleInPlace(fullScale), ct);
+                    starless = await RemoveStarsFromFrameAsync(
+                        calibrated.ScaleToFullScaleInPlace(fullScale), starRemover, logger, ct);
                 }
                 finally
                 {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace TianWen.Lib.Imaging;
 
@@ -56,6 +56,23 @@ public partial class Image
         // the original pattern; the channel layout is the documented [R, G1, G2, B] sub-plane contract.
         return new Image(planes, BitDepth.Float32, MaxValue, MinValue, Pedestal, imageMeta);
     }
+
+    /// <summary>
+    /// One channel of this image as a standalone single-channel <see cref="Image"/>, for handing a
+    /// single CFA sub-plane to something that takes whole images -- a star remover, in particular,
+    /// which must see one smooth plane rather than an interleaved mosaic.
+    ///
+    /// <remarks>
+    /// The plane array is SHARED, not copied: the view is for reading, and a copy of a half-frame
+    /// per call would be pure waste on a path that already runs once per light. Because it shares,
+    /// the view carries NO channel buffer -- release responsibility stays with this image, which is
+    /// the same rule a rewrap like <see cref="ScaleFloatValuesToUnitInPlace"/> follows. Do not
+    /// release the returned image.
+    /// </remarks>
+    /// </summary>
+    /// <param name="index">Channel to expose; for a split mosaic, 0=R, 1=G1, 2=G2, 3=B.</param>
+    internal Image AsSingleChannel(int index)
+        => new([GetChannelArray(index)], BitDepth, MaxValue, MinValue, Pedestal, imageMeta);
 
     /// <summary>
     /// Reassembles a four-channel <c>[R, G1, G2, B]</c> CFA sub-plane image (as produced by
