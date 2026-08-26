@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -56,14 +56,20 @@ public sealed record PercentileClipRejector(
         }
 
         keepMask.Fill(1f);
-        var n = column.Length;
-        if (n < 3) return n;
+        var total = column.Length;
+        // Absent samples first: a NaN sorts to an unspecified end, so the drop budget could be spent
+        // on samples that were never there. The percentiles are then taken over the REAL count --
+        // where half the frames do not overlap, LowFraction * length would cut a far larger share of
+        // the data that IS present. See PixelRejection.MarkAbsent.
+        var absent = PixelRejection.MarkAbsent(column, keepMask);
+        var n = total - absent;
+        if (n < 3) return total;
 
         var lowDrop = (int)MathF.Floor(LowFraction * n);
         var highDrop = (int)MathF.Floor(HighFraction * n);
         var totalDrop = lowDrop + highDrop;
-        if (totalDrop == 0) return n;
-        if (totalDrop >= n) return n; // would reject everything -- caller mistake, keep all
+        if (totalDrop == 0) return total;
+        if (totalDrop >= n) return total; // would reject everything -- caller mistake, keep all
 
         var floatPool = ArrayPool<float>.Shared;
         var intPool = ArrayPool<int>.Shared;
@@ -71,12 +77,15 @@ public sealed record PercentileClipRejector(
         var idxBuf = intPool.Rent(n);
         try
         {
-            for (var i = 0; i < n; i++)
+            var m = 0;
+            for (var i = 0; i < total; i++)
             {
-                valsBuf[i] = column[i];
-                idxBuf[i] = i;
+                if (keepMask[i] == 0f) continue;
+                valsBuf[m] = column[i];
+                idxBuf[m] = i;
+                m++;
             }
-            MemoryExtensions.Sort(valsBuf.AsSpan(0, n), idxBuf.AsSpan(0, n));
+            MemoryExtensions.Sort(valsBuf.AsSpan(0, m), idxBuf.AsSpan(0, m));
 
             // Reject the lowest lowDrop and highest highDrop entries by
             // their original index.
@@ -86,9 +95,9 @@ public sealed record PercentileClipRejector(
             }
             for (var i = 0; i < highDrop; i++)
             {
-                keepMask[idxBuf[n - 1 - i]] = 0f;
+                keepMask[idxBuf[m - 1 - i]] = 0f;
             }
-            return n - totalDrop;
+            return total - totalDrop;
         }
         finally
         {
