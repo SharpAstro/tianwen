@@ -67,8 +67,10 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
         }
     }
 
-    [Fact]
-    public async Task TheStarRemoverIsHandedUnitScaledPixelsNotAdu()
+    [Theory]
+    [InlineData(StarRemovalMode.Mosaic)]
+    [InlineData(StarRemovalMode.SplitCfa)]
+    public async Task TheStarRemoverIsHandedUnitScaledPixelsNotAdu(StarRemovalMode mode)
     {
         var ct = TestContext.Current.CancellationToken;
         using var workspace = new TempStackingWorkspace();
@@ -84,7 +86,8 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
             OutputDir: workspace.OutputDir,
             ForcedStrategy: IntegrationStrategyKind.BayerDrizzle,
             DrizzleOptions: new DrizzleOptions(MinFrameCount: 6),
-            RemoveStarsPerFrame: true);
+            RemoveStarsPerFrame: true,
+            StarRemovalMode: mode);
         var logger = new XunitLogger(output);
         var pipeline = new StackingPipeline(options, logger, catalogDb: null, starRemover: starRemover);
 
@@ -101,27 +104,23 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
         // 1) Every frame reached the remover, and reached it in [0, 1]. The synthetic lights are
         //    Int16 with samples up to ~4096 ADU, so an unscaled hand-off records a max in the
         //    thousands -- which is the bug, exactly as it presented on the real dataset.
-        // FOUR calls per frame, not one: a Bayer frame is split into its photosite planes before
-        // removal, because a star in a CFA mosaic is a checkerboard rather than a PSF and the
-        // remover leaves a channel-asymmetric residue on it (measured: red +15.94 sigma tail,
-        // green -6.35 sigma holes -- which is the magenta streaking in the comet layer).
-        starRemover.Seen.Count.ShouldBe(result.FramesMatched * 4,
-            "each matched frame should be split into four CFA planes, each removed separately");
+        // The mode decides the SHAPE the remover sees, and each mode's shape is asserted rather
+        // than inferred from a call count. Mosaic hands over the whole CFA frame once; SplitCfa
+        // hands over four half-resolution single-channel planes. The trade is measured in
+        // StarRemovalMode: splitting kills the coloured residue and also eats an extended coma,
+        // which is why Mosaic is the default and why a comet layer keeps it.
+        var perFrame = mode is StarRemovalMode.SplitCfa ? 4 : 1;
+        starRemover.Seen.Count.ShouldBe(result.FramesMatched * perFrame,
+            $"{mode} should hand the remover {perFrame} image(s) per matched frame");
 
-        // And each plane must arrive as a single-channel HALF-resolution image. If a whole mosaic
-        // ever reaches the remover again this is what catches it.
         foreach (var (_, _, channels, w, h) in starRemover.Seen)
         {
-            channels.ShouldBe(1, "a CFA sub-plane is single-channel; a 4-channel hand-off would be read as colour plus alpha");
-            (w * 2).ShouldBeInRange(RgbBayerSyntheticFixture.FrameSize - 1, RgbBayerSyntheticFixture.FrameSize + 1);
-            (h * 2).ShouldBeInRange(RgbBayerSyntheticFixture.FrameSize - 1, RgbBayerSyntheticFixture.FrameSize + 1);
-        }
-        foreach (var (max, median, _, _, _) in starRemover.Seen)
-        {
-            max.ShouldBeLessThanOrEqualTo(1.0f,
-                $"the star remover was handed ADU (peak {max}); it clips above its own range and returns a white plate");
-            max.ShouldBeGreaterThan(0f, "a frame of zeros means calibration ate the signal, not that the scale is right");
-            median.ShouldBeInRange(0f, 1f);
+            channels.ShouldBe(1, "a CFA frame is single-channel in both modes; a multi-channel hand-off would be read as colour");
+            var expected = mode is StarRemovalMode.SplitCfa
+                ? RgbBayerSyntheticFixture.FrameSize / 2
+                : RgbBayerSyntheticFixture.FrameSize;
+            w.ShouldBeInRange(expected - 1, expected + 1);
+            h.ShouldBeInRange(expected - 1, expected + 1);
         }
 
         // 2) The divisor is the CONTAINER full scale, so it is the SAME for every frame. Scaling

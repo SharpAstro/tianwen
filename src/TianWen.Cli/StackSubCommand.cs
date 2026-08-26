@@ -137,6 +137,11 @@ internal sealed class StackSubCommand(
         {
             Description = "Override the PIXEL rejector's high (bright-outlier) threshold. Default 5 at 30+ frames, chosen to be generous so a real star is never clipped out of a sidereal stack. A comet layer wants the opposite: comet-aligned, a star lands on any given canvas cell in only a handful of frames, so it IS the outlier. Try 2.5-3.0 with --remove-stars to take out the trailed residuals per-frame star removal leaves behind. Has no effect under BayerDrizzle, which does no kappa-sigma rejection at all - pair it with --no-bayer-drizzle.",
         };
+        var starRemovalModeOpt = new Option<StarRemovalMode>("--star-removal-mode")
+        {
+            Description = "How a Bayer frame is reshaped before --remove-stars hands it to the star remover. 'Mosaic' (default) passes the raw CFA whole: it leaves channel-asymmetric coloured residue on star trails, and it PRESERVES extended objects. 'SplitCfa' splits the mosaic into its four half-resolution photosite planes and removes stars from each, which eliminates the residue but also removes anything star-sized at half resolution - measured on 10P/Tempel 2, that took the comet from 85.7% of its flux down to 22.4% and left a visible donut where the nucleus was. Use SplitCfa when the frame holds no extended target; keep Mosaic for a comet layer.",
+            DefaultValueFactory = _ => StarRemovalMode.Mosaic,
+        };
         var saveCalibratedOpt = new Option<bool>("--save-calibrated")
         {
             Description = "Write each light's calibrated frame (bias / dark / flat applied, before registration) to _staging/<slug>/calibrated/. Off by default. This is the intermediate Astro Pixel Processor and PixInsight let you keep, and for the same reason: when a master comes out wrong, the master alone cannot say which stage did it. Under --remove-stars it captures exactly the pixels the star remover was handed. Diagnostic only - the dumps carry a TianWen SWCREATE so the scan's provenance skip drops them and they can never be re-ingested as lights. Costs one float32 frame per light (about 6 GB for a 135-frame session at 11.6 Mpx) and nothing prunes them.",
@@ -263,7 +268,7 @@ internal sealed class StackSubCommand(
                 drizzlePixfracOpt, drizzleMinFramesOpt,
                 splitByPierSideOpt, hotPixelSigmaOpt,
                 qualityRejectSigmaOpt, rejectLowSigmaOpt, rejectHighSigmaOpt,
-                saveCalibratedOpt, saveNormalizedOpt,
+                starRemovalModeOpt, saveCalibratedOpt, saveNormalizedOpt,
                 referenceFrameHintOpt, manifestOpt, removeStarsOpt,
                 cometOpt, cometRateOpt,
                 inheritWbOpt,
@@ -424,6 +429,7 @@ internal sealed class StackSubCommand(
                 QualityRejectSigma: parseResult.GetValue(qualityRejectSigmaOpt),
                 RejectLowSigma: parseResult.GetValue(rejectLowSigmaOpt),
                 RejectHighSigma: parseResult.GetValue(rejectHighSigmaOpt),
+                StarRemovalMode: parseResult.GetValue(starRemovalModeOpt),
                 SaveCalibrated: parseResult.GetValue(saveCalibratedOpt),
                 SaveNormalized: parseResult.GetValue(saveNormalizedOpt),
                 ReferenceFrameHint: parseResult.GetValue(referenceFrameHintOpt),
