@@ -118,11 +118,14 @@ public sealed class StackingPipeline(
     /// </remarks>
     /// </summary>
     private static async ValueTask<Image> RemoveStarsFromFrameAsync(
-        Image frame, Enhancement.IStarRemover starRemover, ILogger logger, CancellationToken ct)
+        Image frame, StarRemovalMode mode, Enhancement.IStarRemover starRemover, ILogger logger, CancellationToken ct)
     {
-        // Anything that is not an RGGB mosaic (mono, or already-debayered colour) has no
-        // interleaving to undo, so it goes to the remover whole.
-        if (frame.ChannelCount != 1 || frame.ImageMeta.SensorType is not SensorType.RGGB)
+        // Whole-mosaic is the default and is what a frame carrying an extended target wants; see
+        // StarRemovalMode for the trade and the numbers behind it. Anything that is not an RGGB
+        // mosaic (mono, or already-debayered colour) has no interleaving to undo either way.
+        if (mode is not StarRemovalMode.SplitCfa
+            || frame.ChannelCount != 1
+            || frame.ImageMeta.SensorType is not SensorType.RGGB)
         {
             return await starRemover.EnhanceAsync(frame, ct);
         }
@@ -1200,7 +1203,7 @@ public sealed class StackingPipeline(
                     // inconsistently scaled data. See ScaleToFullScaleInPlace.
                     var fullScale = light.BitDepth.UnsignedFullScale is { } scale ? (float)scale : calibrated.MaxValue;
                     starless = await RemoveStarsFromFrameAsync(
-                        calibrated.ScaleToFullScaleInPlace(fullScale), starRemover, logger, ct);
+                        calibrated.ScaleToFullScaleInPlace(fullScale), options.StarRemovalMode, starRemover, logger, ct);
                 }
                 finally
                 {

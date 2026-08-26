@@ -100,6 +100,13 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// star is present in a handful of frames at any given canvas cell, so it IS
 /// the outlier -- and something near 2.5-3 is the useful range there.
 /// See <see cref="StackingPipeline.BuildRejector"/>.</param>
+/// <param name="StarRemovalMode">How a Bayer frame is reshaped before
+/// <paramref name="RemoveStarsPerFrame"/> hands it to the star remover.
+/// Defaults to <see cref="Stacking.StarRemovalMode.Mosaic"/>, which preserves
+/// extended objects at the cost of coloured residue on the star trails;
+/// <see cref="Stacking.StarRemovalMode.SplitCfa"/> removes the residue and also
+/// removes anything star-sized at half resolution, which includes a comet's
+/// coma. See <see cref="Stacking.StarRemovalMode"/> for the measurements.</param>
 /// <param name="SaveCalibrated">Persist each light's CALIBRATED frame (bias /
 /// dark / flat applied, before registration) under
 /// <c>_staging/&lt;slug&gt;/calibrated/</c>. Off by default. Diagnostic only --
@@ -184,6 +191,7 @@ public sealed record StackingOptions(
     float? QualityRejectSigma = null,
     float? RejectLowSigma = null,
     float? RejectHighSigma = null,
+    StarRemovalMode StarRemovalMode = StarRemovalMode.Mosaic,
     bool SaveCalibrated = false,
     bool SaveNormalized = false,
     string? ReferenceFrameHint = null,
