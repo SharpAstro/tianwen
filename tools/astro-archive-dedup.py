@@ -306,7 +306,11 @@ def main() -> int:
     summary = [
         f"files indexed:        {len(records)}",
         f"duplicate groups:     {n_dup_groups} ({n_dup_files} redundant files, {dup_bytes / 1e9:.1f} GB reclaimable)",
-        f"  cross-root groups:  {n_cross_root_groups} (BobbyBox <-> Astro-Pics)",
+        # Name the roots that were actually passed. This line used to read "(BobbyBox <-> Astro-Pics)"
+        # unconditionally, a leftover from the tool's first job, and it kept printing that after
+        # BobbyBox-Temp had ceased to exist -- an invitation to go delete files in a tree that is not
+        # there, from a report that sounded specific.
+        f"  cross-root groups:  {n_cross_root_groups} (spanning >1 of: {', '.join(args.root)})",
         f"light (camera,night) groups: {len(light_groups)}",
         f"  with NO matching darks anywhere (>=10 lights): {len(uncovered)}",
         "reports: dup-files.csv, nights-rollup.csv, calibration-coverage.csv",
