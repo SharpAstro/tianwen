@@ -121,8 +121,10 @@ public sealed class StackingPipeline(
         Image frame, StarRemovalMode mode, Enhancement.IStarRemover starRemover, ILogger logger, CancellationToken ct)
     {
         // Whole-mosaic is the default and is what a frame carrying an extended target wants; see
-        // StarRemovalMode for the trade and the numbers behind it. Anything that is not an RGGB
-        // mosaic (mono, or already-debayered colour) has no interleaving to undo either way.
+        // StarRemovalMode for the trade and the numbers behind it. Anything that is not a Bayer CFA
+        // (mono, or already-debayered colour) has no interleaving to undo either way. Note the
+        // SensorType.RGGB test admits EVERY Bayer pattern -- it names the CFA, and GRBG / GBRG / BGGR
+        // carry their rotation in BayerOffsetX/Y -- so this is not a restriction to one camera family.
         if (mode is not StarRemovalMode.SplitCfa
             || frame.ChannelCount != 1
             || frame.ImageMeta.SensorType is not SensorType.RGGB)

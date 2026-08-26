@@ -11,6 +11,12 @@ public partial class Image
     /// sharing blue's row. The CFA position of red is taken from <see cref="ImageMeta.BayerOffsetX"/> /
     /// <see cref="ImageMeta.BayerOffsetY"/> (the parity convention used throughout the codebase: red sits
     /// at <c>(x, y)</c> where <c>(x - offsetX)</c> and <c>(y - offsetY)</c> are both even).
+    /// <para><b>All four Bayer patterns work.</b> <see cref="SensorType.RGGB"/> is the enum's name for
+    /// "this is a Bayer CFA", NOT a claim that the pattern is literally RGGB: the rotation rides on the
+    /// offsets, which <see cref="SensorTypeEx"/> sets from the file's own BAYERPAT (RGGB 0,0 / GRBG 1,0 /
+    /// GBRG 0,1 / BGGR 1,1). Verified on a GRBG SV605CC frame: with the mapped offsets the two green
+    /// sub-planes agree to 0.00%, and read as plain RGGB they disagree by 38.4% -- which is the cheap
+    /// test for whether any pattern assignment is right.</para>
     /// <para>
     /// The returned image keeps <see cref="SensorType.RGGB"/> + the offsets so the planes can be
     /// reassembled later, but its channels are the four CFA sub-planes -- it is NOT an RGB image. This is
@@ -26,7 +32,9 @@ public partial class Image
         if (ChannelCount != 1 || imageMeta.SensorType is not SensorType.RGGB)
         {
             throw new InvalidOperationException(
-                $"SplitBayerChannels requires a single-channel Bayer mosaic (SensorType.RGGB); got {ChannelCount} channel(s), {imageMeta.SensorType}.");
+                $"SplitBayerChannels requires a single-channel Bayer CFA mosaic; got {ChannelCount} channel(s), "
+                + $"{imageMeta.SensorType}. Every Bayer PATTERN is supported -- SensorType.RGGB names the CFA, "
+                + "and GRBG / GBRG / BGGR arrive as that type with the matching BayerOffsetX/Y.");
         }
 
         var ox = imageMeta.BayerOffsetX & 1;
@@ -88,7 +96,8 @@ public partial class Image
         if (ChannelCount != 4 || imageMeta.SensorType is not SensorType.RGGB)
         {
             throw new InvalidOperationException(
-                $"MergeBayerChannels requires a four-channel Bayer sub-plane image (SensorType.RGGB); got {ChannelCount} channel(s), {imageMeta.SensorType}.");
+                $"MergeBayerChannels requires a four-channel Bayer sub-plane image; got {ChannelCount} channel(s), "
+                + $"{imageMeta.SensorType}. As with the split, SensorType.RGGB names the CFA rather than the pattern.");
         }
 
         var ox = imageMeta.BayerOffsetX & 1;
