@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -34,7 +34,7 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
     /// </summary>
     private sealed class RecordingStarRemover : IStarRemover
     {
-        public ConcurrentBag<(float Max, float Median)> Seen { get; } = [];
+        public ConcurrentBag<(float Max, float Median, int Channels, int Width, int Height)> Seen { get; } = [];
 
         public string Name => nameof(RecordingStarRemover);
 
@@ -42,7 +42,7 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
         {
             var (channelCount, width, height) = input.Shape;
             var (_, median, _) = input.GetPedestralMedianAndMADScaledToUnit(0);
-            Seen.Add((input.MaxValue, median));
+            Seen.Add((input.MaxValue, median, channelCount, width, height));
 
             // Clamp to the 20th percentile of the frame's own range, standing in for "the stars are
             // gone and the sky is not". Returns a NEW image: the pipeline releases the input and the
@@ -101,9 +101,22 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
         // 1) Every frame reached the remover, and reached it in [0, 1]. The synthetic lights are
         //    Int16 with samples up to ~4096 ADU, so an unscaled hand-off records a max in the
         //    thousands -- which is the bug, exactly as it presented on the real dataset.
-        starRemover.Seen.Count.ShouldBe(result.FramesMatched,
-            "every matched frame should have been handed to the star remover exactly once");
-        foreach (var (max, median) in starRemover.Seen)
+        // FOUR calls per frame, not one: a Bayer frame is split into its photosite planes before
+        // removal, because a star in a CFA mosaic is a checkerboard rather than a PSF and the
+        // remover leaves a channel-asymmetric residue on it (measured: red +15.94 sigma tail,
+        // green -6.35 sigma holes -- which is the magenta streaking in the comet layer).
+        starRemover.Seen.Count.ShouldBe(result.FramesMatched * 4,
+            "each matched frame should be split into four CFA planes, each removed separately");
+
+        // And each plane must arrive as a single-channel HALF-resolution image. If a whole mosaic
+        // ever reaches the remover again this is what catches it.
+        foreach (var (_, _, channels, w, h) in starRemover.Seen)
+        {
+            channels.ShouldBe(1, "a CFA sub-plane is single-channel; a 4-channel hand-off would be read as colour plus alpha");
+            (w * 2).ShouldBeInRange(RgbBayerSyntheticFixture.FrameSize - 1, RgbBayerSyntheticFixture.FrameSize + 1);
+            (h * 2).ShouldBeInRange(RgbBayerSyntheticFixture.FrameSize - 1, RgbBayerSyntheticFixture.FrameSize + 1);
+        }
+        foreach (var (max, median, _, _, _) in starRemover.Seen)
         {
             max.ShouldBeLessThanOrEqualTo(1.0f,
                 $"the star remover was handed ADU (peak {max}); it clips above its own range and returns a white plate");
@@ -116,7 +129,7 @@ public class StackingPipelineStarlessTest(ITestOutputHelper output)
         //    rescale each frame differently; the spread below is the sky varying frame to frame,
         //    which is what a shared divisor preserves and a per-frame one destroys.
         var maxima = new List<float>();
-        foreach (var (max, _) in starRemover.Seen)
+        foreach (var (max, _, _, _, _) in starRemover.Seen)
         {
             maxima.Add(max);
         }
