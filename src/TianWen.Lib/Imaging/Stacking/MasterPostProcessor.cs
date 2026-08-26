@@ -298,6 +298,20 @@ internal sealed class MasterPostProcessor(ILogger logger, ICelestialObjectDB? ca
                     : ColourCalibration.SkyBackgroundSource);
             await StampColourCalibrationAsync(masterPath, croppedResult is not null, enhance, wb, source, ct);
         }
+        else if (inheritedWhiteBalance is { } inherited)
+        {
+            // --inherit-wb was given a triple and no render exists to carry it. `render` is only
+            // produced when a preview is asked for, so --output-format none skipped it -- and the
+            // flag then did nothing at all, silently, on exactly the cheapest kind of run. The
+            // caller stated a calibration for this master; record it.
+            //
+            // It matters most for a layer built to be COMBINED with another: a comet layer written
+            // with --output-format none carried no WBSOURCE/WBRED/WBGREEN/WBBLUE, so anything
+            // rendering it later had to solve its own white balance from a starless plate rather
+            // than share the star layer's, which is the whole reason the triple was passed in.
+            await StampColourCalibrationAsync(masterPath, croppedResult is not null, enhance,
+                (inherited.R, inherited.G, inherited.B), inherited.Source, ct);
+        }
 
         logger.LogInformation("  [post] total {Ms} ms", sw.ElapsedMilliseconds);
         return new MasterWriteResult(result, solvedWcs, render?.Spcc);
