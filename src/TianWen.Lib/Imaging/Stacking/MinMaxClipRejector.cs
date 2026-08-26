@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 
 namespace TianWen.Lib.Imaging.Stacking;
@@ -48,12 +48,16 @@ public sealed record MinMaxClipRejector(
         }
 
         keepMask.Fill(1f);
-        var n = column.Length;
+        var total = column.Length;
+        // Absent samples first: a NaN sorts to an unspecified end, so "drop the highest k" could
+        // spend the whole budget on samples that were never there. See PixelRejection.MarkAbsent.
+        var absent = PixelRejection.MarkAbsent(column, keepMask);
+        var n = total - absent;
         var totalDrop = DropLowest + DropHighest;
-        if (totalDrop == 0) return n;
-        // Too few samples to honour the request -- keep everything rather
+        if (totalDrop == 0) return total;
+        // Too few REAL samples to honour the request -- keep everything rather
         // than reject all. Matches the small-N behaviour of the other rejectors.
-        if (totalDrop >= n) return n;
+        if (totalDrop >= n) return total;
 
         var floatPool = ArrayPool<float>.Shared;
         var intPool = ArrayPool<int>.Shared;
@@ -61,12 +65,15 @@ public sealed record MinMaxClipRejector(
         var idxBuf = intPool.Rent(n);
         try
         {
-            for (var i = 0; i < n; i++)
+            var m = 0;
+            for (var i = 0; i < total; i++)
             {
-                valsBuf[i] = column[i];
-                idxBuf[i] = i;
+                if (keepMask[i] == 0f) continue;
+                valsBuf[m] = column[i];
+                idxBuf[m] = i;
+                m++;
             }
-            MemoryExtensions.Sort(valsBuf.AsSpan(0, n), idxBuf.AsSpan(0, n));
+            MemoryExtensions.Sort(valsBuf.AsSpan(0, m), idxBuf.AsSpan(0, m));
 
             for (var i = 0; i < DropLowest; i++)
             {
@@ -74,9 +81,9 @@ public sealed record MinMaxClipRejector(
             }
             for (var i = 0; i < DropHighest; i++)
             {
-                keepMask[idxBuf[n - 1 - i]] = 0f;
+                keepMask[idxBuf[m - 1 - i]] = 0f;
             }
-            return n - totalDrop;
+            return total - totalDrop;
         }
         finally
         {

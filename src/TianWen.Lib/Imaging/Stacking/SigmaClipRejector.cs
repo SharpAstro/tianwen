@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Numerics;
 using static TianWen.Lib.Stat.StatisticsHelper;
@@ -43,8 +43,12 @@ public sealed record SigmaClipRejector(
         }
 
         keepMask.Fill(1f);
-        var kept = column.Length;
-        if (kept < 3) return kept; // not enough samples for meaningful sigma
+        // Absent samples first: a NaN reaching the statistics below disables rejection for
+        // this pixel entirely and silently. See PixelRejection.MarkAbsent.
+        var absent = PixelRejection.MarkAbsent(column, keepMask);
+        var kept = column.Length - absent;
+        // Not enough REAL samples for a meaningful sigma: reject nothing.
+        if (kept < 3) return column.Length;
 
         var pool = ArrayPool<float>.Shared;
         var valuesBuf = pool.Rent(column.Length);
@@ -117,7 +121,7 @@ public sealed record SigmaClipRejector(
             pool.Return(madBuf);
         }
 
-        return kept;
+        return kept + absent;
     }
 
     /// <summary>

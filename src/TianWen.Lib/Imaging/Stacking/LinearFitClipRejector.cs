@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 using static TianWen.Lib.Stat.StatisticsHelper;
 
@@ -58,8 +58,11 @@ public sealed record LinearFitClipRejector(
         }
 
         keepMask.Fill(1f);
-        var kept = column.Length;
-        if (kept < MinSamples) return kept;
+        // Absent samples first: a NaN reaching the statistics below disables rejection for
+        // this pixel entirely and silently. See PixelRejection.MarkAbsent.
+        var absent = PixelRejection.MarkAbsent(column, keepMask);
+        var kept = column.Length - absent;
+        if (kept < MinSamples) return column.Length;
 
         var floatPool = ArrayPool<float>.Shared;
         var intPool = ArrayPool<int>.Shared;
@@ -153,6 +156,6 @@ public sealed record LinearFitClipRejector(
             floatPool.Return(residBuf);
         }
 
-        return kept;
+        return kept + absent;
     }
 }
