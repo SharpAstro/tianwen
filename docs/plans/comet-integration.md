@@ -630,3 +630,148 @@ becomes worth asking when rate x exposure approaches the FWHM. A detector should
 on that product rather than run unconditionally -- below roughly half a FWHM it would be reporting
 noise. Until one exists, an unattended run should assume star tracking, which is both the common case
 and the one that degrades gracefully if it is wrong.
+
+## The two-layer composite, and what it cost to learn (measured 2026-08-26)
+
+The four artifacts are the star layer, the comet-aligned stack of raws, the comet LAYER
+(`stack --remove-stars`), and the composite of the first and third. Getting the composite right
+turned up five defects, four of them silent, and they share a root cause worth stating first:
+**every AI-enhancer failure here was an input outside the distribution the model expects, and each
+returned a plausible wrong answer rather than an error.**
+
+| what the remover was handed | what came back |
+|---|---|
+| ADU (sky ~3900) instead of `[0, 1]` | a uniformly 1.0 plate, every pixel white |
+| a raw Bayer mosaic instead of an image | channel-asymmetric residue: magenta streaks |
+| a 0.5-normalised master instead of a sky background | the entire coma routed into the STARS plate |
+| a stars-only plate (background ~0) stretched alone | 3.4% sky leakage stretched into a fake nebula |
+
+That argues for one normalisation guard at the enhancer boundary rather than four point-fixes. None
+of the four is fixed generally; the first is fixed at its call site.
+
+### A star in a CFA mosaic is a checkerboard, not a PSF
+
+Neighbouring pixels are different colours, and a remover trained on ordinary astronomical images
+reads them as adjacent samples of one signal. Measured on a real calibrated 60 s sub, 419 stars,
+residual tails in units of the frame's own noise:
+
+| input shape | R tail | G tail | B tail | R hole | G hole | B hole |
+|---|---|---|---|---|---|---|
+| whole mosaic | **+15.94** | +5.22 | +3.98 | -3.71 | **-6.35** | -4.20 |
+| four CFA planes | +5.73 | +5.67 | +4.81 | -3.71 | -3.61 | -3.68 |
+| full-res RGB | +4.17 | +3.93 | +3.83 | -3.71 | -3.62 | -3.68 |
+| full-res RGB + white balance | +4.18 | +3.97 | +3.83 | -3.71 | -3.62 | -3.68 |
+
+Red-positive with green-negative IS magenta, and it is unique to the mosaic row. **White-balancing
+first does nothing** (identical to two decimals), so the interleaving is the mechanism and the colour
+balance is not. Worth recording as refuted, because it is the intuitive hypothesis.
+
+### But splitting eats the comet, and the ordering says why
+
+| star-removal input | magenta | comet flux kept |
+|---|---|---|
+| whole mosaic | present | **85.7%** |
+| four CFA planes | gone (red residue -88%, green residual turns positive) | 22.4%, visible donut |
+| full-res RGB | (best on stars) | 0.0% |
+
+Splitting halves the raster, so a 9 px HWHM coma becomes 4.5 px, which is a star as far as the model
+is concerned. Comet survival tracks how badly INTERLEAVED the input is, which suggests **the
+checkerboard is at once the cause of the coloured residue and the reason the coma survives at all**.
+If that holds, no choice of input shape separates them and the residue is something to clean up
+afterwards. Hence `--star-removal-mode`, defaulting to `Mosaic`: the residue is cosmetic, a nucleus
+the remover ate is not recoverable at any later stage.
+
+Caveat on the RGB row: measured on a MASTER, where the comet is far brighter than in a 60 s sub, so
+it does not strictly settle the per-frame case.
+
+### Rejection: the comet layer and the star layer want opposite thresholds
+
+`BuildRejector` picks the KIND by frame count; the sigma pair is a separate decision, which is why
+`--reject-low-sigma` / `--reject-high-sigma` substitute into whichever kind the count chose. The
+defaults are asymmetric the star-KEEPING way (`high = 5` at N >= 30).
+
+Comet layer, 135 frames, tightening high 5 to 2.5:
+
+| | rejected | residue (% of sky) | coma flux | median |
+|---|---|---|---|---|
+| drizzle, no rejection | none | 1.80-2.31% | -- | 0.0201 |
+| AHD, SigmaClip(3, 5) | 0.75% | 1.22% | 100% | 0.500647 |
+| AHD, SigmaClip(3, 2.5) | 2.74% | 1.06% | **96.9%** | 0.499657 |
+
+13% less residue for 3.1% of the comet, uniform across radius (ratio 0.960-0.973 from r=0 to r=40),
+plus a -0.198% median bias from the asymmetric clip. A bad trade, and the reason is worth keeping:
+**the coma IS at risk from a tight high sigma**, not because it is ever an outlier -- it is not --
+but because the clip bites the noise tail *riding on* the coma, and that bias is signal-dependent.
+Keep the stock (3, 5) for a comet layer.
+
+The star layer wants the opposite, because there the comet MOVES and IS the outlier. Star-aligned,
+AHD + SigmaClip(3, 2.5) against the drizzle master, sampled along the nucleus track:
+
+| offset from track | drizzle, no rejection | with rejection |
+|---|---|---|
+| 0 px (nucleus trail) | 35.28% of sky | **9.85%** (-72%) |
+| 15 px | 6.79% | 5.91% (-13%) |
+| 30 px | 3.82% | 3.36% (-12%) |
+| 120 px | 0.48% | 0.49% (+2%) |
+
+The compact trail is a genuine temporal outlier and goes; the diffuse smear is present in EVERY frame
+at those pixels and rejection structurally cannot see it. Drizzle does no kappa-sigma rejection at
+all, which is why the trail survived into the original star layer.
+
+### Identifying an artifact: measure the STAGE, not the picture
+
+The composite showed a bright 9-arcmin patch that looked like a galaxy, dark lane and all. SIMBAD has
+nothing there brighter than B=15.86. Three hypotheses each looked plausible (a real object, an optical
+ghost, the coma smear); tracing by stage settled it in one pass:
+
+| stage | blob amplitude |
+|---|---|
+| AHD+rejected master | +0.24 sigma, absent |
+| rescaled, `sxt` input | +0.24 sigma, absent |
+| `sxt` STARLESS output | +0.40 sigma, absent |
+| `sxt` STARS output | **+372 sigma** |
+
+The star/starless split leaks ~3.4% of the diffuse sky into the stars side. Invisible normally;
+enormous once that plate is stretched on a near-zero background. **The fix was to delete a step**:
+star extraction only existed to keep the comet smear out of the star layer, and rejection had already
+removed it, so compositing onto the rejected master directly removes the artifact's habitat.
+
+### Compositing rules the failures taught
+
+- **Composite in LINEAR light and render once.** Masking and background-subtracting in display space
+  leaves a visible mask edge, because the stretch is nonlinear so a constant subtraction zeroes
+  nothing. In linear light the layers simply add; screen is only a display-space approximation of it.
+- **Never clip the masked contribution at zero.** Clipping rectifies the noise, its mean goes
+  positive, and the whole disc gains a pedestal that reads as a hard-edged circle.
+- **Feather the mask.** Smoothstep, r=38 solid to r=85 zero, against a coma reaching background by
+  r~40.
+- **Remove trail residue by SHAPE, not brightness.** A median despeckle cannot: the coma core is a
+  bright compact feature, so any threshold catching a streak also catches the comet (a 15 px median
+  took 27% off the peak). Every trail in a comet-aligned stack runs along ONE known direction, the
+  drift vector, so a grey opening with a line laid ACROSS it erases anything narrower than the line
+  and leaves the round coma alone. Red lost 21.1% of masked flux to it against 3.7% for green and
+  blue, which is the selectivity wanted.
+- **Protect the core from that opening.** An opening takes a local min then max, so it flattens a
+  peak as readily as a streak (the contribution fell 37%, all at the middle). Apply it outside a core
+  radius with a smooth handover.
+- **Placement is astrometric, not guessed.** A comet layer cannot carry a WCS -- its stars are gone
+  and its solve is correctly rejected -- so the target pixel is JPL's topocentric position at the
+  REFERENCE epoch pushed through the star layer's WCS. The reference epoch is the right instant
+  because at dt = 0 the comet compose is the identity.
+
+### Still open
+
+- **`sxt` removes the comet's central condensation.** It is compact and star-like, so the model takes
+  it and leaves the diffuse coma. The 27% flux loss at r=0 understates it: what goes is the sharp part
+  that makes a comet read as a comet. The core should come from the raws, or removal should be masked
+  away from the comet.
+- **Two masks, and the coverage arithmetic that limits them here.** The clean design is to mask the
+  comet OUT of every frame when building the star layer (deterministic where rejection is statistical,
+  and it would take the smear with it) and mask it IN, protected, when building the comet layer. Both
+  need the comet's per-frame position, which `--comet` already derives from a reference-frame solve
+  plus Horizons. **But 10P moves only 44.7 px across the 3.5 h session against an ~80 px coma**, so
+  for a pixel mid-track a 15 px nucleus mask blanks ~67% of frames (33% coverage left, usable) while a
+  40 px coma mask blanks 100% and leaves a hole. The design is strictly better on a fast mover; on
+  this target it only half-applies. Note `DrizzleStrategy` already honours a per-frame bad-pixel mask
+  by skipping deposition, so a comet mask is that mechanism with a different source.
+- **No compositing feature exists.** All of the above lives in scratch scripts.
