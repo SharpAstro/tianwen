@@ -48,6 +48,7 @@ public static class Tycho2ColorCalibration
         int NoVmag,                 // matched but V_Mag is also NaN (very rare)
         int Accepted,               // entered the initial photometry set
         bool MagGateActive,         // true once enough pass-1 matches existed to estimate a zero-point
+        int Duplicate,              // within radius of a catalog star a BRIGHTER detection had already claimed (a faint neighbour, not the star)
         float ZeroPoint,            // photometric zero-point used by the mag gate (NaN when inactive)
         float EffectiveRadiusArcsec,// match radius actually used; either the caller's input (probe failed) or the adaptive value derived from the probe pass
         float ProbeMedianArcsec,    // median residual under the input WCS over the probe pass (NaN when probe didn't run)
@@ -489,19 +490,36 @@ public static class Tycho2ColorCalibration
         var midX = imageWidth * 0.5f;
         var midY = imageHeight * 0.5f;
 
+        // Brightest first, and every catalog star may be claimed ONCE, in the probe and in both
+        // match passes. A deep master detects far more stars than Tycho-2 holds (C/2025 R2: 5088
+        // detections against 340 catalog stars in the footprint), and Tycho-2's own limit is the
+        // reason: the catalog stars ARE the brightest detections, everything fainter is anonymous.
+        // Without this rule each anonymous detection took its nearest catalog neighbour, which
+        // wrecked the fit twice over. The tolerance probe read a nearest-neighbour residual off
+        // every detection, so its "median residual" was a random distance (15" median, 10" MAD on
+        // a WCS the solver had fitted to 0.23 px) and the tolerance ran to its 30" cap; the match
+        // passes then accepted 1288 "matches" from those 340 stars, four faint neighbours per
+        // catalog star each carrying a B-V that was not theirs. Observed colour was flat across
+        // every B-V bin and the white balance was fitted to noise: (1.88, 1.00, 3.00), a blue
+        // frame. Claiming brightest-first is self-limiting with no sample-size constant: once every
+        // catalog star in the field is claimed, no anonymous detection can find an unclaimed one.
+        var ordered = new ImagedStar[stars.Count];
+        stars.CopyTo(ordered, 0);
+        Array.Sort(ordered, static (a, b) => b.Flux.CompareTo(a.Flux));
+
         // Probe pass: size the actual matching tolerance from the WCS's true
         // residual distribution on this image. Returns (effectiveRadiusArcsec,
         // probeMedian, probeMad) -- the latter two are NaN when the probe
         // sample was too small to trust, in which case effectiveRadius equals
         // the caller's input (legacy behaviour preserved).
         var (effectiveTolArcsec, probeMedianArcsec, probeMadArcsec) =
-            ProbeAndSizeMatchTolerance(stars, wcs, db, matchRadiusArcsec, dtJulianYears);
+            ProbeAndSizeMatchTolerance(ordered, wcs, db, matchRadiusArcsec, dtJulianYears);
         var effectiveTolDeg = effectiveTolArcsec / 3600.0;
 
         // Pass 1: angular-only match (mag gate disabled). The survivors here
         // seed the zero-point used by the mag gate in pass 2.
         var (coarseMatches, coarseFunnel) = RunMatchPass(
-            stars, wcs, db, effectiveTolDeg, dtJulianYears,
+            ordered, wcs, db, effectiveTolDeg, dtJulianYears,
             zeroPoint: float.NaN, maxMagDiff: float.PositiveInfinity,
             midX, midY,
             effectiveTolArcsec, probeMedianArcsec, probeMadArcsec);
@@ -520,7 +538,7 @@ public static class Tycho2ColorCalibration
         // vice versa). The funnel returned here is the canonical one --
         // counters reflect post-gate decisions, not pass-1's pre-gate state.
         return RunMatchPass(
-            stars, wcs, db, effectiveTolDeg, dtJulianYears,
+            ordered, wcs, db, effectiveTolDeg, dtJulianYears,
             zeroPoint: zp, maxMagDiff: maxMagDiff,
             midX, midY,
             effectiveTolArcsec, probeMedianArcsec, probeMadArcsec);
@@ -547,7 +565,7 @@ public static class Tycho2ColorCalibration
     /// </para>
     /// </summary>
     private static (float EffectiveTolArcsec, float ProbeMedian, float ProbeMad) ProbeAndSizeMatchTolerance(
-        StarList stars, WCS wcs, ICelestialObjectDB db,
+        ReadOnlySpan<ImagedStar> brightestFirst, WCS wcs, ICelestialObjectDB db,
         float inputRadiusArcsec, double dtJulianYears)
     {
         var probeTolArcsec = Math.Clamp(inputRadiusArcsec * ProbeRadiusMultiplier,
@@ -557,12 +575,17 @@ public static class Tycho2ColorCalibration
         // One buffer for residuals (in arcsec). stackalloc when the star list
         // fits; otherwise an array allocation -- still cheap at ~10 KB for
         // a 5k-star field.
-        Span<float> residuals = stars.Count <= 1024
-            ? stackalloc float[stars.Count]
-            : new float[stars.Count];
+        Span<float> residuals = brightestFirst.Length <= 1024
+            ? stackalloc float[brightestFirst.Length]
+            : new float[brightestFirst.Length];
         var n = 0;
 
-        foreach (var star in stars)
+        // A catalog star yields ONE residual, to the brightest detection near it. The residual of
+        // a fainter detection near an already-claimed star measures that detection's distance from
+        // a star it is not, and on a deep frame those outnumber the real ones many to one. See the
+        // remark at the top of MatchStars.
+        var claimed = new HashSet<CatalogIndex>();
+        foreach (var star in brightestFirst)
         {
             var sky = wcs.PixelToSky(star.XCentroid + 1, star.YCentroid + 1);
             if (sky is not { } pos) continue;
@@ -571,7 +594,7 @@ public static class Tycho2ColorCalibration
             if (candidates is not { Count: > 0 }) continue;
 
             var bestDistDeg = probeTolDeg;
-            var found = false;
+            CatalogIndex? best = null;
             foreach (var idx in candidates)
             {
                 if (!db.TryLookupByIndex(idx, out var obj)) continue;
@@ -593,10 +616,13 @@ public static class Tycho2ColorCalibration
                 if (distDeg < bestDistDeg)
                 {
                     bestDistDeg = distDeg;
-                    found = true;
+                    best = obj.Index;
                 }
             }
-            if (found) residuals[n++] = (float)(bestDistDeg * 3600.0);
+            if (best is { } claim && claimed.Add(claim))
+            {
+                residuals[n++] = (float)(bestDistDeg * 3600.0);
+            }
         }
 
         if (n < MinForAdaptiveTolerance)
@@ -622,7 +648,7 @@ public static class Tycho2ColorCalibration
     /// behaviour); pass a finite value to enable it (pass 2).
     /// </summary>
     private static (List<(ImagedStar Star, CelestialObject Tycho)> Matches, SpccFunnel Funnel) RunMatchPass(
-        StarList stars, WCS wcs, ICelestialObjectDB db,
+        ReadOnlySpan<ImagedStar> brightestFirst, WCS wcs, ICelestialObjectDB db,
         double matchRadiusDeg, double dtJulianYears,
         float zeroPoint, float maxMagDiff,
         float midX, float midY,
@@ -633,7 +659,10 @@ public static class Tycho2ColorCalibration
 
         // Per-gate counters. Every detected star ends in exactly one bucket;
         // sum == stars.Count by construction.
-        int wcsFail = 0, noCand = 0, tolMissed = 0, rejMagDiff = 0, noBmv = 0, noVmag = 0;
+        int wcsFail = 0, noCand = 0, tolMissed = 0, rejMagDiff = 0, noBmv = 0, noVmag = 0, duplicate = 0;
+
+        // One detection per catalog star, the brightest; see the remark at the top of MatchStars.
+        var claimed = new HashSet<CatalogIndex>();
 
         // Quadrant breakdown: split each detected star by (x, y) vs (W/2, H/2).
         // detected[k] is incremented for every star in quadrant k; tolMissed[k]
@@ -645,7 +674,7 @@ public static class Tycho2ColorCalibration
         Span<int> qRejMagDiff = stackalloc int[4];
         Span<int> qAccepted = stackalloc int[4];
 
-        foreach (var star in stars)
+        foreach (var star in brightestFirst)
         {
             // Quadrant index: 0=TL, 1=TR, 2=BL, 3=BR. y is the FITS row index;
             // we treat low y as "top" to match the rendered PNG orientation
@@ -680,13 +709,14 @@ public static class Tycho2ColorCalibration
             }
             if (Half.IsNaN(match.BMinusV)) { noBmv++; continue; }
             if (Half.IsNaN(match.V_Mag)) { noVmag++; continue; }
+            if (!claimed.Add(match.Index)) { duplicate++; continue; }
 
             matches.Add((star, match));
             qAccepted[qIdx]++;
         }
 
         var funnel = new SpccFunnel(
-            Detected: stars.Count,
+            Detected: brightestFirst.Length,
             WcsFail: wcsFail,
             NoCandidates: noCand,
             TolMissed: tolMissed,
@@ -695,6 +725,7 @@ public static class Tycho2ColorCalibration
             NoVmag: noVmag,
             Accepted: matches.Count,
             MagGateActive: gateActive,
+            Duplicate: duplicate,
             ZeroPoint: gateActive ? zeroPoint : float.NaN,
             EffectiveRadiusArcsec: effectiveRadiusArcsec,
             ProbeMedianArcsec: probeMedianArcsec,
@@ -845,7 +876,45 @@ public static class Tycho2ColorCalibration
         // has no meaningful ADU saturation level (the stack rescales), and clipped stars pile up
         // exactly at the peak whatever it happens to be. If nothing in the frame is clipped this
         // costs the single brightest star, which is immaterial against a few hundred matches.
-        var clipLevel = saturationFraction > 0 ? saturationFraction * image.MaxValue : float.PositiveInfinity;
+        //
+        // The peak is read from the PIXELS, per channel, never from MaxValue. A normalised master
+        // has its sky at 0.5 and its stars far above 1.0, while its MaxValue tag reads 1.0 so the
+        // histogram and stretch treat it as unit-scaled; against that tag every bright star was
+        // "clipped" and the white balance was fitted to the faint remainder. Measured on C/2025 R2:
+        // 969 of 1211 matches dropped, WB (1.94, 1.00, 3.26), a blue frame; on 10P 545 of 545
+        // dropped and SPCC gave up. Per channel because each channel was normalised by its own sky,
+        // so saturation lands at a different level in each (36 / 75 / 34 on that master).
+        Span<float> clipLevel = stackalloc float[3];
+        clipLevel.Fill(float.PositiveInfinity);
+        if (saturationFraction > 0)
+        {
+            Span<float> peak = stackalloc float[3];
+            peak.Fill(float.NegativeInfinity);
+            for (var y = 0; y < height; y++)
+            {
+                for (var x = 0; x < width; x++)
+                {
+                    if (isBayer)
+                    {
+                        var v = image[0, y, x];
+                        var ch = BayerChannel(x, y);
+                        if (v > peak[ch]) peak[ch] = v;
+                    }
+                    else
+                    {
+                        for (var c = 0; c < 3; c++)
+                        {
+                            var v = image[c, y, x];
+                            if (v > peak[c]) peak[c] = v;
+                        }
+                    }
+                }
+            }
+            for (var c = 0; c < 3; c++)
+            {
+                clipLevel[c] = float.IsFinite(peak[c]) ? saturationFraction * peak[c] : float.PositiveInfinity;
+            }
+        }
         var clipped = 0;
 
         foreach (var (star, tycho) in matches)
@@ -855,7 +924,7 @@ public static class Tycho2ColorCalibration
             var annulusOuter = apertureRadius + 5;
 
             var obsR = 0.0; var obsG = 0.0; var obsB = 0.0;
-            var aperturePeak = float.NegativeInfinity;
+            var apertureClipped = false;
             var apR = 0; var apG = 0; var apB = 0;
             var bgR = 0.0; var bgG = 0.0; var bgB = 0.0;
             var bgRc = 0; var bgGc = 0; var bgBc = 0;
@@ -877,7 +946,7 @@ public static class Tycho2ColorCalibration
                         var v = image[0, y, x];
                         if (float.IsNaN(v)) continue;
                         var ch = BayerChannel(x, y);
-                        if (isAp && v > aperturePeak) aperturePeak = v;
+                        if (isAp && v >= clipLevel[ch]) apertureClipped = true;
                         if (isAp) { AddChannel(ch, v, ref obsR, ref obsG, ref obsB, ref apR, ref apG, ref apB); }
                         else { AddChannel(ch, v, ref bgR, ref bgG, ref bgB, ref bgRc, ref bgGc, ref bgBc); }
                     }
@@ -889,9 +958,7 @@ public static class Tycho2ColorCalibration
                             var pr = image[0, y, x]; var pg = image[1, y, x]; var pb = image[2, y, x];
                             // Any channel clipping disqualifies the star: the ratio is what SPCC
                             // measures, so one pinned channel is enough to corrupt it.
-                            if (pr > aperturePeak) aperturePeak = pr;
-                            if (pg > aperturePeak) aperturePeak = pg;
-                            if (pb > aperturePeak) aperturePeak = pb;
+                            if (pr >= clipLevel[0] || pg >= clipLevel[1] || pb >= clipLevel[2]) apertureClipped = true;
                             obsR += pr; obsG += pg; obsB += pb;
                             apR++;
                         }
@@ -908,7 +975,7 @@ public static class Tycho2ColorCalibration
             var bgPixels = isBayer ? bgRc + bgGc + bgBc : bgRc;
             if (apPixels < 3 || bgPixels < 5) continue;
 
-            if (aperturePeak >= clipLevel)
+            if (apertureClipped)
             {
                 clipped++;
                 continue;
@@ -937,8 +1004,8 @@ public static class Tycho2ColorCalibration
 
         if (clipped > 0)
         {
-            logger?.LogDebug("SPCC: dropped {Clipped} of {Matches} matched stars for a clipped aperture pixel (>= {Level:F4}, {Frac:P0} of frame peak {Peak:F4})",
-                clipped, matches.Count, clipLevel, saturationFraction, image.MaxValue);
+            logger?.LogDebug("SPCC: dropped {Clipped} of {Matches} matched stars for a clipped aperture pixel (>= {Frac:P0} of the observed per-channel peaks; clip levels {R:F3} / {G:F3} / {B:F3})",
+                clipped, matches.Count, saturationFraction, clipLevel[0], clipLevel[1], clipLevel[2]);
         }
 
         return result;

@@ -979,6 +979,31 @@ triple** and each computes its OWN background-neutralisation + MTF from its own 
 WB is load-bearing: grafting the master's bg-neut onto a plate whose background differs
 double-corrects it into a colour cast (the original `--split-plates` regression).
 
+**SPCC's clip test reads the frame's OBSERVED peak from the pixels, per channel, never `MaxValue`.**
+`MasterPostProcessor` rewraps every master with `MaxValue = 1.0` so the histogram and stretch treat it
+as unit-scaled, but a normalised master has its sky at 0.5 and its stars far above 1.0 (36 / 75 / 34 on
+the SWAN star layer). Against the tag, "clipped at 98% of the peak" was true of every bright star: 10P
+dropped 545 of 545, SPCC gave up, and the sky-background fallback was the only reason it looked right;
+with the fix it converges at (0.969, 1.000, 1.209). Every normalised master had been in that state. A
+rewrapped `MaxValue` is a display convention, not a saturation level.
+
+**SPCC's matcher claims each catalogue star ONCE, brightest detection first, in the tolerance probe
+and in both match passes.** A deep master detects far more stars than Tycho-2 holds (SWAN: 5088
+against 340 in the footprint), and the catalogue stars ARE the brightest detections. Before this, the
+probe read a nearest-neighbour residual off every detection, so its "median residual" was a random
+distance (15" median, 10" MAD on a WCS fitted to 0.23 px), the tolerance ran to its 30" cap, and the
+passes accepted 1288 "matches" from 340 stars, each faint neighbour wearing a B-V that was not its own.
+Observed colour was flat across every B-V bin and the fit landed on (1.88, 1.00, 3.00), a blue frame,
+which the clip-test fix above was wrongly credited with causing (it changed that triple by 3%). With
+the claim rule SWAN probes to 5" and matches 597 one-to-one. Read `SpccFunnel.Detected` against the
+catalogue count in the footprint before trusting any SPCC triple, and `Duplicate` for what the rule
+refused. **Still open:** observed star colour spans ~4x less across B-V than the SED model predicts,
+on both 10P and SWAN, with saturation and aperture losses both measured and refuted
+([docs/plans/comet-integration.md](docs/plans/comet-integration.md), the colour section). (And the
+Optolong L-Quad Enhance is BROADBAND: five windows, ~200 nm of the visible, notches at NaI and Hg; do
+not file its colour problems under narrowband. A filter missing from the model cancels to first order
+in SPCC anyway; the sidecar `.tianwen-meta.json` is how a nosepiece filter gets declared.)
+
 **SPCC is BROADBAND-ONLY, and a narrowband master has no colour path at all.** The white balance
 integrates a Pickles SED against QE x CFA over the whole visible band, which is correct for an OSC
 broadband frame and meaningless for a 3 nm passband, so an Ha/OIII/SII stack renders with whatever the
