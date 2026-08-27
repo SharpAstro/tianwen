@@ -930,6 +930,26 @@ counterpart and the override. Design + measurements:
   MID-exposure (`CometCompose.BodyOnGrid`; 1.0 px at 245 px/h and 30 s), and the model centre is
   sub-pixel (a whole-pixel crop centre is up to 0.5 px off, which subtracts a dipole). The compose
   arithmetic lives once, in `CometCompose`. Pinned by `CometModelTests` + `CometComposeTests`.
+- **The FIELD'S SLOPE is fitted and taken out of the model before the pedestal is read; a scalar
+  pedestal cannot see it, and neither can the radial profile.** The crop is a window on the
+  comet-aligned canvas, which carries the frames' background under the comet smeared along the track
+  but with every large-scale gradient intact (a box average leaves a slope unchanged). The slope rode
+  inside the model as a dipole growing with radius, cut hard at the reach, subtracted from 89 frames
+  and added back once: on SWAN's composite that drew a green half-ring at the 427 px reach on the
+  bright side of the field, which was reported as a reflection halo. The annular median at the edge
+  was zero BY CONSTRUCTION while the 15-degree sectors there read +32 to +40e-4 up-right against -19 to
+  -27e-4 opposite, and the star layer's own field was +40 to +50e-4 brighter 400-600 px that way; the
+  `composite - stars` difference (exactly the model added back) is how to see it, and per-sector
+  edge cells are the statistic, never the annular profile. `CometModel.RemoveBackgroundPlane` fits a
+  plane per channel over the annulus beyond that channel's provisional reach and removes only its
+  slope; `BackgroundGradientPerChannel` reports it and the log quotes it as "N noise across the
+  reach". First order deliberately: a higher order extrapolated from an outer annulus into the coma
+  eats the coma. Measured on the re-stack (same integrator, `--no-bayer-drizzle`): the model removed
+  0.55 noise across the reach in G and 0.63 in B; the edge dipole fell G 29.0 -> 7.0e-4, B 20.9 ->
+  3.5e-4, and the residual maximum moved from 300-315 degrees (the bright side of the field) to 165
+  degrees, which is the tail. R's edge is a one-sided +87e-4 wedge at 180 degrees, unchanged, because
+  a wedge is not a slope: a plane leaves the tail alone by construction. Pinned by
+  `TheFieldsGradientIsNotPartOfTheModel`.
 - **Five preconditions of the SURROUNDING system break the model silently, and all five are already
   documented elsewhere in this repo.** The anchor epoch is not the reference epoch (the body sits at
   `anchor + rate*(t_ref - t_anchor)` on the comet grid); a comet-aligned canvas carries NaN and

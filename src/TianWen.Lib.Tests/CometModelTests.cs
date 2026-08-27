@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,8 +51,11 @@ namespace TianWen.Lib.Tests
 
         /// <summary>A comet-aligned, starless master: sky plus the coma, per channel, plus noise.
         /// <paramref name="coreDeficit"/> scales the coma inside 8 px, standing in for the central
-        /// condensation a star remover takes out of the plates the master was stacked from.</summary>
-        private static Image StarlessCometMaster(int size, Vector2 body, float sky, float noise, int seed, float coreDeficit = 1f)
+        /// condensation a star remover takes out of the plates the master was stacked from;
+        /// <paramref name="gradient"/> tilts the sky, per pixel from the body, the way the field under a
+        /// comet is tilted on the comet-aligned canvas.</summary>
+        private static Image StarlessCometMaster(
+            int size, Vector2 body, float sky, float noise, int seed, float coreDeficit = 1f, Vector2 gradient = default)
         {
             var rng = new Random(seed);
             var planes = new float[3][,];
@@ -65,7 +69,8 @@ namespace TianWen.Lib.Tests
                         var r = MathF.Sqrt((x - body.X) * (x - body.X) + (y - body.Y) * (y - body.Y));
                         var coma = Peaks[c] * Coma(r);
                         if (r < 8f) { coma *= coreDeficit; }
-                        plane[y, x] = sky + coma + noise * Gaussian(rng);
+                        var field = sky + gradient.X * (x - body.X) + gradient.Y * (y - body.Y);
+                        plane[y, x] = field + coma + noise * Gaussian(rng);
                     }
                 }
                 planes[c] = plane;
@@ -151,6 +156,65 @@ namespace TianWen.Lib.Tests
             // And well inside the wings the model still carries the coma rather than zero.
             model.ValueAt(1, new Vector2(120f, 0f)).ShouldBe(Peaks[1] * Coma(120f), Peaks[1] * 0.02f);
             model.FitRadiusPx.ShouldBeInRange(25f, model.ReachPx);
+        }
+
+        [Fact]
+        public async Task TheFieldsGradientIsNotPartOfTheModel()
+        {
+            // SWAN's field: the sky under the comet rose by ~40e-4 over 400 px towards the upper right of
+            // the crop, and the model kept that slope as a dipole out to its reach, cut hard there --
+            // the composite's "halo". Here the slope is 1.2e-5 per px, about 4e-3 (1.3 noise) across
+            // the crop, on a coma whose green wings are 1/r^2.
+            var body = new Vector2(700.4f, 699.6f);
+            var gradient = new Vector2(1.0e-5f, -0.6e-5f);
+            const float Noise = 0.003f;
+            var flat = await BuildAsync(StarlessCometMaster(1400, body, sky: 0.5f, noise: Noise, seed: 7), body);
+            var sloped = await BuildAsync(StarlessCometMaster(1400, body, sky: 0.5f, noise: Noise, seed: 7, gradient: gradient), body);
+            flat.ShouldNotBeNull();
+            sloped.ShouldNotBeNull();
+
+            for (var c = 0; c < 3; c++)
+            {
+                // The slope is recovered per channel, and a flat field does not invent one.
+                sloped.BackgroundGradientPerChannel[c].X.ShouldBe(gradient.X, tolerance: 0.15f * MathF.Abs(gradient.X));
+                sloped.BackgroundGradientPerChannel[c].Y.ShouldBe(gradient.Y, tolerance: 0.15f * MathF.Abs(gradient.Y));
+                flat.BackgroundGradientPerChannel[c].Length().ShouldBeLessThan(0.15f * gradient.Length());
+            }
+
+            // Render the sloped model and read its outer 40 px in 15-degree sectors, per channel. With the
+            // slope left in, the sectors along the gradient would sit at +-(slope x reach) ~ +-4e-3; a coma
+            // is azimuthally symmetric, so every sector at the edge must be at the pedestal, which is zero.
+            const int Size = 1400;
+            var canvas = new float[3][,];
+            for (var c = 0; c < 3; c++) { canvas[c] = new float[Size, Size]; }
+            sloped.AddTo(canvas, body, [1f, 1f, 1f]).ShouldBeGreaterThan(0);
+            for (var c = 0; c < 3; c++)
+            {
+                var reach = sloped.ReachPerChannelPx[c];
+                reach.ShouldBeGreaterThan(100f, $"channel {c} should reach well past the core");
+                var sectors = new List<float>[24];
+                for (var s = 0; s < 24; s++) { sectors[s] = new List<float>(4096); }
+                for (var y = 0; y < Size; y++)
+                {
+                    for (var x = 0; x < Size; x++)
+                    {
+                        var dx = x - body.X;
+                        var dy = y - body.Y;
+                        var r = MathF.Sqrt(dx * dx + dy * dy);
+                        if (r < reach - 40f || r >= reach) { continue; }
+                        var s = (int)((MathF.Atan2(dy, dx) + MathF.PI) / (2f * MathF.PI) * 24f) % 24;
+                        sectors[s].Add(canvas[c][y, x]);
+                    }
+                }
+                for (var s = 0; s < 24; s++)
+                {
+                    sectors[s].Sort();
+                    var median = sectors[s][sectors[s].Count / 2];
+                    // A quarter of the plate noise: the uncorrected dipole is ~1.3 noise at the edge.
+                    MathF.Abs(median).ShouldBeLessThan(0.25f * Noise,
+                        $"channel {c} sector {s * 15} deg at the edge of the model (r {reach - 40:F0}-{reach:F0}) reads {median:F5}: the field's slope is still in the model");
+                }
+            }
         }
 
         [Fact]

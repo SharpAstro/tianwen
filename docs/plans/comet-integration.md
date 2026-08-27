@@ -1340,3 +1340,71 @@ MSYS rewrites a bare `/c` into `C:\` and opens an interactive `cmd` that exits o
 nothing (the cache junctions for the neutral-WB render silently did not exist, and the run redid ten
 minutes of `sxt`); and the starless cache is per output directory, so a comparison render into a new
 `-o` pays the `sxt` pass again unless the cache is shared.
+
+## The "reflection halo" round SWAN was the field's slope inside the model (2026-08-27, afternoon)
+
+The user opened `runs/starless-floor`'s composite in the viewer, stretched hard, and saw a faint ring
+round the comet, offset to its upper right, green, also visible in ASTAP on the un-enhanced FITS. The
+question was whether it was an optical reflection, since nothing in the pipeline removes halos. It
+was not optics. It was the model.
+
+**What ruled things out, in order.** The composite's annular-median profile round the body is smooth
+and monotonic in every channel out to 800 px with no step at any reach radius (R 217 / G 427 / B 287
+this run), so a concentric ring was excluded at once, and the `composite - stars` difference (which
+is exactly the model that was added back, per channel) goes to zero at each channel's reach with edge
+values of 0.02-0.03 binned-MAD. Everything the radial profile could see was clean. Then the same
+difference was read in 15-degree SECTORS over its outer annulus: the G model at r 380-427 holds
+**+32 to +40e-4 across the upper-right half (angles 255 to 45) and -19 to -27e-4 across the lower
+left**, with the annular median at zero by construction. That is a dipole, a linear slope across the
+1200 px crop. The star layer's own field, read as 40 px cell medians, is +40 to +50e-4 brighter 400
+to 600 px up and to the right of the body: the comet sits on the flank of the bright region towards
+M16, and the slope in the model is that slope. (In R the edge carries a one-sided +37 to +86e-4 wedge
+at 120-195 degrees, the track direction; whether that is the dust tail or smeared field is not
+settled and a plane does not touch it.)
+
+**Why the model carries the field's slope.** The crop is a window on the comet-aligned canvas, which
+holds the frames' background under the comet, smeared along the track: a box average leaves a linear
+slope exactly as it was. The pedestal is a scalar (the profile's asymptote), so it removes a flat sky
+and nothing else; a slope stays in as a dipole growing with radius, cut hard at the reach. Subtracted
+from every frame at 89 positions along a 356 px track it depresses a band (the star layer reads -10
+to -14e-4 in G along the track), and added back once at the reference it paints the dipole's bright
+half up to a sharp edge at 427 px: the half-ring. Since it is 0.3 sky-MAD coherent over thousands of
+pixels it is invisible at any ordinary stretch and obvious at a hard one, exactly like a reflection.
+
+**Fix.** `CometModel.Finish` now fits a plane per channel (`RemoveBackgroundPlane`) over the annulus
+from the channel's provisional reach + 20 px to the crop's inscribed circle, one sigma-clipped refit,
+and subtracts only its slope before the pedestal and reach are read; the constant stays with the
+pedestal. Per channel because the field's colour is not the comet's and each channel was normalised
+to its own sky. First order deliberately: a higher order fitted on an outer annulus and extrapolated
+into the coma would eat the coma, whereas a leftover curvature term is a residual and not a ring.
+`BackgroundGradientPerChannel` reports the slope and the log quotes it as "N noise across the reach",
+which is the dipole the model would otherwise have carried to its edge.
+`TheFieldsGradientIsNotPartOfTheModel` pins it: a synthetic coma on a 1.2e-5/px slope, every
+15-degree edge sector of the rendered model within a quarter of the plate noise of zero (the
+uncorrected dipole is ~1.3 noise), and the slope recovered per channel to 15% with a flat field
+recovering none.
+
+**Result (`runs/starless-plane`, re-stacked with `--no-bayer-drizzle` so the integrator matches
+`starless-floor`; the first re-run let the selector pick BayerDrizzle and was thrown away, because a
+drizzled layer against a normalised one changes two variables).** The log reads what came out: G
+slope (+0.00066, -0.00035) per 100 px = 0.55 noise across the reach, B (+0.00077, -0.00045) = 0.63,
+R 0.05; the reaches settled at 210 / 360 / 380 (from 210 / 420 / 280: the slope had been holding the
+G profile down and pushing the B one up). At each channel's own edge, the first harmonic of the 24
+sector medians (the dipole) went **G 29.0 -> 7.0e-4 and B 20.9 -> 3.5e-4**, sector rms 22.3 -> 8.3
+and 16.0 -> 4.7, and the residual maximum moved from 300-315 degrees to 165 degrees in both, which is
+the tail. R is unchanged at 27e-4 because its edge structure is the one-sided +87e-4 wedge at 180
+degrees: a wedge is not a slope, and a plane leaves the tail alone by construction. Amplitudes
+860/2254/2436 against 854/2230/2435 and compose gain 0.9935/0.9991/0.9992 against 0.9935/0.9988/0.9992,
+so nothing else moved. In the deep binned composite the field's bright region now runs straight
+through where the 420 px circle was (`runs/swan-halo-before-after.png`); at the shipped render's
+stretch the ring never showed in either.
+
+**Two rules.** The statistic for a model's edge is its per-sector cells, never the annular profile,
+which is zero at the reach BY CONSTRUCTION and therefore cannot fail there. And `composite - stars`
+is the model, exactly, so any doubt about the add-back is settled by differencing the two FITS rather
+than by looking at either.
+
+Scripts: `halo_probe.py` (annular profiles + 1:1 panel), `halo_deep.py` (binned deep stretch of the
+three layers and the difference, per channel), `halo_map.py` (40 px cell deviation maps of star layer
+and composite against the track, and the model's edge sectors), all in the session scratchpad; panels
+at `runs/swan-halo-probe.png`, `runs/swan-halo-deep.png`, `runs/swan-halo-map.png`.
