@@ -24,6 +24,10 @@ THREE THINGS THIS GETS RIGHT, each of which cost something to learn:
 
 3. It is resumable and append-only. A path whose size and mtime are unchanged is not re-read, so an
    interrupted run resumes cheaply and a later run over a mostly-unchanged archive is fast.
+4. A file it cannot digest NAMES ITSELF. A failed stat and an empty digest (a corrupt/truncated
+   header or a dataless FITS) are both logged to stderr as they happen and listed under the final
+   summary with the reason, so a bad file is chased directly instead of reverse-engineered from a
+   bare count.
 
 Usage:
   python tools/astro-digest-store.py --root "D:/Astro-Pics" --root "C:/temp/astro" --out "D:/Astro-Reports"
@@ -171,6 +175,7 @@ def main():
 
     hashed = reused_path = reused_inode = failed = 0
     bytes_read = 0
+    failures = []  # (path, reason) for every file counted as failed, so a bad file names itself
     t0 = time.time()
     last = t0
 
@@ -178,8 +183,12 @@ def main():
         for i, path in enumerate(files, 1):
             try:
                 st = os.stat(path)
-            except OSError:
+            except OSError as e:
                 failed += 1
+                reason = f"stat failed: {e.strerror or e}"
+                fp = path.replace("\\", "/")
+                failures.append((fp, reason))
+                print(f"[fail] {reason}: {fp}", file=sys.stderr, flush=True)
                 continue
 
             key = os.path.normcase(path)
@@ -203,6 +212,11 @@ def main():
                     digest, kind = digest_file(path), "whole-file"
                 if not digest:
                     failed += 1
+                    reason = ("no readable data HDU (corrupt/truncated header or dataless FITS)"
+                              if ext in FITS_EXTS else "unreadable")
+                    fp = path.replace("\\", "/")
+                    failures.append((fp, reason))
+                    print(f"[fail] {reason}: {fp}", file=sys.stderr, flush=True)
                     continue
                 hashed += 1
                 bytes_read += st.st_size
@@ -238,6 +252,8 @@ def main():
     print(f"  reused via hardlink {reused_inode:,}   (bytes never re-read)")
     print(f"  already in store    {reused_path:,}")
     print(f"  failed / skipped    {failed:,}")
+    for fp, reason in failures:
+        print(f"      - {fp}  ({reason})")
     print(f"  store: {store_path}")
     return 0
 
