@@ -396,9 +396,38 @@ above, by `AOneSidedTokenDifferenceStillResolves` / `ATwoSidedTokenDifferenceIsR
 
 **Optolong's duo-bands genuinely are not in the database except pre-convolved with a sensor**
 (`SONY_CMOS_*-UVIRCUT` / `CANON_FULL_SPECTRUM_*` x L-eNhance / L-eXtreme / L-ULTIMATE), so "no match"
-is now the honest answer for a bare product name. Standalone light-pollution coverage is
-`IDAS_LPS_D3`, `IDAS_NBZ`, `ASKAR_COLOURMAGIC_D1/D2` (all four digitised here),
+is the honest answer for a bare **L-eXtreme**. Standalone light-pollution / duo-band coverage is
+`IDAS_LPS_D3`, `IDAS_NBZ`, `ASKAR_COLOURMAGIC_D1` (OIII+Ha), `ASKAR_COLOURMAGIC_D2` (OIII+SII),
+`OPTOLONG_L_QUAD_ENHANCE` (quad-band), `OPTOLONG_L_ULTIMATE` (dual 3 nm) and `OPTOLONG_L_ENHANCE`
+(tri-line) -- **all seven digitised here** from vendor charts by `tools/digitize-filter-curve/`, the
+chart-unit CSVs under `tools/import-sasp-data/local-filters/` (see the `digitize-filter` skill for the
+chart families, the gates and the retraction manifest). Upstream adds only
 `IDAS_LPS_P3_LIGHT_POLLUTION`, `OPTOLONG_L-PRO_LIGHT_POLLUTION` and `SVBONY_SV260`.
+
+### L-eNhance is TRI-LINE, and Hb 486.1 is the one wavelength that identifies it
+
+Not a labelling nicety: its blue window is **23 nm** wide (the vendor annotates it "FWHM OIII&Hb"), so
+the channel that looks like OIII carries OIII **plus H-beta summed together**, and anything unmixing an
+OSC frame shot through it on a strictly two-line Ha/OIII model is solving the wrong system (see
+[plans/narrowband-colour.md](plans/narrowband-colour.md)). Nor is the band flat: **Hb 486.1 reads
+96.4% against OIII 500.7's 85.9%**, because the band centres near 490 and 500.7 sits on its falling
+shoulder.
+
+**Hb 486.1 is also the identity check against L-Ultimate**, whose 3 nm blue band reads **0.0%** there.
+Optolong have published charts under the L-Ultimate name that are actually L-eNhance, and that one
+wavelength separates them. Pinned as a pair by `TheEnhanceIsTriLineAndPassesHBeta` and
+`TheUltimateIsTwoNarrowBandsAndDoesNotReachHBeta`.
+
+**This is why the ZOOMED charts matter.** At the ~1 px/nm of a full-range chart you cannot tell whether
+Hb falls inside the blue band; at 9 px/nm you can. A wide chart yields a curve that looks fine and
+loses the one fact that distinguishes the filter. The cost: L-eNhance has no full-range chart, so its
+out-of-band is ASSERTED (zeros at 350/460/525/630/680/800) rather than measured -- each band is
+bracketed by measured zeros, but UV/IR leakage is invisible to it.
+
+SPCC declines on the two ColourMagic curves, and **the curve is not what is missing** -- the SED
+library is (see the narrowband entry below). They are here for sensor-matched luma weights, for the
+narrowband colour work where which line lands in which CFA channel is the whole question, and as the
+pre-convolved response a duo-band OSC frame must be modelled through rather than the bare CFA.
 
 ### FIXED: `LoadAsync` built its task as the `CompareExchange` argument, so every racing caller loaded
 

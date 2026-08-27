@@ -192,3 +192,50 @@ Matching 162 ms exactly. ASTAP is a mature dedicated solver with its own on-disk
 the goal is to stop being 7x slower, not to win. Phases A and B alone reach roughly 460 ms with no
 algorithmic risk, which is already the difference between "noticeable" and "unnoticed" in a session
 that solves once per target.
+
+## The frozen Vela star lists, and why they are lists rather than frames
+
+`TianWen.Lib.Tests/Data/vela-mosaic-starlists.json.gz` (2.1 MiB) holds STAR LISTS -- not FITS -- from
+24 real Vela mosaic pointings / 96 frames / 78k catalog stars: per-frame detected centroids + the
+gate-verified WCS (incl. SIP) as an oracle, plus one mosaic-wide catalog so a catalog index is the same
+physical star in every panel. `VelaMosaicFieldTests` drives `CatalogPlateSolver.TrySeedPairLock` and
+`PairRansacLock` over them; `VelaMosaicStarListExport` (env-gated, needs the user's archive)
+regenerates the file.
+
+Star lists because the dense-field failure was purely geometric -- reproducing it needs the positions
+and the DENSITY, not the pixels, and 96 frames of FITS is ~9 GB against 2 MiB of lists.
+
+**Three of the four bugs this data set found would have passed a synthetic suite**, because a
+synthetic field is built from a transform the test already knows: the origin-convention bias below,
+the SIP fit's reference-pixel mismatch, and the seed's anchor pool being diluted by undetectable
+off-frame stars. What it covers that synthetic fields cannot: ~4,000 catalog stars per 5-degree frame,
+a bright end scrambled by saturation, mount hints wrong by up to 40 arcmin, a meridian flip
+mid-mosaic, and 106 overlapping / 272 disjoint panel pairs (the disjoint ones being the
+dense-unrelated-field negative case at real density; none of them lock).
+
+### A solver-built WCS answers in DETECTED-CENTROID coordinates
+
+**Never subtract 1 from `SkyToPixel`.** `AttachCDMatrix` derives the CD matrix from the affine that
+maps projected pixels onto detected centroids, and re-derives CRVAL per iteration as the sky at the
+frame-centre pixel in that same space, so the emitted WCS is self-consistent with the centroids and
+needs no 1-based-to-0-based conversion.
+
+Applying one (the plausible-looking `px.X - 1.0`) injects a constant (+0.91, +0.89) px bias --
+measured over 1,209 mutual matches on Vela panel 3 and 1,225 on panel 11, where a shift sweep put the
+mean residual at (-0.07, -0.10) px unshifted and growing monotonically with any shift. It had cost the
+acceptance gate 1.27 px of its 3 px tolerance, and `ReProjectionError` the sharpness of the parity
+comparison it exists to make.
+
+### The header hint: `OBJCTRA`/`OBJCTDEC` first, and `RA`/`DEC` is NOT the frame centre
+
+`RA`/`DEC` is the position the *mount reported*; `OBJCTRA`/`OBJCTDEC` is the target the framing put on
+the sensor. They agree only on a synced mount, nothing in the header says whether it was, and only the
+second one describes the frame.
+
+Why it is load-bearing: the pair-lock anchor pool is the brightest catalog stars that *project inside
+the frame from the hint*, so a hint off by most of a field fills the pool with stars the image does not
+contain and the seed never reaches consensus. Measured on an SMC integration whose mount was unsynced
+by 2.4 deg -- `RA`/`DEC` gave 11-13 hits of 160 against a threshold of 24 (chance 0.9) and fell through
+to ASTAP, and widening the search radius to 8 deg did not help because coverage was never the problem;
+`OBJCTRA`/`OBJCTDEC` locked at 104/160 and passed the acceptance gate 116/120. TianWen writes both
+keywords from the same `ImageMeta.TargetRA/TargetDec`, so the order is invisible on our own files.
