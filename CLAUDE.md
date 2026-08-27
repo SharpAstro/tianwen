@@ -1753,6 +1753,17 @@ set a pending frame holds may not be written. `VkTexture.Dispose` defers too. Ne
 object a frame may have bound directly again, and never write a single shared descriptor set from an
 upload path; the renderer's `docs/deferred-destroy-adoption.md` is the how-to.
 
+**A window resize is a distinct GPU-lifetime path from a document swap, and is validated separately.**
+Drive maximize/restore, not just file loads. The swapchain-teardown race a resize exposes was invisible
+to the viewer's file-load validation and surfaced only under GUI resize testing: `RecreateSwapchain`
+destroyed the swapchain and its per-image present semaphores while `vkQueuePresentKHR` was still in
+flight, because the bounded fence drain (`TryDrainDevice`) only ever waited on the graphics-SUBMIT
+fences and present is gated by no fence. 10 messages over 5 recreations
+(VUID-vkDestroySwapchainKHR-swapchain-01282 / VUID-vkDestroySemaphore-semaphore-05149); benign on
+desktop NVIDIA, a rejected `vkQueueSubmit` on Adreno. Fixed in **SdlVulkan.Renderer 7.29**
+(`FlushPresentQueueAfterDrain`: a `vkQueueWaitIdle` after a *successful* drain, skipped on a wedged-GPU
+drain timeout so the no-hang-on-resize property `TryDrainDevice` exists for still holds).
+
 **The cached image layer samples in TEXTURE space, and a fixed-capacity target is not the size you
 asked for this frame.** `VulkanContext.CachedLayer` allocates once and answers any smaller request out
 of the same texture, so after the pane shrinks the layer occupies the top-left of something larger; UVs
