@@ -242,6 +242,59 @@ namespace TianWen.Lib.Tests
             viewer.DirectDraws.ShouldBe(1, "the safe answer is the direct render");
         }
 
+        /// <summary>
+        /// The crash. A document swap recreates the channel textures, which destroys the previous views
+        /// after draining PRIOR frames; it cannot un-record what THIS frame's command buffer already holds.
+        /// When the hosts uploaded from their render callbacks, the cached-layer pre-pass had already bound
+        /// the old views, the upload destroyed them, and the frame was submitted with a dangling view:
+        /// under the validation layer "vkCmdBindDescriptorSets(): ... invalid state ... VkImageView was
+        /// destroyed", then VK_ERROR_DEVICE_LOST; on the Store build, a GPU watchdog (2026-08-27). The
+        /// upload therefore belongs to PrepareFrame, ahead of anything that samples.
+        /// </summary>
+        [Fact]
+        public void ANewDocumentIsUploadedBeforeTheLayerPassThatSamplesIt()
+        {
+            var viewer = new CachingViewer(new RgbaImageRenderer(SurfaceW, SurfaceH));
+            var source = new LiveFramePreviewSource();
+            source.AcceptFrame(MonoImage(ImageW, ImageH), freezeStats: false);
+            var state = NewState();
+            state.NeedsTextureUpdate = true;
+
+            // The standalone host's frame: pre-pass (PrepareFrame + layer), then Render.
+            viewer.PrepareFrame(source, state);
+            viewer.PrepareCachedImageLayer();
+            viewer.Render(source, state);
+
+            state.NeedsTextureUpdate.ShouldBeFalse("PrepareFrame consumed the upload");
+            viewer.Events.ShouldNotBeEmpty();
+            var firstPass = viewer.Events.IndexOf("layerPass");
+            var lastUpload = viewer.Events.FindLastIndex(e => e.StartsWith("upload:", StringComparison.Ordinal));
+            lastUpload.ShouldBeGreaterThanOrEqualTo(0, "the new document's textures were uploaded");
+            firstPass.ShouldBeGreaterThan(lastUpload,
+                $"every upload must precede the layer pass that samples the textures; got [{string.Join(", ", viewer.Events)}]");
+            // And the frame then USES the layer it built from the new textures, instead of invalidating it
+            // and drawing directly as the old order did.
+            viewer.LayerPasses.Count.ShouldBe(1);
+            viewer.Blits.Count.ShouldBe(1, "the layer built this frame is the one drawn this frame");
+            viewer.DirectDraws.ShouldBe(0);
+        }
+
+        private static Image MonoImage(int w, int h)
+        {
+            var ch = new float[h, w];
+            for (var y = 0; y < h; y++)
+            {
+                for (var x = 0; x < w; x++)
+                {
+                    ch[y, x] = 500f + (x + y) % 7;
+                }
+            }
+            var meta = new ImageMeta("synth", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(1),
+                FrameType.Light, "", 3.76f, 3.76f, 500, -1, Filter.Luminance, 1, 1,
+                float.NaN, SensorType.Monochrome, 0, 0, RowOrder.TopDown, float.NaN, float.NaN);
+            return new Image([ch], BitDepth.Float32, maxValue: 1000f, minValue: 0f, pedestal: 0f, imageMeta: meta);
+        }
+
         private static void Frame(TestViewerBase viewer, ViewerState state)
         {
             viewer.PrepareFrame(null, state);
@@ -329,6 +382,13 @@ namespace TianWen.Lib.Tests
             public List<(float U0, float V0, float U1, float V1)> Blits { get; } = [];
             public int LayerDraws { get; private set; }
 
+            /// <summary>Texture uploads and layer passes in the order the frame issued them. A layer pass
+            /// samples the channel textures, so an upload that recreates them must come first.</summary>
+            public List<string> Events { get; } = [];
+
+            public override void UploadImageTexture(ReadOnlySpan<float> data, int channel, int imageWidth, int imageHeight)
+                => Events.Add($"upload:{channel}");
+
             /// <summary>The texture size the fake "allocated". Zero means exactly what was asked for,
             /// the case every earlier test ran in; a real backend allocates once and keeps answering
             /// smaller requests out of the same texture, which is the case the capacity test sets up.</summary>
@@ -345,6 +405,7 @@ namespace TianWen.Lib.Tests
             protected override bool TryBeginCachedLayerPass(int width, int height)
             {
                 LayerPasses.Add((width, height));
+                Events.Add("layerPass");
                 _inLayer = true;
                 return true;
             }

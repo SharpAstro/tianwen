@@ -917,6 +917,22 @@ namespace TianWen.UI.Abstractions
             var document = source as AstroImageDocument;
             _document = document;
 
+            // Textures FIRST, before anything in this frame samples them. A document swap recreates the
+            // channel textures, and the recreate destroys the old views after draining PRIOR frames; it
+            // cannot un-record what THIS frame's command buffer already holds. The upload used to run
+            // from each host's render callback, which comes AFTER the cached-layer pre-pass: the pass
+            // bound the old views, the upload destroyed them, the frame was submitted with a dangling
+            // view and the GPU faulted. That is the watchdog (LiveKernelEvent 141) that took the Store
+            // viewer down on 2026-08-27 and, reproduced under the validation layer, reads
+            // "vkCmdBindDescriptorSets(): ... invalid state ... VkImageView was destroyed" followed by
+            // VK_ERROR_DEVICE_LOST. PrepareFrame is the one point every host passes before recording
+            // anything that samples, so the upload lives here and nowhere else; it also means the layout
+            // below already sees the new document's size instead of lagging it by a frame.
+            if (source is not null && state.NeedsTextureUpdate && source.Width > 0 && source.Height > 0)
+            {
+                UploadDocumentTextures(source, state);
+            }
+
             RestoreDocumentCalibration(document, state);
 
             // The toolbar band's HEIGHT is an input to the layout pass below, and what decides it is the

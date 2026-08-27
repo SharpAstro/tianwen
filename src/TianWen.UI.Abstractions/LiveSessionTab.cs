@@ -333,10 +333,8 @@ namespace TianWen.UI.Abstractions
 
                 viewer.SetSurfaceSize((uint)Renderer.Width, (uint)Renderer.Height);
                 viewer.SetContentRegion(imageRect);
-                if (pst.NeedsTextureUpdate && _previewSource.Width > 0)
-                {
-                    viewer.UploadDocumentTextures(_previewSource, pst);
-                }
+                // The texture upload NeedsTextureUpdate asks for happens inside Render's PrepareFrame,
+                // before anything in the frame samples the channel views; see the remarks there.
                 viewer.Render(_previewSource, pst);
             }
             else if (viewerW > 0)

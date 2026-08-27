@@ -374,27 +374,11 @@ var loop = new SdlEventLoop(sdlWindow, renderer)
 
     OnRender = () =>
     {
-        // Retire finished background work (the file dialog, a plate solve) and log anything that
-        // faulted. Deliberately NOT gated on tracker.HasPending in CheckNeedsRedraw: that would spin
-        // the render loop for the whole of a multi-second solve on a GPU we want quiet. Each guarded
-        // operation flags a redraw in its onFinally instead, so the loop wakes exactly once, here.
-        tracker.ProcessCompletions(logger);
-
-        controller.HandleFileRequest(cts.Token);
-
-        // Apply a finished AI-enhance result (swaps in the enhanced document + flags a texture
-        // re-upload). No-op until the background enhance task completes.
-        controller.TryApplyPendingEnhance(cts.Token);
-
-        if (state.NeedsReprocess)
-        {
-            ViewerActions.Reprocess(state);
-        }
-
-        if (controller.Source is not null && state.NeedsTextureUpdate)
-        {
-            imageRenderer.UploadDocumentTextures(controller.Source, state);
-        }
+        // Everything that can SWAP the document (finished background work, a file request, an enhance
+        // result) runs in OnBeforeFrame, before this frame's command buffer exists; the texture upload
+        // it implies runs inside PrepareFrame, from the pre-render-pass hook. Both used to happen here,
+        // AFTER the cached-layer pre-pass had already bound the previous document's views into this
+        // very command buffer -- see the remarks on PrepareFrame for what that cost.
 
         // Which repaint path the frame took. Counted because a partial frame is IDENTICAL on screen to
     // a full one -- that is the point -- so no screenshot can tell them apart and this is the only
@@ -433,6 +417,38 @@ bus.Subscribe<EnhanceImageSignal>(_ =>
 var frameDamage = new List<RectF32>();
 loop.OnBeforeFrame = () =>
 {
+    // The document may only change BETWEEN frames. A swap recreates the channel textures, and the
+    // recreate destroys the previous views; done inside a frame it invalidated whatever this frame's
+    // command buffer had already recorded against them (the cached-layer pre-pass), and the GPU
+    // faulted on submit -- the LiveKernelEvent 141 that took the Store viewer down on 2026-08-27,
+    // "VkImageView was destroyed" under the validation layer. So every step that can replace
+    // controller.Source runs here, before BeginFrame, and the upload itself runs in PrepareFrame.
+    //
+    // Retire finished background work (the file dialog, a plate solve) and log anything that
+    // faulted. Deliberately NOT gated on tracker.HasPending in CheckNeedsRedraw: that would spin
+    // the render loop for the whole of a multi-second solve on a GPU we want quiet. Each guarded
+    // operation flags a redraw in its onFinally instead, so the loop wakes exactly once, here.
+    tracker.ProcessCompletions(logger);
+
+    controller.HandleFileRequest(cts.Token);
+
+    // Apply a finished AI-enhance result (swaps in the enhanced document + flags a texture
+    // re-upload). No-op until the background enhance task completes.
+    controller.TryApplyPendingEnhance(cts.Token);
+
+    if (state.NeedsReprocess)
+    {
+        ViewerActions.Reprocess(state);
+    }
+
+    // A frame that swaps its document repaints everything, whatever narrowing a mouse move in the
+    // same tick may have declared: stale pixels from the previous document are the one failure the
+    // damage tracking must never produce.
+    if (state.NeedsTextureUpdate)
+    {
+        imageRenderer.RequestFullFrameDamage();
+    }
+
     frameDamage.Clear();
     if (imageRenderer.TryTakeFrameDamage(frameDamage))
     {
