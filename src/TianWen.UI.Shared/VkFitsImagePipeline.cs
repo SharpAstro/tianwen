@@ -62,13 +62,25 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     private VkDescriptorPool _descriptorPool;
 
     // Descriptor sets: image UBO (slot 0) + image UBO (slot 1, the comparison rendition) + histogram
-    // UBO + image samplers + before-image samplers + histogram samplers.
+    // UBO + image samplers + before-image samplers (both PER FRAME IN FLIGHT) + histogram samplers.
     private VkDescriptorSet _imageUboSet;
     private VkDescriptorSet _imageUboSetComparison;
     private VkDescriptorSet _histogramUboSet;
-    private VkDescriptorSet _imageSamplerSet;
-    private VkDescriptorSet _beforeSamplerSet;
     private VkDescriptorSet _histogramSamplerSet;
+
+    // The sampler sets exist once per frame in flight, and a frame binds the set of ITS slot. A frame's
+    // command buffer references the set it bound until that frame retires, and vkUpdateDescriptorSets on
+    // a set a pending frame holds is illegal; the drain that used to make it legal is gone with deferred
+    // destruction (SdlVulkan.Renderer 7.28, docs/deferred-destroy-adoption.md). So the views are stamped
+    // whenever one changes, each slot remembers the stamp it was last written at, and RecordImageDraw
+    // rewrites a slot's set first when it is behind: the slot's previous frame retired at the BeginFrame
+    // that handed out this command buffer, so the write is legal and the bind sees the current views.
+    private readonly VkDescriptorSet[] _imageSamplerSets = new VkDescriptorSet[VulkanContext.MaxFramesInFlight];
+    private readonly VkDescriptorSet[] _beforeSamplerSets = new VkDescriptorSet[VulkanContext.MaxFramesInFlight];
+    private readonly int[] _imageSamplerSetStamp = new int[VulkanContext.MaxFramesInFlight];
+    private readonly int[] _beforeSamplerSetStamp = new int[VulkanContext.MaxFramesInFlight];
+    // Starts above the slots' zero so every set is written before its first bind.
+    private int _samplerViewsStamp = 1;
 
     // Shared pipeline layout
     private VkPipelineLayout _pipelineLayout;
@@ -339,13 +351,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         {
             DestroyChannelTexture(channel);
             CreateChannelTextureOrFreeBefore(channel, width, height, format);
-            BindChannelSampler(channel, _channelViews[channel], _imageSamplerSet);
-            if (!HasBeforeChannels)
-            {
-                // Keep the before set pointing at live views while nothing is retained, so it can
-                // never reference the view this recreation just destroyed.
-                BindChannelSampler(channel, _channelViews[channel], _beforeSamplerSet);
-            }
+            // The sets are rewritten per slot at draw time (see the sampler-set fields); nothing is
+            // written here, where a frame in flight may still hold the set that points at the old view.
+            SamplerViewsChanged();
         }
 
         UploadToImage(_channelImages[channel], (uint)width, (uint)height, byteSize, format);
@@ -407,13 +415,7 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             }
 
             CreateChannelTexture(i, 1, 1, VkFormat.R32Sfloat);
-            BindChannelSampler(i, _channelViews[i], _imageSamplerSet);
-            if (!HasBeforeChannels)
-            {
-                // Same rule as the recreate branch: while nothing is retained the before set mirrors
-                // the live views, so it must never be left pointing at the view just destroyed.
-                BindChannelSampler(i, _channelViews[i], _beforeSamplerSet);
-            }
+            SamplerViewsChanged();
 
             UploadToImage(_channelImages[i], 1, 1, byteSize, VkFormat.R32Sfloat);
             _channelWidth[i] = 1;
@@ -508,12 +510,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             _channelHeight[i] = 0;
             _channelFormats[i] = VkFormat.R32Sfloat;
             _channelBytes[i] = 0;
-
-            if (_beforeViews[i] != VkImageView.Null)
-            {
-                BindChannelSampler(i, _beforeViews[i], _beforeSamplerSet);
-            }
         }
+        SamplerViewsChanged();
 
         _beforeChannelBytes = bytes;
         HasBeforeChannels = true;
@@ -536,24 +534,14 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             return;
         }
 
-        var api = _ctx.DeviceApi;
         for (var i = 0; i < ChannelCount; i++)
         {
-            if (_beforeViews[i] != VkImageView.Null)
-            {
-                api.vkDestroyImageView(_beforeViews[i]);
-                _beforeViews[i] = VkImageView.Null;
-            }
-            if (_beforeImages[i] != VkImage.Null)
-            {
-                api.vkDestroyImage(_beforeImages[i]);
-                _beforeImages[i] = VkImage.Null;
-            }
-            if (_beforeMemories[i] != VkDeviceMemory.Null)
-            {
-                api.vkFreeMemory(_beforeMemories[i]);
-                _beforeMemories[i] = VkDeviceMemory.Null;
-            }
+            // Deferred: a frame in flight, or the one being recorded, may hold the set that samples
+            // these. The context destroys them once every such frame has retired.
+            _ctx.DeferDestroy(view: _beforeViews[i], image: _beforeImages[i], memory: _beforeMemories[i]);
+            _beforeViews[i] = VkImageView.Null;
+            _beforeImages[i] = VkImage.Null;
+            _beforeMemories[i] = VkDeviceMemory.Null;
             _beforeWidth[i] = 0;
             _beforeHeight[i] = 0;
         }
@@ -565,28 +553,11 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         _beforeChannelBytes = 0;
         HasBeforeChannels = false;
 
-        // Re-point the (still bindable) before set at the live views, so it can never reference the
-        // views just destroyed.
-        //
-        // NOT during teardown. Dispose destroys the descriptor pool (which frees every set, this one
-        // included) and the sampler BEFORE it releases the before channels, so re-pointing there
-        // writes a freed descriptor set with a destroyed sampler -- an access violation inside
-        // vkUpdateDescriptorSets that takes the process down with exit 139 on window close. Guarding
-        // on _disposed rather than reordering Dispose: the flag is set before anything is destroyed,
-        // so this holds no matter how the teardown sequence is later rearranged, and there is nothing
-        // to re-point at when every descriptor is about to be freed anyway.
-        if (_disposed)
-        {
-            return;
-        }
-
-        for (var i = 0; i < ChannelCount; i++)
-        {
-            if (_channelViews[i] != VkImageView.Null)
-            {
-                BindChannelSampler(i, _channelViews[i], _beforeSamplerSet);
-            }
-        }
+        // The before sets are rewritten per slot at draw time from whatever is retained then (the live
+        // views when nothing is), so nothing is written here. That also removes the teardown trap this
+        // used to guard against: Dispose frees the pool before it releases the before channels, and a
+        // write into a freed set with a destroyed sampler was an access violation on window close.
+        SamplerViewsChanged();
     }
 
     // Creates a live channel texture, and if the device is out of memory, frees the retained before
@@ -880,9 +851,13 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
         api.vkCmdBindPipeline(cmd, VkPipelineBindPoint.Graphics, _imagePipeline);
 
-        // Bind set 0 (UBO) and set 1 (samplers)
+        // Bind set 0 (UBO) and set 1 (samplers). The sampler set is THIS frame's slot's copy, brought
+        // up to date first if a view changed since that slot last drew; see the sampler-set fields.
         var uboSet = uboSlot == UboSlotComparison ? _imageUboSetComparison : _imageUboSet;
-        var samplerSet = sampleBeforeChannels && HasBeforeChannels ? _beforeSamplerSet : _imageSamplerSet;
+        var frameSlot = ctx.CurrentFrame;
+        var samplerSet = sampleBeforeChannels && HasBeforeChannels
+            ? EnsureSamplerSet(frameSlot, _beforeSamplerSets, _beforeSamplerSetStamp, _beforeViews)
+            : EnsureSamplerSet(frameSlot, _imageSamplerSets, _imageSamplerSetStamp, _channelViews);
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
             0, 1, &uboSet, 0, null);
         api.vkCmdBindDescriptorSets(cmd, VkPipelineBindPoint.Graphics, _pipelineLayout,
@@ -1027,8 +1002,9 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     {
         var api = _ctx.DeviceApi;
 
-        // 3 UBO descriptors (image slot 0 + image slot 1 + histogram) + 9 sampler descriptors
-        // (3 image + 3 before-image + 3 histogram).
+        // 3 UBO descriptors (image slot 0 + image slot 1 + histogram) + sampler descriptors for the
+        // image and before-image sets, one of each PER FRAME IN FLIGHT, plus the histogram set.
+        const int SamplerSets = 2 * VulkanContext.MaxFramesInFlight + 1;
         var poolSizes = stackalloc VkDescriptorPoolSize[2];
         poolSizes[0] = new VkDescriptorPoolSize
         {
@@ -1038,12 +1014,12 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         poolSizes[1] = new VkDescriptorPoolSize
         {
             type = VkDescriptorType.CombinedImageSampler,
-            descriptorCount = 3 * ChannelCount
+            descriptorCount = SamplerSets * ChannelCount
         };
 
         VkDescriptorPoolCreateInfo dpCI = new()
         {
-            maxSets = 6, // imageUBO + imageUBO(comparison) + histUBO + imageSamplers + beforeSamplers + histSamplers
+            maxSets = 3 + SamplerSets,
             poolSizeCount = 2,
             pPoolSizes = poolSizes
         };
@@ -1054,15 +1030,19 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     {
         var api = _ctx.DeviceApi;
 
-        // Allocate all 6 sets at once
-        const int SetCount = 6;
+        // Allocate every set at once: the three UBO sets, the histogram sampler set, then one image
+        // sampler set and one before-image sampler set per frame in flight.
+        const int Frames = VulkanContext.MaxFramesInFlight;
+        const int SetCount = 4 + 2 * Frames;
         var layouts = stackalloc VkDescriptorSetLayout[SetCount];
         layouts[0] = _uboSetLayout;       // image UBO, slot 0 (live)
         layouts[1] = _uboSetLayout;       // image UBO, slot 1 (comparison)
         layouts[2] = _uboSetLayout;       // histogram UBO
-        layouts[3] = _samplerSetLayout;   // image samplers
-        layouts[4] = _samplerSetLayout;   // before-image samplers
-        layouts[5] = _samplerSetLayout;   // histogram samplers
+        layouts[3] = _samplerSetLayout;   // histogram samplers
+        for (var i = 4; i < SetCount; i++)
+        {
+            layouts[i] = _samplerSetLayout;   // image samplers x Frames, then before-image samplers x Frames
+        }
 
         var sets = stackalloc VkDescriptorSet[SetCount];
         VkDescriptorSetAllocateInfo dsAI = new()
@@ -1076,9 +1056,12 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
         _imageUboSet = sets[0];
         _imageUboSetComparison = sets[1];
         _histogramUboSet = sets[2];
-        _imageSamplerSet = sets[3];
-        _beforeSamplerSet = sets[4];
-        _histogramSamplerSet = sets[5];
+        _histogramSamplerSet = sets[3];
+        for (var f = 0; f < Frames; f++)
+        {
+            _imageSamplerSets[f] = sets[4 + f];
+            _beforeSamplerSets[f] = sets[4 + Frames + f];
+        }
     }
 
     private void CreatePipelineLayout()
@@ -1228,12 +1211,10 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
             UploadToImage(_channelImages[i], 1, 1, byteSize, VkFormat.R32Sfloat);
             _channelWidth[i] = 1;
             _channelHeight[i] = 1;
-            BindChannelSampler(i, _channelViews[i], _imageSamplerSet);
-            // The before set must hold VALID descriptors from the start: it is a bindable set, and
-            // Vulkan forbids binding one that references a destroyed view even if the shader never
-            // samples it. With no before retained it simply mirrors the live views.
-            BindChannelSampler(i, _channelViews[i], _beforeSamplerSet);
         }
+        // Every sampler set is written from the current views at its first bind (the slots start behind
+        // the stamp), so a set can never be bound holding a destroyed or absent view.
+        SamplerViewsChanged();
 
         // The histogram placeholders are FULL-WIDTH (HistogramBins x 1), unlike the 1x1 channel
         // placeholders above, so they need their own staging of HistogramBins zero floats -- staged
@@ -1343,8 +1324,8 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     }
 
     /// <summary>
-    /// Frees a channel's view, image and memory, draining the in-flight frames first because every
-    /// caller destroys an image a frame still in flight may be sampling.
+    /// Releases a channel's view, image and memory through the context's deferred destruction, because
+    /// every caller destroys an image a frame in flight, or the frame being recorded, may be sampling.
     /// </summary>
     /// <remarks>
     /// <para><b>Waiting the frame fence is not enough, and assuming it was is how this was missed.</b>
@@ -1377,35 +1358,23 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
     /// destroy has no rebuild behind it, so proceeding frees an image the GPU may still be reading -- a
     /// low-probability fault on a device that could not signal its fences inside the cap, set against a
     /// guaranteed hang of the render thread. The fault was chosen.</para>
+    /// <para><b>Superseded by deferred destruction (SdlVulkan.Renderer 7.28).</b> Everything above
+    /// argued about frames already SUBMITTED, and it was right about those. It could not be right
+    /// about the frame being RECORDED: a drain retires previous frames, and nothing can retire a
+    /// command buffer that has not been submitted, so a destroy mid-record was correct only if nothing
+    /// earlier in the same frame had bound the view. The cached-layer pre-pass had, the frame went to
+    /// the GPU with a dangling view, and the watchdog took the process (2026-08-27, twice). The context
+    /// now takes the handles and destroys them once every frame that could reference them has retired,
+    /// with no wait at all, so the stall this method used to cost per document swap is gone too. The
+    /// descriptor sets that pointed at the view are per frame in flight and rewritten at draw time,
+    /// which is the other half of making the wait unnecessary (see the sampler-set fields).</para>
     /// </remarks>
     private void DestroyChannelTexture(int channel)
     {
-        var api = _ctx.DeviceApi;
-
-        if (_channelViews[channel] != VkImageView.Null
-            || _channelImages[channel] != VkImage.Null
-            || _channelMemories[channel] != VkDeviceMemory.Null)
-        {
-            // The timed-out (false) return is deliberately not acted on -- see the remarks. The renderer
-            // has already logged it under this label.
-            _ = _ctx.TryWaitAllFramesIdle("channel texture destroy");
-        }
-
-        if (_channelViews[channel] != VkImageView.Null)
-        {
-            api.vkDestroyImageView(_channelViews[channel]);
-            _channelViews[channel] = VkImageView.Null;
-        }
-        if (_channelImages[channel] != VkImage.Null)
-        {
-            api.vkDestroyImage(_channelImages[channel]);
-            _channelImages[channel] = VkImage.Null;
-        }
-        if (_channelMemories[channel] != VkDeviceMemory.Null)
-        {
-            api.vkFreeMemory(_channelMemories[channel]);
-            _channelMemories[channel] = VkDeviceMemory.Null;
-        }
+        _ctx.DeferDestroy(view: _channelViews[channel], image: _channelImages[channel], memory: _channelMemories[channel]);
+        _channelViews[channel] = VkImageView.Null;
+        _channelImages[channel] = VkImage.Null;
+        _channelMemories[channel] = VkDeviceMemory.Null;
         _channelWidth[channel] = 0;
         _channelHeight[channel] = 0;
         _channelBytes[channel] = 0;
@@ -1413,22 +1382,41 @@ public sealed unsafe class VkFitsImagePipeline : IDisposable
 
     private void DestroyHistogramTexture(int channel)
     {
-        var api = _ctx.DeviceApi;
-        if (_histViews[channel] != VkImageView.Null)
+        // Only reached from Dispose, after its device wait, but deferred like every other texture so
+        // there is one rule for a texture a frame may have sampled.
+        _ctx.DeferDestroy(view: _histViews[channel], image: _histImages[channel], memory: _histMemories[channel]);
+        _histViews[channel] = VkImageView.Null;
+        _histImages[channel] = VkImage.Null;
+        _histMemories[channel] = VkDeviceMemory.Null;
+    }
+
+    /// <summary>Records that a channel or before view was replaced, so every per-frame sampler set is
+    /// rewritten before its next bind. Never writes a set itself: a frame in flight may hold one.</summary>
+    private void SamplerViewsChanged() => _samplerViewsStamp++;
+
+    /// <summary>
+    /// The sampler set for <paramref name="slot"/>, rewritten from <paramref name="views"/> first if a
+    /// view changed since that slot last drew. Legal because the slot's previous frame retired at the
+    /// BeginFrame that produced the command buffer being recorded, so no pending frame holds this set.
+    /// A view a channel does not have (a vacated before slot) falls back to the live view, so a set can
+    /// never hold a null or destroyed one.
+    /// </summary>
+    private VkDescriptorSet EnsureSamplerSet(int slot, VkDescriptorSet[] sets, int[] stamps, VkImageView[] views)
+    {
+        var set = sets[slot];
+        if (stamps[slot] != _samplerViewsStamp)
         {
-            api.vkDestroyImageView(_histViews[channel]);
-            _histViews[channel] = VkImageView.Null;
+            for (var i = 0; i < ChannelCount; i++)
+            {
+                var view = views[i] != VkImageView.Null ? views[i] : _channelViews[i];
+                if (view != VkImageView.Null)
+                {
+                    BindChannelSampler(i, view, set);
+                }
+            }
+            stamps[slot] = _samplerViewsStamp;
         }
-        if (_histImages[channel] != VkImage.Null)
-        {
-            api.vkDestroyImage(_histImages[channel]);
-            _histImages[channel] = VkImage.Null;
-        }
-        if (_histMemories[channel] != VkDeviceMemory.Null)
-        {
-            api.vkFreeMemory(_histMemories[channel]);
-            _histMemories[channel] = VkDeviceMemory.Null;
-        }
+        return set;
     }
 
     private void BindChannelSampler(int channel, VkImageView view, VkDescriptorSet set)
