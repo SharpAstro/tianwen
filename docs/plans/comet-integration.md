@@ -1232,28 +1232,68 @@ drifting frames, and a fixed star trailing out of the median).
 **Measure colour work per channel.** A luminance mean is the right statistic for a ridge and the wrong
 one for a cast: it averages red's deficit against blue's excess and reports flat.
 
-### Colour: the SWAN composite renders blue, and that is SPCC through the quad-band curve
+### Colour: the SWAN composite rendered blue, and three SPCC defects were behind it, not the filter
 
-The layers are right and the render is not. SPCC on the SWAN star layer and composite solved
-**WB = (1.937, 1.000, 3.259)** from 189 of 207 Tycho-2 matches (having dropped 969 of 1211 for a
-clipped aperture pixel), i.e. blue gained 3.3x, and painted the sky, the star halos and the
-C2-emitting coma saturated blue. The frames were shot through the **Optolong L-Quad Enhance**, whose
-digitised curve the SPCC throughput model uses, so this is the case the narrowband-colour plan already
-marks as blocked: a stellar white reference integrated over a few emission-line passbands is not a
-colour calibration for a sky or a coma, and the answer it gives for the stars carries the rest of the
-frame with it. 10P (IDAS LPS-D3, broadband with notches) rendered correctly: green coma, warm stars.
+The layers are right and the render was not. SPCC on the SWAN star layer and composite solved
+**WB = (1.937, 1.000, 3.259)**, blue gained 3.3x, and painted the sky, the star halos and the
+C2-emitting coma saturated blue. The first explanation reached for was the filter: the frames were shot
+through the **Optolong L-Quad Enhance**, and its name suggests the narrowband case the
+narrowband-colour plan marks as blocked. **That was wrong.** Read off the curve we digitised, the
+L-Quad Enhance passes 385-419, 444-496, 500-531, 559-571 and 633-704 nm, about 200 nm of the 300 nm
+visible, with notches at NaI 589 (0%) and Hg 546 (1%): four broad windows, an LPS-D3-class
+light-pollution filter, and SPCC should work through it as it does through the D3. So the Gaia spectra
+extraction is not what this frame needs. Nor does the filter's absence from the model matter much:
+SPCC divides the star's band ratios by the white reference's through the SAME throughput, so a curve
+missing from both cancels to first order (measured: declaring it moved SWAN's fit from
+(1.879, 2.996) to (1.821, 2.717)). The frames say `FILTER = 'None'` because the SV605CC has no wheel;
+the fix for that is the `.tianwen-meta.json` sidecar at the scan root, never a header rewrite.
 
-Rendered with NO white balance instead (`--inherit-wb` from the comet master, which carries the
-sky-background triple 0.984 / 1.000 / 0.997, so SPCC is skipped) the frame is uniformly green and M16
-comes out yellow-green. The user's own processing of the same data (APP, light-pollution correction
-plus background calibration, no filter model) shows the truth between the two: a green coma with a warm
-core, M16 orange-red, warm-white stars.
+**Defect 1, the clip test, was real but was not SWAN's cause.** The log said **"dropped 969 of 1211
+matched stars for a clipped aperture pixel (>= 0.9800, 98% of frame peak 1.0000)"**. The clip level
+was `saturationFraction * image.MaxValue`, and `MasterPostProcessor` had just rewrapped the master with
+`MaxValue = 1.0` so the histogram and stretch would treat it as unit-scaled. A normalised master has
+its sky at 0.5 and its stars far above 1.0 (SWAN's star layer peaks at **36 / 75 / 34** in R / G / B),
+so "at least 98% of 1.0" was true of every bright star. On 10P it dropped **545 of 545**, SPCC gave up,
+and the sky-background fallback was the only reason 10P looked right. Fixed in `ExtractPhotometry`: the
+ceiling is the OBSERVED peak read from the pixels, per channel. 10P then converged for the first time,
+(0.969, 1.000, 1.209) from 500 of 543 matches, and rendered a green coma with near-neutral stars. SWAN
+dropped 2 of 1211 and fitted **(1.879, 1.000, 2.996)**, the same blue triple, which is how a fix that
+was correct got attributed a symptom it did not own. The record of that wrong attribution is kept
+here on purpose.
 
-**What to test next, in this order:** SPCC with the filter curve ignored (a broadband QE x CFA model,
-which is what the user's tools effectively did and what 10P already gets); then the per-channel
-passband synthesis of the narrowband-colour plan, which is the principled version. Neither belongs to
-the comet work; the two-layer composite is colour-agnostic and takes whatever calibration the render
-applies.
+**Defect 2, the matcher, was SWAN's cause.** Replicating `MatchStars` on the composite: the tolerance
+probe reported a median WCS residual of **15" with a 10" MAD** on a plate the solver had just fitted to
+0.23 px, sized the match radius to its **30" cap**, and the passes accepted **1288 matches from a
+footprint holding 340 Tycho-2 stars**. The probe took a nearest-catalogue-neighbour residual from
+EVERY detection, and on a deep master 5088 detections stand against those 340 stars, so the "residual"
+was a random distance for fourteen of every fifteen samples; the passes then let every faint anonymous
+detection within the radius inherit a bright neighbour's B-V. The tell was in the photometry: observed
+star colour was **flat across every B-V bin** (R/G 0.43 to 0.45 from B-V 0 to 2.4) while the model
+walked from 0.67 to 1.57, so the fit degenerated to "make the median star look like a B-V 0.5 star".
+10P, with 2940 detections against 1315 catalogue stars, was not fooled (6.5", 599 matches). Fixed in
+`MatchStars`: detections are taken brightest first and **each catalogue star may be claimed once**, in
+the probe and in both passes (`SpccFunnel.Duplicate` counts the refusals). Tycho-2's own limit is why
+this needs no sample-size constant: the catalogue stars ARE the brightest detections, and once every
+one in the field is claimed no anonymous detection can find an unclaimed one. SWAN now probes to 5"
+and matches 597 one-to-one, and its observed colours track B-V (R/G 0.40 to 0.57 across the range).
+
+**Defect 3 is open: the observed colour range is compressed ~4x against the SED model, on both
+datasets.** With the matching right, SWAN's stars run R/G 0.40 to 0.57 where the model expects 0.67 to
+1.57, and 10P's 0.84 to 0.97 against 0.57 to 1.99; the implied per-bin white balance therefore still
+drifts with B-V (10P: R 0.68 at B-V 0 to 2.07 at 1.6). Raw-frame saturation was the obvious suspect
+(10P's 200 brightest stars all sit at 65535 in the raw lights, and a barely clipped core lands below
+the master's 98% line after registration blur) and it is refuted: rejecting by 50% of peak or by
+peak-to-flux against the faint half's PSF leaves every bin's implied WB unchanged, and V 11-12 stars at
+6% of peak show the same compression. Aperture losses are refuted too (the curve of growth is flat in
+colour from r=3 to r=20 and the per-channel FWHMs agree within 7%). The white reference is sane (the
+Sb template sits between G8III and K0V by shape), and the Tycho-2 B-V column checks against
+literature for the stars that have BT. What remains is the photometry against a debayered,
+per-channel-normalised master, or the model's band widths; the next entry decides it.
+
+Two rules from it. **A rewrapped `MaxValue` is a display convention, not a saturation level**: anything
+asking "is this pixel clipped" must read the peak from the pixels. And **a matcher that lets a detection
+claim any catalogue star will be right exactly when the frame is no deeper than the catalogue**; the
+funnel's `Detected` against the catalogue count in the footprint is the first thing to read.
 
 Two things for the runner rather than the reader: in Git Bash a junction is `cmd //c mklink /J`, since
 MSYS rewrites a bare `/c` into `C:\` and opens an interactive `cmd` that exits on EOF having done
