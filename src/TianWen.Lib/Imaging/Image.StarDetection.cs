@@ -87,7 +87,7 @@ public partial class Image
     // Single-slot cache (not a dictionary) -- the typical pattern is "called
     // twice with identical args"; multiple keys aren't a real workload.
     private readonly SemaphoreSlim _starListCacheLock = new(1, 1);
-    private (int Channel, float SnrMin, int MaxStars, int MinStars, int MaxRetries) _starListCacheKey;
+    private (int Channel, float SnrMin, int MaxStars, int MinStars, int MaxRetries, float MaxFirstPassNoiseSigma) _starListCacheKey;
     private StarList? _starListCacheValue;
 
     /// <summary>
@@ -124,8 +124,55 @@ public partial class Image
     /// </remarks>
     internal const float BilinearMonoGridOffset = 0.5f;
 
+    /// <summary>
+    /// Ceiling on the FIRST detection pass, in multiples of the frame's noise level.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why a ceiling at all.</b> The first pass starts at
+    /// <c>max(3.5 * noise, star_level)</c>, and <c>star_level</c> is HISTOGRAM-derived: it is where the
+    /// bright tail of the histogram begins. That is a good estimate on a star field, and an arbitrarily
+    /// bad one on a frame carrying extended bright signal, because a nebula fills those same high bins.
+    /// Measured on a 60 s M42 Ha sub (iTelescope 31, 3055x3056): <c>bg=199.7, noise=74,
+    /// star_level=7177</c> -- a first pass at <b>94 sigma</b>, which accepted <b>8</b> stars out of
+    /// 1449 analysed candidates while ASTAP found <b>40</b> in the same frame. The plate solve then
+    /// failed by one hit (9 against a pair-lock threshold of 10) with the catalogue offering 63 anchors,
+    /// so the catalogue was never the constraint.</para>
+    /// <para><b>Why 30, and why it is not a new constant.</b> It is the top rung of the retry ladder in
+    /// the loop below (<c>min(30 * noise, ...)</c>, stepping 30 -> 7 -> stop). Capping here therefore
+    /// starts pass 1 where the first RETRY would have started, and adds no pass to any frame: the
+    /// ladder's own judgement about how high a useful detection level can be, applied at the top
+    /// instead of one pass later.</para>
+    /// <para><b>Why not simply allow the retries instead.</b> <c>CatalogPlateSolver</c> pins
+    /// <c>maxRetries: 0</c> deliberately (commit 88bde225): on an under-exposed polar-align rung two
+    /// extra passes over an un-binned IMX455 frame burn 2 x 1-2 s and blow the 5.5 s rung budget, and
+    /// they cannot conjure stars that are not there. So on the caller that matters here the ladder
+    /// cannot run.</para>
+    /// <para><b>It is OPT-IN per call, and the default is uncapped.</b> Capping every detection was
+    /// measured and rejected: it is the right trade for a solver, which wants the most stars it can get
+    /// and cares only about their positions in aggregate, and the wrong one for everything else. On the
+    /// full suite it moved four other expectations -- centroid ground truth to 0.183 px (mono) and
+    /// 0.251 px (mosaic) against a 0.15 px bound, the dataset star-count gate from 8 subs to 7, and a
+    /// registrar noise figure by 0.45% -- because the stars it adds are the faint ones, and faint stars
+    /// carry worse centroids. That is the caveat the retry ladder states about itself
+    /// (<i>"faint stars have less positional accuracy"</i>), arriving through the front door. So the
+    /// plate solver asks for the cap and no one else does.</para>
+    /// </remarks>
+    internal const float MaxFirstPassNoiseSigma = 30f;
+
+    /// <summary>
+    /// Where the first detection pass starts, above background: the histogram's <paramref name="starLevel"/>,
+    /// floored at 3.5 sigma and capped at <see cref="MaxFirstPassNoiseSigma"/> sigma.
+    /// </summary>
+    /// <remarks>
+    /// Its own method so the arithmetic is testable without a frame: the inputs that matter are two
+    /// scalars, and the case that broke -- a histogram level 97x the noise -- is a pair of numbers read
+    /// off a real 18 MB sub that no test fixture can carry. Pinned by <c>FirstPassDetectionLevelTests</c>.
+    /// </remarks>
+    internal static float FirstPassDetectionLevel(float noiseLevel, float starLevel, float maxNoiseSigma)
+        => MathF.Max(3.5f * noiseLevel, MathF.Min(starLevel, maxNoiseSigma * noiseLevel));
+
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int minStars = -1, int maxRetries = 2, ILogger? logger = null, CancellationToken cancellationToken = default)
+    public virtual async Task<StarList> FindStarsAsync(int channel, float snrMin = 20f, int maxStars = 500, int minStars = -1, int maxRetries = 2, float maxFirstPassNoiseSigma = float.PositiveInfinity, ILogger? logger = null, CancellationToken cancellationToken = default)
     {
         // Default minStars to maxStars preserves the historical behaviour
         // (retries until maxStars is reached). New callers should set minStars
@@ -139,7 +186,7 @@ public partial class Image
         // Cached-result fast path: lock-free first check. The fields are
         // assigned together under the lock below, so a torn read just falls
         // through to the slow path -- no correctness hazard.
-        var key = (channel, snrMin, maxStars, minStars, maxRetries);
+        var key = (channel, snrMin, maxStars, minStars, maxRetries, maxFirstPassNoiseSigma);
         if (_starListCacheValue is { } fastCached && _starListCacheKey.Equals(key))
         {
             return fastCached;
@@ -153,7 +200,7 @@ public partial class Image
                 return cached;
             }
 
-            var result = await DetectStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, logger, cancellationToken).ConfigureAwait(false);
+            var result = await DetectStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, maxFirstPassNoiseSigma, logger, cancellationToken).ConfigureAwait(false);
             _starListCacheValue = result;
             _starListCacheKey = key;
             return result;
@@ -175,7 +222,7 @@ public partial class Image
     }
 
     [MethodImpl(MethodImplOptions.AggressiveOptimization)]
-    private async Task<StarList> DetectStarsAsync(int channel, float snrMin, int maxStars, int minStars, int maxRetries, ILogger? logger, CancellationToken cancellationToken)
+    private async Task<StarList> DetectStarsAsync(int channel, float snrMin, int maxStars, int minStars, int maxRetries, float maxFirstPassNoiseSigma, ILogger? logger, CancellationToken cancellationToken)
     {
         // ChunkSize = row band height each parallel task processes, matching the max star radius
         // (HfdFactor * BoxRadius) so no star can span two non-adjacent chunks. Decoupled from
@@ -196,7 +243,7 @@ public partial class Image
             // in (the viewer's star overlay draws them straight onto the displayed mosaic, and a
             // solver-built WCS is expressed in them).
             var monoImage = await DebayerAsync(DebayerAlgorithm.BilinearMono, cancellationToken: cancellationToken);
-            var monoStars = await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, logger, cancellationToken);
+            var monoStars = await monoImage.FindStarsAsync(channel, snrMin, maxStars, minStars, maxRetries, maxFirstPassNoiseSigma, logger, cancellationToken);
             return monoStars.ShiftedBy(BilinearMonoGridOffset, BilinearMonoGridOffset);
         }
 
@@ -210,7 +257,10 @@ public partial class Image
                 channel, background, star_level, noise_level, hist_threshold, bgElapsed.TotalMilliseconds);
         }
 
-        var detection_level = MathF.Max(3.5f * noise_level, star_level); /* level above background. Start with a high value */
+        /* Level above background. Start high, but never above the retry ladder's own top rung: see
+           MaxFirstPassNoiseSigma for the frame that made this necessary and why 30 is the ladder's
+           number rather than a new one. */
+        var detection_level = FirstPassDetectionLevel(noise_level, star_level, maxFirstPassNoiseSigma);
         var retries = maxRetries;
 
         if (background >= hist_threshold || background <= 0)  /* abnormal file */

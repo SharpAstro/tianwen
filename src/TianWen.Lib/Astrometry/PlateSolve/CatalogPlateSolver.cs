@@ -264,8 +264,16 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // and just burn 2 x ~1-2 s on the un-binned IMX455 image, blowing
         // through the rung budget. Without retries, a starved frame returns
         // its few real stars and the ramp moves on.
+        // maxFirstPassNoiseSigma is the OTHER half of that trade, and it is asked for HERE rather than
+        // being the detector's default. With retries pinned off, the first pass is the only pass, and it
+        // starts at the histogram's star level -- which extended bright signal owns. On a 60 s M42 Ha sub
+        // that meant a 94-sigma first pass, 8 stars, and a solve that failed by one pair-lock hit while
+        // the catalogue was offering 63 anchors; capped at the ladder's own top rung it finds 15 and
+        // locks with a 0.70 px mirror rms. A solver wants every star it can get and reads their
+        // positions in aggregate, so the faint end it admits is worth having -- which is not true of the
+        // detector's other callers (see Image.MaxFirstPassNoiseSigma for what capping them cost).
         stageSw.Restart();
-        var detectedStars = await detectionImage.FindStarsAsync(detectionImage.ReferenceStarChannel, snrMin: 5f, maxStars: 500, minStars: 50, maxRetries: 0, logger: _logger, cancellationToken: cancellationToken);
+        var detectedStars = await detectionImage.FindStarsAsync(detectionImage.ReferenceStarChannel, snrMin: 5f, maxStars: 500, minStars: 50, maxRetries: 0, maxFirstPassNoiseSigma: Image.MaxFirstPassNoiseSigma, logger: _logger, cancellationToken: cancellationToken);
         _logger.LogDebug("CatalogPlateSolver: FindStarsAsync detected {Count} stars in {Ms}ms ({W}x{H})",
             detectedStars.Count, stageSw.Elapsed.TotalMilliseconds, detectionImage.Width, detectionImage.Height);
 
