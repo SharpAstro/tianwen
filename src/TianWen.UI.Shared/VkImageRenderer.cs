@@ -51,9 +51,17 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
         {
             _renderer.ReleaseCachedLayerTargets();
         }
+        _layerCapacityW = 0;
+        _layerCapacityH = 0;
     }
 
     // ---- cached image layer (see ImageRendererBase.CachedLayer.cs) ----
+
+    /// <summary>The size the targets were allocated at. The renderer allocates once and answers any
+    /// smaller request out of the same texture, so the request that first succeeds IS the capacity
+    /// until <see cref="OnResize"/> releases the targets; the renderer itself does not expose it.</summary>
+    private int _layerCapacityW;
+    private int _layerCapacityH;
 
     /// <inheritdoc/>
     protected override int CachedLayerSlotCount => _renderer.CachedLayerSlotCount;
@@ -62,8 +70,19 @@ public class VkImageRenderer : ImageRendererBase<VulkanContext>, IDisposable
     protected override int CachedLayerSlotIndex => _renderer.CachedLayerSlot;
 
     /// <inheritdoc/>
-    protected override bool TryEnsureCachedLayerTargets(int width, int height)
-        => _renderer.EnsureCachedLayerTargets((uint)width, (uint)height);
+    protected override bool TryEnsureCachedLayerTargets(int width, int height, out int capacityWidth, out int capacityHeight)
+    {
+        var fresh = !_renderer.CachedLayerTargetReady;
+        var ok = _renderer.EnsureCachedLayerTargets((uint)width, (uint)height);
+        if (ok && fresh)
+        {
+            _layerCapacityW = width;
+            _layerCapacityH = height;
+        }
+        capacityWidth = _layerCapacityW;
+        capacityHeight = _layerCapacityH;
+        return ok;
+    }
 
     /// <inheritdoc/>
     protected override bool TryBeginCachedLayerPass(int width, int height)

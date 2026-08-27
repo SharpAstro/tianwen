@@ -198,6 +198,50 @@ namespace TianWen.Lib.Tests
             viewer.DirectDraws.ShouldBe(1);
         }
 
+        /// <summary>
+        /// The FITS viewer's "the image gets compressed when I widen the file list". A backend allocates
+        /// once and answers a smaller request out of the same texture, so once the pane has shrunk the
+        /// layer occupies the top-left of something larger. UVs are texture coordinates: normalised by the
+        /// layer's size instead of the texture's they sample capacity/layer more texels than the pane
+        /// holds, and the image draws squashed by that factor (0.72x on a 2957 px texture with a 2132 px
+        /// layer, measured) and shifted by the margin's share of the difference.
+        /// </summary>
+        [Fact]
+        public void TheBlitSamplesInTextureSpaceWhenTheTargetIsLargerThanTheLayer()
+        {
+            var viewer = NewViewer();
+            // A texture allocated when the pane was twice as wide: the request is 1500 x 900, the
+            // texture 3000 x 900.
+            viewer.Capacity = ((int)(SurfaceW * 3f), (int)(SurfaceH * 1.5f));
+            var state = NewState();
+
+            Frame(viewer, state);
+
+            viewer.Blits.Count.ShouldBe(1);
+            var blit = viewer.Blits[0];
+            // The sampled window covers exactly the pane, in TEXTURE pixels...
+            ((blit.U1 - blit.U0) * viewer.Capacity.W).ShouldBe(SurfaceW, 1e-2f,
+                "the blit must sample one texel per pane pixel; dividing by the layer size samples twice as many and squashes the image 2x");
+            ((blit.V1 - blit.V0) * viewer.Capacity.H).ShouldBe(SurfaceH, 1e-2f);
+            // ...and starts one margin in, where the layer put the pane.
+            (blit.U0 * viewer.Capacity.W).ShouldBe(MarginX, 1e-2f, "the pane sits one margin inside the layer, in texture pixels");
+            (blit.V0 * viewer.Capacity.H).ShouldBe(SurfaceH * 0.25f, 1e-2f);
+        }
+
+        [Fact]
+        public void ABackendWhoseCapacityIsBelowTheRequestIsNotSampled()
+        {
+            var viewer = NewViewer();
+            viewer.Capacity = ((int)SurfaceW, (int)SurfaceH);
+            var state = NewState();
+
+            Frame(viewer, state);
+
+            viewer.CachedLayerStats.Renders.ShouldBe(0, "nothing may be rendered into a texture the layer does not fit");
+            viewer.Blits.Count.ShouldBe(0);
+            viewer.DirectDraws.ShouldBe(1, "the safe answer is the direct render");
+        }
+
         private static void Frame(TestViewerBase viewer, ViewerState state)
         {
             viewer.PrepareFrame(null, state);
@@ -285,9 +329,18 @@ namespace TianWen.Lib.Tests
             public List<(float U0, float V0, float U1, float V1)> Blits { get; } = [];
             public int LayerDraws { get; private set; }
 
+            /// <summary>The texture size the fake "allocated". Zero means exactly what was asked for,
+            /// the case every earlier test ran in; a real backend allocates once and keeps answering
+            /// smaller requests out of the same texture, which is the case the capacity test sets up.</summary>
+            public (int W, int H) Capacity { get; set; }
+
             protected override int CachedLayerSlotCount => 2;
             protected override int CachedLayerSlotIndex => SlotIndex;
-            protected override bool TryEnsureCachedLayerTargets(int width, int height) => true;
+            protected override bool TryEnsureCachedLayerTargets(int width, int height, out int capacityWidth, out int capacityHeight)
+            {
+                (capacityWidth, capacityHeight) = Capacity == default ? (width, height) : Capacity;
+                return capacityWidth >= width && capacityHeight >= height;
+            }
 
             protected override bool TryBeginCachedLayerPass(int width, int height)
             {

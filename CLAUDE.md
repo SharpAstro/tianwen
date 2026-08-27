@@ -1724,6 +1724,17 @@ the common case where the bar runs through the middle of the handle, and
 `static TrackFrac(RectF32, px)` (the cursor-X -> fraction drag math). A new track-style control calls
 these; never re-triplicate the bar/fill/handle/clamp math.
 
+**The cached image layer samples in TEXTURE space, and a fixed-capacity target is not the size you
+asked for this frame.** `VulkanContext.CachedLayer` allocates once and answers any smaller request out
+of the same texture, so after the pane shrinks the layer occupies the top-left of something larger; UVs
+divided by the requested layer size then sample `capacity / request` more texels than the pane holds,
+and the image draws squashed by that factor and shifted by the margin's share (0.721x and 99 px on a
+2957/2132 px pair). That was "the picture compresses when I widen the file list", reproduced at HEAD by
+dragging the divider with the inspector and gone at the width where the capacity was allocated. The
+seam reports the capacity (`TryEnsureCachedLayerTargets(w, h, out capW, out capH)`), the base divides
+by it and keys the slot on it. Pinned by `TheBlitSamplesInTextureSpaceWhenTheTargetIsLargerThanTheLayer`;
+write-up in [docs/plans/damage-based-repaint.md](docs/plans/damage-based-repaint.md).
+
 **One viewer (no mini viewer).** There is no separate "mini viewer" -- the Live Session preview, polar-align,
 and guide-cam all host this same full viewer configured chromeless (`ViewerState.HideChrome` drops the
 toolbar/status rows). The feed is `LiveFramePreviewSource : IPreviewSource` (`TianWen.UI.Abstractions`): it
