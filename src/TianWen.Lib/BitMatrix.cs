@@ -215,7 +215,27 @@ public readonly struct BitMatrix
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    /// <summary>
+    /// ORs <paramref name="other"/> into this matrix with its top-left corner at
+    /// (<paramref name="d0"/>, <paramref name="d1"/>), clipping whatever falls outside.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>It is a union, and an unset incoming bit means "nothing here", never "clear this".</b>
+    /// Every caller composes overlapping stamps -- circular star masks over a whole frame -- and a
+    /// circle's bounding square is mostly zeros, so assignment semantics would let each stamp punch
+    /// holes in its neighbours. The general path did exactly that (<c>this[m, n] = other[i, j]</c>)
+    /// while the word-aligned path ORed, and which of the two ran was decided by the target COLUMN, so
+    /// the same pair of stars behaved differently depending on where in a 64-bit word they landed.
+    /// That is the geometry behind the one duplicate star pair
+    /// <c>FindStarsFromFitsFileTests</c> had pinned as unexplained: a later stamp cleared the centre
+    /// bit of an earlier star's mask, so a halo pixel of that star triggered again and its centroid
+    /// was no longer claimed.</para>
+    /// <para>A NEGATIVE column offset was also mishandled on the word path: it shifted the region LEFT
+    /// by the remainder of <c>-d1</c> instead of dropping the clipped-off columns, so a star mask within
+    /// its own radius of the left edge landed several pixels to the RIGHT of the star. The visible
+    /// source range is now computed once, up front, for both axes and both paths.</para>
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public readonly void SetRegionClipped(int d0, int d1, in BitMatrix other)
     {
         if (ReferenceEquals(other._data, _data))
@@ -223,52 +243,52 @@ public readonly struct BitMatrix
             throw new ArgumentException("Cannot set clip region from the same matrix", nameof(other));
         }
 
-        var otherD0 = other.GetLength(0);
-        var otherD1 = other.GetLength(1);
+        var rows = _data.GetLength(0);
+        var columns = _d1;
 
-        int d1Offset;
-        int d1Skip;
-        int d1Rem;
-        if (d1 >= 0)
-        {
-            d1Offset = DivRem(d1, out d1Rem);
-            d1Skip = 0;
-        }
-        else
-        {
-            d1Skip = DivRem(-d1, out d1Rem);
-            d1Offset = 0;
-        }
+        // The visible window in SOURCE coordinates, so both paths below agree about what is being
+        // copied and neither has to reason about clipping again.
+        var i0 = d0 < 0 ? -d0 : 0;
+        var i1 = Math.Min(other.GetLength(0), rows - d0);
+        var j0 = d1 < 0 ? -d1 : 0;
+        var j1 = Math.Min(other.GetLength(1), columns - d1);
 
-        var d0Skip = d0 < 0 ? -d0 : 0;
-
-        var d1SkipTotal = d1Skip * VECTOR_SIZE;
-        if (d1SkipTotal >= otherD1 || d0Skip >= otherD0)
+        if (i0 >= i1 || j0 >= j1)
         {
             return;
         }
 
-        // fast path for when the other matrix is a vector (after skipping invisible cells)
-        var d0Max = _data.GetLength(0);
-        if (d1Rem + otherD1 - d1SkipTotal <= VECTOR_SIZE)
+        unchecked
         {
-            for (var i = d0Skip; i < otherD0 && d0 + i < d0Max; i++)
-            {
-                _data[d0 + i, d1Offset] |= other._data[i, d1Skip] << d1Rem;
-            }
-        }
-        else
-        {
-            for (var i = 0; i < other.GetLength(0); i++)
-            {
-                for (var j = 0; j < other.GetLength(1); j++)
-                {
-                    var m = i + d0;
-                    var n = j + d1;
+            var srcWord = DivRem(j0, out var srcBit);
+            var dstWord = DivRem(d1 + j0, out var dstBit);
+            var width = j1 - j0;
 
-                    if (m >= 0 && m < GetLength(0) && n >= 0 && n < GetLength(1))
+            // Word path: the whole visible span sits inside one source word AND one target word, so a
+            // row is a single shift-and-OR. Small masks at most column offsets take this.
+            if (srcBit + width <= VECTOR_SIZE && dstBit + width <= VECTOR_SIZE)
+            {
+                var keep = width == VECTOR_SIZE ? (ulong)-1 : (1ul << width) - 1;
+                for (var i = i0; i < i1; i++)
+                {
+                    var bits = (other._data[i, srcWord] >> srcBit) & keep;
+                    if (bits != 0)
                     {
-                        this[m, n] = other[i, j];
+                        _data[d0 + i, dstWord] |= bits << dstBit;
+                    }
+                }
+            }
+            else
+            {
+                for (var i = i0; i < i1; i++)
+                {
+                    var targetRow = d0 + i;
+                    for (var j = j0; j < j1; j++)
+                    {
+                        if (other[i, j])
+                        {
+                            this[targetRow, d1 + j] = true;
+                        }
                     }
                 }
             }

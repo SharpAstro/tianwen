@@ -34,21 +34,25 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     /// duplicate-pair pin is what holds that line, since a count pin cannot (duplicates only push a
     /// count up, and up is the direction an expectation drifts to).</para>
     ///
-    /// <para><b><paramref name="expectedDuplicatePairs"/> is 1 for the dense RGGB frame, and that is a
-    /// measurement, not a tolerance.</b> One pair survives at (2943.11, 761.56) / (2943.19, 761.55),
-    /// HFD 3.60 / 3.57, out of 3,014 stars. It is NOT a parallelism race: 12 consecutive runs over the
-    /// identical input produced the same count and the same coordinates, and it sits mid-band
-    /// (row 14 of the 44-row chunk), not on the interleaved even/odd chunk seam. The exact geometry
-    /// that lets that one centroid escape a mask which should cover it is not yet explained, so it is
-    /// pinned rather than rounded away: an increase means the duplicate class is back, and a drop to 0
-    /// means someone fixed this and should say so here.</para>
+    /// <para><b><paramref name="expectedDuplicatePairs"/> is 0 on every frame, and the one pair that
+    /// used to survive is now explained.</b> It was at (2943.11, 761.56) / (2943.19, 761.55), HFD
+    /// 3.60 / 3.57, and it was never a parallelism race (12 consecutive runs reproduced it exactly,
+    /// mid-band rather than on the interleaved chunk seam) nor a mask too small to reach the second
+    /// centroid: a radius-5 mask centred on the first star covers it easily. The mask simply was not
+    /// there any more. <c>BitMatrix.SetRegionClipped</c> had two implementations, chosen by which
+    /// 64-bit word the stamp landed in, and the general one ASSIGNED instead of ORing -- so a later
+    /// star stamped nearby wrote the zeros from the corners of its own bounding square over the bits
+    /// of this star's mask, including its centre. A halo pixel then triggered, and the centroid it
+    /// produced was no longer claimed. Fixing that removed exactly ONE star at both SNR floors
+    /// (3,014 -> 3,013 and 2,753 -> 2,752), which is the duplicate and nothing else; the pin is now
+    /// 0 and an increase means the class is back.</para>
     /// </summary>
     [Theory]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13, null, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2753, 5000, 1)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3014, 5000, 1)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2752, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3013, 5000, 0)]
     public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null, int expectedDuplicatePairs = 0)
     {
         // given

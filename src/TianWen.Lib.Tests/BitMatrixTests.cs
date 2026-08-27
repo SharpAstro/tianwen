@@ -292,6 +292,155 @@ namespace TianWen.Lib.Tests
             actualRows.ShouldBe(expectedRows);
         }
 
+        /// <summary>
+        /// Stamping a region ADDS to what is already there. Every caller composes a union of
+        /// overlapping stamps (star masks), so an unset bit in the incoming region must leave the
+        /// target alone rather than clear it.
+        /// </summary>
+        /// <remarks>
+        /// <para>The two implementations disagreed, and only one of them was ever exercised. The
+        /// word-aligned fast path ORs (<c>|=</c>); the general path assigned
+        /// (<c>this[m, n] = other[i, j]</c>), so an incoming zero CLEARED a bit some earlier stamp had
+        /// set. A circular star mask is mostly zeros -- the four corners of its bounding square are
+        /// always unset -- so a star stamped near an already-marked one punched holes in it.</para>
+        /// <para>Which path runs is decided by <c>d1Rem + width &lt;= 64</c>, i.e. by the target COLUMN
+        /// the stamp lands on, so the theory rows walk a stamp across a word boundary: the low offsets
+        /// take the fast path and were correct, and the high ones take the general path and were not.
+        /// Nothing covered <c>SetRegionClipped</c> at all before this, which is how a two-line
+        /// divergence in one method survived.</para>
+        /// </remarks>
+        [Theory]
+        [InlineData(0)]    // fast path (word-aligned, 0 + 5 <= 64)
+        [InlineData(30)]   // fast path, mid-word
+        [InlineData(59)]   // fast path, last offset that still fits one word
+        [InlineData(60)]   // general path: 60 + 5 > 64, the stamp straddles two words
+        [InlineData(62)]
+        [InlineData(63)]
+        public void GivenOverlappingRegionsWhenSetRegionClippedThenEarlierBitsSurvive(int column)
+        {
+            // given -- a solid 5x5 already marked, then a holed 5x5 stamped exactly over it
+            const int size = 5;
+            const int row = 4;
+            var bm = new BitMatrix(16, 128);
+
+            var solid = new BitMatrix(size, size);
+            var holed = new BitMatrix(size, size);
+            for (var i = 0; i < size; i++)
+            {
+                for (var j = 0; j < size; j++)
+                {
+                    solid[i, j] = true;
+                    // A plus sign: the corners are unset, exactly like a circular star mask's.
+                    holed[i, j] = i == size / 2 || j == size / 2;
+                }
+            }
+
+            bm.SetRegionClipped(row, column, solid);
+
+            // when
+            bm.SetRegionClipped(row, column, holed);
+
+            // then -- the union, so all 25 bits are still set
+            for (var i = 0; i < size; i++)
+            {
+                for (var j = 0; j < size; j++)
+                {
+                    bm[row + i, column + j].ShouldBeTrue($"bit ({row + i}, {column + j}) was cleared by the second stamp");
+                }
+            }
+        }
+
+        /// <summary>
+        /// The two paths must also agree about WHAT they stamp, not merely about not clearing: the
+        /// same region written at a word-aligned column and at a straddling one produces the same
+        /// pattern, offset by the column.
+        /// </summary>
+        [Fact]
+        public void GivenTheSameRegionWhenStampedAcrossAWordBoundaryThenThePatternIsUnchanged()
+        {
+            // given
+            const int size = 5;
+            var region = new BitMatrix(size, size);
+            for (var i = 0; i < size; i++)
+            {
+                for (var j = 0; j < size; j++)
+                {
+                    region[i, j] = (i * size + j) % 3 == 0;
+                }
+            }
+
+            var aligned = new BitMatrix(16, 128);
+            var straddling = new BitMatrix(16, 128);
+
+            // when -- 0 takes the fast path, 62 straddles the 64-bit word boundary
+            aligned.SetRegionClipped(4, 0, region);
+            straddling.SetRegionClipped(4, 62, region);
+
+            // then
+            for (var i = 0; i < size; i++)
+            {
+                for (var j = 0; j < size; j++)
+                {
+                    straddling[4 + i, 62 + j].ShouldBe(aligned[4 + i, j], $"({i}, {j}) differs between the two paths");
+                }
+            }
+        }
+
+        /// <summary>
+        /// A stamp hanging off the top or left edge keeps only its visible part, on both paths.
+        /// </summary>
+        [Theory]
+        [InlineData(-2, 0)]
+        [InlineData(-2, 62)]
+        [InlineData(0, -2)]
+        [InlineData(14, 62)]
+        public void GivenARegionHangingOffTheEdgeWhenSetRegionClippedThenOnlyVisibleBitsAreSet(int row, int column)
+        {
+            // given
+            const int size = 5;
+            const int rows = 16;
+            const int columns = 128;
+            var region = new BitMatrix(size, size);
+            for (var i = 0; i < size; i++)
+            {
+                for (var j = 0; j < size; j++)
+                {
+                    region[i, j] = true;
+                }
+            }
+            var bm = new BitMatrix(rows, columns);
+
+            // when
+            bm.SetRegionClipped(row, column, region);
+
+            // then -- exactly the in-bounds intersection is set
+            var expected = 0;
+            for (var i = 0; i < size; i++)
+            {
+                for (var j = 0; j < size; j++)
+                {
+                    if (row + i >= 0 && row + i < rows && column + j >= 0 && column + j < columns)
+                    {
+                        bm[row + i, column + j].ShouldBeTrue($"visible bit ({row + i}, {column + j}) was not set");
+                        expected++;
+                    }
+                }
+            }
+
+            var set = 0;
+            for (var r = 0; r < rows; r++)
+            {
+                for (var c = 0; c < columns; c++)
+                {
+                    if (bm[r, c])
+                    {
+                        set++;
+                    }
+                }
+            }
+            set.ShouldBe(expected);
+        }
+
         private static string[] BitMatrixOutputAsRows(string stringOutput) =>
             stringOutput.Split(['\n', '\r'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
     }
