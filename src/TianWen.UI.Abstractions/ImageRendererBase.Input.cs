@@ -544,6 +544,17 @@ namespace TianWen.UI.Abstractions
                 return true;
             }
 
+            // An unclaimed RIGHT press on the image is the context menu, and it is handled here rather
+            // than at the top of this method so every existing right-click keeps its meaning: over a
+            // toolbar button it still reverse-cycles that button, and over any other declared region it
+            // still reaches whatever claimed it. Only a press that would otherwise have started a pan
+            // opens a menu.
+            if (evt is InputEvent.MouseDown { Button: MouseButton.Right }
+                && TryOpenImageContextMenu(state, px, py))
+            {
+                return true;
+            }
+
             // No hit: start panning, but ONLY when the press is inside the image viewport. Otherwise a press
             // in the side panels / toolbar gaps / letterbox would grab the image and pan it (e.g. clicking the
             // planetary control panel must not drag the stream). Confines the drag to its viewport.
@@ -568,6 +579,17 @@ namespace TianWen.UI.Abstractions
             }
 
             state.MouseScreenPosition = (px, py);
+
+            // An OPEN menu tracks the pointer, so every motion event is a repaint while one is up.
+            // Unconditional rather than keyed on the hovered row: the row is resolved during paint (the
+            // widget owns the geometry it drew), so there is nothing here to compare against, and a
+            // menu is up for a moment while the pointer travels a short distance. Without this the
+            // highlight only moved when something unrelated forced a frame, which is precisely how the
+            // context menu came out with no hover state at all.
+            if (state.ToolbarDropdown.IsOpen)
+            {
+                state.NeedsRedraw = true;
+            }
 
             // Hover-driven toolbar chrome -- the button highlight AND its tooltip -- changes with the
             // pointer, but a move over the TOOLBAR changes no image pixel, so this method used to

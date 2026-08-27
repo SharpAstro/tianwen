@@ -1,6 +1,7 @@
 ﻿using System.CommandLine;
 using DIR.Lib;
 using SdlVulkan.Renderer;
+using TianWen.Lib;
 using TianWen.AI.Imaging;
 using TianWen.Lib.Logging;
 using TianWen.UI.Abstractions;
@@ -64,7 +65,13 @@ var newWindowOption = new Option<bool>("--new-window")
     Description = "Open a new window even if an instance already has this folder open"
 };
 
-var rootCommand = new RootCommand("TianWen FITS Image Viewer")
+// The description leads with the build, because `--help` is the one surface a Store user can reach
+// without the app running, and "the viewer from the Store" is not a bug report. BuildInfo.Describe()
+// is version + short SHA + build time and flags a mixed build; the install folder names the install
+// KIND on Windows (a WindowsApps path IS the Store package), which is the same pair the log banner
+// prints. Both are also in the in-app "?" panel, for the user who never opens a terminal.
+var rootCommand = new RootCommand(
+    $"TianWen FITS Image Viewer (Astro Photo Viewer) {BuildInfo.Describe()} at {BuildInfo.InstallFolder}")
 {
     pathArg,
     registerOption,
@@ -256,6 +263,9 @@ using var gpu = new GpuStack<VkImageRenderer>(logger, sdlWindow, (uint)pixW, (ui
         Logger = logger,
         // SharpenPipeline is registered (AddRcAstroAi above), so surface the Enhance toolbar button.
         EnhanceAvailable = true,
+        // The clipboard is a platform service, so the renderer takes it as a callback: the image
+        // context menu (right-click) copies coordinates and pixel values through this.
+        SetClipboardText = text => SetClipboardText(text),
         // What the "?" panel reports under "AI enhancement". A delegate, not a value: each RC product
         // license check launches a process, and AddRcAstroAi deliberately defers that to first use so
         // that composing services spawns nothing. The panel asks once, on first open, via the
@@ -660,6 +670,15 @@ bool HandleMouseDown(InputEvent.MouseDown down)
         // Unclaimed left press over the file list arms the scroll controller (drag-to-scroll / thumb
         // grab); select fires on the tap release, routed through HandleViewerMouseUp via OnPointerInput.
         if (down.Button == MouseButton.Left && imageRenderer.HandleFileListInput(down))
+        {
+            return true;
+        }
+
+        // An unclaimed right press on the image is the context menu. Deliberately after every hit
+        // branch above, so a right-click that already meant something (reverse-cycling a toolbar
+        // button) still means it; only a press that would otherwise start a pan opens a menu. The
+        // embedded dispatcher (ImageRendererBase.HandleViewerMouseDown) carries the same call.
+        if (down.Button == MouseButton.Right && imageRenderer.TryOpenImageContextMenu(state, px, py))
         {
             return true;
         }

@@ -765,6 +765,15 @@ namespace TianWen.UI.Abstractions
         {
             BeginFrame();
 
+            // Tell the widget base where the pointer is, for THIS frame's layout: it resolves the
+            // dropdown row highlight and any Layout HoverBackground during paint, because the widget
+            // that drew the geometry is the only thing that can say what the pointer is over. Set here
+            // rather than in the move handlers so both hosts get it from the one position they already
+            // track, and so the value can never be a frame stale. Nothing set it before, which is why
+            // no menu in the viewer -- Zoom, the "?" panel, the new context menu -- ever lit a row
+            // under the mouse; only the keyboard's HighlightIndex showed.
+            Pointer = state.MouseScreenPosition;
+
             // One preparation pass per frame, wherever it happens. A host that caches the image layer
             // has to render it BEFORE the main render pass opens (render passes cannot nest), which
             // means the layout and the uniforms must already be decided by the time this method runs.
