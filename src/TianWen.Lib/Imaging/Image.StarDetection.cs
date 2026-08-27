@@ -35,7 +35,9 @@ public partial class Image
     /// and it scales with a defocused star instead of needing a second constant. It is not a fresh
     /// number: it is the same HFD the suppression radius is derived from, read at its own definition
     /// rather than at an empirical multiple. Floored at 1 px, since a claim smaller than a pixel
-    /// cannot be tested on an integer grid.</para>
+    /// cannot be tested on an integer grid -- and at that floor the mask is
+    /// <see cref="ClaimMinMask"/>, not a radius-1 disc, for the diagonal-rounding reason documented
+    /// there.</para>
     /// <para>The duplicate class this guards against is unaffected by the tightening, because the
     /// duplicates it was introduced for landed on the SAME position (measured: 1 distinct position out
     /// of the top 100 by flux on an SV605CC frame), not a few pixels away. Pinned: the fixture counts
@@ -53,40 +55,37 @@ public partial class Image
     internal const float ClaimFactor = 0.5f;
 
     /// <summary>
-    /// Smallest claim radius, in pixels: 2, so the disc always covers the whole 8-neighbourhood of the
-    /// rounded centroid.
+    /// The smallest claim: the full 8-neighbourhood of the rounded centroid, used when
+    /// <see cref="ClaimFactor"/> times the HFD rounds to 1 px or less.
     /// </summary>
     /// <remarks>
-    /// <para><b>1 px does not work, and the reason is the mask's shape rather than its size.</b>
-    /// <see cref="MakeStarMask"/> keeps pixels with <c>x^2 + y^2 &lt;= r^2</c>, so a radius-1 disc is a
-    /// PLUS: five pixels, no diagonals. Two centroids a few hundredths of a pixel apart can straddle a
-    /// pixel corner and round to diagonally adjacent pixels, which such a claim does not cover -- and
-    /// since an ordinary star's <c>0.5 * HFD</c> is around 1.2 px, that was the floor for nearly every
-    /// star. Measured on the RGGB fixture: 268 duplicate pairs at SNR 10, the first at (768.77, 498.52)
-    /// against (768.70, 498.48), 0.08 px apart and rounding to (499, 769) against (498, 768). A
-    /// radius-2 disc includes <c>(1, 1)</c> and closes it.</para>
-    /// <para>It also states the honest limit of the measurement: two centroids within 2 px are not
-    /// separable by a flux-weighted centroid over a shrinking box, so calling them one star is not a
-    /// loss of information.</para>
-    /// <para><b>Why not a full 3x3 instead, which would be tighter.</b> The 8-neighbourhood is
-    /// PROVABLY the minimum that closes the rounding hazard -- <c>|a - b| &lt;= 1</c> per axis implies
-    /// <c>|round(a) - round(b)| &lt;= 1</c> per axis -- so it is exactly sufficient for the duplicate
-    /// definition the fixture asserts, and it reaches 1.41 px against this disc's 2.0 px. It was built
-    /// and measured, and it is byte-identical on both fixtures: same 3,015 / 2,753 stars, same 0
-    /// duplicate pairs, the same four resolved close pairs, the same 5,126 analysed candidates. For the
-    /// choice to matter a companion would have to sit between 1.41 and 2.0 px of another accepted
-    /// centroid, and neither frame has one (closest resolved pair 4.14 px).</para>
-    /// <para>So it is decided on principle, and the deciding argument is what <see cref="AnalyseStar"/>
-    /// can deliver rather than what a dedup rule needs. Note the floor is NOT an edge case: it governs
-    /// whenever <c>0.5 * HFD</c> rounds below 2, i.e. HFD &lt; 3, which is most stars on a well-focused
-    /// rig. At 1.8 px separation with FWHM ~2.2 px the shrinking box cannot separate two peaks -- it
-    /// returns ONE centroid somewhere between them -- so accepting a companion there would record two
-    /// stars with two wrong positions. The 3x3 optimises dedup exactness at a radius where the
-    /// measurement cannot produce two honest centroids anyway: a better argument about the wrong
-    /// quantity. It also keeps one shape family, since every other claim radius comes from
-    /// <see cref="StarMasks"/> and a square minimum would be a discontinuity at r = 1.</para>
+    /// <para><b>Why a 3x3 SQUARE and not <c>MakeStarMask(1)</c>.</b> That generator keeps pixels with
+    /// <c>x^2 + y^2 &lt;= r^2</c>, so a radius-1 disc is a PLUS: five pixels, no diagonals. Two
+    /// measurements of one star can be a quarter of a pixel apart and still round to DIAGONALLY
+    /// adjacent pixels when they straddle a pixel corner -- (100.6, 200.6) and (100.4, 200.4) are
+    /// 0.28 px apart and land on (101, 201) and (100, 200) -- and a plus does not cover that, so the
+    /// re-detection is recorded as a second star. The 8-neighbourhood is exactly sufficient and no
+    /// larger: <c>|a - b| &lt;= 1</c> per axis implies <c>|round(a) - round(b)| &lt;= 1</c> per axis, and
+    /// "within 1 px per axis" is the duplicate definition <c>FindStarsFromFitsFileTests</c> asserts.
+    /// </para>
+    /// <para><b>The fixtures cannot tell these three apart, so do not conclude from them.</b> The plus,
+    /// this square and the radius-2 disc all produce byte-identical output on both frames: 3,015 /
+    /// 2,753 stars, 0 duplicate pairs, the same four resolved close pairs, the same 5,126 analysed
+    /// candidates. The Horsehead frame simply contains no duplicate whose two centroids straddle a
+    /// corner. This is a hole closed by construction rather than by measurement, which is the one kind
+    /// a test cannot argue for.</para>
+    /// <para><b>And do not "fix" it by widening to radius 2 instead.</b> That also closes the hole, but
+    /// it is 4 px wider on the axes than needed and it overrides <see cref="ClaimFactor"/> for every
+    /// star with HFD below 3 -- i.e. most stars on a well-focused rig -- so the deblend distance stops
+    /// being the half-flux radius the design chose and becomes a constant. An earlier version of this
+    /// shipped a radius-2 floor, on the mistaken belief that the plus was what let 268 duplicate pairs
+    /// through in testing. It was not: those came from a centring bug in the same change (the stamp
+    /// offset used the FLOAT <c>0.5 * HFD</c> while the mask carried its rounded INTEGER radius, so the
+    /// disc landed up to a pixel off the centroid it was meant to claim). With the offset taken from
+    /// <c>round(centroid)</c>, a bare plus is measurably just as good -- which is precisely why the
+    /// shape argument, not the measurement, has to decide it.</para>
     /// </remarks>
-    internal const int MinClaimRadius = 2;
+    internal static readonly BitMatrix ClaimMinMask;
     internal const int MaxScaledRadius = (int)(HfdFactor * BoxRadius * 2) + 1;
     internal static readonly ImmutableArray<BitMatrix> StarMasks;
 
@@ -100,6 +99,17 @@ public partial class Image
         }
 
         StarMasks = starMasksBuilder.ToImmutable();
+
+        // The 8-neighbourhood, which MakeStarMask cannot express: it generates discs, and a radius-1
+        // disc omits the diagonals. See ClaimMinMask.
+        ClaimMinMask = new BitMatrix(3, 3);
+        for (var y = 0; y < 3; y++)
+        {
+            for (var x = 0; x < 3; x++)
+            {
+                ClaimMinMask[y, x] = true;
+            }
+        }
     }
 
     static void MakeStarMask(int radius, out BitMatrix starMask)
@@ -442,8 +452,10 @@ public partial class Image
                                             // The footprint stamp above keeps its historical
                                             // round(c - r) + r form, off by up to a pixel; a claim
                                             // this small cannot afford that.
-                                            var claimRadius = Math.Max(MinClaimRadius, (int)MathF.Round(ClaimFactor * star.HFD));
-                                            var claimMask = StarMasks[Math.Clamp(claimRadius - 1, 0, StarMasks.Length - 1)];
+                                            var claimRadius = Math.Max(1, (int)MathF.Round(ClaimFactor * star.HFD));
+                                            var claimMask = claimRadius == 1
+                                                ? ClaimMinMask
+                                                : StarMasks[Math.Clamp(claimRadius - 1, 0, StarMasks.Length - 1)];
                                             img_star_claim.SetRegionClipped(
                                                 (int)MathF.Round(star.YCentroid) - claimRadius,
                                                 (int)MathF.Round(star.XCentroid) - claimRadius,

@@ -14,12 +14,18 @@
     above-threshold reach (403 of 3015 stars on `RGGB_frame_bx0_by0_top_down`; HFD 2.49 gets a 4 px
     disc against an 11.2 px reach) is now harmless rather than merely absorbed, because the claim has
     the final say.
-  - **A separate CLAIM disc, `max(2, round(0.5 * HFD))`** -- the half-flux radius -- is what
-    `CentroidAlreadyClaimed` consults. `Image.ClaimFactor` / `Image.MinClaimRadius` carry the
-    reasoning. The 2 px floor is load-bearing and cost a debugging round: `MakeStarMask(1)` is a PLUS,
-    five pixels with no diagonals, so two centroids 0.08 px apart straddling a pixel corner round to
-    diagonally adjacent pixels and escaped it -- 268 duplicate pairs, which is what a claim floored at
-    1 px produced.
+  - **A separate CLAIM disc, `max(1, round(0.5 * HFD))`** -- the half-flux radius -- is what
+    `CentroidAlreadyClaimed` consults, and at the 1 px floor the mask is `Image.ClaimMinMask`, the full
+    3x3, **not** `MakeStarMask(1)`, which generates a disc and so omits the diagonals. Two measurements
+    of one star can be 0.28 px apart and still round to diagonally adjacent pixels when they straddle a
+    pixel corner, which a five-pixel plus does not cover; the 8-neighbourhood is exactly sufficient
+    (`|d| <= 1` per axis implies `|round| <= 1` per axis, which is the duplicate definition the fixture
+    asserts) and no larger. **The fixtures cannot tell plus / 3x3 / radius-2 disc apart** -- all three
+    give 3,015 stars, 0 duplicates, the same four resolved pairs -- so this one is closed by
+    construction, not by measurement. A first version shipped a radius-2 floor on the mistaken belief
+    that the plus was what produced 268 duplicate pairs in testing; those actually came from a centring
+    bug in the same change (the stamp offset used the FLOAT `0.5 * HFD` while the mask carried its
+    rounded INTEGER radius, so the disc landed up to a pixel off the centroid it claimed).
   - **A local-maximum escape on the footprint skip**, so a companion inside a bright star's disc is
     measured instead of skipped. Strict (a saturated flat top has no strict maximum, so a bright core
     generates no escapes) and 3x3 (5x5 measured: 8,249 candidates against 8,270, byte-identical
