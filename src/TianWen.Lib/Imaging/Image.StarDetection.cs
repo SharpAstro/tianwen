@@ -68,6 +68,23 @@ public partial class Image
     /// <para>It also states the honest limit of the measurement: two centroids within 2 px are not
     /// separable by a flux-weighted centroid over a shrinking box, so calling them one star is not a
     /// loss of information.</para>
+    /// <para><b>Why not a full 3x3 instead, which would be tighter.</b> The 8-neighbourhood is
+    /// PROVABLY the minimum that closes the rounding hazard -- <c>|a - b| &lt;= 1</c> per axis implies
+    /// <c>|round(a) - round(b)| &lt;= 1</c> per axis -- so it is exactly sufficient for the duplicate
+    /// definition the fixture asserts, and it reaches 1.41 px against this disc's 2.0 px. It was built
+    /// and measured, and it is byte-identical on both fixtures: same 3,015 / 2,753 stars, same 0
+    /// duplicate pairs, the same four resolved close pairs, the same 5,126 analysed candidates. For the
+    /// choice to matter a companion would have to sit between 1.41 and 2.0 px of another accepted
+    /// centroid, and neither frame has one (closest resolved pair 4.14 px).</para>
+    /// <para>So it is decided on principle, and the deciding argument is what <see cref="AnalyseStar"/>
+    /// can deliver rather than what a dedup rule needs. Note the floor is NOT an edge case: it governs
+    /// whenever <c>0.5 * HFD</c> rounds below 2, i.e. HFD &lt; 3, which is most stars on a well-focused
+    /// rig. At 1.8 px separation with FWHM ~2.2 px the shrinking box cannot separate two peaks -- it
+    /// returns ONE centroid somewhere between them -- so accepting a companion there would record two
+    /// stars with two wrong positions. The 3x3 optimises dedup exactness at a radius where the
+    /// measurement cannot produce two honest centroids anyway: a better argument about the wrong
+    /// quantity. It also keeps one shape family, since every other claim radius comes from
+    /// <see cref="StarMasks"/> and a square minimum would be a discontinuity at r = 1.</para>
     /// </remarks>
     internal const int MinClaimRadius = 2;
     internal const int MaxScaledRadius = (int)(HfdFactor * BoxRadius * 2) + 1;
