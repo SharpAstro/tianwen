@@ -336,6 +336,7 @@ public partial class Image
                                         localCalls++;
                                         if (AnalyseStar(channel, fitsX, fitsY, BoxRadius, out var star)
                                             && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
+                                            && star.StarFWHM > 0f /* the box's peak belongs to a NEIGHBOUR: see HalfMaxDiameter */
                                             && star.SNR >= snrMin
                                             && !CentroidAlreadyClaimed(img_star_area, star, width, height))
                                         {
@@ -825,9 +826,15 @@ public partial class Image
 
         if (last < 0)
         {
-            // Nothing above half maximum inside the aperture. Reachable because valMax is the peak
-            // over the larger box, which can belong to a neighbour outside r_aperture; the previous
-            // pixel-count form returned 0 here too, and consumers already filter on FWHM > 0.
+            // Nothing above half maximum inside the aperture, which is not a thin star -- it is a
+            // CONTAMINATED measurement. valMax is the peak over the larger box, so a zero here says
+            // the brightest pixel in the box is at least twice this star's own central value, i.e. a
+            // much brighter neighbour is sitting inside the aperture and dragging the centroid with
+            // it. Measured on the RGGB fixture: 30 of 3,013 accepted stars, and one of them
+            // (1564.30, 1195.87) sat at the exact midpoint of two real stars 11.9 px apart, carrying
+            // HFD 12.26 against a frame median of 2.40 and an ellipticity of 0.94 -- a line, not a
+            // star. DetectStarsAsync therefore refuses FWHM == 0 rather than recording it; the two
+            // real stars are then both measured on their own.
             return 0f;
         }
 
