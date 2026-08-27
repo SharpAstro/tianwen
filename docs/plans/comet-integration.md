@@ -1314,8 +1314,9 @@ overshoots to -10k ADU beside saturated stars, a dark ring. Whether (a) alone re
 **Read so far (SWAN, `runs/starless-floor`, AHD on the fixed normaliser):** SPCC fits
 **(0.376, 1.000, 1.481)** from 544 one-to-one matches (3 clipped), but the master's stars still span
 only **x1.58** in R/G and x1.30 in B/G against the raw frame's x4.5. So (a) was a real photometric
-defect and is fixed, and (b), the AHD chroma median, is the compressor. The 10P counterpart is in
-`runs/onerun-floor`, unread.
+defect and is fixed, and (b), the AHD chroma median, is the compressor. 10P (`runs/onerun-floor`)
+says the same: SPCC (0.273, 1.000, 0.758) from 530 matches, star spread x1.14 in R/G and x1.11 in
+B/G, unchanged from the old normaliser's x1.13 / x1.10.
 
 **Continue here.** (1) Run `SpccMatchProbe` on both `-floor` composites (`TIANWEN_COMET_PROBE_ROOT`):
 the implied WB per B-V bin is the yardstick and it will still drift. (2) Fix the debayer: the
