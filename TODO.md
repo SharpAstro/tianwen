@@ -2,52 +2,38 @@
 
 ## High Priority
 
-- [x] **Star detection: one mask radius was doing two incompatible jobs, so we both duplicated and
-  merged stars; SPLIT 2026-08-27** (branch `fix/star-detection-first-pass-level`, commits `17dd77ed`
-  + the split). After accepting a star, detection marks a disc of `1.5 * HFD`
-  (`Image.StarDetection.cs`), and that one radius stopped re-triggering on the same star AND -- as a
-  side effect nobody chose -- forbade any other star inside it, since a candidate whose centroid
-  landed in the mask was refused by `CentroidAlreadyClaimed` and its trigger pixels were skipped
-  outright. **HFD is a FLUX radius**, so it was the wrong quantity for either job. What shipped:
-  - **The footprint mask keeps `1.5 * HFD`** and still gates the scan and still is what
-    `StarList.StarMask` hands a background estimator. Its 13.4% shortfall against the real
-    above-threshold reach (403 of 3015 stars on `RGGB_frame_bx0_by0_top_down`; HFD 2.49 gets a 4 px
-    disc against an 11.2 px reach) is now harmless rather than merely absorbed, because the claim has
-    the final say.
-  - **A separate CLAIM disc, `max(1, round(0.5 * HFD))`** -- the half-flux radius -- is what
-    `CentroidAlreadyClaimed` consults, and at the 1 px floor the mask is `Image.ClaimMinMask`, the full
-    3x3, **not** `MakeStarMask(1)`, which generates a disc and so omits the diagonals. Two measurements
-    of one star can be 0.28 px apart and still round to diagonally adjacent pixels when they straddle a
-    pixel corner, which a five-pixel plus does not cover; the 8-neighbourhood is exactly sufficient
-    (`|d| <= 1` per axis implies `|round| <= 1` per axis, which is the duplicate definition the fixture
-    asserts) and no larger. **The fixtures cannot tell plus / 3x3 / radius-2 disc apart** -- all three
-    give 3,015 stars, 0 duplicates, the same four resolved pairs -- so this one is closed by
-    construction, not by measurement. A first version shipped a radius-2 floor on the mistaken belief
-    that the plus was what produced 268 duplicate pairs in testing; those actually came from a centring
-    bug in the same change (the stamp offset used the FLOAT `0.5 * HFD` while the mask carried its
-    rounded INTEGER radius, so the disc landed up to a pixel off the centroid it claimed).
-  - **A local-maximum escape on the footprint skip**, so a companion inside a bright star's disc is
-    measured instead of skipped. Strict (a saturated flat top has no strict maximum, so a bright core
-    generates no escapes) and 3x3 (5x5 measured: 8,249 candidates against 8,270, byte-identical
-    results). Asked **only outside the claim disc**, which is what makes it free: without that it
-    re-analysed every accepted star's own peak, 5,062 -> 8,270 analysed candidates (+63%); with it,
-    5,126 (+1.3%), against 140 ms for the `Background` call that precedes the passes.
-  **Measured outcome.** Duplicate pairs 1 -> **0** (the long-pinned one was `SetRegionClipped`
-  overwriting, see `17dd77ed`, and is unrelated to the radii); resolved close pairs on the Horsehead
-  frame 2 -> **4**, star count 3,013 -> **3,015** -- two companions of HFD 7.53 and 12.26 stars at
-  10.1 px and 14.0 px that the single radius had suppressed outright. Merge exposure (a strict second
-  maximum >= 2 px away inside the deciding radius) 41 of 3,015 -> **8**. The synthetic fixture is
-  byte-identical (28 at SNR 20, 89 at SNR 10) because its closest pair is 11.8 px apart -- **a
-  synthetic star field cannot exercise deblending at all**, which is why the probe runs on a real
-  frame. Gate green: `VelaMosaicFieldTests`, `BayerCentroidGroundTruthTests`,
-  `HistogramSelectionParityTests`, `DatasetSessionRegistrarTests` (67 tests) plus the byte-pinned
-  detector counts.
-  **Still open, deliberately.** The gain is bounded by how many large or defocused stars a frame
-  holds, since only those have a footprint big enough to swallow a neighbour -- two on this frame.
-  Going further means deblending *within* the claim radius, i.e. fitting two PSFs rather than taking
-  one centre of gravity, which is a different algorithm and not a radius change. Provenance note: the
-  mask plus HFD scheme is the ASTAP method (LGPL-3.0), so a rewrite of it needs the same licence care
-  the original import did.
+- [ ] **Star detection: one mask radius is doing two incompatible jobs, so we both duplicate and merge
+  stars** (measured 2026-08-27, `StarMaskDeblendProbe` -- run it with `TIANWEN_MASK_PROBE=1`). After
+  accepting a star, detection marks a disc of `1.5 * HFD` (`Image.StarDetection.cs`), and that one
+  radius is used to stop re-triggering on the same star AND -- as a side effect nobody chose -- to
+  forbid any other star inside it, since a candidate whose centroid lands in the mask is refused by
+  `CentroidAlreadyClaimed` and its trigger pixels are skipped outright. **HFD is a FLUX radius**, so it
+  is the wrong quantity for either job:
+  - **Too small for suppression.** On the real in-corpus Horsehead frame (`RGGB_frame_bx0_by0_top_down`,
+    3014 stars), **403 stars (13.4%)** have their own above-threshold pixels reaching outside their
+    mask -- HFD 2.49 gets a 4 px mask against an 11.2 px reach; 20.2% on the synthetic fixture. This is
+    the duplicate exposure, and it is *almost* fully absorbed downstream: `CentroidAlreadyClaimed`
+    catches ~402 of 403, which is why only the ONE long-pinned duplicate pair survives
+    (`FindStarsFromFitsFileTests`). So the surviving duplicate is the case where re-analysis landed a
+    centroid >1 px from the recorded one -- a single-star investigation, not a systemic hunt.
+  - **Too large for deblending.** For a gaussian HFD ~ 1.1 x FWHM, so the disc is ~1.65 x FWHM ~
+    **3.9 sigma**, and segmentation-based detectors deblend at ~1 x FWHM. Measured: **40 of 3014
+    (1.3%)** accepted stars hide a strict 5x5 second maximum >=2 px away inside their own mask
+    (`+7910 ADU` at 3.9 px, `+13038` at 5.0 px, `+31694` at 5.0 px). Upper bound: rows at `+63029`
+    are at the clip level (`65535 - bg`), i.e. a saturated star's own core, not a companion. **This is
+    the "two tight stars marked as one" the user sees in the viewer**, and nothing downstream can know
+    the companion was there.
+  **Fix direction: separate the two radii** -- suppression extent from the star's actual
+  above-threshold footprint (or a saturation-aware radius, since a flat top is exactly where HFD lies
+  most), deblend distance from a tight centroid test. Deliberately NOT attempted yet: it is an
+  algorithmic change to a primitive that stacking registration, dataset gating and centroid ground
+  truth all read, and the full suite shows how far that reaches (a global first-pass threshold change
+  moved centroid ground truth to 0.183/0.251 px against a 0.15 px bound, the dataset star-count gate
+  from 8 subs to 7, and a registrar noise figure by 0.45%). Any attempt needs `VelaMosaicFieldTests`,
+  `BayerCentroidGroundTruthTests`, `DatasetSessionRegistrarTests` and the byte-pinned detector counts
+  as its gate, and the probe re-run for before/after numbers. Provenance note: the mask plus HFD scheme
+  is the ASTAP method (LGPL-3.0), so a rewrite of it needs the same licence care the original import
+  did.
 - [x] Own AI denoise/deconv training dataset (**P0 SHIPPED 2026-07-12**); `tianwen dataset build` runs end-to-end: single archive scan -> discover sessions + archive-wide header-matched calibration (`CalibrationResolver`, dark/bias libraries shared across sessions, masters build-once via fingerprinted `MasterCache`) -> star-count-led quality gate (`SessionFrameAnalyzer`; on a fast refractor star count is the discriminator, HFD *inverts* under transparency loss) -> register + integrate the session master **unnormalised** (`SessionRegistrar`, reuses the stacker's quad-match + Float16Staged integrator) -> structure-biased 256px cells -> **zero-skew** fp16 N2N tiles + JSONL manifest (`DatasetTileExporter`; every frame through the *same* `ChunkedNafnetRunner.ApplyInputStretch` inference pre-stretch) -> PSF/noise field-radius report (`DatasetPsfNoiseReport`) -> pinned **by-session** split (`DatasetSplitWriter`) -> in-run parity gate (`VerifyParityAsync`, maxDiff 0). License-clean (N2N sub-pairs + synthetic-PSF degradation, **no** RC-Astro outputs anywhere in the ML loop). `DatasetBuildRunner` (in `TianWen.AI.Imaging`) orchestrates; 22 tests, all validated on the synthetic RGGB fixture. **Real-archive run DONE 2026-07-15**: `D:\Astro-Dataset\2025-2026` holds 45 sessions / 4,958 subs / 121,500 tiles + 5 pinned test sessions. Two follow-ups before P1 trains on it: those tiles predate the master-flat pedestal fix (2026-08-03), and § 2.3b of the plan records the root order plus the two session groups (BAD LIGHT EXAMPLES, QHY294PROC) that no header gate excludes. Then P1 (NAFNet-32 N2N training on RunPod).** **Blocker for narrowband archives CLEARED 2026-08-02:** `SessionDiscovery.GroupSessions` keyed on `(SessionDir, Instrument, Target)` with **no filter**, so a mono Ha+OIII night collapsed into one session; the MAD star-count gate rejected the OIII frames as a left tail (they legitimately detect far fewer stars) and `SessionRegistrar` stacked both filters into one meaningless master, silently. The key now carries the filter. The obvious fix was insufficient: `Filter.FromName` is anchored, so `Ha 3nm` / `Antlia ALP-T` all canonicalise to one `Filter.Unknown`, and keying on the canonical name (what `MasterGroupKey` compares on) would have re-merged the lines; the key falls back to raw header text. That also disproved the plan's assumption that narrowband dispatch is a free `Bandpass` bit test, since `FILTCLAS` is TianWen-written and a N.I.N.A. frame's bandpass comes from the same anchored parse. See [docs/known-limitations.md](docs/known-limitations.md). The same sweep is also how [narrowband-colour](docs/plans/narrowband-colour.md) gets validated (and how we could **measure** our own dual-band crosstalk coefficients instead of sourcing a published table). See `docs/plans/ai-denoise-deconv.md`.
 - [x] MiniViewer: optional lightweight mode that skips storing UnstretchedImage, for live preview where we never re-stretch, just keep stats + GPU texture. Saves ~140MB per displayed frame
 - [x] Cache altitude chart as texture, only re-render the mouse follower overlay on hover, not the entire chart. Currently 20% GPU on mouse hover due to full chart redraw per frame
