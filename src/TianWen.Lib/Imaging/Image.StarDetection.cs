@@ -14,6 +14,62 @@ public partial class Image
 {
     internal const int BoxRadius = 14;
     internal const float HfdFactor = 1.5f;
+
+    /// <summary>
+    /// Radius, in multiples of a star's HFD, within which a second centroid is the SAME star rather
+    /// than a neighbour: its half-flux radius.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Why this is not <see cref="HfdFactor"/>.</b> One radius used to do two jobs with
+    /// opposite requirements. As a SUPPRESSION extent it wants to be generous -- it marks the pixels
+    /// of a star that has already been measured, so the scan does not re-analyse its whole wing, and
+    /// erring wide only costs a little background. As a DEBLEND distance it wants to be tight -- it
+    /// decides that a candidate is a re-detection rather than its own star, and erring wide MERGES two
+    /// stars into one. At <c>1.5 * HFD</c> (about 1.65 * FWHM, i.e. ~3.9 sigma) it was generous, so the
+    /// merge side paid. Measured on the 3008x3008 RGGB fixture (<c>StarMaskDeblendProbe</c>): 41
+    /// accepted stars of 3,015 have a second strict local maximum above the detection level within
+    /// <c>1.5 * HFD</c> and at least 2 px from the recorded centroid, against 8 within the claim
+    /// radius. That is the user-visible complaint -- two tight stars marked as one.</para>
+    /// <para><b>Why the half-flux radius.</b> <c>0.5 * HFD</c> is the radius containing half the star's
+    /// flux, so two centroids inside it are the same object almost by definition of the measurement,
+    /// and it scales with a defocused star instead of needing a second constant. It is not a fresh
+    /// number: it is the same HFD the suppression radius is derived from, read at its own definition
+    /// rather than at an empirical multiple. Floored at 1 px, since a claim smaller than a pixel
+    /// cannot be tested on an integer grid.</para>
+    /// <para>The duplicate class this guards against is unaffected by the tightening, because the
+    /// duplicates it was introduced for landed on the SAME position (measured: 1 distinct position out
+    /// of the top 100 by flux on an SV605CC frame), not a few pixels away. Pinned: the fixture counts
+    /// still assert 0 duplicate pairs, and the synthetic 28-star field still returns exactly 28 at
+    /// SNR 20 and 89 at SNR 10, unchanged in both directions.</para>
+    /// <para><b>What the split actually recovers, and why the number is small.</b> Only a large or
+    /// defocused star has a footprint big enough to swallow a neighbour, so the gain is bounded by how
+    /// many of those a frame holds. On the RGGB fixture, pairs of ACCEPTED stars closer than the wider
+    /// one's <c>1.5 * HFD</c> went from 2 to 4 and the star count from 3,013 to 3,015: two companions
+    /// of HFD 7.53 and 12.26 stars, at 10.1 px and 14.0 px, each of which the old single radius had
+    /// suppressed outright. The synthetic field gains nothing because its closest pair is 11.8 px
+    /// apart, which no radius here reaches -- a reminder that a synthetic star field cannot exercise
+    /// deblending at all.</para>
+    /// </remarks>
+    internal const float ClaimFactor = 0.5f;
+
+    /// <summary>
+    /// Smallest claim radius, in pixels: 2, so the disc always covers the whole 8-neighbourhood of the
+    /// rounded centroid.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>1 px does not work, and the reason is the mask's shape rather than its size.</b>
+    /// <see cref="MakeStarMask"/> keeps pixels with <c>x^2 + y^2 &lt;= r^2</c>, so a radius-1 disc is a
+    /// PLUS: five pixels, no diagonals. Two centroids a few hundredths of a pixel apart can straddle a
+    /// pixel corner and round to diagonally adjacent pixels, which such a claim does not cover -- and
+    /// since an ordinary star's <c>0.5 * HFD</c> is around 1.2 px, that was the floor for nearly every
+    /// star. Measured on the RGGB fixture: 268 duplicate pairs at SNR 10, the first at (768.77, 498.52)
+    /// against (768.70, 498.48), 0.08 px apart and rounding to (499, 769) against (498, 768). A
+    /// radius-2 disc includes <c>(1, 1)</c> and closes it.</para>
+    /// <para>It also states the honest limit of the measurement: two centroids within 2 px are not
+    /// separable by a flux-weighted centroid over a shrinking box, so calling them one star is not a
+    /// loss of information.</para>
+    /// </remarks>
+    internal const int MinClaimRadius = 2;
     internal const int MaxScaledRadius = (int)(HfdFactor * BoxRadius * 2) + 1;
     internal static readonly ImmutableArray<BitMatrix> StarMasks;
 
@@ -272,7 +328,12 @@ public partial class Image
         }
 
         var starList = new ConcurrentBag<ImagedStar>();
+        // Two masks, because the two jobs one mask used to do have opposite requirements: see
+        // ClaimFactor. img_star_area is the star's FOOTPRINT (what has already been measured, and
+        // what a background estimator wants excluded); img_star_claim is the much smaller
+        // half-flux disc that says "a centroid landing here is this same star again".
         var img_star_area = new BitMatrix(height, width);
+        var img_star_claim = new BitMatrix(height, width);
         var channelData = Planes[channel].Data;
 
         // Interleaved chunk processing: two passes (i=0 even chunks, i=1 odd chunks) ensures no two
@@ -331,13 +392,21 @@ public partial class Image
                                 else if (value - background > detection_level)
                                 {
                                     localHits++;
-                                    if (!img_star_area[fitsY, fitsX])
+                                    // Inside an already-measured star's footprint, a pixel is worth
+                                    // analysing only if it could be its own object's peak. That is
+                                    // what lets a close companion out of a bright neighbour's mask
+                                    // while still skipping the thousands of wing pixels the mask is
+                                    // there to skip -- see IsStrictLocalMaximum for why it is nearly
+                                    // free.
+                                    if (!img_star_area[fitsY, fitsX]
+                                        || (!img_star_claim[fitsY, fitsX]
+                                            && IsStrictLocalMaximum(channelData, fitsX, fitsY, width, height)))
                                     {
                                         localCalls++;
                                         if (AnalyseStar(channel, fitsX, fitsY, BoxRadius, out var star)
                                             && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
                                             && star.SNR >= snrMin
-                                            && !CentroidAlreadyClaimed(img_star_area, star, width, height))
+                                            && !CentroidAlreadyClaimed(img_star_claim, star, width, height))
                                         {
                                             localAccepted++;
                                             starList.Add(star);
@@ -349,6 +418,19 @@ public partial class Image
                                             var mask = StarMasks[Math.Clamp(r - 1, 0, StarMasks.Length - 1)];
 
                                             img_star_area.SetRegionClipped(yc_offset, xc_offset, mask);
+
+                                            // Centred on the ROUNDED centroid, which is the same
+                                            // quantity CentroidAlreadyClaimed tests, so the claim is
+                                            // exactly "within claimRadius px of an accepted star".
+                                            // The footprint stamp above keeps its historical
+                                            // round(c - r) + r form, off by up to a pixel; a claim
+                                            // this small cannot afford that.
+                                            var claimRadius = Math.Max(MinClaimRadius, (int)MathF.Round(ClaimFactor * star.HFD));
+                                            var claimMask = StarMasks[Math.Clamp(claimRadius - 1, 0, StarMasks.Length - 1)];
+                                            img_star_claim.SetRegionClipped(
+                                                (int)MathF.Round(star.YCentroid) - claimRadius,
+                                                (int)MathF.Round(star.XCentroid) - claimRadius,
+                                                claimMask);
                                         }
                                     }
                                 }
@@ -392,6 +474,11 @@ public partial class Image
     /// True when this candidate's CENTROID already lies inside the accepted-star area, i.e. it is a
     /// re-detection of a star that has already been recorded.
     ///
+    /// <para>The area consulted is the TIGHT claim mask (<see cref="ClaimFactor"/>, a half-flux
+    /// radius), not the footprint mask that gates the trigger scan. Testing the centroid against the
+    /// footprint was the merge bug: at <c>1.5 * HFD</c> a genuine companion's own centroid lands inside
+    /// its bright neighbour's area and is discarded as a re-detection.</para>
+    ///
     /// <para><b>Why the trigger pixel is not enough.</b> The loop skips pixels already inside
     /// <c>img_star_area</c>, but that area is only <c>HfdFactor * HFD</c> in radius, and HFD
     /// systematically UNDERSTATES a saturated star's footprint: a flat-topped core has a small
@@ -403,9 +490,9 @@ public partial class Image
     /// (1473.93, 2984.91), 1 distinct position out of 100.
     /// </para>
     ///
-    /// <para>Testing the resulting centroid instead closes it without widening the mask (which would
-    /// swallow genuine close pairs) and without a second dedup pass over the star list. The cost is
-    /// one bit read per accepted candidate.</para>
+    /// <para>Testing the resulting centroid instead closes it without widening the footprint mask
+    /// (which would swallow genuine close pairs) and without a second dedup pass over the star list.
+    /// The cost is one bit read per accepted candidate.</para>
     ///
     /// <para>Consequences of NOT doing this, all of which were live: star count inflated (3,569 vs
     /// 3,349 distinct on that frame) so the dataset quality gate mis-ranks frames; median HFD pulled
@@ -423,6 +510,67 @@ public partial class Image
         var cx = (int)MathF.Round(star.XCentroid);
         var cy = (int)MathF.Round(star.YCentroid);
         return cx >= 0 && cx < width && cy >= 0 && cy < height && starArea[cy, cx];
+    }
+
+    /// <summary>
+    /// True when every one of the eight neighbours is STRICTLY lower, i.e. this pixel could be a
+    /// star's own peak rather than a point on someone else's wing.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>What it is for.</b> It is the escape hatch on the footprint mask's trigger skip: a
+    /// pixel inside an already-measured star's area is analysed anyway if it looks like its own peak.
+    /// Without it, a companion close enough to sit inside a bright star's mask is never even measured,
+    /// and the two are reported as one star. Correctness of the dedup does not rest on this test --
+    /// <see cref="CentroidAlreadyClaimed"/> still has the final say, against the tight claim mask -- so
+    /// a false positive here costs one wasted <see cref="AnalyseStar"/> call and nothing else.</para>
+    /// <para><b>Why it is nearly free despite sitting in the hottest loop.</b> Three things, and the
+    /// third is the one that matters. It runs only for pixels already inside a footprint; it exits on
+    /// the FIRST neighbour that is not lower, which on a monotonically decaying PSF wing is the first
+    /// or second read because the neighbour towards the core is brighter; and the CALL SITE asks it
+    /// only for pixels outside the claim disc. Without that last exclusion the escape re-analysed every
+    /// accepted star's own peak pixel -- the star is accepted from whichever wing pixel the row scan
+    /// reached first, so its true peak is still ahead and is always a strict maximum -- which is
+    /// roughly one wasted <see cref="AnalyseStar"/> call per star. Measured on the RGGB fixture
+    /// (Debug), analysed candidates over both passes: 5,062 with no escape at all, <b>8,270</b> with
+    /// the escape but no claim exclusion (+63%, pass wall time 58 -> 75 ms), and <b>5,126</b> as it
+    /// stands (+1.3%, 59 ms). For scale, the <c>Background</c> call that precedes the passes costs
+    /// 140 ms on that frame on its own.</para>
+    /// <para>A trigger pixel inside the claim disc is that star's own core by construction, so a
+    /// centroid measured from it is dominated by the star that already claimed it. Two of the closest
+    /// pairs seen while measuring this were accepted only because the companion happened to be scanned
+    /// BEFORE the brighter star, i.e. before any claim existed -- order-dependent acceptances inside
+    /// the band the design calls unresolvable, which excluding the disc also removes.</para>
+    /// <para><b>Widening the window buys nothing.</b> Measured at 5x5: 8,249 analysed candidates
+    /// against 8,270, the same 3,016 stars and the same resolved pairs. The extra candidates are not
+    /// single-pixel noise spikes a wider window would reject -- detection runs on a mono debayer, whose
+    /// 2x2 quad means make the noise correlated and its maxima broad.</para>
+    /// <para><b>Strict, deliberately.</b> Requiring strictly-lower neighbours disqualifies a SATURATED
+    /// flat top by construction: every pixel of a clipped plateau has an equal neighbour, so a bright
+    /// star's core generates no escapes at all, which is where a tolerant comparison would have spent
+    /// its budget. A NaN neighbour does not disqualify, since every comparison against NaN is false;
+    /// NaN pixels are marked into the footprint mask separately and never reach this test.</para>
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    private static bool IsStrictLocalMaximum(float[,] channelData, int x, int y, int width, int height)
+    {
+        if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1)
+        {
+            return false;
+        }
+
+        var v = channelData[y, x];
+        for (var dy = -1; dy <= 1; dy++)
+        {
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                if ((dx | dy) != 0 && channelData[y + dy, x + dx] >= v)
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
     }
 
     /// <summary>

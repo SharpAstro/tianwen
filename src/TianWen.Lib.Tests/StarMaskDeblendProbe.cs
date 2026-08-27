@@ -8,17 +8,17 @@ using Xunit;
 namespace TianWen.Lib.Tests
 {
     /// <summary>
-    /// How much the star-area mask costs, in both directions: stars swallowed inside another star's
-    /// mask (a MERGE) and the mask's own footprint against the star's real above-threshold extent
-    /// (which is what lets a DUPLICATE escape).
+    /// What each of the two star-mask radii costs, now that they are separate: stars swallowed as
+    /// re-detections (a MERGE, charged to the CLAIM radius) and the footprint's own reach against the
+    /// star's real above-threshold extent (which is what lets a DUPLICATE escape).
     /// </summary>
     /// <remarks>
-    /// <para>The mask radius is <c>1.5 * HFD</c> and it does two jobs at once: it stops the loop
-    /// re-triggering on a star it already recorded, and -- as a side effect nobody chose -- it forbids
-    /// any OTHER star inside that radius, because a candidate whose centroid lands in the mask is
-    /// rejected by <c>CentroidAlreadyClaimed</c> and its trigger pixels are skipped outright. HFD is a
-    /// FLUX radius, so for a saturated star it understates the footprint (duplicates escape) while for
-    /// an ordinary one 1.5 * HFD is about 1.65 * FWHM, i.e. ~3.9 sigma (companions vanish).</para>
+    /// <para>One radius, <c>1.5 * HFD</c>, used to do both jobs. It gated the scan (so the whole wing
+    /// of a measured star is skipped) AND decided whether a candidate's centroid was a re-detection.
+    /// The first job wants to be generous and the second tight, so at <c>1.5 * HFD</c> (about
+    /// 1.65 * FWHM, i.e. ~3.9 sigma) the merge side paid. The claim radius is now
+    /// <c>max(2, round(0.5 * HFD))</c>, the half-flux radius, and this probe reports the merge count
+    /// under BOTH radii from the same star list, so the difference is what the split bought.</para>
     /// <para>A probe rather than a test: it measures and reports, it asserts nothing about the numbers,
     /// and it is gated so a bare <c>dotnet test</c> does not pay for it. Run it with
     /// <c>TIANWEN_MASK_PROBE=1</c>.</para>
@@ -36,20 +36,24 @@ namespace TianWen.Lib.Tests
 
             var ct = TestContext.Current.CancellationToken;
             var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: ct);
-            var stars = (await image.FindStarsAsync(0, snrMin, maxStars, cancellationToken: ct)).ToArray();
+            // The logger is what reports analyseStarCalls per pass, i.e. what the local-maximum escape
+            // on the footprint skip costs.
+            var stars = (await image.FindStarsAsync(0, snrMin, maxStars, logger: new XunitLogger(output), cancellationToken: ct)).ToArray();
 
             var (bg, starLevel, noise, _) = image.Background(0);
             var detectionLevel = Image.FirstPassDetectionLevel(noise, starLevel, float.PositiveInfinity);
             output.WriteLine($"{name}: {stars.Length} stars, bg={bg:F1} noise={noise:F2} starLevel={starLevel:F1} detectionLevel={detectionLevel:F1}");
 
-            // (1) MERGE cost: a second local maximum above the detection level, inside an accepted
-            // star's mask but far enough from its centroid to be a different object. These are the
-            // companions the mask silently ate -- nothing downstream can know they were there.
-            var swallowed = 0;
-            var swallowedExamples = new List<string>();
+            // (1) MERGE cost: a second local maximum above the detection level, inside a radius but
+            // far enough from the accepted centroid to be a different object. Counted against the
+            // CLAIM radius (what actually rejects a candidate today) and against the FOOTPRINT radius
+            // (what used to), so the pair of numbers is the size of the split.
+            var mergedByClaim = 0;
+            var mergedByFootprint = 0;
+            var mergedExamples = new List<string>();
             // (2) DUPLICATE exposure: how far the star's own above-threshold pixels actually reach,
-            // against the radius the mask covers. Where the reach exceeds the mask, a halo pixel can
-            // still trigger, which is the geometry the surviving duplicate pair lives in.
+            // against the footprint that is supposed to cover them. Where the reach exceeds it, a halo
+            // pixel can still trigger -- which is survivable now, because the claim has the final say.
             var maskShortfall = 0;
             var shortfallExamples = new List<string>();
 
@@ -57,11 +61,13 @@ namespace TianWen.Lib.Tests
             {
                 var cx = (int)MathF.Round(star.XCentroid);
                 var cy = (int)MathF.Round(star.YCentroid);
-                var maskRadius = MathF.Round(Image.HfdFactor * star.HFD);
-                var probeRadius = (int)MathF.Min(Image.BoxRadius, MathF.Max(maskRadius * 3f, 6f));
+                var footprintRadius = MathF.Round(Image.HfdFactor * star.HFD);
+                var claimRadius = Math.Max(Image.MinClaimRadius, (int)MathF.Round(Image.ClaimFactor * star.HFD));
+                var probeRadius = (int)MathF.Min(Image.BoxRadius, MathF.Max(footprintRadius * 3f, 6f));
 
                 var reach = 0f;
-                var secondPeak = -1f;
+                var secondPeakClaim = -1f;
+                var secondPeakFootprint = -1f;
                 var secondAt = (X: 0, Y: 0);
 
                 for (var dy = -probeRadius; dy <= probeRadius; dy++)
@@ -87,50 +93,93 @@ namespace TianWen.Lib.Tests
                             reach = dist;
                         }
 
-                        // A local maximum at least 2 px from the recorded centroid, inside the mask: a
-                        // candidate the mask suppressed. 2 px because a single PSF's own shoulder can
-                        // wobble by a pixel; beyond that it is a separate peak.
-                        if (dist >= 2f && dist <= maskRadius && IsLocalMax(image, x, y))
+                        // A local maximum at least 2 px from the recorded centroid: a candidate that a
+                        // radius reaching this far would suppress. 2 px because a single PSF's own
+                        // shoulder can wobble by a pixel; beyond that it is a separate peak.
+                        if (dist >= 2f && dist <= footprintRadius && IsLocalMax(image, x, y))
                         {
-                            if (value > secondPeak)
+                            if (value > secondPeakFootprint)
                             {
-                                secondPeak = value;
+                                secondPeakFootprint = value;
                                 secondAt = (x, y);
+                            }
+                            if (dist <= claimRadius && value > secondPeakClaim)
+                            {
+                                secondPeakClaim = value;
                             }
                         }
                     }
                 }
 
-                if (secondPeak > 0f)
+                if (secondPeakFootprint > 0f)
                 {
-                    swallowed++;
-                    if (swallowedExamples.Count < 5)
+                    mergedByFootprint++;
+                    if (mergedExamples.Count < 5)
                     {
-                        swallowedExamples.Add(
-                            $"({star.XCentroid:F1},{star.YCentroid:F1}) hfd={star.HFD:F2} mask={maskRadius:F0}px" +
-                            $" -> second peak at ({secondAt.X},{secondAt.Y}) +{secondPeak:F0} ADU");
+                        mergedExamples.Add(
+                            $"({star.XCentroid:F1},{star.YCentroid:F1}) hfd={star.HFD:F2} footprint={footprintRadius:F0}px claim={claimRadius}px" +
+                            $" -> second peak at ({secondAt.X},{secondAt.Y}) +{secondPeakFootprint:F0} ADU");
                     }
                 }
 
-                if (reach > maskRadius)
+                if (secondPeakClaim > 0f)
+                {
+                    mergedByClaim++;
+                }
+
+                if (reach > footprintRadius)
                 {
                     maskShortfall++;
                     if (shortfallExamples.Count < 5)
                     {
                         shortfallExamples.Add(
-                            $"({star.XCentroid:F1},{star.YCentroid:F1}) hfd={star.HFD:F2} mask={maskRadius:F0}px reach={reach:F1}px");
+                            $"({star.XCentroid:F1},{star.YCentroid:F1}) hfd={star.HFD:F2} footprint={footprintRadius:F0}px reach={reach:F1}px");
                     }
                 }
             }
 
-            output.WriteLine($"  MERGED (a suppressed second peak inside the mask): {swallowed} of {stars.Length} ({(double)swallowed / stars.Length:P1})");
-            foreach (var e in swallowedExamples) output.WriteLine($"    {e}");
-            output.WriteLine($"  MASK TOO SMALL (above-threshold reach exceeds mask): {maskShortfall} of {stars.Length} ({(double)maskShortfall / stars.Length:P1})");
+            output.WriteLine($"  MERGED by the old single radius (1.5 * HFD): {mergedByFootprint} of {stars.Length} ({(double)mergedByFootprint / stars.Length:P1})");
+            output.WriteLine($"  MERGED by today's claim radius (0.5 * HFD, min 2): {mergedByClaim} of {stars.Length} ({(double)mergedByClaim / stars.Length:P1})");
+            foreach (var e in mergedExamples) output.WriteLine($"    {e}");
+            output.WriteLine($"  FOOTPRINT TOO SMALL (above-threshold reach exceeds it): {maskShortfall} of {stars.Length} ({(double)maskShortfall / stars.Length:P1})");
             foreach (var e in shortfallExamples) output.WriteLine($"    {e}");
+
+            // (3) What the split is FOR: pairs of ACCEPTED stars close enough that a single radius
+            // doing both jobs would have reported one of them only. Counted in bands, because a pair
+            // inside the claim radius is genuinely unresolvable while one outside it is a recovery.
+            var resolvedPairs = 0;
+            var closest = float.MaxValue;
+            var resolvedExamples = new List<string>();
+            for (var i = 0; i < stars.Length; i++)
+            {
+                for (var j = i + 1; j < stars.Length; j++)
+                {
+                    var dx = stars[i].XCentroid - stars[j].XCentroid;
+                    var dy = stars[i].YCentroid - stars[j].YCentroid;
+                    var d = MathF.Sqrt(dx * dx + dy * dy);
+                    if (d < closest)
+                    {
+                        closest = d;
+                    }
+                    if (d <= Image.HfdFactor * MathF.Max(stars[i].HFD, stars[j].HFD))
+                    {
+                        resolvedPairs++;
+                        if (resolvedExamples.Count < 8)
+                        {
+                            resolvedExamples.Add(
+                                $"({stars[i].XCentroid:F2},{stars[i].YCentroid:F2}) hfd={stars[i].HFD:F2}" +
+                                $" / ({stars[j].XCentroid:F2},{stars[j].YCentroid:F2}) hfd={stars[j].HFD:F2} at {d:F2}px");
+                        }
+                    }
+                }
+            }
+            output.WriteLine($"  RESOLVED PAIRS (both accepted, closer than the wider star's 1.5 * HFD): {resolvedPairs}, closest pair {closest:F2}px");
+            foreach (var e in resolvedExamples) output.WriteLine($"    {e}");
 
             var hfds = stars.Select(s => s.HFD).Order().ToArray();
             output.WriteLine($"  HFD p5={hfds[hfds.Length / 20]:F2} p50={hfds[hfds.Length / 2]:F2} p95={hfds[hfds.Length * 19 / 20]:F2}" +
-                             $" -> mask radius p50={MathF.Round(Image.HfdFactor * hfds[hfds.Length / 2]):F0}px");
+                             $" -> footprint p50={MathF.Round(Image.HfdFactor * hfds[hfds.Length / 2]):F0}px" +
+                             $" claim p50={Math.Max(Image.MinClaimRadius, (int)MathF.Round(Image.ClaimFactor * hfds[hfds.Length / 2]))}px");
         }
 
         /// <summary>

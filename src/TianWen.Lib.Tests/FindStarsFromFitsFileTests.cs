@@ -51,8 +51,8 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13, null, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2752, 5000, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3013, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2753, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3015, 5000, 0)]
     public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null, int expectedDuplicatePairs = 0)
     {
         // given
