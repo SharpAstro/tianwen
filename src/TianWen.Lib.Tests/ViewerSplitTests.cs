@@ -288,10 +288,11 @@ namespace TianWen.Lib.Tests
         {
             // Stretch mode has no "off" state -- every mode IS a mode -- so going back to the default
             // is a CHANGE to that default, not the absence of the pinned one. "No Unlinked" would be
-            // nonsense. The default is Linked, so Unlinked is what gets pinned to move away from it.
+            // nonsense. The default is Auto, so Unlinked is what gets pinned to move away from it, and
+            // the live half is named by the default itself.
             var split = PinnedAt(DisplayControls.Defaults with { StretchMode = StretchMode.Unlinked });
 
-            split.HalfLabels(DisplayControls.Defaults).ShouldBe(("Pinned: Unlinked", "Live: Linked"));
+            split.HalfLabels(DisplayControls.Defaults).ShouldBe(("Pinned: Unlinked", "Live: Auto"));
         }
 
         [Fact]

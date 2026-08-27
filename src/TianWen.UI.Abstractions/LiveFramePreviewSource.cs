@@ -134,6 +134,10 @@ namespace TianWen.UI.Abstractions
             // applied here. The static producer is the single source of the stretch math (shared with the
             // document + SER paths).
             var shaderWb = StretchSolver.ComposeWhiteBalance(null, manualWhiteBalance);
+            // A live frame carries no measured calibration, so Auto resolves on channel count alone:
+            // colour -> Unlinked (neutralise per channel), mono -> Linked.
+            var isColour = _channelCount >= 3 || _sensorType is SensorType.RGGB;
+            mode = mode.ResolveAuto(isColour, calibrationActive: false);
             return StretchSolver.ComputeStretchUniforms(
                 mode, parameters, _stats, lumaStats: null, imageMaxValue: 1f,
                 whiteBalance: null, lumaWeights: null, shaderWhiteBalance: shaderWb);

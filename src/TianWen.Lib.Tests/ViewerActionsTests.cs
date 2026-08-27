@@ -35,23 +35,22 @@ public class ViewerActionsTests
         ViewerActions.ToggleStretch(state);
 
         // Re-enabling lands on whatever a fresh viewer would show, not on a mode named here: the
-        // default was Unlinked and is now Linked, and stating it twice is how the two drift.
+        // default was Unlinked, then Linked, now Auto, and stating it twice is how the two drift.
         state.StretchMode.ShouldBe(ViewerActions.DefaultStretchMode);
         state.HistogramLogScale.ShouldBeFalse();
     }
 
     [Fact]
-    public void DefaultStretchMode_IsLinked()
+    public void DefaultStretchMode_IsAuto()
     {
         // Named explicitly ONCE, because it is a deliberate behavioural choice and not an
-        // implementation detail: Linked is PixInsight's and Siril's default and, since the
-        // shared-curve fix, means the same thing here -- so a colour-calibrated image opens showing
-        // the colour it was calibrated to. Under Unlinked (the old default) each channel
-        // auto-normalises against its own stats, which discards exactly the per-channel differences
-        // a white balance consists of, and SPCC looked like a no-op on a fresh viewer.
-        ViewerActions.DefaultStretchMode.ShouldBe(StretchMode.Linked);
-        new ViewerState().StretchMode.ShouldBe(StretchMode.Linked);
-        DisplayControls.Defaults.StretchMode.ShouldBe(StretchMode.Linked);
+        // implementation detail: Auto resolves per frame to Linked when a colour calibration is
+        // active (so the WB shows) and Unlinked otherwise (so an uncalibrated frame has no cast to
+        // guess at). The default was Unlinked (SPCC looked like a no-op), then Linked (an
+        // uncalibrated frame could open on a cast); Auto picks the right one of the two per frame.
+        ViewerActions.DefaultStretchMode.ShouldBe(StretchMode.Auto);
+        new ViewerState().StretchMode.ShouldBe(StretchMode.Auto);
+        DisplayControls.Defaults.StretchMode.ShouldBe(StretchMode.Auto);
     }
 
     // --- CycleStretchLink ---
