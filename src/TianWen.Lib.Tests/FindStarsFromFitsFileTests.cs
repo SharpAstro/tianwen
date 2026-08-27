@@ -26,6 +26,15 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     /// <summary>
     /// Byte-pins detector output per image + SNR floor.
     ///
+    /// <para><b>They dropped again on 2026-08-27, by 1.0 %</b> (3,013 -> 2,983 at SNR 10, 2,753 ->
+    /// 2,724 at SNR 30), when detection stopped accepting a measurement whose FWHM could not be
+    /// measured. <c>FWHM == 0</c> means the brightest pixel in the analysis box is at least twice this
+    /// star's own central value, i.e. a much brighter NEIGHBOUR is inside the aperture; the centroid is
+    /// then dragged towards it. 30 such rows were being reported as stars on this frame, one of them at
+    /// (1564.30, 1195.87) sitting at the exact midpoint of two real stars 11.9 px apart with HFD 12.26
+    /// against a frame median of 2.40. Those are not faint stars lost, they are positions where no star
+    /// is.</para>
+    ///
     /// <para><b>The RGGB counts dropped by ~1.1 % on 2026-08-11</b> (3,046 -> 3,014 at SNR 10, 2,786 ->
     /// 2,753 at SNR 30) when detection stopped reporting the same star more than once. A saturated
     /// star's above-threshold halo extends past the <c>HfdFactor * HFD</c> star-area mask, so halo
@@ -51,8 +60,8 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13, null, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2752, 5000, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3013, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2724, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 2983, 5000, 0)]
     public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null, int expectedDuplicatePairs = 0)
     {
         // given

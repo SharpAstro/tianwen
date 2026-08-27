@@ -36,7 +36,8 @@ namespace TianWen.Lib.Tests
 
             var ct = TestContext.Current.CancellationToken;
             var image = await SharedTestData.ExtractGZippedFitsImageAsync(name, cancellationToken: ct);
-            var stars = (await image.FindStarsAsync(0, snrMin, maxStars, cancellationToken: ct)).ToArray();
+            // The logger is what reports thresholdHits / analyseStarCalls per pass.
+            var stars = (await image.FindStarsAsync(0, snrMin, maxStars, logger: new XunitLogger(output), cancellationToken: ct)).ToArray();
 
             var (bg, starLevel, noise, _) = image.Background(0);
             var detectionLevel = Image.FirstPassDetectionLevel(noise, starLevel, float.PositiveInfinity);
@@ -127,6 +128,45 @@ namespace TianWen.Lib.Tests
             foreach (var e in swallowedExamples) output.WriteLine($"    {e}");
             output.WriteLine($"  MASK TOO SMALL (above-threshold reach exceeds mask): {maskShortfall} of {stars.Length} ({(double)maskShortfall / stars.Length:P1})");
             foreach (var e in shortfallExamples) output.WriteLine($"    {e}");
+
+            // (3) The number any deblending change has to move: pairs of ACCEPTED stars closer than the
+            // wider one's suppression radius, i.e. cases a single radius could only report as one star.
+            // It is 0 on both fixtures today, and a reading of 0 is what makes the metric worth having:
+            // a change that claims to deblend and leaves this at 0 has not deblended anything.
+            //
+            // Read it together with the closest-pair distance, and do NOT read it alone -- it scales
+            // with the WIDER star's HFD, so one contaminated measurement carrying a garbage HFD invents
+            // pairs with everything near it. That is exactly how a reverted attempt at this
+            // (7ff7a4bc, reverted in fc22da54) came to report "2 -> 4 resolved pairs" as a benefit
+            // when the extra pairs were all with one phantom of HFD 12.26.
+            var resolvedPairs = 0;
+            var closest = float.MaxValue;
+            var resolvedExamples = new List<string>();
+            for (var i = 0; i < stars.Length; i++)
+            {
+                for (var j = i + 1; j < stars.Length; j++)
+                {
+                    var dx = stars[i].XCentroid - stars[j].XCentroid;
+                    var dy = stars[i].YCentroid - stars[j].YCentroid;
+                    var d = MathF.Sqrt(dx * dx + dy * dy);
+                    if (d < closest)
+                    {
+                        closest = d;
+                    }
+                    if (d <= Image.HfdFactor * MathF.Max(stars[i].HFD, stars[j].HFD))
+                    {
+                        resolvedPairs++;
+                        if (resolvedExamples.Count < 8)
+                        {
+                            resolvedExamples.Add(
+                                $"({stars[i].XCentroid:F2},{stars[i].YCentroid:F2}) hfd={stars[i].HFD:F2}" +
+                                $" / ({stars[j].XCentroid:F2},{stars[j].YCentroid:F2}) hfd={stars[j].HFD:F2} at {d:F2}px");
+                        }
+                    }
+                }
+            }
+            output.WriteLine($"  RESOLVED PAIRS (both accepted, closer than the wider star's 1.5 * HFD): {resolvedPairs}, closest pair {closest:F2}px");
+            foreach (var e in resolvedExamples) output.WriteLine($"    {e}");
 
             var hfds = stars.Select(s => s.HFD).Order().ToArray();
             output.WriteLine($"  HFD p5={hfds[hfds.Length / 20]:F2} p50={hfds[hfds.Length / 2]:F2} p95={hfds[hfds.Length * 19 / 20]:F2}" +
