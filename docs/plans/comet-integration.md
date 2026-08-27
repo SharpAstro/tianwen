@@ -1277,18 +1277,57 @@ this needs no sample-size constant: the catalogue stars ARE the brightest detect
 one in the field is claimed no anonymous detection can find an unclaimed one. SWAN now probes to 5"
 and matches 597 one-to-one, and its observed colours track B-V (R/G 0.40 to 0.57 across the range).
 
-**Defect 3 is open: the observed colour range is compressed ~4x against the SED model, on both
-datasets.** With the matching right, SWAN's stars run R/G 0.40 to 0.57 where the model expects 0.67 to
-1.57, and 10P's 0.84 to 0.97 against 0.57 to 1.99; the implied per-bin white balance therefore still
-drifts with B-V (10P: R 0.68 at B-V 0 to 2.07 at 1.6). Raw-frame saturation was the obvious suspect
-(10P's 200 brightest stars all sit at 65535 in the raw lights, and a barely clipped core lands below
-the master's 98% line after registration blur) and it is refuted: rejecting by 50% of peak or by
-peak-to-flux against the faint half's PSF leaves every bin's implied WB unchanged, and V 11-12 stars at
-6% of peak show the same compression. Aperture losses are refuted too (the curve of growth is flat in
-colour from r=3 to r=20 and the per-channel FWHMs agree within 7%). The white reference is sane (the
-Sb template sits between G8III and K0V by shape), and the Tycho-2 B-V column checks against
-literature for the stars that have BT. What remains is the photometry against a debayered,
-per-channel-normalised master, or the model's band widths; the next entry decides it.
+**Defect 3: the observed colour range was compressed ~3-4x against the SED model, on both datasets,
+and it was the STACK, not SPCC.** With the matching right, SWAN's stars ran R/G 0.40 to 0.57 where the
+model expects 0.67 to 1.57, and 10P's 0.84 to 0.97 against 0.57 to 1.99; the implied per-bin white
+balance drifted with B-V (10P: R 0.68 at B-V 0 to 2.07 at 1.6). Refuted in turn: raw-frame saturation
+(10P's 200 brightest stars sit at 65535 in the raw lights, but rejecting by 50% of peak or by
+peak-to-flux leaves every bin's implied WB unchanged, and V 11-12 stars at 6% of peak compress the
+same), aperture losses (curve of growth flat in colour r=3 to r=20, per-channel FWHMs within 7%), the
+white reference (the Sb template sits between G8III and K0V by shape) and the Tycho-2 B-V column
+(checks against literature where BT exists). Then the raw frame itself: among 273 unsaturated stars
+the CFA photometry spans R/G p90/p10 = **x4.5**, and the master's stars span **x1.56**. The stack
+compresses colour.
+
+Two causes, one measured to the root. **(a) The normaliser anchored every frame on its MINIMUM
+pixel.** `Normalizer` maps `out = (in - floor) * target / (median - floor)`, and `floor` was the
+per-channel minimum, so one pixel set the gain of a whole frame and channel: a hot pixel, a cosmic
+ray, a demosaic overshoot beside a saturated star, or a flat that reaches zero in a corner (the
+calibrator divides by `max(flat, epsilon)` and makes a ~1e9 spike). Sampling 9 frames of the SWAN
+session through the AHD debayer, the red channel's gain wandered **x0.85 to x3.71**, green x1.0 to
+x2.27, blue x0.76 to x2.28, each channel on its own; VNG x0.57 to x1.0; and through MHC one such spike
+put the min near -1e9 and integrated the whole star layer to a constant 0.5 (39874 of 40000 patch
+pixels exactly 0.5, thirteen distinct values in the layer). Frames enter the rejector with random
+per-channel gains, and no colour calibration downstream can undo what that does to a star's colour.
+Fixed: the floor is the frame's `Pedestal` (the calibrated zero every frame of a group shares),
+`NormalizationStats.PerChannelMin` is `PerChannelFloor`, and `Normalizer.ComputeScale` is the one
+source for the in-RAM and streaming integrators. Pinned by
+`NormalizerTests.Apply_AnOutlierPixelDoesNotChangeTheFrameGain`. Absolute normalised levels quoted
+above this entry (peaks 36/75/34, the model amplitudes) are in the OLD units. **(b) The AHD
+debayer's phase 4 runs a 3x3 median over (R-G) and (B-G) at every pixel**, which replaces a 2-3 px
+star's chroma with the surrounding sky's: on one frame the same 400 stars span x2.93 in R/G through
+MHC (linear), x1.80 through VNG and x1.65 through AHD. MHC is not a drop-in default: its kernel
+overshoots to -10k ADU beside saturated stars, a dark ring. Whether (a) alone restores the colour, or
+(b) needs a change too (AHD without phase 4, or MHC with its overshoot clamped), is what the runs in
+`runs/starless-floor` and `runs/onerun-floor` decide; the next entry reads them.
+
+**Read so far (SWAN, `runs/starless-floor`, AHD on the fixed normaliser):** SPCC fits
+**(0.376, 1.000, 1.481)** from 544 one-to-one matches (3 clipped), but the master's stars still span
+only **x1.58** in R/G and x1.30 in B/G against the raw frame's x4.5. So (a) was a real photometric
+defect and is fixed, and (b), the AHD chroma median, is the compressor. The 10P counterpart is in
+`runs/onerun-floor`, unread.
+
+**Continue here.** (1) Run `SpccMatchProbe` on both `-floor` composites (`TIANWEN_COMET_PROBE_ROOT`):
+the implied WB per B-V bin is the yardstick and it will still drift. (2) Fix the debayer: the
+candidates are AHD without its phase-4 median (or the median applied only where the homogeneity map
+switched direction, which is the zipper case it exists for) and MHC with its overshoot clamped at the
+neighbourhood's range; measure both with `DebayerColourProbe` + `spread_fits.py` on the single frame
+(target: the x2.9 MHC reaches on 400 stars without the -10k lobes) before changing `StackDebayerAlg`,
+then re-stack SWAN and read the spread and the per-bin WB. (3) Cut the 1:1 colour crops
+of the new composites (`floor_panels.py` in the session scratchpad did old-vs-new) and compare against
+the user's APP renders of SWAN, which are the reference: green coma with a warm core, M16 orange-red,
+warm-white stars. (4) The `.tianwen-meta.json` sidecar declaring the L-Quad Enhance sits only in the
+`C:/temp` working copy of SWAN; the D: archive needs the same file beside its lights.
 
 Two rules from it. **A rewrapped `MaxValue` is a display convention, not a saturation level**: anything
 asking "is this pixel clipped" must read the peak from the pixels. And **a matcher that lets a detection

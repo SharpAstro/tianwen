@@ -997,12 +997,28 @@ Observed colour was flat across every B-V bin and the fit landed on (1.88, 1.00,
 which the clip-test fix above was wrongly credited with causing (it changed that triple by 3%). With
 the claim rule SWAN probes to 5" and matches 597 one-to-one. Read `SpccFunnel.Detected` against the
 catalogue count in the footprint before trusting any SPCC triple, and `Duplicate` for what the rule
-refused. **Still open:** observed star colour spans ~4x less across B-V than the SED model predicts,
-on both 10P and SWAN, with saturation and aperture losses both measured and refuted
-([docs/plans/comet-integration.md](docs/plans/comet-integration.md), the colour section). (And the
-Optolong L-Quad Enhance is BROADBAND: five windows, ~200 nm of the visible, notches at NaI and Hg; do
-not file its colour problems under narrowband. A filter missing from the model cancels to first order
-in SPCC anyway; the sidecar `.tianwen-meta.json` is how a nosepiece filter gets declared.)
+refused. (And the Optolong L-Quad Enhance is BROADBAND: five windows, ~200 nm of the visible, notches
+at NaI and Hg; do not file its colour problems under narrowband. A filter missing from the model
+cancels to first order in SPCC anyway; the sidecar `.tianwen-meta.json` is how a nosepiece filter gets
+declared.)
+
+**The stacking normaliser anchors every frame on its PEDESTAL, never on a pixel statistic.**
+`Normalizer` maps `out = (in - floor) * target / (median - floor)`, and the floor used to be the frame's
+per-channel MINIMUM, so one pixel set the gain of a whole frame and channel: a hot pixel, a cosmic ray,
+a demosaic overshoot beside a saturated star, or a flat that reaches zero in a corner (the calibrator
+divides by `max(flat, epsilon)`). Measured on the SWAN session through the default AHD debayer, the red
+gain wandered x3.7 from frame to frame, green x2.3, blue x3.0, each channel independently; through MHC
+one spike put the min near -1e9 and a whole layer integrated to a constant 0.5. That is why star
+colour in a master spanned ~3x less than in the raw frames and why SPCC could not find a white balance
+that made stars neutral. `PerChannelFloor` is `Image.Pedestal`, `Normalizer.ComputeScale` is the one
+source for every integrator, and `Apply_AnOutlierPixelDoesNotChangeTheFrameGain` pins it. Absolute
+normalised levels quoted before 2026-08-27 are in the old units. **Still open, measured and not yet
+acted on:** the normaliser fix alone left SWAN's master star colours at x1.58 in R/G against the raw
+frame's x4.5, so the compressor is the STACK DEBAYER: AHD's phase-4 3x3 median on (R-G)/(B-G) flattens
+a 2-3 px star's chroma to the sky's (the same 400 stars span x2.93 through MHC, x1.80 through VNG,
+x1.65 through AHD), while MHC overshoots to -10k beside saturated stars, so it is not a drop-in
+default. The candidates and the yardstick are in
+[docs/plans/comet-integration.md](docs/plans/comet-integration.md), colour section, "Continue here".
 
 **SPCC is BROADBAND-ONLY, and a narrowband master has no colour path at all.** The white balance
 integrates a Pickles SED against QE x CFA over the whole visible band, which is correct for an OSC
