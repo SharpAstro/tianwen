@@ -1744,7 +1744,14 @@ the SHARED external dependency (SdlVulkan.Renderer `FillSubpassDependencies`), s
 dependencies are not exempt from render-pass compatibility (widening only the LOAD pass tripped VUID
 00904/02684 on every partial frame). **Run the viewer under `SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1`
 and read `validation_report` after driving it** whenever GPU resource lifetime is touched; that is what
-turned a watchdog dump into a named line of code.
+turned a watchdog dump into a named line of code. **Since SdlVulkan.Renderer 7.28 the class is closed
+structurally, not by call order:** `VkFitsImagePipeline` hands every channel, before and histogram texture
+to `VulkanContext.DeferDestroy`, which destroys it once every frame that could reference it has retired
+(no drain, so no render-thread stall per document swap), and its sampler descriptor sets are **one per
+frame in flight**, rewritten at draw time when the views' stamp moved (`EnsureSamplerSet`), because a
+set a pending frame holds may not be written. `VkTexture.Dispose` defers too. Never destroy a Vulkan
+object a frame may have bound directly again, and never write a single shared descriptor set from an
+upload path; the renderer's `docs/deferred-destroy-adoption.md` is the how-to.
 
 **The cached image layer samples in TEXTURE space, and a fixed-capacity target is not the size you
 asked for this frame.** `VulkanContext.CachedLayer` allocates once and answers any smaller request out

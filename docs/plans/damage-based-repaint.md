@@ -141,6 +141,24 @@ the order on the fake backend (it fails with the upload taken out of `PrepareFra
 the layer built that frame is the one drawn, where the old order built it from the previous document,
 invalidated it and drew directly.
 
+**Upstreamed (SdlVulkan.Renderer 7.28), so the class cannot recur in any consumer.** The
+ordering fix above is necessary but rests on call order, which is exactly what went wrong. The
+renderer now owns the lifetime: `VulkanContext.DeferDestroy(view, image, memory, buffer,
+descriptorSet)` (and an `Action` overload) stamps the handles with the current frame ordinal and
+destroys them right after the fence wait that proves that frame and every frame in flight retired,
+with `RecoverFromGpuError` and `Dispose` flushing the queue after their own drains. `VkTexture.Dispose`
+defers, so disposing a texture in the frame that drew it is legal for every consumer.
+`VkFitsImagePipeline` hands every channel, before and histogram texture to it and drops the
+`TryWaitAllFramesIdle` drain that used to stall the render thread per document swap. The second half:
+a set a pending frame holds may not be written, and the drain was what made the in-place
+`vkUpdateDescriptorSets` legal, so the image and before sampler sets are now one per frame in flight,
+each rewritten at draw time when the views' stamp has moved (`EnsureSamplerSet`). Pinned in the
+renderer by `DeferredDestroyTests`: the schedule on the plain fixture (pending until the ordinal has
+advanced by `MaxFramesInFlight`, then destroyed at that `BeginFrame`), and texture disposal in the
+frame that drew it under the validation layer with zero errors. Adoption guide for other consumers:
+`SdlVulkan.Renderer/docs/deferred-destroy-adoption.md`. Not covered, and noted there: host-written
+per-frame UBOs are the same class on the host side and want a region per frame in flight.
+
 **The other finding of the validation round**, independent of the crash: the damage pass's `loadOp
 LOAD` reads the attachment, and the shared external dependency admitted COLOR_ATTACHMENT_WRITE only,
 so the read was not ordered after the pass's own PresentSrc -> ColorAttachmentOptimal transition
