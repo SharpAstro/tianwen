@@ -9,7 +9,7 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// <summary>
 /// A staged aligned frame for the <see cref="StreamingIntegrator"/>. Owns a
 /// <see cref="StreamingFrameReader"/> handle plus pre-computed per-channel
-/// normalisation stats (median / min) so the integrator never has to load a full
+/// normalisation stats (median / floor) so the integrator never has to load a full
 /// frame into RAM to derive them.
 /// </summary>
 /// <remarks>
@@ -24,8 +24,9 @@ public sealed class StagedAlignedFrame : IDisposable
 {
     /// <summary>The reader handle for the staging file.</summary>
     public StreamingFrameReader Reader { get; }
-    /// <summary>Per-channel min, length = channel count. <c>null</c> = no normalisation.</summary>
-    public float[]? PerChannelMin { get; }
+    /// <summary>Per-channel normalisation floor (the frame's pedestal, see
+    /// <see cref="NormalizationStats.PerChannelFloor"/>), length = channel count. <c>null</c> = no normalisation.</summary>
+    public float[]? PerChannelFloor { get; }
     /// <summary>Per-channel median, length = channel count. <c>null</c> = no normalisation.</summary>
     public float[]? PerChannelMedian { get; }
     /// <summary>The image's <see cref="ImageMeta"/> at warp time. Carried so the
@@ -43,14 +44,14 @@ public sealed class StagedAlignedFrame : IDisposable
         ImageMeta meta,
         float maxValue,
         float pedestal,
-        float[]? perChannelMin = null,
+        float[]? perChannelFloor = null,
         float[]? perChannelMedian = null)
     {
         Reader = reader;
         Meta = meta;
         MaxValue = maxValue;
         Pedestal = pedestal;
-        PerChannelMin = perChannelMin;
+        PerChannelFloor = perChannelFloor;
         PerChannelMedian = perChannelMedian;
     }
 
@@ -122,15 +123,14 @@ public static class StreamingIntegrator
             for (var f = 0; f < n; f++)
             {
                 var staged = alignedFrames[f];
-                var mins = staged.PerChannelMin
-                    ?? throw new ArgumentException($"Frame {f} has Median stats but no Min stats.");
+                var floors = staged.PerChannelFloor
+                    ?? throw new ArgumentException($"Frame {f} has Median stats but no Floor stats.");
                 var meds = staged.PerChannelMedian!;
                 for (var ch = 0; ch < channelCount; ch++)
                 {
-                    var mn = mins[ch];
-                    var md = meds[ch];
-                    frameMin[ch][f] = mn;
-                    frameScale[ch][f] = md > mn ? options.NormalizationTarget / (md - mn) : 1f;
+                    var floor = floors[ch];
+                    frameMin[ch][f] = floor;
+                    frameScale[ch][f] = Normalizer.ComputeScale(meds[ch], floor, options.NormalizationTarget);
                 }
             }
         }

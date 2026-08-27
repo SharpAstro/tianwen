@@ -318,10 +318,9 @@ public static class Integrator
             var stats = Normalizer.ComputeStats(frames[f]);
             for (var ch = 0; ch < channelCount; ch++)
             {
-                var mn = stats.PerChannelMin[ch];
-                var md = stats.PerChannelMedian[ch];
-                min[ch][f] = mn;
-                scale[ch][f] = md > mn ? target / (md - mn) : 1f;
+                var floor = stats.PerChannelFloor[ch];
+                min[ch][f] = floor;
+                scale[ch][f] = Normalizer.ComputeScale(stats.PerChannelMedian[ch], floor, target);
             }
         }
         return (min, scale);

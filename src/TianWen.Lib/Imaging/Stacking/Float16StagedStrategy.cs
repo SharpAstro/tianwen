@@ -159,7 +159,7 @@ public sealed class Float16StagedStrategy : IIntegrationStrategy
                     warped.ImageMeta,
                     warped.MaxValue,
                     warped.Pedestal,
-                    stats.PerChannelMin,
+                    stats.PerChannelFloor,
                     stats.PerChannelMedian));
 
                 cache.Set(index, warped);

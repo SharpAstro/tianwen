@@ -195,7 +195,7 @@ public sealed class FootprintStagedStrategy : IIntegrationStrategy
                     warped.ImageMeta,
                     warped.MaxValue,
                     warped.Pedestal,
-                    stats.PerChannelMin,
+                    stats.PerChannelFloor,
                     stats.PerChannelMedian));
 
                 cache.Set(index, warped);
