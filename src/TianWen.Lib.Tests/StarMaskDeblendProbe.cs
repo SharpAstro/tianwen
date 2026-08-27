@@ -17,7 +17,7 @@ namespace TianWen.Lib.Tests
     /// of a measured star is skipped) AND decided whether a candidate's centroid was a re-detection.
     /// The first job wants to be generous and the second tight, so at <c>1.5 * HFD</c> (about
     /// 1.65 * FWHM, i.e. ~3.9 sigma) the merge side paid. The claim radius is now
-    /// <c>max(2, round(0.5 * HFD))</c>, the half-flux radius, and this probe reports the merge count
+    /// <c>max(1, round(0.5 * HFD))</c>, the half-flux radius, and this probe reports the merge count
     /// under BOTH radii from the same star list, so the difference is what the split bought.</para>
     /// <para>A probe rather than a test: it measures and reports, it asserts nothing about the numbers,
     /// and it is gated so a bare <c>dotnet test</c> does not pay for it. Run it with
@@ -62,7 +62,7 @@ namespace TianWen.Lib.Tests
                 var cx = (int)MathF.Round(star.XCentroid);
                 var cy = (int)MathF.Round(star.YCentroid);
                 var footprintRadius = MathF.Round(Image.HfdFactor * star.HFD);
-                var claimRadius = Math.Max(Image.MinClaimRadius, (int)MathF.Round(Image.ClaimFactor * star.HFD));
+                var claimRadius = Math.Max(1, (int)MathF.Round(Image.ClaimFactor * star.HFD));
                 var probeRadius = (int)MathF.Min(Image.BoxRadius, MathF.Max(footprintRadius * 3f, 6f));
 
                 var reach = 0f;
@@ -139,7 +139,7 @@ namespace TianWen.Lib.Tests
             }
 
             output.WriteLine($"  MERGED by the old single radius (1.5 * HFD): {mergedByFootprint} of {stars.Length} ({(double)mergedByFootprint / stars.Length:P1})");
-            output.WriteLine($"  MERGED by today's claim radius (0.5 * HFD, min 2): {mergedByClaim} of {stars.Length} ({(double)mergedByClaim / stars.Length:P1})");
+            output.WriteLine($"  MERGED by today's claim radius (0.5 * HFD, min 1): {mergedByClaim} of {stars.Length} ({(double)mergedByClaim / stars.Length:P1})");
             foreach (var e in mergedExamples) output.WriteLine($"    {e}");
             output.WriteLine($"  FOOTPRINT TOO SMALL (above-threshold reach exceeds it): {maskShortfall} of {stars.Length} ({(double)maskShortfall / stars.Length:P1})");
             foreach (var e in shortfallExamples) output.WriteLine($"    {e}");
@@ -179,7 +179,7 @@ namespace TianWen.Lib.Tests
             var hfds = stars.Select(s => s.HFD).Order().ToArray();
             output.WriteLine($"  HFD p5={hfds[hfds.Length / 20]:F2} p50={hfds[hfds.Length / 2]:F2} p95={hfds[hfds.Length * 19 / 20]:F2}" +
                              $" -> footprint p50={MathF.Round(Image.HfdFactor * hfds[hfds.Length / 2]):F0}px" +
-                             $" claim p50={Math.Max(Image.MinClaimRadius, (int)MathF.Round(Image.ClaimFactor * hfds[hfds.Length / 2]))}px");
+                             $" claim p50={Math.Max(1, (int)MathF.Round(Image.ClaimFactor * hfds[hfds.Length / 2]))}px");
         }
 
         /// <summary>
