@@ -303,10 +303,8 @@ namespace TianWen.UI.Abstractions
 
             viewer.SetSurfaceSize((uint)Renderer.Width, (uint)Renderer.Height);
             viewer.SetContentRegion(rect);
-            if (_guideState.NeedsTextureUpdate && _guideSource.Width > 0)
-            {
-                viewer.UploadDocumentTextures(_guideSource, _guideState);
-            }
+            // The texture upload NeedsTextureUpdate asks for happens inside Render's PrepareFrame, before
+            // anything in the frame samples the channel views; see the remarks there.
             viewer.Render(_guideSource, _guideState);
 
             // Compute image→screen transform for overlays

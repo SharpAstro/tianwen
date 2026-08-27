@@ -206,10 +206,8 @@ public sealed class VkPlanetaryTab : VkImageRenderer, IPlanetaryViewWidget
         // + render through the shared viewer -- mirroring the FITS viewer's OnRender drive sequence.
         controller.Tick();
         var source = controller.Source;
-        if (source is not null && state.NeedsTextureUpdate)
-        {
-            UploadDocumentTextures(source, state);
-        }
+        // The texture upload NeedsTextureUpdate asks for happens inside Render's PrepareFrame, before
+        // anything in the frame samples the channel views; see the remarks there.
 
         // base.Render calls BeginFrame() (which clears the clickable tracker) before drawing the viewer
         // chrome, so the panel's clickables MUST be registered AFTER this call to survive.

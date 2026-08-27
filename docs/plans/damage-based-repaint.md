@@ -94,6 +94,63 @@ SdlVulkan.Renderer release before TianWen can re-pin. D3 is a second SdlVulkan.R
 this is two cascades, not one -- worth batching D1-D3 into a single DIR.Lib + renderer pair if the
 damage API can be settled before the frame work starts.
 
+## The device loss: a document swap mid-frame destroyed views the frame had bound (found 2026-08-27, fixed)
+
+The Store viewer (6.3.1352) died at 12:19 while the user stepped through the files of a stack run:
+two `nvlddmkm 153` errors within half a second of two document loads 1.3 s apart, then
+`LiveKernelEvent 141` (the GPU watchdog) and the process gone with no .NET exception. Windows keeps
+no process list for a past instant, so the earlier `153`s this month were read from what the event
+logs held around them: the three on 08-09 had `TianWen.UI.Benchmarks.exe` running GPU benchmarks
+(and the 22:12 watchdog killed the very process the inspector's `batch` was driving: its socket
+reported "connection forcibly closed by the remote host" the same second); 08-23 and 08-24 fired
+within two seconds of `Kernel-Power 42`, the system entering sleep; 08-12 had nothing. No `4101`
+"driver recovered" event exists at all: this driver goes straight to the watchdog.
+
+**Reproduced at HEAD under the validation layer**, `SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1`, by
+loading three files of different geometry. The layer named it seconds before the loss:
+
+    vkCmdBindDescriptorSets(): was called in VkCommandBuffer 0x14eed70ca20 which is now in an invalid
+    state (instead of recording state) because the following objects bound to the command buffer were
+    invalidated: VkImageView 0xab00000000ab was destroyed
+    ... (vkCmdSetScissor, vkCmdEndRenderPass, vkEndCommandBuffer, then again for VkImageView 0xa8)
+    [VulkanContext] VK_ERROR_DEVICE_LOST from vkWaitForFences
+
+and the driver logged the identical pair of `153`s at 14:33:15.3 / 15.8 against a load at 14:33:15.25,
+then `WATCHDOG-20260827-1433.dmp`.
+
+**Mechanism.** The standalone frame is `BeginFrame` -> `OnPreRenderPass` (`PrepareFrame` +
+`PrepareCachedImageLayer`, which records the layer pass sampling the channel views) -> `OnRender` ->
+`EndFrame`. Every host uploaded the new document's textures from its render callback, and the
+standalone even performed the SWAP there (`tracker.ProcessCompletions`, `HandleFileRequest`,
+`TryApplyPendingEnhance`). A new geometry makes `UploadStagedChannel` destroy and recreate the channel
+textures. `DestroyChannelTexture` drains the fences of PRIOR frames (its remarks are explicit about
+that), but nothing can un-record what THIS frame's command buffer already holds: the layer pass had
+bound the old views, so the frame was submitted referencing destroyed views, the GPU faulted, the
+watchdog fired. Only a change of geometry or format destroys anything, which is why stepping between
+files of the same size never showed it, and why the run folder (3348x3089 comet layer, 3065x3037 star
+layer and composite, 2956x2983 autocrops, one-channel rejection maps) was the perfect trigger.
+
+**Fix.** The swap steps run in `loop.OnBeforeFrame`, before `BeginFrame`, and a swap requests full
+damage there (a mouse move in the same tick could otherwise narrow a frame that shows a new document).
+The upload itself moved into `PrepareFrame`, the one point every host passes before recording anything
+that samples, so the four host-side `UploadDocumentTextures` calls are gone (`Program.cs`,
+`GuiderTab`, `LiveSessionTab`, `VkPlanetaryTab`) and the layout in the same `PrepareFrame` sees the new
+document's size at once instead of a frame late. Under the layer, five swaps across three geometries
+then produced zero messages and no loss. `ANewDocumentIsUploadedBeforeTheLayerPassThatSamplesIt` pins
+the order on the fake backend (it fails with the upload taken out of `PrepareFrame`) and asserts that
+the layer built that frame is the one drawn, where the old order built it from the previous document,
+invalidated it and drew directly.
+
+**The other finding of the validation round**, independent of the crash: the damage pass's `loadOp
+LOAD` reads the attachment, and the shared external dependency admitted COLOR_ATTACHMENT_WRITE only,
+so the read was not ordered after the pass's own PresentSrc -> ColorAttachmentOptimal transition
+(READ_AFTER_WRITE, once per swapchain image on every partial frame). Fixed in SdlVulkan.Renderer's
+`FillSubpassDependencies` by admitting the read for every pass. Widening the LOAD pass alone was tried
+first and made it incompatible with the framebuffers and pipelines built against the clearing pass
+(VUID-VkRenderPassBeginInfo-renderPass-00904 and vkCmdDraw-renderPass-02684 on every partial frame):
+dependencies are not among the things render-pass compatibility exempts, which load/store ops and
+layouts are.
+
 ## The cached layer squashed the image after the pane shrank (found 2026-08-27, fixed)
 
 The user widened the file list in the Store build and the picture compressed horizontally instead of

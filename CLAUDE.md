@@ -1724,6 +1724,28 @@ the common case where the bar runs through the middle of the handle, and
 `static TrackFrac(RectF32, px)` (the cursor-X -> fraction drag math). A new track-style control calls
 these; never re-triplicate the bar/fill/handle/clamp math.
 
+**A document may change only BETWEEN frames, and its textures are uploaded in `PrepareFrame`, before
+anything in the frame samples them.** A swap recreates the channel textures, and the recreate destroys
+the old views after draining PRIOR frames; it cannot un-record what THIS frame's command buffer already
+holds. The upload used to run from each host's render callback (`Program.cs` `OnRender`, `GuiderTab`,
+`LiveSessionTab`, `VkPlanetaryTab`), AFTER the cached-layer pre-pass had bound the old views: the frame
+went to the GPU with a dangling view and the GPU faulted. That is the `nvlddmkm 153` pair plus
+`LiveKernelEvent 141` watchdog that killed the Store viewer on 2026-08-27 (two loads of differently
+sized files 1.3 s apart), reproduced at HEAD under `SDLVK_VALIDATION=1` as
+"`vkCmdBindDescriptorSets(): ... invalid state ... VkImageView was destroyed`" followed by
+`VK_ERROR_DEVICE_LOST`, with the same driver signature to the second. The standalone host also SWAPPED
+the document inside `OnRender` (completions, file request, enhance result); those steps now run in
+`loop.OnBeforeFrame`, before `BeginFrame`, and a swap forces full damage there. Never call
+`UploadDocumentTextures` from a render callback again; `PrepareFrame` is the one path. Pinned by
+`ANewDocumentIsUploadedBeforeTheLayerPassThatSamplesIt`. Two more things the validation round found:
+the earlier `nvlddmkm 153`s this month were TianWen GPU benchmarks (08-09) and the sleep transition
+(08-23/24), not the driver at rest; and the damage pass's `loadOp LOAD` needed COLOR_ATTACHMENT_READ on
+the SHARED external dependency (SdlVulkan.Renderer `FillSubpassDependencies`), shared because
+dependencies are not exempt from render-pass compatibility (widening only the LOAD pass tripped VUID
+00904/02684 on every partial frame). **Run the viewer under `SDLVK_VALIDATION=1 SDLVK_SYNC_VALIDATION=1`
+and read `validation_report` after driving it** whenever GPU resource lifetime is touched; that is what
+turned a watchdog dump into a named line of code.
+
 **The cached image layer samples in TEXTURE space, and a fixed-capacity target is not the size you
 asked for this frame.** `VulkanContext.CachedLayer` allocates once and answers any smaller request out
 of the same texture, so after the pane shrinks the layer occupies the top-left of something larger; UVs
