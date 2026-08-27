@@ -117,8 +117,11 @@ namespace TianWen.UI.Abstractions
             float hdrAmount = 0f,
             float hdrKnee = 0.8f,
             float bgNeutralizationStrength = 1f,
-            (float R, float G, float B)? manualWhiteBalance = null)
+            (float R, float G, float B)? manualWhiteBalance = null,
+            bool applyColorCalibration = true)
         {
+            // applyColorCalibration is a document concern: a live frame carries no measured calibration
+            // to switch off, so the flag has nothing to act on here.
             if (_stats.Length == 0)
             {
                 return new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);

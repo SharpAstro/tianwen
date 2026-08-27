@@ -949,7 +949,8 @@ namespace TianWen.UI.Abstractions
             _preparedStretch = source?.ComputeStretchUniforms(
                     state.StretchMode, state.StretchParameters,
                     bgNeutralizationStrength: state.BackgroundNeutralizationStrength,
-                    manualWhiteBalance: state.ManualWhiteBalance)
+                    manualWhiteBalance: state.ManualWhiteBalance,
+                    applyColorCalibration: state.ColorCalibrationEnabled)
                 ?? new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
 
             // Grid WCS: the document's (still image), or the caller-supplied OverrideWcs for a
@@ -984,7 +985,9 @@ namespace TianWen.UI.Abstractions
             // per-method dict makes the re-call a cheap dictionary lookup.
             if (state.BackgroundNeutralizationEnabled)
             {
-                document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
+                // Solved for the WB that will actually be applied: with the calibration toggled off the
+                // gains for the calibrated triple would re-tint a frame that no longer receives it.
+                document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod, state.ColorCalibrationEnabled);
             }
 
             // ColorCalibration auto-retrigger on file switch. The ColorCalibrationInFlight guard inside
@@ -993,6 +996,7 @@ namespace TianWen.UI.Abstractions
             if (state.ColorCalibrationEnabled
                 && document.ColorCalibration is null
                 && !document.ColorCalibrationInFlight
+                && !document.ColorCalibrationAttempted
                 && document.Stars is { Count: >= 5 })
             {
                 TryStartColorCalibration(state);

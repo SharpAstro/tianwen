@@ -127,9 +127,10 @@ public sealed class SerPreviewSource : IPreviewSource, ISequencePlaybackSource, 
         float lumaBlend = 1f, bool normalize = false, int curvesMode = 0,
         ReadOnlySpan<float> curveLut = default, float curvesBoost = 0f, float curvesMidpoint = 0.25f,
         float hdrAmount = 0f, float hdrKnee = 0.8f, float bgNeutralizationStrength = 1f,
-        (float R, float G, float B)? manualWhiteBalance = null)
+        (float R, float G, float B)? manualWhiteBalance = null, bool applyColorCalibration = true)
         => _statsFrame.ComputeStretchUniforms(mode, parameters, weighting, lumaBlend, normalize, curvesMode,
-            curveLut, curvesBoost, curvesMidpoint, hdrAmount, hdrKnee, bgNeutralizationStrength, manualWhiteBalance);
+            curveLut, curvesBoost, curvesMidpoint, hdrAmount, hdrKnee, bgNeutralizationStrength, manualWhiteBalance,
+            applyColorCalibration);
 
     public int FrameCount => _reader.FrameCount;
     public int FrameIndex => _frameIndex;

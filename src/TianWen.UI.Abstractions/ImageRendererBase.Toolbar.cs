@@ -681,7 +681,7 @@ namespace TianWen.UI.Abstractions
                             // Compute (or hit per-method cache) and pin gain onto document.
                             // User picked a method explicitly, so the toolbar reflects that
                             // even if this image's gain happens to land near identity.
-                            var gain = _document?.ComputeBackgroundNeutralization(m);
+                            var gain = _document?.ComputeBackgroundNeutralization(m, state.ColorCalibrationEnabled);
                             state.BackgroundNeutralizationEnabled = true;
                             state.StatusMessage = gain is { } g
                                 // FOUR decimals, because two are useless here and actively

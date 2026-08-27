@@ -238,7 +238,12 @@ namespace TianWen.UI.Abstractions
                     TryToggleBackgroundNeutralization(state);
                     return true;
                 case InputKey.W:
+                    // The same gesture as the SPCC toolbar button: toggle the calibration, and start one
+                    // if the document has none yet. It used to only START, which on a calibrated document
+                    // was a no-op, so W could neither switch the calibration off nor back on.
+                    ViewerActions.SetColorCalibrationEnabled(state, !state.ColorCalibrationEnabled);
                     TryStartColorCalibration(state);
+                    state.NeedsRedraw = true;
                     return true;
                 case InputKey.R:
                     ViewerActions.ZoomToActual(state);
@@ -391,7 +396,9 @@ namespace TianWen.UI.Abstractions
                 // once seen, and the background scan itself is already done.
                 if (state.BackgroundNeutralizationEnabled)
                 {
-                    document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
+                    // A calibration just landed and is being enabled, so its triple is the one to solve
+                    // the neutralisation against.
+                    document.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod, applyColorCalibration: true);
                 }
 
                 // The manual triple is dropped, because the pipeline MULTIPLIES the two
@@ -443,7 +450,7 @@ namespace TianWen.UI.Abstractions
                 return;
             }
 
-            var gains = _document?.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod);
+            var gains = _document?.ComputeBackgroundNeutralization(state.BackgroundNeutralizationMethod, state.ColorCalibrationEnabled);
             if (gains is { } g)
             {
                 state.BackgroundNeutralizationEnabled = true;
