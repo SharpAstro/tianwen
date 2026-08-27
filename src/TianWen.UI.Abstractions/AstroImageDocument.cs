@@ -108,6 +108,27 @@ public sealed class AstroImageDocument : IPreviewSource
     /// </summary>
     public ColorCalibrationSummary? ColorCalibrationSummary { get; private set; }
 
+    /// <summary>
+    /// Carries <paramref name="from"/>'s colour calibration and its provenance over to this document,
+    /// for a document derived from it by a spatial operation (the AI enhance). The enhanced raster is a
+    /// different image with its own star list, so the calibration auto-retrigger would otherwise re-fit
+    /// SPCC on deconvolved, denoised and recombined pixels and land on a different triple: the frame
+    /// rendered right for a moment under the inherited nothing and then took on a new cast when the
+    /// re-fit arrived. The measurement made on the original stars is the trustworthy one, and a spatial
+    /// operation does not change what white is. Only the WB triple travels; background neutralisation is
+    /// re-solved per document, because an enhanced background IS different (the same "share only the WB"
+    /// rule the stacking pipeline's plates follow).
+    /// </summary>
+    public void InheritColorCalibration(AstroImageDocument from)
+    {
+        if (from.ColorCalibration is not { } wb)
+        {
+            return;
+        }
+        ColorCalibration = wb;
+        ColorCalibrationSummary = from.ColorCalibrationSummary;
+    }
+
     // SPCC in-flight gate. The compute task runs on a thread-pool thread and
     // writes 0 from its finally; Render reads + tries to set 1 from the UI
     // thread. Plain bool would give no memory-ordering guarantee across the
@@ -127,8 +148,24 @@ public sealed class AstroImageDocument : IPreviewSource
         Interlocked.CompareExchange(ref _colorCalibrationInFlight, 1, 0) == 0;
 
     /// <summary>Marks the SPCC task as no longer in flight. Always called from
-    /// the task's finally so a faulted compute still releases the slot.</summary>
-    public void EndColorCalibration() => Volatile.Write(ref _colorCalibrationInFlight, 0);
+    /// the task's finally so a faulted compute still releases the slot. Also records
+    /// that an attempt HAPPENED (<see cref="ColorCalibrationAttempted"/>), so the
+    /// per-frame auto-retrigger fires once per document rather than every frame when
+    /// the fit cannot succeed.</summary>
+    public void EndColorCalibration()
+    {
+        ColorCalibrationAttempted = true;
+        Volatile.Write(ref _colorCalibrationInFlight, 0);
+    }
+
+    /// <summary>
+    /// True once a calibration has been attempted on this document, whether it landed a triple or not.
+    /// The auto-retrigger checks it so a document the fit cannot calibrate -- a starless comet layer has
+    /// too few stars, and SPCC can decline -- is not re-attempted on every frame, which flickered the
+    /// SPCC button's in-flight state. An explicit press (button / W) does not consult it, so the user can
+    /// always retry; it resets naturally because a new document is a new instance.
+    /// </summary>
+    public bool ColorCalibrationAttempted { get; private set; }
 
     /// <summary>Background neutralization gains from pivot1 sampling (1,1,1) = no neutralization.</summary>
     public (float R, float G, float B)? BackgroundNeutralization { get; set; }
@@ -460,7 +497,8 @@ public sealed class AstroImageDocument : IPreviewSource
         float hdrAmount = 0f,
         float hdrKnee = 0.8f,
         float bgNeutralizationStrength = 1f,
-        (float R, float G, float B)? manualWhiteBalance = null)
+        (float R, float G, float B)? manualWhiteBalance = null,
+        bool applyColorCalibration = true)
     {
         var stats = PerChannelStats;
         var luma = LumaStats;
@@ -479,7 +517,11 @@ public sealed class AstroImageDocument : IPreviewSource
         // multiply (autoWb scales the stats; autoWb x manual is the multiply), giving a direct, always-
         // visible colour shift. A neutral/null manual triple leaves shaderWb == autoWb, so the existing
         // auto-only numeric path is bit-identical.
-        var autoWb = ColorCalibration;
+        // The toggle gates the RENDER here, not the measurement: switching SPCC off must show the frame
+        // as if no calibration existed, and switching it on again must bring the same triple back
+        // without a re-fit. It used to gate only the toolbar highlight and the manual-WB stash, so
+        // "turning SPCC off" changed nothing on screen.
+        var autoWb = applyColorCalibration ? ColorCalibration : null;
         var shaderWb = StretchSolver.ComposeWhiteBalance(autoWb, manualWhiteBalance);
 
         if (UseIterativeConvergence && StarMaskedStats is { } masked)
@@ -681,7 +723,8 @@ public sealed class AstroImageDocument : IPreviewSource
     /// document hits the cache, never re-walks pixels.
     /// </summary>
     public (float R, float G, float B)? ComputeBackgroundNeutralization(
-        Lib.Imaging.BackgroundNeutralizationMethod method = Lib.Imaging.BackgroundNeutralizationMethod.Mean)
+        Lib.Imaging.BackgroundNeutralizationMethod method = Lib.Imaging.BackgroundNeutralizationMethod.Mean,
+        bool applyColorCalibration = true)
     {
         if (PerChannelBackground is not { Length: >= 3 } bg)
             return null;
@@ -691,7 +734,7 @@ public sealed class AstroImageDocument : IPreviewSource
         // cache key. Keyed on method alone, a calibration landing after the first neutralisation
         // would keep serving gains computed for the previous (or absent) triple: the same
         // stale-cached-projection shape as a palette-derived texture that outlives a theme switch.
-        var wb = ColorCalibration ?? (1f, 1f, 1f);
+        var wb = (applyColorCalibration ? ColorCalibration : null) ?? (1f, 1f, 1f);
         var key = (method, wb);
         if (!_bnGainsByMethod.TryGetValue(key, out var gains))
         {

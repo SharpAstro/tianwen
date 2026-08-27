@@ -1905,6 +1905,21 @@ are in the same coordinate space. `ConvergeStretchFactor` takes a `whiteBalance`
 operates entirely in post-WB space (median, mad, binNorm all multiplied) so the converged
 stretchFactor matches the per-channel rendering.
 
+**The SPCC / Calibrate toggle gates the RENDER, not the measurement, and an enhance INHERITS the
+calibration rather than re-fitting it.** `ComputeStretchUniforms` and `ComputeBackgroundNeutralization`
+take `applyColorCalibration` (from `state.ColorCalibrationEnabled`): false renders as if no auto triple
+existed while `AstroImageDocument.ColorCalibration` keeps holding it, so toggling off shows the raw
+frame and toggling on restores the exact render with no re-fit. It used to gate only the toolbar
+highlight and the manual-WB stash, so "turning SPCC off" and pressing W changed nothing on screen. Two
+things ride with it: **W is a toggle** (`SetColorCalibrationEnabled(!enabled)` then
+`TryStartColorCalibration`), not start-only, or it is a no-op on an already-calibrated document; and the
+AI enhance calls `AstroImageDocument.InheritColorCalibration(original)`, because the enhanced raster has
+its own star list and the auto-retrigger would re-fit SPCC on deconvolved/denoised pixels and land a
+different triple, so a calibrated frame took on a NEW cast a moment after the enhance landed (the "adds
+another colour cast" report). Only the WB triple is inherited; background neutralisation is re-solved
+per document, since an enhanced background genuinely differs (the same share-only-the-WB rule the
+stacking plates follow). Pinned by `ColorCalibrationToggleTests`.
+
 **Two WB facts the viewer's manual WB sliders depend on (don't regress):** (1) The stat scaling only
 makes sense for the AUTO calibration (`ColorCalibration`); its whole job is to keep the background
 neutral. A MANUAL WB multiplier that ALSO scaled the stats would be cancelled by a per-channel

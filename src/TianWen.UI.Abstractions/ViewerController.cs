@@ -615,6 +615,13 @@ public sealed class ViewerController(
         if (task.IsCompletedSuccessfully && task.Result is { } enhancedDoc)
         {
             state.IsEnhanced = true;
+            // The colour calibration measured on the ORIGINAL stars travels with the enhance; without
+            // this the auto-retrigger re-fitted SPCC on the enhanced pixels and the frame took on a new
+            // cast the moment that fit landed. See AstroImageDocument.InheritColorCalibration.
+            if (Document is { } original)
+            {
+                enhancedDoc.InheritColorCalibration(original);
+            }
             Document = enhancedDoc;
             _rawSource = enhancedDoc;
             _liveSource = null;

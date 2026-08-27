@@ -51,7 +51,10 @@ public interface IPreviewSource
 
     /// <summary>Computes display stretch uniforms from the (cached) statistics. Cheap to call per frame.
     /// <paramref name="manualWhiteBalance"/> is the user's WB-slider triple, composed with any auto color
-    /// calibration; (1,1,1) or null leaves the existing (auto-only) behaviour bit-identical.</summary>
+    /// calibration; (1,1,1) or null leaves the existing (auto-only) behaviour bit-identical.
+    /// <paramref name="applyColorCalibration"/> is the viewer's SPCC / Calibrate toggle: false renders as
+    /// if no auto calibration existed, without discarding the measured triple. A source that carries no
+    /// calibration ignores it.</summary>
     StretchUniforms ComputeStretchUniforms(
         StretchMode mode,
         StretchParameters parameters,
@@ -65,7 +68,8 @@ public interface IPreviewSource
         float hdrAmount = 0f,
         float hdrKnee = 0.8f,
         float bgNeutralizationStrength = 1f,
-        (float R, float G, float B)? manualWhiteBalance = null);
+        (float R, float G, float B)? manualWhiteBalance = null,
+        bool applyColorCalibration = true);
 
     /// <summary>Number of frames (1 for a still image).</summary>
     int FrameCount { get; }

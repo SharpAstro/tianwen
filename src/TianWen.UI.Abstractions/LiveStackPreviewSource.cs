@@ -358,10 +358,11 @@ public sealed class LiveStackPreviewSource : IPreviewSource, IDisposable, IAsync
         float lumaBlend = 1f, bool normalize = false, int curvesMode = 0,
         ReadOnlySpan<float> curveLut = default, float curvesBoost = 0f, float curvesMidpoint = 0.25f,
         float hdrAmount = 0f, float hdrKnee = 0.8f, float bgNeutralizationStrength = 1f,
-        (float R, float G, float B)? manualWhiteBalance = null)
+        (float R, float G, float B)? manualWhiteBalance = null, bool applyColorCalibration = true)
         => _doc is { } doc
             ? doc.ComputeStretchUniforms(mode, parameters, weighting, lumaBlend, normalize, curvesMode,
-                curveLut, curvesBoost, curvesMidpoint, hdrAmount, hdrKnee, bgNeutralizationStrength, manualWhiteBalance)
+                curveLut, curvesBoost, curvesMidpoint, hdrAmount, hdrKnee, bgNeutralizationStrength, manualWhiteBalance,
+                applyColorCalibration)
             : new StretchUniforms(StretchMode.None, 1f, default, default, default, default, default);
 
     // --- IPreviewSource: sequence members come from the stream (so the transport tracks the raw playhead) ---
