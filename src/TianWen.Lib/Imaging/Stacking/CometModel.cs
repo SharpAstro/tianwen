@@ -53,6 +53,22 @@ namespace TianWen.Lib.Imaging.Stacking;
 /// SWAN this also stops correctly short of the sky gradient, which turns the profile back upward
 /// past ~440 px.</para>
 ///
+/// <para><b>The field's GRADIENT is fitted and taken out before the pedestal is read.</b> The crop is
+/// a window on the comet-aligned canvas, and that canvas carries the frames' background under the
+/// comet: smeared along the track, but with every large-scale slope intact, since a box average
+/// leaves a slope unchanged. One scalar pedestal removes a flat sky and nothing else, so a slope
+/// stayed in the model as a dipole that grew with radius and was cut hard at the reach; subtracted
+/// from every frame and added back once, it drew a half-ring at the green reach on SWAN's composite,
+/// offset towards the bright side of the field, which read as a reflection halo. Measured on the
+/// model's edge cells (r 380-427 px, 15-degree sectors): +32 to +40e-4 over the upper-right half
+/// against -19 to -27e-4 opposite, with the annular median at zero BY CONSTRUCTION (so the profile
+/// could not see it), and the star layer's own field +40 to +50e-4 brighter 400-600 px that way. A
+/// plane per channel is fitted over the annulus beyond that channel's provisional reach, where the
+/// profile has already stopped falling so no coma votes on it, and only its slope is removed; the
+/// constant stays with the pedestal. First order deliberately: a higher order fitted on an outer
+/// annulus and extrapolated into the coma would eat the coma, whereas a leftover curvature term is a
+/// residual and not a ring.</para>
+///
 /// <para><b>The amplitude is FITTED per frame</b> (<see cref="FitScale"/>), never derived, which is
 /// what makes the model indifferent to transparency, to the integrator's normalisation and to the
 /// units of whatever produced it (it ran 87 on one path and 1580 on another). The fit is confined to
@@ -69,6 +85,15 @@ internal sealed class CometModel
     /// new minimum. Three is enough: a genuine 1/r wing keeps setting them, a flat asymptote stops
     /// within a few steps, and the sky gradient that turns the profile upward stops it at once.</summary>
     private const int StaleAnnuliAtAsymptote = 3;
+
+    /// <summary>The background plane is fitted over the annulus that starts this far beyond a channel's
+    /// provisional reach, so that no coma votes on the field's slope.</summary>
+    private const int PlaneFitMarginPx = 20;
+
+    /// <summary>With less annulus than this between the fit's inner radius and the crop's inscribed
+    /// circle there is not enough field to fit a plane on, and the channel keeps the scalar pedestal
+    /// alone.</summary>
+    private const int MinPlaneAnnulusPx = 40;
 
     /// <summary>The amplitude is read over an annulus of the coma: from <see cref="FitInnerRadiusPx"/>
     /// out to where the brightest channel has fallen to <see cref="FitCoreFraction"/> of its peak, but
@@ -115,17 +140,24 @@ internal sealed class CometModel
     /// <summary>Per channel: the pedestal-removed median over the central 20 px.</summary>
     public ImmutableArray<float> PeakPerChannel { get; }
 
+    /// <summary>Per channel: the slope of the field under the comet, in the comet layer's units per
+    /// pixel of the crop's x and y, that was fitted beyond the reach and taken OUT of the model. Zero
+    /// where the crop left too little field beyond the reach to fit on.</summary>
+    public ImmutableArray<Vector2> BackgroundGradientPerChannel { get; }
+
     public int ChannelCount => _planes.Length;
 
     private CometModel(
         float[][,] planes, int size, Vector2 centre,
-        ImmutableArray<float> reachPerChannel, ImmutableArray<float> peakPerChannel, float fitRadiusPx)
+        ImmutableArray<float> reachPerChannel, ImmutableArray<float> peakPerChannel,
+        ImmutableArray<Vector2> gradientPerChannel, float fitRadiusPx)
     {
         _planes = planes;
         _size = size;
         _centre = centre;
         ReachPerChannelPx = reachPerChannel;
         PeakPerChannel = peakPerChannel;
+        BackgroundGradientPerChannel = gradientPerChannel;
         var reach = 0f;
         foreach (var r in reachPerChannel)
         {
@@ -355,6 +387,18 @@ internal sealed class CometModel
         // rather than noise (measured on SWAN at PA 160-180, out to 250-350 px).
         SmoothWingsInPolarBins(planes, half, trailDirection);
 
+        // Take the field's SLOPE out before the pedestal and the reach are read (see the class
+        // remarks). The provisional reach is read off the profile as it stands: a slope is a dipole,
+        // so it leaves an annular median almost where it was, and it is what tells us from where on the
+        // annulus holds field and no coma. The fit is per channel because the field's colour is not
+        // the comet's and the comet layer normalised each channel to its own sky.
+        var gradient = new Vector2[channels];
+        for (var c = 0; c < channels; c++)
+        {
+            var (provisionalReach, _) = FindAsymptote(RadialProfile(planes[c], half, ProfileStepPx), ProfileStepPx);
+            gradient[c] = RemoveBackgroundPlane(planes[c], half, provisionalReach + PlaneFitMarginPx);
+        }
+
         var reach = new float[channels];
         var pedestal = new float[channels];
         var peak = new float[channels];
@@ -435,8 +479,14 @@ internal sealed class CometModel
         var perChannel = new StringBuilder();
         for (var c = 0; c < channels; c++)
         {
+            // The slope is quoted per 100 px and as what it amounted to across the reach in units of
+            // the plate's noise: that second number is the dipole the model would otherwise have
+            // carried to its edge.
+            var slopeAcrossReach = gradient[c].Length() * reach[c] / MathF.Max(rawNoise[c], 1e-9f);
             perChannel.Append(CultureInfo.InvariantCulture,
-                $"ch{c} reach {reach[c]:F0} px peak {peak[c]:F6} pedestal {pedestal[c]:F6}; ");
+                $"ch{c} reach {reach[c]:F0} px peak {peak[c]:F6} pedestal {pedestal[c]:F6} "
+                    + $"field slope ({gradient[c].X * 100f:+0.000000;-0.000000}, {gradient[c].Y * 100f:+0.000000;-0.000000})/100px "
+                    + $"= {slopeAcrossReach:F2} noise across the reach, removed; ");
         }
         logger.LogInformation(
             "  [comet] model taken from {Source}: {Size}x{Size} px, centre ({Cx:F2}, {Cy:F2}), fit core r<{Fit:F0} px, "
@@ -445,7 +495,7 @@ internal sealed class CometModel
 
         return new CometModel(
             planes, half * 2, centre,
-            ImmutableArray.Create(reach), ImmutableArray.Create(peak), fitRadius);
+            ImmutableArray.Create(reach), ImmutableArray.Create(peak), ImmutableArray.Create(gradient), fitRadius);
     }
 
     /// <summary>
@@ -517,6 +567,102 @@ internal sealed class CometModel
             profile[k] = list[list.Count / 2];
         }
         return profile;
+    }
+
+    /// <summary>
+    /// Fits <c>a + gx*dx + gy*dy</c> to the plane over the annulus from <paramref name="innerPx"/> to the
+    /// crop's inscribed circle, refits once without whatever lay more than 2.5 MAD off the first plane,
+    /// and subtracts the SLOPE everywhere inside that circle; the constant is left for the pedestal.
+    /// </summary>
+    /// <returns>The slope per pixel, or zero when the annulus was too thin to fit on and nothing was
+    /// changed.</returns>
+    /// <remarks>
+    /// The wings the fit sees were already replaced by upper-clipped polar-cell means, so what the
+    /// clip removes here is a neighbour's residue or a trail the cells did not fully absorb, never the
+    /// field itself. Normal equations in double, solved by Cramer's rule: the annulus is centred on the
+    /// crop, so the cross terms are near zero and the system is very well conditioned.
+    /// </remarks>
+    private static Vector2 RemoveBackgroundPlane(float[,] plane, int half, float innerPx)
+    {
+        if (half - innerPx < MinPlaneAnnulusPx)
+        {
+            return Vector2.Zero;
+        }
+        var n = plane.GetLength(0);
+        var inner2 = innerPx * innerPx;
+        var outer2 = (float)half * half;
+        double a = 0, gx = 0, gy = 0;
+        var clip = float.PositiveInfinity;
+        for (var pass = 0; pass < 2; pass++)
+        {
+            double sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0, sv = 0, svx = 0, svy = 0;
+            for (var y = 0; y < n; y++)
+            {
+                var dy = y - half;
+                for (var x = 0; x < n; x++)
+                {
+                    var dx = x - half;
+                    var r2 = (float)(dx * dx + dy * dy);
+                    if (r2 < inner2 || r2 >= outer2)
+                    {
+                        continue;
+                    }
+                    var v = plane[y, x];
+                    if (pass == 1 && MathF.Abs(v - (float)(a + gx * dx + gy * dy)) > clip)
+                    {
+                        continue;
+                    }
+                    sw += 1; sx += dx; sy += dy;
+                    sxx += (double)dx * dx; sxy += (double)dx * dy; syy += (double)dy * dy;
+                    sv += v; svx += v * (double)dx; svy += v * (double)dy;
+                }
+            }
+            if (sw < 64)
+            {
+                return Vector2.Zero;
+            }
+            var det = sw * (sxx * syy - sxy * sxy) - sx * (sx * syy - sxy * sy) + sy * (sx * sxy - sxx * sy);
+            if (!(Math.Abs(det) > 1e-12))
+            {
+                return Vector2.Zero;
+            }
+            a = (sv * (sxx * syy - sxy * sxy) - sx * (svx * syy - sxy * svy) + sy * (svx * sxy - sxx * svy)) / det;
+            gx = (sw * (svx * syy - sxy * svy) - sv * (sx * syy - sxy * sy) + sy * (sx * svy - svx * sy)) / det;
+            gy = (sw * (sxx * svy - svx * sxy) - sx * (sx * svy - svx * sy) + sv * (sx * sxy - sxx * sy)) / det;
+            if (pass == 0)
+            {
+                // Residual scatter off the first plane, on a stride-3 subsample: enough for a MAD.
+                var residuals = new List<float>(n * n / 9 + 16);
+                for (var y = 0; y < n; y += 3)
+                {
+                    var dy = y - half;
+                    for (var x = 0; x < n; x += 3)
+                    {
+                        var dx = x - half;
+                        var r2 = (float)(dx * dx + dy * dy);
+                        if (r2 >= inner2 && r2 < outer2)
+                        {
+                            residuals.Add(MathF.Abs(plane[y, x] - (float)(a + gx * dx + gy * dy)));
+                        }
+                    }
+                }
+                residuals.Sort();
+                clip = 2.5f * MathF.Max(residuals[residuals.Count / 2] * 1.4826f, 1e-9f);
+            }
+        }
+        for (var y = 0; y < n; y++)
+        {
+            var dy = y - half;
+            for (var x = 0; x < n; x++)
+            {
+                var dx = x - half;
+                if ((float)(dx * dx + dy * dy) < outer2)
+                {
+                    plane[y, x] -= (float)(gx * dx + gy * dy);
+                }
+            }
+        }
+        return new Vector2((float)gx, (float)gy);
     }
 
     /// <summary>
