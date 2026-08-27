@@ -94,6 +94,37 @@ SdlVulkan.Renderer release before TianWen can re-pin. D3 is a second SdlVulkan.R
 this is two cascades, not one -- worth batching D1-D3 into a single DIR.Lib + renderer pair if the
 damage API can be settled before the frame work starts.
 
+## The cached layer squashed the image after the pane shrank (found 2026-08-27, fixed)
+
+The user widened the file list in the Store build and the picture compressed horizontally instead of
+re-fitting. Reproduced at HEAD with the inspector: dragging the divider from 450 to 1000 px drew a
+2956 x 2983 image 921 px wide in a 1421 px pane, at the right zoom (0.4807, the fit for 1421), and
+dragging it back to 450 restored true aspect. Neither damage narrowing nor the layout was involved (the
+resize branch asks for a full repaint, and the arranged rects were right); it was the cached image
+layer's UVs.
+
+`VulkanContext.CachedLayer` allocates its targets ONCE at the first requested size and answers any
+smaller request out of the same texture (a mid-frame reallocation would stall the render thread; that
+is documented and deliberate). `BeginCachedLayerPass(w, h)` then renders into the top-left `w x h`
+of a texture that stays at the first size. The base normalised the blit's UVs by the REQUESTED layer
+size, which is right exactly as long as request and capacity coincide, i.e. until the first time the
+pane shrinks. Then `u = px / request` samples `capacity / request` more texels than the pane holds:
+at a 2957 px capacity and a 2132 px request the content drew 0.721x wide and, because the margin
+offset scales the same way, 99 px left of the pane and clipped there, which is the 925 px measured
+(the arithmetic closes to 4 px). Growing the pane instead is refused by `EnsureCachedLayerTargets`
+and falls back to the direct render, so a widening never showed it; only a shrink did, and only with
+the cache opted in, which the standalone viewer is.
+
+Fix: the seam reports the capacity it holds (`TryEnsureCachedLayerTargets(w, h, out capW, out capH)`;
+the Vulkan subclass remembers the request that first succeeded, since the renderer does not expose
+it, and forgets it when `OnResize` releases the targets), the blit's UVs are normalised by that
+capacity, the slot state carries it so a re-allocation can never be mistaken for a reusable slot, and
+a backend that answers yes with less capacity than the request is refused into the direct render.
+`TheBlitSamplesInTextureSpaceWhenTheTargetIsLargerThanTheLayer` pins it (fails with the UV divisor
+reverted) and `ABackendWhoseCapacityIsBelowTheRequestIsNotSampled` the refusal. The rule: a UV is a
+texture coordinate, so whatever divides it must be the texture's size, and a fixed-capacity target's
+size is not the size you asked for this frame.
+
 ## Already landed, independent of the above
 
 **The chrome-hover repaint is fixed** (`ViewerActions.UpdateCursorFromScreenPosition`). The readout

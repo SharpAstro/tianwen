@@ -50,9 +50,16 @@ namespace TianWen.UI.Abstractions
         /// </remarks>
         public bool UseCachedImageLayer { get; set; }
 
+        /// <summary>The texture size the backend actually allocated, which the requested layer size
+        /// is at most; the blit's UVs are normalised by THIS (see
+        /// <see cref="TryEnsureCachedLayerTargets"/>).</summary>
+        private int _cachedLayerCapacityW;
+        private int _cachedLayerCapacityH;
+
         /// <summary>What a slot currently holds, so a later frame can tell whether it may reuse it.</summary>
         private readonly record struct CachedLayerSlotState(
             bool Rendered,
+            int CapacityW, int CapacityH,
             float AnchorOffsetX, float AnchorOffsetY,
             float Zoom, float PaneW, float PaneH,
             int ImageW, int ImageH, int LayerW, int LayerH);
@@ -102,8 +109,27 @@ namespace TianWen.UI.Abstractions
         /// <summary>The slot this frame must render into and sample from.</summary>
         protected virtual int CachedLayerSlotIndex => 0;
 
-        /// <summary>Allocates the targets at a fixed capacity, or reports that it cannot.</summary>
-        protected virtual bool TryEnsureCachedLayerTargets(int width, int height) => false;
+        /// <summary>
+        /// Makes sure a target of at least <paramref name="width"/> x <paramref name="height"/> exists and
+        /// answers the CAPACITY it actually has, or reports that it cannot.
+        /// </summary>
+        /// <remarks>
+        /// A backend allocates once and answers a smaller request out of the same texture (reallocating
+        /// mid-frame would stall the render thread), so after the pane shrinks the layer is rendered into
+        /// the top-left <c>width x height</c> of something larger. The blit's UVs are TEXTURE coordinates
+        /// and must be normalised by the capacity, never by the requested size: divided by the request
+        /// they sample <c>capacity / request</c> more texels than the pane holds, which squashes the image
+        /// by that factor and shifts it by the margin's share of the difference. That was the FITS
+        /// viewer's "the image gets compressed when I widen the file list": at a 2957 px capacity and a
+        /// 2132 px request the picture drew 0.72x wide and 99 px left, clipped, and snapped back to true
+        /// aspect the moment the divider returned to where the capacity had been allocated.
+        /// </remarks>
+        protected virtual bool TryEnsureCachedLayerTargets(int width, int height, out int capacityWidth, out int capacityHeight)
+        {
+            capacityWidth = 0;
+            capacityHeight = 0;
+            return false;
+        }
 
         /// <summary>Opens the layer pass. Must be called before the main render pass opens.</summary>
         protected virtual bool TryBeginCachedLayerPass(int width, int height) => false;
@@ -189,6 +215,7 @@ namespace TianWen.UI.Abstractions
 
             _cachedLayerSlots[slot] = new CachedLayerSlotState(
                 Rendered: true,
+                CapacityW: _cachedLayerCapacityW, CapacityH: _cachedLayerCapacityH,
                 AnchorOffsetX: p.OffsetX, AnchorOffsetY: p.OffsetY,
                 Zoom: p.Scale, PaneW: pane.Width, PaneH: pane.Height,
                 ImageW: ImageWidth, ImageH: ImageHeight,
@@ -227,10 +254,14 @@ namespace TianWen.UI.Abstractions
             var srcX = pane.X - originX - dx;
             var srcY = pane.Y - originY - dy;
 
-            var u0 = srcX / layerW;
-            var v0 = srcY / layerH;
-            var u1 = (srcX + pane.Width) / layerW;
-            var v1 = (srcY + pane.Height) / layerH;
+            // Texture coordinates, so normalised by the texture's size: the CAPACITY the backend
+            // allocated, of which this layer occupies the top-left layerW x layerH. Dividing by the
+            // layer size instead is right only while the two coincide, i.e. until the first time the
+            // pane shrinks (see TryEnsureCachedLayerTargets).
+            var u0 = srcX / _cachedLayerCapacityW;
+            var v0 = srcY / _cachedLayerCapacityH;
+            var u1 = (srcX + pane.Width) / _cachedLayerCapacityW;
+            var v1 = (srcY + pane.Height) / _cachedLayerCapacityH;
 
             PushClip((int)pane.X, (int)pane.Y, (int)pane.Width, (int)pane.Height);
             var drawn = TryDrawCachedLayer(slot, pane.X, pane.Y, pane.Width, pane.Height, u0, v0, u1, v1);
@@ -304,9 +335,16 @@ namespace TianWen.UI.Abstractions
             layerW = (int)MathF.Ceiling(pane.Width * (1f + 2f * CachedLayerMarginFraction));
             layerH = (int)MathF.Ceiling(pane.Height * (1f + 2f * CachedLayerMarginFraction));
 
-            if (!TryEnsureCachedLayerTargets(layerW, layerH))
+            if (!TryEnsureCachedLayerTargets(layerW, layerH, out _cachedLayerCapacityW, out _cachedLayerCapacityH))
             {
                 _cachedLayerLastMiss = $"no capacity for {layerW}x{layerH}";
+                return false;
+            }
+            if (_cachedLayerCapacityW < layerW || _cachedLayerCapacityH < layerH)
+            {
+                // A backend that says yes and hands back less than was asked for cannot be sampled
+                // correctly, and the safe answer is the direct render, as everywhere else in this file.
+                _cachedLayerLastMiss = $"backend reports capacity {_cachedLayerCapacityW}x{_cachedLayerCapacityH} below {layerW}x{layerH}";
                 return false;
             }
 
@@ -334,6 +372,7 @@ namespace TianWen.UI.Abstractions
             dy = 0f;
 
             if (!slot.Rendered
+                || slot.CapacityW != _cachedLayerCapacityW || slot.CapacityH != _cachedLayerCapacityH
                 || slot.LayerW != layerW || slot.LayerH != layerH
                 || slot.ImageW != ImageWidth || slot.ImageH != ImageHeight
                 || slot.Zoom != p.Scale
