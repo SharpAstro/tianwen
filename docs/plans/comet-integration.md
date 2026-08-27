@@ -1231,3 +1231,32 @@ drifting frames, and a fixed star trailing out of the median).
 
 **Measure colour work per channel.** A luminance mean is the right statistic for a ridge and the wrong
 one for a cast: it averages red's deficit against blue's excess and reports flat.
+
+### Colour: the SWAN composite renders blue, and that is SPCC through the quad-band curve
+
+The layers are right and the render is not. SPCC on the SWAN star layer and composite solved
+**WB = (1.937, 1.000, 3.259)** from 189 of 207 Tycho-2 matches (having dropped 969 of 1211 for a
+clipped aperture pixel), i.e. blue gained 3.3x, and painted the sky, the star halos and the
+C2-emitting coma saturated blue. The frames were shot through the **Optolong L-Quad Enhance**, whose
+digitised curve the SPCC throughput model uses, so this is the case the narrowband-colour plan already
+marks as blocked: a stellar white reference integrated over a few emission-line passbands is not a
+colour calibration for a sky or a coma, and the answer it gives for the stars carries the rest of the
+frame with it. 10P (IDAS LPS-D3, broadband with notches) rendered correctly: green coma, warm stars.
+
+Rendered with NO white balance instead (`--inherit-wb` from the comet master, which carries the
+sky-background triple 0.984 / 1.000 / 0.997, so SPCC is skipped) the frame is uniformly green and M16
+comes out yellow-green. The user's own processing of the same data (APP, light-pollution correction
+plus background calibration, no filter model) shows the truth between the two: a green coma with a warm
+core, M16 orange-red, warm-white stars.
+
+**What to test next, in this order:** SPCC with the filter curve ignored (a broadband QE x CFA model,
+which is what the user's tools effectively did and what 10P already gets); then the per-channel
+passband synthesis of the narrowband-colour plan, which is the principled version. Neither belongs to
+the comet work; the two-layer composite is colour-agnostic and takes whatever calibration the render
+applies.
+
+Two things for the runner rather than the reader: in Git Bash a junction is `cmd //c mklink /J`, since
+MSYS rewrites a bare `/c` into `C:\` and opens an interactive `cmd` that exits on EOF having done
+nothing (the cache junctions for the neutral-WB render silently did not exist, and the run redid ten
+minutes of `sxt`); and the starless cache is per output directory, so a comparison render into a new
+`-o` pays the `sxt` pass again unless the cache is shared.
