@@ -131,6 +131,39 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void AutoIsTheDefaultAndResolvesFromColourAndCalibration()
+        {
+            ViewerActions.DefaultStretchMode.ShouldBe(StretchMode.Auto);
+
+            // The pure resolution (extension on StretchMode): colour + a calibration to show -> Linked,
+            // colour without one -> Unlinked, mono -> Linked, and a non-Auto mode passes through.
+            StretchMode.Auto.ResolveAuto(isColour: true, calibrationActive: true).ShouldBe(StretchMode.Linked);
+            StretchMode.Auto.ResolveAuto(isColour: true, calibrationActive: false).ShouldBe(StretchMode.Unlinked);
+            StretchMode.Auto.ResolveAuto(isColour: false, calibrationActive: false).ShouldBe(StretchMode.Linked);
+            StretchMode.Luma.ResolveAuto(isColour: true, calibrationActive: false).ShouldBe(StretchMode.Luma);
+        }
+
+        [Fact]
+        public async Task AutoRendersAsTheConcreteModeItPicksForTheFrame()
+        {
+            var ct = TestContext.Current.CancellationToken;
+            var doc = await CalibratedDocAsync(ct);
+            var p = new StretchParameters(0.25, -2.8);
+
+            // Calibrated colour: Auto must render byte-for-byte as Linked, so the measured WB shows.
+            var autoOn = doc.ComputeStretchUniforms(StretchMode.Auto, p, applyColorCalibration: true);
+            var linked = doc.ComputeStretchUniforms(StretchMode.Linked, p, applyColorCalibration: true);
+            autoOn.ShouldBe(linked);
+
+            // Uncalibrated colour: Auto must render as Unlinked, neutralising each channel's background.
+            var autoOff = doc.ComputeStretchUniforms(StretchMode.Auto, p, applyColorCalibration: false);
+            var unlinked = doc.ComputeStretchUniforms(StretchMode.Unlinked, p, applyColorCalibration: false);
+            autoOff.ShouldBe(unlinked);
+
+            autoOn.ShouldNotBe(autoOff, "flipping the calibration on flips Auto from Unlinked to Linked");
+        }
+
+        [Fact]
         public async Task AnEnhancedDocumentInheritsTheCalibrationInsteadOfRefittingIt()
         {
             var ct = TestContext.Current.CancellationToken;

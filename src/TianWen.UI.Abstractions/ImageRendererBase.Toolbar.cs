@@ -1173,7 +1173,7 @@ namespace TianWen.UI.Abstractions
         {
             ToolbarAction.Open => "Open a FITS / TIFF / SER file",
             ToolbarAction.StretchToggle => "Screen transfer function on / off (T)",
-            ToolbarAction.StretchLink => "Stretch mode: linked keeps colour, unlinked neutralises the background, luma stretches luminance",
+            ToolbarAction.StretchLink => "Stretch mode: auto picks linked when calibrated and unlinked otherwise; linked keeps colour, unlinked neutralises the background, luma stretches luminance",
             ToolbarAction.StretchParams => "Stretch strength preset (+ / -)",
             ToolbarAction.Channel => "Channel view: RGB or one channel (C cycles)",
             ToolbarAction.Debayer => "Demosaic algorithm; the swatch is the sensor's CFA phase (D cycles)",
@@ -1360,6 +1360,21 @@ namespace TianWen.UI.Abstractions
             "Esc                  Quit",
         ];
 
+        // What Auto resolved to for the frame on screen, named for the StretchLink button. Mirrors the
+        // producer's inputs: colour vs mono, and whether a calibration is actually being applied.
+        private static string ResolvedAutoLabel(AstroImageDocument? document, ViewerState state)
+        {
+            var isColour = document is { } d
+                && (d.UnstretchedImage.ChannelCount >= 3
+                    || d.UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB);
+            var calibrationActive = state.ColorCalibrationEnabled && document?.ColorCalibration is not null;
+            return StretchMode.Auto.ResolveAuto(isColour, calibrationActive) switch
+            {
+                StretchMode.Unlinked => "Unlinked",
+                _ => "Linked",
+            };
+        }
+
         private string GetToolbarButtonLabel(string baseLabel, ToolbarAction action, AstroImageDocument? document, ViewerState state)
         {
             return action switch
@@ -1367,6 +1382,8 @@ namespace TianWen.UI.Abstractions
                 ToolbarAction.StretchToggle => "STF",
                 ToolbarAction.StretchLink => state.StretchMode switch
                 {
+                    // Auto names what it resolved to, so the mode it picked is never a mystery.
+                    StretchMode.Auto => $"Auto ({ResolvedAutoLabel(document, state)})",
                     StretchMode.Linked => "Linked",
                     StretchMode.Luma => "Luma",
                     _ => "Unlinked"

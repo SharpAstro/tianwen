@@ -524,6 +524,13 @@ public sealed class AstroImageDocument : IPreviewSource
         var autoWb = applyColorCalibration ? ColorCalibration : null;
         var shaderWb = StretchSolver.ComposeWhiteBalance(autoWb, manualWhiteBalance);
 
+        // Resolve the Auto intent here, where both inputs are known: whether this frame is colour, and
+        // whether a calibration is actually being applied to it. A calibrated colour frame renders
+        // Linked so the WB shows; an uncalibrated one Unlinked so each channel's background neutralises.
+        var isColour = UnstretchedImage.ChannelCount >= 3
+            || UnstretchedImage.ImageMeta.SensorType is SensorType.RGGB;
+        mode = mode.ResolveAuto(isColour, autoWb is not null);
+
         if (UseIterativeConvergence && StarMaskedStats is { } masked)
         {
             // Star-masked stats have a lower median (stars excluded), so a fixed

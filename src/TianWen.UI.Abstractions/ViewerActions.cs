@@ -27,24 +27,43 @@ public static class ViewerActions
     // Cycle order for stretch link: excludes None. Internal so the dropdown
     // selector in <see cref="ImageRendererBase{TSurface}"/> can reuse the same
     // mode list (single source of truth: cycle order matches dropdown order).
-    internal static readonly StretchMode[] StretchLinkModes = [StretchMode.Linked, StretchMode.Unlinked, StretchMode.Luma];
+    // Auto leads, and is the default (see DefaultStretchMode).
+    internal static readonly StretchMode[] StretchLinkModes =
+        [StretchMode.Auto, StretchMode.Linked, StretchMode.Unlinked, StretchMode.Luma];
 
     /// <summary>
     /// What a viewer shows when it has to pick a stretch for itself: first entry of
-    /// <see cref="StretchLinkModes"/>.
+    /// <see cref="StretchLinkModes"/>, which is <see cref="StretchMode.Auto"/>.
     ///
-    /// <para>Linked, which is PixInsight's and Siril's default and now means the same thing here: ONE
-    /// curve shared across R/G/B, so a colour-calibrated image renders with the colour it was
-    /// calibrated to. Unlinked normalises each channel against its own stats, which neutralises the
-    /// background and in doing so discards exactly the per-channel differences a white balance
-    /// consists of -- correct behaviour for that mode, and the wrong thing to open on.</para>
+    /// <para>Auto resolves per frame (<see cref="ResolveAutoStretchMode"/>): a colour frame with an
+    /// active colour calibration renders LINKED, so the measured white balance shows as colour; a
+    /// colour frame without one renders UNLINKED, which neutralises each channel's background for a
+    /// clean look with no cast to guess at; a mono frame renders LINKED (Linked and Unlinked coincide
+    /// on one channel). So running SPCC on an Auto frame flips it to Linked on its own and the
+    /// calibration is visible immediately, which is the decision a user otherwise had to make by hand.</para>
     ///
-    /// <para>It used to be Unlinked, which made a photometric calibration look like a no-op on a
-    /// fresh viewer: run SPCC, watch nothing happen. Named once here so the several places that need
-    /// a default -- the toggle above, ViewerState's initialiser, DisplayControls.Defaults, the CLI
-    /// view command -- cannot drift apart again.</para>
+    /// <para>The default used to be Unlinked, which made a photometric calibration look like a no-op on
+    /// a fresh viewer; then Linked, which opened an uncalibrated frame on a possible colour cast. Auto
+    /// picks the right one of the two per frame. Named once here so the several places that need a
+    /// default -- the toggle above, ViewerState's initialiser, DisplayControls.Defaults, the CLI view
+    /// command -- cannot drift apart again.</para>
     /// </summary>
     public static StretchMode DefaultStretchMode => StretchLinkModes[0];
+
+    extension(StretchMode mode)
+    {
+        /// <summary>
+        /// Resolves <see cref="StretchMode.Auto"/> to a concrete mode; returns any other mode unchanged.
+        /// Colour + a calibration to show -&gt; Linked (the WB survives as colour); colour without one -&gt;
+        /// Unlinked (each channel's background neutralised, no cast asserted); mono -&gt; Linked (the two
+        /// coincide). Called by the producers before a <see cref="StretchUniforms"/> is built, so Auto
+        /// never reaches the shader.
+        /// </summary>
+        public StretchMode ResolveAuto(bool isColour, bool calibrationActive)
+            => mode is not StretchMode.Auto ? mode
+                : !isColour ? StretchMode.Linked
+                : calibrationActive ? StretchMode.Linked : StretchMode.Unlinked;
+    }
 
     public static void CycleStretchLink(ViewerState state, bool reverse = false)
     {

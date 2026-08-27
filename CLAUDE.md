@@ -1878,9 +1878,23 @@ only place the distinction exists and the only place it can silently collapse. *
 curve into all three slots**, derived from the mean of the per-channel WB-applied medians and MADs
 (PI's and Siril's linked STF), so a white balance survives as colour. **Unlinked writes each channel's
 own auto-normalised curve**, which absorbs the auto calibration and neutralises the background -- that
-is what the mode is FOR, not a bug. `ViewerActions.DefaultStretchMode` (= `StretchLinkModes[0]` =
-Linked) is the single source for every default; `MasterPreviewRenderer` and `PreviewEncoder` both
-render Linked.
+is what the mode is FOR, not a bug. `ViewerActions.DefaultStretchMode` (= `StretchLinkModes[0]`) is the
+single source for every VIEWER default and is **`StretchMode.Auto`**; `MasterPreviewRenderer` and
+`PreviewEncoder` still render **Linked explicitly** (a baked master carries its calibration, so there is
+nothing to resolve per frame).
+
+**`StretchMode.Auto` is a UI intent, resolved to a concrete mode before any `StretchUniforms` is built,
+never a shader mode.** It is LAST in the enum so the shader's numeric values for None/Linked/Unlinked/Luma
+are unchanged, and `StretchSolver` maps a stray Auto to Linked as a backstop. Resolution is the pure
+extension `mode.ResolveAuto(isColour, calibrationActive)` (`ViewerActions`): colour + a calibration being
+applied -> Linked (the WB shows as colour); colour without one -> Unlinked (each channel's background
+neutralises, no cast asserted); mono -> Linked. The two producers resolve it with what only they know --
+`AstroImageDocument` from its channels and `autoWb is not null` (which already honours the SPCC toggle),
+`LiveFramePreviewSource` from channel count with no calibration. So running SPCC on an Auto frame flips it
+to Linked on its own, which is the decision the user otherwise made by hand. The StretchLink button names
+what Auto resolved to ("Auto (Linked)"). Pinned by `ColorCalibrationToggleTests` +
+`ViewerActionsTests.DefaultStretchMode_IsAuto`. A test or renderer that needs a fixed curve passes an
+explicit mode, never Auto.
 
 Linked used to replicate channel 0's *stats* and scale each copy by that channel's own multiplier,
 giving three curves whose anchors tracked the multipliers and divided them back out: a WB had **no
