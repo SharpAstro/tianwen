@@ -38,12 +38,17 @@ the 35 TIFF / import / codec tests pass against it.
 | P8 | A solver exception puts raw binary in the status bar | **FIXED** |
 | P9 | Stray text fragment at the left edge (needs confirmation) | UNCONFIRMED |
 | P10 | Hand-off may select the adjacent row (needs confirmation) | UNCONFIRMED |
-| P11 | `--help` reports no version, and the AI enhancer status is invisible | NEXT RELEASE |
+| P11 | `--help` reports no version, and the AI enhancer status is invisible | **HALF FIXED**: version + status shipped, model download remains |
 | P12 | Gain/ISO and offset are parsed but never shown in the info pane | **FIXED** |
 | P13 | No in-depth user documentation | NEXT RELEASE |
 | P14 | An EMPTY instance does not adopt a file, because the gate is folder-scoped | **FIXED** |
 | P15 | A faint residue is left at the end of the cursor readout (damage-era) | OPEN |
 | P16 | `Frame: None` printed the enum default as if it were a frame kind | **FIXED** |
+| P17 | Right-click on the image copies nothing (RA/Dec, value, position) | **FIXED** |
+| P18 | No Save at all; Open is a word where an icon would do | NEXT RELEASE |
+| P19 | Stepping between frames re-solves everything, so there is no blink | NEXT RELEASE |
+| P20 | A share link to the web viewer (needs `&t=`) | BACKLOG (web) |
+| P21 | A mosaic's channel views show the mosaic, not the debayered planes | BACKLOG |
 
 ---
 
@@ -370,6 +375,94 @@ same failure as `Gain: -1`, one row down, and found the same way. The row is now
 `None` as well as for the unremarkable `Light`. Pinned by two more cases in
 `InfoPanelMetadataTests` (unstated produces no row; a real `Flat` is still named).
 
+## P17. Right-click on the image copies nothing  — FIXED
+
+From the user's notes 2026-08-27: *"support right click (alternatively alt-click) to copy colour or
+RA/Dec coord ... right click menu would be cool too"*, and on priority: *"the colour copy is the more
+niche op, the more prominent one is certainly the RA/Dec copy"*.
+
+Shipped as a context menu rather than modifier-clicks: a chord has to be documented somewhere to be
+discovered, and the only place it could be documented is the panel nobody opens until something is
+already wrong. The menu also gives the share link (P20) a home. Items, in order: **RA / Dec**
+(sexagesimal as the info panel prints it, with decimal degrees on a second line because that is what
+most tools take as input), the per-channel **value** (unit and 16-bit forms), and the **position**.
+Every label carries its own value, so the menu answers the question without anything being copied.
+
+**It computes nothing**: every mouse move already resolves `ViewerState.CursorPixelInfo`, so this is a
+formatter over existing state (`ImageContextMenu`, non-generic and testable without a GPU, the same
+split `InfoPanelData` makes). The **displayed colour is deliberately absent** -- it is a different
+number (post stretch / WB / curves / HDR), the GPU owns it, a swapchain readback is the one operation
+that wedges the render loop, and recomputing it on the CPU through the stretch mirror is a feature of
+its own. A first attempt added exactly that and was reverted before it shipped.
+
+It reuses `ViewerState.ToolbarDropdown` (keyboard claim, hover, scrolling, dismissal and the
+`OverlayOwnsPointer` z-order answer already live there) and is called from **both** press dispatchers.
+
+**It also surfaced that no viewer menu had ever had a hover state.** `RenderDropdownMenu` resolves its
+row highlight from `PixelWidgetBase.Pointer`, and nothing in the viewer ever set it, so Zoom, the `?`
+panel and the new menu all showed only the keyboard's `HighlightIndex`. `Render` now sets it from the
+position both hosts already track, and a pointer move repaints while a dropdown is open.
+
+## P18. No Save at all, and Open is a word where an icon would do  — NEXT RELEASE
+
+From the user's notes 2026-08-27: *"Save as seen on screen option. Iconize Open (and Save)"*, *"+
+Shift or whatever Save-As (choose png, jpeg, and what else we have)"*.
+
+There is no `Save` in `ToolbarAction` today. Three parts, and the first is the one with a decision in
+it: **"as seen on screen"** means the display raster, i.e. the stretch, WB, curves, HDR and channel
+view currently applied -- which is exactly what `Image.RenderStretchedRgba` produces on the CPU, so
+the value is available without a framebuffer readback. Note the viewer would then have a second
+consumer of that path, which is an argument for the single-pixel helper P17 rejected.
+
+Format choice: the codecs facade already writes PNG (8 and 16 bit, cICP, iCCP), JPEG, TIFF (float32,
+the `[0,1]` + SMin/SMax convention) and EXR, so Save-As is a picker over what
+`SharpAstro.Codecs` supports rather than new encoders. 16-bit PNG and float TIFF are the interesting
+ones: "as seen" in 16 bit is lossless against the display raster.
+
+Iconizing Open (and Save) frees toolbar width, which the two-row wrap makes measurable rather than
+cosmetic. Marks go through `DrawToolbarMark` as `Content.Icon`, never a symbol character in a text run.
+
+## P19. Stepping between frames re-solves everything, so there is no blink  — NEXT RELEASE
+
+From the user's notes 2026-08-27: *"in folder open mode, when moving between one raw frame of same
+type (.fits, etc) we copy over the calibration/stretch params etc so that they load faster"*, and then
+*"did my task list also contain the blink mode, where we scroll through the file list one by one (if
+the frames have same dims etc)"* -- it did not, and the two are the same item: **the param carry-over
+is what makes a blink possible.** Without it each frame solves its own auto-stretch, so a sequence
+flickers in brightness rather than showing what moved.
+
+Two halves:
+- **Carry the display state across frames of the same shape.** Same dimensions, same channel count,
+  same declared depth, and same filter where stated. `AstroImageDocument.InheritColorCalibration`
+  already exists for the enhance case and is the precedent for the WB triple; the stretch uniforms and
+  the background neutralisation are the rest. Background neutralisation is re-solved per document by
+  design elsewhere, so blink needs an explicit "hold it" mode rather than the default.
+- **A transport over the file list.** The SER path already has `Space` play/pause and `Left`/`Right`
+  frame stepping, and `Up`/`Down` already step files; blink is that transport pointed at the file list
+  with a fixed interval, gated on the frames being comparable.
+
+## P20. A share link to the web viewer  — BACKLOG (needs the web side)
+
+From the user's notes 2026-08-27: *"right click menu could also have an option to create a share link
+that shares direct links to the Tianwen website viewer, we would need to add a `&t=<time of capture>`
+support for the links as well"*. The menu from P17 is where it goes. Blocked on the web build
+accepting the parameters, so it is tracked with the web items rather than here.
+
+## P21. A mosaic's channel views show the mosaic, not the debayered planes  — BACKLOG
+
+From the user's notes 2026-08-27: *"use the new AsChannel* to show debayered channels?"*, resolved in
+conversation to `Channel.AsSpan()` (from the `ImmutableArray<Channel>` constructor work) -- there is
+no `AsChannel*` API anywhere in tianwen, DIR.Lib or Codecs, and no commit mentions one.
+
+The real gap: `ChannelView.DisplayedSourceChannel` clamps to the channels the IMAGE has, so on a
+1-channel RGGB mosaic Red / Green / Blue all resolve to channel 0, which is the mosaic itself. The
+viewer never CPU-debayers by design (the GPU shader does it), so the cheap shape is a shader-side
+"isolate channel N of the debayered result" rather than materialising planes on the CPU -- the
+fragment shader already computes the RGB triple in `debayerBilinear` / `debayerMhc`. The cursor
+readout is the part that would still need CPU values, which is where a `Channel.AsSpan()` view earns
+its place. Deferred as agreed: *"we can skip the extract synthetic channel from debayer for now if too
+hard. backlog it if we can't deliver it now."*
+
 ---
 
 ## Phasing
@@ -382,7 +475,8 @@ same failure as `Gain: -1`, one row down, and found the same way. The row is now
 | D | P4, P6 | DONE. Correctness of presentation. P4 was briefly backlogged, then done anyway once P1 made the file decode at all. |
 | E | P5 | DONE. An LZW decoder; the only item whose absence was already documented scope. |
 | F | P9, P10 | Reproduce first; do not fix from a single screenshot. |
-| G | **P12 + P14 DONE 2026-08-22**; P11, P13 remain | The next release, in that order: P12 is a two-row rendering gap, P11 is a read of an existing property plus a lazily-populated status, P14 is a host-policy change with two cases to settle, and P13 is best written last so it documents what P11/P14 actually do. |
+| G | **P12 + P14 DONE 2026-08-22**; **P11's version + AI status DONE 2026-08-27**; P11's model download and P13 remain | The next release, in that order: P12 is a two-row rendering gap, P11 is a read of an existing property plus a lazily-populated status, P14 is a host-policy change with two cases to settle, and P13 is best written last so it documents what P11/P14 actually do. |
+| H | **P17 DONE 2026-08-27**; P18, P19 next; P20, P21 backlogged | The second wave of the user's notes. P17 first because it is a formatter over state that already existed, and it is what found the missing dropdown hover state. P18 and P19 both touch the display raster and the file list, so they share a sitting. P20 waits on the web build; P21 is a shader change whose cheap form is not obvious yet. |
 
 ## Verification
 

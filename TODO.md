@@ -53,7 +53,23 @@
 
 ## Next Up
 
-- [ ] **Astro Photo Viewer, next release (P11-P14, from the user's notes 2026-08-22)**: report the version with `--help`; surface the AI-enhancer discovery status (which backend resolved, which RC products are licensed, which SAS models are missing) plus a way to fetch the missing models -- **without** undoing the deliberate deferral of the RC-vs-SAS license probe to the first `EnhanceAsync`; render gain/ISO + offset in the info pane (already parsed into `ImageMeta`, just never drawn); write in-depth user documentation for the Store listing to point at; and let an EMPTY instance (no folder open) adopt any opened file instead of spawning a second window -- the gate is folder-scoped by design, and `PumpInstanceGate` already re-binds on a folder change, which is the mechanism. See `docs/plans/viewer-prerelease-fixes.md` (phase G) and `docs/architecture/desktop-shell.md`.
+- [ ] **Astro Photo Viewer, next release (P11-P21, from the user's notes 2026-08-22 and 2026-08-27)**.
+  **Shipped:** the version now leads `--help` (plus `--version`, and the same line in the in-app `?`
+  panel beside the AI-enhancer discovery status, which reports which backend resolved, which RC
+  products are licensed and which SAS models are missing -- **without** undoing the deliberate
+  deferral of the RC-vs-SAS license probe to the first `EnhanceAsync`); gain/ISO + offset render in
+  the info pane; an EMPTY instance adopts any opened file instead of spawning a second window; and
+  right-click on the image copies RA/Dec, the per-channel value or the position (which is also what
+  found that no viewer dropdown had ever had a mouse hover state). **Remaining, in order:** a way to
+  FETCH the missing SAS models, since `tools/tianwen-ai-models-fetch.ps1` is a repo script and a Store
+  install cannot reach it (P11); **Save as seen on screen** + Save-As over the formats the codecs
+  facade already writes, and iconising Open/Save to buy toolbar width (P18); **carry the display state
+  across frames of the same shape, which is the enabler for a BLINK mode** over the file list -- the
+  transport already exists for SER, and without the carry-over each frame solves its own auto-stretch
+  so a sequence flickers in brightness rather than showing what moved (P19); and in-depth user
+  documentation for the Store listing to point at, written last so it documents what the rest do
+  (P13). See `docs/plans/viewer-prerelease-fixes.md` (phases G and H) and
+  `docs/architecture/desktop-shell.md`.
 - [ ] **Atlas planet detail** (tracked in the plan only, per the user): vmag sparkline + visibility curve + the date of the next opposition / greatest elongation for a selected planet. `SkyPathEventDetector` already computes the events and draws them as rings along the selection path, so the date is a text row over tested math -- except the 120-day path window is far shorter than a synodic period, so the event query needs its own coarse long sweep. Also fixes a planet's info-panel magnitude, which is currently the STATIC catalog `V_Mag` and so is off by magnitudes for most of Mars's cycle. See `docs/plans/atlas-planet-detail.md`.
 - [x] RC-Astro enhancer integration: drive RC-Astro StarX/NoiseX/BlurXTerminator (encrypted ONNX, so via the `rc-astro` `--json` CLI, not in-proc ORT), preferred over the SETI Astro ONNX enhancers when the CLI is installed + the product is licensed. **Phase 1+2 SHIPPED:** `RcAstroCli` + NDJSON parser + FITS round-trip base, `RcAstroStarRemover`/`RcAstroDenoiser` (noise-adaptive `--dn`)/`RcAstroNonStellarDeconvolver`, deferred license-gated selector (`DeferredEnhancer` proxy, no subprocess at DI build/resolve), wired into `TianWen.Cli`. 13 tests. **Phase 3 SHIPPED (PR #59, 2026-06-30):** immutable threaded `EnhanceOptions`/`EnhanceTuning` (no mutable singleton) + shared `EnhanceOptions.TryParse`; CLI flags (`--ai-backend`/`--bxt-sharpen`/`--nxt-denoise`/`--nxt-iterations`) on `image sharpen` + `stack --enhance` (3a); per-step `EnhanceProgress` -> CLI printer (3b); interactive Enhance action in `tianwen-fits` (3c); `tianwen-server` `POST /api/v1/image/enhance` single-flight endpoint + `ENHANCE-PROGRESS`/`-COMPLETED` WS, presence-gated 503 when no pipeline (3d). Job-id/queue model deferred as a nice-to-have (`docs/plans/server-enhance-job-model.md`). See `docs/plans/rc-astro-enhancers.md`.
 - [x] QHYCCD device support: native camera, filter wheel (camera-cable + standalone serial QHYCFW3), and QFOC focuser (Standard + High Precision) drivers. JSON-over-serial protocol for QFOC with typed records and AOT-safe `QfocJsonContext`. Three-phase discovery in `QHYDeviceSource`: cameras → serial probe → camera-cable CFW check

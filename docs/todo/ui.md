@@ -199,6 +199,40 @@ state through the terminal is a small addition that follows an existing pattern:
 - [ ] Investigate `DotNext.Threading.RandomAccessCache<TKey, TValue>` (or similar bounded cache)
       as an alternative to `WeakReference` for the document cache; may offer better eviction control
 
+- [ ] **Blink mode over the file list, and the display-state carry-over it needs** (user's notes
+  2026-08-27, P19 in [viewer-prerelease-fixes](../plans/viewer-prerelease-fixes.md)). Two halves that
+  only work together: stepping between frames of the SAME shape should carry the stretch, WB and
+  calibration rather than re-solving each one, and a transport (fixed interval, play/pause) should walk
+  the file list. Without the carry-over a sequence flickers in brightness instead of showing what
+  moved, which is the whole point of a blink. The transport already exists for SER (`Space`,
+  `Left`/`Right`); `Up`/`Down` already step files. Gate on comparable frames: same dimensions, channel
+  count, declared depth, and filter where stated. `AstroImageDocument.InheritColorCalibration` is the
+  precedent for the WB half; background neutralisation is re-solved per document BY DESIGN elsewhere,
+  so blink needs an explicit hold rather than the default.
+- [ ] **Save as seen on screen, Save-As, and iconised Open/Save** (user's notes 2026-08-27, P18).
+  There is no `Save` in `ToolbarAction` at all. "As seen" is the display raster, which
+  `Image.RenderStretchedRgba` already produces on the CPU, so no framebuffer readback is needed;
+  Save-As is a picker over what the codecs facade already writes (PNG 8/16-bit, JPEG, float TIFF, EXR)
+  rather than new encoders. 16-bit PNG and float TIFF are the interesting ones, being lossless against
+  the raster. Iconising Open and Save buys toolbar width, which the two-row wrap makes measurable.
+- [ ] **Fetch the missing AI models from the `?` panel** (user's notes 2026-08-22, the remaining half of
+  P11). The panel already REPORTS which SAS weights are absent and which directories were searched
+  (`AiCapabilities.ProbeAsync`); what it cannot do is get them, because
+  `tools/tianwen-ai-models-fetch.ps1` is a repo script and a Store install cannot reach it. Must not
+  undo the deliberate deferral of the RC-vs-SAS license probe to the first `EnhanceAsync`: a fetch is
+  an explicit user action, so it composes with that rather than fighting it.
+- [ ] **Star profile + object identify, and a clickable object mode** (user's notes 2026-08-27, and
+  explicitly UNDECIDED by the user: *"not decided on that. can be an extra button with a mouse pointer
+  icon or so to enable that"*). Middle mouse is pan, so a select mode needs its own affordance. The
+  overlay already knows the objects it drew, so identification is a hit test over what
+  `OverlayEngine` produced rather than a new query.
+- [ ] **A mosaic's channel views show the mosaic** (P21). `ChannelView.DisplayedSourceChannel` clamps to
+  the channels the IMAGE has, so on 1-channel RGGB, Red/Green/Blue all resolve to channel 0. The viewer
+  never CPU-debayers by design, so the cheap form is a shader-side isolate of one channel of the
+  debayered triple (`debayerBilinear` / `debayerMhc` already compute it); the cursor readout is the
+  part that would need CPU values, which is where a `Channel.AsSpan()` view earns its place. There is
+  no `AsChannel*` API anywhere -- that note resolved to `Channel.AsSpan()`.
+
 ## SdlVulkan.Renderer
 
 - [x] Font atlas corruption: root cause: shared upload buffer race with `MaxFramesInFlight=2`. Frame N+1's `Flush` overwrites the upload buffer while frame N's `vkCmdCopyBufferToImage` is still reading it. Fixed with `vkDeviceWaitIdle()` before upload buffer reuse.
@@ -206,6 +240,15 @@ state through the terminal is a small addition that follows an existing pattern:
 - [x] SDF font atlas: `Grow()` / `CreateImage` used to transition the fresh `VkImage` via `ctx.ExecuteOneShot`, which submits a side cmd buffer to the graphics queue while the frame's cmd buffer is recording; some drivers reject this with `VK_ERROR_INITIALIZATION_FAILED` from the next `vkQueueSubmit`. Fixed: deferred initial transition to the next `Flush` via `_needsInitialTransition` flag; initial atlas dim now scales with `SdfRasterSize` (`2048²` at 128px raster) so `Grow()` rarely fires during typical startup UI anyway (commit `30fcdf7`).
 - [x] `VkTexture.CreateDeferred`: pixel-format parameter; was hard-coded to `B8G8R8A8Unorm`, which forced RGBA-producing CPU renderers (altitude chart via `RgbaImageRenderer`) to run a per-pixel swizzle loop before upload. Now takes `VkFormat format = B8G8R8A8Unorm` so callers can pass `R8G8B8A8Unorm` with RGBA bytes directly (commit `90f877a`); `VkPlannerTab` dropped its CPU swizzle loop.
 - [ ] `VkSdfFontAtlas.Grow()` mid-frame hazard: destroys the old `VkImage` and calls `vkUpdateDescriptorSets` while the frame's cmd buffer is still recording. Works on current drivers but is spec-grey (`VUID-vkUpdateDescriptorSets-pDescriptorWrites-06993` forbids updating a descriptor set that is in use by a pending submission). If we ever see corruption or validation noise tied to `Grow()`, defer the destroy + descriptor update to the next `OnPreRenderPass` (same pattern as `VkPlannerTab`'s deferred texture swap). Not pre-emptively worth fixing; the initial-atlas bump in `30fcdf7` makes `Grow()` rare, and there is no known observed corruption.
+- [ ] **The inspector can only synthesize a LEFT click, and cannot move the pointer at all** (found
+  2026-08-27 while verifying the viewer's new right-click menu and the dropdown hover state, both of
+  which had to be checked by hand). Two additions: a `button` on the click command (right and middle
+  are real gestures now -- right-click opens the image context menu and reverse-cycles toolbar buttons,
+  middle-drag pans), and a `move` command that delivers pointer motion with no button held, since
+  hover state is resolved during PAINT from `PixelWidgetBase.Pointer` and so cannot be driven by a
+  click at all. `drag` is not a substitute: it presses, which selects a menu item. Until both exist,
+  any hover or right-click behaviour is unverifiable unattended, which is exactly the class of thing
+  the inspector exists for. The user has okayed adding functionality to SdlVulkan.Renderer for this.
 - [ ] `SdlVulkanWindow.Create` should take the SDL `WindowFlags` as a parameter instead of hardcoding `WindowFlags.Vulkan | WindowFlags.Resizable | WindowFlags.Maximized`. Default keeps `Maximized` (matches today's behaviour) but callers can opt out, e.g. to launch at the supplied `1280×900` non-maximized, or to force fullscreen at startup. Both `TianWen.UI.Gui/Program.cs:74` and `TianWen.UI.FitsViewer/Program.cs` (same `Create` call) pick up the change for free. Consider exposing as an overload `Create(title, width, height, WindowFlags extraFlags)` with `Vulkan | Resizable` always on, `Maximized` added by default but overridable.
 
 ### SdlEventLoop (DONE, all consumers now use the shared loop)
@@ -398,6 +441,23 @@ reading and the next person will reach for it again.
   `PinchEnd` (a wheel stream has no end event, and a latched `IsPinching` would swallow every later
   drag), and normalises by `DeltaMode` first, since the divisor was a hardcoded 100 whether the browser
   reported pixels, lines or pages, which made one notch a 15% zoom in Chrome and 0.45% in Firefox.
+
+## Charts and the web showcase (user's notes 2026-08-27)
+
+- [ ] **Log / time-compressed graphs.** The session and guider graphs plot linear time, so a long night
+  spends most of its width on the quiet middle. A compressed time axis (log, or piecewise by event
+  density) would put the interesting transitions where they can be read. Applies to the guide-error
+  graph, the focus history and the session progress strip; whatever it lands on should go through the
+  shared `GuiderContent` helpers rather than into one surface, so the TUI gets it too.
+- [ ] **Expose the fake profiles in the web build so framing can be tried without hardware.** The
+  fakes already surface from discovery behind `IncludeFake:true` and carry the real URI shapes; the web
+  host simply never offers them. That is what makes the deployed showcase demonstrate framing rather
+  than only rendering.
+- [ ] **Milky Way texture in the web sky map.** The desktop path has it
+  ([skymap-milkyway](../plans/skymap-milkyway.md)); the WebGL pipeline does not.
+- [ ] **Copy a link to a point (right-click), and the `&t=<time of capture>` parameter behind it.**
+  This is the other end of the viewer's share-link item (P20): the viewer needs somewhere to point, so
+  the web build has to accept a position AND an instant before that menu entry can exist.
 
 ## Planner (reported 2026-08-03)
 
