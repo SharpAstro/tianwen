@@ -72,15 +72,27 @@ public interface ICelestialObjectDB
     /// Build all in-memory catalog indices from embedded resources. Idempotent: subsequent
     /// calls return immediately once the first init succeeded.
     /// <para>
-    /// The ~21 MB Tycho-2 binary catalog is decompressed in the background and is NOT awaited
-    /// before this returns by default. Callers that need it (sky map, plate solver, anything
-    /// touching <see cref="CoordinateGrid"/> / <see cref="CopyTycho2Stars"/>) must
-    /// <c>await</c> <see cref="EnsureTycho2DataLoadedAsync"/> first. Pass
-    /// <paramref name="waitForTycho2BulkLoad"/>=<c>true</c> to make init block until the bulk
-    /// Tycho-2 data is ready (precompute tools, tests that probe Tycho-2 state synchronously).
+    /// <b>Tycho-2 is loaded and awaited by DEFAULT</b>, because it is now free to wait for. It
+    /// loads on a background task overlapped with the other init phases, and since the catalogue
+    /// ships EXPANDED (a mapped read rather than a 43.5 MB decompression) that task finishes before
+    /// they do: the wait measures 0.2 ms warm, against 93-109 ms when it had to decompress. There is
+    /// no longer a reason to make callers opt in, and every consumer that needs stars was already
+    /// passing <c>true</c> -- the plate solver, the stacking pipeline, the CLI and the MCP server.
+    /// Not passing it is what made <c>tianwen solve</c> return zero catalogue stars once.
+    /// </para>
+    /// <para>
+    /// Pass <paramref name="waitForTycho2BulkLoad"/>=<c>false</c> to return without awaiting it. That
+    /// no longer saves the WORK, only the wait: the load is kicked off either way, so the only thing
+    /// it buys is returning before it lands, and a caller that then touches
+    /// <see cref="CoordinateGrid"/> / <see cref="CopyTycho2Stars"/> must
+    /// <c>await</c> <see cref="EnsureTycho2DataLoadedAsync"/> itself.
+    /// </para>
+    /// <para>
+    /// A build that embeds no catalogue (the browser/WASM app, <c>-p:Lightweight=true</c>) needs no
+    /// special case: there is nothing to load, so the background task no-ops and awaiting it is free.
     /// </para>
     /// </summary>
-    Task InitDBAsync(bool waitForTycho2BulkLoad = false, CancellationToken cancellationToken = default);
+    Task InitDBAsync(bool waitForTycho2BulkLoad = true, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// True once <see cref="InitDBAsync"/> has completed at least once (the main catalogs are

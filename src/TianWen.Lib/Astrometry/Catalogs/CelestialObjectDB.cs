@@ -403,7 +403,7 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     }
 
     /// <inheritdoc/>
-    public async Task InitDBAsync(bool waitForTycho2BulkLoad = false, CancellationToken cancellationToken = default)
+    public async Task InitDBAsync(bool waitForTycho2BulkLoad = true, CancellationToken cancellationToken = default)
     {
         if (_isInitialized)
         {
