@@ -9,6 +9,40 @@ namespace TianWen.Lib.Tests;
 
 public class ModelResolverTests : IDisposable
 {
+    /// <summary>
+    /// Every per-user default directory comes from ONE root, so a fourth cannot quietly grow its
+    /// own idea of where application data lives.
+    /// </summary>
+    /// <remarks>
+    /// This pins the shape, not the drift it replaced -- and the difference matters. Until now
+    /// three hand-rolled platform switches computed this root independently and two had already
+    /// diverged: <c>SasProModelsDir</c> ignored <c>XDG_DATA_HOME</c> while its siblings honoured
+    /// it, so a Linux user who set it had SAS Pro's models looked for in the wrong place. That
+    /// specific bug is NOT what fails here, because reproducing it needs <c>XDG_DATA_HOME</c> set
+    /// in the environment, and an env var is process-global while these tests run in parallel --
+    /// the fixture would be flakier than the thing it guards. What this catches is the next copy:
+    /// any default directory that stops deriving from
+    /// <see cref="Environment.SpecialFolder.LocalApplicationData"/> fails on every platform.
+    /// </remarks>
+    [Fact]
+    public void EveryPerUserDefaultDirectoryDerivesFromTheSameRoot()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        Assert.SkipWhen(string.IsNullOrEmpty(localAppData),
+            "platform returned no LocalApplicationData (see dotnet/runtime#109614)");
+
+        var defaults = ModelResolver.DefaultDirectories;
+        defaults.Length.ShouldBeGreaterThan(1);
+
+        // The first entry is app-local (beside the binary), deliberately not a per-user path.
+        defaults[0].ShouldStartWith(AppContext.BaseDirectory);
+        foreach (var dir in defaults.RemoveAt(0))
+        {
+            dir.StartsWith(localAppData, StringComparison.Ordinal).ShouldBeTrue(
+                $"'{dir}' does not derive from LocalApplicationData, so it is a second source of truth");
+        }
+    }
+
     private readonly string _temp;
     private readonly string _primary;
     private readonly string _fallback;
