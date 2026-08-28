@@ -239,6 +239,11 @@ public sealed class ModelResolver : IModelResolver
     /// <summary>The vendor's own copy of a model, newest version first, existing paths only.</summary>
     private IEnumerable<string> GraXpertCandidates(string modelFileName)
     {
+        if (string.IsNullOrEmpty(_graXpertRoot))
+        {
+            yield break;   // no per-user dir to read; combining would give a path relative to the CWD
+        }
+
         foreach (var (name, bucket) in GraXpertBuckets)
         {
             if (!string.Equals(name, modelFileName, StringComparison.OrdinalIgnoreCase)) continue;
@@ -289,42 +294,26 @@ public sealed class ModelResolver : IModelResolver
         foreach (var (name, bucket) in GraXpertBuckets)
         {
             if (!string.Equals(name, modelFileName, StringComparison.OrdinalIgnoreCase)) continue;
-            return $"This is GraXpert's background-extraction model: install GraXpert (https://github.com/Steffenhir/GraXpert) and run it once so it downloads its AI models, and TianWen picks them up from '{Path.Combine(_graXpertRoot, bucket)}' automatically -- no copying needed. ";
+            // Name the directory only when there is one to name -- an empty root would otherwise
+            // print the bucket as a bare relative path and read as a location the user should find.
+            var where = string.IsNullOrEmpty(_graXpertRoot)
+                ? "its own data directory"
+                : $"'{Path.Combine(_graXpertRoot, bucket)}'";
+            return $"This is GraXpert's background-extraction model: install GraXpert (https://github.com/Steffenhir/GraXpert) and run it once so it downloads its AI models, and TianWen picks them up from {where} automatically -- no copying needed. ";
         }
         return string.Empty;
     }
 
     /// <summary>
-    /// GraXpert's per-user data directory (it nests its own name twice). Mirrors the platform
-    /// choices of <c>tools/tianwen-ai-models-fetch.ps1</c>, which reads the same tree, and honours
+    /// GraXpert's per-user data directory (it nests its own name twice), and
     /// <c>TIANWEN_GRAXPERT_DIR</c> for a non-default install -- the same env-first shape
-    /// <c>RcAstroCli.LocateExecutable</c> uses for <c>RC_ASTRO_CLI</c>, and the counterpart of that
-    /// script's <c>-GraXpertDir</c>.
+    /// <c>RcAstroCli.LocateExecutable</c> uses for <c>RC_ASTRO_CLI</c>, and the counterpart of
+    /// <c>tools/tianwen-ai-models-fetch.ps1</c>'s <c>-GraXpertDir</c>.
     /// </summary>
     private static string GraXpertRoot()
-    {
-        if (Environment.GetEnvironmentVariable("TIANWEN_GRAXPERT_DIR") is { Length: > 0 } configured)
-        {
-            return configured;
-        }
-        if (OperatingSystem.IsWindows())
-        {
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(localAppData, "GraXpert", "GraXpert");
-        }
-        if (OperatingSystem.IsMacOS())
-        {
-            var home = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
-            return Path.Combine(home, "Library", "Application Support", "GraXpert", "GraXpert");
-        }
-        var xdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-        if (!string.IsNullOrEmpty(xdg))
-        {
-            return Path.Combine(xdg, "GraXpert", "GraXpert");
-        }
-        var linuxHome = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
-        return Path.Combine(linuxHome, ".local", "share", "GraXpert", "GraXpert");
-    }
+        => Environment.GetEnvironmentVariable("TIANWEN_GRAXPERT_DIR") is { Length: > 0 } configured
+            ? configured
+            : LocalAppDataDir("GraXpert", "GraXpert");
 
     private static ImmutableArray<string> DefaultSearchPaths()
     {
@@ -343,40 +332,37 @@ public sealed class ModelResolver : IModelResolver
     /// </summary>
     private static string AppLocalModelsDir() => Path.Combine(AppContext.BaseDirectory, "models");
 
-    private static string TianWenModelsDir()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(localAppData, "TianWen", "models");
-        }
-        if (OperatingSystem.IsMacOS())
-        {
-            var home = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
-            return Path.Combine(home, "Library", "Application Support", "TianWen", "models");
-        }
-        var xdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-        if (!string.IsNullOrEmpty(xdg))
-        {
-            return Path.Combine(xdg, "TianWen", "models");
-        }
-        var linuxHome = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
-        return Path.Combine(linuxHome, ".local", "share", "TianWen", "models");
-    }
+    private static string TianWenModelsDir() => LocalAppDataDir("TianWen", "models");
 
-    private static string SasProModelsDir()
+    private static string SasProModelsDir() => LocalAppDataDir("SASpro", "models");
+
+    /// <summary>
+    /// A per-user application-data directory, ours or a vendor's.
+    ///
+    /// <para><b><see cref="Environment.SpecialFolder.LocalApplicationData"/> already IS the per-platform switch this
+    /// replaced</b>, and agrees with it on all three targets: <c>%LOCALAPPDATA%</c> on Windows,
+    /// <c>XDG_DATA_HOME</c> falling back to <c>~/.local/share</c> on Linux, and -- since .NET 8 --
+    /// <c>NSApplicationSupportDirectory</c> (<c>~/Library/Application Support</c>) on macOS. That
+    /// last one is why hand-rolling it was ever defensible: .NET 7 and earlier answered
+    /// <c>~/.local/share</c> there, which is NOT where a Python vendor using <c>platformdirs</c>
+    /// writes. It has been right since .NET 8 and this targets net10.0.</para>
+    ///
+    /// <para>Three copies of that switch had already drifted -- <see cref="SasProModelsDir"/>
+    /// silently ignored <c>XDG_DATA_HOME</c> while its two siblings honoured it, so a Linux user
+    /// who set it got SAS Pro's models looked for in the wrong place. One helper is also the only
+    /// way the <c>HOME</c> reads go away: .NET falls back to the OS user database when <c>HOME</c>
+    /// is unset, whereas <c>GetEnvironmentVariable("HOME") ?? string.Empty</c> yielded a RELATIVE
+    /// path probed under the process working directory, which is most likely exactly where
+    /// <c>HOME</c> is missing -- a service.</para>
+    ///
+    /// <para>Returns empty when the platform cannot answer, which callers already treat as "no such
+    /// directory": <see cref="CandidateFiles"/> skips empty entries. That is not theoretical --
+    /// dotnet/runtime#109614 reports this API returning an empty string on some macOS versions, so
+    /// combining onto it unguarded would rebuild the relative-path bug this removes.</para>
+    /// </summary>
+    private static string LocalAppDataDir(params string[] parts)
     {
-        if (OperatingSystem.IsWindows())
-        {
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(localAppData, "SASpro", "models");
-        }
-        if (OperatingSystem.IsMacOS())
-        {
-            var home = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
-            return Path.Combine(home, "Library", "Application Support", "SASpro", "models");
-        }
-        var linuxHome = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
-        return Path.Combine(linuxHome, ".local", "share", "SASpro", "models");
+        var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        return string.IsNullOrEmpty(root) ? string.Empty : Path.Combine([root, .. parts]);
     }
 }
