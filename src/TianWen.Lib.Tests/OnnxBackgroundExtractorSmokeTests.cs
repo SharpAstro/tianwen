@@ -93,6 +93,69 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
         result.Release();
     }
 
+    /// <summary>
+    /// Single-channel counterpart of the above, and deliberately an <b>OSC</b> plate rather than a
+    /// monochrome one: <c>SensorType.RGGB</c> with <c>ChannelCount == 1</c> is a raw Bayer MOSAIC
+    /// that has not been debayered yet, which is the state every colour frame is in inside the
+    /// viewer. The enhancer branches on channel count alone, so this is the input it really sees.
+    /// </summary>
+    private static Image BuildSyntheticUndebayeredWithGradient(int w, int h)
+    {
+        var m = new float[h, w];
+        const float bg = 0.10f;
+        const float maxLift = 0.05f;
+        for (var y = 0; y < h; y++)
+        {
+            for (var x = 0; x < w; x++)
+            {
+                m[y, x] = bg + maxLift * ((float)x / (w - 1));
+            }
+        }
+        return new Image([m], BitDepth.Float32, maxValue: 1f, minValue: 0f, pedestal: 0f,
+            new ImageMeta { SensorType = SensorType.RGGB });
+    }
+
+    /// <summary>
+    /// A one-channel plate must survive the round trip, and "one channel" here does NOT mean a
+    /// monochrome camera -- it is the ordinary state of an <b>OSC</b> frame. The viewer never
+    /// CPU-debayers (it uploads the raw CFA mosaic and the GPU shader debayers for display), and
+    /// <c>EnhanceActions</c> hands the pipeline <c>source.UnstretchedImage</c>, so every colour file
+    /// enhanced from tianwen-fits arrives here with <c>ChannelCount == 1</c>. The
+    /// <c>channels == 1</c> branch is the DEFAULT path, not the rare one.
+    /// <para>
+    /// It threw <c>IndexOutOfRangeException</c> for every such frame. <c>ChannelMedianMad</c> sizes
+    /// its median/MAD arrays to the INPUT channel count (1), <c>MonoToRgb</c> then triplicates the
+    /// planes for an RGB-only model, and <c>FromNhwcTensor</c> takes its channel count from the
+    /// TENSOR -- so the output came back 3-channel and <c>DenormaliseFromModel</c> walked all three
+    /// against a length-1 array. The existing coverage asserted <c>channels.ShouldBe(3)</c> and so
+    /// could never see it.
+    /// </para>
+    /// </summary>
+    [Fact]
+    public async Task EnhanceAsync_HandlesAnUndebayeredSingleChannelPlate()
+    {
+        if (!HasBgeModel(out var skip)) { Assert.Skip(skip); return; }
+
+        const int w = 256, h = 256;
+        var src = BuildSyntheticUndebayeredWithGradient(w, h);
+        using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
+        using var enhancer = new OnnxBackgroundExtractor(new ModelResolver(), factory.CreateLogger<OnnxBackgroundExtractor>());
+
+        var result = await enhancer.EnhanceAsync(src, TestContext.Current.CancellationToken);
+
+        result.ShouldNotBeNull();
+        var (channels, outW, outH) = result.Shape;
+        channels.ShouldBe(1);
+        outW.ShouldBe(w);
+        outH.ShouldBe(h);
+        var span = result.GetChannelSpan(0);
+        for (var i = 0; i < span.Length; i++)
+        {
+            float.IsFinite(span[i]).ShouldBeTrue($"non-finite at index={i}: {span[i]}");
+        }
+        result.Release();
+    }
+
     [Fact]
     public async Task EnhanceAndEstimateBackgroundAsync_ReturnsBothCorrectedAndBackground()
     {
