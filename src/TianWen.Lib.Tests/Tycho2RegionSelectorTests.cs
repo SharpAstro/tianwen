@@ -47,7 +47,7 @@ namespace TianWen.Lib.Tests
 
         private static byte[] LoadResource(string suffix)
         {
-            var asm = typeof(ICelestialObjectDB).Assembly;
+            var asm = Tycho2TestCatalog.AssemblyWith(suffix);
             var name = asm.GetManifestResourceNames()
                 .FirstOrDefault(n => n.EndsWith(suffix, StringComparison.Ordinal));
             name.ShouldNotBeNull($"{suffix} must be embedded in the (non-Lightweight) test build");

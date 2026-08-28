@@ -22,7 +22,7 @@ namespace TianWen.Lib.Tests
 
         private static byte[] FullCatalog()
         {
-            var asm = typeof(ICelestialObjectDB).Assembly;
+            var asm = Tycho2TestCatalog.AssemblyWith(".tyc2.bin.lz");
             var name = asm.GetManifestResourceNames()
                 .FirstOrDefault(n => n.EndsWith(".tyc2.bin.lz", StringComparison.Ordinal));
             name.ShouldNotBeNull("tyc2.bin.lz must be embedded in the (non-Lightweight) test build");
