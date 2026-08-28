@@ -256,14 +256,39 @@ at a centre of mass now resolve into components, and a deblended component's FWH
 Gaussian width `2*sqrt(2 ln 2)*sigma` rather than `HalfMaxDiameter`'s half-max crossing -- which the
 deblender documents as agreeing "by construction on a Gaussian", while this plan measures that a
 Gaussian is the WRONG function for these stars (~98x the wing flux), so a re-measured store would mix
-two estimators in a way the Moffat sweep below cares about. `PsfStoreVsCurrentDetectorProbe` puts the
-pooled master-median shift at -0.079 px (p05 -0.361, p95 +0.024) over 8 sessions, so **the conclusion
-here survives comfortably** -- an intra-session spread of 1.04 has a long way to go before it reaches
-the 1.5 a training set would need -- but the digits are dated and a `--force-psf` pass should replace
-them before anything fits a PSF model to them. **The probe does NOT isolate the detector**: it pools
-every detection while the store banded stars to the 55th-90th flux percentile, and fainter stars
-measure wider, which is enough on its own to explain both the small negative shift and the 1.53x
-count ratio. A clean A/B has to reproduce the banding.
+two estimators in a way the Moffat sweep below cares about.
+
+**Measured, 12 sessions, 2026-08-29** (`PsfStoreVsCurrentDetectorProbe`, which re-runs
+`MeasureMasterAsync` -- the production path -- so the cross-channel matching, the radius binning and
+the 55th-90th flux band are identical on both sides and a difference IS the detector):
+
+| | p05 | p50 | p95 |
+|---|---|---|---|
+| new/old matched-star count | 0.981 | **1.038** | 1.128 |
+| new-minus-old FWHM, banded p50 | +0.001 | **+0.039 px** | +0.227 |
+| new-minus-old FWHM, banded p05 | -0.006 | **+0.019 px** | +0.065 |
+| new-minus-old FWHM, banded p95 | -0.016 | +0.068 px | +0.444 |
+
+So the current detector finds about **4% more matched stars** and measures them about **2% wider**
+(+0.039 px on a ~2.2 px median). **The shift is consistently POSITIVE, which is the opposite of the
+naive prediction** that splitting fat blends into narrow components should narrow the distribution --
+and the narrow end (dp05 +0.019) moved least, where a deblending effect should have shown up most. The
+population change is doing less here than the measurement changes around it (`fdadac4d` refusing
+unmeasurable FWHMs, and the newly-accepted fainter stars, which measure wider). Two sessions shift
+~0.23-0.28 px, so it is not uniform; do not assume a single correction factor.
+
+**The conclusion in this section is untouched** -- an intra-session spread of 1.04 is nowhere near the
+1.5 a training set would need, and 2% does not close that -- but the digits are dated and a
+`--force-psf` pass should replace them before anything fits a PSF model to them.
+
+**Two ways this measurement was wrong before it was right, both worth keeping:** the first probe pooled
+raw detections instead of driving `MeasureMasterAsync`, and reported a 1.53x count ratio that was
+almost entirely the store's cross-channel-matched, flux-banded SELECTION rather than the detector; and
+the first fix matched a stored record to a master by session-directory prefix, which is ambiguous when
+one night holds two targets (Pleiades and Triangulum Galaxy here), so two rows compared different
+objects and produced the only large outliers in the table. Both were caught by printing PER-SESSION
+rows -- the duplicate `n old` column is what gave the second one away -- not by the aggregate, which
+looked plausible in every version.
 
 Pinned by `SessionAutoFocusFrameCaptureTests`.
 
