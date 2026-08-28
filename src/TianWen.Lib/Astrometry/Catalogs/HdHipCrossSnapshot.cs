@@ -327,9 +327,14 @@ internal static class HdHipCrossInputHasher
                 // Hash the *decompressed* content for .gs.gz so the input hash is invariant to
                 // gzip-encoder output differences across platforms / .NET versions. .lz inputs
                 // stay raw: they ship as LFS-tracked immutable bytes.
-                using Stream stream = inputSuffix.EndsWith(".gs.gz", StringComparison.Ordinal)
+                // The decompressor gets its OWN using variable rather than riding a ternary into
+                // a shared one: assigned through the conditional, CA2000 cannot see that the
+                // branch which allocates is the branch that disposes, and the other branch was
+                // double-disposing rawStream (harmless, but only by luck).
+                using var gzip = inputSuffix.EndsWith(".gs.gz", StringComparison.Ordinal)
                     ? new GZipStream(rawStream, CompressionMode.Decompress)
-                    : rawStream;
+                    : null;
+                var stream = gzip as Stream ?? rawStream;
 
                 int read;
                 while ((read = stream.Read(rentedBuf, 0, rentedBuf.Length)) > 0)
