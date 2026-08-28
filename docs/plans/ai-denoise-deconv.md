@@ -249,6 +249,22 @@ Three things to know before consuming it:
   illegal in a path), so splitting a name on `_` to recover the run yields an hour-granularity key and
   silently merges two runs of the same evening -- which is exactly what the first cut of the test did.
 
+**Every FWHM figure in this section is from the 2026-08-15 PSF store, i.e. the star detector as it
+stood BEFORE the 2026-08-27/28 deblending work** (`e2ad9c4e`..`c164f762`), and the store has not been
+re-measured since. Two things changed under it: close pairs that used to be reported as one fat star
+at a centre of mass now resolve into components, and a deblended component's FWHM is the fitted
+Gaussian width `2*sqrt(2 ln 2)*sigma` rather than `HalfMaxDiameter`'s half-max crossing -- which the
+deblender documents as agreeing "by construction on a Gaussian", while this plan measures that a
+Gaussian is the WRONG function for these stars (~98x the wing flux), so a re-measured store would mix
+two estimators in a way the Moffat sweep below cares about. `PsfStoreVsCurrentDetectorProbe` puts the
+pooled master-median shift at -0.079 px (p05 -0.361, p95 +0.024) over 8 sessions, so **the conclusion
+here survives comfortably** -- an intra-session spread of 1.04 has a long way to go before it reaches
+the 1.5 a training set would need -- but the digits are dated and a `--force-psf` pass should replace
+them before anything fits a PSF model to them. **The probe does NOT isolate the detector**: it pools
+every detection while the store banded stars to the 55th-90th flux percentile, and fainter stars
+measure wider, which is enough on its own to explain both the small negative shift and the 1.53x
+count ratio. A clean A/B has to reproduce the banding.
+
 Pinned by `SessionAutoFocusFrameCaptureTests`.
 
 ### 2.2 Deconvolver ground truth: synthetic PSF degradation
