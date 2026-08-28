@@ -20,7 +20,31 @@ public enum FrameType
     /// while Processed is a positive statement that the file is DERIVED and must never be ingested
     /// as a light. An APP HOO composite carries no IMAGETYP, no count card and EXPTIME=0, so this
     /// is the only card that says what it is.</para></summary>
-    Processed
+    Processed,
+
+    /// <summary>A rung of an auto-focus V-curve, or its verification exposure: a real sky frame
+    /// through an open shutter, deliberately taken at a focuser position that is usually WRONG.
+    ///
+    /// <para>It is a captured frame, so <see cref="Processed"/> would be a lie, and it is emphatically
+    /// not a <see cref="Light"/>: an outer rung of the default ladder sits ~100 steps off best focus,
+    /// more than ten times the critical focus zone, and integrating one would quietly soften a master.
+    /// A distinct member is what makes that structural -- the stacker and the dataset builder both
+    /// select <see cref="Light"/> and treat everything else as neither light nor calibration, so these
+    /// frames are excluded by the same mechanism that excludes darks, rather than by a path convention
+    /// or a provenance heuristic that a later refactor could weaken.</para>
+    ///
+    /// <para>Appended rather than inserted: the JSON contracts serialise enums numerically, so the
+    /// existing members' values are load-bearing.</para></summary>
+    Focus,
+
+    /// <summary>A scout / probe exposure: a short frame of the target taken to COUNT STARS, not to
+    /// integrate -- the FOV-obstruction probe and the nudge test.
+    ///
+    /// <para>Unlike <see cref="Focus"/> this one is in focus and points where the lights point, which
+    /// is exactly why it needs saying: it differs from a light only in exposure, so nothing about the
+    /// pixels would stop a scan ingesting it, and it would form its own plausible-looking
+    /// short-exposure group in the stacker rather than being obviously wrong.</para></summary>
+    Scout
 }
 
 public static class FrameTypeEx
@@ -29,7 +53,7 @@ public static class FrameTypeEx
     {
         public bool NeedsOpenShutter => frameType switch
         {
-            FrameType.Light or FrameType.Flat => true,
+            FrameType.Light or FrameType.Flat or FrameType.Focus or FrameType.Scout => true,
             _ => false
         };
 

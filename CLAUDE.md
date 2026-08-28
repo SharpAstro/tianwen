@@ -852,6 +852,33 @@ master's `SWCREATE` but carry NO `STACK_N` and an `IMAGETYP=Light` copied from t
 the STACK_N check alone misses them, and they silently re-stack into a ghost master). The scan reports
 a `ScanSummary` on the progress channel -- silent re-ingestion was the footgun.
 
+**A CAPTURED frame that is not a light says so in `IMAGETYP`, and never relies on the skip above.**
+`SessionConfiguration.SaveIntermediates` (default OFF, one switch, `Session.IO.cs`'s
+`WriteIntermediateFrameToFitsFileAsync` the one write path) keeps the frames a session takes to
+*measure* something and would otherwise release unseen, under
+`<output>/Intermediates/<date>/<filter>/<frame type>/[group/]`:
+
+- **`FrameType.Focus`** -- every auto-focus V-curve rung plus the verification exposure, grouped one
+  folder per run (`ota<n>_<runStart>/`, a directory rather than a filename convention because our
+  timestamp format contains underscores). This is a real defocus ladder for the deconvolver corpus;
+  [docs/plans/ai-denoise-deconv.md](docs/plans/ai-denoise-deconv.md) 2.1b carries the measurements
+  that say why the archive could not supply one.
+- **`FrameType.Scout`** -- the FOV-obstruction probe and nudge-test frames, kept whatever the star
+  count (a zero-star scout is the interesting one), which is what answers "why did it think the field
+  was blocked?" the morning after.
+
+**Each kind gets its OWN frame type rather than one `Intermediate`,** because path is cosmetic here as
+everywhere and headers are truth: collapse them and the only way to tell an AF rung from a scout is
+the folder. Exclusion from stacking is by frame type -- the scan and the dataset builder both select
+`Light`, so these drop out by the same mechanism that excludes darks, NOT by the provenance heuristic
+(authorship) or the folder. A scout is the one that most needs this: it is in focus and points where
+the lights point, differing only in exposure, so nothing about the pixels would stop a scan ingesting
+it. **Never widen a consumer's filter to admit `Focus` or `Scout`.**
+
+Deliberately NOT covered, so the switch can never fill a disk: condition-recovery test exposures
+(unbounded while cloud lasts), the rough-focus sweep, plate-solve frames and flat-metering frames.
+Each is one `WriteIntermediateFrameToFitsFileAsync` call away if it earns its keep.
+
 **`--enhance`** runs `SharpenPipeline` on the master ONCE and writes `_sharpened.fits`
 (+ `_sharpened_autocrop.fits`); the linear masters are never overwritten. The step program is
 deblurrer-aware (`SharpenPipeline.SupportsDeblur`): RC-Astro present -> BlurX-first (deblur whole
@@ -1362,6 +1389,21 @@ divergence fails on its own. Full write-up:
 - **`DeclaredPixelScale` and `DerivedPixelScale` are in different conventions.** The declared one is
   the ACTUAL image scale and already includes binning; the derived one is per unbinned photosite.
   Collapsing them into one property double-counts `BinX` on a binned frame.
+- **A light carries the guiding quality of ITS OWN exposure** (`ImageMeta.Guiding`, `GuidingStats`;
+  `GUIDERMS` / `GUIRMSRA` / `GUIRMSDE` / `GUIDEPK` / `GUIDEN`, arcsec). `GuideStatistics.OverExposure`
+  reduces `Session.GuideSamples` over `[ExposureStartTime, +ExposureDuration]` and **never a rolling
+  session average** -- that answers "how is the rig doing tonight", which is a different question and
+  is actively misleading stamped on a sub taken during the other hour. Three rules: **settling/dither
+  samples inside the window are INCLUDED** (a live guiding display excludes them because a dither is a
+  commanded move, but if the guider had not settled while the shutter was open the sub IS smeared, and
+  filtering makes the worst frames report the cleanest numbers); **null is not zero**, so an unguided
+  rig writes NO cards rather than `GUIDERMS = 0`, which would claim perfect guiding; and `GUIDEPK`
+  earns its keep because RMS hides the single gust that trails one sub, which is the defect it is
+  worst at describing. Nothing else in the wild writes these cards -- a survey of the reference archive
+  found zero guiding keywords across N.I.N.A.- and SharpCap-authored lights -- so they are ours.
+  The session stamps `ICameraDriver.GuideStats` just before `GetImageAsync`, since the statistic is
+  only complete once the shutter closes and that call is the one place an `ImageMeta` is built.
+  Pinned by `GuideStatisticsTests` + an end-to-end `SessionImagingTests` case.
 
 ### Image Mutability: Almost-Immutable with In-Place Escape Hatches
 

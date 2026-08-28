@@ -2,6 +2,55 @@
 
 ## High Priority
 
+- [x] **Keep the measurement frames, and stamp each light with how well it was guided**
+  (SHIPPED 2026-08-29). Two changes from one conversation about where paired blurry/sharp training
+  data could come from.
+  **`SessionConfiguration.SaveIntermediates`** (default OFF) keeps the frames a session takes to
+  MEASURE something and would otherwise release unseen, under
+  `Intermediates/<date>/<filter>/<frame type>/`: `FrameType.Focus` for every auto-focus V-curve rung
+  plus the verification exposure at best focus (one folder per run), and `FrameType.Scout` for the
+  FOV-obstruction probe frames, kept whatever the star count because a zero-star scout is the
+  interesting one. It replaces `SaveAutoFocusFrames` and the never-read `SaveScoutFrames`, which had
+  been documented as a real feature in six places including as a *precedent to follow*.
+  - **Why an AF run is worth keeping at all:** it already sweeps 9 positions across 200 steps and then
+    exposes once more at the fitted best focus, so each run is a labelled defocus ladder of ONE field,
+    minutes apart, under one sky at one temperature, with `FOCUSPOS` on every frame and the in-focus
+    anchor at the end. **The archive cannot supply this and never could** -- per-sub FWHM there runs
+    p05 1.96 / p50 2.10 / p95 2.55 px with an intra-session p90/p10 ratio whose median is **1.04**, and
+    a scan of all 245,213 indexed files found **zero auto-focus frames**, because N.I.N.A. and TianWen
+    both measured the V-curve and threw the pixels away. Costs no exposure time.
+    [docs/plans/ai-denoise-deconv.md](docs/plans/ai-denoise-deconv.md) 2.1b carries the measurements.
+  - **Each kind gets its OWN `FrameType` rather than one `Intermediate`**, because path is cosmetic in
+    this codebase and headers are truth: collapse them and the only way to tell an AF rung from a
+    scout is the folder. A scout needs the card most -- it is in focus and points where the lights
+    point, differing only in exposure, so nothing in the pixels would stop a scan ingesting it.
+  - **A run is a DIRECTORY, not a filename convention.** The first cut encoded the run key in the
+    name; writing the test found that the timestamp format contains underscores (`:` being illegal in
+    a path), so splitting on `_` silently yields an *hour*-granularity key that merges two runs of one
+    evening.
+  **Per-light guiding statistics** (`ImageMeta.Guiding` / `GuidingStats`; `GUIDERMS` / `GUIRMSRA` /
+  `GUIRMSDE` / `GUIDEPK` / `GUIDEN`, arcsec) reduce `Session.GuideSamples` over the frame's OWN
+  exposure window. A survey of 41 N.I.N.A.- and SharpCap-authored archive headers found **zero**
+  guiding keywords, so there was no convention to match and these are ours.
+  - **Never a rolling session RMS** -- that answers "how is the rig doing tonight", a different
+    question, and is actively misleading stamped on a sub taken during the other hour.
+  - **Settling and dither samples inside the window are INCLUDED.** A live guiding display excludes
+    them because a dither is a commanded move rather than an error; that reasoning inverts for a sub.
+    If the guider had not settled while the shutter was open the frame IS smeared, and filtering would
+    make the worst frames of the night report the cleanest numbers.
+  - **Null is not zero.** An unguided rig writes no cards at all; `GUIDERMS = 0` would claim perfect
+    guiding. `GUIDEPK` is carried because RMS is worst at describing the failure that actually ruins a
+    sub -- one gust -- and averaging is exactly what erases it.
+  - The session stamps `ICameraDriver.GuideStats` just before `GetImageAsync`, since the statistic is
+    only complete once the shutter closes and that call is the one place an `ImageMeta` is built. A
+    guiding concept on a camera interface is a layering compromise, taken because that is the
+    established seam for session-stamped header facts (`Telescope`, `Filter`, `FocusPosition`,
+    `Target`) and the alternative buys a tidier interface at the cost of a second way to get a card
+    into a header.
+  Pinned by `SessionAutoFocusFrameCaptureTests`, `GuideStatisticsTests` and end-to-end cases in
+  `SessionScoutAndProbeTests` / `SessionImagingTests`; the last was SEEN to fail with the stamp
+  removed, because a wiring no-op here is silent (empty windows, absent cards, perfectly good frames).
+
 - [x] **Star detection: two tight stars are reported as two** (SHIPPED 2026-08-28). Detection used to
   report one star per blob and put it at the blob's centre of MASS, which on a pair is exactly where
   no star is. It now offers such a measurement to a deblender (`Image.StarDeblend.cs`) that fits a

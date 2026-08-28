@@ -186,7 +186,7 @@ the classifier's `expectedStars <= 0` check skipped both cases identically.
 | `ObstructionStarCountRatioSevere` | 0.3 | Currently informational; both severe + borderline route to nudge test |
 | `ObstructionNudgeRadii` | 1.0 | Multiplier on half-FOV for the upward declination nudge |
 | `ObstructionClearFractionOfRemaining` | 0.2 | Wait if obstruction clears in <= this fraction of remaining time |
-| `SaveScoutFrames` | false | Reserved; FITS-write path for scout frames not yet implemented |
+| `SaveIntermediates` | false | Keeps scout frames as `FrameType.Scout` under `Intermediates/<date>/<filter>/Scout/` (shared switch, also keeps auto-focus V-curve frames) |
 
 ## Files
 
@@ -251,8 +251,6 @@ visible record so unattended-session reviewers can see what happened overnight.
 
 ## Not shipped on this branch
 
-- **`SaveScoutFrames` FITS write path.** Config key exists for future debugging
-  but always discards (matches the false default).
 - **Per-OTA `ScoutExposure`.** Currently global; per-OTA gain/filter means a
   10s LUM frame is not equivalent to a 10s Ha frame. Plan flagged as revisit.
 

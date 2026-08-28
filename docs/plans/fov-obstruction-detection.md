@@ -114,7 +114,7 @@ New code:
   - `float ObstructionStarCountRatioSevere = 0.3f`
   - `float ObstructionNudgeRadii = 1.0f`
   - `float ObstructionClearFractionOfRemaining = 0.2f`
-  - `bool SaveScoutFrames = false` (default discard; on for debugging)
+  - (shipped as the shared `bool SaveIntermediates = false`; default discard, on for debugging)
 
 Edits:
 

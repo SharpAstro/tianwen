@@ -654,6 +654,9 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     public int FocusPosition { get; set; }
     public Target? Target { get; set; }
 
+    /// <inheritdoc />
+    public Imaging.GuidingStats? GuideStats { get; set; }
+
     /// <summary>
     /// When set together with <see cref="Target"/> and <see cref="TrueBestFocus"/>,
     /// renders catalog stars from Tycho-2 projected onto the sensor via TAN projection

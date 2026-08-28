@@ -123,6 +123,35 @@ public readonly record struct ColourCalibration(float R, float G, float B, strin
     public const string SkyBackgroundSource = "SKYBG";
 }
 
+/// <summary>How well this ONE frame was guided, measured over its OWN exposure window.</summary>
+/// <remarks>
+/// Not a rolling session average: the question a consumer asks of a sub is "was THIS one smeared", so
+/// the window is <c>[ExposureStartTime, +ExposureDuration]</c> and nothing else. Samples taken while
+/// the guider was settling or dithering are deliberately INCLUDED when they fall inside the window --
+/// if the guider had not settled while the shutter was open then the sub really is affected, and a
+/// number that hides that is worse than no number.
+/// <para>Arcseconds throughout, because pixels cannot be interpreted without the guide scope's plate
+/// scale, which the light frame's header does not carry.</para>
+/// <para><b>Nothing else in the wild writes these cards.</b> A survey of the reference archive found
+/// zero guiding keywords across N.I.N.A.- and SharpCap-authored lights, so there was no convention to
+/// follow and these are ours.</para>
+/// </remarks>
+/// <param name="RmsTotal">Total RMS error (FITS: GUIDERMS), <c>sqrt(rmsRa^2 + rmsDec^2)</c>.</param>
+/// <param name="RmsRa">RMS of the RA error (FITS: GUIRMSRA).</param>
+/// <param name="RmsDec">RMS of the Dec error (FITS: GUIRMSDE).</param>
+/// <param name="Peak">Largest single radial excursion in the window (FITS: GUIDEPK). Carried because
+/// RMS hides exactly the failure a sub is most often ruined by: one gust, one cable snag. A high peak
+/// against a low RMS is that signature, and averaging is what erases it.</param>
+/// <param name="SampleCount">Guide samples the statistics were computed from (FITS: GUIDEN). Present so
+/// an RMS derived from two samples is distinguishable from one derived from a hundred -- a short sub, a
+/// slow guide camera, or a ring buffer that did not retain the whole window all produce the former.</param>
+public readonly record struct GuidingStats(
+    float RmsTotal,
+    float RmsRa,
+    float RmsDec,
+    float Peak,
+    int SampleCount);
+
 public record struct ImageMeta(
     string Instrument,
     DateTimeOffset ExposureStartTime,
@@ -159,7 +188,8 @@ public record struct ImageMeta(
     int Iso = -1,
     float DeclaredPixelScale = float.NaN,
     float SiteElevation = float.NaN,
-    ColourCalibration? ColourCalibration = null
+    ColourCalibration? ColourCalibration = null,
+    GuidingStats? Guiding = null
 )
 {
     /// <summary>

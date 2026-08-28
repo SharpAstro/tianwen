@@ -666,7 +666,7 @@ big-bang UX. Phases 4-5 can land separately afterward.
   TianWen always has a mount.
 - **Saving frames to disk for later analysis.** Config key
   `PolarAlignmentSavePAFrames` is reserved but the FITS-write path is
-  Phase 6+ (mirroring `SaveScoutFrames` deferral pattern).
+  Phase 6+. (`SaveIntermediates` is the shipped precedent for the write path.)
 - **Sub-pixel refinement of the chord midpoint** beyond plate-solve accuracy.
   The plate solver already gives ~0.5-1 arcsec center accuracy on a
   reasonable star field; that bounds our floor at ~30 arcsec misalignment

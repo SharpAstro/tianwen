@@ -82,7 +82,8 @@ public static class SessionPersistence
                 : null,
             GuiderRecoveryGrace: dto.GuiderRecoveryGraceMinutes.HasValue
                 ? TimeSpan.FromMinutes(dto.GuiderRecoveryGraceMinutes.Value)
-                : null);
+                : null,
+            SaveIntermediates: dto.SaveIntermediates);
 
         // Restore per-OTA camera settings: only if OTA count matches and camera URI matches per slot
         var otas = profile.Data?.OTAs ?? [];
@@ -145,7 +146,8 @@ public static class SessionPersistence
             ConditionDeteriorationThreshold: config.ConditionDeteriorationThreshold,
             ConditionRecoveryTimeoutMinutes: config.ConditionRecoveryTimeout?.TotalMinutes,
             GuiderRecoveryGraceMinutes: config.GuiderRecoveryGrace?.TotalMinutes,
-            CameraSettings: cameraSettings);
+            CameraSettings: cameraSettings,
+            SaveIntermediates: config.SaveIntermediates);
     }
 
     private static string GetSessionFilePath(Profile profile, IExternal external)
@@ -180,7 +182,8 @@ public record SessionConfigDto(
     float ConditionDeteriorationThreshold,
     double? ConditionRecoveryTimeoutMinutes,
     PerOtaCameraSettingsDto[] CameraSettings,
-    double? GuiderRecoveryGraceMinutes = null);
+    double? GuiderRecoveryGraceMinutes = null,
+    bool SaveIntermediates = false);
 
 /// <summary>DTO for per-OTA camera settings.</summary>
 public record PerOtaCameraSettingsDto(sbyte SetpointTempC, int Gain, int Offset, Uri? CameraUri);

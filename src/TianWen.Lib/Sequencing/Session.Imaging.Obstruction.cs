@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -435,7 +436,7 @@ internal partial record Session
 
         await ResilientInvokeAsync(
             camera,
-            ct => camera.StartExposureAsync(scoutExposure, cancellationToken: ct),
+            ct => camera.StartExposureAsync(scoutExposure, FrameType.Scout, ct),
             ResilientCallOptions.NonIdempotentAction, cancellationToken);
         await _timeProvider.SleepAsync(scoutExposure + TimeSpan.FromSeconds(2), cancellationToken);
 
@@ -459,6 +460,19 @@ internal partial record Session
             // detected/expected ratio in the Milky Way and flag a clear field as obstructed).
             var stars = await image.FindStarsAsync(image.ReferenceStarChannel, snrMin: 10, maxStars: 1000, cancellationToken: cancellationToken);
             var gain = await ResilientInvokeAsync(camera, camera.GetGainAsync, ResilientCallOptions.IdempotentRead, cancellationToken);
+
+            // Kept BEFORE the star count is judged, and whatever it turns out to be: the frame is only
+            // worth anything when the verdict is surprising, and a zero-star scout is the surprising
+            // case. Best-effort -- a failed write must never turn a probe into a failed observation.
+            if (Configuration.SaveIntermediates)
+            {
+                var takenUtc = _timeProvider.GetUtcNow();
+                await CatchAsync(
+                    async ValueTask (CancellationToken _) => await WriteIntermediateFrameToFitsFileAsync(
+                        image, takenUtc, group: null,
+                        $"scout_ota{telescopeIndex + 1}_{takenUtc:yyyy-MM-ddTHH_mm_ss}_stars{stars.Count}"),
+                    cancellationToken).ConfigureAwait(false);
+            }
 
             // Preserve exposure on 0-star results: see TakeScoutFrameAsync rationale.
             // FrameMetrics.FromStarList returns default(FrameMetrics) when stars.Count == 0,

@@ -203,6 +203,54 @@ on that carve-out:
   quadrature, `aduPerElectron = maxAdu / fullWell`) using per-camera gain/full-well from FITS
   headers. Widens the noise-level distribution beyond what the archive naturally has.
 
+### 2.1b Real defocus ladders: `SaveIntermediates` (SHIPPED 2026-08-29, OFF by default)
+
+Ground truth for §2.2 is synthetic because the archive has no blurry arm. That is now measured
+rather than assumed, and the same measurements say where a *real* blurry arm can come from.
+
+**What the archive cannot give.** Over the 51-session PSF store (5,908 registered subs): per-sub FWHM
+runs p05 1.96 / p50 2.10 / p95 2.55 px, min 1.69, max 3.27. Within a session the p90/p10 FWHM ratio
+has a **median of 1.04**; only 2 of 51 sessions reach 1.2 and **none reach 1.5**. Real focuser travel
+is present (`FOCPOS` spans 14 to 150 steps within a session, against a critical focus zone of 6 to 8
+steps) and it does drive blur -- rho(|FOCPOS - FOCPOS of the session's sharpest frame|, FWHM) is
+positive in 4 of 4 measurable sessions (+0.699, +0.168, +0.562, +0.170) -- but the worst case found,
+150 steps across 6 positions, moved FWHM only 2.07 -> 2.68 px (+29%). The cross-era comparison agrees:
+N.I.N.A. 2.45 px vs SharpCap 2.71 px median HFD on the one shared rig, distributions overlapping (see
+[docs/todo/imaging.md](../todo/imaging.md) "Do NOT discard the SharpCap era"). **A blurry arm of 1.1x
+to 1.6x, on a rig whose in-focus FWHM already sits at the ~2 px sampling floor, is not a deconvolution
+training set.**
+
+**And the one source that would have been is absent: the archive contains ZERO auto-focus frames**
+(case-insensitive scan of all 245,213 files in `D:/Astro-Reports/fits-index.jsonl`). N.I.N.A. measures
+its V-curve exposures and discards them, and so did we -- `FocusRunRecord.Curve` kept only
+`(Position, Hfd)` pairs. **This cannot be recovered by mining harder. The frames were never kept.**
+
+**So capture it instead.** `SessionConfiguration.SaveIntermediates` (default `false`) writes every
+V-curve rung *and* the verification exposure at the fitted best focus to
+`<output>/Intermediates/<date>/<filter>/Focus/ota<n>_<runStart>/`. (The same switch also keeps the
+FOV-scout frames as `FrameType.Scout`; that half is a diagnostic, not corpus material.) At the defaults that is a **9-rung
+ladder spanning +/-100 steps (~13 to 16 CFZ), plus the in-focus anchor**, over one field, minutes apart, under one sky at one
+temperature, with `FOCUSPOS` / `FOCTEMP` / `AIRMASS` on every frame. It costs no exposure time (the
+frames are taken either way) and ~10 frames per AF run per OTA of disk.
+
+Three things to know before consuming it:
+
+- **A defocus PSF is a disk, not a Moffat.** These are the wrong operator for the deep rungs and
+  should not silently replace §2.2's synthetic degradation. Their first job is **validation** -- does
+  a synthetically-trained model fix real blur? -- and training data for the near-focus rungs, which is
+  also exactly the part of the `psf01` range §2.2 notes is currently untrained at the top.
+- **The frames are `FrameType.Focus`, not `Light`, and that is structural rather than cosmetic.** The
+  stacker and the dataset builder both select `Light`; an outer rung read as a light would be
+  integrated and would quietly soften a master with nothing in the image to say why. Do not "fix" a
+  consumer by widening its filter to include Focus.
+- **One run is one DIRECTORY** (`.../Intermediates/<date>/<filter>/Focus/ota{n}_{runStart}/`), so a ladder
+  reassembles with no sidecar and no name parsing; `verify_pos*` is the sharp anchor. It is a folder
+  rather than a filename convention because the timestamp format itself contains underscores (`:` is
+  illegal in a path), so splitting a name on `_` to recover the run yields an hour-granularity key and
+  silently merges two runs of the same evening -- which is exactly what the first cut of the test did.
+
+Pinned by `SessionAutoFocusFrameCaptureTests`.
+
 ### 2.2 Deconvolver ground truth: synthetic PSF degradation
 
 - Input = sharp master tile convolved with a synthetic PSF; target = the undegraded tile;

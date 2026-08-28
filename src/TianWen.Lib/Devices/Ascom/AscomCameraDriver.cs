@@ -525,5 +525,8 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public double? SiteElevation { get; set; }
 
     public Target? Target { get; set; }
+
+    /// <inheritdoc />
+    public Imaging.GuidingStats? GuideStats { get; set; }
     #endregion
 }

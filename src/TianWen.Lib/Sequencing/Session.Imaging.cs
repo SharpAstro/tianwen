@@ -610,6 +610,12 @@ internal partial record Session
                     var frameExpTime = TimeSpan.FromSeconds(currentSubExposuresSec[i]);
                     var frameNo = frameNumbers[i];
                     var polled = TimeSpan.Zero;
+
+                    // How well THIS sub was guided, for its header. Stamped here because the statistic is
+                    // only complete once the shutter has closed and GetImageAsync (just below) is the one
+                    // place an ImageMeta is built. Null on an unguided rig, which writes no cards.
+                    camDriver.GuideStats = GuideStatistics.OverExposure(
+                        GuideSamples, expStartTimes[i], frameExpTime);
                     do // wait for image loop
                     {
                         if (await ResilientInvokeAsync(
