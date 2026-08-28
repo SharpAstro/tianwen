@@ -148,10 +148,21 @@ float gridIntensity(vec2 pixel) {
 }
 
 // Bilinear Bayer demosaic from single-channel raw mosaic
+//
+// NO -0.5 HERE, and that is the whole of a bug that shipped: `uv * texSize - 0.5` is the correct
+// fragment-centre-to-texel mapping ONLY when you are about to INTERPOLATE between px and px+1 using
+// fract() as the weight. This is a nearest fetch -- the fractional part is never used -- so the -0.5
+// is a pure half-texel shift, and floor(t - 0.5) == i paints mosaic pixel i over the screen band
+// [i+0.5, i+1.5) instead of [i, i+1). The picture then sits half a pixel down-right of everything
+// drawn in image coordinates on top of it, which is what made every star-detection circle look
+// up-left of its blob. It is a DISPLAY-only error: nothing in detection, plate solving or stacking
+// goes through this shader, and being constant it is invisible to all three anyway. The CPU mirror
+// (Image.BilinearInterpolateColorFast) has always been centred on (x, y), i.e. correct.
+//
+// The -0.5 in debayerMono is NOT this and must stay -- see there.
 vec3 debayerBilinear(vec2 uv) {
     vec2 texSize = ubo.imageSize;
-    vec2 pixCoord = uv * texSize - 0.5;
-    ivec2 px = ivec2(floor(pixCoord));
+    ivec2 px = ivec2(floor(uv * texSize));
     int offX = ubo.bayerPat % 65536;
     int offY = ubo.bayerPat / 65536;
     int bx = (px.x + offX) % 2;
@@ -203,8 +214,8 @@ float rawAt(ivec2 p) {
 // display reference. Bilinear-class cost, far fewer edge zipper / false-colour artifacts.
 vec3 debayerMhc(vec2 uv) {
     vec2 texSize = ubo.imageSize;
-    vec2 pixCoord = uv * texSize - 0.5;
-    ivec2 px = ivec2(floor(pixCoord));
+    // Nearest fetch, so no -0.5: see debayerBilinear.
+    ivec2 px = ivec2(floor(uv * texSize));
     int offX = ubo.bayerPat % 65536;
     int offY = ubo.bayerPat / 65536;
     int bx = (px.x + offX) % 2;
@@ -251,12 +262,22 @@ vec3 debayerMhc(vec2 uv) {
 }
 
 // No demosaic: the raw mosaic value at each pixel, shown as grey -- reveals the CFA checkerboard.
+// Nearest fetch, so no -0.5: see debayerBilinear.
 float debayerRaw(vec2 uv) {
-    return rawAt(ivec2(floor(uv * ubo.imageSize - 0.5)));
+    return rawAt(ivec2(floor(uv * ubo.imageSize)));
 }
 
 // Monochrome debayer: average the 2x2 Bayer quad to one luminance-ish grey value. Mirrors
 // Image.DebayerBilinearMonoAsync (current + right + down + down-right, /4).
+//
+// KEEP THE -0.5. It looks like the one deleted from debayerBilinear above and is the opposite: it is
+// not a texel-centre convention, it is the BilinearMonoGridOffset correction applied at display time.
+// The quad starting at px has its centre at px + 0.5, so the value belongs half a pixel down-right of
+// the texel it is stored in -- exactly why Image.StarDetection shifts mono-measured centroids by
+// +0.5 to express them in mosaic coordinates. Sampling at floor(uv*S - 0.5) picks the quad whose
+// CENTRE is nearest this fragment, which cancels that half pixel and puts the grey image on the same
+// grid as the colour ones. A 2x2 average cannot be phase-correct on the integer grid by any other
+// means, so removing this would tilt mono the other way rather than fix anything.
 float debayerMono(vec2 uv) {
     ivec2 px = ivec2(floor(uv * ubo.imageSize - 0.5));
     return (rawAt(px) + rawAt(px + ivec2(1, 0)) + rawAt(px + ivec2(0, 1)) + rawAt(px + ivec2(1, 1))) * 0.25;
