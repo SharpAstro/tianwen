@@ -737,15 +737,52 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
     /// fall back to <see cref="BuildHdHipCrossIndicesViaTyc"/> (which needs <c>_tycho2Data</c>),
     /// or (c) a runtime caller invokes <see cref="EnsureTycho2DataLoadedAsync"/>.
     /// </summary>
+    /// <summary>
+    /// Reads an embedded resource into one exactly-sized array, in one allocation.
+    /// </summary>
+    /// <remarks>
+    /// <c>GetManifestResourceStream</c> returns an <see cref="UnmanagedMemoryStream"/> over the mapped
+    /// assembly image, so <see cref="Stream.Length"/> is exact and this is a single memcpy off pages
+    /// the OS faults in as it goes -- no growth, no re-copy, and no decompression. Reading it whole is
+    /// still the honest step for now, because <c>_tycho2Data</c> is a <c>byte[]</c> that ~31 call sites
+    /// index; handing them the mapped memory instead is the follow-up that turns 43.5 MB of resident
+    /// bytes into only the pages a query touches.
+    /// </remarks>
+    private static byte[] ReadFully(Stream stream)
+    {
+        var buffer = new byte[stream.Length];
+        stream.ReadExactly(buffer);
+        return buffer;
+    }
+
     private void ReadTycho2Bulk(Assembly assembly, string[] manifestNames)
     {
-        var tyc2Manifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2.bin.lz"));
-        if (tyc2Manifest is null || assembly.GetManifestResourceStream(tyc2Manifest) is not Stream tyc2Stream)
+        // EXPANDED FIRST, and it is the form the build embeds. tyc2.bin is already the layout this
+        // reads -- stream count, per-GSC-region offset table, region-major 17-byte records -- so lzip
+        // was only ever the container, and a ~4 MiB member has to be decoded WHOLE. That made reaching
+        // one region's ~59 KB cost decompressing all 43.5 MB, at 1.44x compression, on a catalogue
+        // where a 3.6 degree solve touches 0.138% of the records.
+        //
+        // The .lz remains the COMMITTED artifact and the fallback: the repository has no LFS budget to
+        // spend and .gitattributes routes a bare tyc2.bin there, so the expansion happens at build time
+        // into obj/ (see the ExpandTycho2 target). Keeping the fallback means a consumer building
+        // without that target, or a lightweight build, still works rather than silently losing the
+        // catalogue.
+        var expandedManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2.bin"));
+        if (expandedManifest is not null && assembly.GetManifestResourceStream(expandedManifest) is Stream expandedStream)
         {
-            return;
+            WireTycho2BulkData(ReadFully(expandedStream));
         }
+        else
+        {
+            var tyc2Manifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2.bin.lz"));
+            if (tyc2Manifest is null || assembly.GetManifestResourceStream(tyc2Manifest) is not Stream tyc2Stream)
+            {
+                return;
+            }
 
-        WireTycho2BulkData(LzipDecoder.Decompress(tyc2Stream));
+            WireTycho2BulkData(LzipDecoder.Decompress(tyc2Stream));
+        }
 
         var boundsManifest = manifestNames.FirstOrDefault(p => p.EndsWith(".tyc2_gsc_bounds.bin.lz"));
         if (boundsManifest is not null && assembly.GetManifestResourceStream(boundsManifest) is Stream boundsStream)
@@ -1159,12 +1196,17 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
             return false;
         }
 
-        // A Lightweight build (-p:Lightweight=true, e.g. the browser/WASM app) strips tyc2.bin.lz,
-        // which is one of the hash-guard's inputs - verification is then IMPOSSIBLE, not merely
-        // stale (HdHipCrossInputHasher.Compute throws on the missing input). The guard protects a
-        // dev-time invariant (rebake the snapshot when inputs change) that every full build + CI
-        // still enforce, and the lightweight artifact embeds the very same snapshot bytes, so
-        // apply it unverified instead of failing init.
+        // tyc2.bin.lz is one of the hash-guard's inputs (the cross indices are built from the
+        // catalogue) and NO build embeds it any more: the library ships Tycho-2 expanded so a region
+        // query reads its own bytes off the mapped image, and the compressed copy now lives in the
+        // test project. Verification here is therefore IMPOSSIBLE rather than merely stale
+        // (HdHipCrossInputHasher.Compute throws on a missing input), so the snapshot is applied
+        // unverified and the phase is recorded as such below -- not silently.
+        //
+        // The guard itself did not go away, it MOVED: it protects a dev-time invariant (rebake the
+        // snapshot when an input changes), and HdHipCrossSnapshotTests still enforces it in CI by
+        // resolving each input from whichever assembly carries it. What is lost is a runtime
+        // re-check of bytes that shipped together in the same build, which never had much to say.
         var canVerify = manifestNames.Any(n => n.EndsWith(".tyc2.bin.lz", StringComparison.Ordinal));
 
         // Compute the input hash in parallel with snapshot read+decode: both touch ~22 MB of
@@ -1207,7 +1249,9 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
         }
         else
         {
-            _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:unverified-lightweight", subSw.Elapsed));
+            // Not "lightweight" any more: no build embeds tyc2.bin.lz, so this is now the normal path
+            // and the name has to say what it means rather than name the one build that used to hit it.
+            _lastInitPhaseTimings.Add(("hd-hip-cross-snapshot:unverified-no-tyc2-lz", subSw.Elapsed));
         }
 
         var beforeApply = subSw.Elapsed;

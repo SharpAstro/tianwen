@@ -47,7 +47,7 @@ public class Tycho2FovExploratoryTests(ITestOutputHelper output)
 
         // Also dump the manifest names that include "tyc2" to confirm the
         // assembly the DB is looking at actually contains the resource.
-        var asm = typeof(CelestialObjectDB).Assembly;
+        var asm = Tycho2TestCatalog.AssemblyWith(".tyc2.bin.lz");
         var names = asm.GetManifestResourceNames();
         foreach (var n in names.Where(n => n.Contains("tyc2", StringComparison.OrdinalIgnoreCase)))
         {

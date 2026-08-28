@@ -33,7 +33,20 @@ public class HdHipCrossSnapshotTests(ITestOutputHelper output)
             ?? throw new InvalidOperationException("Snapshot resource stream was null.");
         _ = HdHipCrossSnapshotIo.Read(stream, out var storedHash);
 
-        var expectedHash = HdHipCrossInputHasher.Compute(assembly, manifestNames);
+        // Resolve each input from whichever assembly carries it. Most are in TianWen.Lib, but
+        // tyc2.bin.lz is embedded HERE now: the library ships Tycho-2 expanded so a region query can
+        // read its own bytes off the mapped image, and carrying the compressed copy too would be two
+        // copies of one catalogue in the product. The hash is over the same bytes either way, so the
+        // committed snapshot stays valid and this guard keeps its teeth.
+        var expectedHash = HdHipCrossInputHasher.Compute(suffix =>
+        {
+            var asm = Tycho2TestCatalog.AssemblyWith(suffix);
+            var manifest = asm.GetManifestResourceNames()
+                .FirstOrDefault(n => n.EndsWith(suffix, StringComparison.Ordinal))
+                ?? throw new InvalidOperationException($"Embedded resource not found in any assembly: {suffix}");
+            return asm.GetManifestResourceStream(manifest)
+                ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {manifest}");
+        });
         Convert.ToHexString(storedHash).ShouldBe(Convert.ToHexString(expectedHash),
             "Embedded hd_hip_cross.bin.gz is stale: at least one catalog input changed since the snapshot was baked. " +
             "Run tools/precompute-hd-hip-cross.ps1 to refresh, then commit the regenerated file.");

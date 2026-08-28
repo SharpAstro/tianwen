@@ -115,4 +115,17 @@
     <InternalsVisibleTo Include="TianWen.Lib.Tests.Simulators" />
   </ItemGroup>
 
+
+  <!-- The compressed Tycho-2 catalogue, embedded HERE rather than in TianWen.Lib. The library ships
+       tyc2.bin expanded so a region query can read its own bytes off the mapped image; carrying the
+       .lz too would be two copies of one catalogue in the product for no runtime gain. These tests
+       are about the compressed form itself (member boundaries, region selection, progressive
+       assembly, the WASM injection seam), so the fixture belongs with them. Same logical name, so
+       Tycho2TestCatalog finds it wherever it lives. -->
+  <ItemGroup Condition="Exists('$(MSBuildThisFileDirectory)..\TianWen.Lib\Astrometry\Catalogs\tyc2.bin.lz')">
+    <EmbeddedResource Include="..\TianWen.Lib\Astrometry\Catalogs\tyc2.bin.lz"
+                      LogicalName="TianWen.Lib.Astrometry.Catalogs.tyc2.bin.lz"
+                      WithCulture="false" />
+  </ItemGroup>
+
 </Project>

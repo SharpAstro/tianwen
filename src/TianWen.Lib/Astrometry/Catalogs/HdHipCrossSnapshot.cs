@@ -277,7 +277,31 @@ internal static class HdHipCrossInputHasher
         "vdB.gs.gz",
     ];
 
+    /// <summary>
+    /// Computes the input hash, opening each input from a single assembly.
+    /// </summary>
     public static byte[] Compute(System.Reflection.Assembly assembly, IReadOnlyList<string> manifestNames)
+        => Compute(suffix =>
+        {
+            var manifest = FindManifest(manifestNames, suffix)
+                ?? throw new InvalidOperationException($"Embedded resource not found while computing hd-hip-cross input hash: {suffix}");
+            return assembly.GetManifestResourceStream(manifest)
+                ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {manifest}");
+        });
+
+    /// <summary>
+    /// Computes the input hash, opening each input through <paramref name="openInput"/>.
+    /// </summary>
+    /// <remarks>
+    /// The inputs no longer all live in one assembly. TianWen.Lib ships Tycho-2 EXPANDED, so
+    /// <c>tyc2.bin.lz</c> -- which is one of the hashed inputs, because the cross indices are built
+    /// from the catalogue -- is embedded in the TEST project instead, where the tests that are about
+    /// the compressed form live. Hashing the expanded bytes instead would be defensible (the snapshot
+    /// derives from the catalogue's CONTENT, not its container) but would change the hash and force a
+    /// re-bake of the committed snapshot, which this repository has no LFS budget to spend. Resolving
+    /// each input from wherever it actually is keeps the stored hash valid and the guard meaningful.
+    /// </remarks>
+    public static byte[] Compute(Func<string, Stream> openInput)
     {
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
 
@@ -298,10 +322,7 @@ internal static class HdHipCrossInputHasher
                 sha.AppendData(algoBuf);
                 sha.AppendData(nameBytes);
 
-                var manifest = FindManifest(manifestNames, inputSuffix)
-                    ?? throw new InvalidOperationException($"Embedded resource not found while computing hd-hip-cross input hash: {inputSuffix}");
-                using var rawStream = assembly.GetManifestResourceStream(manifest)
-                    ?? throw new InvalidOperationException($"GetManifestResourceStream returned null for {manifest}");
+                using var rawStream = openInput(inputSuffix);
 
                 // Hash the *decompressed* content for .gs.gz so the input hash is invariant to
                 // gzip-encoder output differences across platforms / .NET versions. .lz inputs

@@ -56,7 +56,15 @@
          bright-star (HR) set and the planner is DSO-only. ReadTycho2Bulk (CelestialObjectDB) already
          no-ops gracefully when the tyc2 manifest entry is absent, so this needs no code change. The
          tiny GSC-bounds + pm-sidecar companions stay embedded but unread (harmless). Default keeps it. -->
-    <EmbeddedResource Remove="Astrometry/Catalogs/tyc2.bin.lz" Condition="'$(Lightweight)' == 'true'" />
+    <!-- Tycho-2 ships EXPANDED, and the .lz is never embedded. tyc2.bin is already the format the
+         runtime reads (stream count, per-GSC-region offset table, region-major 17-byte records read
+         straight out of a flat span); lzip was only ever the container, and its ~4 MiB members must
+         be decoded WHOLE, so reaching one region's ~59 KB cost decompressing all 43.5 MB at init.
+         Expanded, GetManifestResourceStream hands back an UnmanagedMemoryStream over the mapped
+         image, so a region query touches only its own pages. The .lz stays the COMMITTED artifact
+         and ExpandTycho2 expands it into obj/ on the way past: the repository has no LFS budget
+         to spend, and .gitattributes routes both *.lz and a bare tyc2.bin to LFS. -->
+    <EmbeddedResource Remove="Astrometry/Catalogs/tyc2.bin.lz" />
     <!-- Tracked .gz/.bin.gz catalog files: committed in git (filter_curves,
          hd_hip_cross, pickles_sed, sensor_qe, simbad_merge), so they exist at
          project-evaluation time. Listed explicitly because the previous
@@ -154,6 +162,49 @@
        lzip decoder that replaced the external `lzip -dc`) is resolved + copied, so we can
        hand its dll path to the script via -LzipAssembly (works for both the sibling
        ProjectReference and the NuGet PackageReference). -->
+  <!-- Expand tyc2.bin.lz into obj/ and embed THAT. See the EmbeddedResource Remove above for why
+       the container is the whole problem. Gated off for a lightweight build exactly as the .lz was:
+       the browser does not want 43.5 MB in its bundle, and does not need it. pages.yml stages the
+       committed .lz as same-origin static assets (whole-catalogue fallback plus 166 region-aligned
+       members), reading the source tree directly, so that pipeline is untouched by any of this. -->
+  <PropertyGroup Condition="'$(Lightweight)' != 'true'">
+    <_Tycho2Lz>$(MSBuildThisFileDirectory)Astrometry/Catalogs/tyc2.bin.lz</_Tycho2Lz>
+    <!-- BaseIntermediateOutputPath (obj\), NOT IntermediateOutputPath (obj\<config>\<tfm>\): the
+         latter is defined by the common TARGETS, which import after this body, so it evaluates EMPTY
+         here and the 43.5 MB expansion lands in the project ROOT. That is not a cosmetic slip:
+         .gitattributes routes a bare tyc2.bin to LFS, so a stray `git add -A` would commit it to a
+         repository with no LFS budget to spend. obj\ is gitignored, and the content does not vary by
+         configuration, so sharing one copy across them is right anyway. -->
+    <_Tycho2Expanded>$(BaseIntermediateOutputPath)tyc2.bin</_Tycho2Expanded>
+  </PropertyGroup>
+
+  <Target Name="ExpandTycho2"
+          BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="ResolveReferences"
+          Condition="'$(Lightweight)' != 'true' AND Exists('$(_Tycho2Lz)')"
+          Inputs="$(_Tycho2Lz)"
+          Outputs="$(_Tycho2Expanded)">
+    <PropertyGroup>
+      <_LzipLibDllTyc>@(ReferenceCopyLocalPaths->WithMetadataValue('FileName','Lzip.Lib')->WithMetadataValue('Extension','.dll'))</_LzipLibDllTyc>
+    </PropertyGroup>
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\tools\expand-tycho2.ps1&quot; -LzPath &quot;$(_Tycho2Lz)&quot; -OutPath &quot;$(_Tycho2Expanded)&quot; -LzipAssembly &quot;$(_LzipLibDllTyc)&quot;" />
+  </Target>
+
+  <!-- Registered in its own ungated target so the embed set is the same on an incremental build as
+       on a clean one, mirroring EmbedCatalogOutputs. LogicalName is stated explicitly because the
+       file lives in obj/, so the name MSBuild would derive from its path is not the one
+       ReadTycho2Bulk looks for. -->
+  <Target Name="EmbedTycho2Expanded"
+          BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="ExpandTycho2"
+          Condition="'$(Lightweight)' != 'true' AND Exists('$(_Tycho2Lz)')">
+    <ItemGroup>
+      <EmbeddedResource Include="$(_Tycho2Expanded)"
+                        LogicalName="TianWen.Lib.Astrometry.Catalogs.tyc2.bin"
+                        WithCulture="false" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="PreprocessCatalogs"
           BeforeTargets="AssignTargetPaths"
           DependsOnTargets="ResolveReferences"
