@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using Microsoft.Extensions.Logging;
+using TianWen.AI.Imaging.Onnx;
 
 namespace TianWen.AI.Imaging;
 
@@ -27,10 +29,22 @@ namespace TianWen.AI.Imaging;
 /// script that does not fetch this model. Both halves live in the product now: the copy is a
 /// <c>Content</c> item in this project (so it flows to every consumer's output and publish
 /// dir) and this is the matching probe.</para>
+///
+/// <para><b>A vendor that stores a model under a layout of its own is probed where it actually
+/// keeps it</b> (see <see cref="GraXpertBuckets"/>) -- a directory entry cannot reach GraXpert's
+/// cache, because BOTH the subdirectory (a per-version dir under a per-model bucket) and the file
+/// name (<c>model.onnx</c>, the bucket carries the identity) differ from what we ask for. Without
+/// it, having GraXpert installed bought nothing: the only bridge was
+/// <c>tools/tianwen-ai-models-fetch.ps1</c> hardlinking the file across, which is a repo-relative
+/// dev script that a Store install has no way to run -- so "Enhance failed: graxpert_bge.onnx not
+/// found" was the shipped outcome of a correctly-installed GraXpert. This is the same courtesy
+/// already extended to SAS Pro below, which is probed in its own install directory for the same
+/// reason.</para>
 /// </summary>
 public sealed class ModelResolver : IModelResolver
 {
     private readonly ImmutableArray<string> _searchPaths;
+    private readonly string _graXpertRoot;
     private readonly ILogger<ModelResolver>? _logger;
 
     /// <summary>
@@ -45,9 +59,20 @@ public sealed class ModelResolver : IModelResolver
     /// Use a caller-supplied search path list. Probed in order; first match wins.
     /// </summary>
     public ModelResolver(ImmutableArray<string> searchPaths, ILogger<ModelResolver>? logger = null)
+        : this(searchPaths, GraXpertRoot(), logger)
+    {
+    }
+
+    /// <summary>
+    /// Test seam: the same resolver against a caller-chosen GraXpert data directory. Not public
+    /// because a deployed app must not be able to point the probe somewhere else -- the whole value
+    /// of reading the vendor's cache is that it is the location the vendor itself writes.
+    /// </summary>
+    internal ModelResolver(ImmutableArray<string> searchPaths, string graXpertRoot, ILogger<ModelResolver>? logger)
     {
         if (searchPaths.IsDefault) throw new ArgumentException("searchPaths must be initialised", nameof(searchPaths));
         _searchPaths = searchPaths;
+        _graXpertRoot = graXpertRoot;
         _logger = logger;
     }
 
@@ -58,15 +83,20 @@ public sealed class ModelResolver : IModelResolver
             return absolutePath!;
         }
 
-        var probed = string.Join(Environment.NewLine + "  ", _searchPaths.Select(p => Path.Combine(p, modelFileName)));
+        var probed = string.Join(Environment.NewLine + "  ", CandidateFiles(modelFileName));
         // Name BOTH remedies: the third-party weights are fetched per user, the in-house ones
         // ship in the repo. Naming only the fetch script sends anyone hitting the in-house case to
         // a script that does not have their model. The in-house weights are currently a plain git
         // blob (a .gitattributes exemption from the *.onnx LFS rule), so a checkout has them
         // outright and 'git lfs pull' would be the wrong advice; it is named only as the remedy for
         // the pointer-stub case, which is what a revert of that exemption would reintroduce.
+        //
+        // A vendor model gets its OWN remedy first, because neither of those two applies to it and
+        // both are addressed to someone holding a checkout. The person who hits this is an end user
+        // of a packaged install, and "install GraXpert and run it once" is the whole fix.
+        var graXpertRemedy = GraXpertRemedy(modelFileName);
         throw new FileNotFoundException(
-            $"AI model '{modelFileName}' not found in any search path. Third-party weights are populated by tools/tianwen-ai-models-fetch.ps1; the in-house models ship in the repo under src/TianWen.AI.Imaging/models/, so a checkout should already have them (if one is a ~130-byte LFS pointer stub instead, run 'git lfs pull'). Probed:{Environment.NewLine}  {probed}");
+            $"AI model '{modelFileName}' not found in any search path. {graXpertRemedy}Third-party weights are populated by tools/tianwen-ai-models-fetch.ps1; the in-house models ship in the repo under src/TianWen.AI.Imaging/models/, so a checkout should already have them (if one is a ~130-byte LFS pointer stub instead, run 'git lfs pull'). Probed:{Environment.NewLine}  {probed}");
     }
 
     public bool TryResolve(string modelFileName, out string? absolutePath)
@@ -80,10 +110,8 @@ public sealed class ModelResolver : IModelResolver
         if (modelFileName.IndexOfAny(['/', '\\']) >= 0)
             throw new ArgumentException($"modelFileName must be a bare filename, got '{modelFileName}'", nameof(modelFileName));
 
-        foreach (var dir in _searchPaths)
+        foreach (var candidate in CandidateFiles(modelFileName))
         {
-            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) continue;
-            var candidate = Path.Combine(dir, modelFileName);
             if (File.Exists(candidate))
             {
                 if (IsLfsPointerStub(candidate))
@@ -125,11 +153,9 @@ public sealed class ModelResolver : IModelResolver
     /// </remarks>
     public ModelPresence Probe(string modelFileName)
     {
-        var probed = ImmutableArray.CreateBuilder<string>(_searchPaths.Length);
-        foreach (var dir in _searchPaths)
+        var probed = ImmutableArray.CreateBuilder<string>(_searchPaths.Length + 1);
+        foreach (var candidate in CandidateFiles(modelFileName))
         {
-            if (string.IsNullOrEmpty(dir)) continue;
-            var candidate = Path.Combine(dir, modelFileName);
             probed.Add(candidate);
             if (!File.Exists(candidate)) continue;
 
@@ -170,6 +196,134 @@ public sealed class ModelResolver : IModelResolver
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Every file path that could answer <paramref name="modelFileName"/>, in priority order: the
+    /// configured directories probed with the bare name, then any vendor cache that keeps this
+    /// model under a layout of its own.
+    ///
+    /// <para>One enumerator so <see cref="TryResolve"/>, <see cref="Probe"/> and the
+    /// <see cref="Resolve"/> failure message can never disagree about what was searched -- a probe
+    /// list that omits a location the resolver actually reads is worse than no list, because it is
+    /// read as proof the file is not there.</para>
+    /// </summary>
+    private IEnumerable<string> CandidateFiles(string modelFileName)
+    {
+        foreach (var dir in _searchPaths)
+        {
+            if (string.IsNullOrEmpty(dir)) continue;
+            yield return Path.Combine(dir, modelFileName);
+        }
+
+        foreach (var candidate in GraXpertCandidates(modelFileName))
+        {
+            yield return candidate;
+        }
+    }
+
+    /// <summary>
+    /// Models another application downloads and owns, keyed by the name TianWen asks for. Each
+    /// entry names the vendor's per-model bucket; inside it the vendor keeps one directory per
+    /// released model version, each holding a single <c>model.onnx</c> -- the bucket carries the
+    /// identity, so the file name is the same for every model the vendor ships and cannot be what
+    /// we match on.
+    /// </summary>
+    private static ImmutableArray<(string ModelFileName, string Bucket)> GraXpertBuckets =>
+    [
+        // GraXpert's denoise bucket is deliberately absent: it overlaps SAS Pro's AI4 NAFNet,
+        // which we already resolve, and nothing here asks for it.
+        (OnnxBackgroundExtractor.ModelName, "bge-ai-models"),
+    ];
+
+    /// <summary>The vendor's own copy of a model, newest version first, existing paths only.</summary>
+    private IEnumerable<string> GraXpertCandidates(string modelFileName)
+    {
+        foreach (var (name, bucket) in GraXpertBuckets)
+        {
+            if (!string.Equals(name, modelFileName, StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var versionDir in VersionDirsNewestFirst(Path.Combine(_graXpertRoot, bucket)))
+            {
+                yield return Path.Combine(versionDir, "model.onnx");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Sub-directories of <paramref name="bucketRoot"/> whose names parse as a version, newest
+    /// first. Every version present is offered rather than only the newest, so an install whose
+    /// latest download was interrupted still resolves against the copy that completed.
+    /// </summary>
+    private static IEnumerable<string> VersionDirsNewestFirst(string bucketRoot)
+    {
+        string[] dirs;
+        try
+        {
+            if (!Directory.Exists(bucketRoot)) return [];
+            dirs = Directory.GetDirectories(bucketRoot);
+        }
+        catch (IOException)
+        {
+            return [];
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return [];
+        }
+
+        return dirs
+            .Select(d => (Dir: d, Version: Version.TryParse(Path.GetFileName(d), out var v) ? v : null))
+            .Where(t => t.Version is not null)
+            .OrderByDescending(t => t.Version)
+            .Select(t => t.Dir);
+    }
+
+    /// <summary>
+    /// A remedy sentence for a vendor-owned model, or empty for anything else. Separate from the
+    /// generic message because the two remedies it carries -- a repo-relative fetch script and
+    /// <c>git lfs pull</c> -- are both addressed to someone holding a checkout, and this model's
+    /// user is not.
+    /// </summary>
+    private string GraXpertRemedy(string modelFileName)
+    {
+        foreach (var (name, bucket) in GraXpertBuckets)
+        {
+            if (!string.Equals(name, modelFileName, StringComparison.OrdinalIgnoreCase)) continue;
+            return $"This is GraXpert's background-extraction model: install GraXpert (https://github.com/Steffenhir/GraXpert) and run it once so it downloads its AI models, and TianWen picks them up from '{Path.Combine(_graXpertRoot, bucket)}' automatically -- no copying needed. ";
+        }
+        return string.Empty;
+    }
+
+    /// <summary>
+    /// GraXpert's per-user data directory (it nests its own name twice). Mirrors the platform
+    /// choices of <c>tools/tianwen-ai-models-fetch.ps1</c>, which reads the same tree, and honours
+    /// <c>TIANWEN_GRAXPERT_DIR</c> for a non-default install -- the same env-first shape
+    /// <c>RcAstroCli.LocateExecutable</c> uses for <c>RC_ASTRO_CLI</c>, and the counterpart of that
+    /// script's <c>-GraXpertDir</c>.
+    /// </summary>
+    private static string GraXpertRoot()
+    {
+        if (Environment.GetEnvironmentVariable("TIANWEN_GRAXPERT_DIR") is { Length: > 0 } configured)
+        {
+            return configured;
+        }
+        if (OperatingSystem.IsWindows())
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return Path.Combine(localAppData, "GraXpert", "GraXpert");
+        }
+        if (OperatingSystem.IsMacOS())
+        {
+            var home = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
+            return Path.Combine(home, "Library", "Application Support", "GraXpert", "GraXpert");
+        }
+        var xdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        if (!string.IsNullOrEmpty(xdg))
+        {
+            return Path.Combine(xdg, "GraXpert", "GraXpert");
+        }
+        var linuxHome = Environment.GetEnvironmentVariable("HOME") ?? string.Empty;
+        return Path.Combine(linuxHome, ".local", "share", "GraXpert", "GraXpert");
     }
 
     private static ImmutableArray<string> DefaultSearchPaths()

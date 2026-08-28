@@ -33,8 +33,14 @@ namespace TianWen.AI.Imaging.Onnx;
 /// <see cref="IModelResolver"/>. Input <c>gen_input_image</c> is NHWC
 /// <c>(1, 256, 256, 3)</c>; mono inputs are channel-duplicated into RGB.
 /// The model file ships at <c>%LOCALAPPDATA%/GraXpert/GraXpert/bge-ai-models/
-/// &lt;version&gt;/model.onnx</c>; <c>tools/tianwen-ai-models-fetch.ps1</c>
-/// hardlinks the highest-versioned copy into TianWen's models tree.</para>
+/// &lt;version&gt;/model.onnx</c>, and <see cref="ModelResolver"/> reads it
+/// THERE -- an installed GraXpert is all this needs.
+/// <c>tools/tianwen-ai-models-fetch.ps1</c> still hardlinks the
+/// highest-versioned copy into TianWen's models tree, but that is now an
+/// optimisation (it survives GraXpert being uninstalled), not the way in:
+/// a packaged install cannot run a repo-relative dev script, so making it
+/// the only bridge meant a Store user with GraXpert correctly installed
+/// still got "model not found".</para>
 ///
 /// <para>Single-pass design (not chunked NAFNet-style): the model is
 /// trained to predict the LOW-FREQUENCY background gradient, so it
