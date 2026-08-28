@@ -17,16 +17,27 @@ namespace TianWen.Lib;
 /// </summary>
 public static class Array2DPool<T>
 {
-    /// <summary>When false, Rent always allocates fresh and Return is a no-op. Prevents cross-test data races in parallel test runs.</summary>
+    /// <summary>When false, Rent always allocates fresh and Return is a no-op. Exists so a benchmark can
+    /// measure pooled against unpooled; it is NOT a test-isolation switch.</summary>
     /// <remarks>
+    /// <para><b>It used to be one, and that was the bug.</b> <c>FakeExternal</c> set it false in its
+    /// constructor -- process-wide, never restored -- so the first fake-device test switched pooling
+    /// off for every test that followed. <c>FitsPooledReadTests</c> then set it back to true for its
+    /// own duration, and the two raced across collections: pooling off mid-test makes <c>Return</c> a
+    /// no-op, so <c>Pool_StopsRetainingOnceTheByteBudgetIsReached</c> saw zero evictions and failed
+    /// roughly one run in three. The disable was removed once the cross-test data races it was added
+    /// for stopped reproducing (three consecutive unit runs at 5,031 passed plus the functional suite
+    /// at 338, all green with pooling on everywhere) -- P3 of <c>docs/plans/frame-lifecycle.md</c> made
+    /// the pool load-bearing in production, which is the work that fixed the sharing it guarded
+    /// against. Disabling it also COST memory rather than saving it: the suite went from 2.28 GB to
+    /// ~1.5 GB once pooling was left on, because unpooled runs re-allocate every frame-sized array.</para>
     /// <para><b>Volatile, because it is a process-wide switch flipped from one thread and read from
     /// every other.</b> It used to be a plain auto-property while every counter beside it was a
     /// <see cref="Volatile"/> read, which is the sort of inconsistency that stays harmless only while
-    /// nothing depends on it: <c>FakeExternal</c> turns pooling off once at construction and the
-    /// benchmarks toggle it around a measurement, so a stale read cost at most one unpooled
-    /// allocation. P3 of <c>docs/plans/frame-lifecycle.md</c> makes the pool load-bearing in
-    /// production, and a switch with no barrier is the wrong shape to promote -- gap 4 of that
-    /// plan.</para>
+    /// nothing depends on it: the only writers left are benchmarks toggling it around a measurement,
+    /// so a stale read costs at most one unpooled allocation. P3 of
+    /// <c>docs/plans/frame-lifecycle.md</c> makes the pool load-bearing in production, and a switch
+    /// with no barrier is the wrong shape to promote -- gap 4 of that plan.</para>
     /// <para>A <c>volatile</c> field rather than <see cref="Interlocked"/>: this is a
     /// publish-and-observe flag, never a read-modify-write, so ordering is all that was missing.
     /// It stays a field-with-property because C# does not allow <c>volatile</c> on an auto-property's
