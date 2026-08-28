@@ -23,11 +23,12 @@ namespace TianWen.Lib.Astrometry.PlateSolve;
 /// pre-sorted pair-separation index). Each candidate pairing determines a similarity transform
 /// via the complex ratio of the pair vectors: chirality-preserving by construction, so mirror
 /// parity stays cleanly separated in the caller's per-<c>xSign</c> attempts. Hypotheses are
-/// verified in stages against a uniform grid hash of ALL detected stars (cheap 8-star probe,
-/// then 32, then full census), and accepted only when the hit count beats the Poisson
-/// expectation of chance alignment by <see cref="ChanceSafetyFactor"/>; the statistic that
-/// distinguishes a genuine lock from the dense-field nearest-neighbour-noise regime where
-/// proximity matching silently fails.</para>
+/// staged against a uniform grid hash of ALL detected stars (cheap 8-star probe, then 32, then
+/// full census), then <b>refined onto their own inliers before being judged</b>
+/// (<see cref="TryRefine"/>), and accepted only when the refined transform's hit count beats
+/// the Poisson expectation of chance alignment by <see cref="ChanceSafetyFactor"/>; the
+/// statistic that distinguishes a genuine lock from the dense-field nearest-neighbour-noise
+/// regime where proximity matching silently fails.</para>
 /// </summary>
 internal static class PairRansacLock
 {
@@ -46,6 +47,41 @@ internal static class PairRansacLock
     /// <summary>Stage gates: probe hit floors at 8 and 32 catalog stars. Chance passes the
     /// first gate at ~4e-5 per hypothesis, so full verification runs only on real candidates.</summary>
     private const int Stage1Count = 8, Stage1MinHits = 3, Stage2Count = 32, Stage2MinHits = 8;
+
+    /// <summary>
+    /// Staging probes at this multiple of the verification radius, because a hypothesis cannot
+    /// be judged at the radius its refined successor is judged at.
+    /// <para>A hypothesis is derived from ONE pair, so its rotation error is the pair's centroid
+    /// error divided by its baseline, and that angular error is amplified by the distance from
+    /// the pair to wherever the hit is being counted. The baseline floor is
+    /// <see cref="MinBaselineFraction"/> of the short side and the far corner is half the
+    /// diagonal away, so the worst-case amplification is
+    /// <c>0.5 * sqrt(w^2 + h^2) / (0.2 * min(w, h))</c> -- 3.5x on a square frame, 4.2x on 4:3.
+    /// A per-star centroid error inside the verification radius therefore lands OUTSIDE it at
+    /// the corners, and the true hypothesis dies at Stage 1 having been measured against a
+    /// tolerance only its own refinement could meet.</para>
+    /// <para>Measured on LDN 1089 (835 px winning baseline, ~1.9 px centroid error, 8.6 px
+    /// corner displacement): at a 4 px radius the best hypothesis scored 12 of 160 against a
+    /// threshold of 24, and at 12 px it scored 38. Widening the ACCEPT radius does not fix that
+    /// -- chance grows as r^2, so the threshold outran the gain (24 -> 100.5). Widening only the
+    /// CAPTURE radius does: the accept decision stays at the tight radius, where chance is
+    /// unchanged, and the extra reach is spent on giving refinement something to work with.
+    /// Horsehead, whose corner displacement is 1.8 px, locks either way.</para>
+    /// </summary>
+    private const float CaptureRadiusFactor = 3f;
+
+    /// <summary>
+    /// Refinement rounds per promoted candidate. Each is a capture-and-refit (ICP) pass, and the
+    /// transform is already within a capture radius of the truth when the first one runs, so it
+    /// converges in two; the third is the margin.
+    /// </summary>
+    private const int RefineIterations = 3;
+
+    /// <summary>
+    /// Correspondences a refit needs. An affine has 6 degrees of freedom, so at 3 points it
+    /// interpolates rather than fits and any noise becomes signal.
+    /// </summary>
+    private const int MinRefineCorrespondences = 6;
 
     /// <summary>
     /// Consensus fraction that ends the scan. Plate solving has exactly ONE true transform and
@@ -109,7 +145,8 @@ internal static class PairRansacLock
         int DetectedPairsTotal,
         int BestHits,
         double AcceptThreshold,
-        double ExpectedChanceHits)
+        double ExpectedChanceHits,
+        int Refinements)
     {
         /// <summary>Fraction of bright detected pairs the scan actually got to.</summary>
         internal double Coverage => DetectedPairsTotal == 0 ? 0 : (double)DetectedPairsTried / DetectedPairsTotal;
@@ -117,6 +154,7 @@ internal static class PairRansacLock
         public override string ToString() =>
             $"{BestHits} best hits vs threshold {AcceptThreshold:F1} (chance {ExpectedChanceHits:F1}) over " +
             $"{Hypotheses} hypotheses{(HypothesisCapHit ? " (CAP HIT)" : "")}, " +
+            $"{Refinements} refined, " +
             $"{DetectedPairsTried}/{DetectedPairsTotal} bright detected pairs tried ({Coverage:P0}), " +
             $"{CatalogAnchors} catalog / {DetectedAnchors} detected anchors";
     }
@@ -140,22 +178,35 @@ internal static class PairRansacLock
     {
         var nCat = Math.Min(MaxCatalogAnchors, catalogBright.Length);
         var nDet = Math.Min(MaxDetectedAnchors, detectedBright.Length);
-        diagnostics = new LockDiagnostics(nCat, nDet, 0, false, 0, Math.Max(0, nDet * (nDet - 1) / 2), 0, 0, 0);
+        diagnostics = new LockDiagnostics(nCat, nDet, 0, false, 0, Math.Max(0, nDet * (nDet - 1) / 2), 0, 0, 0, 0);
         if (nCat < Stage1Count || nDet < 2 || detectedAll.Length < Stage1MinHits)
         {
             return null;
         }
 
-        var grid = new PointGrid(detectedAll, width, height, verifyRadiusPx);
+        // Two radii, two jobs (see CaptureRadiusFactor): staging and refinement CAPTURE at the
+        // wide one, the accept decision VERIFIES at the tight one. Chance is a property of the
+        // radius a hit is accepted at, so widening the capture radius costs candidates to refine,
+        // never a looser bar to clear.
+        var verifyGrid = new PointGrid(detectedAll, width, height, verifyRadiusPx);
+        var captureGrid = new PointGrid(detectedAll, width, height, CaptureRadiusFactor * verifyRadiusPx);
         var verifyRadiusSq = verifyRadiusPx * verifyRadiusPx;
 
         // Chance model: a transformed catalog star lands within verifyRadius of SOME detected
-        // star with probability lambda * pi * r^2 (Poisson field). The accept threshold and the
-        // stage gates both derive from this, so density can never fake a lock.
+        // star with probability lambda * pi * r^2 (Poisson field). The accept threshold derives
+        // from this, so density can never fake a lock.
         var lambda = detectedAll.Length / ((double)width * height);
         var expectedChance = nCat * lambda * Math.PI * verifyRadiusSq;
         var consensusFloor = ConsensusFloorFraction * Math.Min(nCat, detectedAll.Length);
         var acceptThreshold = Math.Max(Math.Max(MinAcceptHits, ChanceSafetyFactor * expectedChance), consensusFloor);
+
+        // Promotion floor for refinement. The same Poisson model at the capture radius says how
+        // many hits chance alone supplies there, and a candidate that cannot beat its own noise
+        // is not worth refining; Stage2MinHits floors it on a sparse field where that number is
+        // near zero. This gate is a COST control, not a correctness one -- everything promoted
+        // still has to clear acceptThreshold at the verify radius afterwards.
+        var expectedCaptureChance = expectedChance * CaptureRadiusFactor * CaptureRadiusFactor;
+        var refineFloor = Math.Max(Stage2MinHits, (int)Math.Ceiling(expectedCaptureChance));
 
         // Pair-separation index over the catalog anchors, sorted ascending so each detected
         // pair's scale-compatible window is a binary search + linear walk.
@@ -182,7 +233,13 @@ internal static class PairRansacLock
         Matrix3x2 bestM = default;
         var hypotheses = 0;
         var detectedPairsTried = 0;
+        var refinements = 0;
         var capHit = false;
+
+        // Refit scratch, allocated once: refinement runs on a small fraction of hypotheses but
+        // that is still hundreds of calls, and it is on the solve's critical path.
+        var refineSrc = new Vector2[nCat];
+        var refineDst = new Vector2[nCat];
         var earlyExitHits = Math.Max((int)Math.Ceiling(acceptThreshold), (int)(EarlyExitFraction * nCat));
 
         // Detected pairs in RANK-SUM order -- (0,1), (0,2), (1,2), (0,3), (1,3), (2,3), ...
@@ -272,24 +329,42 @@ internal static class PairRansacLock
                     var tx = detI.X - (catA.X * re - catA.Y * im);
                     var ty = detI.Y - (catA.X * im + catA.Y * re);
 
-                    // Staged consensus: cheap probes first so chance hypotheses die in
-                    // nanoseconds; only near-certain candidates pay the full census.
-                    var hits = CountHits(catalogBright, 0, Stage1Count, re, im, tx, ty, grid);
-                    if (hits < Stage1MinHits)
-                    {
-                        continue;
-                    }
-                    hits += CountHits(catalogBright, Stage1Count, Math.Min(Stage2Count, nCat), re, im, tx, ty, grid);
-                    if (hits < Stage2MinHits)
-                    {
-                        continue;
-                    }
-                    hits += CountHits(catalogBright, Math.Min(Stage2Count, nCat), nCat, re, im, tx, ty, grid);
+                    var m = new Matrix3x2(re, im, -im, re, tx, ty);
 
+                    // Staged consensus at the CAPTURE radius: cheap probes first so chance
+                    // hypotheses die in nanoseconds; only near-certain candidates pay the full
+                    // census, and only those pay refinement.
+                    var captured = CountHits(catalogBright, 0, Stage1Count, m, captureGrid);
+                    if (captured < Stage1MinHits)
+                    {
+                        continue;
+                    }
+                    captured += CountHits(catalogBright, Stage1Count, Math.Min(Stage2Count, nCat), m, captureGrid);
+                    if (captured < Stage2MinHits)
+                    {
+                        continue;
+                    }
+                    captured += CountHits(catalogBright, Math.Min(Stage2Count, nCat), nCat, m, captureGrid);
+                    if (captured < refineFloor)
+                    {
+                        continue;
+                    }
+
+                    // Refine BEFORE judging. Everything up to here is a 2-point estimate, whose
+                    // error at the frame corners is several times its error at the pair; the
+                    // refit turns it into an N-point one, and only then is it worth measuring
+                    // against a tolerance the whole frame has to meet.
+                    refinements++;
+                    if (!TryRefine(catalogBright, nCat, captureGrid, refineSrc, refineDst, scaleLoSq, scaleHiSq, ref m))
+                    {
+                        continue;
+                    }
+
+                    var hits = CountHits(catalogBright, 0, nCat, m, verifyGrid);
                     if (hits > bestHits)
                     {
                         bestHits = hits;
-                        bestM = new Matrix3x2(re, im, -im, re, tx, ty);
+                        bestM = m;
                         if (bestHits >= earlyExitHits)
                         {
                             break;
@@ -302,16 +377,16 @@ internal static class PairRansacLock
     scanDone:
         diagnostics = new LockDiagnostics(
             nCat, nDet, hypotheses, capHit, detectedPairsTried, nDet * (nDet - 1) / 2,
-            bestHits, acceptThreshold, expectedChance);
+            bestHits, acceptThreshold, expectedChance, refinements);
 
         if (bestHits < acceptThreshold)
         {
             return null;
         }
 
-        // Least-squares refit over the consensus inliers upgrades the 2-point similarity to a
-        // full affine (absorbs the small anisotropy a real optical train has). Falls back to
-        // the raw hypothesis when degenerate.
+        // Final refit, now over the TIGHT-radius inliers: refinement captured at the wide radius,
+        // so this drops whatever it swept in that the accepted transform does not actually
+        // explain. Falls back to the winning hypothesis when degenerate.
         var srcPts = new List<Vector2>(bestHits);
         var dstPts = new List<Vector2>(bestHits);
         for (var c = 0; c < nCat; c++)
@@ -319,7 +394,7 @@ internal static class PairRansacLock
             var q = catalogBright[c];
             var txp = q.X * bestM.M11 + q.Y * bestM.M21 + bestM.M31;
             var typ = q.X * bestM.M12 + q.Y * bestM.M22 + bestM.M32;
-            if (grid.TryNearest(txp, typ, out var nearest))
+            if (verifyGrid.TryNearest(txp, typ, out var nearest))
             {
                 srcPts.Add(q);
                 dstPts.Add(nearest);
@@ -334,21 +409,90 @@ internal static class PairRansacLock
 
     private static int CountHits(
         ReadOnlySpan<Vector2> catalogBright, int from, int to,
-        float re, float im, float tx, float ty,
+        in Matrix3x2 m,
         in PointGrid grid)
     {
         var hits = 0;
         for (var c = from; c < to; c++)
         {
             var q = catalogBright[c];
-            var x = q.X * re - q.Y * im + tx;
-            var y = q.X * im + q.Y * re + ty;
+            var x = q.X * m.M11 + q.Y * m.M21 + m.M31;
+            var y = q.X * m.M12 + q.Y * m.M22 + m.M32;
             if (grid.HasWithin(x, y))
             {
                 hits++;
             }
         }
         return hits;
+    }
+
+    /// <summary>
+    /// Turns a 2-point hypothesis into an N-point one: captures the nearest detected star to
+    /// each projected catalog star and refits over those correspondences, repeatedly. The
+    /// starting transform is already within a capture radius of the truth (that is what promoted
+    /// it), so this is the converging end of ICP, not a search.
+    /// <para><b>The refit is a SIMILARITY, not the affine the accepted winner is finally
+    /// upgraded to</b>, and that is what keeps the chance model honest. Refinement optimises the
+    /// very statistic the transform is then judged on, so its hits are no longer an independent
+    /// draw from the Poisson field <see cref="ChanceSafetyFactor"/> assumes -- the freer the
+    /// model, the further it can chase a dense field's own clustering. A 6-DOF affine has enough
+    /// of that freedom to matter: fitted in here it walked two UNRELATED Vela panels (P14
+    /// detected against P06's 3,774-star catalog) to exactly 24 hits -- the accept threshold,
+    /// dead on -- over 12,884 refinements, a false lock. Four degrees of freedom cannot shear or
+    /// stretch onto a random field: all 272 non-overlapping panel pairs stay clear of the
+    /// threshold, and the five the test samples fall from 18-21 back to 14-17. The affine upgrade
+    /// still happens, once, on the accepted winner, where nothing is selected on its
+    /// outcome.</para>
+    /// </summary>
+    /// <returns>
+    /// <c>false</c> when no round produced a usable fit, leaving <paramref name="m"/> untouched;
+    /// a later round failing keeps what the earlier ones achieved.
+    /// </returns>
+    private static bool TryRefine(
+        ReadOnlySpan<Vector2> catalogBright,
+        int nCat,
+        in PointGrid captureGrid,
+        Vector2[] src,
+        Vector2[] dst,
+        float scaleLoSq,
+        float scaleHiSq,
+        ref Matrix3x2 m)
+    {
+        var refined = false;
+        for (var iter = 0; iter < RefineIterations; iter++)
+        {
+            var n = 0;
+            for (var c = 0; c < nCat; c++)
+            {
+                var q = catalogBright[c];
+                var x = q.X * m.M11 + q.Y * m.M21 + m.M31;
+                var y = q.X * m.M12 + q.Y * m.M22 + m.M32;
+                if (captureGrid.TryNearest(x, y, out var nearest))
+                {
+                    src[n] = q;
+                    dst[n] = nearest;
+                    n++;
+                }
+            }
+            if (n < MinRefineCorrespondences
+                || Matrix3x2.FitSimilarityTransform(src.AsSpan(0, n), dst.AsSpan(0, n)) is not { } fit)
+            {
+                return refined;
+            }
+
+            // Scale is the one thing a similarity refit can still run away with, and it is the
+            // one the hypothesis was admitted on. Its determinant IS the scale squared, so the
+            // gate is the same window the 2-point hypothesis passed.
+            var scaleSq = fit.M11 * fit.M22 - fit.M12 * fit.M21;
+            if (scaleSq < scaleLoSq || scaleSq > scaleHiSq)
+            {
+                return refined;
+            }
+
+            m = fit;
+            refined = true;
+        }
+        return refined;
     }
 
     private static int LowerBound((float Sep, short A, short B)[] sorted, float value)

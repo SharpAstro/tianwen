@@ -95,6 +95,65 @@ public static class Matrix3x2Helper
         }
 
         /// <summary>
+        /// Fits the least-squares <b>similarity</b> (rotation + uniform scale + translation) that
+        /// maps <paramref name="source"/> onto <paramref name="dest"/>, as opposed to the full
+        /// affine <see cref="FitAffineTransform"/> fits.
+        /// <para>
+        /// Solved in the complex plane, where a similarity is the single number <c>c</c> in
+        /// <c>w = c*z + t</c>: centre both sets, then <c>c = sum(conj(u) * v) / sum(|u|^2)</c>.
+        /// The result is chirality-preserving by construction (its determinant is
+        /// <c>|c|^2 &gt;= 0</c>) and cannot shear, which is the point of choosing it: four degrees
+        /// of freedom have far less room to warp onto correspondences that do not describe one
+        /// transform than six do. Prefer it wherever a fit is being scored on how well it fits.
+        /// </para>
+        /// </summary>
+        /// <param name="source">Source (input) 2D positions.</param>
+        /// <param name="dest">Destination (output) 2D positions; must have the same count as <paramref name="source"/>.</param>
+        /// <returns>The best-fit similarity, or <c>null</c> if fewer than 2 points or the source points coincide.</returns>
+        public static Matrix3x2? FitSimilarityTransform(ReadOnlySpan<Vector2> source, ReadOnlySpan<Vector2> dest)
+        {
+            int n = source.Length;
+            if (n < 2)
+            {
+                return null;
+            }
+
+            double mx = 0, my = 0, nx = 0, ny = 0;
+            for (int i = 0; i < n; i++)
+            {
+                mx += source[i].X;
+                my += source[i].Y;
+                nx += dest[i].X;
+                ny += dest[i].Y;
+            }
+            mx /= n; my /= n; nx /= n; ny /= n;
+
+            double num = 0, cross = 0, den = 0;
+            for (int i = 0; i < n; i++)
+            {
+                double ux = source[i].X - mx, uy = source[i].Y - my;
+                double vx = dest[i].X - nx, vy = dest[i].Y - ny;
+
+                num += ux * vx + uy * vy;
+                cross += ux * vy - uy * vx;
+                den += ux * ux + uy * uy;
+            }
+
+            if (den < 1e-12)
+            {
+                return null;
+            }
+
+            double a = num / den, b = cross / den;
+            return new Matrix3x2(
+                (float)a, (float)b,
+                (float)-b, (float)a,
+                (float)(nx - (a * mx - b * my)),
+                (float)(ny - (b * mx + a * my))
+            );
+        }
+
+        /// <summary>
         /// See <seealso href="https://stackoverflow.com/a/51921217/281306"/>
         /// </summary>
         /// <returns></returns>
