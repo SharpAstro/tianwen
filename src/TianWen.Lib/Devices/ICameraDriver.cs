@@ -372,7 +372,8 @@ public interface ICameraDriver : IDeviceDriver
                 Aperture: Aperture ?? -1,
                 SensorModel: SensorModelName ?? "",
                 SensorFullScaleAdu: sensorFullScaleAdu,
-                SiteElevation: (float)(SiteElevation ?? double.NaN)
+                SiteElevation: (float)(SiteElevation ?? double.NaN),
+                Guiding: GuideStats
             )
         );
 
@@ -425,6 +426,24 @@ public interface ICameraDriver : IDeviceDriver
     int FocusPosition { get; set; }
 
     Target? Target { get; set; }
+
+    /// <summary>
+    /// How well the just-finished exposure was guided, for the frame's FITS header. Set by the session
+    /// immediately before <see cref="GetImageAsync"/>, since the statistic is only complete once the
+    /// shutter has closed; <see langword="null"/> (the default) means unguided or unknown and writes no
+    /// guiding cards at all.
+    /// </summary>
+    /// <remarks>
+    /// A guiding concept on a camera interface is not where it would go if this were being designed from
+    /// nothing. It sits here because this is the established seam for exactly this job: <see cref="Telescope"/>,
+    /// <see cref="FocalLength"/>, <see cref="Latitude"/>, <see cref="Filter"/>, <see cref="FocusPosition"/>
+    /// and <see cref="Target"/> are all session-stamped facts ABOUT THE FRAME that the camera itself has
+    /// no opinion on, and they are here so that <see cref="GetImageAsync"/> -- the one place an
+    /// <see cref="Imaging.ImageMeta"/> is built -- can see them. Routing this one somewhere else would buy
+    /// a tidier interface at the cost of a second way to get a card into a header, which is the more
+    /// expensive mistake.
+    /// </remarks>
+    Imaging.GuidingStats? GuideStats { get; set; }
     #endregion
 
     /// <summary>

@@ -330,6 +330,17 @@ public partial class Image
             ? new ColourCalibration(wbR, wbG, wbB,
                 hdu.Header.GetStringValue("WBSOURCE") ?? ColourCalibration.SpccSource)
             : (ColourCalibration?)null;
+        // Guiding: GUIDERMS alone decides presence. The others are refinements of it, and a frame that
+        // states a total RMS has been guided whether or not it also managed to record a peak.
+        var guideRms = hdu.Header.GetFloatValue("GUIDERMS", float.NaN);
+        var guiding = float.IsFinite(guideRms)
+            ? new GuidingStats(
+                guideRms,
+                hdu.Header.GetFloatValue("GUIRMSRA", float.NaN),
+                hdu.Header.GetFloatValue("GUIRMSDE", float.NaN),
+                hdu.Header.GetFloatValue("GUIDEPK", float.NaN),
+                hdu.Header.GetIntValue("GUIDEN", 0))
+            : (GuidingStats?)null;
         var objectName = hdu.Header.GetStringValue("OBJECT") ?? "";
         var swModifier = hdu.Header.GetStringValue("SWMODIFY") ?? "";
         // GAIN/OFFSET are int cards in N.I.N.A. files but float cards in e.g. Astro Pixel Processor
@@ -402,7 +413,8 @@ public partial class Image
             SensorFullScaleAdu: saturate > 0 ? saturate : null,
             DeclaredPixelScale: declaredPixelScale,
             SiteElevation: siteElevation,
-            ColourCalibration: colourCalibration
+            ColourCalibration: colourCalibration,
+            Guiding: guiding
         )
         { IsMaster = isMaster };
     }
@@ -869,6 +881,14 @@ public partial class Image
             AddHeaderValueIfHasValue("WBRED", wb.R, "Red white-balance multiplier");
             AddHeaderValueIfHasValue("WBGREEN", wb.G, "Green white-balance multiplier");
             AddHeaderValueIfHasValue("WBBLUE", wb.B, "Blue white-balance multiplier");
+        }
+        if (imageMeta.Guiding is { } guiding)
+        {
+            AddHeaderValueIfHasValue("GUIDERMS", guiding.RmsTotal, "arcsec RMS guide error over this exposure");
+            AddHeaderValueIfHasValue("GUIRMSRA", guiding.RmsRa, "arcsec RMS guide error in RA");
+            AddHeaderValueIfHasValue("GUIRMSDE", guiding.RmsDec, "arcsec RMS guide error in Dec");
+            AddHeaderValueIfHasValue("GUIDEPK", guiding.Peak, "arcsec largest excursion in this exposure");
+            AddHeaderValueIfHasValue("GUIDEN", guiding.SampleCount, "guide samples behind these statistics");
         }
         if (!double.IsNaN(imageMeta.TargetRA) && !double.IsNaN(imageMeta.TargetDec))
         {

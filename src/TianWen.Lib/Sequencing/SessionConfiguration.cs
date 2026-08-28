@@ -73,11 +73,6 @@ public record struct SessionConfiguration(
     /// </summary>
     float ObstructionClearFractionOfRemaining = 0.2f,
     /// <summary>
-    /// When <c>true</c>, scout frames are written to disk for debugging. Default <c>false</c>:
-    /// scout frames are taken, analysed for star count, then released without a FITS write.
-    /// </summary>
-    bool SaveScoutFrames = false,
-    /// <summary>
     /// Minutes <em>before</em> meridian crossing where the OTA / cables / focuser physically
     /// risk hitting the pier. Tracking is paused on entry and resumed only after the obstruction
     /// has cleared (HA &gt;= <see cref="MeridianFlipEarliestMinutesAfter"/>). Default <c>0</c>
@@ -240,7 +235,39 @@ public record struct SessionConfiguration(
     /// history window before the trend fit is trusted; below this the drift check falls back to
     /// the newest frame's raw HFD (the pre-trend single-frame behaviour). Default 5.
     /// </summary>
-    int FocusDriftMinSamples = 5
+    int FocusDriftMinSamples = 5,
+    /// <summary>
+    /// When <c>true</c>, frames the session captures for a MEASUREMENT and would otherwise discard are
+    /// written to disk under <c>&lt;output&gt;/Intermediates/&lt;date&gt;/&lt;filter&gt;/&lt;type&gt;/</c>
+    /// instead of being released unseen. Default <c>false</c>, which is the historical behaviour and the
+    /// right one for anyone who just wants the night to run.
+    ///
+    /// <para>Covers, each under its own <see cref="Imaging.FrameType"/> so a consumer never has to read
+    /// the path to know what it has:</para>
+    /// <list type="bullet">
+    /// <item><see cref="Imaging.FrameType.Focus"/> -- every auto-focus V-curve rung plus the
+    /// verification exposure at the fitted best focus, one folder per run
+    /// (<c>ota&lt;n&gt;_&lt;runStart&gt;/</c>). This is the reason the option exists: a run already
+    /// sweeps <see cref="AutoFocusStepCount"/> positions across <see cref="AutoFocusRange"/> steps and
+    /// then exposes once more at best focus, so each run is a labelled defocus ladder of ONE field,
+    /// minutes apart, under one sky at one temperature, with <c>FOCUSPOS</c> on every frame and the
+    /// in-focus anchor at the end. That is paired blurry/sharp data a deconvolution model needs, and
+    /// no amount of mining an existing archive recovers it after the fact -- the frames were never
+    /// kept.</item>
+    /// <item><see cref="Imaging.FrameType.Scout"/> -- the FOV-obstruction probe and nudge-test frames,
+    /// which is what answers "why did it think the field was blocked?" the morning after.</item>
+    /// </list>
+    ///
+    /// <para><b>Deliberately NOT covered</b>, so that turning this on can never fill a disk: the
+    /// condition-recovery test exposures (<c>Session.Imaging.cs</c>), which poll for as long as cloud
+    /// lasts and are unbounded by design; the rough-focus sweep, whose frames are near-duplicates of
+    /// the AF ladder's outer rungs; the plate-solve frames; and the flat-metering frames. Each is one
+    /// call to <c>WriteIntermediateFrameToFitsFileAsync</c> away if it earns its keep.</para>
+    ///
+    /// <para>Costs no exposure time -- every frame here is taken either way -- and roughly
+    /// <c>AutoFocusStepCount + 1</c> frames per AF run per OTA plus one or two per target.</para>
+    /// </summary>
+    bool SaveIntermediates = false
 )
 {
     /// <summary>Effective default for <see cref="GuiderRecoveryGrace"/> when unset.</summary>

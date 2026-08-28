@@ -1,8 +1,11 @@
 using Shouldly;
 using System;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using TianWen.Lib.Tests;
 using Xunit;
@@ -482,6 +485,63 @@ public class SessionScoutAndProbeTests(ITestOutputHelper output)
             ctx.Session.ActiveObservation!, ct);
 
         clearIn.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// <c>SaveIntermediates</c> keeps the scout frames, and they are <see cref="FrameType.Scout"/> --
+    /// never <see cref="FrameType.Light"/>. A scout differs from a light only in exposure length, so
+    /// nothing about the pixels would stop a scan ingesting it; the card is the whole defence, and it
+    /// would form a plausible-looking short-exposure group rather than anything obviously wrong.
+    /// </summary>
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSaveIntermediatesWhenScoutThenFramesAreKeptAsScoutNotLight()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var observations = new[] { Obs(3.79, 24.1, "M45") };
+        var config = SessionTestHelper.DefaultConfiguration with
+        {
+            ScoutExposure = TimeSpan.FromSeconds(2),
+            FirstScoutOracleEnabled = false,
+            SaveIntermediates = true,
+        };
+        await using var ctx = await CreateScoutSessionAsync(observations, configuration: config, cancellationToken: ct);
+        ctx.Session.AdvanceObservationForTest();
+
+        // FakeExternal persists only the first frame by default.
+        ctx.External.MaxFitsWrites = 100;
+
+        // The fake output root is keyed by the shared helper's caller name, so this subtree can carry
+        // over from a sibling test; clear it or the count is not this run's.
+        var root = Path.Combine(ctx.External.ImageOutputFolder.FullName, "Intermediates");
+        if (Directory.Exists(root))
+        {
+            Directory.Delete(root, recursive: true);
+        }
+
+        var target = ctx.Session.ActiveObservation!.Target;
+        await ctx.Mount.BeginSlewRaDecAsync(target.RA, target.Dec, ct);
+        while (await ctx.Mount.IsSlewingAsync(ct))
+        {
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(50), ct);
+        }
+
+        await RunScoutWithTimePumpAsync(ctx, async ct2 =>
+        {
+            await ctx.Session.ScoutAndProbeAsync(ctx.Session.ActiveObservation!, ct2);
+        }, ct);
+
+        Directory.Exists(root).ShouldBeTrue("the scout frame should have been kept");
+        var files = Directory.GetFiles(root, "*.fits", SearchOption.AllDirectories);
+        files.Length.ShouldBeGreaterThan(0);
+
+        // Standalone frames take no group folder, so the frame-type leaf IS the parent directory.
+        files.ShouldAllBe(f => Path.GetFileName(Path.GetDirectoryName(f)!) == nameof(FrameType.Scout));
+
+        foreach (var file in files)
+        {
+            Image.TryReadFitsHeader(file, out var info).ShouldBeTrue($"{file} should be a readable FITS");
+            info.FrameType.ShouldBe(FrameType.Scout, $"{file} must never read back as a light");
+        }
     }
 
     /// <summary>

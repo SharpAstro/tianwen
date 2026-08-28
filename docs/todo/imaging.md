@@ -9,6 +9,17 @@ prompted by finding that the master flat was never calibrated. Ordered by value 
 The flat gap itself is **fixed** (see [known-limitations](../known-limitations.md)); these are what
 the comparison turned up alongside it.
 
+- [ ] **Gate or weight subs on their own guiding statistics, now that they carry them.** Lights written
+  since 2026-08-29 carry `GUIDERMS` / `GUIRMSRA` / `GUIRMSDE` / `GUIDEPK` / `GUIDEN` in arcsec, measured
+  over each frame's OWN exposure window (`ImageMeta.Guiding`, `GuideStatistics.OverExposure`), so the
+  stacker can reject or down-weight the smeared ones from the header alone -- no pixel read, and it
+  composes with the per-frame weighting item below. **Prefer `GUIDEPK` over `GUIDERMS` for the reject
+  decision**: a trailed sub is usually one gust against an otherwise clean exposure, which is precisely
+  what an RMS averages away, and the two cards exist separately for that reason. Two gotchas before
+  anyone wires it: **an absent card means UNKNOWN, never good** (an unguided rig writes no cards at all,
+  by design, so a missing-is-fine default silently exempts every frame it should be judging), and
+  **`GUIDEN` bounds how much the number is worth** -- a two-sample RMS from a short sub or a truncated
+  ring buffer should not gate anything. Nothing consumes these yet.
 - [ ] **Per-frame weighting in the combine.** We gate binary (`FrameQualityFilter` keeps or rejects)
   and then combine with an unweighted mean. Siril weights by wFWHM / star count / noise, PixInsight
   by `SubframeSelector` output, APP by its own quality measure. This is free SNR on any session with

@@ -203,6 +203,11 @@ namespace TianWen.UI.Abstractions
                         c => $"{c.BaselineHfdFrameCount}",
                         c => c with { BaselineHfdFrameCount = Math.Min(c.BaselineHfdFrameCount + 1, 10) },
                         c => c with { BaselineHfdFrameCount = Math.Max(c.BaselineHfdFrameCount - 1, 1) }),
+                    new ConfigFieldDescriptor(
+                        "Save Intermed.", ConfigFieldKind.BoolToggle, "",
+                        c => c.SaveIntermediates ? "ON" : "OFF",
+                        c => c with { SaveIntermediates = !c.SaveIntermediates },
+                        c => c with { SaveIntermediates = !c.SaveIntermediates }),
                 ]),
 
                 new ConfigGroup("Imaging",

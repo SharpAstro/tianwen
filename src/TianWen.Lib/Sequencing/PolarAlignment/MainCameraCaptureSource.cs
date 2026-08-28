@@ -20,8 +20,8 @@ namespace TianWen.Lib.Sequencing.PolarAlignment
     /// FITS internally): no separate FITS-write step here. If
     /// <see cref="PolarAlignmentConfiguration.SaveFrames"/> is enabled, the
     /// caller is responsible for copying the temp file out before the solver
-    /// deletes it. Phase 2 keeps frame archiving deferred (mirrors
-    /// <c>SaveScoutFrames</c> deferral pattern).
+    /// deletes it. Phase 2 keeps frame archiving deferred; <see cref="SessionConfiguration.SaveIntermediates"/>
+    /// is the shipped precedent for the write path.
     /// </summary>
     internal sealed class MainCameraCaptureSource : ICaptureSource
     {

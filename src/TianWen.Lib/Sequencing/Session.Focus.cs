@@ -539,6 +539,11 @@ internal partial record Session
         var sampleMap = new MetricSampleMap(SampleKind.HFD, AggregationMethod.Median);
         _activeFocusSamples = [];
 
+        // Names the ladder's folder when SaveIntermediates is on, so every rung and the verification
+        // frame land together. Read ONCE here rather than per rung, or a single sweep scatters itself
+        // across nine one-frame directories.
+        var afRunStartUtc = _timeProvider.GetUtcNow();
+
         // Move to start position with backlash compensation
         var focusDir = telescope.FocusDirection;
         var (backlashIn, backlashOut) = GetEffectiveBacklash(focuser);
@@ -579,7 +584,7 @@ internal partial record Session
 
             await ResilientInvokeAsync(
                 camera,
-                ct => camera.StartExposureAsync(autoFocusExposure, cancellationToken: ct),
+                ct => camera.StartExposureAsync(autoFocusExposure, FrameType.Focus, ct),
                 ResilientCallOptions.NonIdempotentAction, cancellationToken);
 
             // Pipeline optimization: start moving focuser to next position while camera downloads
@@ -632,6 +637,19 @@ internal partial record Session
                 else
                 {
                     _logger.LogInformation("Auto-focus pos={Position} too few stars ({StarCount})", targetPos, stars.Count);
+                }
+
+                // Written whatever the star count: a rung too defocused to detect stars in is still a
+                // rung, and it is the deep end of the ladder that a deconvolver has the least of.
+                // Best-effort -- a failed write must never cost the night its focus run.
+                if (Configuration.SaveIntermediates)
+                {
+                    var rung = $"{i:00}";
+                    var captured = image;
+                    await CatchAsync(
+                        async ValueTask (CancellationToken _) => await WriteIntermediateFrameToFitsFileAsync(
+                            captured, afRunStartUtc, AutoFocusRunGroup(telescopeIndex, afRunStartUtc), $"{rung}_pos{targetPos}"),
+                        cancellationToken).ConfigureAwait(false);
                 }
 
                 _logger.LogInformation(
@@ -696,7 +714,7 @@ internal partial record Session
             camera.FocusPosition = bestPos;
             await ResilientInvokeAsync(
                 camera,
-                ct => camera.StartExposureAsync(TimeSpan.FromSeconds(2), cancellationToken: ct),
+                ct => camera.StartExposureAsync(TimeSpan.FromSeconds(2), FrameType.Focus, ct),
                 ResilientCallOptions.NonIdempotentAction, cancellationToken);
 
             Image? verifyImage = null;
@@ -712,10 +730,21 @@ internal partial record Session
                 }
             }
 
-            if (verifyImage is { Width: > 0, Height: > 0 })
+            if (verifyImage is { Width: > 0, Height: > 0 } verified)
             {
-                var verifyStars = await verifyImage.FindStarsAsync(verifyImage.ReferenceStarChannel, snrMin: 10, cancellationToken: cancellationToken);
-                verifyImage.Release();
+                var verifyStars = await verified.FindStarsAsync(verified.ReferenceStarChannel, snrMin: 10, cancellationToken: cancellationToken);
+
+                // The in-focus anchor: written BEFORE the release, and the one rung of the ladder that
+                // is actually sharp, so it is what every other rung pairs against.
+                if (Configuration.SaveIntermediates)
+                {
+                    await CatchAsync(
+                        async ValueTask (CancellationToken _) => await WriteIntermediateFrameToFitsFileAsync(
+                            verified, afRunStartUtc, AutoFocusRunGroup(telescopeIndex, afRunStartUtc), $"verify_pos{bestPos}"),
+                        cancellationToken).ConfigureAwait(false);
+                }
+
+                verified.Release();
                 if (verifyStars.Count > 3)
                 {
                     var baseline = FrameMetrics.FromStarList(verifyStars, autoFocusExposure, currentGain);

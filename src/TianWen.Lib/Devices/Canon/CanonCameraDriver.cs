@@ -500,6 +500,9 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     public int FocusPosition { get; set; }
     public Target? Target { get; set; }
 
+    /// <inheritdoc />
+    public Imaging.GuidingStats? GuideStats { get; set; }
+
     // --- Exposure ---
     public async ValueTask<DateTimeOffset> StartExposureAsync(TimeSpan duration, FrameType frameType = FrameType.Light, CancellationToken cancellationToken = default)
     {

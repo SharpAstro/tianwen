@@ -1,9 +1,11 @@
 using Shouldly;
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
+using TianWen.Lib.Imaging;
 using TianWen.Lib.Sequencing;
 using Xunit;
 
@@ -58,6 +60,84 @@ public class SessionImagingTests(ITestOutputHelper output)
         }
 
         return ctx;
+    }
+
+    /// <summary>
+    /// A written light carries the guiding statistics for ITS OWN exposure
+    /// (<see cref="GuideStatistics.OverExposure"/>), end to end through a real guided imaging loop.
+    /// </summary>
+    /// <remarks>
+    /// The unit tests pin the arithmetic and the FITS round-trip; what they cannot catch is the wiring
+    /// silently producing nothing, which is the likely failure here and an invisible one. The window is
+    /// built from the exposure start the CAMERA reports and the samples are stamped by the GUIDER loop,
+    /// so if those two ever read different clocks -- or the stamp moves after the frame is fetched --
+    /// every window is empty, every card is absent, and the session still writes perfectly good frames.
+    /// Hence asserting a positive sample count on a real loop rather than trusting the plumbing.
+    /// </remarks>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenGuidedImagingLoopWhenFrameWrittenThenItCarriesItsOwnGuideRms()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(16.695, 36.46, "M13", null),
+                new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero),
+                TimeSpan.FromMinutes(10),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0)
+        };
+
+        await using var ctx = await CreateImagingSessionAsync(observations: observations, cancellationToken: ct);
+        ctx.External.MaxFitsWrites = 100;
+
+        var lightsRoot = ctx.External.ImageOutputFolder.FullName;
+        foreach (var stale in Directory.GetFiles(lightsRoot, "frame_*.fits", SearchOption.AllDirectories))
+        {
+            File.Delete(stale);
+        }
+
+        IMountDriver mount = ctx.Mount;
+        await mount.EnsureTrackingAsync(cancellationToken: ct);
+
+        var guider = (FakeGuider)ctx.Session.Setup.Guider.Driver;
+        await guider.GuideAsync(0.3, 3, 30, ct);
+        await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(4), ct);
+
+        var observation = ctx.Session.ActiveObservation.ShouldNotBeNull();
+        var hourAngle = await mount.GetHourAngleAsync(ct);
+
+        ctx.TimeProvider.ExternalTimePump = true;
+        var imagingTask = ctx.Track(Task.Run(
+            async () => await ctx.Session.ImagingLoopAsync(observation, hourAngle, cancellationToken: ctx.Token), ctx.Token));
+        await ctx.TimeProvider.PumpUntilCompletedAsync(imagingTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4), cancellationToken: ct);
+        imagingTask.IsCompleted.ShouldBeTrue("imaging loop should have completed within timeout");
+        await imagingTask;
+
+        var frames = Directory.GetFiles(lightsRoot, "frame_*.fits", SearchOption.AllDirectories);
+        frames.Length.ShouldBeGreaterThan(0, "the loop should have written at least one light");
+
+        var guided = 0;
+        foreach (var frame in frames)
+        {
+            Image.TryReadFitsHeader(frame, out var info).ShouldBeTrue($"{frame} should be a readable FITS");
+            if (info.Meta.Guiding is not { } g)
+            {
+                continue;
+            }
+
+            guided++;
+            g.SampleCount.ShouldBeGreaterThan(0, "a stamped frame must be backed by real samples");
+            float.IsFinite(g.RmsTotal).ShouldBeTrue();
+            g.RmsTotal.ShouldBeGreaterThanOrEqualTo(0f);
+            g.Peak.ShouldBeGreaterThanOrEqualTo(g.RmsTotal, "the largest excursion cannot be under the RMS");
+        }
+
+        output.WriteLine($"Frames: {frames.Length}, carrying guide stats: {guided}");
+        guided.ShouldBeGreaterThan(0, "a guided loop must stamp guide statistics on at least one light");
     }
 
     [Fact(Timeout = 120_000)]

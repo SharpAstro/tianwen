@@ -474,5 +474,8 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
 
     public double? SiteElevation { get; set; }
     public Target? Target { get; set; }
+
+    /// <inheritdoc />
+    public Imaging.GuidingStats? GuideStats { get; set; }
     #endregion
 }
