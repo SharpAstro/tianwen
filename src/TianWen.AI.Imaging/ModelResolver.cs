@@ -64,9 +64,12 @@ public sealed class ModelResolver : IModelResolver
     }
 
     /// <summary>
-    /// Test seam: the same resolver against a caller-chosen GraXpert data directory. Not public
-    /// because a deployed app must not be able to point the probe somewhere else -- the whole value
-    /// of reading the vendor's cache is that it is the location the vendor itself writes.
+    /// Test seam: the same resolver against a caller-chosen GraXpert data directory. Internal
+    /// rather than public because redirecting the probe is already possible where it belongs --
+    /// <c>TIANWEN_GRAXPERT_DIR</c>, process-wide, mirroring <c>RC_ASTRO_CLI</c>. That is exactly
+    /// why a test needs this instead: an env var is process-GLOBAL while these tests run in
+    /// parallel, so redirecting one resolver instance through it would make the fixture flakier
+    /// than the thing it guards.
     /// </summary>
     internal ModelResolver(ImmutableArray<string> searchPaths, string graXpertRoot, ILogger<ModelResolver>? logger)
     {
@@ -229,14 +232,23 @@ public sealed class ModelResolver : IModelResolver
     /// identity, so the file name is the same for every model the vendor ships and cannot be what
     /// we match on.
     /// </summary>
-    private static ImmutableArray<(string ModelFileName, string Bucket)> GraXpertBuckets =>
+    private static readonly ImmutableArray<(string ModelFileName, string Bucket)> GraXpertBuckets =
     [
         // GraXpert's denoise bucket is deliberately absent: it overlaps SAS Pro's AI4 NAFNet,
         // which we already resolve, and nothing here asks for it.
         (OnnxBackgroundExtractor.ModelName, "bge-ai-models"),
     ];
 
-    /// <summary>The vendor's own copy of a model, newest version first, existing paths only.</summary>
+    /// <summary>
+    /// Stands in for the version directory when there is none to name. Not a path that can exist --
+    /// which is the point: <see cref="File.Exists"/> rejects it without a special case.
+    /// </summary>
+    private const string VersionPlaceholder = "<version>";
+
+    /// <summary>
+    /// The vendor's own copy of a model, newest version first -- and, when the vendor has installed
+    /// nothing yet, the SHAPE of the location it would occupy.
+    /// </summary>
     private IEnumerable<string> GraXpertCandidates(string modelFileName)
     {
         if (string.IsNullOrEmpty(_graXpertRoot))
@@ -247,9 +259,21 @@ public sealed class ModelResolver : IModelResolver
         foreach (var (name, bucket) in GraXpertBuckets)
         {
             if (!string.Equals(name, modelFileName, StringComparison.OrdinalIgnoreCase)) continue;
-            foreach (var versionDir in VersionDirsNewestFirst(Path.Combine(_graXpertRoot, bucket)))
+            var bucketRoot = Path.Combine(_graXpertRoot, bucket);
+            var yieldedAVersion = false;
+            foreach (var versionDir in VersionDirsNewestFirst(bucketRoot))
             {
+                yieldedAVersion = true;
                 yield return Path.Combine(versionDir, "model.onnx");
+            }
+            if (!yieldedAVersion)
+            {
+                // GraXpert absent is EXACTLY when the failure message gets read, and it was the one
+                // case where the list mentioned the vendor cache not at all -- so the enumerator's
+                // stated invariant held only when it did not matter. A placeholder cannot resolve
+                // (and File.Exists rejects it unaided), but it does answer the question the reader
+                // has: whether we looked, and where GraXpert would have to put it.
+                yield return Path.Combine(bucketRoot, VersionPlaceholder, "model.onnx");
             }
         }
     }

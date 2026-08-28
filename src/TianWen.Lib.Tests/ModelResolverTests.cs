@@ -314,4 +314,29 @@ public class ModelResolverTests : IDisposable
         presence.Path.ShouldBe(expected);
         presence.ProbedPaths.ShouldContain(expected);
     }
+
+    /// <summary>
+    /// The invariant has to hold in the case that MATTERS. With GraXpert installed the probe list
+    /// named its cache; with GraXpert absent it named nothing at all -- and absent is exactly when
+    /// a user reads the list, so it held only when nobody needed it. A placeholder cannot resolve,
+    /// which is the point: it answers "did you look, and where would it go?" without pretending a
+    /// file is there.
+    /// </summary>
+    [Fact]
+    public void Probe_NamesTheGraXpertLocationEvenWhenGraXpertIsNotInstalled()
+    {
+        // Deliberately no MakeGraXpertBge(...) -- nothing is installed.
+        var presence = MakeResolverWithGraXpert().Probe("graxpert_bge.onnx");
+
+        presence.Kind.ShouldBe(ModelPresenceKind.Absent);
+        presence.ProbedPaths.ShouldContain(p => p.Contains("bge-ai-models", StringComparison.Ordinal));
+    }
+
+    /// <summary>The placeholder must never be mistaken for a real answer.</summary>
+    [Fact]
+    public void TryResolve_DoesNotResolveThePlaceholderPath()
+    {
+        MakeResolverWithGraXpert().TryResolve("graxpert_bge.onnx", out var resolved).ShouldBeFalse();
+        resolved.ShouldBeNull();
+    }
 }
