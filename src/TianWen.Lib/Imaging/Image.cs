@@ -500,6 +500,43 @@ public partial class Image(ImmutableArray<Channel> initialChannels, BitDepth bit
     }
 
     /// <summary>
+    /// As <see cref="GetImageDim()"/>, falling back to a WCS the frame already carries.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A solved CD matrix is the BEST scale a frame can state, and the header-only overload
+    /// cannot see it.</b> That overload reads <see cref="ImageMeta"/> -- <c>PIXSCALE</c>, else pixel
+    /// size x binning x <c>FOCALLEN</c> -- and returns null with neither, which is the correct answer
+    /// for what it can see and the wrong one for the frame as a whole: a plate-solved file knows its
+    /// scale to the digit, in the CD matrix, measured from the stars rather than typed by a human.</para>
+    /// <para><b>Every master TianWen writes is in exactly that state.</b> They carry a full CD matrix
+    /// and no <c>FOCALLEN</c>, so <see cref="GetImageDim()"/> answers null and a solver handed that
+    /// refuses before it starts -- measured at 3 ms on a 6248x4176 LDN 1089 master, with the scale
+    /// sitting in the same header at 1.3814 arcsec/px. It is why "cannot solve our own stacker's
+    /// output" keeps recurring.</para>
+    /// <para>Ordered last deliberately. A declared <c>PIXSCALE</c> still wins, because a frame that
+    /// states one is either repeating the same guess or reporting a solved scale; and the derived
+    /// focal-length form still beats nothing. This only fires where both are absent, and a stale WCS
+    /// is no worse a scale prior than the absent one it replaces -- the position may have drifted
+    /// (one real master's was 74 px out) while the SCALE stays right, since a translation does not
+    /// change it.</para>
+    /// </remarks>
+    /// <param name="wcs">A WCS for this frame, typically the one read from its own headers.</param>
+    public ImageDim? GetImageDim(in Astrometry.WCS? wcs)
+    {
+        if (GetImageDim() is { } fromHeaders)
+        {
+            return fromHeaders;
+        }
+
+        if (wcs is { HasCDMatrix: true } solved && solved.PixelScaleArcsec is var scale && scale > 0 && !double.IsNaN(scale))
+        {
+            return new ImageDim(scale, Width, Height);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Read-only indexer to get a pixel value.
     /// </summary>
     /// <param name="h"></param>

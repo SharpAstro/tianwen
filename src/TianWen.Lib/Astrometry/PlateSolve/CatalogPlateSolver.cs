@@ -183,8 +183,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             return Result(empty);
         }
 
-        if ((imageDim ?? image.GetImageDim()) is not { } dim)
+        // The search origin doubles as a scale source. A frame that carries a solved CD matrix but no
+        // FOCALLEN -- which is every master TianWen writes -- otherwise fails HERE, in a few ms,
+        // before detecting a star, with its own pixel scale sitting unread in the same header.
+        if ((imageDim ?? image.GetImageDim(searchOrigin)) is not { } dim)
         {
+            _logger.LogWarning(
+                "CatalogPlateSolver: no pixel scale available -- the frame states no PIXSCALE, no FOCALLEN + pixel size, and the search origin carries no CD matrix. Pass an explicit ImageDim.");
             return Result(empty);
         }
 

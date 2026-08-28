@@ -64,7 +64,11 @@ public interface IPlateSolver : IAsyncSupportedCheck
         try
         {
             image.WriteToFitsFile(fitsFile);
-            return await SolveFileAsync(fitsFile, imageDim ?? image.GetImageDim(), range, searchOrigin, searchRadius, cancellationToken);
+            // searchOrigin doubles as a scale source when the headers have none. This matters for every
+            // solver, not just ours: an external one is handed the field of view derived from this dim,
+            // so a frame with a solved CD matrix and no FOCALLEN would otherwise send ASTAP off to
+            // search blind for a field size it was already told.
+            return await SolveFileAsync(fitsFile, imageDim ?? image.GetImageDim(searchOrigin), range, searchOrigin, searchRadius, cancellationToken);
         }
         finally
         {

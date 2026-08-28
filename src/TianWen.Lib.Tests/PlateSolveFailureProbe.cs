@@ -66,7 +66,23 @@ public class PlateSolveFailureProbe(ITestOutputHelper output)
             return;
         }
 
+        // A frame can carry a perfectly good scale in its CD matrix while GetImageDim returns null,
+        // because that reads ImageMeta (PIXSCALE, else pixel size x binning x FOCALLEN) and never the
+        // WCS. Every TianWen-written master is in exactly that state. Fall back to the file's own WCS
+        // so the probe reports why MATCHING failed rather than stopping at a missing dimension, and
+        // allow an explicit override for the case where both are absent or suspect.
         var dim = image.GetImageDim();
+        if (dim is null && Environment.GetEnvironmentVariable("TIANWEN_STAR_PROBE_SCALE") is { Length: > 0 } scaleText
+            && double.TryParse(scaleText, System.Globalization.CultureInfo.InvariantCulture, out var forcedScale))
+        {
+            dim = new ImageDim(forcedScale, image.Width, image.Height);
+            output.WriteLine($"imageDim   forced to {forcedScale:F4}\"/px via TIANWEN_STAR_PROBE_SCALE");
+        }
+        else if (dim is null && fileWcs is { HasCDMatrix: true, PixelScaleArcsec: > 0 } cdWcs)
+        {
+            dim = new ImageDim(cdWcs.PixelScaleArcsec, image.Width, image.Height);
+            output.WriteLine($"imageDim   NULL from headers; using the file's own CD matrix: {cdWcs.PixelScaleArcsec:F4}\"/px");
+        }
         output.WriteLine($"file       {System.IO.Path.GetFileName(path)}");
         output.WriteLine($"imageDim   {dim}");
         output.WriteLine($"fileWcs    {(fileWcs is { } w ? $"RA={w.CenterRA:F4}h Dec={w.CenterDec:F3} hasCD={w.HasCDMatrix} scale={w.PixelScaleArcsec}" : "(none)")}");

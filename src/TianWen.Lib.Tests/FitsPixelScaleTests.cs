@@ -2,6 +2,7 @@
 using System;
 using System.Threading.Tasks;
 using System.IO;
+using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Stacking;
@@ -85,6 +86,49 @@ public class FitsPixelScaleTests
     public void WithNeitherScaleNorFocalLengthThereIsNoAnswerRatherThanAGuess()
     {
         ImageWith(Meta(focalLength: -1, declaredPixelScale: float.NaN)).GetImageDim().ShouldBeNull();
+    }
+
+    /// <summary>
+    /// A frame that already carries a solved CD matrix knows its scale, even with no scale header.
+    /// </summary>
+    /// <remarks>
+    /// <para>This is the state EVERY master TianWen writes is in: a full CD matrix and no
+    /// <c>FOCALLEN</c>. The header-only overload answers null for it, which is correct for what it can
+    /// see and wrong for the frame, and a solver handed that null refuses before detecting a single
+    /// star -- measured at 3 ms on a 6248x4176 LDN 1089 master whose own header stated
+    /// 1.3814 arcsec/px. That is why "cannot solve our own stacker's output" keeps coming back.</para>
+    /// <para>Ordering matters as much as the fallback: a declared PIXSCALE must still win, or a frame
+    /// that states its scale would be overridden by a WCS that may be stale.</para>
+    /// </remarks>
+    [Fact]
+    public void AFrameWithOnlyACdMatrixStillKnowsItsScale()
+    {
+        var image = ImageWith(Meta(focalLength: -1, declaredPixelScale: float.NaN));
+        image.GetImageDim().ShouldBeNull("premise: the headers alone cannot answer");
+
+        // 1.3814"/px, as a CD matrix rotated ~91.8 degrees -- the LDN 1089 master's own geometry, so
+        // the scale has to come out of the determinant rather than off a diagonal term.
+        var scaleDeg = 1.3814 / 3600.0;
+        var theta = 91.76 * Math.PI / 180.0;
+        var wcs = new WCS(CenterRA: 20.555, CenterDec: 63.4572)
+        {
+            CRPix1 = 4,
+            CRPix2 = 4,
+            CD1_1 = -scaleDeg * Math.Cos(theta),
+            CD1_2 = -scaleDeg * Math.Sin(theta),
+            CD2_1 = scaleDeg * Math.Sin(theta),
+            CD2_2 = -scaleDeg * Math.Cos(theta),
+        };
+
+        wcs.HasCDMatrix.ShouldBeTrue();
+        var fromWcs = image.GetImageDim(wcs);
+        fromWcs.ShouldNotBeNull();
+        fromWcs.Value.PixelScale.ShouldBe(1.3814, tolerance: 1e-3);
+
+        // And a declared scale still wins over it.
+        var declared = ImageWith(Meta(focalLength: -1, declaredPixelScale: 2.5f)).GetImageDim(wcs);
+        declared.ShouldNotBeNull();
+        declared.Value.PixelScale.ShouldBe(2.5, tolerance: 1e-4);
     }
 
     [Fact]
