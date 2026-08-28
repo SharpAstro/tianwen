@@ -133,6 +133,15 @@ public sealed class OnnxBackgroundExtractor(
         {
             modelInput = MonoToRgb(normalised);
             normalised.Release();
+            // The stats describe a PLANE, so whatever duplicates planes owes them the same. The
+            // model is RGB-only and FromNhwcTensor takes its channel count from the TENSOR, so the
+            // output comes back 3-channel and DenormaliseFromModel walks all three -- against
+            // arrays ChannelMedianMad sized to the ONE input channel. That was an
+            // IndexOutOfRangeException at c == 1 for every mono frame, and mono is not the exotic
+            // case: the viewer keeps a one-channel CFA mosaic and lets the GPU shader debayer, so
+            // this is the path EVERY OSC file takes.
+            medians = [medians[0], medians[0], medians[0]];
+            mads = [mads[0], mads[0], mads[0]];
         }
         else
         {
