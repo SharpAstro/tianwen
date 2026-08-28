@@ -19,8 +19,10 @@
     p05 1.96 / p50 2.10 / p95 2.55 px with an intra-session p90/p10 ratio whose median is **1.04**, and
     a scan of all 245,213 indexed files found **zero auto-focus frames**, because N.I.N.A. and TianWen
     both measured the V-curve and threw the pixels away. Costs no exposure time. **Those FWHM figures
-    are from the 2026-08-15 store, i.e. the detector BEFORE the deblending work**; the spread conclusion
-    survives easily (1.04 against the 1.5 a training set would need) but the digits want a `--force-psf`.
+    are from the 2026-08-15 store, i.e. the detector BEFORE the deblending work.** Measured on 12
+    sessions: the current detector finds 4% more matched stars and reads them 2% wider (+0.039 px on a
+    ~2.2 px median), so the spread conclusion survives easily (1.04 against the 1.5 a training set would
+    need) but the digits want a `--force-psf`.
     [docs/plans/ai-denoise-deconv.md](docs/plans/ai-denoise-deconv.md) 2.1b carries the measurements.
   - **Each kind gets its OWN `FrameType` rather than one `Intermediate`**, because path is cosmetic in
     this codebase and headers are truth: collapse them and the only way to tell an AF rung from a
