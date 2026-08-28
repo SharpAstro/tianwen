@@ -204,15 +204,26 @@ namespace TianWen.Lib.Tests
 
         /// <summary>
         /// Pins WHY the seed tries two anchor-pool policies, so neither can be dropped as
-        /// redundant. Both cases are real and both occur in this one mosaic:
+        /// redundant:
         /// <list type="bullet">
         ///   <item>an accurate hint needs the STRICT pool -- with the matching loop's 0.1 margin,
         ///   ~31% of anchors sit outside the frame where they cannot be detected, and because the
         ///   pool is the brightest N of whatever is kept they displace genuine in-frame stars and
-        ///   starve the staged gates;</item>
-        ///   <item>a hint tens of arcmin off needs the MARGINED pool, because real stars project
-        ///   outside the frame under it.</item>
+        ///   starve the staged gates. Five panels lock only this way;</item>
+        ///   <item>a hint tens of arcmin off is what the MARGINED pool is for, because real stars
+        ///   project outside the frame under it.</item>
         /// </list>
+        /// <para><b>The margined half is no longer EXCLUSIVELY needed by anything in this mosaic,
+        /// and that is a result, not a rotted assertion.</b> It used to rescue P20.2, whose hint
+        /// is 38 arcmin off, from a strict pool that could not lock it. Refining a hypothesis
+        /// before judging it (<c>PairRansacLock.TryRefine</c>) closed that gap: a hint that bad
+        /// still leaves enough of the anchor set in frame to seed from, once a seed no longer has
+        /// to survive a tolerance only its refinement could meet. So the test asserts the strict
+        /// pool is still necessary, and that the margined pool still LOCKS the worst hint in the
+        /// set -- proving the fallback works, rather than requiring it to be the only thing that
+        /// does. Keeping it is a judgement about hints worse than this mosaic contains; deleting
+        /// it on the evidence of one dataset would be exactly the overfit this file exists to
+        /// catch.</para>
         /// </summary>
         [Fact]
         public void BothAnchorPoolPoliciesAreNecessary()
@@ -220,6 +231,9 @@ namespace TianWen.Lib.Tests
             var catalog = Manifest.CatalogTuples();
             var strictOnly = new List<string>();
             var marginOnly = new List<string>();
+            var worstHintArcmin = -1.0;
+            var worstHintPanel = "";
+            var worstHintMargined = false;
 
             foreach (var panel in Manifest.Panels)
             {
@@ -251,23 +265,37 @@ namespace TianWen.Lib.Tests
                     }
                 }
 
+                var hintErrArcmin = Separation(frame.Hint, frame.Wcs) * 60;
+                if (hintErrArcmin > worstHintArcmin)
+                {
+                    worstHintArcmin = hintErrArcmin;
+                    worstHintPanel = panel.Id;
+                    worstHintMargined = margined;
+                }
+
                 if (strict && !margined)
                 {
                     strictOnly.Add(panel.Id);
                 }
                 else if (margined && !strict)
                 {
-                    marginOnly.Add($"{panel.Id} (hint off by {Separation(frame.Hint, frame.Wcs) * 60:F0} arcmin)");
+                    marginOnly.Add($"{panel.Id} (hint off by {hintErrArcmin:F0} arcmin)");
                 }
             }
 
             output.WriteLine($"strict-pool only: {string.Join(", ", strictOnly)}");
             output.WriteLine($"margined-pool only: {string.Join(", ", marginOnly)}");
+            output.WriteLine($"worst hint: {worstHintPanel} off by {worstHintArcmin:F0} arcmin, " +
+                $"margined pool {(worstHintMargined ? "locks" : "does NOT lock")} it");
 
             strictOnly.Count.ShouldBeGreaterThan(0,
                 "panels that only seed from a strictly in-frame pool are why the seed tries it first");
-            marginOnly.Count.ShouldBeGreaterThan(0,
-                "panels that only seed from the margined pool are why it remains as a fallback");
+
+            // The margined pool must still WORK on the case it exists for, even now that nothing
+            // in this mosaic needs it exclusively.
+            worstHintMargined.ShouldBeTrue(
+                $"the margined pool must lock the worst hint in the set ({worstHintPanel}, " +
+                $"{worstHintArcmin:F0} arcmin off), which is the case it exists for");
         }
 
         /// <summary>
