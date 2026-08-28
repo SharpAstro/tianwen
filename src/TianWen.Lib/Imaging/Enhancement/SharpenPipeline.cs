@@ -125,6 +125,42 @@ public sealed class SharpenPipeline(
             logger?.LogWarning("SharpenPipeline: source had non-finite samples (e.g. drizzle coverage holes); filled with per-channel mean before enhancement.");
         }
 
+        // A raw CFA mosaic is debayered ONCE, here, before any step sees it -- every enhancer in
+        // the program applies a SPATIAL kernel, and a kernel over an interleaved mosaic blends
+        // photosites of different colours into each other. Measured on a 3008x3008x1 RGGB sub: the
+        // R/G1/G2/B plane MEDIANS converge 4.2x (spread 0.000549 -> 0.000130) once bxt and nxt run,
+        // and medians are not noise, so no colour-correct operation may move them. What comes out
+        // is grey, and debayering afterwards cannot undo it -- the colour is already gone in the
+        // linear data. (sxt and the BGE gradient step are individually mosaic-SAFE, reproducing
+        // every plane median exactly; it is deconvolution and denoise that do the damage. But the
+        // BlurX-first program runs deblur at the head, so there is no ordering that keeps a mosaic
+        // for some steps and not others.)
+        //
+        // This is the shape the rest of the codebase already uses -- planetary is
+        // SplitCfa -> per-photosite -> demosaic ONCE, and stacking Bayer-drizzles then demosaics
+        // once. The enhance path was the one place handing a mosaic to spatial models.
+        //
+        // Deliberately NOT reached by two neighbours: MasterPostProcessor enhances a finished
+        // master, which is already 3-channel (no-op here), and the stacking per-frame star removal
+        // calls IStarRemover directly rather than through this pipeline, so Bayer drizzle keeps the
+        // undebayered frames it requires.
+        //
+        // VNG rather than AHD: AHD's phase-4 chroma median is the documented colour compressor
+        // (docs/plans/comet-integration.md), which is the opposite of what this fix is for.
+        if (source.ChannelCount == 1 && source.ImageMeta.SensorType is SensorType.RGGB)
+        {
+            var mosaic = source;
+            source = await mosaic.DebayerAsync(DebayerAlgorithm.VNG, cancellationToken: cancellationToken);
+            logger?.LogInformation(
+                "SharpenPipeline: debayered the CFA mosaic ({W}x{H}x1 -> x{C}, VNG) before enhancement; spatial AI on a mosaic destroys colour.",
+                mosaic.Width, mosaic.Height, source.ChannelCount);
+            // OWNERSHIP: `mosaic` is request.Source (or the sanitiser's copy of it) and stays the
+            // CALLER's, exactly as it would be had no debayer happened -- this method has never
+            // released its input and must not start. The debayered plate is pipeline-owned and
+            // becomes the working source; it is returned in the result lineage like any other
+            // intermediate, so it is not released here either.
+        }
+
         var totalSw = Stopwatch.StartNew();
         var (channels, srcW, srcH) = source.Shape;
         // Capture entry noise before any step runs so the result has a clean
