@@ -473,6 +473,40 @@ This composes with what we have: `SharpenPipeline` already models star removal w
 stars/starless lineage (`SharpenIntermediates.StarsAndStarlessLineage`), so phase 6 is a different
 *filling* for the stars plate rather than new pipeline structure.
 
+## Candidates raised 2026-08-28, not yet researched
+
+Flagged in conversation while diagnosing the wrong SPCC white balance on a real L-Ultimate/OSC
+session (`D:\Astro-Organized\masters\SVBONY-SV605CC\Optolong-L-Ultimate-3nm\...`). Recorded here so
+they are not lost across a machine switch; **none of these have had a source read yet**, unlike A-H
+above, which are all backed by a script, a doc, or a transcript. Do not treat anything below as
+verified until it gets the same treatment.
+
+- **PixInsight `DynamicBackgroundExtraction` (DBE).** Different category from everything above: a
+  background-gradient removal tool, not a colour tool. The 2021 RESCUE transcript already uses it as
+  a workflow step (ABE + DBE before stretching, see "The full workflow" below), but it has never been
+  evaluated here as its own technique. Worth checking whether it says anything colour-relevant beyond
+  gradient removal, and whether it duplicates ground TianWen's own background-neutralisation /
+  `GraXpert`-style flattening already covers (see `image-pipeline.md`'s "Zero-pedestal render").
+- **PixInsight's "narrowband normalization" process.** Likely the same thing as technique F above.
+  Section F is explicit that Siril's `NarrowbandNormalization.py` is "a clean-room implementation of
+  Bill Blanshan and Mike Cranfield's PixInsight `NarrowbandNormalization`" — i.e. the Siril script
+  documented in detail there **is** a port of the PixInsight process being asked about. Confirm this
+  is genuinely the same feature before assuming it needs separate research.
+- **PixInsight's own native SPCC on narrowband, given a specified filter.** Technique A above
+  documents Siril's SPCC narrowband mode in full (Gaia DR3 `xp_sampled` spectra convolved against a
+  synthesized passband) and notes Siril's own docs warn SHO through SPCC produces "a huge green cast"
+  — expected, not a bug, since SPCC targets photometric truth and true SHO intensities are
+  green-dominated. Worth confirming PixInsight's native SPCC uses the same underlying mechanism (it
+  almost certainly does — Siril's is explicitly modelled on it) rather than assuming it is a distinct,
+  better-behaved implementation.
+- **A Siril script referenced repeatedly but not yet named or linked.** Get the actual script name /
+  URL next time this comes up; nothing to evaluate without it.
+- **"thecoldestnights" Foraxx palette.** A named narrowband-to-RGB channel-remapping palette from an
+  astrophotography content creator, for "possibly later doing something with the channels." Likely
+  the same *kind* of thing as technique C (AstroColorMixer) or the HOO recipes below — a channel-mix
+  recipe rather than a photometric calibration — but the actual coefficients/method are unknown here.
+  Do not guess at its formula; find the source first.
+
 ## The HOO blue problem (why the mixer needs presets, not just sliders)
 
 [Video](https://www.youtube.com/watch?v=2QS2Pyhf7as) ("RESCUE the BLUE! Dual Narrowband and HOO
