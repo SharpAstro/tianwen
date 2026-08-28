@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -182,12 +184,28 @@ public sealed record AiCapabilities(
 
         // Only when something is missing, because otherwise it is three lines of noise -- but then
         // it is the actionable half: it says where to put the file.
+        //
+        // Derived from what was ACTUALLY probed, not from ModelSearchPaths alone. A vendor cache
+        // (GraXpert's bge-ai-models/<version>/) is reachable for exactly one model, so it is
+        // deliberately absent from the model-agnostic directory list -- but omitting it here made
+        // this report claim a search that did not match the one the resolver performs, which is the
+        // failure the resolver's own probe list exists to prevent: a list short of a location that
+        // really is read gets taken as proof the file is not there.
         if (anyMissing)
         {
             lines.Add("searched (first match wins):");
+            var seen = new HashSet<string>(ModelSearchPaths, StringComparer.OrdinalIgnoreCase);
             foreach (var dir in ModelSearchPaths)
             {
                 lines.Add($"  {dir}");
+            }
+            foreach (var extra in Models
+                .SelectMany(m => m.Presence.ProbedPaths)
+                .Select(p => Path.GetDirectoryName(p))
+                .Where(d => !string.IsNullOrEmpty(d))
+                .Where(d => seen.Add(d!)))
+            {
+                lines.Add($"  {extra}  (vendor cache)");
             }
         }
 
