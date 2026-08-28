@@ -339,4 +339,40 @@ public class ModelResolverTests : IDisposable
         MakeResolverWithGraXpert().TryResolve("graxpert_bge.onnx", out var resolved).ShouldBeFalse();
         resolved.ShouldBeNull();
     }
+
+    /// <summary>
+    /// The list must name every location, INCLUDING the ones after the one that answered. Probe
+    /// used to stop at the first hit, so a resolved model reported only the prefix of the search
+    /// that happened to contain it -- and on a machine where anything earlier answers (a
+    /// fetch-script hardlink in TianWen's own tree, say) GraXpert's cache never appeared at all.
+    /// Its absence reads as "not supported" rather than "not reached", which is the opposite of
+    /// what a reader should conclude.
+    /// </summary>
+    [Fact]
+    public void Probe_ListsTheGraXpertLocationEvenWhenSomethingEarlierAnswered()
+    {
+        var earlier = Path.Combine(_primary, "graxpert_bge.onnx");
+        File.WriteAllText(earlier, "weights");
+        var vendorCopy = MakeGraXpertBge("1.0.1");
+
+        var presence = MakeResolverWithGraXpert().Probe("graxpert_bge.onnx");
+
+        // The earlier copy still wins the verdict...
+        presence.Kind.ShouldBe(ModelPresenceKind.Present);
+        presence.Path.ShouldBe(earlier);
+        // ...but the search did not stop being described there.
+        presence.ProbedPaths.ShouldContain(vendorCopy);
+    }
+
+    /// <summary>Same guarantee for a model that lives in none of the vendor buckets.</summary>
+    [Fact]
+    public void Probe_ListsEveryConfiguredDirectoryEvenWhenTheFirstAnswered()
+    {
+        File.WriteAllText(Path.Combine(_primary, "foo.onnx"), "p");
+
+        var presence = MakeResolverWithGraXpert().Probe("foo.onnx");
+
+        presence.Kind.ShouldBe(ModelPresenceKind.Present);
+        presence.ProbedPaths.ShouldContain(Path.Combine(_fallback, "foo.onnx"));
+    }
 }

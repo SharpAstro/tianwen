@@ -65,11 +65,10 @@ public sealed class ModelResolver : IModelResolver
 
     /// <summary>
     /// Test seam: the same resolver against a caller-chosen GraXpert data directory. Internal
-    /// rather than public because redirecting the probe is already possible where it belongs --
-    /// <c>TIANWEN_GRAXPERT_DIR</c>, process-wide, mirroring <c>RC_ASTRO_CLI</c>. That is exactly
-    /// why a test needs this instead: an env var is process-GLOBAL while these tests run in
-    /// parallel, so redirecting one resolver instance through it would make the fixture flakier
-    /// than the thing it guards.
+    /// because a test needs to redirect ONE instance while others run in parallel, which is a
+    /// property no process-wide setting can offer -- and deliberately not an escape hatch for a
+    /// deployed app, which has nothing to point elsewhere: the vendor's location is auto-detected
+    /// from the platform's own per-user data directory, the same one GraXpert itself writes to.
     /// </summary>
     internal ModelResolver(ImmutableArray<string> searchPaths, string graXpertRoot, ILogger<ModelResolver>? logger)
     {
@@ -156,30 +155,44 @@ public sealed class ModelResolver : IModelResolver
     /// </remarks>
     public ModelPresence Probe(string modelFileName)
     {
+        // Enumerate EVERY candidate, including the ones after the answer. Stopping at the first hit
+        // is what TryResolve is for; here it made the documented contract ("every candidate tried")
+        // false in the case a reader most needs it. A resolved model reported only the prefix of the
+        // search that happened to contain it, so a location we really do read -- GraXpert's own
+        // cache -- was invisible whenever anything earlier answered first, and its absence from the
+        // list reads as "not supported" rather than "not reached". The verdict is still decided by
+        // the FIRST existing candidate; only the list keeps going. This is a diagnostic, so the
+        // extra File.Exists calls and one directory enumeration cost nothing worth saving.
         var probed = ImmutableArray.CreateBuilder<string>(_searchPaths.Length + 1);
+        var kind = ModelPresenceKind.Absent;
+        string? resolved = null;
+        long resolvedBytes = 0;
+
         foreach (var candidate in CandidateFiles(modelFileName))
         {
             probed.Add(candidate);
-            if (!File.Exists(candidate)) continue;
+            if (resolved is not null || !File.Exists(candidate)) continue;
 
             if (IsLfsPointerStub(candidate))
             {
-                return new ModelPresence(modelFileName, ModelPresenceKind.PointerStub, candidate, 0, probed.ToImmutable());
+                kind = ModelPresenceKind.PointerStub;
+                resolved = candidate;
+                continue;
             }
 
-            long bytes;
             try
             {
-                bytes = new FileInfo(candidate).Length;
+                resolvedBytes = new FileInfo(candidate).Length;
             }
             catch (IOException)
             {
-                bytes = 0;
+                resolvedBytes = 0;
             }
-            return new ModelPresence(modelFileName, ModelPresenceKind.Present, candidate, bytes, probed.ToImmutable());
+            kind = ModelPresenceKind.Present;
+            resolved = candidate;
         }
 
-        return new ModelPresence(modelFileName, ModelPresenceKind.Absent, null, 0, probed.ToImmutable());
+        return new ModelPresence(modelFileName, kind, resolved, resolvedBytes, probed.ToImmutable());
     }
 
     private static bool IsLfsPointerStub(string path)
@@ -329,15 +342,19 @@ public sealed class ModelResolver : IModelResolver
     }
 
     /// <summary>
-    /// GraXpert's per-user data directory (it nests its own name twice), and
-    /// <c>TIANWEN_GRAXPERT_DIR</c> for a non-default install -- the same env-first shape
-    /// <c>RcAstroCli.LocateExecutable</c> uses for <c>RC_ASTRO_CLI</c>, and the counterpart of
-    /// <c>tools/tianwen-ai-models-fetch.ps1</c>'s <c>-GraXpertDir</c>.
+    /// GraXpert's per-user data directory (it nests its own name twice), auto-detected exactly like
+    /// the other two roots -- deliberately with no override.
+    ///
+    /// <para>There was a <c>TIANWEN_GRAXPERT_DIR</c> here, modelled on <c>RC_ASTRO_CLI</c>. The
+    /// analogy does not hold: <c>rc-astro</c> is an EXECUTABLE a user can install anywhere, so
+    /// locating it needs env -> default dir -> PATH, whereas this cache is written by GraXpert
+    /// itself through the platform's per-user data directory -- the same one
+    /// <see cref="LocalAppDataDir"/> resolves. Auto-detection is not a best guess here, it is the
+    /// same API answering for both programs. Nobody could name a case where it is wrong, and the
+    /// override was also asymmetric: SAS Pro's root has none, so one vendor had a knob for no
+    /// stated reason.</para>
     /// </summary>
-    private static string GraXpertRoot()
-        => Environment.GetEnvironmentVariable("TIANWEN_GRAXPERT_DIR") is { Length: > 0 } configured
-            ? configured
-            : LocalAppDataDir("GraXpert", "GraXpert");
+    private static string GraXpertRoot() => LocalAppDataDir("GraXpert", "GraXpert");
 
     private static ImmutableArray<string> DefaultSearchPaths()
     {

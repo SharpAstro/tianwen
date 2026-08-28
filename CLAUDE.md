@@ -1055,8 +1055,10 @@ Uninstall/App-Paths probe) AND the product is licensed (cached); else the SAS ON
 
 **A vendor's weights are read WHERE THE VENDOR PUT THEM, never only where a dev script copied them.**
 `ModelResolver` probes its three directories with the bare name, then GraXpert's own cache
-(`%LOCALAPPDATA%/GraXpert/GraXpert/bge-ai-models/<semver>/model.onnx`, newest version first;
-`TIANWEN_GRAXPERT_DIR` overrides the root) for `graxpert_bge.onnx`. A search *directory* structurally
+(`%LOCALAPPDATA%/GraXpert/GraXpert/bge-ai-models/<semver>/model.onnx`, newest version first) for
+`graxpert_bge.onnx`. **All three roots are auto-detected and none takes an override** -- the vendor
+cache is written by GraXpert itself through the platform's per-user data directory, which is the same
+API `LocalAppDataDir` reads, so this is not a best guess. A search *directory* structurally
 cannot reach it -- the version subdir is not known ahead of time and the file is `model.onnx`, because
 for GraXpert the **bucket** carries the identity -- so an installed GraXpert used to buy nothing: the
 only bridge was `tools/tianwen-ai-models-fetch.ps1` hardlinking it across, and **a packaged install
