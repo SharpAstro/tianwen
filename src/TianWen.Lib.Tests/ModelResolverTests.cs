@@ -142,4 +142,142 @@ public class ModelResolverTests : IDisposable
     {
         Should.Throw<ArgumentException>(() => new ModelResolver(default(ImmutableArray<string>)));
     }
+
+    // ---- GraXpert's own model cache -------------------------------------------------------
+    //
+    // GraXpert writes 'bge-ai-models/<semver>/model.onnx'. Neither half of that is reachable from a
+    // directory entry probed with a bare name: the version dir is not known ahead of time and the
+    // file is called model.onnx, because for GraXpert the BUCKET carries the identity. So a plain
+    // search path can never find it, which is why an installed GraXpert used to buy nothing.
+
+    private string MakeGraXpertBge(string version, string content = "weights")
+    {
+        var dir = Path.Combine(_temp, "graxpert", "bge-ai-models", version);
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "model.onnx");
+        File.WriteAllText(path, content);
+        return path;
+    }
+
+    private ModelResolver MakeResolverWithGraXpert() =>
+        new([_primary, _fallback], Path.Combine(_temp, "graxpert"), null);
+
+    /// <summary>
+    /// The regression this whole seam exists for: GraXpert installed, nothing copied anywhere, and
+    /// the model resolves. Before it, the ONLY bridge was tools/tianwen-ai-models-fetch.ps1
+    /// hardlinking the file into TianWen's models tree -- a repo-relative dev script, so the Store
+    /// build of Astro Photo Viewer failed its Enhance action on a machine where GraXpert was
+    /// correctly installed and its weights were sitting on disk.
+    /// </summary>
+    [Fact]
+    public void TryResolve_ReadsGraXpertsOwnModelCache()
+    {
+        var expected = MakeGraXpertBge("1.0.1");
+
+        MakeResolverWithGraXpert().TryResolve("graxpert_bge.onnx", out var resolved).ShouldBeTrue();
+        resolved.ShouldBe(expected);
+    }
+
+    /// <summary>
+    /// Version dirs sort by VERSION, not by name -- '1.0.10' is newer than '1.0.9', which ordinal
+    /// string ordering gets backwards.
+    /// </summary>
+    [Fact]
+    public void TryResolve_PrefersTheNewestGraXpertVersion()
+    {
+        MakeGraXpertBge("1.0.9");
+        var newest = MakeGraXpertBge("1.0.10");
+
+        MakeResolverWithGraXpert().TryResolve("graxpert_bge.onnx", out var resolved).ShouldBeTrue();
+        resolved.ShouldBe(newest);
+    }
+
+    /// <summary>
+    /// A copy in TianWen's own tree still wins -- the fetch script's hardlink keeps working, and it
+    /// outlives GraXpert being uninstalled, so it stays the higher-priority source.
+    /// </summary>
+    [Fact]
+    public void TryResolve_PrefersTheConfiguredPathsOverGraXpert()
+    {
+        var ours = Path.Combine(_primary, "graxpert_bge.onnx");
+        File.WriteAllText(ours, "p");
+        MakeGraXpertBge("1.0.1");
+
+        MakeResolverWithGraXpert().TryResolve("graxpert_bge.onnx", out var resolved).ShouldBeTrue();
+        resolved.ShouldBe(ours);
+    }
+
+    /// <summary>
+    /// The vendor probe is keyed on the model NAME. Every other model must be unaffected -- the
+    /// bucket holds exactly one file called model.onnx, so a name-blind probe would hand GraXpert's
+    /// background-extraction weights to whatever asked next.
+    /// </summary>
+    [Fact]
+    public void TryResolve_DoesNotOfferGraXpertsFileToAnotherModel()
+    {
+        MakeGraXpertBge("1.0.1");
+
+        MakeResolverWithGraXpert().TryResolve("darkstar_color_AI4.onnx", out var resolved).ShouldBeFalse();
+        resolved.ShouldBeNull();
+    }
+
+    /// <summary>
+    /// An install whose newest download was interrupted still resolves: every version present is
+    /// offered, so a truncated 1.0.2 falls through to the complete 1.0.1 rather than failing.
+    /// </summary>
+    [Fact]
+    public void TryResolve_FallsThroughAnUnusableNewerGraXpertVersion()
+    {
+        var good = MakeGraXpertBge("1.0.1");
+        // A pointer-stub-shaped file stands in for "present but not weights", the one case
+        // TryResolve is required to skip and keep probing.
+        MakeGraXpertBge("1.0.2", "version https://git-lfs.github.com/spec/v1");
+
+        MakeResolverWithGraXpert().TryResolve("graxpert_bge.onnx", out var resolved).ShouldBeTrue();
+        resolved.ShouldBe(good);
+    }
+
+    /// <summary>
+    /// With GraXpert absent the message must say so in terms its reader can act on. The two
+    /// standing remedies -- a repo-relative fetch script and 'git lfs pull' -- are both addressed to
+    /// someone holding a checkout, and the person who hits this is running a Store install.
+    /// </summary>
+    [Fact]
+    public void Resolve_NamesGraXpertAsTheRemedyForItsOwnModel()
+    {
+        var ex = Should.Throw<FileNotFoundException>(
+            () => MakeResolverWithGraXpert().Resolve("graxpert_bge.onnx"));
+
+        ex.Message.ShouldContain("GraXpert");
+        ex.Message.ShouldContain(Path.Combine(_temp, "graxpert", "bge-ai-models"));
+    }
+
+    /// <summary>
+    /// ...and it stays out of the way for every other model, which has nothing to do with GraXpert.
+    /// </summary>
+    [Fact]
+    public void Resolve_DoesNotMentionGraXpertForAnUnrelatedModel()
+    {
+        var ex = Should.Throw<FileNotFoundException>(
+            () => MakeResolverWithGraXpert().Resolve("notthere.onnx"));
+
+        ex.Message.ShouldNotContain("GraXpert");
+    }
+
+    /// <summary>
+    /// GraXpert's cache is probed alongside the directory list, so it must appear in the diagnostic
+    /// too. A probe list that omits a location the resolver really reads is worse than none: it is
+    /// read as proof the file is not there.
+    /// </summary>
+    [Fact]
+    public void Probe_ReportsTheGraXpertCandidate()
+    {
+        var expected = MakeGraXpertBge("1.0.1");
+
+        var presence = MakeResolverWithGraXpert().Probe("graxpert_bge.onnx");
+
+        presence.Kind.ShouldBe(ModelPresenceKind.Present);
+        presence.Path.ShouldBe(expected);
+        presence.ProbedPaths.ShouldContain(expected);
+    }
 }
