@@ -26,6 +26,20 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     /// <summary>
     /// Byte-pins detector output per image + SNR floor.
     ///
+    /// <para><b>They ROSE on 2026-08-28, by 2.8 %</b> (2,983 -> 3,065 at SNR 10, 2,724 -> 2,769 at
+    /// SNR 30), when detection started splitting a measurement that covers more than one star instead
+    /// of reporting its centre of mass. Every count before this one moved DOWN, by removing something
+    /// that was not a star; this one moves up, and the burden is therefore the opposite -- the
+    /// additions have to be shown to be real. Three things say they are. The frame's closest accepted
+    /// pair falls from 5.10 px to 2.57 px while the HFD distribution does not move (p50 2.39, p95 3.14,
+    /// both unchanged), so the new entries are ordinary stars and not the inflated-HFD phantoms the
+    /// reverted attempt produced; the 28-star fixture, whose closest pair is 11.8 px, is byte-identical
+    /// at all three SNR floors; and the pair at (2221.0, 2668.2) / (2218.5, 2668.3) sits on two strict
+    /// local maxima of the mono debayer 3 px apart, +2220 and +1500 ADU, which is two stars by
+    /// inspection. What is recovered is measured separately and against known truth, in
+    /// <c>StarPairDeblendGroundTruthTests</c>: 4 px pairs go from 3 of 6 components to 6 of 6, and 6 px
+    /// pairs from 0 of 6 -- the merged blob was refused outright -- to 6 of 6.</para>
+    ///
     /// <para><b>They dropped again on 2026-08-27, by 1.0 %</b> (3,013 -> 2,983 at SNR 10, 2,753 ->
     /// 2,724 at SNR 30), when detection stopped accepting a measurement whose FWHM could not be
     /// measured. <c>FWHM == 0</c> means the brightest pixel in the analysis box is at least twice this
@@ -60,8 +74,8 @@ public class FindStarsFromFitsFileTests(ITestOutputHelper testOutputHelper)
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 10f, 89, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 20f, 28, null, 0)]
     [InlineData("image_file-snr-20_stars-28_1280x960x16", 30f, 13, null, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2724, 5000, 0)]
-    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 2983, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 30f, 2769, 5000, 0)]
+    [InlineData("RGGB_frame_bx0_by0_top_down", 10f, 3065, 5000, 0)]
     public async Task GivenImageFileAndMinSNRWhenFindingStarsThenTheyAreFound(string name, float snrMin, int expectedStars, int? maxStars = null, int expectedDuplicatePairs = 0)
     {
         // given

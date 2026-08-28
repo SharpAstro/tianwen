@@ -316,6 +316,10 @@ public partial class Image
                         // so the hot path stays scalar-register cheap. Atomically
                         // folded into the shared PassCounters once at chunk end.
                         long localHits = 0, localCalls = 0, localAccepted = 0;
+                        // Hoisted out of the pixel scan deliberately: a stackalloc inside a loop is
+                        // not reclaimed until the method returns, so one per candidate would grow the
+                        // stack by the whole chunk.
+                        Span<ImagedStar> components = stackalloc ImagedStar[MaxDeblendComponents];
                         var chunk = 2 * halfChunk + phase;
                         var chunkEnd = Math.Min(height, (chunk + 1) * ChunkSize);
                         for (var fitsY = chunk * ChunkSize; fitsY < chunkEnd; fitsY++)
@@ -334,22 +338,64 @@ public partial class Image
                                     if (!img_star_area[fitsY, fitsX])
                                     {
                                         localCalls++;
-                                        if (AnalyseStar(channel, fitsX, fitsY, BoxRadius, out var star)
-                                            && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */
-                                            && star.StarFWHM > 0f /* the box's peak belongs to a NEIGHBOUR: see HalfMaxDiameter */
-                                            && star.SNR >= snrMin
-                                            && !CentroidAlreadyClaimed(img_star_area, star, width, height))
+                                        if (AnalyseStar(channel, fitsX, fitsY, BoxRadius, out var star, out var context)
+                                            && star.HFD is > 0.8f and <= BoxRadius * 2 /* at least 2 pixels in size */)
                                         {
-                                            localAccepted++;
-                                            starList.Add(star);
-                                            var scaledHfd = HfdFactor * star.HFD;
-                                            var r = (int)MathF.Round(scaledHfd); /* radius for marking star area, factor 1.5 is chosen emperiacally. */
-                                            var xc_offset = (int)MathF.Round(star.XCentroid - scaledHfd); /* star center as integer */
-                                            var yc_offset = (int)MathF.Round(star.YCentroid - scaledHfd);
+                                            /* One measurement can cover more than one star. Offer it to the
+                                               deblender first, and fall back to reporting it as it stands. */
+                                            var componentCount = LooksBlended(star)
+                                                ? TryDeblend(channelData, width, height, star, context, components)
+                                                : 0;
 
-                                            var mask = StarMasks[Math.Clamp(r - 1, 0, StarMasks.Length - 1)];
+                                            if (componentCount == 0)
+                                            {
+                                                components[0] = star;
+                                                /* the box's peak belongs to a NEIGHBOUR: see HalfMaxDiameter */
+                                                componentCount = star.StarFWHM > 0f ? 1 : 0;
+                                            }
 
-                                            img_star_area.SetRegionClipped(yc_offset, xc_offset, mask);
+                                            /* Decide every component against the mask as it stands, and only
+                                               then stamp -- otherwise the first component of a pair claims the
+                                               second, which is the merge this exists to undo. */
+                                            var accepted = 0;
+                                            for (var c = 0; c < componentCount; c++)
+                                            {
+                                                var component = components[c];
+                                                if (component.SNR >= snrMin
+                                                    && !CentroidAlreadyClaimed(img_star_area, component, width, height))
+                                                {
+                                                    components[accepted++] = component;
+                                                }
+                                            }
+
+                                            /* Splitting a blend divides its flux, and SNR with it, so a pair
+                                               that was one acceptable star can become two unacceptable ones.
+                                               Report what could be measured rather than nothing: a deblend that
+                                               cannot name the components must not COST the detection. Measured:
+                                               without this the 28-star fixture went 89 -> 88 stars, and it has
+                                               no pair closer than 11.8 px to deblend. */
+                                            if (accepted == 0
+                                                && star.StarFWHM > 0f
+                                                && star.SNR >= snrMin
+                                                && !CentroidAlreadyClaimed(img_star_area, star, width, height))
+                                            {
+                                                components[accepted++] = star;
+                                            }
+
+                                            localAccepted += accepted;
+                                            for (var c = 0; c < accepted; c++)
+                                            {
+                                                var component = components[c];
+                                                starList.Add(component);
+                                                var scaledHfd = HfdFactor * component.HFD;
+                                                var r = (int)MathF.Round(scaledHfd); /* radius for marking star area, factor 1.5 is chosen emperiacally. */
+                                                var xc_offset = (int)MathF.Round(component.XCentroid - scaledHfd); /* star center as integer */
+                                                var yc_offset = (int)MathF.Round(component.YCentroid - scaledHfd);
+
+                                                var mask = StarMasks[Math.Clamp(r - 1, 0, StarMasks.Length - 1)];
+
+                                                img_star_area.SetRegionClipped(yc_offset, xc_offset, mask);
+                                            }
                                         }
                                     }
                                 }
@@ -450,10 +496,24 @@ public partial class Image
     /// <param name="y1">y</param>
     /// <param name="boxRadius">box radius</param>
     /// <returns>true if a star was detected</returns>
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     public bool AnalyseStar(int channel, int x1, int y1, int boxRadius, out ImagedStar star)
+        => AnalyseStar(channel, x1, y1, boxRadius, out star, out _);
+
+    /// <summary>
+    /// As <see cref="AnalyseStar(int, int, int, int, out ImagedStar)"/>, additionally reporting the
+    /// local sky and the aperture the measurement was summed over.
+    /// </summary>
+    /// <remarks>
+    /// Those three numbers cost an annulus median and two selections to derive, and the deblender
+    /// needs all three; handing them back is what keeps a deblend attempt from re-deriving a
+    /// background the measurement has already established. <paramref name="context"/> is meaningful
+    /// only when this returns true.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
+    internal bool AnalyseStar(int channel, int x1, int y1, int boxRadius, out ImagedStar star, out StarMeasurementContext context)
     {
         const int maxAnnulusBg = 328; // depends on boxSize <= 50
+        context = default;
         Debug.Assert(boxRadius <= 50, nameof(boxRadius) + " should be <= 50 to prevent runtime errors");
 
         var (channelCount, width, height) = Shape;
@@ -785,6 +845,7 @@ public partial class Image
         var snr = aduFlux / MathF.Sqrt(aduFlux + r_aperture * r_aperture * MathF.PI * aduSdBg * aduSdBg);
 
         star = new ImagedStar(hfd, star_fwhm, snr, flux, xc, yc, ellipticity, bg);
+        context = new StarMeasurementContext(bg, sd_bg, r_aperture);
         return true;
     }
 
