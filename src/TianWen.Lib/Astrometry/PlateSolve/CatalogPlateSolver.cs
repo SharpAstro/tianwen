@@ -117,7 +117,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// attached, so the matching loop can collect (detected pixel, catalog
     /// RA/Dec) pairs without a second pass over the catalog.
     /// </summary>
-    private readonly record struct ProjectedCatalogStar(ImagedStar Pixel, double RA, double Dec);
+    internal readonly record struct ProjectedCatalogStar(ImagedStar Pixel, double RA, double Dec);
 
     private int _catalogStars, _detectedStars;
 
@@ -1295,11 +1295,27 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
     /// <summary>
     /// Queries every catalog star within <paramref name="radiusDeg"/> of <paramref name="origin"/>,
-    /// proper-motion propagated to the image epoch. <c>internal</c> rather than private so the
-    /// star-list export (see <c>VelaMosaicStarListExport</c> in the test project) freezes the
-    /// SAME catalog the solver sees -- a re-derived query in the test would silently diverge on
-    /// proper motion or the polar-cap path and turn a real regression into a data artefact.
+    /// proper-motion propagated to the image epoch, <b>brightest first</b>. <c>internal</c> rather
+    /// than private so the star-list export (see <c>VelaMosaicStarListExport</c> in the test
+    /// project) freezes the SAME catalog the solver sees -- a re-derived query in the test would
+    /// silently diverge on proper motion or the polar-cap path and turn a real regression into a
+    /// data artefact.
     /// </summary>
+    /// <remarks>
+    /// <para><b>The sort is load-bearing, and its absence is what kept LDN 1089 from solving.</b>
+    /// Both loops below accumulate in grid-scan order, RA cell major, so without a sort the list
+    /// comes back in a spatial order that has nothing to do with brightness -- on that frame the
+    /// first eight entries were V 11.66, 8.90, 11.48, 10.35, ... where the brightest eight in the
+    /// region are V 3.40 to 6.92.</para>
+    /// <para>Every downstream consumer reads this list as a brightness ranking and TRUNCATES it.
+    /// <see cref="PairRansacLock"/> keeps the first 160 as its anchor pool and probes the first 8
+    /// of those as its Stage 1 gate, so in scan order that gate asks whether an arbitrary strip of
+    /// one RA cell was detected. On LDN 1089 the first 20 anchors matched NOTHING under the true
+    /// transform while the first 160 matched 112 -- so the correct hypothesis was generated and
+    /// then discarded at Stage 1, every time, and the diagnostics could only report that nothing
+    /// correlated. Sorting is the whole fix: the pool becomes the 160 brightest, which is what a
+    /// star detector finds and what the gates were designed around.</para>
+    /// </remarks>
     internal List<(double RA, double Dec, double VMag)> QueryCatalogStarsInRegion(WCS origin, double radiusDeg, double dtJulianYears)
     {
         var result = new List<(double RA, double Dec, double VMag)>();
@@ -1357,6 +1373,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 }
             }
 
+            SortBrightestFirst(result);
             return result;
         }
 
@@ -1382,18 +1399,33 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             }
         }
 
+        SortBrightestFirst(result);
         return result;
     }
 
     /// <summary>
-    /// Searches for the geometric pair-lock seed for one parity, over BOTH anchor-pool policies.
-    /// <c>internal</c> so the frozen-star-list regressions
+    /// Brightest first, with a magnitude-less star (<c>V_Mag</c> NaN, mapped to 99) sorting last
+    /// rather than first. Both query paths end here, so neither can be the one that forgets.
+    /// </summary>
+    private static void SortBrightestFirst(List<(double RA, double Dec, double VMag)> stars)
+        => stars.Sort(static (a, b) => a.VMag.CompareTo(b.VMag));
+
+    /// <summary>
+    /// Searches for the geometric pair-lock seed for one parity, over every anchor-pool policy in
+    /// <see cref="PoolPolicies"/>. <c>internal</c> so the frozen-star-list regressions
     /// (<c>VelaMosaicFieldTests</c>) drive this exact code rather than a copy of the pool policy
     /// that could silently drift from it.
     /// </summary>
     /// <remarks>
-    /// Two pools, tried in order, because the right one depends on how good the hint is and both
-    /// cases occur within one night's data.
+    /// Three pools, tried in order, because the right one depends on the camera ANGLE and on how
+    /// good the hint is, and neither is known when the pool is built.
+    /// <para>
+    /// DISC (rotation-invariant) is tried first and is the only one that does not assume the
+    /// camera is north-up; <see cref="ProjectCatalogStars"/> carries the geometry and the LDN 1089
+    /// measurements. It is first rather than last because when it differs from the rectangle it is
+    /// RIGHT, and it is cheap when it is unnecessary: a field it can lock, it locks early (LDN
+    /// 1089 seeds in 7,003 hypotheses where the rectangle exhausted a 1,000,000 budget).
+    /// </para>
     /// <para>
     /// STRICT (no margin) is the default: an anchor outside the frame cannot possibly be detected,
     /// so it can only dilute the consensus -- and worse, since the pool is the brightest N of
@@ -1406,9 +1438,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// merit, which is why raising the hypothesis cap to exhaustive coverage did not help them.
     /// </para>
     /// <para>
-    /// MARGINED is the fallback and earns its keep on a BAD hint: panel 20.2's header is 38 arcmin
-    /// off, which pushes real stars off the projected frame, and it locks only with the margin.
-    /// Neither pool alone covers the night.
+    /// MARGINED is the last fallback and earns its keep on a BAD hint: panel 20.2's header is 38
+    /// arcmin off, which pushes real stars off the projected frame. No pool alone covers the night.
+    /// </para>
+    /// <para>
+    /// All three read the pool as a brightness ranking and truncate it to
+    /// <c>PairRansacLock</c>'s 160 anchors, which is why <see cref="QueryCatalogStarsInRegion"/>
+    /// sorting is a precondition of every one of them rather than a detail of any.
     /// </para>
     /// </remarks>
     internal static PairRansacLock.LockResult? TrySeedPairLock(
@@ -1423,15 +1459,16 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         float scaleTolerance,
         ILogger? logger = null)
     {
-        foreach (var marginFraction in new[] { 0f, 0.1f })
+        foreach (var (marginFraction, rotationInvariant) in PoolPolicies)
         {
-            var seedProjected = ProjectCatalogStars(catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign, marginFraction);
+            var seedProjected = ProjectCatalogStars(catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign, marginFraction, rotationInvariant);
             if (seedProjected.Count < MinStarsForMatch)
             {
                 continue;
             }
 
-            // catalogCoords is VMag-sorted, so the projected list is brightest-first.
+            // QueryCatalogStarsInRegion sorts brightest-first, so the projected list is too --
+            // and both the 160-anchor truncation below and PairRansacLock's Stage 1 depend on it.
             var catPts = new Vector2[seedProjected.Count];
             for (var i = 0; i < seedProjected.Count; i++)
             {
@@ -1442,20 +1479,30 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 dim.Width, dim.Height, scaleTolerance, out var lockDiagnostics);
             if (lockResult is { } locked)
             {
-                logger?.LogDebug("CatalogPlateSolver: pair-lock seed (xSign={XSign}, anchor margin {Margin:P0}) consensus {Hits}/{Census} (chance {Chance:F1}) after {Hypotheses} hypotheses",
-                    xSign, marginFraction, locked.Hits, locked.Census, locked.ExpectedChanceHits, locked.Hypotheses);
+                logger?.LogDebug("CatalogPlateSolver: pair-lock seed (xSign={XSign}, anchor pool {Pool}) consensus {Hits}/{Census} (chance {Chance:F1}) after {Hypotheses} hypotheses",
+                    xSign, PoolName(marginFraction, rotationInvariant), locked.Hits, locked.Census, locked.ExpectedChanceHits, locked.Hypotheses);
                 return locked;
             }
 
             // No seed is a legitimate outcome on a sparse field, but on a dense one it is the
             // difference between "nothing correlates" and "the scan never got there" -- and only
             // the diagnostics distinguish them.
-            logger?.LogDebug("CatalogPlateSolver: no pair-lock seed (xSign={XSign}, anchor margin {Margin:P0}): {Diagnostics}",
-                xSign, marginFraction, lockDiagnostics.ToString());
+            logger?.LogDebug("CatalogPlateSolver: no pair-lock seed (xSign={XSign}, anchor pool {Pool}): {Diagnostics}",
+                xSign, PoolName(marginFraction, rotationInvariant), lockDiagnostics.ToString());
         }
 
         return null;
     }
+
+    /// <summary>
+    /// The anchor-pool policies the seed tries, in order. See <see cref="TrySeedPairLock"/> for
+    /// why more than one is needed and <see cref="ProjectCatalogStars"/> for what each keeps.
+    /// </summary>
+    private static readonly (float MarginFraction, bool RotationInvariant)[] PoolPolicies =
+        [(0f, true), (0f, false), (0.1f, false)];
+
+    private static string PoolName(float marginFraction, bool rotationInvariant) =>
+        rotationInvariant ? "rotation-invariant disc" : $"rectangle, margin {marginFraction:P0}";
 
     /// <param name="marginFraction">
     /// How far outside the frame a projected star may fall and still be kept, as a fraction of
@@ -1463,7 +1510,25 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// that is still wrong by up to the hint error, so a star just off the edge may well move in
     /// as the fit converges. The pair-lock SEED wants 0 -- see <see cref="TrySeedPairLock"/>.
     /// </param>
-    private static List<ProjectedCatalogStar> ProjectCatalogStars(
+    /// <param name="rotationInvariant">
+    /// Keep only stars inside the disc that stays in frame under ANY camera angle, ignoring
+    /// <paramref name="marginFraction"/>.
+    /// <para><b>The projection here is north-up and the camera is not.</b> This routine has no
+    /// rotation to apply -- finding it is the seed's whole job -- so an in-frame test against the
+    /// frame RECTANGLE silently assumes a camera angle of zero. On a 3:2 frame at LDN 1089's
+    /// 88 degree angle, that rectangle's contents rotate mostly off the sensor: of the 160
+    /// brightest anchors it kept, only 92 were really on the frame, and the ones it dropped were
+    /// real stars sitting in the sensor's own corners. The rectangle is not a conservative
+    /// approximation of the frame, it is a DIFFERENT REGION OF SKY that merely has the same area.
+    /// </para>
+    /// <para>The largest region that is in frame at every angle is the inscribed disc, and
+    /// selecting on it costs the corners (48% of a 3:2 frame) to gain an anchor set every member
+    /// of which is genuinely observable: measured on LDN 1089, 125 of 130 disc anchors have a
+    /// detection within 4 px, against 87 of 160 for the rectangle. That ratio is what the staged
+    /// gates read -- Stage 1 asks whether 3 of the 8 brightest anchors were detected -- so it
+    /// decides whether the true hypothesis survives to be counted at all.</para>
+    /// </param>
+    internal static List<ProjectedCatalogStar> ProjectCatalogStars(
         List<(double RA, double Dec, double VMag)> catalogCoords,
         WCS origin,
         double pixelScaleRad,
@@ -1471,7 +1536,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         double cy,
         ImageDim dim,
         double xSign,
-        float marginFraction = 0.1f
+        float marginFraction = 0.1f,
+        bool rotationInvariant = false
     )
     {
         var projected = new List<ProjectedCatalogStar>();
@@ -1481,6 +1547,12 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
         var marginX = dim.Width * marginFraction;
         var marginY = dim.Height * marginFraction;
+
+        // Radius of the disc that is in frame at any camera angle. The seed's projection shares
+        // its tangent point with the frame centre, so the unknown rotation is about (cx, cy) and
+        // this disc is invariant under it.
+        var safeRadius = Math.Min(dim.Width, dim.Height) / 2.0;
+        var safeRadiusSq = safeRadius * safeRadius;
 
         foreach (var (ra, dec, _) in catalogCoords)
         {
@@ -1502,8 +1574,20 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             var xPix = (float)(cx + xSign * xi / pixelScaleRad);
             var yPix = (float)(cy - eta / pixelScaleRad);
 
-            if (xPix >= -marginX && xPix <= dim.Width + marginX &&
-                yPix >= -marginY && yPix <= dim.Height + marginY)
+            bool keep;
+            if (rotationInvariant)
+            {
+                var dx = xPix - cx;
+                var dy = yPix - cy;
+                keep = dx * dx + dy * dy <= safeRadiusSq;
+            }
+            else
+            {
+                keep = xPix >= -marginX && xPix <= dim.Width + marginX &&
+                       yPix >= -marginY && yPix <= dim.Height + marginY;
+            }
+
+            if (keep)
             {
                 projected.Add(new ProjectedCatalogStar(
                     new ImagedStar(2f, 2f, 100f, 1000f, xPix, yPix, 0f), ra, dec));

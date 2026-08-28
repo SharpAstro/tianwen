@@ -158,8 +158,14 @@ namespace TianWen.Lib.Tests
             var dtYr = epoch.Year > 1900 ? epoch.JulianYearsSinceJ2000() : 0.0;
 
             var swCat = Stopwatch.StartNew();
+            // Deliberately NOT re-sorted. This export used to sort brightest-first itself, which
+            // silently corrected a query that returned grid-scan order -- so every replay tested a
+            // brightness ranking the solver never actually had, and the frozen regression stayed
+            // green through the bug that cost LDN 1089 its solve. The freeze must record what
+            // QueryCatalogStarsInRegion RETURNS, whatever that is; if it ever stops sorting, the
+            // next re-export bakes scan order into the fixture and the Vela panels go red, which
+            // is the signal. Normalising an input is how a fixture stops being able to see it.
             var catalog = solver.QueryCatalogStarsInRegion(centre, radiusDeg, dtYr);
-            catalog.Sort(static (a, b) => a.VMag.CompareTo(b.VMag));
             output.WriteLine($"Catalog: {catalog.Count} stars within {radiusDeg:F2}° of " +
                 $"RA={centre.CenterRA:F4}h Dec={centre.CenterDec:F3}° at epoch {epoch:yyyy-MM-dd} " +
                 $"({swCat.Elapsed.TotalSeconds:F1} s)");
