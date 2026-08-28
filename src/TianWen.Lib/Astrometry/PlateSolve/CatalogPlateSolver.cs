@@ -470,6 +470,31 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         return (hits, sampled, inFrame.Count, expected);
     }
 
+    /// <summary>
+    /// Floor on the scale tolerance the pair-lock seed searches with, as a fraction.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>A pair length is not scale-free, so the seed needs a scale prior and this is how wrong
+    /// that prior may be.</b> <c>PairRansacLock</c> admits a catalog pair for a detected pair when its
+    /// length lands in <c>[dDet/(1+tol) - 3, dDet/(1-tol) + 3]</c> px. The +/-3 px is ABSOLUTE, so it
+    /// forgives a FRACTIONAL error only on short baselines, and <c>MinBaselineFraction</c> forbids
+    /// those -- 601 px on a 3008 px frame. On a wide frame a scale prior outside the tolerance means
+    /// the true pair is never admitted at all, so the failure is total rather than gradual.</para>
+    /// <para><b>Why 5% and not the 3% this used to be.</b> The prior comes from
+    /// <see cref="Image.GetImageDim"/>, which falls back to <c>FOCALLEN</c> when a frame declares no
+    /// <c>PIXSCALE</c> -- and FOCALLEN is whatever a human typed. The two errors measured here are a
+    /// 202.5 mm SV545 entered as 205 (1.2%, inside the old window) and a 130 mm lens entered as its
+    /// MARKETED 135 (3.9%, outside it by 0.9 of a percentage point, so a 3,065-star frame with 1,197
+    /// catalogue stars in it did not solve at all). Marketed-versus-actual focal length is a
+    /// systematic error, not a typo, so it will recur; 5% covers it with margin.</para>
+    /// <para>ASTAP does not need this at all, and the difference is structural rather than a matter of
+    /// tuning: it matches QUADS, whose descriptor is the two inner stars expressed in the frame of the
+    /// two outer ones, i.e. pure ratios, which are invariant under scale. Two points can only give a
+    /// distance and an orientation, and a distance has units. Widening the window is what a
+    /// pair-based seed can do instead.</para>
+    /// </remarks>
+    private const float MinPairLockScaleTolerance = 0.05f;
+
     private SolveAttempt TrySolveWithProximityMatching(
         StarList detectedStars,
         List<(double RA, double Dec, double VMag)> catalogCoords,
@@ -520,7 +545,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             }
 
             if (TrySeedPairLock(catalogCoords, detPts, currentOrigin, pixelScaleRad, cx, cy, dim, xSign,
-                    Math.Max(scaleRange, 0.02f), _logger) is { } locked
+                    Math.Max(scaleRange, MinPairLockScaleTolerance), _logger) is { } locked
                 && Matrix3x2.Invert(locked.Transform, out var seedInv)
                 && InverseTanProject(Vector2.Transform(new Vector2((float)cx, (float)cy), seedInv),
                     currentOrigin, pixelScaleRad, cx, cy, xSign) is { } seededWcs)
