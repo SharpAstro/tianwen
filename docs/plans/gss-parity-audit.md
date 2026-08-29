@@ -231,6 +231,28 @@ comment on `PulseGuideAsync` would be.
   duration -- and both calibration and the guide loop will want it, so it belongs somewhere shared
   rather than private to `GuiderCalibration`.
 
+**The survey, which makes the change much smaller than it first looks.** Every implementation,
+against the contract above:
+
+| Implementation | Today | Under the contract |
+|---|---|---|
+| `MeadeLX200ProtocolMountDriverBase` | `:Mgd####`, mount holds the duration, local end-tick CAS'd for overlap | **already correct, and the model** |
+| `AscomTelescopeDriver` / `AscomCameraDriver` | return after the COM call | already correct |
+| `AlpacaTelescopeDriver` / `AlpacaCameraDriver` | return after the PUT | already correct |
+| `DALCameraDriver` (ST-4) | energises the relay, a timer opens it | already correct |
+| `FakeMountDriver` | applies the correction, a timer clears the flag | already correct |
+| `FakeCameraDriver` (ST-4) | **delegates to the coupled mount** | follows whatever the mount does |
+| `SgpMountDriverBase` | throws (serial pulse unsupported) | unaffected |
+| `CanonCameraDriver` | no-op | unaffected |
+| **`SkywatcherMountDriverBase`** | **blocks on `SleepAsync(duration)`** | **the only one that changes** |
+| `FakeSkywatcherMountDriver` | inherits the above | follows automatically |
+
+So this is a mechanical rename plus **one** driver conversion, and all of the risk is in that one --
+which is also the driver where a lost `:I` restore is unrecoverable. It gets its own commit.
+
+Note `FakeCameraDriver` awaits the coupled mount, so the ST-4 fake inherits the SkyWatcher fake's
+blocking today; that is the path `FakeCameraMountCouplingTests` drives, and it converts for free.
+
 **Work, in order:**
 
 1. Rename to `StartPulseGuideAsync` on `IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`, and
