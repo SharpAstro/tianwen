@@ -172,10 +172,18 @@
   **A test for it must assert on fake time traversed per guide frame** -- `GuideLoopTests` builds
   `FakeMountDriver` so it never blocks, and where the blocking driver is driven the fake clock
   auto-advances `SleepAsync`, so the stall is real and costs no wall time.
-  **Still unanswered:** 24-bit position-counter rollover -- decide whether we track the wrap or
-  re-home. And decide whether to regenerate `gss-oracle-transcripts.json` against `origin/master`:
-  it currently pins GSS's PRE-fix behaviour, and regenerating may legitimately turn
-  `SkywatcherGssOracleTests` red.
+  **24-bit rollover: CLOSED, no action.** GSS does nothing about it either -- its pointing path is
+  the same three stateless lines ours is, and `6e6dba9` turned out to be a scripting-API diagnostic
+  (only internal caller feeds PLOTTING), not machinery. +/-0x800000 is +/-0.93 rev from home at an
+  EQ6's CPR, so a GEM meets its pier or cable wrap first: the real protection is the mount safety
+  limits, not wrap tracking. Tracking it would need persistent per-axis revolution state that goes
+  stale the instant anyone touches the hand controller, which mis-points by a whole turn and looks
+  like a sync bug -- worse than the raw discontinuity it replaces.
+  **Still unanswered:** whether to regenerate `gss-oracle-transcripts.json` against `origin/master`.
+  It currently pins GSS's PRE-fix behaviour, and regenerating may legitimately turn
+  `SkywatcherGssOracleTests` red. Note while answering the rollover question we found a probable
+  copy-paste bug in upstream `SkyServer.GetRawStepsDt` (different command type per axis) -- GSS is a
+  reference, not a specification.
 - [ ] **Astro Photo Viewer, next release (P11-P21, from the user's notes 2026-08-22 and 2026-08-27)**.
   **Shipped:** the version now leads `--help` (plus `--version`, and the same line in the in-app `?`
   panel beside the AI-enhancer discovery status, which reports which backend resolved, which RC
