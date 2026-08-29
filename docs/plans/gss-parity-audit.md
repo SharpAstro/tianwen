@@ -23,7 +23,7 @@ horizon limit", which is wrong on current upstream. Every verdict below is again
 | `765bd26` | Pulse duration loops | **No** - we never had the latency compensation |
 | `7441ccd` (#76) | Pulse guide async dual axis | **YES - finding 1** |
 | `fb6e682` (#109) | Slewing race condition | **Partly - see finding 2** |
-| `6e6dba9` | Rollover / rollunder test support | **No** as a fix; raises a question we should answer |
+| `6e6dba9` | Rollover / rollunder test support | **No** - a test affordance, not a fix; question now answered, no action |
 | `f70d821` (#116) | Queue race condition | **No** - we have no command queue |
 
 ### #89 - RA pulse guiding on GEM mounts. Not applicable.
@@ -74,7 +74,7 @@ deleted the compensation and now waits the full `duration`.
 We already wait the full duration from after the write. **Do not add latency compensation**:
 it buys a few ms of accuracy and costs a silent no-op pulse whenever the measurement is off.
 
-### `6e6dba9` - rollover/rollunder. Not a fix, but check the question it asks.
+### `6e6dba9` - rollover/rollunder. Not a fix, and CLOSED: no action, by design.
 
 This adds a `raw` flag to the position read and a `SetAxisPositionCounter` so a test can PLACE
 an axis near the 24-bit wrap. Note GSS's setter has `//steps += 0x800000;` commented out while
@@ -82,12 +82,42 @@ its getter subtracts the offset by default - asymmetric, which is presumably wha
 was built to explore.
 
 Ours is symmetric (`EncodePosition` adds `POSITION_OFFSET`, `DecodePosition` subtracts it), so
-the specific asymmetry does not exist here. **Open question we have not answered:** what our
-`j`/`E` pair does when an axis genuinely crosses the 24-bit boundary. `DecodePosition` returns
-`[-0x800000, 0x7FFFFF]`, so a crossing decodes as a +/-16777216-step jump. At an EQ6's ~9.02M
-steps/rev the counter holds about +/-0.93 revolution from home, which a long unattended session
-can plausibly reach. Filed, not fixed - it needs a decision about whether we track the wrap or
-re-home.
+the specific asymmetry does not exist here. That left the question of what our `j`/`E` pair does
+when an axis genuinely crosses the boundary. `DecodePosition` returns `[-0x800000, 0x7FFFFF]`, so
+a crossing decodes as a +/-16777216-step jump.
+
+**Answered by reading upstream: GSS does nothing about it, and its behaviour is identical to
+ours.** The pointing path, `Commands.GetAxisPosition` (`GS.SkyWatcher/Commands.cs:678` on
+`origin/master`), is three stateless lines - read `j`, subtract `0x00800000`, convert to an angle.
+No accumulator, no revolution count, no discontinuity check. The only `Unwrap*` in the whole
+repository is DSP phase unwrapping for PEC analysis, which is unrelated.
+
+**And `6e6dba9` is a diagnostic affordance, not machinery.** The `raw` flag and
+`SetAxisPositionCounter` are surfaced on `GS.SkyApi/Sky.cs`, the scripting / COM API for external
+users; the only internal caller is `SkyServer.GetRawSteps`, which feeds **plotting** (the call
+sites in `SkyWatcher.cs` are commented `// read for plotting`). The commented-out offset in the
+setter is deliberate rather than a slip: that setter is *meant* to write raw counter values, which
+is the whole point of being able to park an axis next to the wrap and watch.
+
+**Why neither of us has been bitten is mechanical, not clever.** At an EQ6's ~9.02M steps/rev,
++/-0x800000 is **+/-0.93 revolution from home**, and a GEM's RA axis meets a pier or a cable wrap
+long before it turns 335 degrees. So the thing that actually protects against rollover is
+[`mount-safety-limits.md`](mount-safety-limits.md), which is an argument for finishing that wiring
+rather than for building wrap tracking.
+
+**Why tracking the wrap would be worse than the problem.** It means persistent per-axis revolution
+state carried across restarts, and that state is wrong the moment anybody moves the mount by hand
+or with the hand controller - neither of which we can observe. A silently wrong revolution count
+mis-points by a whole turn and looks like a sync problem; a raw wrap at least presents as an
+obvious +/-16.7M-step discontinuity. Re-homing has the same flaw in a different costume: it needs a
+home sensor (`CanHomeSensors` is optional on Synta hardware) and it is motion across a path nothing
+has checked, which is exactly the objection that made parking opt-in for the safety limits.
+
+**One caution about the oracle, found while answering this.** `SkyServer.GetRawStepsDt` (around
+line 3960) issues `SkyGetAxisPositionDate` for axis 0 and `SkyGetAxisPositionCounter` for axis 1 -
+two different command types for the two axes of one accessor. That looks like a copy-paste bug in
+upstream, and it sits in precisely the area this entry was reading. **GSS is a reference, not a
+specification**; verify anything ported out of it rather than assuming intent.
 
 ### `f70d821` - queue race. Not applicable.
 
