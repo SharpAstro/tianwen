@@ -156,10 +156,17 @@
   `GuideLoop` calls it once with both corrections -- **a bug fix, not the speedup**: overlapping
   only helps Synta hardware, while on every other family the loop **never waited for a pulse at
   all**, which the blocking SkyWatcher driver was accidentally covering up.
-  **What remains: convert `SkywatcherMountDriverBase` to a background hold.** It is the one
-  implementation that violates the primitive's contract (its doc comment says so) and the whole risk
-  of the sequence. It is deliberately LAST: doing it before the guide loop waited would have left a
-  window in which NOTHING waits on any mount.
+  **Also done: `SkywatcherMountDriverBase` holds the duration on a background task**, so every
+  driver honours the primitive now. Split at *commanded* (four `TrySetResult` points, one per
+  branch) so a mount that will not accept the pulse is still the caller's problem; the in-flight
+  count rises before the first write and falls when the hold ends; and a failed restore, which no
+  longer has a caller to throw to, parks in `_pendingPulseFault` and is re-thrown from the next
+  start AND from `IsPulseGuidingAsync` -- the latter deliberately, since the guider polls it while
+  waiting for the very pulse that failed. Done LAST on purpose: before the guide loop waited, this
+  would have left a window in which NOTHING waits on any mount.
+  **What remains of finding 2:** audit the OTHER drivers for the same "flag observable before the
+  starter returns" property. SkyWatcher and LX200 are right by construction; ASCOM/Alpaca inherit
+  whatever the remote driver does and have not been checked.
   Also: cancellation must reach an unawaited pulse, and `_pulseGuideInFlight` must be set BEFORE the
   write or the conversion introduces finding 2.
   **A test for it must assert on fake time traversed per guide frame** -- `GuideLoopTests` builds

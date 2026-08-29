@@ -471,9 +471,17 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         (await mount.IsSlewingAsync(ct)).ShouldBeFalse(
             "a guide pulse must not report as slewing (ASCOM: Slewing is False during PulseGuide)");
 
-        // Let the pulse run to completion, then the in-flight state clears.
-        external.TimeProvider.Advance(TimeSpan.FromSeconds(2));
+        // Let the pulse run to completion, then the in-flight state clears. Awaiting the STARTER is
+        // not that: it returns once the board has been commanded, so what has to finish here is the
+        // background hold that owns the duration and the :K2. Advance the clock past the pulse and
+        // drain until the count clears.
         await pulse;
+        external.TimeProvider.Advance(TimeSpan.FromSeconds(2));
+
+        for (var i = 0; i < 500 && await mount.IsPulseGuidingAsync(ct); i++)
+        {
+            await Task.Delay(1, ct);
+        }
 
         (await mount.IsPulseGuidingAsync(ct)).ShouldBeFalse("the pulse has completed");
     }
