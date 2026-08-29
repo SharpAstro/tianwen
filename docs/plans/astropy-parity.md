@@ -85,6 +85,12 @@ or a 60-180 degree panorama. For that, two options, not mutually exclusive:
 If wide-angle lens stitching or large mosaics become an actual target (not just theoretical),
 ranked gap 3 above moves from "nice to have" to load-bearing and should be pulled forward.
 
+**Using `PixelToSky`/`SkyToPixel` generatively (to resample pixels, not just report a header) is
+its own tracked plan: [wcs-reprojection.md](wcs-reprojection.md)** -- single-frame SIP undistort
+(P0) and multi-frame reprojection onto a shared WCS for mosaic stitching (P1), plus why that is a
+deliberate pull/inverse-warp operation where drizzle is an equally deliberate push/forward-splat
+one.
+
 ### Higher-order SIP: what it would take, and why it does not fix corner star shape
 
 **SIP corrects centroid POSITION, never star SHAPE, and the two get conflated because both show

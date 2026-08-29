@@ -358,7 +358,8 @@ Each verb maps to an enhancer / classical implementation that hasn't been wired 
 - [ ] `tianwen image denoise-walking` -- specialised walking-noise variant via `deep_denoise_*_AI4_1w.onnx`. Could be a flag on `denoise` rather than a separate verb.
 - [ ] `tianwen image upscale 2x|3x|4x` -- wraps `superres_{2,3,4}x.onnx`. New `IUpscaleEnhancer`. Output dimensions are scale * input.
 - [ ] `tianwen image remove-trails` -- `satelliteRemovalAI4.onnx`. Per `docs/plans/stacking.md` this logically belongs in the stacking pipeline as a pre-rejection filter; standalone single-image verb is also useful.
-- [ ] `tianwen image correct-aberration` -- optical aberration correction (coma, astigmatism, off-axis distortion). Models hosted in `riccardoalberghi/abberation_models` (different repo + release cadence than AI4); needs a separate fetcher branch in `tools/tianwen-ai-models-fetch.ps1` + runtime self-bootstrap.
+- [ ] `tianwen image correct-aberration` -- optical aberration correction (coma, astigmatism, off-axis distortion). Models hosted in `riccardoalberghi/abberation_models` (different repo + release cadence than AI4); needs a separate fetcher branch in `tools/tianwen-ai-models-fetch.ps1` + runtime self-bootstrap. **Not the same fix as raising SIP order** -- SIP corrects centroid position, never PSF/star shape; see `docs/plans/astropy-parity.md`'s SIP design note.
+- [ ] WCS-driven image undistort + mosaic reprojection (use `WCS.PixelToSky`/`SkyToPixel` generatively, to resample pixels, not just report a header). See [docs/plans/wcs-reprojection.md](../plans/wcs-reprojection.md).
 - [ ] `tianwen image flatten` -- ABE gradient removal (classical poly + RBF, no AI). See `docs/plans/background-extraction.md`.
 - [ ] **Read Siril's gradient-correction scripts as a reference for the above** (user, 2026-08-18).
   Siril's background extraction is one of the three prior-art implementations
