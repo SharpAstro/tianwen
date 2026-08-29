@@ -45,6 +45,14 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
     /// </summary>
     public bool CanPulseGuide => true;
 
+    /// <summary>
+    /// True: <c>:Mgd####</c> hands the duration to the mount and returns, so a second axis can be
+    /// commanded immediately. This driver was already written for it -- the local pulse-end tick is
+    /// CAS-updated to the LATEST end time, commented "overlapping pulses", which is the correct
+    /// reading of a single <see cref="IsPulseGuidingAsync"/> covering both axes.
+    /// </summary>
+    public bool CanPulseGuideSimultaneously => true;
+
     public bool CanSetRightAscensionRate => false;
 
     public bool CanSetDeclinationRate => false;

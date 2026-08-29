@@ -25,6 +25,27 @@ public interface IMountDriver : IDeviceDriver
 
     bool CanPulseGuide { get; }
 
+    /// <summary>
+    /// True when an RA pulse and a Dec pulse may be in flight at the same time.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>ASCOM has no word for this</b>, which is why it is ours. There is
+    /// <see cref="CanPulseGuide"/> and nothing about simultaneity, so an arbitrary ASCOM or Alpaca
+    /// driver may legally throw on the second axis while the first is still running. Anything we
+    /// cannot verify answers <see langword="false"/>: the cost of being wrong that way is one guide
+    /// frame taking `raMs + decMs` instead of `max(raMs, decMs)`, while the cost of being wrong the
+    /// other way is a thrown pulse mid-guide.</para>
+    ///
+    /// <para>Hardware that CAN generally has independent motors or independent signal lines -- Synta
+    /// boards address RA and Dec as separate axes, LX200 <c>:Mgd</c> pulses overlap by design, and
+    /// an ST-4 port is four separate relay lines.</para>
+    ///
+    /// <para>Only the two-axis overload of the guider's <c>PulseGuideAsync</c> reads this, and it is
+    /// the only thing that should: the fallback belongs in one place next to the decision, not in
+    /// every caller that might pulse two axes.</para>
+    /// </remarks>
+    bool CanPulseGuideSimultaneously { get; }
+
     bool CanPark { get; }
 
     bool CanSetPark { get; }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
@@ -77,6 +77,14 @@ internal class AlpacaTelescopeDriver(AlpacaDevice device, IServiceProvider servi
     public bool CanSync { get; private set; }
 
     public bool CanPulseGuide { get; private set; }
+
+    /// <summary>
+    /// False. ASCOM exposes no capability for simultaneity, so an arbitrary driver behind this one
+    /// may refuse or mishandle a second axis while the first is running, and we have no way to ask.
+    /// Being wrong this way costs one guide frame `raMs + decMs` instead of `max(raMs, decMs)`;
+    /// being wrong the other way throws mid-guide.
+    /// </summary>
+    public bool CanPulseGuideSimultaneously => false;
 
     public bool CanSetRightAscensionRate { get; private set; }
 

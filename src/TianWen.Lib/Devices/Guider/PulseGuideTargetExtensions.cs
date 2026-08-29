@@ -45,6 +45,86 @@ internal static class PulseGuideTargetExtensions
         }
 
         /// <summary>
+        /// Apply an RA correction and a Dec correction together, overlapping them when the target
+        /// allows it, and return once both have finished. Either may be <see langword="null"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para><b>The sequential fallback lives HERE, not in the caller.</b> Whether two axes may
+        /// be in flight at once is a fact only the driver knows
+        /// (<see cref="IPulseGuideTarget.CanPulseGuideSimultaneously"/>), so a guide loop that
+        /// branched on it would be carrying a decision on the driver's behalf, and every future
+        /// caller would carry it again.</para>
+        ///
+        /// <para>Both corrections come from ONE star measurement at ONE instant, which is the whole
+        /// argument for overlapping: serialised, the Dec pulse begins `raMs` after the measurement
+        /// it answers, and the pair costs `raMs + decMs` rather than `max(raMs, decMs)`.</para>
+        ///
+        /// <para>Note the wait is ONE wait, not one per axis, because
+        /// <see cref="IPulseGuideTarget.IsPulseGuidingAsync"/> is a single flag covering both --
+        /// which is also why the coarse hop uses the LONGER of the two durations.</para>
+        /// </remarks>
+        public async ValueTask PulseGuideAsync(
+            GuidePulse? ra, GuidePulse? dec, ITimeProvider timeProvider, CancellationToken cancellationToken)
+        {
+            if (ra is { Direction: var raDir and not (GuideDirection.East or GuideDirection.West) })
+            {
+                throw new ArgumentException($"{raDir} is not an RA direction", nameof(ra));
+            }
+            if (dec is { Direction: var decDir and not (GuideDirection.North or GuideDirection.South) })
+            {
+                throw new ArgumentException($"{decDir} is not a Dec direction", nameof(dec));
+            }
+
+            if (ra is not { } raPulse)
+            {
+                if (dec is { } decOnly)
+                {
+                    await target.PulseGuideAsync(decOnly.Direction, decOnly.Duration, timeProvider, cancellationToken);
+                }
+                return;
+            }
+
+            if (dec is not { } decPulse)
+            {
+                await target.PulseGuideAsync(raPulse.Direction, raPulse.Duration, timeProvider, cancellationToken);
+                return;
+            }
+
+            if (!target.CanPulseGuideSimultaneously)
+            {
+                await target.PulseGuideAsync(raPulse.Direction, raPulse.Duration, timeProvider, cancellationToken);
+                await target.PulseGuideAsync(decPulse.Direction, decPulse.Duration, timeProvider, cancellationToken);
+                return;
+            }
+
+            // Start both, THEN await both, and note the order: calling an async method runs it up to
+            // its first await, so by the time we await either one BOTH holds are already in flight.
+            // This is the allocation-free stand-in for Task.WhenAll, which cannot take a ValueTask;
+            // there is no ValueTask combinator in the BCL and none in the org (DotNext had a tuple
+            // WhenAll and dropped it after 4.x). Starting them separately matters most for a target
+            // whose start still BLOCKS -- SkyWatcher, until its conversion -- which would otherwise
+            // serialise here exactly as the caller used to.
+            //
+            // The try/finally is load-bearing rather than tidy: if the RA pulse faults (a rate
+            // restore that would not take, say) the Dec pulse must STILL be awaited, or its own stop
+            // goes unobserved and an axis is left running with nobody watching. When both fault the
+            // Dec exception wins, which is an acceptable loss -- they say the same thing.
+            var raStart = target.StartPulseGuideAsync(raPulse.Direction, raPulse.Duration, cancellationToken);
+            var decStart = target.StartPulseGuideAsync(decPulse.Direction, decPulse.Duration, cancellationToken);
+            try
+            {
+                await raStart;
+            }
+            finally
+            {
+                await decStart;
+            }
+
+            var longest = raPulse.Duration > decPulse.Duration ? raPulse.Duration : decPulse.Duration;
+            await target.WaitForPulseCompleteAsync(longest, timeProvider, cancellationToken);
+        }
+
+        /// <summary>
         /// Wait for whatever pulse is currently running to finish.
         /// </summary>
         /// <remarks>

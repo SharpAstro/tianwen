@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -200,6 +200,9 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     public bool CanSetDeclinationRate { get; } = false;
     public bool CanSetGuideRates { get; } = true;
     public bool CanPulseGuide { get; } = true;
+
+    /// <summary>True; corrections apply per axis and each clears its own timer.</summary>
+    public bool CanPulseGuideSimultaneously { get; } = true;
     /// <summary>
     /// Settable so a test can model a mount that cannot park -- a star tracker such as the iOptron
     /// SkyGuider Pro, whose driver reports <c>CanPark = false</c>. It matters because

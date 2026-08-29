@@ -12,6 +12,12 @@ namespace TianWen.Lib.Devices.Guider;
 internal interface IPulseGuideTarget
 {
     /// <summary>
+    /// Whether this target accepts an RA and a Dec pulse at the same time. Forwarded from the
+    /// underlying driver -- see <see cref="IMountDriver.CanPulseGuideSimultaneously"/>.
+    /// </summary>
+    bool CanPulseGuideSimultaneously { get; }
+
+    /// <summary>
     /// STARTS a guide pulse and returns once the target has been commanded, NOT once the pulse has
     /// finished. See
     /// <see cref="IMountDriver.StartPulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>

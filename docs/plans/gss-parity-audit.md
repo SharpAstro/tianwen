@@ -307,15 +307,46 @@ blocking today; that is the path `FakeCameraMountCouplingTests` drives, and it c
    `AlpacaMembers.cs`) and is untouched.
 2. **DONE as part of 1.** Hoist `WaitForPulseCompleteAsync` out of `GuiderCalibration` -- it is the
    waiting half of the composite, so it moved there rather than to a helper class.
-3. Give the composite a **two-axis overload** and add the simultaneous-dual-axis capability
-   (`CanPulseGuideSimultaneously`) behind it, answered per driver. **The branch belongs INSIDE the
-   composite, not in `GuideLoop`**: start both and wait once where the mount allows it, else start
-   RA, wait, start Dec, wait. The plan previously had `GuideLoop` keeping "a sequential fallback for
-   mounts that need it", which is caller-side branching for a fact only the driver knows.
-4. `GuideLoop` calls that overload once with both corrections, replacing the two bare awaits. **This
-   is a bug fix, not the speedup** -- see the correction under finding 1: on every mount family
-   except Synta the loop currently never waits for a pulse at all, and the composite is what fixes
-   that. The overlap is the SkyWatcher half of the same change.
+3. **DONE.** Two-axis overload plus `CanPulseGuideSimultaneously`, answered by all 13
+   implementations. **The branch lives INSIDE the composite, not in `GuideLoop`**: start both and
+   wait once where the mount allows it, else start RA, wait, start Dec, wait. The plan previously
+   had `GuideLoop` keeping "a sequential fallback for mounts that need it", which is caller-side
+   branching for a fact only the driver knows.
+
+   Who can, and why -- the capability is answered from the mechanism, never assumed:
+
+   | Answer | Implementations | Because |
+   |---|---|---|
+   | **true** | `SkywatcherMountDriverBase` | separate motors on separate axes; `_pulseGuideInFlight` was ALREADY a counter, not a flag, so an overlapping pair clears only when both finish |
+   | **true** | `MeadeLX200ProtocolMountDriverBase` | `:Mgd` hands the duration to the mount; the pulse-end tick is CAS'd to the latest, commented "overlapping pulses" |
+   | **true** | `DALCameraDriver` (ST-4) | stop timers are keyed PER DIRECTION in an array, in-flight set is a CAS'd bitmask |
+   | **true** | `FakeMountDriver`, `FakeCameraDriver` | per-axis state; the camera forwards its coupled mount's answer, since an ST-4 pulse IS a pulse on that mount |
+   | **false** | ASCOM + Alpaca telescope and camera | **ASCOM has no capability for simultaneity**, so a driver may legally refuse the second axis and we cannot ask |
+   | **false** | `SgpMountDriverBase`, `CanonCameraDriver` | no pulse to overlap (`CanPulseGuide` is already false) |
+
+   The asymmetry is deliberate: guessing `false` wrongly costs one guide frame `raMs + decMs`
+   instead of `max(raMs, decMs)`; guessing `true` wrongly throws mid-guide.
+4. **DONE.** `GuideLoop` calls that overload once with both corrections, replacing the two bare
+   awaits. **This is a bug fix, not the speedup** -- see the correction under finding 1: on every
+   mount family except Synta the loop never waited for a pulse at all, and the composite is what
+   fixes that. The overlap is the SkyWatcher half of the same change.
+
+   **The whole functional suite passed before AND after**, which is the point of the pin: this is
+   invisible to a wall clock and to every test that existed. `PulseGuideCompositeTests` asserts on
+   **fake time traversed** -- overlapped costs `max`, serialised costs the sum, and a composite that
+   does not wait costs neither. Verified by sabotage twice (drop the wait; ignore the capability),
+   each caught by exactly one test.
+
+   **There is no `WhenAll` for `ValueTask`**, in the BCL or in this org (checked all 23 repos;
+   DotNext had a tuple `WhenAll` and dropped it after 4.x, and 6.1.0 ships no combinators at all).
+   `.AsTask()` would work and allocate; the allocation-free equivalent is to **start both, then
+   await both** -- calling an async method runs it to its first await, so both holds are in flight
+   before either is awaited. The `try { await ra; } finally { await dec; }` around it is
+   load-bearing, not tidiness: two bare awaits abandon the Dec pulse when RA faults, leaving an
+   unobserved `ValueTask` and an axis running with nobody watching whether its stop landed. Pinned
+   by `AFaultedRaPulseStillAwaitsTheDecPulse`, whose discriminator is that the composite is still
+   INCOMPLETE after the RA fault has had every chance to escape -- asserting on the Dec flag alone
+   would be flaky, because the abandoned async method still runs to completion on its own.
 5. Convert `SkywatcherMountDriverBase` to a background hold. Moved LAST deliberately: it is the only
    implementation that violates the primitive's contract, it is the whole risk of the sequence, and
    with steps 3-4 already in place the guide loop is waiting properly before the driver stops doing

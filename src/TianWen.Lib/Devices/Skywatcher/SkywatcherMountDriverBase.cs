@@ -173,6 +173,15 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     public bool CanSetTracking => true;
     public bool CanSetSideOfPier => false;
     public bool CanPulseGuide => true;
+
+    /// <summary>
+    /// True: RA and Dec are separate motors addressed as separate axes, and the driver already
+    /// counts pulses rather than flagging them (<c>_pulseGuideInFlight</c> is an
+    /// <see cref="Interlocked"/> counter precisely so an overlapping pair clears only when BOTH
+    /// finish). An RA pulse touches axis 1 and a Dec pulse axis 2; individual commands serialise on
+    /// the port lock, which orders them without serialising the two HOLDS.
+    /// </summary>
+    public bool CanPulseGuideSimultaneously => true;
     public bool CanSetRightAscensionRate => false;
     public bool CanSetDeclinationRate => false;
     public bool CanSetGuideRates => true;

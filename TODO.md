@@ -148,18 +148,18 @@
   on the internal guider surface: start AND wait). 82 references over 29 files, no behaviour change,
   and `GuiderCalibration`'s eight hand-written start-then-wait pairs collapsed to eight single calls
   with the wait hoisted into the composite.
-  **What remains, in this order -- the order is load-bearing.**
-  (a) Give the composite a **two-axis overload** plus a `CanPulseGuideSimultaneously` capability
-  answered per driver, with the branch INSIDE the composite (start both and wait once where allowed,
-  else RA-wait-Dec-wait). Not caller-side: it is a fact only the driver knows.
-  (b) `GuideLoop` calls that overload once with both corrections. **This is a bug fix, not the
-  speedup**: overlapping the axes only helps Synta hardware, because ASCOM / Alpaca / DAL ST-4 /
-  `FakeMountDriver` already return once commanded and so already overlap by accident -- while on all
-  of those, `GuideLoop` currently **never waits for a pulse to finish before measuring the next
-  frame**, which the blocking SkyWatcher driver was accidentally covering up.
-  (c) Only THEN convert `SkywatcherMountDriverBase` to a background hold. It is the one
+  **Also done:** the composite has a **two-axis overload** plus a `CanPulseGuideSimultaneously`
+  capability answered by all 13 implementations from the mechanism (SkyWatcher's
+  `_pulseGuideInFlight` was ALREADY a counter for exactly this; DAL keys stop timers per direction;
+  ASCOM and Alpaca answer false because the spec has no word for simultaneity and guessing wrong
+  there throws mid-guide). The branch lives INSIDE the composite, never in the caller. And
+  `GuideLoop` calls it once with both corrections -- **a bug fix, not the speedup**: overlapping
+  only helps Synta hardware, while on every other family the loop **never waited for a pulse at
+  all**, which the blocking SkyWatcher driver was accidentally covering up.
+  **What remains: convert `SkywatcherMountDriverBase` to a background hold.** It is the one
   implementation that violates the primitive's contract (its doc comment says so) and the whole risk
-  of the sequence. Doing it before (b) would leave a window in which NOTHING waits on any mount.
+  of the sequence. It is deliberately LAST: doing it before the guide loop waited would have left a
+  window in which NOTHING waits on any mount.
   Also: cancellation must reach an unawaited pulse, and `_pulseGuideInFlight` must be set BEFORE the
   write or the conversion introduces finding 2.
   **A test for it must assert on fake time traversed per guide frame** -- `GuideLoopTests` builds

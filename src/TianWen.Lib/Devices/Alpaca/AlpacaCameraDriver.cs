@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
@@ -200,6 +200,12 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
     public bool CanFastReadout { get; private set; }
     public bool CanSetBitDepth { get; } = false;
     public bool CanPulseGuide { get; private set; }
+
+    /// <summary>
+    /// False, for the same reason as the telescope driver: the ST-4 wiring could carry a diagonal
+    /// pulse, but nothing in the ASCOM contract says the driver behind it will.
+    /// </summary>
+    public bool CanPulseGuideSimultaneously => false;
     public bool UsesGainValue { get; private set; }
     public bool UsesGainMode { get; private set; }
     public bool UsesOffsetValue { get; private set; }

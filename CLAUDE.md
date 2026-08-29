@@ -1936,6 +1936,15 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
   synchronous loop where you cannot `await`, that poll is the stand-in for `await _task`. For a single
   grab-and-clear reference, use `Interlocked.Exchange`. (Canonical example: `SkyMapTab`'s async Milky
   Way load, mirroring `TryApplyPendingStarBuild`.)
+- **There is no `WhenAll` for `ValueTask`** -- not in the BCL, not in this org, and not in DotNext
+  (it had a tuple `WhenAll` and dropped it after 4.x; 6.1.0 ships no combinators). Do not reach for
+  `.AsTask()` reflexively: **start both, then await both**. Calling an async method runs it to its
+  first await, so `var a = XAsync(); var b = YAsync(); await a; await b;` has both already in flight
+  and allocates nothing. **Wrap it `try { await a; } finally { await b; }`** whenever abandoning the
+  second one matters -- two bare awaits drop `b` if `a` faults, leaving an unobserved `ValueTask`
+  and whatever `b` was cleaning up unfinished. Canonical use:
+  `PulseGuideTargetExtensions.PulseGuideAsync`, where `b` is the pulse on the other mount axis and
+  dropping it leaves that axis running.
 - **Never build the value for a `CompareExchange` inside the call.** An argument is evaluated before
   the call it is passed to, so `Interlocked.CompareExchange(ref _task, Task.Run(Work), null)` starts
   `Work` on **every** racing caller, not just the CAS winner. The losers return the winner's task and

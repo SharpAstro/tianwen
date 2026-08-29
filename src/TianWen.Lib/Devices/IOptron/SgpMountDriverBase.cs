@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -55,6 +55,9 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
     public bool CanSetTracking => false;
     public bool CanSetSideOfPier => false;
     public bool CanPulseGuide => false; // SGP guiding requires ST-4 port, not serial commands
+
+    /// <summary>False; there is no serial pulse to overlap.</summary>
+    public bool CanPulseGuideSimultaneously => false;
     public bool CanSetRightAscensionRate => false;
     public bool CanSetDeclinationRate => false;
     public bool CanSetGuideRates => true; // via :MSGR command
