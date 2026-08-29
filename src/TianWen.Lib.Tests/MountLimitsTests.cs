@@ -15,17 +15,29 @@ namespace TianWen.Lib.Tests;
 /// </remarks>
 public class MountLimitsTests
 {
+    /// <summary>
+    /// An hour angle that is descending (HA &gt; 0) but still clear of the meridian warn threshold,
+    /// so a horizon case reports the horizon and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// 3 minutes past. Load-bearing: the meridian and horizon verdicts are ranked against each
+    /// other, so a horizon test run at an hour angle that also trips the meridian limit asserts on
+    /// whichever won, not on the horizon. This value moved once already when the meridian threshold
+    /// changed units -- if these tests start failing together, check this first.
+    /// </remarks>
+    private const double DescendingClearOfMeridian = 0.05;
+
     private static MountLimitConfiguration Enabled(
-        double meridianWarnDeg = 5.0,
-        double meridianActionExtraDeg = 5.0,
+        double meridianWarnMinutes = 5.0,
+        double meridianActionExtraMinutes = 5.0,
         MountLimitResponse meridianResponse = MountLimitResponse.StopTracking,
         double horizonActionDeg = 10.0,
         double horizonWarnExtraDeg = 5.0,
         MountLimitResponse horizonResponse = MountLimitResponse.Park)
         => new MountLimitConfiguration(
             Enabled: true,
-            MeridianWarnDeg: meridianWarnDeg,
-            MeridianActionExtraDeg: meridianActionExtraDeg,
+            MeridianWarnMinutes: meridianWarnMinutes,
+            MeridianActionExtraMinutes: meridianActionExtraMinutes,
             MeridianResponse: meridianResponse,
             HorizonActionDeg: horizonActionDeg,
             HorizonWarnExtraDeg: horizonWarnExtraDeg,
@@ -56,7 +68,7 @@ public class MountLimitsTests
     {
         var config = new MountLimitConfiguration();
 
-        config.MeridianActionDeg.ShouldBeGreaterThan(config.MeridianWarnDeg);
+        config.MeridianActionMinutes.ShouldBeGreaterThan(config.MeridianWarnMinutes);
         config.HorizonWarnDeg.ShouldBeGreaterThan(config.HorizonActionDeg);
     }
 
@@ -79,7 +91,7 @@ public class MountLimitsTests
     [InlineData(-6.0)]  // 6 h east, rising
     [InlineData(-0.5)]
     [InlineData(0.0)]   // exactly on the meridian
-    [InlineData(0.32)]  // ~4.8 deg west, just inside the 5 deg warn threshold
+    [InlineData(0.08)]  // ~4.8 min west, just inside the 5 min warn threshold
     public void EastOfTheWarnThresholdIsClear(double hourAngleHours)
         => MountLimits.Evaluate(hourAngleHours, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
@@ -87,28 +99,28 @@ public class MountLimitsTests
     [Fact]
     public void BetweenWarnAndActionItWarnsAndDoesNotAct()
     {
-        // 7 deg past the meridian: warn is 5, action is 5 + 5 = 10.
+        // 7 min past the meridian: warn is 5, action is 5 + 5 = 10.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 7.0 / 15.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
+            hourAngleHours: 7.0 / 60.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
 
         verdict.Kind.ShouldBe(MountLimitKind.Meridian);
         verdict.IsWarningOnly.ShouldBeTrue();
         // Negative = still this far from acting. 7 - 10 = -3.
-        verdict.ExceededByDeg.ShouldBe(-3.0, tolerance: 1e-9);
-        verdict.Describe().ShouldContain("3.0 deg");
+        verdict.ExceededBy.ShouldBe(-3.0, tolerance: 1e-9);
+        verdict.Describe().ShouldContain("3 min");
     }
 
     [Fact]
     public void PastTheActionThresholdItActs()
     {
-        // 12 deg past: 2 deg beyond the 10 deg action point.
+        // 12 min past: 2 min beyond the 10 min action point.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 12.0 / 15.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
+            hourAngleHours: 12.0 / 60.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
 
         verdict.Kind.ShouldBe(MountLimitKind.Meridian);
         verdict.IsWarningOnly.ShouldBeFalse();
         verdict.Response.ShouldBe(MountLimitResponse.StopTracking);
-        verdict.ExceededByDeg.ShouldBe(2.0, tolerance: 1e-9);
+        verdict.ExceededBy.ShouldBe(2.0, tolerance: 1e-9);
     }
 
     [Fact]
@@ -116,7 +128,7 @@ public class MountLimitsTests
     {
         // Being past the limit is a fact about where the tube IS, not about the motors. A mount that
         // was stopped inside the limit is still inside it.
-        MountLimits.Evaluate(12.0 / 15.0, 60.0, isTracking: false, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(12.0 / 60.0, 60.0, isTracking: false, alreadyActed: false, Enabled())
             .Kind.ShouldBe(MountLimitKind.Meridian);
     }
 
@@ -138,12 +150,12 @@ public class MountLimitsTests
     {
         // HA > 0 = past upper transit = descending. 6 deg altitude against a 10 deg floor.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 0.2, altitudeDeg: 6.0, isTracking: true, alreadyActed: false, Enabled());
+            hourAngleHours: DescendingClearOfMeridian, altitudeDeg: 6.0, isTracking: true, alreadyActed: false, Enabled());
 
         verdict.Kind.ShouldBe(MountLimitKind.Horizon);
         verdict.IsWarningOnly.ShouldBeFalse();
         verdict.Response.ShouldBe(MountLimitResponse.Park);
-        verdict.ExceededByDeg.ShouldBe(4.0, tolerance: 1e-9);
+        verdict.ExceededBy.ShouldBe(4.0, tolerance: 1e-9);
     }
 
     [Fact]
@@ -151,11 +163,11 @@ public class MountLimitsTests
     {
         // Floor 10, warn 15. At 13 deg the user is told and nothing is taken away.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 0.2, altitudeDeg: 13.0, isTracking: true, alreadyActed: false, Enabled());
+            hourAngleHours: DescendingClearOfMeridian, altitudeDeg: 13.0, isTracking: true, alreadyActed: false, Enabled());
 
         verdict.Kind.ShouldBe(MountLimitKind.Horizon);
         verdict.IsWarningOnly.ShouldBeTrue();
-        verdict.ExceededByDeg.ShouldBe(-3.0, tolerance: 1e-9);
+        verdict.ExceededBy.ShouldBe(-3.0, tolerance: 1e-9);
     }
 
     [Theory]
@@ -177,13 +189,13 @@ public class MountLimitsTests
     {
         // A parked or stowed mount routinely sits below the floor. Alarming there would alarm forever,
         // at exactly the times nothing is at risk.
-        MountLimits.Evaluate(0.2, altitudeDeg: 2.0, isTracking: false, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(DescendingClearOfMeridian, altitudeDeg: 2.0, isTracking: false, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
     }
 
     [Fact]
     public void AnUnknownAltitudeDoesNotProduceAHorizonVerdict()
-        => MountLimits.Evaluate(0.2, double.NaN, isTracking: true, alreadyActed: false, Enabled())
+        => MountLimits.Evaluate(DescendingClearOfMeridian, double.NaN, isTracking: true, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
 
     [Fact]
@@ -207,7 +219,7 @@ public class MountLimitsTests
         // forever, never arriving. Downgrading to Warn rather than Clear is the point: the mount is
         // still in the limit and the user must keep being told.
         var acted = MountLimits.Evaluate(
-            hourAngleHours: 12.0 / 15.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: true, Enabled());
+            hourAngleHours: 12.0 / 60.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: true, Enabled());
 
         acted.IsBreached.ShouldBeTrue();
         acted.Kind.ShouldBe(MountLimitKind.Meridian);
@@ -227,10 +239,10 @@ public class MountLimitsTests
     public void AlreadyActedLeavesAWarningAloneSoTheCountdownKeepsRunning()
     {
         var warning = MountLimits.Evaluate(
-            hourAngleHours: 7.0 / 15.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: true, Enabled());
+            hourAngleHours: 7.0 / 60.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: true, Enabled());
 
         warning.IsWarningOnly.ShouldBeTrue();
-        warning.ExceededByDeg.ShouldBe(-3.0, tolerance: 1e-9);
+        warning.ExceededBy.ShouldBe(-3.0, tolerance: 1e-9);
     }
 
     #endregion
@@ -249,7 +261,7 @@ public class MountLimitsTests
         // distinction entirely, because both sides then tie and the meridian wins on the tie-break --
         // the right answer for the wrong reason, and a broken rank would have shipped.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 12.0 / 15.0, altitudeDeg: 13.0, isTracking: true, alreadyActed: false,
+            hourAngleHours: 12.0 / 60.0, altitudeDeg: 13.0, isTracking: true, alreadyActed: false,
             Enabled(meridianResponse: MountLimitResponse.Warn,
                     horizonResponse: MountLimitResponse.Park));
 
@@ -265,7 +277,7 @@ public class MountLimitsTests
         // stronger action is right even though the meridian is the more dangerous limit. What the
         // verdict then NAMES is the limit driving the action, which is the horizon.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 12.0 / 15.0, altitudeDeg: 2.0, isTracking: true, alreadyActed: false,
+            hourAngleHours: 12.0 / 60.0, altitudeDeg: 2.0, isTracking: true, alreadyActed: false,
             Enabled(meridianResponse: MountLimitResponse.StopTracking,
                     horizonResponse: MountLimitResponse.Park));
 
@@ -279,7 +291,7 @@ public class MountLimitsTests
         // The genuine tie, and the only case the kind precedence decides. The meridian ends with the
         // tube against the pier; the horizon merely ends with it pointed somewhere useless.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 12.0 / 15.0, altitudeDeg: 2.0, isTracking: true, alreadyActed: false,
+            hourAngleHours: 12.0 / 60.0, altitudeDeg: 2.0, isTracking: true, alreadyActed: false,
             Enabled(meridianResponse: MountLimitResponse.Park,
                     horizonResponse: MountLimitResponse.Park));
 
@@ -288,7 +300,7 @@ public class MountLimitsTests
 
     [Fact]
     public void WhenOnlyTheHorizonIsDueTheHorizonWins()
-        => MountLimits.Evaluate(0.2, altitudeDeg: 2.0, isTracking: true, alreadyActed: false, Enabled())
+        => MountLimits.Evaluate(DescendingClearOfMeridian, altitudeDeg: 2.0, isTracking: true, alreadyActed: false, Enabled())
             .Kind.ShouldBe(MountLimitKind.Horizon);
 
     #endregion
@@ -301,12 +313,12 @@ public class MountLimitsTests
     [InlineData(-100.0)]
     public void ANonPositiveExtraStillLeavesActionAtOrAfterWarn(double extra)
     {
-        var config = Enabled(meridianWarnDeg: 5.0, meridianActionExtraDeg: extra,
+        var config = Enabled(meridianWarnMinutes: 5.0, meridianActionExtraMinutes: extra,
             horizonActionDeg: 10.0, horizonWarnExtraDeg: extra);
 
         // Warn-before-action is what the "extra" shape exists to guarantee; a second absolute
         // threshold could be edited into the wrong order and silently act before warning.
-        config.MeridianActionDeg.ShouldBeGreaterThanOrEqualTo(config.MeridianWarnDeg);
+        config.MeridianActionMinutes.ShouldBeGreaterThanOrEqualTo(config.MeridianWarnMinutes);
         config.HorizonWarnDeg.ShouldBeGreaterThanOrEqualTo(config.HorizonActionDeg);
     }
 
@@ -315,8 +327,8 @@ public class MountLimitsTests
     {
         // A user who wants no grace period gets none, rather than an unreachable action threshold.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 5.0 / 15.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: false,
-            Enabled(meridianWarnDeg: 5.0, meridianActionExtraDeg: 0.0));
+            hourAngleHours: 5.0 / 60.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: false,
+            Enabled(meridianWarnMinutes: 5.0, meridianActionExtraMinutes: 0.0));
 
         verdict.Kind.ShouldBe(MountLimitKind.Meridian);
         verdict.IsWarningOnly.ShouldBeFalse();

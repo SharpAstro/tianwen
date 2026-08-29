@@ -24,11 +24,11 @@ namespace TianWen.Lib.Tests;
 [Collection("Session")]
 public class SessionMountLimitTests(ITestOutputHelper output)
 {
-    /// <summary>Warn at 5 deg of hour angle, act at 10 by stopping tracking.</summary>
+    /// <summary>Warn at 5 min past the meridian, act at 10 by stopping tracking.</summary>
     private static MountLimitConfiguration StopTrackingPastTheMeridian => new MountLimitConfiguration(
         Enabled: true,
-        MeridianWarnDeg: 5.0,
-        MeridianActionExtraDeg: 5.0,
+        MeridianWarnMinutes: 5.0,
+        MeridianActionExtraMinutes: 5.0,
         MeridianResponse: MountLimitResponse.StopTracking);
 
     private static async Task<SessionTestContext> TrackingRigAsync(
@@ -52,8 +52,8 @@ public class SessionMountLimitTests(ITestOutputHelper output)
     public async Task AMountWithinItsLimitsIsLeftAlone()
     {
         var ct = TestContext.Current.CancellationToken;
-        // 1 deg east of the meridian: approaching, but not even at the warn threshold.
-        var ctx = await TrackingRigAsync(output, StopTrackingPastTheMeridian, -1.0 / 15.0, ct);
+        // 1 min east of the meridian: approaching, but not even at the warn threshold.
+        var ctx = await TrackingRigAsync(output, StopTrackingPastTheMeridian, -1.0 / 60.0, ct);
 
         await ctx.Session.PollDeviceStatesAsync(ct);
 
@@ -65,8 +65,8 @@ public class SessionMountLimitTests(ITestOutputHelper output)
     public async Task PastTheWarnThresholdItWarnsAndDoesNotTouchTheMount()
     {
         var ct = TestContext.Current.CancellationToken;
-        // 7 deg past the meridian: over the 5 deg warn threshold, under the 10 deg action one.
-        var ctx = await TrackingRigAsync(output, StopTrackingPastTheMeridian, 7.0 / 15.0, ct);
+        // 7 min past the meridian: over the 5 min warn threshold, under the 10 min action one.
+        var ctx = await TrackingRigAsync(output, StopTrackingPastTheMeridian, 7.0 / 60.0, ct);
 
         await ctx.Session.PollDeviceStatesAsync(ct);
 
@@ -83,7 +83,7 @@ public class SessionMountLimitTests(ITestOutputHelper output)
     public async Task PastTheActionThresholdTheMountIsStopped()
     {
         var ct = TestContext.Current.CancellationToken;
-        // 15 deg past the meridian, comfortably beyond the 10 deg action threshold.
+        // 15 min past the meridian, comfortably beyond the 10 min action threshold.
         var ctx = await TrackingRigAsync(output, StopTrackingPastTheMeridian, 1.0, ct);
 
         await ctx.Session.PollDeviceStatesAsync(ct);
