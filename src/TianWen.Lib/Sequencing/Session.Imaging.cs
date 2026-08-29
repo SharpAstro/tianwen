@@ -764,8 +764,12 @@ internal partial record Session
 
                     if (!double.IsNaN(currentHA))
                     {
+                        // Setup.MountLimits clamps the flip window: the rig's mechanical bound caps how
+                        // late a flip may be scheduled, so the limit can never stop the mount at the
+                        // moment it was about to flip.
                         flipAction = MeridianFlipDecision.DecideFlipAction(
-                            currentHA, pierSideChanged, alreadyOnCorrectSide, hasFlipped, Configuration);
+                            currentHA, pierSideChanged, alreadyOnCorrectSide, hasFlipped, Configuration,
+                            Setup.MountLimits);
 
                         // Published from the same HA reading the decision was taken on, so the countdown a
                         // dashboard shows and the flip the loop performs can never disagree. Null once we

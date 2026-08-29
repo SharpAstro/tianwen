@@ -109,7 +109,7 @@ constraints GSS never had:
 |-------|------|--------|
 | P0 | **`MountLimits` pure decider** (`TianWen.Lib/Sequencing/` beside `MeridianFlipDecision`): `Evaluate(hourAngleHours, altitudeDeg, isTracking, alreadyActed, MountLimitConfiguration) -> MountLimitVerdict`. No I/O, no driver, no clock. `MountLimitConfiguration` landed with it rather than waiting for P1, because the decider cannot be written without it; P1 keeps the PLACEMENT (profile persistence + UI). **Two departures from the sketch:** it takes no pier side and no alignment mode -- see the note below. | **DONE** (30 tests, 3 sabotages verified) |
 | P1b | **Axis modelling: `GetAxisAngleAsync(TelescopeAxis) -> double?`** (degrees from the mount's home position, signed, hemisphere-corrected), implemented natively by the SkyWatcher driver from steps + CPR and returning `null` everywhere else. **Angle, not steps**: the driver owns its home convention (`0x800000`) and the southern mirroring, and leaking steps + CPR would make every caller re-derive both -- the bug `StepsToRa` already exists to prevent. This is what upgrades the limit from approximation to mechanical truth on the mounts that can support it, and it is independently useful (a true pier-side derivation, PE phase, a mechanical-position readout). | NOT STARTED |
-| P1 | **Profile placement + UI.** Persist `MountLimitConfiguration` (the record itself shipped in P0) and give it an editor. **Lives on the PROFILE, not `SessionConfiguration`** -- it is a static fact about a pier, a tube and a counterweight shaft, exactly like `OTAData`, and it must apply to a manual slew with no session. | **DONE** for persistence + plumbing; the editor UI is not built |
+| P1 | **Profile placement + UI.** Persist `MountLimitConfiguration` (the record itself shipped in P0) and give it an editor. **Lives on the PROFILE, not `SessionConfiguration`** -- it is a static fact about the mount's geometry AND the tube bolted to it, exactly like `OTAData`, and it must apply to a manual slew with no session. | **DONE** for persistence + plumbing; the editor UI is not built |
 | P2 | **Session enforcement.** Evaluate in `PollDeviceStatesAsync` (already the one place that refreshes `_mountState` with HA and pier side, and already called from every slew wait and the imaging tick). Verdict routes to a new `ImageLoopNextAction.LimitReached`, finalising the run the same way `DeviceUnrecoverable` does. Reuses `ResilientInvokeAsync` for the stop/park. | **DONE** (6 tests, 2 sabotages verified) |
 | P3 | **Enforcement outside a session** -- the half GSS gets for free. A `MountLimitWatcher` hosted alongside the device hub, polling any *connected* mount on a slow cadence (5 s) whether or not a session owns it. Must respect the hub lease: a run owns the mount, so the watcher only observes and lets the session act; with no run it acts itself. | NOT STARTED |
 | P4 | **Surface it.** A limit is useless if it fires silently: notification feed entry, a `LimitAlarm`-equivalent state on `ISessionTelemetry` for the Home board's rig card, and the warning threshold shown as a countdown next to the existing flip countdown (`MeridianFlipUtc`). | NOT STARTED |
@@ -239,3 +239,44 @@ BEGINS, and the fake advances with the fake clock which these tests never pump, 
 stays exactly where it was and every assertion passes for the wrong reason. Tracking is also
 switched on explicitly, because a freshly built test session has never initialised a mount and
 starts with tracking OFF -- asserting "still tracking" without that passes with enforcement deleted.
+
+## Correcting the physics, and making the limit the clamp
+
+**It is the TUBE that collides, not the counterweight.** Earlier notes here and in the code said the
+meridian limit is about "the counterweight shaft meeting the pier". That is backwards. Tracking past
+the meridian on a GEM swings the counterweight UP, above the OTA, and the tube DOWN toward the pier
+and tripod. Three consequences, none of which the first cut modelled:
+
+- **The margin is set by the OPTICS, not the ballast.** A long refractor or Newtonian -- plus dew
+  shield, focuser, camera train, whatever hangs off the back -- runs out of room far sooner than a
+  short lens on the same mount.
+- **It varies with DECLINATION.** A tube near the pole lies close to the RA axis and barely sweeps as
+  the mount tracks; one near the equator sweeps the widest arc and reaches the pier soonest.
+- **So a single hour-angle threshold is a conservative APPROXIMATION of a three-variable envelope**
+  (hour angle x declination x tube geometry), not the true bound. It must be set for the worst case
+  the rig actually images: the lowest declination it visits, with the longest tube fitted. Stating
+  this is the honest version; pretending the threshold is exact is how somebody sets it from a
+  high-Dec test and finds the pier at Dec 0.
+
+**The meridian limit is now in MINUTES, matching the flip.** It was degrees, while
+`MeridianFlipEarliestMinutesAfter` / `MeridianFlipLatestMinutesAfter` were minutes -- two settings
+bounding the same axis in two units, whose defaults (5 and 10 in each) looked identical and were
+not: 5 deg is 20 min. The horizon limit stays in degrees, because altitude genuinely is an angle and
+has no time analogue.
+
+**The limit is the ultimate clamp.** `MountLimitConfiguration.ClampFlipLatestMinutes` caps the flip
+deadline at the action threshold less `FlipClearanceMinutes` (5), and `MeridianFlipDecision`
+applies it internally so no caller can classify against an unclamped window by forgetting to ask.
+
+- **The direction of the dependency is the point.** How long to keep imaging before flipping is a
+  PREFERENCE; where the tube meets the pier is a FACT. The fact caps the preference.
+- **The tempting inverse is wrong.** Deriving the limit as "flip deadline plus a margin" -- the same
+  threshold-plus-EXTRA trick this record already uses for warn/act -- would let a preference move a
+  safety bound: raise the flip deadline to an hour and the mechanical limit follows it into the pier.
+- **Without the clamp the two simply race, and the limit wins**, which is the worst outcome: the
+  mount is stopped at the very moment it was about to do the right thing, ending the night instead
+  of flipping. This matters most for exactly the rigs that need it -- a GEM that cannot flip before
+  the meridian must track past it, and the user raises the flip deadline to do so.
+
+Pinned by `MountLimitClampsFlipTests`, including that the limit does NOT move when the flip
+preference does, and one sabotage (clamp removed).

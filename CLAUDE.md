@@ -634,7 +634,7 @@ mount stuck `Slewing`, zero exposures. Never re-introduce a flip-success check l
 
 **Mount safety limits are NOT the meridian flip, and the horizon test keys on HOUR ANGLE, not pier
 side.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`, pure, beside `MeridianFlipDecision`) is
-the mechanical bound -- where the tube meets the pier or the ground -- while a flip is a *scheduling*
+the mechanical bound -- where the TUBE meets the pier or the ground -- while a flip is a *scheduling*
 choice about a target that keeps being imaged from the other side. A rig can have one, both or
 neither. Ported from GSServer's `CheckAxisLimits` with three deliberate departures, each load-bearing:
 
@@ -657,6 +657,25 @@ neither. Ported from GSServer's `CheckAxisLimits` with three deliberate departur
 **Parking is opt-in for both limits**, because a park is MOTION across a path nothing has checked -- a
 mount stopped at 8 deg altitude may be a hand's width from a tripod leg. `Finalise` already parks at
 session end, so the unattended-dawn case needs no limit to slew.
+
+**It is the TUBE that collides, not the counterweight, and the threshold is an approximation.**
+Tracking past the meridian on a GEM swings the counterweight UP, above the OTA, and the tube DOWN
+toward the pier -- so the margin is set by the OPTICS (a long refractor or Newtonian runs out of
+room far sooner than a short lens) and varies with DECLINATION (a tube near the pole barely sweeps;
+one near the equator sweeps the widest arc). A single hour-angle threshold is therefore a
+conservative approximation of a three-variable envelope and must be set for the worst case the rig
+images -- lowest Dec, longest tube. Do not describe this limit as being about the counterweight.
+
+**The meridian limit is in MINUTES and is the ULTIMATE CLAMP on the flip.** It shares an axis with
+`MeridianFlipEarliestMinutesAfter` / `MeridianFlipLatestMinutesAfter`, so it shares their unit --
+it was degrees once and the two defaults read as the same numbers while differing 4x. The horizon
+limit stays in degrees (altitude is an angle). `MountLimitConfiguration.ClampFlipLatestMinutes` caps
+the flip deadline at the action threshold less `FlipClearanceMinutes`, applied INSIDE
+`MeridianFlipDecision` so no caller can forget it. **The dependency direction is load-bearing:** how
+long to keep imaging is a preference, where the tube meets the pier is a fact, and the fact caps the
+preference -- deriving the limit from the flip instead (the threshold-plus-EXTRA trick used for
+warn/act) would let a preference walk a safety bound into the pier. Unclamped the two race and the
+limit wins, stopping the mount at the moment it was about to flip.
 
 **Wired up as of P1+P2, and three placement decisions ride on it.** The config lives on
 `ProfileData.MountLimits` (nullable = never configured = disabled) and `SessionFactory` projects it

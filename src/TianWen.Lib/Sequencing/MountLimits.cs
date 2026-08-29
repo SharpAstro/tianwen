@@ -50,15 +50,23 @@ public enum MountLimitResponse
 /// </summary>
 /// <param name="Kind">Which limit, or <see cref="MountLimitKind.None"/>.</param>
 /// <param name="Response">What to do. Meaningless when <paramref name="Kind"/> is None.</param>
-/// <param name="ExceededByDeg">
-/// Degrees past the ACTION threshold, or -- while only the warning threshold has been crossed -- a
-/// negative number giving the degrees still remaining before action. So the sign is the answer to
-/// "has it acted yet", and the magnitude is always "how far from the action point".
+/// <param name="ExceededBy">
+/// How far past the ACTION threshold, or -- while only the warning threshold has been crossed -- a
+/// negative number giving how far is still left before action. So the sign is the answer to "has it
+/// acted yet", and the magnitude is always "how far from the action point".
+/// <para>
+/// <b>The UNIT depends on <paramref name="Kind"/>:</b> minutes of hour angle for
+/// <see cref="MountLimitKind.Meridian"/>, degrees of altitude for
+/// <see cref="MountLimitKind.Horizon"/>. Mixed units in one field look like a smell and are the
+/// lesser evil: the alternative is two fields of which one is always meaningless, and every
+/// consumer already switches on <paramref name="Kind"/> to say anything useful anyway.
+/// <see cref="MountLimitVerdict.Describe"/> renders the right unit; do not format this raw.
+/// </para>
 /// </param>
 public readonly record struct MountLimitVerdict(
     MountLimitKind Kind,
     MountLimitResponse Response,
-    double ExceededByDeg)
+    double ExceededBy)
 {
     /// <summary>Nothing is wrong.</summary>
     public static MountLimitVerdict Clear { get; } =
@@ -71,7 +79,7 @@ public readonly record struct MountLimitVerdict(
     /// True when the mount is between the warning and action thresholds: the user should be told,
     /// but nothing is taken away from them yet.
     /// </summary>
-    public bool IsWarningOnly => IsBreached && ExceededByDeg < 0.0;
+    public bool IsWarningOnly => IsBreached && ExceededBy < 0.0;
 
     /// <summary>
     /// One user-facing sentence, in the same spirit as <c>DeviceOwnershipGate.Describe()</c>: say
@@ -81,13 +89,13 @@ public readonly record struct MountLimitVerdict(
     {
         MountLimitKind.None => "Within all configured mount limits.",
         MountLimitKind.Meridian when IsWarningOnly =>
-            $"Approaching the meridian limit: {-ExceededByDeg:F1} deg of hour angle before the mount will {ResponsePhrase()}.",
+            $"Approaching the meridian limit: {-ExceededBy:F0} min of tracking before the mount will {ResponsePhrase()}.",
         MountLimitKind.Meridian =>
-            $"Meridian limit reached: the mount has tracked {ExceededByDeg:F1} deg of hour angle past the limit. Will {ResponsePhrase()}.",
+            $"Meridian limit reached: the mount has tracked {ExceededBy:F0} min past the limit. Will {ResponsePhrase()}.",
         MountLimitKind.Horizon when IsWarningOnly =>
-            $"Approaching the horizon limit: {-ExceededByDeg:F1} deg of altitude before the mount will {ResponsePhrase()}.",
+            $"Approaching the horizon limit: {-ExceededBy:F1} deg of altitude before the mount will {ResponsePhrase()}.",
         MountLimitKind.Horizon =>
-            $"Horizon limit reached: the pointing is {ExceededByDeg:F1} deg below the limit. Will {ResponsePhrase()}.",
+            $"Horizon limit reached: the pointing is {ExceededBy:F1} deg below the limit. Will {ResponsePhrase()}.",
         _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "unknown limit kind"),
     };
 
@@ -106,13 +114,20 @@ public readonly record struct MountLimitVerdict(
 /// session, and a rig with clear sky in every direction genuinely has none.
 /// </summary>
 /// <param name="Enabled">Master switch, mirroring GSServer's <c>LimitsOn</c>.</param>
-/// <param name="MeridianWarnDeg">
-/// Hour angle past the meridian, in degrees, at which to start warning. 15 deg = 1 h.
+/// <param name="MeridianWarnMinutes">
+/// Minutes of tracking PAST the meridian at which to start warning.
+/// <para>
+/// <b>Minutes, matching <see cref="SessionConfiguration.MeridianFlipLatestMinutesAfter"/>.</b> These
+/// two settings bound the same axis and the user reads them together, so they must be directly
+/// comparable; this was degrees once and the pair silently invited "5 and 10 mean the same thing in
+/// both", which they did not (5 deg is 20 min). 1 min of hour angle = 0.25 deg.
+/// </para>
 /// </param>
-/// <param name="MeridianActionExtraDeg">
-/// FURTHER degrees past <paramref name="MeridianWarnDeg"/> before <paramref name="MeridianResponse"/>
-/// is carried out. Expressed as an extra rather than as a second absolute threshold so that
-/// <c>action &gt;= warn</c> holds by construction and cannot be inverted by editing one field.
+/// <param name="MeridianActionExtraMinutes">
+/// FURTHER minutes past <paramref name="MeridianWarnMinutes"/> before
+/// <paramref name="MeridianResponse"/> is carried out. Expressed as an extra rather than as a second
+/// absolute threshold so that <c>action &gt;= warn</c> holds by construction and cannot be inverted
+/// by editing one field.
 /// </param>
 /// <param name="MeridianResponse">What to do once the action threshold is passed.</param>
 /// <param name="HorizonActionDeg">
@@ -136,18 +151,53 @@ public readonly record struct MountLimitVerdict(
 /// </remarks>
 public sealed record MountLimitConfiguration(
     bool Enabled = false,
-    double MeridianWarnDeg = 5.0,
-    double MeridianActionExtraDeg = 5.0,
+    double MeridianWarnMinutes = 20.0,
+    double MeridianActionExtraMinutes = 20.0,
     MountLimitResponse MeridianResponse = MountLimitResponse.StopTracking,
     double HorizonActionDeg = 10.0,
     double HorizonWarnExtraDeg = 5.0,
     MountLimitResponse HorizonResponse = MountLimitResponse.StopTracking)
 {
-    /// <summary>The absolute hour-angle (degrees) at which <see cref="MeridianResponse"/> happens.</summary>
-    public double MeridianActionDeg => MeridianWarnDeg + Math.Max(0.0, MeridianActionExtraDeg);
+    /// <summary>The absolute hour angle, in minutes past the meridian, at which
+    /// <see cref="MeridianResponse"/> happens.</summary>
+    public double MeridianActionMinutes => MeridianWarnMinutes + Math.Max(0.0, MeridianActionExtraMinutes);
 
     /// <summary>The absolute altitude (degrees) at which warning starts.</summary>
     public double HorizonWarnDeg => HorizonActionDeg + Math.Max(0.0, HorizonWarnExtraDeg);
+
+    /// <summary>
+    /// The latest a meridian flip may be scheduled on this rig: the configured
+    /// <paramref name="requestedLatestMinutesAfter"/>, or the limit's action threshold less
+    /// <see cref="FlipClearanceMinutes"/> if that is sooner. Unconstrained when limits are off.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>The limit is the ultimate clamp: the safety bound caps the preference, never the
+    /// other way round.</b> How long to keep imaging before flipping is a want; where the tube meets
+    /// the pier is a fact. The tempting inverse -- deriving the limit as "flip deadline plus a
+    /// margin", which is the same threshold-plus-EXTRA trick this record uses for warn/act -- is
+    /// WRONG here: raise the flip deadline to an hour and the mechanical limit would silently follow
+    /// it into the pier.</para>
+    ///
+    /// <para>Without this the two settings simply race, and the limit wins: a flip deadline past the
+    /// action threshold means the mount is stopped at the very moment it was about to do the right
+    /// thing, ending the night instead of flipping.</para>
+    /// </remarks>
+    public double ClampFlipLatestMinutes(double requestedLatestMinutesAfter)
+        => Enabled
+            ? Math.Min(requestedLatestMinutesAfter, MeridianActionMinutes - FlipClearanceMinutes)
+            : requestedLatestMinutesAfter;
+
+    /// <summary>
+    /// Minutes of headroom left between the last sanctioned flip and the limit acting, so the flip
+    /// has somewhere to happen rather than being commanded into the stop.
+    /// </summary>
+    /// <remarks>
+    /// A flip is a slew plus a plate-solve recenter plus a guider restart, all of it while the mount
+    /// keeps tracking toward the limit. Five minutes is a deliberately modest allowance -- enough
+    /// that the flip is not commanded at the instant of the stop, not so much that it eats a
+    /// tightly-configured window.
+    /// </remarks>
+    public const double FlipClearanceMinutes = 5.0;
 }
 
 /// <summary>
@@ -255,8 +305,8 @@ public static class MountLimits
         }
 
         // West of the meridian only. East is approaching transit and getting safer by the minute.
-        var haDeg = hourAngleHours * Astrometry.Constants.HOURS2DEG;
-        if (haDeg < config.MeridianWarnDeg)
+        var haMinutes = hourAngleHours * 60.0;
+        if (haMinutes < config.MeridianWarnMinutes)
         {
             return MountLimitVerdict.Clear;
         }
@@ -264,7 +314,7 @@ public static class MountLimits
         return new MountLimitVerdict(
             MountLimitKind.Meridian,
             config.MeridianResponse,
-            haDeg - config.MeridianActionDeg);
+            haMinutes - config.MeridianActionMinutes);
     }
 
     private static MountLimitVerdict EvaluateHorizon(

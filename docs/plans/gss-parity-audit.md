@@ -1,7 +1,14 @@
 # GSServer parity audit: fixes, ideas and limits worth porting
 
-**Status:** audit complete for the pulse/slew/queue band; three real findings (one already
-fixed, Finding 3), one feature (limits) split out into [`mount-safety-limits.md`](mount-safety-limits.md).
+**Status:** audit complete for the pulse/slew/queue band. **Findings 1 and 3 are FIXED and merged**
+(the whole guide-pulse contract: verify the restore, split the method in two, give the guide loop its
+missing wait, convert SkyWatcher to a background hold). **Finding 2 is fixed for pulses and open for
+slews.** The `6e6dba9` rollover question is answered and closed, no action. The feature half (limits)
+is split out into [`mount-safety-limits.md`](mount-safety-limits.md), where P0-P2 have shipped.
+
+**The verdict table below is the point of this document**: it records which GSS commits were read and
+why the five that do not apply do not, so the same commits are not re-read next year. Do not re-audit
+a row without a reason.
 
 GSServer (GSS, GPL-3.0, `rmorgan001/GSServer`) is the reference open-source Synta driver and
 the oracle TianWen's SkyWatcher protocol implementation was written against. It has kept
@@ -135,7 +142,7 @@ work yet; noted so the idea is not lost with the commit it came in.
 
 ---
 
-## Finding 1: RA and Dec guide pulses are issued SEQUENTIALLY
+## Finding 1: RA and Dec guide pulses are issued SEQUENTIALLY. FIXED
 
 `GuideLoop` applies the RA correction and then the Dec correction, each awaited:
 
@@ -420,7 +427,7 @@ blocking today; that is the path `FakeCameraMountCouplingTests` drives, and it c
 6. Pin with **fake time traversed per guide frame** -- under `FakeTimeProviderWrapper` the difference
    is free in wall time, so a wall-clock assertion cannot see it either way.
 
-## Finding 2: an "in progress" flag that is not observable when the starter returns
+## Finding 2: an "in progress" flag that is not observable when the starter returns. PARTLY FIXED
 
 `fb6e682` and `2c9cd16` are the same defect in two places: `SlewToCoordinatesAsync` returned
 before `IsSlewing` was set, and `PulseGuide` returned before `IsPulseGuiding` was. A client that
@@ -432,7 +439,16 @@ driver blocks - which is finding 1's problem. Once `StartPulseGuideAsync` return
 `_pulseGuideInFlight` must be incremented before the write and cleared by whatever ends the
 pulse, or we will have ported GSS's bug in the act of fixing the other one.
 
-Slews are worth a matching check against `_isSlewingRa` / `_isSlewingDec` for the same property.
+**Done for pulses.** `SkywatcherMountDriverBase` raises `_pulseGuideInFlight` BEFORE the first write
+and lowers it only when the background hold ends, so the conversion in finding 1 did not port GSS's
+bug while fixing the other one. It stays a counter, not a flag, so an overlapping RA+Dec pair clears
+only when both finish.
+
+**Still open, two parts.** Slews are worth a matching check against `_isSlewingRa` / `_isSlewingDec`
+for the same property. And the rule has NOT been audited on `AscomTelescopeDriver` /
+`AlpacaTelescopeDriver` / their camera counterparts, which inherit whatever the remote driver does
+and cannot be reasoned about from here -- LX200 and SkyWatcher are right by construction, those four
+are unknown.
 
 ## Finding 3: the commands that END a pulse were never verified. FIXED
 

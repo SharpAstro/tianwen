@@ -36,11 +36,20 @@ public readonly record struct ProfileData(
     /// </summary>
     /// <remarks>
     /// <para><b>On the PROFILE, not <c>SessionConfiguration</c>, and the distinction is not
-    /// bookkeeping.</b> Where the tube meets the pier is a static fact about a pier, a tube and a
-    /// counterweight shaft -- exactly like <see cref="OTAData"/> -- so it does not vary run to run,
-    /// and it has to apply to a manual slew with no session in sight. A per-run home would give the
-    /// right answer for the imaging loop and no answer at all for the case where somebody drives
-    /// the mount by hand at 2am.</para>
+    /// bookkeeping.</b> Where the tube meets the pier is a static fact about this rig -- the mount's
+    /// geometry AND the tube bolted to it -- exactly like <see cref="OTAData"/>, so it does not vary
+    /// run to run, and it has to apply to a manual slew with no session in sight. A per-run home
+    /// would give the right answer for the imaging loop and no answer at all for the case where
+    /// somebody drives the mount by hand at 2am.</para>
+    ///
+    /// <para><b>It is the TUBE that collides, not the counterweight.</b> Tracking past the meridian
+    /// on a GEM swings the counterweight UP, above the OTA, and the tube DOWN toward the pier and
+    /// tripod -- so the margin is set by the optics, not the ballast: a long refractor or Newtonian
+    /// runs out of room far sooner than a short lens. It also varies with DECLINATION, since a tube
+    /// near the pole lies along the RA axis and barely sweeps while one near the equator sweeps the
+    /// widest arc. A single hour-angle threshold is therefore a conservative APPROXIMATION of a
+    /// three-variable envelope, and must be set for the worst case the rig actually images -- the
+    /// lowest declination, with the longest tube and whatever hangs off the back of it.</para>
     ///
     /// <para>Null rather than a default instance so an older profile deserialises unchanged and
     /// reads as "never configured", which the shipped defaults answer as disabled. Opt-in is the

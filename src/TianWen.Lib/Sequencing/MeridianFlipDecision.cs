@@ -53,9 +53,15 @@ public static class MeridianFlipDecision
     /// the rig is past the mechanical risk but not yet at the earliest sanctioned flip; keep waiting,
     /// don't start new exposures.
     /// </remarks>
-    public static HourAngleZone ClassifyHourAngle(double hourAngleHours, SessionConfiguration config)
+    public static HourAngleZone ClassifyHourAngle(
+        double hourAngleHours, SessionConfiguration config, MountLimitConfiguration? limits = null)
     {
         var haMinutes = hourAngleHours * 60.0;
+        // The mechanical limit caps the flip window; see MountLimitConfiguration.ClampFlipLatestMinutes
+        // for why the dependency runs this way and not the other. Taken HERE, inside the decision, so
+        // no caller can classify against an unclamped window by forgetting to ask.
+        var latestAfter = limits?.ClampFlipLatestMinutes(config.MeridianFlipLatestMinutesAfter)
+            ?? config.MeridianFlipLatestMinutesAfter;
 
         if (haMinutes <= -config.MeridianFlipObstructionZoneMinutesBefore)
         {
@@ -67,7 +73,7 @@ public static class MeridianFlipDecision
             return HourAngleZone.InObstructionZone;
         }
 
-        if (haMinutes <= config.MeridianFlipLatestMinutesAfter)
+        if (haMinutes <= latestAfter)
         {
             return HourAngleZone.InFlipWindow;
         }
@@ -125,7 +131,8 @@ public static class MeridianFlipDecision
         bool pierSideChanged,
         bool alreadyOnCorrectSide,
         bool hasFlipped,
-        SessionConfiguration config)
+        SessionConfiguration config,
+        MountLimitConfiguration? limits = null)
     {
         if (hasFlipped)
         {
@@ -142,7 +149,7 @@ public static class MeridianFlipDecision
             return FlipAction.AlreadyFlipped;
         }
 
-        var zone = ClassifyHourAngle(hourAngleHours, config);
+        var zone = ClassifyHourAngle(hourAngleHours, config, limits);
         return zone switch
         {
             HourAngleZone.EastOfMeridian => FlipAction.Continue,
