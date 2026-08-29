@@ -211,6 +211,47 @@ public class SessionLifecycleTests(ITestOutputHelper output)
 
     // --- Finalise ---
 
+    /// <summary>
+    /// Finalise must COMMAND the mount to stop tracking, not merely observe that it has.
+    /// </summary>
+    /// <remarks>
+    /// The step logged "Finalise: stopping tracking..." and then only read <c>IsTracking</c>;
+    /// <c>SetTrackingAsync(false)</c> was called nowhere in the shutdown path. It was invisible on any
+    /// mount that can park, because ASCOM's <c>Park</c> stops tracking by definition and the SkyWatcher
+    /// driver halts both axes on the way home -- so the motor did stop and the report's line happened to
+    /// come out true. On a mount with <c>CanPark == false</c> (the iOptron SkyGuider Pro) nothing in the
+    /// finaliser ever stopped it, and a finished session left the mount tracking until the battery died
+    /// or the payload met the tripod.
+    /// <para>Hence <c>CanPark = false</c> here: with park available the fake's own <c>ParkAsync</c> clears
+    /// the flag and this test passes with the bug still in place.</para>
+    /// </remarks>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenAMountThatCannotParkWhenFinaliseThenTrackingIsStillStopped()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await SessionTestHelper.CreateSessionAsync(output, now: WinterNight, cancellationToken: ct);
+
+        var mount = (FakeMountDriver)ctx.Mount;
+        mount.CanPark = false;
+        mount.CanSetTracking.ShouldBeTrue("the mount must be able to stop tracking for this to be its job");
+
+        await ((IMountDriver)mount).EnsureTrackingAsync(cancellationToken: ct);
+        (await mount.IsTrackingAsync(ct)).ShouldBeTrue("mount should be tracking before finalise");
+
+        var finaliseTask = ctx.Track(Task.Run(async () => await ctx.Session.Finalise(ctx.Token), ctx.Token));
+        while (!finaliseTask.IsCompleted && !ct.IsCancellationRequested)
+        {
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromSeconds(1), ct);
+            await Task.Delay(10, ct);
+        }
+
+        finaliseTask.IsCompleted.ShouldBeTrue("Finalise should complete within timeout");
+        await finaliseTask;
+
+        (await mount.AtParkAsync(ct)).ShouldBeFalse("precondition: this mount cannot park, so park cannot be what stopped it");
+        (await mount.IsTrackingAsync(ct)).ShouldBeFalse("Finalise must stop tracking on a mount that cannot be parked");
+    }
+
     [Fact(Timeout = 120_000)]
     public async Task GivenActiveSessionWhenFinaliseThenShutdownCompletes()
     {

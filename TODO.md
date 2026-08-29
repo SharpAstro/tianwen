@@ -2,6 +2,25 @@
 
 ## High Priority
 
+- [x] **Finalise never stopped tracking; it only checked** (SHIPPED 2026-08-29). The step logged
+  "Finalise: stopping tracking..." and then read `IsTracking` -- `SetTrackingAsync(false)` was called
+  nowhere in the shutdown path, the only such call in `Session` being the sky-flat routine's.
+  **It was invisible on any mount that can park**, because ASCOM's `Park` stops tracking by definition
+  and `SkywatcherMountDriverBase.ParkAsync` halts both axes on its way home, so the motor did come to
+  rest and the shutdown report's "Tracking stopped" line happened to be true by the end. On a mount
+  with `CanPark == false` -- the iOptron SkyGuider Pro is the one in the shipped device list -- nothing
+  in the whole finaliser ever stopped the motor, so a completed session left it tracking until the
+  battery died or the payload reached the tripod.
+  Now it commands the stop when the mount has a tracking switch and then reports **what the mount
+  says**, so a tracker that cannot be commanded is never credited with a stop it did not make; that
+  case logs a warning naming the mount and telling the operator to stop it at the hand controller.
+  **The test needs `CanPark = false` to mean anything** (`FakeMountDriver.CanPark` became settable for
+  it): with park available the fake's own `ParkAsync` clears the flag and the test passes with the bug
+  still in place. Seen to fail against the original expression before being committed.
+  Still open from the same review: **there are no hour-angle or altitude safety limits anywhere** --
+  grep finds no `HALimit` / `LimitReached` / `SafetyLimit` -- so a failed flip has no backstop that
+  stops a mount tracking into the pier. That is a feature, not this fix, and wants its own entry.
+
 - [x] **Keep the measurement frames, and stamp each light with how well it was guided**
   (SHIPPED 2026-08-29). Two changes from one conversation about where paired blurry/sharp training
   data could come from.

@@ -136,7 +136,34 @@ internal partial record Session
 
         _currentActivity = "Stopping tracking\u2026";
         _logger.LogInformation("Finalise: stopping tracking...");
-        var trackingStopped = await CatchAsync(async cancellationToken => mount.Driver.CanSetTracking && !await mount.Driver.IsTrackingAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
+        // ACTUALLY stop it. This step read the tracking state and never commanded it for a long time,
+        // which was invisible on any mount that can park: ASCOM's Park stops tracking by definition and
+        // the SkyWatcher driver halts both axes on its way home, so the motor did come to rest and the
+        // report's "Tracking stopped" line happened to be true by the end. On a mount with
+        // CanPark == false -- the iOptron SkyGuider Pro is the one in the device list -- nothing in the
+        // whole finaliser ever stopped the motor, so a finished session left it tracking until the
+        // battery died or the payload reached the tripod.
+        //
+        // Reported honestly either way: command the stop when the mount has a tracking switch, then
+        // report what the mount SAYS, so a tracker that cannot be commanded is not credited with a stop
+        // it never made.
+        var trackingStopped = await CatchAsync(async cancellationToken =>
+        {
+            if (mount.Driver.CanSetTracking)
+            {
+                await mount.Driver.SetTrackingAsync(false, cancellationToken).ConfigureAwait(false);
+            }
+
+            return !await mount.Driver.IsTrackingAsync(cancellationToken).ConfigureAwait(false);
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (!trackingStopped)
+        {
+            _logger.LogWarning(
+                "Finalise: {MountName} is still tracking (CanSetTracking={CanSetTracking}). A mount that "
+                + "cannot be parked or commanded to stop will keep running; stop it at the hand controller.",
+                mount.Driver.Name, Catch(() => mount.Driver.CanSetTracking));
+        }
 
         if (trackingStopped)
         {
