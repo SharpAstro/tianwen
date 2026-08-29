@@ -176,58 +176,73 @@ clock and not on the corrections themselves -- the same instrument that settled 
 cancellation, and `ValueTask` may not be awaited twice. Whatever the shape, a failed pulse must
 still surface to the loop.
 
-### Decision: state the contract as BLOCKING, and adapt at the Alpaca boundary
+### Decision: `StartPulseGuideAsync` -- the call STARTS a pulse, `IsPulseGuiding` says when it ended
 
-Not GSServer's shape. GSS made `AxisPulse` asynchronous and left the caller to poll; we go the other
-way -- **`PulseGuideAsync` completes when the pulse is complete, every implementation honours that,
-and a caller that wants both axes at once says so with `WhenAll`.** Four reasons, in order of how
-much they decide it:
+A blocking contract was considered first and rejected. Recording why, because the blocking argument
+is superficially attractive (structured concurrency, errors flowing to the caller) and it is wrong
+here for reasons that only show up when you count the implementations.
 
-1. **The async contract cannot express dual-axis waiting at all.** `IsPulseGuiding` is ONE flag for
-   BOTH axes (ASCOM defines it as "pulse guiding in either axis"). A caller that has started an RA and
-   a Dec pulse and wants to know when the RA one finished has no way to ask. So the shape GSS adopted
-   to *enable* independent axes is the shape that cannot wait on them independently. `WhenAll` over two
-   awaitables can.
+**Six of the eight already start-and-return, and one of them was explicitly built for overlap.**
+`MeadeLX200ProtocolMountDriverBase` sends `:Mgd####`, lets the MOUNT hold the duration, records
+`_pulseGuideEndTicks` locally so `IsPulseGuidingAsync` can answer, and updates it under a CAS loop
+commented *"Keep the latest end time (overlapping pulses)"*. That driver anticipated simultaneous
+dual-axis pulses years before this audit noticed the question. `SkywatcherMountDriverBase` and the
+fake that inherits it are the outliers, not the standard.
 
-2. **The workaround already exists and it costs us real time today.**
-   `GuiderCalibration.WaitForPulseCompletionAsync` sleeps 90% of the pulse duration and THEN polls
-   `IsPulseGuiding` -- belt-and-braces for a contract nobody stated: wait it out in case the driver
-   returned early, poll in case it did not. Against the blocking SkyWatcher driver the
-   `await PulseGuideAsync` has ALREADY consumed the full duration, so calibration then sleeps another
-   0.9x of it. **Calibration takes about 1.9x as long as it should on a SkyWatcher**, in shipped code,
-   for no reason but the missing contract. A stated blocking contract deletes the helper.
+**A proxy driver cannot honestly block.** To make `AscomTelescopeDriver` or `AlpacaTelescopeDriver`
+wait for completion, they would sleep the duration locally -- an approximation of something the remote
+driver actually knows. `IsPulseGuiding` on that driver observes the truth. Forcing a blocking contract
+would replace a real observation with a local guess in exactly the drivers that have a real one.
 
-3. **Blocking is what both internal callers actually want.** The guide loop must not expose the next
-   frame while the mount is still moving, and calibration must not measure until the pulse has landed.
-   Both hand-roll that wait today. Under the async contract every caller would have to keep
-   hand-rolling it; under this one the await IS the wait, and overlap is opt-in and explicit.
+**The dual-axis objection to the async shape does not survive contact.** The argument was that
+`IsPulseGuiding` is one flag for both axes, so a caller cannot ask which axis finished. True, and
+irrelevant: nothing wants to know. The guide loop wants "no pulse is still running", which is exactly
+what one flag answers, and calibration pulses one axis at a time. Per-axis waiting would only matter
+to a caller that reacts to one axis landing before the other, and there is none.
 
-4. **Structured concurrency.** Errors and cancellation flow through the await. The async shape needs
-   an orphan task per pulse with nowhere to throw, cancellation that has to reach something nobody is
-   awaiting, and a port lock contended by a restore (`:I1`) and a stop (`:K2`) that no caller sequenced.
+**The 1.9x calibration cost is not evidence for either contract.** It is what mixing two contracts
+costs, and it disappears the moment ONE of them is stated -- under blocking because the await is the
+wait, under start-and-return because the driver no longer double-charges the caller. It argues for
+deciding, not for deciding a particular way.
 
-**The one thing that must not regress is the Alpaca SERVER plane.** `AlpacaMembers` maps `pulseguide`
-straight onto the driver call, so a blocking contract makes our `PUT /pulseguide` block for the
-duration, which an ASCOM Conform run would flag. Note it **already does exactly that against a
-SkyWatcher mount today** -- so this is an existing inconsistency in our public wire surface, to be
-fixed at the boundary rather than a new cost the decision creates. The adapter starts the pulse, keeps
-the task, and answers `ispulseguiding` from it. That is the one consumer that genuinely needs ASCOM's
-async shape, and a protocol adapter is where that belongs -- not pushed down into nine drivers.
+**The rename is the load-bearing half, not the semantics.** `PulseGuideAsync` returning once the pulse
+is *commanded* is ASCOM's contract and what most of the tree does, but the name says nothing, which is
+how one driver came to block without anyone noticing. `StartPulseGuideAsync` makes a blocking
+implementation obviously wrong at the point somebody writes it. That is worth more than any doc
+comment on `PulseGuideAsync` would be.
 
-**Work, in order (the order is not optional):**
+**What this owes, and none of it is free:**
 
-1. State the contract on `IMountDriver.PulseGuideAsync` and `ICameraDriver.PulseGuideAsync`.
-2. Make the early-returning implementations honour it -- Ascom/Alpaca telescope + camera, DAL ST-4,
-   `FakeMountDriver`, and check `SgpMountDriverBase` and `MeadeLX200ProtocolMountDriverBase`, which
-   have their own `IsPulseGuidingAsync` bookkeeping. Canon is a no-op and stays one.
-3. Adapt the Alpaca server plane so `PUT /pulseguide` keeps ASCOM's async semantics.
-4. Delete `GuiderCalibration.WaitForPulseCompletionAsync`; the await is the wait.
-5. Only THEN overlap RA and Dec in `GuideLoop`. `ValueTask` cannot go into `Task.WhenAll` and must not
-   be awaited twice, so this is `Task.WhenAll(ra.AsTask(), dec.AsTask())` -- two allocations per guide
-   frame at well under 1 Hz, which is worth stating only because the repo defaults to `ValueTask` for
-   the hot paths and this is deliberately not one.
-6. Pin it with **fake time traversed per guide frame**, not wall clock: under `FakeTimeProviderWrapper`
-   the serialisation is free in wall time, so a wall-clock assertion cannot see it.
+- **The SkyWatcher `:I` restore has no caller to throw to.** Today the driver holds the duration on
+  the caller's await, so a failed restore surfaces. Start-and-return means a background hold, and a
+  restore that fails leaves the axis at `(1 +/- f) x sidereal` **forever** -- the worst failure in this
+  whole area, and currently the one thing the blocking shape gets right for free. It needs a fault
+  path that reaches the session, not just a log line.
+- **Dual-axis is a CAPABILITY and ASCOM has no word for it.** There is `CanPulseGuide` and nothing
+  about simultaneity, so a driver may legally throw on the second axis. SkyWatcher (independent
+  motors), the ST-4 relay path (four separate lines) and LX200 (already overlapping) can; an arbitrary
+  ASCOM driver is unknown. We need our own flag, and `GuideLoop` must fall back to sequential where it
+  is false -- which means the sequential path stays, as the answer for mounts that require it rather
+  than as an accident.
+- **Cancellation has to reach a pulse nobody is awaiting**, and `_pulseGuideInFlight` must be
+  incremented BEFORE the write (finding 2, which this change is the most likely way to introduce).
+- **`WaitForPulseCompleteAsync` stays and moves.** It is the right shape for this contract -- coarse
+  hop then fine convergence, landing near the true end without oversleeping or polling the whole
+  duration -- and both calibration and the guide loop will want it, so it belongs somewhere shared
+  rather than private to `GuiderCalibration`.
+
+**Work, in order:**
+
+1. Rename to `StartPulseGuideAsync` on `IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`, and
+   state the contract on it: returns once the hardware has been commanded, `IsPulseGuiding` carries
+   progress, `IsPulseGuiding` must be observable before the call returns.
+2. Convert `SkywatcherMountDriverBase` to a background hold, with the restore/stop failure surfaced.
+   This is the whole risk of the change and should land on its own.
+3. Add the simultaneous-dual-axis capability and answer it per driver.
+4. Hoist `WaitForPulseCompleteAsync` to shared code.
+5. `GuideLoop` starts both axes when the capability allows, then waits once; sequential otherwise.
+6. Pin with **fake time traversed per guide frame** -- under `FakeTimeProviderWrapper` the difference
+   is free in wall time, so a wall-clock assertion cannot see it either way.
 
 ## Finding 2: an "in progress" flag that is not observable when the starter returns
 

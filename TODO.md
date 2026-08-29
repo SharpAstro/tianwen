@@ -143,12 +143,19 @@
   disagree -- `SkywatcherMountDriverBase` (and `FakeSkywatcherMountDriver`, which inherits it) blocks
   for the pulse duration; ASCOM, Alpaca, the DAL ST-4 path and `FakeMountDriver` return once the pulse
   is commanded. Blocking is not a slip: the boards have no "pulse for N ms" primitive, so the driver
-  must send the `:I` restore or the `:K` itself and something has to hold the duration. GSS #76's shape
-  is to hold it on its own task and return once commanded. **Budget for the cost**: the RA restore and
-  Dec stop then contend for the port lock, a throwing pulse has no caller to throw to, and cancellation
-  must reach an unawaited task -- and `_pulseGuideInFlight` must be set BEFORE the write or this fix
-  introduces finding 2. Only THEN overlap the RA and Dec pulses in `GuideLoop`, which are sequential
-  today and cost up to 4 s per guide frame on the blocking driver; overlapping first still serialises.
+  must send the `:I` restore or the `:K` itself and something has to hold the duration. **Decided:
+  `StartPulseGuideAsync`** -- hold it on a background task and return once commanded, which six of the
+  eight implementations already do (`MeadeLX200ProtocolMountDriverBase` explicitly, CAS-updating a
+  local pulse-end for "overlapping pulses"). The rename is the load-bearing half: `PulseGuideAsync`
+  says nothing about when it returns, which is how one driver came to block unnoticed. **Budget for
+  the cost**: a failed `:I` restore would have no caller to throw to and leaves the axis at
+  (1+/-f)x sidereal FOREVER, so it needs a fault path to the session; simultaneous dual-axis is a
+  capability ASCOM has no word for, so `GuideLoop` keeps a sequential fallback for mounts that need it;
+  cancellation must reach an unawaited pulse; and `_pulseGuideInFlight` must be set BEFORE the write or
+  this introduces finding 2. Only THEN overlap RA and Dec in `GuideLoop`; overlapping first still
+  serialises. `GuiderCalibration.WaitForPulseCompleteAsync` STAYS (it is the right shape for this
+  contract -- coarse hop then fine convergence, landing near the true end without oversleeping) but
+  moves to shared code, since the guide loop wants it too.
   **A test for it must assert on fake time traversed per guide frame** -- `GuideLoopTests` builds
   `FakeMountDriver` so it never blocks, and where the blocking driver is driven the fake clock
   auto-advances `SleepAsync`, so the stall is real and costs no wall time. (2) 24-bit position-counter rollover is unanswered; decide whether we track
