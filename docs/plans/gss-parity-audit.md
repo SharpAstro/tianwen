@@ -1,7 +1,7 @@
 # GSServer parity audit: fixes, ideas and limits worth porting
 
-**Status:** audit complete for the pulse/slew/queue band; two real findings, one feature
-(limits) split out into [`mount-safety-limits.md`](mount-safety-limits.md).
+**Status:** audit complete for the pulse/slew/queue band; three real findings (one already
+fixed, Finding 3), one feature (limits) split out into [`mount-safety-limits.md`](mount-safety-limits.md).
 
 GSServer (GSS, GPL-3.0, `rmorgan001/GSServer`) is the reference open-source Synta driver and
 the oracle TianWen's SkyWatcher protocol implementation was written against. It has kept
@@ -213,11 +213,11 @@ comment on `PulseGuideAsync` would be.
 
 **What this owes, and none of it is free:**
 
-- **The SkyWatcher `:I` restore has no caller to throw to.** Today the driver holds the duration on
-  the caller's await, so a failed restore surfaces. Start-and-return means a background hold, and a
-  restore that fails leaves the axis at `(1 +/- f) x sidereal` **forever** -- the worst failure in this
-  whole area, and currently the one thing the blocking shape gets right for free. It needs a fault
-  path that reaches the session, not just a log line.
+- **The SkyWatcher `:I` restore has no caller to throw to.** Start-and-return means a background
+  hold, and a restore that fails leaves the axis at `(1 +/- f) x sidereal` **forever** -- the worst
+  failure in this whole area. It needs a fault path that reaches the session, not just a log line.
+  **Done, ahead of the rename: see Finding 3.** The claim first written here -- that the blocking
+  shape gets this right for free -- was wrong, and checking it is what turned up Finding 3.
 - **Dual-axis is a CAPABILITY and ASCOM has no word for it.** There is `CanPulseGuide` and nothing
   about simultaneity, so a driver may legally throw on the second axis. SkyWatcher (independent
   motors), the ST-4 relay path (four separate lines) and LX200 (already overlapping) can; an arbitrary
@@ -255,6 +255,8 @@ blocking today; that is the path `FakeCameraMountCouplingTests` drives, and it c
 
 **Work, in order:**
 
+0. **DONE.** Verify the restore and stop commands, so the conversion has a fault path to preserve
+   rather than one to invent under time pressure. Finding 3.
 1. Rename to `StartPulseGuideAsync` on `IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`, and
    state the contract on it: returns once the hardware has been commanded, `IsPulseGuiding` carries
    progress, `IsPulseGuiding` must be observable before the call returns.
@@ -279,6 +281,58 @@ driver blocks - which is finding 1's problem. Once `PulseGuideAsync` returns at 
 pulse, or we will have ported GSS's bug in the act of fixing the other one.
 
 Slews are worth a matching check against `_isSlewingRa` / `_isSlewingDec` for the same property.
+
+## Finding 3: the commands that END a pulse were never verified. FIXED
+
+Found while checking what the blocking shape actually guarantees, in order to preserve it through
+the conversion. It guarantees less than the bullet above claimed: `SendCommandAsync` threw only on a
+**write** that returned false. A firmware refusal (`!2`) reached `LogWarning` and returned normally,
+and a read timeout -- a null ack -- reached no code path whatsoever.
+
+Three commands are affected, all in a pulse's `finally`, and they are the ones whose failure is not
+self-correcting:
+
+| Command | Path | What a lost one leaves behind |
+|---|---|---|
+| `:I1` sidereal | RA pulse while tracking | RA tracking at up to **2x sidereal** (or, after an East pulse at 1.0x, a thousandth of it) until something else sets the rate |
+| `:K1` | RA pulse while NOT tracking | the RA axis running at the combined rate, nothing scheduled to stop it |
+| `:K2` | Dec pulse | the Dec axis running, same |
+
+**Every other command in the driver fails FORWARD** -- a lost `:G` loses a pulse, a lost `:J` loses a
+move, and the guide loop re-issues a correction on its next frame. These three fail BACKWARD: the
+mount is left running at a rate the driver believes it has already cancelled. That asymmetry is the
+whole selection rule, and it is why making *all* commands fatal would be wrong rather than merely
+thorough -- it would turn a recoverable hiccup into a stopped guider.
+
+**The fix.** `SendCommandRawAsync` classifies the round-trip (`=` accepted / `!X` refused / null =
+no answer, which is a timeout and a genuinely different fact); `SendCommandAsync` keeps the
+best-effort behaviour for everything else; `SendCommandVerifiedAsync` retries three times and then
+throws `SkywatcherDriverException`. Retrying is half the fix and not a detail: a single serial
+hiccup must not end the night, so only an exhausted budget is a fault. No delay between attempts --
+a refusal is instant and a timeout has already spent the port's.
+
+**No new plumbing was needed to surface it**, which is worth knowing before anyone builds some: a
+throw from `PulseGuideAsync` propagates out of the guide loop, `BuiltInGuiderDriver` turns it into a
+`GuidingErrorEvent`, and `Session.ImagingLoopAsync` drains that queue, logs the reason by name and
+restarts the guider. The chain already existed and had nothing being fed into it.
+
+**One accepted consequence:** the restore runs in a `finally`, so on a cancelled pulse whose restore
+also fails, the `SkywatcherDriverException` REPLACES the `OperationCanceledException`. That is the
+right precedence -- "the axis is still running at the pulse rate" outranks "the pulse was cancelled",
+and cancellation is usually shutdown, which is exactly when a runaway axis is worst. It costs
+nothing on the normal path, because the restore only throws when it genuinely failed.
+
+**Not fixed, same defect class, deliberately left:** `StopAxisAndWaitAsync` and
+`DecPulseAsMicroGotoAsync` both poll for FullStop and, on timing out at 3.5 s, `LogWarning` and
+return as though they had succeeded. An axis that will not stop is the same kind of news. They are
+left alone because `StopAxisAndWaitAsync` has eight call sites including park and slew, so throwing
+there is a wider behaviour change than this commit should carry -- and, unlike the three above, they
+verify by OBSERVATION, which is the stronger check already.
+
+Pinned by `SkywatcherPulseRestoreTests` (both failure modes, both axes, the retry, and the
+best-effort commands staying best-effort), with the fault injected through
+`FakeSkywatcherSerialDevice.InjectCommandFault` -- which faults a command BEFORE the state machine,
+so a refused restore genuinely leaves the fake running at the pulse rate.
 
 ## Not audited
 

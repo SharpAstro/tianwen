@@ -104,6 +104,41 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
         }
     }
 
+    // Fault injection: the next _faultOccurrences occurrences of :_faultCmd_faultAxis answer with
+    // _faultResponse ("!2\r" for a firmware refusal) or, when it is null, with NOTHING at all --
+    // the read timeout a desynced line produces. A faulted command is still recorded in the command
+    // log (a test wants to see it was attempted) but does NOT reach the state machine, which is the
+    // point: a refused :I restore must leave the fake running at the pulse rate, exactly as a real
+    // board would.
+    private char _faultCmd;
+    private char _faultAxis;
+    private int _faultOccurrences;
+    private int _faultSkipRemaining;
+    private string? _faultResponse;
+
+    /// <summary>
+    /// Make sends of <c>:cmd axis</c> fail: let <paramref name="skipFirstMatches"/> of them through
+    /// untouched, then fault the next <paramref name="occurrences"/>. Pass
+    /// <paramref name="response"/> null for "the board never answers".
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="skipFirstMatches"/> is what lets a test aim at ONE command inside a sequence
+    /// that sends the same one twice. An RA pulse sends <c>:I1</c> for the pulse rate and again to
+    /// restore sidereal; skipping the first aims the fault at the restore alone, which is the
+    /// command under test, rather than at the whole channel.
+    /// </remarks>
+    internal void InjectCommandFault(char cmd, char axis, int occurrences, string? response, int skipFirstMatches = 0)
+    {
+        lock (_lockObj)
+        {
+            _faultCmd = cmd;
+            _faultAxis = axis;
+            _faultOccurrences = occurrences;
+            _faultSkipRemaining = skipFirstMatches;
+            _faultResponse = response;
+        }
+    }
+
     // Snap port
     private bool _snapActive;
 
@@ -292,6 +327,24 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
             if (payload.EndsWith('\r'))
             {
                 payload = payload[..^1];
+            }
+
+            // Injected fault, before the state machine so the command genuinely does not take effect.
+            if (_faultOccurrences > 0 && cmd == _faultCmd && axis == _faultAxis)
+            {
+                if (_faultSkipRemaining > 0)
+                {
+                    _faultSkipRemaining--;
+                }
+                else
+                {
+                    _faultOccurrences--;
+                    if (_faultResponse is { } faultResponse)
+                    {
+                        _responseBuffer.Append(faultResponse);
+                    }
+                    return ValueTask.FromResult(true);
+                }
             }
 
             switch (cmd)

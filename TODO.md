@@ -138,7 +138,7 @@
   `ImageLoopNextAction.LimitReached`). P3 is the half GSServer gets for free and we do not: enforcement
   with **no session running**, which needs a watcher that respects the hub lease -- observe while a run
   owns the mount, act when nothing does.
-- [ ] **GSS parity: the two open findings** ([docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md)).
+- [ ] **GSS parity: the two open findings** (a third, the unverified pulse-restore, is FIXED) ([docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md)).
   (1) `IMountDriver.PulseGuideAsync` has **no stated completion contract** and its implementations
   disagree -- `SkywatcherMountDriverBase` (and `FakeSkywatcherMountDriver`, which inherits it) blocks
   for the pulse duration; ASCOM, Alpaca, the DAL ST-4 path and `FakeMountDriver` return once the pulse
@@ -149,7 +149,11 @@
   local pulse-end for "overlapping pulses"). The rename is the load-bearing half: `PulseGuideAsync`
   says nothing about when it returns, which is how one driver came to block unnoticed. **Budget for
   the cost**: a failed `:I` restore would have no caller to throw to and leaves the axis at
-  (1+/-f)x sidereal FOREVER, so it needs a fault path to the session; simultaneous dual-axis is a
+  (1+/-f)x sidereal FOREVER, so it needs a fault path to the session -- **that half is DONE ahead of
+  the rename** (finding 3: the restore and both axis stops are verified with a retry and throw
+  `SkywatcherDriverException`, which the guider already turns into a session-visible fault; the
+  blocking shape never got this right "for free", a refusal only reached the log and a timeout
+  reached nothing); simultaneous dual-axis is a
   capability ASCOM has no word for, so `GuideLoop` keeps a sequential fallback for mounts that need it;
   cancellation must reach an unawaited pulse; and `_pulseGuideInFlight` must be set BEFORE the write or
   this introduces finding 2. Only THEN overlap RA and Dec in `GuideLoop`; overlapping first still
