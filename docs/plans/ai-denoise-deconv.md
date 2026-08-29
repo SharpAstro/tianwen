@@ -292,6 +292,35 @@ looked plausible in every version.
 
 Pinned by `SessionAutoFocusFrameCaptureTests`.
 
+### 2.1c Airmass-paired real degradation (raised 2026-08-28, NOT MEASURED)
+
+The same note that asked for defocus ladders asked a second question: the archive holds targets that
+**cross the zenith**, so the same field exists at high and at low altitude on the same night, and the
+difference between those frames is a real, physically-caused degradation with a known direction and a
+known independent variable. Two uses, and they are not equally promising:
+
+- **Gradient pairs (promising).** Sky brightness and its gradient both climb with airmass, so a
+  high-altitude frame is a flatter version of the low-altitude one of the same field. That is the
+  pair shape 2.6 builds synthetically by flatten-and-inject -- except real. Its value is therefore
+  as much as a **control** as a training source: 2.6's gradients are modelled, and a real pair is
+  what says whether the model is fair.
+- **Blur pairs (weaker, and the reason to measure before building).** Less air should mean less
+  seeing blur, which would make the same pair a deconvolution ladder. But 2.1b already measured the
+  intra-session FWHM spread this archive actually has -- p90/p10 with a median of **1.04** against
+  the ~1.5 a training set needs -- and altitude is one of the things varying inside those sessions.
+  So the prior is that airmass does **not** move FWHM far enough here. The honest first step is to
+  plot measured FWHM against `AIRMASS` on the crossing-zenith sessions and see whether there is a
+  slope at all, not to build a pairing.
+
+**What makes this checkable cheaply is that the cards are already written**: `FitsHeaderEditor`
+emits `AIRMASS` and `CENTALT`/`CENTAZ` on every frame, so the pairing key and the independent
+variable are both on disk and no re-measure is needed to answer the prior question.
+
+**Do not pair across nights.** Transparency, moon and focus all move, so a "high vs low" pair drawn
+from two nights differs by more than airmass -- which is precisely the confound the
+crossing-the-zenith framing was chosen to avoid, and precisely the mistake that would make the
+result look good.
+
 ### 2.2 Deconvolver ground truth: synthetic PSF degradation
 
 - Input = sharp master tile convolved with a synthetic PSF; target = the undegraded tile;

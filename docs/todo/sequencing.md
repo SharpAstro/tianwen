@@ -105,6 +105,34 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 - [ ] Discrete auto-focus triggers as explicit, configurable conditions on top of today's trend-based HFD-drift check (`ImagingLoopAsync` + `FocusDriftDetector` + `FocusDriftThreshold`): after filter change, after N exposures, after a temperature delta, after elapsed time, and a suppress-when-approaching-meridian guard. The HFR-regression-over-N-frames trigger shipped 2026-07-03 (see [TODO.md](../../TODO.md)); the avoid-AF-near-meridian note is in [inbox.md](inbox.md). Folding the rest into one trigger set makes each refocus decision explicit and unit-testable.
 - [ ] Focus-drift comparability is exposure+gain only (`FrameMetrics.IsComparableTo`); a filter ladder that switches filters mid-observation with EQUAL exposures compares HFD across filters against a baseline taken on another filter (chromatic focus shift = false drift-trigger risk; unequal per-filter exposures are already excluded). Fix: carry the filter position in `FrameMetrics` and include it in `IsComparableTo` (baseline then becomes per-filter, or re-accumulates on filter change). Pairs with the after-filter-change trigger above.
 
+- [ ] **Audit that every exit path stops, parks and leaves a sane flip state** (user, 2026-08-28:
+  *"do we always ensure that we stop/park/flip"*). Asked as a question, so the deliverable is an
+  ANSWER first and a fix only where one is needed. **Asking it has already paid for itself**: the
+  STOP cell was audited on 2026-08-29 and was broken -- `Finalise` logged "stopping tracking" and only
+  ever *read* `IsTracking`, which was invisible on any mount that can park (park stops tracking as a
+  side effect) and left a `CanPark == false` tracker running until the battery died. Fixed, with an
+  honest warning when the mount cannot be commanded; see [TODO.md](../../TODO.md).
+  - **The FLIP cell has a named gap and is the next one to pull.** There are no hour-angle or
+    altitude safety limits anywhere in the codebase, so a failed meridian flip has no backstop that
+    stops a mount tracking into the pier. That is a feature rather than a fix and wants its own entry.
+  - **The rest of the matrix is still unexamined**: an unhandled exception mid-slew, an
+    `ImageLoopNextAction.DeviceUnrecoverable` return, process kill, and the polar-alignment session,
+    which never enters `RunAsync` at all. Write it down as a table of (exit path x stop / park /
+    cover / warm / flip state). The value is in the paths nobody thought to check -- and the stop-cell
+    bug is the argument for the table's shape, since it hid for so long precisely because the
+    *common* path masked it.
+- [ ] **Resume an interrupted session** (user, 2026-08-28: *"a mosaic didn't finish due to dew"*).
+  Distinct from [multi-night-progress](../plans/multi-night-progress.md), which owns the
+  *accumulation* half -- its P2 scheduler carry-over already makes an unmet-goal target score up, and
+  its open questions already ask whether a mosaic accumulates as one target or N panels. What that
+  plan does not cover is the *abort* half: a run that ended early leaves no record of where it got
+  to, so the next night re-plans from scratch and can re-shoot panels that are already done. The
+  ledger's own rule points at the answer -- the finished panels are on disk with their headers, so
+  panel-level completion is derivable the same headers-only way and needs no new session state
+  (**never** a counter; a run killed by dew is exactly the case a counter gets wrong). Open
+  question worth settling first: whether "resume" is a distinct verb at all, or simply falls out of
+  the ledger once it is panel-aware.
+
 ## Flat-frame acquisition (automation)
 
 `FrameType.Flat`, the cover/calibrator device (`ICoverDriver`), and the stacking calibrator

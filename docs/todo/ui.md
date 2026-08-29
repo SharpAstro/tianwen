@@ -442,6 +442,31 @@ reading and the next person will reach for it again.
   drag), and normalises by `DeltaMode` first, since the divisor was a hardcoded 100 whether the browser
   reported pixels, lines or pages, which made one notch a 15% zoom in Chrome and 0.45% in Firefox.
 
+## Sky Map as a manual-aiming aid for a slew-less mount (user's note 2026-08-28)
+
+- [ ] **Use the atlas as a quasi-goto target finder for the SkyGuider Pro, with auto zoom.**
+  `SgpMountDriverBase` declares `CanSlew => false` / `CanSlewAsync => false` (an RA-only tracker, no
+  goto), so today the atlas can show where a target is and nothing can point at it. The ask is to
+  make the map itself the aiming instrument: select a target and have the view zoom to a framing a
+  human can star-hop against, which is the only "goto" this mount will ever have. The truthful-marker
+  half already exists and should be built on rather than re-invented -- `MountActions.SolveAndSyncAsync`
+  is recorded in [drivers.md](drivers.md) as *the* path for slew-less trackers (`CanSlew=false`,
+  `CanSync=true`), and was verified there against a real 6.5' cone error. What is missing is the
+  aiming affordance on top of it.
+  - **Both connected and unconnected modes** (note 2.1). Unconnected there is no pointing truth at
+    all, so the map is a pure planning aid; connected, it can anchor on the synced position. Worth
+    stating because unconnected is how a tracker is most often used, so it cannot be the degraded
+    afterthought.
+  - **Past-meridian with the Dec unchanged, when the axis is perpendicular** (note 2.2), and
+    **compute the effective new Dec when it is not** (note 2.3). On an RA-only tracker a "flip" is
+    the operator physically re-hanging the camera; if the imaging axis is perpendicular to the Dec
+    axis that leaves declination untouched and the case can be offered directly, and if it is not,
+    the re-hang moves the Dec and the map should say where the rig now points instead of leaving the
+    operator to work it out. That second one is geometry, not UI, and is the part with real content.
+  - **[?] Confirm the reading of 2.2/2.3 before building.** Those two notes are terse (and 2.3 is
+    autocorrected -- *"Aromatically calc"*); the interpretation above is inferred from SGP being
+    RA-only, not stated. Cheap to check, expensive to get wrong, because the whole item hangs on it.
+
 ## Charts and the web showcase (user's notes 2026-08-27)
 
 - [ ] **Log / time-compressed graphs.** The session and guider graphs plot linear time, so a long night

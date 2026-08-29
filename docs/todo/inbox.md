@@ -9,11 +9,13 @@ deduped against the rest of this file. Date in parens is when the note was writt
 sections above when picked up. Notes that turned out to be already DONE or already tracked elsewhere are
 intentionally NOT repeated here.
 
-**Sweep watermark: the Slack self-DM is swept through 2026-08-02.** Two earlier passes are folded in: the
+**Sweep watermark: the Slack self-DM is swept through 2026-08-29.** Three earlier passes are folded in: the
 2026-06-02 consolidation below (Mar-May), and a 2026-07-07 pass that filed the ROEBA banding and Hough
 star-halo notes **straight into [imaging.md](imaging.md)** with full detail rather than through this file,
-which is why they are absent here. When re-sweeping, read the DM back only to this watermark, and check
-`imaging.md` before concluding a note was never triaged.
+which is why they are absent here, and a 2026-08-27/28 pass that filed the whole FITS-viewer band straight
+into [viewer-prerelease-fixes](../plans/viewer-prerelease-fixes.md) as P11-P21, plus the chart and web-build
+notes into [ui.md](ui.md). When re-sweeping, read the DM back only to this watermark, and check
+`imaging.md`, `viewer-prerelease-fixes.md` and `ui.md` before concluding a note was never triaged.
 
 ### Sky Map
 - [x] **Pan/zoom jank at sub-90deg FOV (worst with SCP in view)**: FIXED 2026-06-11: the overlay Phase A cache (`VkSkyMapTab.RenderObjectOverlay`) was keyed on the exact view matrix below `WideFovThresholdDeg`, so every drag frame re-ran the catalog grid scan (`GatherSkyMapOverlayCandidates`; pole-in-view = full-RA Dec strip, ~16k cell lookups -> 100-240 ms/frame; ~5k cells elsewhere -> 40-90 ms). Fix: key on the unprojected view centre quantized to FOV/8 cells + FOV quantized to ~10% log steps, and widen the gather margin to `max(1deg, 0.15 x FOV)` (RA scaled 1/cos dec) so the cached set covers every view inside a cell; Phase B's per-frame projection culls as before. Measured at the SCP all-layers-on: 8 zoom/time stimuli -> ONE 93 ms frame (the legitimate cell-boundary rebuild) vs 1-3 slow frames per stimulus before.
@@ -115,3 +117,61 @@ the next time the DM is scanned.
 ### Not TianWen
 `pdf-viewer` viewport API and window-chrome tabs, the title-block regression-extraction idea, and the
 dotcc WASM demo page. Left in Slack; they belong to other repos.
+
+## Inbox: Slack self-notes, 2026-08-02 -> 2026-08-29 (swept 2026-08-29)
+
+The band since the previous watermark, and the first sweep where **most of it was already filed** --
+the FITS-viewer notes went into [viewer-prerelease-fixes](../plans/viewer-prerelease-fixes.md) and the
+chart/web ones into [ui.md](ui.md) as they were written, days after being noted. So this section is
+mostly a map from note to home. Recorded anyway, for the reason the previous sweep gave: a note that
+silently vanishes reads as never-triaged the next time the DM is scanned. Every note in this band is
+TianWen; there were no other-repo strays to leave behind.
+
+### Already filed when the sweep ran
+
+| Note (date written) | Home | State there |
+|---|---|---|
+| Star profile / colour / name on hover (08-19) | [ui.md](ui.md) FITS Viewer | open |
+| `--help` shows no version; AI discovery status + download options (08-21) | P11 | half fixed -- version + status shipped, **download open** |
+| Needs more in-depth doco (08-22) | P13 | next release |
+| An empty instance should adopt an opened file (08-22) | P14 | **FIXED** |
+| Gain/ISO and offset missing from the right pane (08-22) | P12 | **FIXED** |
+| Carry calibration/stretch when stepping between frames of the same type (08-22) | P19 (blink mode) | next release |
+| Right-click to copy colour / RA-Dec (08-24) | P17 | **FIXED** |
+| Show detected object name; clickable object mode (08-24) | [ui.md](ui.md) FITS Viewer | open, and **explicitly undecided by you** |
+| Share link to the web viewer, needs `&t=<capture time>` (08-24) | P20 | backlog (needs the web side) |
+| Show debayered channels via "the new `AsChannel*`" (08-26) | P21 | backlog. Note there is no `AsChannel*` API anywhere; that note resolved to `Channel.AsSpan()` |
+| Save as seen on screen, Save-As, iconise Open/Save (08-27) | P18 | next release |
+| Atlas spark lines (08-21) | [atlas-planet-detail.md](../plans/atlas-planet-detail.md) A1 | planned; A1 is literally titled after this note |
+| Log / time-compressed graphs (08-22) | [ui.md](ui.md) Charts | open |
+| Web build: fake profiles for framing, Milky Way texture, copy-link-to-point (08-24) | [ui.md](ui.md) Charts | open (the copy-link half is the other end of P20) |
+
+### Closed since the note was written
+
+- [x] **Auto stretch mode, and it should be the default** (08-27). SHIPPED. `StretchMode.Auto` is a UI
+  intent resolved by `ViewerActions.ResolveAutoStretchMode` *before* any `StretchUniforms` is built --
+  never a shader mode -- and `ViewerActions.DefaultStretchMode` is `Auto`. It resolves to Linked when a
+  colour calibration is active and Unlinked when it is not, which is the behaviour the note asked for.
+  Pinned by `ViewerActionsTests.DefaultStretchMode_IsAuto` and `ColorCalibrationToggleTests`.
+- [x] **FC.SDK has unpushed work (USB)** (08-20). Pushed: `../FC.SDK` is clean and level with
+  `origin/main`.
+- [x] **Canon / FC.SDK 3.0.\* re-pin** (08-19). Not a task -- that note is a *record* of shipped work.
+  Its findings (`NumX` snapping to a zoom level, `VideoRoi` in sensor px, `CanJogRoi` true only while
+  magnified, host-side pan clamping) live in CLAUDE.md and
+  [live-planetary-capture.md](../plans/live-planetary-capture.md).
+- [x] **Build a deblur model from focus-shifted frames** (08-28, item 4, first half). SHIPPED
+  2026-08-29 as `SessionConfiguration.SaveIntermediates` / `FrameType.Focus`; see
+  [ai-denoise-deconv.md § 2.1b](../plans/ai-denoise-deconv.md) and [TODO.md](../../TODO.md). **The
+  note's premise did not survive measurement**: it proposed mining the pre-N.I.N.A. archive, but a scan
+  of all 245,213 indexed files found **zero** auto-focus frames, because N.I.N.A. and TianWen both
+  measured the V-curve and threw the pixels away. The ladders have to be captured going forward. The
+  *airmass* half of the same note is a different idea and is newly filed below.
+
+### Newly filed by this sweep
+
+- [ ] Siril gradient-correction script as a reference (08-18) -> [imaging.md](imaging.md), deferred CLI verbs
+- [ ] Audit that every exit path stops / parks / flips (08-28 item 1) -> [sequencing.md](sequencing.md)
+- [ ] Atlas as a quasi-goto aid for a slew-less mount, incl. the flip-Dec geometry (08-28 item 2) -> [ui.md](ui.md)
+- [ ] Resume an interrupted session, e.g. a mosaic stopped by dew (08-28 item 3) -> [sequencing.md](sequencing.md)
+- [ ] Airmass-paired real degradation pairs (08-28 item 4, second half) -> [ai-denoise-deconv.md § 2.1c](../plans/ai-denoise-deconv.md)
+

@@ -360,6 +360,27 @@ Each verb maps to an enhancer / classical implementation that hasn't been wired 
 - [ ] `tianwen image remove-trails` -- `satelliteRemovalAI4.onnx`. Per `docs/plans/stacking.md` this logically belongs in the stacking pipeline as a pre-rejection filter; standalone single-image verb is also useful.
 - [ ] `tianwen image correct-aberration` -- optical aberration correction (coma, astigmatism, off-axis distortion). Models hosted in `riccardoalberghi/abberation_models` (different repo + release cadence than AI4); needs a separate fetcher branch in `tools/tianwen-ai-models-fetch.ps1` + runtime self-bootstrap.
 - [ ] `tianwen image flatten` -- ABE gradient removal (classical poly + RBF, no AI). See `docs/plans/background-extraction.md`.
+- [ ] **Read Siril's gradient-correction scripts as a reference for the above** (user, 2026-08-18).
+  Siril's background extraction is one of the three prior-art implementations
+  [background-extraction.md](../plans/background-extraction.md) already names (with PixInsight
+  ABE/DBE and GraXpert), but only GraXpert has a concrete interop question recorded against it (its
+  open question 4, reading GraXpert's exported background images). Siril's are readable scripts
+  rather than a binary, which makes them much the cheapest of the three to learn the sample-placement
+  and rejection heuristics from -- exactly what `image flatten` has to get right and what the plan
+  currently leaves open. **The note carried no link**; these were located afterwards in the same
+  `free-astro/siril-scripts` repo the narrowband work already sources
+  ([narrowband-colour.md](../plans/narrowband-colour.md)), so there is nothing further to hunt for:
+  - [`processing/AutoGradientRemoval.py`](https://gitlab.com/free-astro/siril-scripts/-/blob/main/processing/AutoGradientRemoval.py)
+    -- the closest match to the note's own words.
+  - [`processing/AutoBGE.py`](https://gitlab.com/free-astro/siril-scripts/-/blob/main/processing/AutoBGE.py)
+    -- automatic background extraction; the sample-placement half, which is the part `image flatten`
+    most needs and the part the plan leaves open.
+  - [`processing/GraXpert-AI.py`](https://gitlab.com/free-astro/siril-scripts/-/blob/main/processing/GraXpert-AI.py)
+    -- **not** asked for, but it is Siril driving GraXpert, so it answers
+    background-extraction.md's open question 4 (how a GraXpert workflow interoperates) from a working
+    implementation rather than from the docs.
+  **The licence rule from the narrowband work applies verbatim**: the Siril script repo is GPL-3.0
+  against our AGPL-3.0, so reimplement from the recorded maths, never vendor.
 - [ ] `tianwen image stretch` -- apply MTF stretch for display / PNG export.
 - [ ] `tianwen image debayer` -- Bayer raw → RGB.
 - [ ] `tianwen image calibrate` -- apply master bias/dark/flat (wraps the calibrator types from `docs/plans/stacking.md`).
