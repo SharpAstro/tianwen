@@ -101,15 +101,53 @@ public readonly record struct SiteContext
     /// the mount has already accounted for.</para>
     /// </remarks>
     public double AltitudeDegrees(double hourAngleHours, double decDeg)
+        => IsValid ? AltitudeFrom(SinLat, CosLat, hourAngleHours, decDeg) : double.NaN;
+
+    /// <summary>
+    /// The same geometric altitude for a caller that holds a latitude but no site context -- a
+    /// guide-feature builder, say, which never needs LST.
+    /// </summary>
+    public static double AltitudeDegrees(double latitudeDeg, double hourAngleHours, double decDeg)
     {
-        if (!IsValid || double.IsNaN(hourAngleHours) || double.IsNaN(decDeg))
+        if (double.IsNaN(latitudeDeg))
+        {
+            return double.NaN;
+        }
+
+        var (sinLat, cosLat) = Math.SinCos(latitudeDeg * Math.PI / 180.0);
+        return AltitudeFrom(sinLat, cosLat, hourAngleHours, decDeg);
+    }
+
+    /// <summary>
+    /// <b>The one implementation of geometric altitude.</b> Everything above funnels here.
+    /// </summary>
+    /// <remarks>
+    /// This existed three times before it existed once: <c>CometObservability.AltitudeDeg</c>
+    /// (which already borrowed <see cref="ComputeLST"/> and then hand-rolled the rest), the inline
+    /// block in <c>NeuralGuideFeatures</c> that this type's own remarks already named as a
+    /// candidate, and a fourth copy added with the mount safety limits. They were identical down to
+    /// the <see cref="Math.Clamp(double, double, double)"/>.
+    /// <para>
+    /// <see cref="IsAboveHorizon"/> is deliberately NOT routed through this: it answers a cheaper
+    /// question (sign only) and skipping the <see cref="Math.Asin(double)"/> matters on the sky
+    /// map's per-star path. <c>SOFAHelpers.AltitudeFromAstrom</c> and
+    /// <see cref="Transform.ElevationTopocentric"/> are not duplicates either -- they are the SOFA
+    /// apparent place and the REFRACTED altitude, which is what the planner and a human eye want
+    /// and what a mechanical limit must not use. Nor is <c>VSOP87a</c>'s: it converts equatorial to
+    /// horizontal wholesale, in radians, off SOFA's <c>Gmst06</c> rather than this type's IAU-1982
+    /// approximation, and its altitude feeds its azimuth formula directly. Leave it alone.
+    /// </para>
+    /// </remarks>
+    private static double AltitudeFrom(double sinLat, double cosLat, double hourAngleHours, double decDeg)
+    {
+        if (double.IsNaN(hourAngleHours) || double.IsNaN(decDeg))
         {
             return double.NaN;
         }
 
         var ha = hourAngleHours * Math.PI / 12.0;
         var (sinDec, cosDec) = Math.SinCos(decDeg * Math.PI / 180.0);
-        var sinAlt = SinLat * sinDec + CosLat * cosDec * Math.Cos(ha);
+        var sinAlt = sinLat * sinDec + cosLat * cosDec * Math.Cos(ha);
         return Math.Asin(Math.Clamp(sinAlt, -1.0, 1.0)) * 180.0 / Math.PI;
     }
 

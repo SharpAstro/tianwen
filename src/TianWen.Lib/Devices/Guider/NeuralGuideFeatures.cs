@@ -1,3 +1,4 @@
+using TianWen.Lib.Astrometry.SOFA;
 using System;
 
 namespace TianWen.Lib.Devices.Guider;
@@ -16,8 +17,7 @@ internal sealed class NeuralGuideFeatures
     private const int MediumMeanSize = 60;  // ~2 min at 2s exposure
     private const int LongMeanSize = 300;   // ~10 min at 2s exposure (~1 PE cycle)
 
-    private readonly double _sinLat;
-    private readonly double _cosLat;
+    private readonly double _siteLatitude;
 
     // 4-frame ring buffer for (raErr, decErr)
     private readonly double[] _histRa = new double[HistorySize];
@@ -69,9 +69,7 @@ internal sealed class NeuralGuideFeatures
     /// <param name="siteLatitude">Observer latitude in degrees.</param>
     public NeuralGuideFeatures(double siteLatitude = 0)
     {
-        var latRad = siteLatitude * Math.PI / 180.0;
-        _sinLat = Math.Sin(latRad);
-        _cosLat = Math.Cos(latRad);
+        _siteLatitude = siteLatitude;
     }
 
     /// <summary>
@@ -178,10 +176,7 @@ internal sealed class NeuralGuideFeatures
         features[18] = (float)(hourAngle / 12.0);
 
         // [19] Altitude / 90 (normalized to [0, 1])
-        var decRad = declination * Math.PI / 180.0;
-        var haRad = hourAngle * 15.0 * Math.PI / 180.0;
-        var sinAlt = _sinLat * Math.Sin(decRad) + _cosLat * Math.Cos(decRad) * Math.Cos(haRad);
-        var altDeg = Math.Asin(Math.Clamp(sinAlt, -1.0, 1.0)) * 180.0 / Math.PI;
+        var altDeg = SiteContext.AltitudeDegrees(_siteLatitude, hourAngle, declination);
         features[19] = (float)(altDeg / 90.0);
 
         // [20] Declination / 90 (normalized to [-1, 1])
