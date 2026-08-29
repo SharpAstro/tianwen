@@ -23,7 +23,7 @@ namespace TianWen.Lib.Devices.Skywatcher;
 /// the commands worth costing a fault over.</para>
 ///
 /// <para>The fault reaches the session through the guider: it propagates out of
-/// <c>PulseGuideAsync</c>, out of the guide loop, and is turned into a <c>GuidingErrorEvent</c> by
+/// <c>StartPulseGuideAsync</c>, out of the guide loop, and is turned into a <c>GuidingErrorEvent</c> by
 /// <c>BuiltInGuiderDriver</c>, which the session drains, logs by name and answers by restarting the
 /// guider. There is deliberately no new plumbing for it.</para>
 /// </remarks>

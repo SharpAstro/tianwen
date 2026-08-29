@@ -442,7 +442,7 @@ internal class AlpacaCameraDriver(AlpacaDevice device, IServiceProvider serviceP
     public async ValueTask AbortExposureAsync(CancellationToken cancellationToken = default)
         => await PutMethodAsync("abortexposure", cancellationToken: cancellationToken);
 
-    public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
+    public async ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         var durationMs = (int)duration.Round(TimeSpanRoundingType.Millisecond).TotalMilliseconds;
         await PutMethodAsync("pulseguide",

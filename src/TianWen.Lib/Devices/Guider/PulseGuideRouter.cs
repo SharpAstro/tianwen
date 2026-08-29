@@ -45,14 +45,14 @@ internal sealed class PulseGuideRouter : IPulseGuideTarget
         };
     }
 
-    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+    public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
         if (_useCamera)
         {
-            return _camera!.PulseGuideAsync(direction, duration, cancellationToken);
+            return _camera!.StartPulseGuideAsync(direction, duration, cancellationToken);
         }
 
-        return _mount!.PulseGuideAsync(direction, duration, cancellationToken);
+        return _mount!.StartPulseGuideAsync(direction, duration, cancellationToken);
     }
 
     public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)

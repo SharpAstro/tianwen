@@ -27,7 +27,7 @@ namespace TianWen.Lib.Tests;
 /// the pulse, and the only evidence was trailed subframes.</para>
 ///
 /// <para>The fault is deliberately routed through the existing guider path rather than new
-/// plumbing: it propagates out of <c>PulseGuideAsync</c>, <c>BuiltInGuiderDriver</c> turns it into a
+/// plumbing: it propagates out of <c>StartPulseGuideAsync</c>, <c>BuiltInGuiderDriver</c> turns it into a
 /// <c>GuidingErrorEvent</c>, and the session drains that, logs it and restarts the guider.</para>
 /// </remarks>
 [Collection("Skywatcher")]
@@ -90,7 +90,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
         serial.InjectCommandFault('I', '1', occurrences: 8, response: response, skipFirstMatches: 1);
 
         var ex = await Should.ThrowAsync<SkywatcherDriverException>(
-            async () => await driver.PulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken));
+            async () => await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken));
 
         ex.Data["Command"].ShouldBe(":I1");
     }
@@ -106,7 +106,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
         var before = CountRaStepPeriodCommands(serial);
         serial.InjectCommandFault('I', '1', occurrences: 1, response: FirmwareRefusal, skipFirstMatches: 1);
 
-        await driver.PulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken);
+        await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken);
 
         // Three :I1 sends belong to the pulse: the pulse rate, a refused restore, and the retry that
         // was accepted. Counted as a DELTA because connecting and tracking send :I1 of their own.
@@ -122,7 +122,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
         serial.InjectCommandFault('I', '1', occurrences: 8, response: FirmwareRefusal, skipFirstMatches: 1);
 
         await Should.ThrowAsync<SkywatcherDriverException>(
-            async () => await driver.PulseGuideAsync(GuideDirection.East, PulseDuration, cancellationToken));
+            async () => await driver.StartPulseGuideAsync(GuideDirection.East, PulseDuration, cancellationToken));
     }
 
     #endregion
@@ -140,7 +140,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
         serial.InjectCommandFault('K', '2', occurrences: 8, response: FirmwareRefusal);
 
         var ex = await Should.ThrowAsync<SkywatcherDriverException>(
-            async () => await driver.PulseGuideAsync(GuideDirection.North, PulseDuration, cancellationToken));
+            async () => await driver.StartPulseGuideAsync(GuideDirection.North, PulseDuration, cancellationToken));
 
         ex.Data["Command"].ShouldBe(":K2");
     }
@@ -157,7 +157,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
         serial.InjectCommandFault('K', '1', occurrences: 8, response: FirmwareRefusal);
 
         var ex = await Should.ThrowAsync<SkywatcherDriverException>(
-            async () => await driver.PulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken));
+            async () => await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken));
 
         ex.Data["Command"].ShouldBe(":K1");
     }
@@ -177,7 +177,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
         // every command fatal would turn a recoverable hiccup into a stopped guider.
         serial.InjectCommandFault('I', '1', occurrences: 1, response: FirmwareRefusal);
 
-        await driver.PulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken);
+        await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken);
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
         var before = serial.CommandLogSnapshot.Length;
         serial.InjectCommandFault('I', '1', occurrences: 8, response: FirmwareRefusal);
 
-        await driver.PulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(5), cancellationToken);
+        await driver.StartPulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(5), cancellationToken);
 
         serial.CommandLogSnapshot.Length.ShouldBe(before);
     }

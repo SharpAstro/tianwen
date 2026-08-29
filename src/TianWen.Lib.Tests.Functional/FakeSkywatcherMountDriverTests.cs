@@ -187,7 +187,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         await mount.ConnectAsync(ct);
 
         // Should complete without throwing
-        await mount.PulseGuideAsync(direction, TimeSpan.FromMilliseconds(100), ct);
+        await mount.StartPulseGuideAsync(direction, TimeSpan.FromMilliseconds(100), ct);
     }
 
     /// <summary>
@@ -220,7 +220,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         var decBefore = await mount.GetDeclinationAsync(ct);
 
         var pulse = TimeSpan.FromSeconds(60);
-        await mount.PulseGuideAsync(direction, pulse, ct);
+        await mount.StartPulseGuideAsync(direction, pulse, ct);
 
         var raAfter = await mount.GetRightAscensionAsync(ct);
         var decAfter = await mount.GetDeclinationAsync(ct);
@@ -266,7 +266,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
         var before = serial.CommandLogSnapshot.Length;
 
-        await mount.PulseGuideAsync(direction, TimeSpan.FromSeconds(2), ct);
+        await mount.StartPulseGuideAsync(direction, TimeSpan.FromSeconds(2), ct);
 
         var motionCmds = serial.CommandLogSnapshot.Skip(before)
             .Where(c => c.Length > 1 && c[1] is 'G' or 'I' or 'J' or 'K' or 'L')
@@ -291,8 +291,8 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
         var before = serial.CommandLogSnapshot.Length;
 
-        await mount.PulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(10), ct);
-        await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromMilliseconds(19), ct);
+        await mount.StartPulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(10), ct);
+        await mount.StartPulseGuideAsync(GuideDirection.North, TimeSpan.FromMilliseconds(19), ct);
 
         serial.CommandLogSnapshot.Length.ShouldBe(before);
     }
@@ -318,7 +318,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         var before = serial.CommandLogSnapshot.Length;
 
         var pulse = TimeSpan.FromSeconds(60);
-        await mount.PulseGuideAsync(direction, pulse, ct);
+        await mount.StartPulseGuideAsync(direction, pulse, ct);
 
         var decAfter = await mount.GetDeclinationAsync(ct);
         var expectedArcsec = 0.5 * 15.041 * pulse.TotalSeconds;
@@ -353,7 +353,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
         var before = serial.CommandLogSnapshot.Length;
 
-        await mount.PulseGuideAsync(direction, TimeSpan.FromSeconds(2), ct);
+        await mount.StartPulseGuideAsync(direction, TimeSpan.FromSeconds(2), ct);
 
         var decCmds = serial.CommandLogSnapshot.Skip(before)
             .Where(c => c.Length > 2 && c[2] == '2')
@@ -426,7 +426,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
 
         var decBefore = await mount.GetDeclinationAsync(ct);
         var pulse = TimeSpan.FromSeconds(60);
-        await mount.PulseGuideAsync(GuideDirection.North, pulse, ct);
+        await mount.StartPulseGuideAsync(GuideDirection.North, pulse, ct);
         var decAfter = await mount.GetDeclinationAsync(ct);
 
         // 0.5x sidereal x 60s = 451" commanded; the residual polar drift contributes
@@ -458,7 +458,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
 
         // North pulse: Dec has no tracking baseline, so it runs the axis as a low-speed slew
         // (:G2/:I2/:J2 ... :K2) -- "running, not tracking", which without the mask trips IsSlewing.
-        var pulse = mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(2), ct);
+        var pulse = mount.StartPulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(2), ct);
 
         // Wait until the Dec axis has actually started (the :J2 start command was sent), so the
         // axis is physically running when we sample -- the case the mask must cover.
@@ -505,7 +505,7 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
         var before = serial.CommandLogSnapshot.Length;
 
-        await mount.PulseGuideAsync(GuideDirection.West, TimeSpan.FromSeconds(2), ct);
+        await mount.StartPulseGuideAsync(GuideDirection.West, TimeSpan.FromSeconds(2), ct);
 
         var motionCmds = serial.CommandLogSnapshot.Skip(before)
             .Where(c => c.Length > 1 && c[1] is 'G' or 'I' or 'J' or 'K' or 'L')

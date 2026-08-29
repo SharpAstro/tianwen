@@ -510,7 +510,7 @@ mount actuation in the controller, and a RECENTER panel section on top.
   `ConfigureRecenter`; the mount + pixel scale are attached on Start (`AttachMount`). Auto-recenter defaults ON
   (zero-disturbance, ROI-only; a no-disk frame yields a centred COM -> no jog); mount jog opt-in OFF.
 - **Mount actuation -- one shared actuator.** `MountActions.PulseGuideArcsecAsync` converts arcsec -> a
-  guide-rate-sized, capped `PulseGuideAsync`; used by BOTH the auto loop (single-flight + cooldown, fired
+  guide-rate-sized, capped `StartPulseGuideAsync`; used by BOTH the auto loop (single-flight + cooldown, fired
   non-blocking so it never stalls the high-fps loop) and the manual `JogMountSignal` (N/S/E/W buttons,
   focuser-jog routing model: gated on no-running-session + a connected pulse-guide mount).
 - **RECENTER panel section** (`VkPlanetaryTab`, between REGION and FOCUSER): `[x] Auto-recenter (ROI)`, Deadband

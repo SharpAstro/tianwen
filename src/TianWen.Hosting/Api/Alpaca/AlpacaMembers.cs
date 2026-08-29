@@ -141,7 +141,7 @@ namespace TianWen.Hosting.Api.Alpaca
             new("synctocoordinates", AlpacaMember.Action(Do<IMountDriver>((m, p, ct) =>
                 m.SyncRaDecAsync(p.Double("RightAscension"), p.Double("Declination"), ct)))),
             new("pulseguide", AlpacaMember.Action(Do<IMountDriver>((m, p, ct) =>
-                m.PulseGuideAsync((GuideDirection)p.Int("Direction"), TimeSpan.FromMilliseconds(p.Int("Duration")), ct)))),
+                m.StartPulseGuideAsync((GuideDirection)p.Int("Direction"), TimeSpan.FromMilliseconds(p.Int("Duration")), ct)))),
             new("moveaxis", AlpacaMember.Action(Do<IMountDriver>((m, p, ct) =>
                 m.MoveAxisAsync((TelescopeAxis)p.Int("Axis"), p.Double("Rate"), ct)))),
         ]);
@@ -314,7 +314,7 @@ namespace TianWen.Hosting.Api.Alpaca
             new("abortexposure", AlpacaMember.Action(Do<ICameraDriver>((c, _, ct) => c.AbortExposureAsync(ct)))),
             new("stopexposure", AlpacaMember.Action(Do<ICameraDriver>((c, _, ct) => c.StopExposureAsync(ct)))),
             new("pulseguide", AlpacaMember.Action(Do<ICameraDriver>((c, p, ct) =>
-                c.PulseGuideAsync((GuideDirection)p.Int("Direction"), TimeSpan.FromMilliseconds(p.Int("Duration")), ct)))),
+                c.StartPulseGuideAsync((GuideDirection)p.Int("Direction"), TimeSpan.FromMilliseconds(p.Int("Duration")), ct)))),
         ]);
     }
 }

@@ -1164,7 +1164,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         return ValueTask.CompletedTask;
     }
 
-    public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
+    public async ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         // ST-4 models a guide cable wired from this camera's port to the coupled
         // mount's autoguide port: the pulse physically moves the MOUNT (encoders and
@@ -1176,7 +1176,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
         // train on a plant that doesn't exist.
         if (ResolveCoupledMount() is { CanPulseGuide: true } mount)
         {
-            await mount.PulseGuideAsync(direction, duration, cancellationToken).ConfigureAwait(false);
+            await mount.StartPulseGuideAsync(direction, duration, cancellationToken).ConfigureAwait(false);
             return;
         }
 

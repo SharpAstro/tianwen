@@ -138,35 +138,37 @@
   `ImageLoopNextAction.LimitReached`). P3 is the half GSServer gets for free and we do not: enforcement
   with **no session running**, which needs a watcher that respects the hub lease -- observe while a run
   owns the mount, act when nothing does.
-- [ ] **GSS parity: the two open findings** (a third, the unverified pulse-restore, is FIXED) ([docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md)).
-  (1) `IMountDriver.PulseGuideAsync` has **no stated completion contract** and its implementations
-  disagree -- `SkywatcherMountDriverBase` (and `FakeSkywatcherMountDriver`, which inherits it) blocks
-  for the pulse duration; ASCOM, Alpaca, the DAL ST-4 path and `FakeMountDriver` return once the pulse
-  is commanded. Blocking is not a slip: the boards have no "pulse for N ms" primitive, so the driver
-  must send the `:I` restore or the `:K` itself and something has to hold the duration. **Decided:
-  `StartPulseGuideAsync`** -- hold it on a background task and return once commanded, which six of the
-  eight implementations already do (`MeadeLX200ProtocolMountDriverBase` explicitly, CAS-updating a
-  local pulse-end for "overlapping pulses"). The rename is the load-bearing half: `PulseGuideAsync`
-  says nothing about when it returns, which is how one driver came to block unnoticed. **Budget for
-  the cost**: a failed `:I` restore would have no caller to throw to and leaves the axis at
-  (1+/-f)x sidereal FOREVER, so it needs a fault path to the session -- **that half is DONE ahead of
-  the rename** (finding 3: the restore and both axis stops are verified with a retry and throw
-  `SkywatcherDriverException`, which the guider already turns into a session-visible fault; the
-  blocking shape never got this right "for free", a refusal only reached the log and a timeout
-  reached nothing); simultaneous dual-axis is a
-  capability ASCOM has no word for, so `GuideLoop` keeps a sequential fallback for mounts that need it;
-  cancellation must reach an unawaited pulse; and `_pulseGuideInFlight` must be set BEFORE the write or
-  this introduces finding 2. Only THEN overlap RA and Dec in `GuideLoop`; overlapping first still
-  serialises. `GuiderCalibration.WaitForPulseCompleteAsync` STAYS (it is the right shape for this
-  contract -- coarse hop then fine convergence, landing near the true end without oversleeping) but
-  moves to shared code, since the guide loop wants it too.
+- [ ] **GSS parity: what is left of the pulse contract** (findings 1 and 2; finding 3, the
+  unverified pulse-restore, is FIXED) ([docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md)).
+  **Done so far:** the restore and both axis stops are verified with a retry and throw
+  `SkywatcherDriverException`, which the guider already turns into a session-visible fault (the
+  blocking shape never got this right "for free" -- a refusal only reached the log and a timeout
+  reached nothing); and the pulse is now **two methods**, `StartPulseGuideAsync` (the primitive:
+  command and return, `IsPulseGuidingAsync` carries progress) plus `PulseGuideAsync` (the composite
+  on the internal guider surface: start AND wait). 82 references over 29 files, no behaviour change,
+  and `GuiderCalibration`'s eight hand-written start-then-wait pairs collapsed to eight single calls
+  with the wait hoisted into the composite.
+  **What remains, in this order -- the order is load-bearing.**
+  (a) Give the composite a **two-axis overload** plus a `CanPulseGuideSimultaneously` capability
+  answered per driver, with the branch INSIDE the composite (start both and wait once where allowed,
+  else RA-wait-Dec-wait). Not caller-side: it is a fact only the driver knows.
+  (b) `GuideLoop` calls that overload once with both corrections. **This is a bug fix, not the
+  speedup**: overlapping the axes only helps Synta hardware, because ASCOM / Alpaca / DAL ST-4 /
+  `FakeMountDriver` already return once commanded and so already overlap by accident -- while on all
+  of those, `GuideLoop` currently **never waits for a pulse to finish before measuring the next
+  frame**, which the blocking SkyWatcher driver was accidentally covering up.
+  (c) Only THEN convert `SkywatcherMountDriverBase` to a background hold. It is the one
+  implementation that violates the primitive's contract (its doc comment says so) and the whole risk
+  of the sequence. Doing it before (b) would leave a window in which NOTHING waits on any mount.
+  Also: cancellation must reach an unawaited pulse, and `_pulseGuideInFlight` must be set BEFORE the
+  write or the conversion introduces finding 2.
   **A test for it must assert on fake time traversed per guide frame** -- `GuideLoopTests` builds
   `FakeMountDriver` so it never blocks, and where the blocking driver is driven the fake clock
-  auto-advances `SleepAsync`, so the stall is real and costs no wall time. (2) 24-bit position-counter rollover is unanswered; decide whether we track
-  the wrap or re-home. Also decide whether to regenerate `gss-oracle-transcripts.json` against
-  `origin/master`: it currently pins GSS's PRE-fix behaviour, and regenerating may legitimately turn
+  auto-advances `SleepAsync`, so the stall is real and costs no wall time.
+  **Still unanswered:** 24-bit position-counter rollover -- decide whether we track the wrap or
+  re-home. And decide whether to regenerate `gss-oracle-transcripts.json` against `origin/master`:
+  it currently pins GSS's PRE-fix behaviour, and regenerating may legitimately turn
   `SkywatcherGssOracleTests` red.
-
 - [ ] **Astro Photo Viewer, next release (P11-P21, from the user's notes 2026-08-22 and 2026-08-27)**.
   **Shipped:** the version now leads `--help` (plus `--version`, and the same line in the in-app `?`
   panel beside the AI-enhancer discovery status, which reports which backend resolved, which RC

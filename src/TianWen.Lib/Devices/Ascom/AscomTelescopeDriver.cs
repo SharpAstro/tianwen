@@ -258,7 +258,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         }
     }
 
-    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+    public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
         if (Connected && CanPulseGuide)
         {
@@ -266,7 +266,7 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
         }
         else
         {
-            throw new InvalidOperationException($"Failed to execute {nameof(PulseGuideAsync)} connected={Connected}");
+            throw new InvalidOperationException($"Failed to execute {nameof(StartPulseGuideAsync)} connected={Connected}");
         }
     }
 

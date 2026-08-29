@@ -237,7 +237,7 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
     #region Pulse Guide (not supported, use ST-4 guide port)
 
-    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+    public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
         => throw new InvalidOperationException("SGP does not support serial pulse guiding. Use the ST-4 guide port instead.");
 
     public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)

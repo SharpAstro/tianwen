@@ -1307,7 +1307,7 @@ public class GuideLoopTests(ITestOutputHelper output)
     /// <summary>Pulse target that ignores corrections; the test scripts the star error directly.</summary>
     private sealed class NoOpPulseGuideTarget : IPulseGuideTarget
     {
-        public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+        public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
             => ValueTask.CompletedTask;
 
         public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)

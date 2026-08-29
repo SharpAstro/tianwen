@@ -230,7 +230,7 @@ public class FakeSgpMountDriverTests(ITestOutputHelper output)
         await mount.ConnectAsync(ct);
 
         await Should.ThrowAsync<InvalidOperationException>(
-            () => mount.PulseGuideAsync(direction, TimeSpan.FromMilliseconds(500), ct).AsTask());
+            () => mount.StartPulseGuideAsync(direction, TimeSpan.FromMilliseconds(500), ct).AsTask());
     }
 
     [Fact(Timeout = 60_000)]
