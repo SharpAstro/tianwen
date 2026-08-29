@@ -76,7 +76,15 @@ Everything else composes per-plane without change: continuum subtraction (phase 
 broadband from *each* line plane, and the phase 5 mask is built from *one* line plane, which is
 exactly what the OIII range mask is.
 
-## Status: NOT STARTED (research + decision recorded 2026-08-02)
+## Status: NOT STARTED (research ongoing 2026-08-02 through 2026-08-28; nothing built yet)
+
+**P1 scope, for a reader arriving from [pixinsight-parity.md](pixinsight-parity.md):** Phases 1+2
+only -- robust plane normalization + the named-preset palette mixer (ADR-1's own decision). No new
+data dependency, ~1 day of core effort per the comparison table below, and it fixes the actual
+user-facing complaint (rank-deficient cyan HOO) directly. Phase 4 (SPCC narrowband) is the only
+*truly* blocked phase, on a Gaia DR3 per-star spectra source (ADR-3) -- everything else is buildable
+today, just larger in scope than P1 (see the phase table immediately below for what's deferred and
+why).
 
 | Phase | What | Where | Status |
 |-------|------|-------|--------|

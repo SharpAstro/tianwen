@@ -14,7 +14,8 @@ flat-field-corrected image ready for the downstream color-calibration +
 stretch + AI-enhancement chain.
 
 Reference implementation: SetiAstroSuite Pro's
-`abe.py` (`../../other/setiastrosuitepro/src/setiastro/saspro/abe.py`, ~2050
+`abe.py` (`~/source/repos/other/setiastrosuitepro/src/setiastro/saspro/abe.py` -- a sibling
+checkout of this org's repos, not inside `tianwen/`, ~2050
 LOC including the Qt UI). The core algorithm is ~400 lines; the rest is
 preview/exclude-polygon UI.
 
@@ -176,6 +177,15 @@ extends it with Stage 2. DI picks one by config.
 - `Image.MtfStretch` / `Image.MtfUnstretch` -- NOT used by ABE itself, but
   cross-listed here because callers will typically chain ABE -> color
   calibration -> MtfStretch -> AI enhancers.
+- `ScanBackgroundRegion` (used by `BackgroundNeutralization`) -- directly
+  reusable for the descend-to-dim sample-placement step; no need to
+  reimplement dark-region scanning.
+- `GetStarMaskedMedianAndMADScaledToUnit` -- the star-masking half is
+  relevant to the bright-avoid sample-rejection heuristic.
+- Mask morphology (dilate / erode) is on the backlog as "deferred until a
+  consumer exists" (`docs/todo/imaging.md`) -- ABE's exclusion-polygon /
+  bright-avoid step is plausibly the consumer that finally justifies
+  building it (dilate a star mask before excluding it from sampling).
 
 ### What ABE does NOT do
 
@@ -207,23 +217,46 @@ extends it with Stage 2. DI picks one by config.
 1. **Polynomial-degree default.** SAS Pro defaults to a UI slider, not a
    single number. Empirical-default for headless mode: 4 (matches SAS Pro
    docs / Siril). Revisit if quality data lands.
-2. **RBF library choice.** `scipy.interpolate.RBFInterpolator` is the
-   Python equivalent. C# options:
-   (a) `MathNet.Numerics` LU solve + hand-rolled multiquadric kernel
-       (~150 LOC, no new dep -- we already pull `MathNet.Numerics` in
-       `Stacking`)
-   (b) Pure hand-rolled SIMD (no MathNet dep, ~250 LOC). Pick (a) unless
-       MathNet's LU solver shows up on hot-path profiles.
+2. **RBF library choice -- correction, this was checked and the premise was wrong.** `scipy.
+   interpolate.RBFInterpolator` is the Python equivalent, and the claim below that we "already pull
+   `MathNet.Numerics` in `Stacking`" is **false**: grepped `src/` and `Directory.Packages.props`,
+   there is no `MathNet` reference anywhere in this repo. Choosing (a) is therefore a genuinely NEW
+   dependency, not a zero-cost one -- re-weigh against (b) with that in mind before picking.
+   (a) `MathNet.Numerics` LU solve + hand-rolled multiquadric kernel (~150 LOC, but a new package
+       dependency).
+   (b) Pure hand-rolled SIMD (no new dep, ~250 LOC). With the cost of (a) corrected upward, (b) is
+       the more consistent choice with this codebase's general preference for no new dependency
+       over a small one (see CLAUDE.md's sibling/CPM discipline) unless (a)'s LU solver is
+       measurably simpler to get right.
 3. **Where does the auto-stretch preview live?** ABE's preview UI in SAS
    Pro applies an autostretch to the preview thumbnail so the user can see
    gradients. In TianWen we already have the viewer pipeline -- the
    preview can reuse `StretchUniforms` for display, while the *math*
    continues to operate on linear data. No need to invent a separate
    preview stretch.
-4. **GraXpert compatibility.** Should we read GraXpert's exported
-   background images (so users with a GraXpert workflow can keep using
-   their tool and bring the gradient model into TianWen)? Probably yes
-   eventually; trivial side-channel feature once the core lands.
+4. **GraXpert compatibility -- now has a concrete reference path, not just a "probably yes."**
+   `docs/todo/imaging.md`'s Siril-scripts note (2026-08-18, expanded since) located
+   `processing/GraXpert-AI.py` in the `free-astro/siril-scripts` GitLab repo -- Siril driving
+   GraXpert, which answers this question from a working implementation rather than only from docs.
+   Still separable and lower priority than Phases 1-3; doesn't block them.
+5. **Sample-placement heuristics are now sourced, not SAS-Pro-only.** The same Siril-scripts note
+   also located `processing/AutoBGE.py` (automatic background extraction -- the sample-placement
+   half, which is exactly what Phase 2 needs and what this doc previously left open) and
+   `processing/AutoGradientRemoval.py`. **License rule, restated precisely**: TianWen is
+   AGPL-3.0-or-later (as of 2026-08-11) and the Siril/GraXpert repos are GPL-3.0, so combining is
+   legally permitted under AGPL section 13 -- reimplementing from the recorded maths is still the
+   *preferred* approach (a vendored GPL-3.0 file would carry different terms than the rest of the
+   tree, and the Python-to-C# port is most of the effort either way), but it is a preference now,
+   not a hard legal requirement. Same framing as [narrowband-colour.md](narrowband-colour.md)'s
+   ADR-2.
+6. ~~SASPro's own `abe.py` license is unconfirmed~~ **RESOLVED 2026-08-29: confirmed GPL-3.0.**
+   The local reference checkout is not at the path this doc previously cited
+   (`other/setiastrosuitepro` relative to the tianwen repo, which does not exist) but as a sibling
+   repo at `~/source/repos/other/setiastrosuitepro` -- fixed in Cross-references below. Its own
+   `README.md`: "Seti Astro Suite Pro is licensed under the GNU General Public License v3.0." Same
+   licence as Siril/GraXpert, so the same framing applies: combining is lawful under TianWen's
+   AGPL-3.0-or-later (section 13), reimplementing from the algorithm is still preferred (see
+   question 5 above), not a hard legal requirement.
 
 ## Cross-references
 
@@ -236,4 +269,11 @@ extends it with Stage 2. DI picks one by config.
 - [CLAUDE.md](../../CLAUDE.md) "BackgroundNeutralization" -- the existing
   per-channel offset alignment. Different concern from ABE; both run on
   linear data.
-- SAS Pro reference: `../../other/setiastrosuitepro/src/setiastro/saspro/abe.py`.
+- SAS Pro reference: `~/source/repos/other/setiastrosuitepro/src/setiastro/saspro/abe.py` (a
+  sibling checkout next to this org's repos, not inside `tianwen/`; GPL-3.0, confirmed -- see
+  open question 6).
+- [`docs/todo/imaging.md`](../todo/imaging.md)'s Siril-scripts note -- `AutoBGE.py`,
+  `AutoGradientRemoval.py`, `GraXpert-AI.py` in `free-astro/siril-scripts` (GitLab), resolving open
+  questions 4 and 5 above.
+- [`pixinsight-parity.md`](pixinsight-parity.md) -- the indexed parity tracker this plan is the #2
+  ranked gap under.
