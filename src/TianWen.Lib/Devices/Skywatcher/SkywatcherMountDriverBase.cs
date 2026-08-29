@@ -668,10 +668,13 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 }
                 finally
                 {
-                    // Restore the sidereal step period even when the pulse is cancelled; 
+                    // Restore the sidereal step period even when the pulse is cancelled;
                     // a stuck guide rate would drift the mount at (1±f) x sidereal forever.
+                    // VERIFIED, not merely sent: this is the one command in a pulse whose failure
+                    // is both invisible and permanent, so an unacknowledged restore is a fault the
+                    // session must see rather than a log line nobody reads until the morning.
                     var t1Sidereal = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, siderealDegPerSec, false, _highSpeedRatio);
-                    await SendCommandAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1Sidereal), CancellationToken.None);
+                    await SendCommandVerifiedAsync('I', '1', SkywatcherProtocol.EncodeUInt24(t1Sidereal), CancellationToken.None);
                 }
             }
             else
@@ -688,7 +691,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 }
                 finally
                 {
-                    await SendCommandAsync('K', '1', null, CancellationToken.None);
+                    // Same reasoning as the :I1 restore above: this :K1 is the only thing that ends
+                    // the motion the pulse started, and the axis is NOT tracking, so a lost stop is
+                    // an axis running at the combined rate with nothing scheduled to halt it.
+                    await SendCommandVerifiedAsync('K', '1', null, CancellationToken.None);
                 }
             }
         }
@@ -728,7 +734,11 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             }
             finally
             {
-                await SendCommandAsync('K', '2', null, CancellationToken.None);
+                // Verified for the same reason as the RA paths. Note :K only STARTS a deceleration,
+                // so a '=' here proves the board accepted the stop, not that the axis has halted --
+                // strictly weaker than the FullStop poll the goto paths use, and strictly stronger
+                // than not looking at the answer at all, which is what this used to do.
+                await SendCommandVerifiedAsync('K', '2', null, CancellationToken.None);
             }
         }
     }
@@ -1194,7 +1204,27 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         return await port.TryReadTerminatedAsync(CrTerminator, cancellationToken);
     }
 
-    private async ValueTask SendCommandAsync(char cmd, char axis, string? data, CancellationToken cancellationToken)
+    /// <summary>
+    /// One command round-trip, classified. A board that took the command answers <c>=</c>; one that
+    /// refused answers <c>!X</c> (e.g. <c>!2</c> = motor not stopped, <c>!0</c> = unknown command);
+    /// a board that says nothing at all leaves <see cref="Response"/> null, which is a read TIMEOUT
+    /// and a different fact from a refusal -- the line may simply be desynced.
+    /// </summary>
+    private readonly record struct SkywatcherAck(string? Response)
+    {
+        public bool Accepted => Response is { Length: > 0 } && Response[0] == '=';
+    }
+
+    /// <summary>
+    /// Attempts a safety-critical command gets before the driver gives up on it. Three, with no
+    /// artificial delay between them: the two failure modes are a firmware refusal (instant, and a
+    /// re-send is the whole remedy) and a read timeout (which has already spent the port's timeout
+    /// waiting). This runs inside a pulse's <c>finally</c>, on the guide hot path, so the budget is
+    /// deliberately small -- but any of it beats leaving an axis running.
+    /// </summary>
+    private const int VerifiedCommandAttempts = 3;
+
+    private async ValueTask<SkywatcherAck> SendCommandRawAsync(char cmd, char axis, string? data, CancellationToken cancellationToken)
     {
         if (_deviceInfo.SerialDevice is not { IsOpen: true } port)
         {
@@ -1207,15 +1237,64 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             throw new InvalidOperationException($"Failed to write command :{cmd}{axis}");
         }
-        // Read the acknowledgment. A response beginning with '!' is a firmware error (e.g. !2 =
-        // motor not stopped / :G on a running axis, !0 = unknown command). These were previously
-        // discarded silently, which hid dropped commands: a rejected :G no-ops the whole
-        // G/H/M/J goto/pulse sequence with no exception. Surface them so the gap is diagnosable.
-        var ack = await port.TryReadTerminatedAsync(CrTerminator, cancellationToken);
-        if (ack is { Length: > 0 } && ack[0] == '!')
+        return new SkywatcherAck(await port.TryReadTerminatedAsync(CrTerminator, cancellationToken));
+    }
+
+    /// <summary>
+    /// Best-effort send: log a refusal and carry on. Correct for every command whose failure costs
+    /// one guide correction or one move, which the next frame re-issues. NOT correct for a command
+    /// that stops an axis or restores its rate -- see <see cref="SendCommandVerifiedAsync"/>.
+    /// </summary>
+    private async ValueTask SendCommandAsync(char cmd, char axis, string? data, CancellationToken cancellationToken)
+    {
+        // A response beginning with '!' is a firmware error. These were once discarded silently,
+        // which hid dropped commands: a rejected :G no-ops the whole G/H/M/J goto/pulse sequence
+        // with no exception. Surface them so the gap is diagnosable.
+        var ack = await SendCommandRawAsync(cmd, axis, data, cancellationToken);
+        if (!ack.Accepted)
         {
-            Logger.LogWarning("Skywatcher command :{Cmd}{Axis} rejected with error response {Ack}", cmd, axis, ack);
+            Logger.LogWarning("Skywatcher command :{Cmd}{Axis} was not acknowledged, response {Ack}",
+                cmd, axis, ack.Response ?? "<none>");
         }
+    }
+
+    /// <summary>
+    /// Send a command and VERIFY the board took it, retrying up to
+    /// <see cref="VerifiedCommandAttempts"/> times and throwing
+    /// <see cref="SkywatcherDriverException"/> when it never does.
+    /// </summary>
+    /// <remarks>
+    /// <para>For the commands that put an axis back into a safe state, where a failure leaves the
+    /// mount running at a rate the driver believes it has already cancelled. Sending such a command
+    /// is not the same as it having taken effect, and the difference is invisible: an unrestored
+    /// <c>:I1</c> tracks at up to 2x sidereal all night and shows up only as trailed subframes.
+    /// See <see cref="SkywatcherDriverException"/> for why this set and not the others.</para>
+    ///
+    /// <para>Verifying is a genuinely NEW guarantee, not a preserved one. Before this the restore
+    /// path had exactly one covered failure -- a write that returned false -- while a firmware
+    /// refusal only reached the log and a read timeout reached nothing at all.</para>
+    /// </remarks>
+    private async ValueTask SendCommandVerifiedAsync(char cmd, char axis, string? data, CancellationToken cancellationToken)
+    {
+        var ack = default(SkywatcherAck);
+        for (var attempt = 1; attempt <= VerifiedCommandAttempts; attempt++)
+        {
+            ack = await SendCommandRawAsync(cmd, axis, data, cancellationToken);
+            if (ack.Accepted)
+            {
+                if (attempt > 1)
+                {
+                    Logger.LogWarning("Skywatcher command :{Cmd}{Axis} took effect on attempt {Attempt} of {Attempts}",
+                        cmd, axis, attempt, VerifiedCommandAttempts);
+                }
+                return;
+            }
+
+            Logger.LogWarning("Skywatcher command :{Cmd}{Axis} was not acknowledged (response {Ack}) on attempt {Attempt} of {Attempts}",
+                cmd, axis, ack.Response ?? "<none>", attempt, VerifiedCommandAttempts);
+        }
+
+        throw new SkywatcherDriverException(cmd, axis, ack.Response, VerifiedCommandAttempts);
     }
 
     private record struct AxisStatus(bool IsRunning, bool IsTracking, bool IsForward, bool IsInitDone);

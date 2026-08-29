@@ -701,6 +701,24 @@ a thin wrapper over `ResilientCall.InvokeAsync` with `OnDriverReconnect` as the 
 - **`CatchAsync` is still correct** for best-effort predicate decisions (`IsSlewingAsync`,
   `IsTrackingAsync`), FITS header reads, and finaliser steps.
 
+**Sending a command is not the same as it having taken effect, and the distinction only matters for
+the ones that fail BACKWARD.** Most driver commands fail forward: a lost slew is not a slew, a lost
+guide correction is re-issued next frame, so best-effort plus a log is right. A command that returns
+hardware to a SAFE state is the opposite -- it leaves the device running in a mode the driver
+believes it has already cancelled, and nothing downstream can tell. In `SkywatcherMountDriverBase`
+those are exactly three (`:I1` restoring the sidereal step period, `:K1`/`:K2` stopping an axis a
+pulse started), and they go through `SendCommandVerifiedAsync`: classify the ack (`=` accepted /
+`!X` refused / **null = no answer, a timeout and a different fact**), retry three times, then throw
+`SkywatcherDriverException`. **Retrying is half the fix** -- a serial hiccup must not end the night,
+so only an exhausted budget is a fault. Before this only a failed *write* surfaced; a refusal
+reached `LogWarning` and a timeout reached nothing, so an unrestored `:I1` tracked RA at up to 2x
+sidereal for the rest of the night and showed up solely as trailed subframes. **Do not widen this to
+every command** (a recoverable hiccup would become a stopped guider), and when adding a serial
+driver, ask which of its commands fail backward -- that set, and only that set, is worth a fault.
+No new plumbing surfaces it: a throw from `PulseGuideAsync` becomes a `GuidingErrorEvent`, which the
+session drains, logs and answers by restarting the guider. Pinned by `SkywatcherPulseRestoreTests`;
+rationale in [docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md) Finding 3.
+
 ### Backlash Auto-Tuning
 
 Every successful AutoFocus opportunistically infers per-direction backlash from the verification
