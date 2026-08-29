@@ -22,4 +22,11 @@ public readonly record struct MountState(
     bool IsSlewing,
     bool IsTracking,
     double RaJ2000 = double.NaN,
-    double DecJ2000 = double.NaN);
+    double DecJ2000 = double.NaN,
+
+    /// <summary>
+    /// GEOMETRIC altitude in degrees, derived from <see cref="HourAngle"/>, <see cref="Declination"/>
+    /// and the site latitude; NaN when the site or the pointing is unknown. Unrefracted on purpose --
+    /// it feeds the mechanical horizon limit, and a tripod leg is not lifted by the atmosphere.
+    /// </summary>
+    double Altitude = double.NaN);

@@ -112,6 +112,19 @@ internal partial record Session(
 
     private long _meridianFlipUtcTicks;
 
+    // Mount safety limits. _limitActed is the once-per-entry latch (see EnforceMountLimitsAsync);
+    // _limitReached is the one-way flag the imaging loop reads to finish the run. Both are written
+    // by PollDeviceStatesAsync, which runs on slew waits and focus routines as well as the imaging
+    // tick, and read from the loop -- hence Volatile rather than plain fields.
+    private bool _limitActed;
+    private bool _limitReached;
+    private MountLimitVerdict _limitVerdict = MountLimitVerdict.Clear;
+
+    /// <summary>
+    /// The most recent mount-limit verdict, for telemetry and the notification feed.
+    /// </summary>
+    public MountLimitVerdict MountLimitVerdict => _limitVerdict;
+
     // Start "unknown" (all-NaN coords), not default(MountState) which would read as a real RA0/Dec0.
     // The first PollDeviceStatesAsync (RunAsync, right after InitialisationAsync) fills it in. UI
     // consumers treat NaN RA as "no pointing yet" and keep the last known value rather than snapping
@@ -425,15 +438,93 @@ internal partial record Session(
                 }
             }
 
+            var hourAngle = await PollDriverReadAsync(mount, mount.GetHourAngleAsync, _mountState.HourAngle, cancellationToken);
+            var isTracking = await PollDriverReadAsync(mount, mount.IsTrackingAsync, _mountState.IsTracking, cancellationToken);
+
             _mountState = new MountState(
                 RightAscension: ra,
                 Declination: dec,
-                HourAngle: await PollDriverReadAsync(mount, mount.GetHourAngleAsync, _mountState.HourAngle, cancellationToken),
+                HourAngle: hourAngle,
                 PierSide: await PollDriverReadAsync(mount, mount.GetSideOfPierAsync, _mountState.PierSide, cancellationToken),
                 IsSlewing: await PollDriverReadAsync(mount, mount.IsSlewingAsync, _mountState.IsSlewing, cancellationToken),
-                IsTracking: await PollDriverReadAsync(mount, mount.IsTrackingAsync, _mountState.IsTracking, cancellationToken),
+                IsTracking: isTracking,
                 RaJ2000: raJ2000,
-                DecJ2000: decJ2000);
+                DecJ2000: decJ2000,
+                Altitude: SiteContext.Create(Configuration.SiteLatitude, Configuration.SiteLongitude, _timeProvider)
+                    .AltitudeDegrees(hourAngle, dec));
+
+            await EnforceMountLimitsAsync(mount, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Evaluates this rig's configured mechanical limits against the state just polled, and acts on
+    /// the verdict at most once per entry into the limit.
+    /// </summary>
+    /// <remarks>
+    /// <para>Lives on the poll rather than the imaging tick because the poll is what every slew
+    /// wait and focus routine already calls -- a limit that only fired between exposures would
+    /// watch a mount drive into a pier during a goto and say nothing.</para>
+    ///
+    /// <para><b>The latch is the whole reason this is not just an <c>if</c>.</b> The poll runs
+    /// continuously, so acting per-poll would re-command a park every tick and restart the park slew
+    /// forever, never arriving -- GSS's <c>SlewState != SlewType.SlewPark</c> guard, ported as
+    /// <see cref="MountLimits"/>' <c>alreadyActed</c>. It downgrades to Warn rather than clearing,
+    /// so the user keeps being told they are still in the limit.</para>
+    ///
+    /// <para>Acting is deliberately best-effort and does NOT gate the run's exit: whether the stop
+    /// succeeded or not, the imaging loop is told to finish. A limit we could not act on is a
+    /// stronger reason to end the night, not a weaker one.</para>
+    /// </remarks>
+    private async ValueTask EnforceMountLimitsAsync(IMountDriver mount, CancellationToken cancellationToken)
+    {
+        if (Setup.MountLimits is not { Enabled: true } limits)
+        {
+            return;
+        }
+
+        var verdict = MountLimits.Evaluate(
+            _mountState.HourAngle, _mountState.Altitude, _mountState.IsTracking, _limitActed, limits);
+
+        if (!verdict.IsBreached)
+        {
+            if (Volatile.Read(ref _limitActed))
+            {
+                _logger.LogInformation("Mount is clear of its safety limits again.");
+                Volatile.Write(ref _limitActed, false);
+            }
+            _limitVerdict = verdict;
+            return;
+        }
+
+        _limitVerdict = verdict;
+
+        if (verdict.IsWarningOnly || verdict.Response is MountLimitResponse.Warn)
+        {
+            _logger.LogWarning("Mount safety limit: {Verdict}", verdict.Describe());
+            return;
+        }
+
+        _logger.LogError("Mount safety limit: {Verdict}. Responding with {Response}.", verdict.Describe(), verdict.Response);
+        Volatile.Write(ref _limitActed, true);
+        _limitReached = true;
+
+        // Stop tracking first in BOTH responses. A park is motion across a path nothing has checked,
+        // so the axis should not still be driving toward the limit while it is under way -- and if
+        // the park then fails, a stopped mount is a better place to have left the rig than a
+        // tracking one.
+        await ResilientInvokeAsync(
+            mount, ct => mount.SetTrackingAsync(false, ct),
+            ResilientCallOptions.NonIdempotentAction, cancellationToken);
+
+        if (verdict.Response is MountLimitResponse.Park && mount.CanPark)
+        {
+            await ResilientInvokeAsync(
+                mount, mount.ParkAsync, ResilientCallOptions.NonIdempotentAction, cancellationToken);
+        }
+        else if (verdict.Response is MountLimitResponse.Park)
+        {
+            _logger.LogWarning("Mount safety limit asked for a park, but this mount cannot park; tracking was stopped instead.");
         }
     }
 

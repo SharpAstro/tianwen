@@ -221,6 +221,15 @@ internal partial record Session
                     observation, await GetMountUtcNowAsync(cancellationToken) - imageLoopStart);
                 break;
             }
+            else if (imageLoopResult is ImageLoopNextAction.LimitReached)
+            {
+                // Not an error in the rig, so it does not advance to the next target either: every
+                // remaining target is reached from the same mount, and the mount is now stopped or
+                // parked at its limit.
+                _logger.LogError("Mount safety limit reached during {Observation} after {Runtime:c} ({Verdict}); ending observation loop cleanly.",
+                    observation, await GetMountUtcNowAsync(cancellationToken) - imageLoopStart, _limitVerdict.Describe());
+                break;
+            }
             else
             {
                 _logger.LogError("Imaging loop for {Observation} did not complete successfully, total runtime: {TotalRuntime:c}", observation, await GetMountUtcNowAsync(cancellationToken) - imageLoopStart);
@@ -581,6 +590,17 @@ internal partial record Session
             {
                 _logger.LogWarning("Cancellation requested, all images in queue written to disk, abort image acquisition and quit imaging loop");
                 next = ImageLoopNextAction.BreakObservationLoop;
+                break;
+            }
+
+            // A mechanical limit was hit and acted on by the poll. Nothing is broken -- the rig
+            // reached the edge of where it may point -- so drain writes and end the night the same
+            // way an unrecoverable driver does, but under its own name.
+            if (Volatile.Read(ref _limitReached))
+            {
+                _logger.LogError("Mount safety limit reached ({Verdict}); ending the observation.", _limitVerdict.Describe());
+                await WriteQueuedImagesToFitsFilesAsync();
+                next = ImageLoopNextAction.LimitReached;
                 break;
             }
 

@@ -29,7 +29,24 @@ public readonly record struct ProfileData(
     double? SiteLatitude = null,
     double? SiteLongitude = null,
     double? SiteElevation = null,
-    SiteTieBreaker SiteTieBreaker = SiteTieBreaker.Mount
+    SiteTieBreaker SiteTieBreaker = SiteTieBreaker.Mount,
+
+    /// <summary>
+    /// Mechanical safety limits for this rig, or null for the shipped defaults (disabled).
+    /// </summary>
+    /// <remarks>
+    /// <para><b>On the PROFILE, not <c>SessionConfiguration</c>, and the distinction is not
+    /// bookkeeping.</b> Where the tube meets the pier is a static fact about a pier, a tube and a
+    /// counterweight shaft -- exactly like <see cref="OTAData"/> -- so it does not vary run to run,
+    /// and it has to apply to a manual slew with no session in sight. A per-run home would give the
+    /// right answer for the imaging loop and no answer at all for the case where somebody drives
+    /// the mount by hand at 2am.</para>
+    ///
+    /// <para>Null rather than a default instance so an older profile deserialises unchanged and
+    /// reads as "never configured", which the shipped defaults answer as disabled. Opt-in is the
+    /// point: a limit that fires on a rig nobody measured is worse than no limit.</para>
+    /// </remarks>
+    Sequencing.MountLimitConfiguration? MountLimits = null
 )
 {
     public static readonly ProfileData Empty = new ProfileData(NoneDevice.Instance.DeviceUri, NoneDevice.Instance.DeviceUri, []);

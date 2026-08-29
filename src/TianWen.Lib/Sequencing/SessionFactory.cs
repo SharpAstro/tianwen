@@ -99,7 +99,7 @@ internal class SessionFactory(
 
         var weather = profileData.Weather is { } weatherUri ? new Weather(DeviceFromUri(weatherUri), serviceProvider) : null;
 
-        var setup = new Setup(mount, guider, guiderSetup, [.. otas], weather);
+        var setup = new Setup(mount, guider, guiderSetup, [.. otas], weather, profileData.MountLimits);
 
         // Diagnostic: did the session reuse already-connected hub driver instances, or create fresh
         // ones? A fresh instance re-runs DoConnectDeviceAsync at InitialisationAsync, which for the fake

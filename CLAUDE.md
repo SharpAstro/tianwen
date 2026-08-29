@@ -656,7 +656,23 @@ neither. Ported from GSServer's `CheckAxisLimits` with three deliberate departur
 
 **Parking is opt-in for both limits**, because a park is MOTION across a path nothing has checked -- a
 mount stopped at 8 deg altitude may be a hand's width from a tripod leg. `Finalise` already parks at
-session end, so the unattended-dawn case needs no limit to slew. Plan + phasing:
+session end, so the unattended-dawn case needs no limit to slew.
+
+**Wired up as of P1+P2, and three placement decisions ride on it.** The config lives on
+`ProfileData.MountLimits` (nullable = never configured = disabled) and `SessionFactory` projects it
+onto `Setup`, never onto the per-run `SessionConfiguration` -- where the tube meets the pier is a
+static fact about a rig, and it has to hold for a manual slew with no session. Enforcement is in
+`PollDeviceStatesAsync`, **not the imaging tick**, because the poll is what every slew wait and
+focus routine already calls; a limit evaluated between exposures would watch a mount drive into a
+pier during a goto. And the altitude it judges is **geometric**
+(`SiteContext.AltitudeDegrees(hourAngleHours, decDeg)`, new): refraction lifts a body by up to
+~34 arcmin at the horizon, so a refracted altitude reports the tube higher than it is and the limit
+fires late, and a tripod leg is not lifted by the atmosphere. Breaching routes to
+`ImageLoopNextAction.LimitReached`, deliberately NOT `DeviceUnrecoverable` -- nothing is broken, so
+do not report a working mount as a faulty one. Tracking is stopped for a Park response too, before
+the park slew. **A test here must place the mount by SYNC, not slew** (a slew only begins, and the
+fake needs a clock pump these tests do not run) and must switch tracking ON explicitly (a fresh test
+session has never initialised a mount). Plan + phasing:
 [docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md); the wider GSServer sweep in
 [docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md).
 
