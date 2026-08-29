@@ -175,11 +175,8 @@ public static class CometObservability
 
     private static double AltitudeDeg(double raHours, double decDeg, double lat, double lon, DateTimeOffset utc)
     {
-        var lst = SiteContext.ComputeLST(utc.ToUniversalTime(), lon);
-        var ha = (lst - raHours) * Math.PI / 12.0;
-        var (sinDec, cosDec) = Math.SinCos(decDeg * Math.PI / 180.0);
-        var (sinLat, cosLat) = Math.SinCos(lat * Math.PI / 180.0);
-        var sinAlt = sinLat * sinDec + cosLat * cosDec * Math.Cos(ha);
-        return Math.Asin(Math.Clamp(sinAlt, -1.0, 1.0)) * 180.0 / Math.PI;
+        // Was a hand-rolled copy of SiteContext's geometry that already borrowed its LST.
+        var site = SiteContext.Create(lat, lon, utc.ToUniversalTime());
+        return site.AltitudeDegrees(site.LST - raHours, decDeg);
     }
 }
