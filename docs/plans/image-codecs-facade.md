@@ -197,3 +197,20 @@ live in `Directory.Packages.props`):
   LE / MM on BE) so multi-byte tag values and pixel samples can be written
   verbatim from native memory with no swap step. The reader honours either
   order, so round-trip is correct regardless of host architecture.
+
+### The float-TIFF on-disk convention: `[0, 1]` file values, always
+
+This predates the facade swap and must not regress, because two reader families disagree about what
+a float TIFF's pixel values mean: **libtiff-HDRI readers** (ImageMagick-based) expect `[0, 1]` file
+values with `SMinSampleValue=0` / `SMaxSampleValue=65535` (tags 340/341) as a dynamic range they
+multiply by on read -- non-standard per TIFF 6.0, but widespread -- while **scientific tools**
+(`tifffile`, PixInsight, ImageJ, FITS-aware viewers) read floats verbatim and never rescale by
+SMin/SMax.
+
+**The `[0, 1]` file convention satisfies both**: HDRI readers rescale to their quantum, scientific
+readers get linear scene-light values. So `Image.Export.cs` writes `[0, 1]` floats with
+`SampleFormat = IeeeFloat` (tag 339 mandatory, without it readers misinterpret the float bits as
+uint) plus `SMinSampleValue = 0` / `SMaxSampleValue = 65535` (the `Q16HdriQuantumMax` const), and
+`[0, 1]` is the canonical in-memory range on read as well. Guards: the `Codecs` repo's
+`TiffWriterRoundTripTests.cs` (byte-level reader probe) and `TianWen.Lib.Tests/TiffRoundTripTests.cs`
+(round-trip + SATURATE/unit-scale).

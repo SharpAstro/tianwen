@@ -53,11 +53,13 @@ flowchart TD
 
 **Provenance skip (never re-ingest our own outputs).** The scan drops any
 TianWen-produced FITS so a processed image parked alongside the lights is never
-re-stacked. Two markers (`IntegrationFitsWriter`): `STACK_N > 0` (a master) OR a
-TianWen `SWCREATE` prefix (`IsTianWenProduct` -- catches sharpen / enhance outputs
-which inherit the master's `SWCREATE` but carry no `STACK_N` and an
-`IMAGETYP=Light`). The `ScanSummary` is reported on the progress channel so a
-silent skip is visible.
+re-stacked as a fresh sub. Two markers, both gated by `--include-integrations`
+(`IntegrationFitsWriter`): `STACK_N > 0` (a master) OR a TianWen `SWCREATE` prefix
+(`IsTianWenProduct` -- catches AI sharpen / enhance outputs, which inherit the
+master's `SWCREATE` but carry NO `STACK_N` and an `IMAGETYP=Light` copied from the
+original subs, so the `STACK_N` check alone misses them, and they silently
+re-stack into a ghost master). The `ScanSummary` is reported on the progress
+channel -- silent re-ingestion was the footgun this closes.
 
 ---
 

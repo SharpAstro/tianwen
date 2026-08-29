@@ -361,7 +361,8 @@ Absent/unparseable → real system clock (previous behaviour). Pinned by `Startu
 URI-addressed: `DeviceBase` (URI identity), `IDeviceSource<T>` (driver backends),
 `ICombinedDeviceManager` (coordinates sources), `IDeviceUriRegistry` (URI → instance map).
 Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See class XML doc comments
-for supported keys.
+for supported keys. Full driver hierarchy (ASCOM / Alpaca / ZWO / QHY / native-serial subgraphs):
+[docs/architecture/device-architecture.md](docs/architecture/device-architecture.md).
 
 ### Device Ownership (the hub lease)
 
@@ -961,13 +962,11 @@ counterpart and the override. Design + every measurement below:
   for texture. And **never compare a treated layer against a differently-integrated one**:
   mask-vs-drizzle changed two variables and read as "barely worked".
 
-**Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS so a
-processed image parked alongside the lights is never re-stacked as a fresh sub. Two markers, both
-gated by `--include-integrations`: `STACK_N > 0` (a master) OR a TianWen `SWCREATE`
-(`IntegrationFitsWriter.IsTianWenProduct` -- catches AI sharpen / enhance outputs, which inherit the
-master's `SWCREATE` but carry NO `STACK_N` and an `IMAGETYP=Light` copied from the original subs, so
-the STACK_N check alone misses them, and they silently re-stack into a ghost master). The scan reports
-a `ScanSummary` on the progress channel -- silent re-ingestion was the footgun.
+**Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS
+(`STACK_N > 0` OR a TianWen `SWCREATE`, gated by `--include-integrations`) so a processed image parked
+alongside the lights is never re-stacked as a fresh sub. Markers, the ghost-master failure mode and the
+`ScanSummary` reporting:
+[docs/architecture/stacking-render-pipeline.md](docs/architecture/stacking-render-pipeline.md).
 
 **A CAPTURED frame that is not a light says so in `IMAGETYP`, and never relies on the skip above.**
 `SessionConfiguration.SaveIntermediates` (default OFF, one switch, `Session.IO.cs`'s
@@ -1341,7 +1340,7 @@ design).
 `UiThemeState` is **System / Light / Dark / Night**, and `GuiTheme.Apply(state, desktopIsDark)`
 resolves + swaps it in as a single reference write. `Palette` is one reference read, never torn. The
 source XML comments carry the full rationale (including the scotopic-sensitivity numbers); read them
-before changing a colour.
+before changing a colour. Full design + phasing: [docs/plans/colour-theme.md](docs/plans/colour-theme.md).
 
 - **Anything that CACHES a projection of the palette owes `GuiTheme.PaletteGeneration` in its cache
   key.** `Apply` bumps the generation only when the resolved palette actually moves. This is the
@@ -1608,19 +1607,12 @@ TianWen imports are `SharpAstro.Png` / `.Jpeg` / `.Tiff` / `.Color.Icc` / `.Jxr`
 which lists the same family). A `DIR.Lib.Tiff.*` or `DIR.Lib.Color.*` reference anywhere is a stale
 name, not a second implementation.
 
-The **on-disk convention** predates the swap and must not regress, because two reader families
-disagree about float TIFFs: **libtiff-HDRI readers** (ImageMagick-based) expect `[0, 1]` file values
-with `SMinSampleValue=0` / `SMaxSampleValue=65535` (tags 340/341) as a dynamic range they multiply by
-on read -- non-standard per TIFF 6.0, but widespread -- while **scientific tools** (`tifffile`,
-PixInsight, ImageJ, FITS-aware viewers) read floats verbatim and never rescale by SMin/SMax.
-
-**The `[0, 1]` file convention satisfies both**: HDRI readers rescale to their quantum, scientific
-readers get linear scene-light values. So `Image.Export.cs` writes `[0, 1]` floats with
-`SampleFormat = IeeeFloat` (tag 339 mandatory, without it readers misinterpret the float bits as uint)
-plus `SMinSampleValue = 0` / `SMaxSampleValue = 65535` (the `Q16HdriQuantumMax` const), and `[0, 1]` is
-the canonical in-memory range on read as well. Guards: the `Codecs` repo's
-`TiffWriterRoundTripTests.cs` (byte-level reader probe) and `TianWen.Lib.Tests/TiffRoundTripTests.cs`
-(round-trip + SATURATE/unit-scale).
+**The on-disk convention is `[0, 1]` file values, always** -- it predates the facade swap and must
+not regress, because libtiff-HDRI readers (ImageMagick-based) and scientific tools (`tifffile`,
+PixInsight, ImageJ) disagree about what a float TIFF's pixel values mean, and `[0, 1]` is the one
+range both read correctly. Rationale, the `SMinSampleValue`/`SMaxSampleValue`/`Q16HdriQuantumMax`
+mechanics and the round-trip guards:
+[docs/plans/image-codecs-facade.md](docs/plans/image-codecs-facade.md).
 
 **The codec surface these paths rely on** (managed PNG/TIFF encode + decode incl. 16-bit, cICP,
 `iCCP`, the bundled `IccProfiles.SRgbV4`, host-order byte swapping and multi-page chains) is
