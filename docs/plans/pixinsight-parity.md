@@ -39,8 +39,8 @@ Snapshot taken 2026-08-29. Update the STATUS cell in place as linked plans chang
 2. **Ported PJSR scripts.** GHS (above, DONE ~90%) and Star Stretch (`docs/plans/ai-enhancement.md`,
    "Frank StarStretch" in the original dual-stretch pipeline, later superseded by
    `MasterPreviewRenderer`/`StretchSolver`). Algorithm ports, not model weights.
-3. **"Statistical Stretch" learnings -- shipped, but NOT cross-referenced from the doc that owns
-   the result.** `docs/todo/imaging.md`'s "Learnings from PixInsight Statistical Stretch (SetiAstro,
+3. **"Statistical Stretch" learnings -- shipped; the cross-reference gap below is now CLOSED
+   (2026-08-29).** `docs/todo/imaging.md`'s "Learnings from PixInsight Statistical Stretch (SetiAstro,
    v2.3)" section (line 409 on) is where these actually live, and every one of the following is
    `[x]` DONE there: **Luma-only stretch mode** (Rec.709 luminance, stretch Y, scale RGB by Y'/Y --
    line 450), **Luma blend** (`StretchUniforms.LumaBlend`, line 479), **Rec.601/Rec.2020 luma
@@ -85,9 +85,9 @@ new doc, no pointer needed beyond what already exists at each site.
 
 ## Ranked gaps
 
-1. **Cross-reference the Statistical-Stretch-derived features in `stretch-pipeline.md`.** Small,
-   high-value, purely documentary -- the capability is shipped, the connection to its origin is
-   just not written down where the architecture doc lives.
+1. ~~Cross-reference the Statistical-Stretch-derived features in `stretch-pipeline.md`~~ **DONE
+   2026-08-29**: provenance notes added for Luma mode, `LumaBlend`, the `LumaWeighting` options
+   (Rec.709/601/2020/SensorMatched), and the `MinPivot` background-neutralization gain formula.
 2. **Background extraction (ABE/DBE)** -- design captured, nothing built; the GraXpert-interop open
    question is the one place this is cross-tool compatibility rather than algorithm porting.
 3. **Narrowband colour** -- 13 ADRs already written, the largest unbuilt chunk here.

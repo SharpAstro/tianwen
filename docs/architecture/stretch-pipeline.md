@@ -27,6 +27,14 @@ Linked/Unlinked, luma-Y'/Y for Luma. In Luma mode the producer always populates 
 A new pipeline stage (saturation boost, denoise, ...) is wired into BOTH the GLSL shader AND the CPU
 helpers. A stage that only exists in GLSL is a regression for the tests and the TUI.
 
+**Luma mode's provenance: SetiAstro's PixInsight "Statistical Stretch" script.** Stretching one
+scalar luma value and rescaling R/G/B by the stretched/raw ratio (rather than stretching each
+channel independently) is a direct descendant of that script's approach, along with `LumaBlend` and
+the Luma-weighting options below. The shipped `[x]` items and their provenance notes live in
+`docs/todo/imaging.md`'s "Learnings from PixInsight Statistical Stretch (SetiAstro, v2.3)" section;
+see [`pixinsight-parity.md`](../plans/pixinsight-parity.md) for the indexed cross-reference (this
+architecture doc previously carried none, which is the gap that doc exists to close).
+
 ## `Linked` and `Unlinked` mean what they mean in PixInsight
 
 The difference lives ENTIRELY in the uniforms -- neither the GLSL nor `StretchChannelCpu` branches on
@@ -84,6 +92,11 @@ the default); a neutral WB reduces to the old arithmetic bit-for-bit.
 **Anything caching these gains owes the WB in its cache key** -- `AstroImageDocument` keys on
 `(method, WB)`. Gains print at **F4**: they are affine about 1.0 against a ~0.002 background, so the
 triple that fixes a 2.66x cast is `(0.9981, 1.0003, 1.0005)` and F2 shows three 1.00s.
+
+The `MinPivot` gain formula (`out = norm * g + (1 - g)`) ports SetiAstro Suite Pro's
+highlight-protecting neutralization and is algebraically verified equivalent to SETI's own
+`out = 1 - (1 - val) * g` (`BackgroundNeutralization.ComputeGains`, provenance recorded in
+`docs/todo/imaging.md` and indexed in [`pixinsight-parity.md`](../plans/pixinsight-parity.md)).
 
 ## The single producer, and its coordinate space
 
@@ -149,6 +162,11 @@ They live in `StretchUniforms.LumaWeights` (Rec.709 / Rec.601 / Rec.2020 / Senso
 constants. `LumaWeighting.SensorMatched` resolves via `AstroImageDocument.ResolveLumaWeights` ->
 `FilterCurveDatabase.TryComputeSensorLumaWeights` (integrates sensor QE x Sony CFA R/G/B over the
 visible, normalises to sum 1); silently falls back to Rec.709 when the sensor model is not recognised.
+
+Rec.709/601/2020 cover the standard broadcast/photometric weightings named directly in questions
+like "can we retain more colour via Rec.2020"; `SensorMatched` goes further than either by deriving
+the weights from the sensor's own QE x CFA response instead of a generic standard. Same Statistical
+Stretch lineage as the rest of Luma mode -- see the provenance note above.
 
 ## Post-stretch normalize
 
