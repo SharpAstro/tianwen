@@ -473,7 +473,7 @@ namespace TianWen.UI.Abstractions
                 "Recenter mount pulse {Dir} {Arcsec:F1} arcsec -> {Ms:F0} ms (guide rate {Rate:F4} deg/s).",
                 direction, arcsec, ms, rateDegPerSec);
 
-            await mount.PulseGuideAsync(direction, TimeSpan.FromMilliseconds(ms), cancellationToken);
+            await mount.StartPulseGuideAsync(direction, TimeSpan.FromMilliseconds(ms), cancellationToken);
         }
     }
 }

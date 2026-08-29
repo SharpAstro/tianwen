@@ -110,8 +110,8 @@ work yet; noted so the idea is not lost with the commit it came in.
 `GuideLoop` applies the RA correction and then the Dec correction, each awaited:
 
 ```csharp
-if (correction.HasRaCorrection)  { await _pulseTarget.PulseGuideAsync(raDir,  correction.RaPulseDuration,  ct); }
-if (correction.HasDecCorrection) { await _pulseTarget.PulseGuideAsync(decDir, correction.DecPulseDuration, ct); }
+if (correction.HasRaCorrection)  { await _pulseTarget.StartPulseGuideAsync(raDir,  correction.RaPulseDuration,  ct); }
+if (correction.HasDecCorrection) { await _pulseTarget.StartPulseGuideAsync(decDir, correction.DecPulseDuration, ct); }
 ```
 
 This is GSS #76 ("Fix sequential execution of pulse guide call for equatorial mounts. Change
@@ -124,6 +124,23 @@ so the worst case is **4 s of pulsing per guide frame** - longer than a typical 
 at which point the loop computes each correction from a frame taken while the previous pair was
 still moving the mount, and oscillates.
 
+### Correction: this is a SkyWatcher-only defect, and its mirror image is universal
+
+Written first as though the loop serialised on every mount. It does not. `await` only waits where
+the implementation blocks, and only `SkywatcherMountDriverBase` does -- ASCOM, Alpaca, the DAL ST-4
+path and `FakeMountDriver` all return once commanded, so on those mounts **RA and Dec already
+overlap today, by accident**. Two consequences, and the second is the one that matters:
+
+- The 4 s worst case above is real, but only on Synta hardware (and the SkyWatcher fake).
+- **On every OTHER mount the guide loop never waits for a pulse to finish before measuring the next
+  frame.** Nothing in `GuideLoop` polls `IsPulseGuiding`; the await was doing that job by accident
+  on one driver family and doing nothing everywhere else. That is a correctness bug in its own
+  right, it exists right now, and it is what the shared `WaitForPulseCompleteAsync` in step 5 is
+  actually for -- not the tidy-up this plan first called it.
+
+So the two halves of step 5 are not one change: overlapping the axes is a SkyWatcher speedup, while
+waiting for the pair to complete is a fix for everyone else. Neither substitutes for the other.
+
 ### Blocking is inherent to the Synta pulse, not a design slip
 
 **The motor boards have no "pulse for N ms" primitive.** An RA pulse changes the step period (`:I1`)
@@ -131,7 +148,7 @@ and the driver must send the restore itself; a Dec pulse starts the axis (`:J2`)
 send the `:K2`. So SOMETHING has to hold the duration. Today that something is the caller's own
 await:
 
-| Implementation | `PulseGuideAsync` returns when |
+| Implementation | `StartPulseGuideAsync` returns when |
 |---|---|
 | `SkywatcherMountDriverBase` | the pulse has **finished** and the rate has been restored |
 | `FakeSkywatcherMountDriver` | same -- it inherits the base and overrides nothing |
@@ -140,9 +157,11 @@ await:
 | `DALCameraDriver` (ST-4) | the relay is energised; a timer opens it later |
 | `FakeMountDriver` | the correction is applied; a timer clears `IsPulseGuiding` later |
 
-`IMountDriver.PulseGuideAsync`'s doc comment describes only the physical effect, so nothing says
-which of these is right, and the divergence went unnoticed. **The two fakes are on opposite sides of
-it**, which is worth knowing before writing a test against either.
+`IMountDriver.PulseGuideAsync`'s doc comment described only the physical effect, so nothing said
+which of these was right, and the divergence went unnoticed. **The two fakes are on opposite sides of
+it**, which is worth knowing before writing a test against either. (Past tense: the method is
+`StartPulseGuideAsync` now and the contract IS stated. The table above still describes what each
+implementation actually does, which the rename did not change.)
 
 So the fix is NOT "make the SkyWatcher driver return early" -- it cannot, without moving the wait
 somewhere. It is GSS #76's actual shape: run the hold on its own task, return once the hardware has
@@ -257,14 +276,50 @@ blocking today; that is the path `FakeCameraMountCouplingTests` drives, and it c
 
 0. **DONE.** Verify the restore and stop commands, so the conversion has a fault path to preserve
    rather than one to invent under time pressure. Finding 3.
-1. Rename to `StartPulseGuideAsync` on `IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`, and
-   state the contract on it: returns once the hardware has been commanded, `IsPulseGuiding` carries
-   progress, `IsPulseGuiding` must be observable before the call returns.
-2. Convert `SkywatcherMountDriverBase` to a background hold, with the restore/stop failure surfaced.
-   This is the whole risk of the change and should land on its own.
-3. Add the simultaneous-dual-axis capability and answer it per driver.
-4. Hoist `WaitForPulseCompleteAsync` to shared code.
-5. `GuideLoop` starts both axes when the capability allows, then waits once; sequential otherwise.
+1. **DONE, and as TWO methods rather than one rename.** The plan as first written renamed
+   `PulseGuideAsync` to `StartPulseGuideAsync` and stopped there, which would have left every caller
+   holding a primitive whose documentation had to warn that *awaiting it is not waiting for the
+   pulse*. A trap you document is still a trap. So:
+
+   - **`StartPulseGuideAsync`** (`IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`) is the
+     primitive: commands the hardware and returns, `IsPulseGuiding` carries progress and must
+     already be true by then. 82 references, 29 files, no behaviour change. This is what ASCOM
+     specifies, and the only shape that lets a caller drive two axes at once.
+   - **`PulseGuideAsync`** (`PulseGuideTargetExtensions`, on the internal guider surface) is the
+     composite: start AND wait. This is what a caller almost always means.
+
+   **The codebase had already written the composite eight times by hand** -- every
+   `GuiderCalibration` pulse was `StartPulseGuideAsync` followed on the very next line by
+   `WaitForPulseCompleteAsync` with the same duration. Those eight pairs are now eight single calls
+   and the private helper moved to the extension, where the guide loop can reach it too. Net -34
+   lines in `GuiderCalibration`, zero behaviour change.
+
+   **Why the composite is an extension, and on the guider surface only.** A driver has nothing to
+   contribute to it -- it is entirely expressible as the primitive plus `IsPulseGuidingAsync` -- so
+   letting drivers implement it is a chance to get it subtly different, not an opportunity. And the
+   callers who want waiting are the guide loop and the calibration routine; the Alpaca device plane
+   and the planetary recenter nudge genuinely want start-and-return, and handing them a same-named
+   blocking overload to trip over buys nothing.
+
+   `SkywatcherMountDriverBase` now openly VIOLATES the primitive's contract and says so in its own
+   doc comment -- the point of renaming before converting: one visible violation in one named place
+   beats a disagreement nobody can see. The Alpaca wire name is a string literal (`"pulseguide"` in
+   `AlpacaMembers.cs`) and is untouched.
+2. **DONE as part of 1.** Hoist `WaitForPulseCompleteAsync` out of `GuiderCalibration` -- it is the
+   waiting half of the composite, so it moved there rather than to a helper class.
+3. Give the composite a **two-axis overload** and add the simultaneous-dual-axis capability
+   (`CanPulseGuideSimultaneously`) behind it, answered per driver. **The branch belongs INSIDE the
+   composite, not in `GuideLoop`**: start both and wait once where the mount allows it, else start
+   RA, wait, start Dec, wait. The plan previously had `GuideLoop` keeping "a sequential fallback for
+   mounts that need it", which is caller-side branching for a fact only the driver knows.
+4. `GuideLoop` calls that overload once with both corrections, replacing the two bare awaits. **This
+   is a bug fix, not the speedup** -- see the correction under finding 1: on every mount family
+   except Synta the loop currently never waits for a pulse at all, and the composite is what fixes
+   that. The overlap is the SkyWatcher half of the same change.
+5. Convert `SkywatcherMountDriverBase` to a background hold. Moved LAST deliberately: it is the only
+   implementation that violates the primitive's contract, it is the whole risk of the sequence, and
+   with steps 3-4 already in place the guide loop is waiting properly before the driver stops doing
+   the waiting for it. Reversing that order would leave a window where nothing waits on any mount.
 6. Pin with **fake time traversed per guide frame** -- under `FakeTimeProviderWrapper` the difference
    is free in wall time, so a wall-clock assertion cannot see it either way.
 
@@ -276,7 +331,7 @@ starts the operation and immediately polls sees `false` and concludes it already
 
 The generalisable rule: **an asynchronous operation's progress flag must be observable before
 the call that starts it returns.** Ours holds for pulses today only because the SkyWatcher
-driver blocks - which is finding 1's problem. Once `PulseGuideAsync` returns at command time,
+driver blocks - which is finding 1's problem. Once `StartPulseGuideAsync` returns at command time,
 `_pulseGuideInFlight` must be incremented before the write and cleared by whatever ends the
 pulse, or we will have ported GSS's bug in the act of fixing the other one.
 
@@ -312,7 +367,7 @@ hiccup must not end the night, so only an exhausted budget is a fault. No delay 
 a refusal is instant and a timeout has already spent the port's.
 
 **No new plumbing was needed to surface it**, which is worth knowing before anyone builds some: a
-throw from `PulseGuideAsync` propagates out of the guide loop, `BuiltInGuiderDriver` turns it into a
+throw from `StartPulseGuideAsync` propagates out of the guide loop, `BuiltInGuiderDriver` turns it into a
 `GuidingErrorEvent`, and `Session.ImagingLoopAsync` drains that queue, logs the reason by name and
 restarts the guider. The chain already existed and had nothing being fed into it.
 

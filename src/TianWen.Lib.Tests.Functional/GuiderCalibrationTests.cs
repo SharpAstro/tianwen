@@ -175,7 +175,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
 
         // Pre-pulse South to arm backlash on reversal to North
         var pulseTarget = new MountPulseGuideTarget(mount);
-        await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
+        await pulseTarget.StartPulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
         // Update initial position after pre-pulse
@@ -235,7 +235,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
 
         // Pre-pulse South then update baseline
         var pulseTarget = new MountPulseGuideTarget(mount);
-        await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
+        await pulseTarget.StartPulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
         initialRa = await mount.GetRightAscensionAsync(ct);
@@ -292,7 +292,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
 
         // Pre-pulse South to arm backlash
         var pulseTarget = new MountPulseGuideTarget(mount);
-        await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
+        await pulseTarget.StartPulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
         initialRa = await mount.GetRightAscensionAsync(ct);
@@ -347,7 +347,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
 
         // Pre-pulse South to arm Dec backlash on reversal
         var pulseTarget = new MountPulseGuideTarget(mount);
-        await pulseTarget.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
+        await pulseTarget.StartPulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
         await timeProvider.SleepAsync(TimeSpan.FromSeconds(2), ct);
 
         var initialRa = await mount.GetRightAscensionAsync(ct);
@@ -704,12 +704,12 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
     {
         if (correction.RaPulseMs != 0)
         {
-            await rig.PulseGuideAsync(correction.RaPulseMs > 0 ? GuideDirection.West : GuideDirection.East,
+            await rig.StartPulseGuideAsync(correction.RaPulseMs > 0 ? GuideDirection.West : GuideDirection.East,
                 TimeSpan.FromMilliseconds(Math.Abs(correction.RaPulseMs)), ct);
         }
         if (correction.DecPulseMs != 0)
         {
-            await rig.PulseGuideAsync(correction.DecPulseMs > 0 ? GuideDirection.North : GuideDirection.South,
+            await rig.StartPulseGuideAsync(correction.DecPulseMs > 0 ? GuideDirection.North : GuideDirection.South,
                 TimeSpan.FromMilliseconds(Math.Abs(correction.DecPulseMs)), ct);
         }
     }
@@ -723,7 +723,7 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         public (double Dx, double Dy) WestResponse { get; set; } = (-1.0, 0.0);
         public (double Dx, double Dy) NorthResponse { get; set; } = (0.0, -1.0);
 
-        public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+        public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
         {
             var px = RatePxPerSec * duration.TotalSeconds;
             switch (direction)

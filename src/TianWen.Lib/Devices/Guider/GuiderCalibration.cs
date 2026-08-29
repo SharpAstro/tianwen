@@ -208,8 +208,7 @@ internal sealed class GuiderCalibration
         // Return to start by pulsing East
         for (var i = 0; i < CalibrationSteps; i++)
         {
-            await pulseTarget.PulseGuideAsync(GuideDirection.East, CalibrationPulseDuration, cancellationToken);
-            await WaitForPulseCompleteAsync(pulseTarget, timeProvider, CalibrationPulseDuration, cancellationToken);
+            await pulseTarget.PulseGuideAsync(GuideDirection.East, CalibrationPulseDuration, timeProvider, cancellationToken);
         }
 
         // Re-acquire after return: star position jumped back, may exceed search radius
@@ -263,8 +262,7 @@ internal sealed class GuiderCalibration
         // Return to start by pulsing South
         for (var i = 0; i < CalibrationSteps; i++)
         {
-            await pulseTarget.PulseGuideAsync(GuideDirection.South, CalibrationPulseDuration, cancellationToken);
-            await WaitForPulseCompleteAsync(pulseTarget, timeProvider, CalibrationPulseDuration, cancellationToken);
+            await pulseTarget.PulseGuideAsync(GuideDirection.South, CalibrationPulseDuration, timeProvider, cancellationToken);
         }
 
         // Compute calibration from West displacement (RA axis) and North displacement (Dec axis)
@@ -414,15 +412,13 @@ internal sealed class GuiderCalibration
 
         // Send a single West pulse using the same pulse duration as the saved calibration
         var pulseDuration = CalibrationPulseDuration;
-        await pulseTarget.PulseGuideAsync(GuideDirection.West, pulseDuration, cancellationToken);
-        await WaitForPulseCompleteAsync(pulseTarget, timeProvider, pulseDuration, cancellationToken);
+        await pulseTarget.PulseGuideAsync(GuideDirection.West, pulseDuration, timeProvider, cancellationToken);
 
         var frame = await captureFrame(cancellationToken);
         var result = tracker.ProcessFrame(frame.GetChannelArray(0));
 
         // Return the star to its original position
-        await pulseTarget.PulseGuideAsync(GuideDirection.East, pulseDuration, cancellationToken);
-        await WaitForPulseCompleteAsync(pulseTarget, timeProvider, pulseDuration, cancellationToken);
+        await pulseTarget.PulseGuideAsync(GuideDirection.East, pulseDuration, timeProvider, cancellationToken);
 
         // Reset tracker for next use
         tracker.Reset();
@@ -475,14 +471,12 @@ internal sealed class GuiderCalibration
         }
         tracker.SetLockPosition();
 
-        await pulseTarget.PulseGuideAsync(GuideDirection.North, pulseDuration, cancellationToken);
-        await WaitForPulseCompleteAsync(pulseTarget, timeProvider, pulseDuration, cancellationToken);
+        await pulseTarget.PulseGuideAsync(GuideDirection.North, pulseDuration, timeProvider, cancellationToken);
         var decFrame = await captureFrame(cancellationToken);
         var decResult = tracker.ProcessFrame(decFrame.GetChannelArray(0));
 
         // Return the star (South) and re-acquire for the caller.
-        await pulseTarget.PulseGuideAsync(GuideDirection.South, pulseDuration, cancellationToken);
-        await WaitForPulseCompleteAsync(pulseTarget, timeProvider, pulseDuration, cancellationToken);
+        await pulseTarget.PulseGuideAsync(GuideDirection.South, pulseDuration, timeProvider, cancellationToken);
         tracker.Reset();
         var decReturnFrame = await captureFrame(cancellationToken);
         tracker.ProcessFrame(decReturnFrame.GetChannelArray(0));
@@ -544,8 +538,7 @@ internal sealed class GuiderCalibration
 
         for (var i = 0; i < MaxBacklashClearingSteps; i++)
         {
-            await pulseTarget.PulseGuideAsync(direction, CalibrationPulseDuration, cancellationToken);
-            await WaitForPulseCompleteAsync(pulseTarget, timeProvider, CalibrationPulseDuration, cancellationToken);
+            await pulseTarget.PulseGuideAsync(direction, CalibrationPulseDuration, timeProvider, cancellationToken);
 
             var frame = await captureFrame(cancellationToken);
             var result = tracker.ProcessFrame(frame.GetChannelArray(0));
@@ -586,8 +579,7 @@ internal sealed class GuiderCalibration
 
         for (var i = 0; i < steps; i++)
         {
-            await pulseTarget.PulseGuideAsync(direction, pulseDuration, cancellationToken);
-            await WaitForPulseCompleteAsync(pulseTarget, timeProvider, pulseDuration, cancellationToken);
+            await pulseTarget.PulseGuideAsync(direction, pulseDuration, timeProvider, cancellationToken);
 
             var frame = await captureFrame(cancellationToken);
             if (tracker.ProcessFrame(frame.GetChannelArray(0)) is not { } result)
@@ -602,24 +594,6 @@ internal sealed class GuiderCalibration
         }
 
         return stepList.Count > 0 ? (lastResult, [.. stepList]) : null;
-    }
-
-    private static async ValueTask WaitForPulseCompleteAsync(
-        IPulseGuideTarget pulseTarget, ITimeProvider timeProvider, TimeSpan pulseDuration, CancellationToken cancellationToken)
-    {
-        // Wait most of the pulse duration upfront, then poll at small intervals
-        var bulkWait = pulseDuration * 0.9;
-        if (bulkWait > TimeSpan.Zero)
-        {
-            await timeProvider.SleepAsync(bulkWait, cancellationToken);
-        }
-
-        var pollInterval = TimeSpan.FromMilliseconds(50);
-        var maxPolls = (int)(pulseDuration.TotalMilliseconds / pollInterval.TotalMilliseconds) + 20;
-        while (await pulseTarget.IsPulseGuidingAsync(cancellationToken) && --maxPolls > 0)
-        {
-            await timeProvider.SleepAsync(pollInterval, cancellationToken);
-        }
     }
 }
 

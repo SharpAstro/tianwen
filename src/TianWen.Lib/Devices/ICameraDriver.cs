@@ -289,9 +289,19 @@ public interface ICameraDriver : IDeviceDriver
     ValueTask AbortExposureAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Should only be called when <see cref="CanPulseGuide"/> is <see langword="true"/>.
+    /// STARTS an ST-4 relay pulse and returns once the hardware has been commanded, NOT once the
+    /// pulse has finished. Should only be called when <see cref="CanPulseGuide"/> is
+    /// <see langword="true"/>.
     /// </summary>
-    ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default);
+    /// <remarks>
+    /// Same contract as <see cref="IMountDriver.StartPulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>,
+    /// which states it in full: the pulse continues after this returns and
+    /// <see cref="IsPulseGuidingAsync(CancellationToken)"/> must already answer
+    /// <see langword="true"/> by then. Note a camera's ST-4 port drives the MOUNT, so a fake or
+    /// coupled camera that delegates to a mount driver inherits whatever that mount does -- it does
+    /// not get to have a contract of its own.
+    /// </remarks>
+    ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// The exposure just taken, as an <see cref="Image"/> whose channels carry the driver's recycled

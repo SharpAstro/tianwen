@@ -43,7 +43,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     private volatile bool _isSlewingDec;
     private bool _isParked;
 
-    // Number of guide pulses currently executing (Interlocked inc/dec around PulseGuideAsync).
+    // Number of guide pulses currently executing (Interlocked inc/dec around StartPulseGuideAsync).
     // A pulse runs the axis "running, not tracking" -- the same wire signature as a slew -- so
     // IsSlewingAsync masks axis motion while this is > 0 and IsPulseGuidingAsync reports it
     // instead. This mirrors the ASCOM contract: Slewing is False during a PulseGuide; the
@@ -452,7 +452,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // Stop both axes and wait for FullStop: :K only STARTS a deceleration, and
         // real firmware rejects the goto's :G with !2 until the motor has stopped.
         // No tracking command is issued here. Tracking is resumed at the goto-completion point in
-        // IsSlewingAsync (mirroring GSServer's post-GoTo `Tracking = ...`), and PulseGuideAsync reads
+        // IsSlewingAsync (mirroring GSServer's post-GoTo `Tracking = ...`), and StartPulseGuideAsync reads
         // the LIVE tracking status (a fresh axis-status query, not a cached flag) to pick the RA
         // pulse branch -- so the RA pulse decision can never desync from the actual axis state.
         await StopAxisAndWaitAsync('1', cancellationToken);
@@ -595,7 +595,21 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// </summary>
     private static readonly TimeSpan MinPulseDuration = TimeSpan.FromMilliseconds(20);
 
-    public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+    /// <summary>
+    /// <b>Does not yet honour the <c>Start</c> contract: this blocks for the whole
+    /// <paramref name="duration"/>.</b>
+    /// </summary>
+    /// <remarks>
+    /// The rename landed first, deliberately, so the interface states the intended contract and
+    /// this one violation is visible in one place instead of being a disagreement nobody could see.
+    /// Synta boards have no "pulse for N ms" primitive -- the driver sends the <c>:I</c> restore or
+    /// the <c>:K</c> itself -- so converting means holding the duration on a background task rather
+    /// than on the caller's await, which is a real change with real cancellation and fault
+    /// consequences and gets its own commit. Until then, awaiting this DOES wait for the pulse,
+    /// which is why the guide loop is still correct and RA/Dec still serialise on this mount alone.
+    /// See docs/plans/gss-parity-audit.md, finding 1, step 2.
+    /// </remarks>
+    public async ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
         if (duration < MinPulseDuration)
         {

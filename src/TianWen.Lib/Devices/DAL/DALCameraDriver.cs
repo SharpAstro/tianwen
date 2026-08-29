@@ -903,7 +903,7 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
         }
     }
 
-    public ValueTask PulseGuideAsync(GuideDirection guideDirection, TimeSpan duration, CancellationToken cancellationToken = default)
+    public ValueTask StartPulseGuideAsync(GuideDirection guideDirection, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         var timer = TimeProvider.CreateTimer(StopPulseGuiding, guideDirection, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         if (_deviceInfo.PulseGuideOn(guideDirection) is var code and not CMOSErrorCode.Success)

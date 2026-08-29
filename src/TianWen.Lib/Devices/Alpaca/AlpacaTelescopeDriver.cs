@@ -288,7 +288,7 @@ internal class AlpacaTelescopeDriver(AlpacaDevice device, IServiceProvider servi
         await PutMethodAsync("unpark", cancellationToken: cancellationToken);
     }
 
-    public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+    public async ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
         await PutMethodAsync("pulseguide",
         [

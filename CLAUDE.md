@@ -657,9 +657,30 @@ neither. Ported from GSServer's `CheckAxisLimits` with three deliberate departur
 **Parking is opt-in for both limits**, because a park is MOTION across a path nothing has checked -- a
 mount stopped at 8 deg altitude may be a hand's width from a tripod leg. `Finalise` already parks at
 session end, so the unattended-dawn case needs no limit to slew. Plan + phasing:
-[docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md); the wider GSServer sweep, and
-the two findings still open (sequential RA/Dec guide pulses; `PulseGuideAsync` having no stated
-completion contract) in [docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md).
+[docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md); the wider GSServer sweep in
+[docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md).
+
+**A guide pulse is TWO methods, and picking the wrong one is silent.**
+`StartPulseGuideAsync` (`IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`) is the primitive: it
+commands the hardware and RETURNS, with `IsPulseGuidingAsync` carrying progress and required to be
+true by then. `PulseGuideAsync` (`PulseGuideTargetExtensions`, internal to the guider) is the
+composite: start AND wait, which is what a caller almost always means. **Awaiting a start is not
+waiting for the pulse** -- so reach for the composite, and keep the primitive for callers doing
+something else meanwhile, which today means driving the other axis. The composite is an extension
+because a driver has nothing to contribute to it (it is just the primitive plus
+`IsPulseGuidingAsync`), and it stays off the public driver interfaces because the Alpaca device
+plane and the planetary recenter nudge genuinely want start-and-return. `GuiderCalibration` had
+hand-written the pair at eight consecutive-line call sites, which is the evidence it wanted to be
+one call.
+
+Two consequences that are easy to get backwards. **`SkywatcherMountDriverBase` still BLOCKS** and so
+openly violates the primitive's contract (its doc comment says so): Synta boards have no "pulse for
+N ms" primitive, so the driver sends the `:I` restore itself and something must hold the duration.
+That is why RA/Dec guide pulses serialise on Synta hardware **and nowhere else** -- every other
+driver already returns once commanded. And the mirror image is the bug that matters: **`GuideLoop`
+never waits for a pulse at all**, which the blocking driver was accidentally covering up on one
+mount family. So the composite lands in the guide loop BEFORE the SkyWatcher conversion; reversing
+that order leaves a window in which nothing waits on any mount.
 
 **No-astro-dark night-window fallback:** `SessionEndTimeAsync` (`Session.Timing.cs`) derives the dark
 window via `ObservationScheduler.CalculateNightWindow`, which has a fallback chain (astronomical −18° →
@@ -715,7 +736,7 @@ reached `LogWarning` and a timeout reached nothing, so an unrestored `:I1` track
 sidereal for the rest of the night and showed up solely as trailed subframes. **Do not widen this to
 every command** (a recoverable hiccup would become a stopped guider), and when adding a serial
 driver, ask which of its commands fail backward -- that set, and only that set, is worth a fault.
-No new plumbing surfaces it: a throw from `PulseGuideAsync` becomes a `GuidingErrorEvent`, which the
+No new plumbing surfaces it: a throw from `StartPulseGuideAsync` becomes a `GuidingErrorEvent`, which the
 session drains, logs and answers by restarting the guider. Pinned by `SkywatcherPulseRestoreTests`;
 rationale in [docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md) Finding 3.
 

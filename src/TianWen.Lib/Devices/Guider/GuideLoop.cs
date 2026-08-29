@@ -602,7 +602,7 @@ internal sealed class GuideLoop
                     var direction = correction.RaPulseMs > 0
                         ? GuideDirection.West
                         : GuideDirection.East;
-                    await _pulseTarget.PulseGuideAsync(direction, correction.RaPulseDuration, cancellationToken);
+                    await _pulseTarget.StartPulseGuideAsync(direction, correction.RaPulseDuration, cancellationToken);
                 }
 
                 // Apply Dec correction
@@ -611,7 +611,7 @@ internal sealed class GuideLoop
                     var direction = correction.DecPulseMs > 0
                         ? GuideDirection.North
                         : GuideDirection.South;
-                    await _pulseTarget.PulseGuideAsync(direction, correction.DecPulseDuration, cancellationToken);
+                    await _pulseTarget.StartPulseGuideAsync(direction, correction.DecPulseDuration, cancellationToken);
                 }
 
                 if (correction.HasRaCorrection || correction.HasDecCorrection)

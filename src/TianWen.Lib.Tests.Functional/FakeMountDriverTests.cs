@@ -89,7 +89,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         var raBefore = await mount.GetRightAscensionAsync(ct);
 
         // Guide east for 1 second
-        await mount.PulseGuideAsync(GuideDirection.East, TimeSpan.FromSeconds(1), ct);
+        await mount.StartPulseGuideAsync(GuideDirection.East, TimeSpan.FromSeconds(1), ct);
 
         var raAfter = await mount.GetRightAscensionAsync(ct);
 
@@ -111,7 +111,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
 
         var decBefore = await mount.GetDeclinationAsync(ct);
 
-        await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(1), ct);
+        await mount.StartPulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(1), ct);
 
         var decAfter = await mount.GetDeclinationAsync(ct);
 
@@ -189,14 +189,14 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         var dec0 = await mount.GetDeclinationAsync(ct);
 
         // Guide north first (establishes direction)
-        await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(1), ct);
+        await mount.StartPulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(1), ct);
         var dec1 = await mount.GetDeclinationAsync(ct);
         var northMove = (dec1 - dec0) * 3600;
         output.WriteLine($"North move: {northMove:F2} arcsec");
 
         // Now guide south (reversal): first 5" should be consumed by backlash
         // Guide rate ~10.028 arcsec/sec, so 1 second pulse = ~10" total
-        await mount.PulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
+        await mount.StartPulseGuideAsync(GuideDirection.South, TimeSpan.FromSeconds(1), ct);
         var dec2 = await mount.GetDeclinationAsync(ct);
         var southMove = (dec1 - dec2) * 3600; // should be positive (moved south)
         output.WriteLine($"South move after reversal: {southMove:F2} arcsec (expected ~5 with backlash)");
@@ -216,10 +216,10 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         await mount.SetPositionAsync(12.0, 45.0, ct);
 
         // Two north pulses in same direction: no backlash
-        await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(1), ct);
+        await mount.StartPulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(1), ct);
         var dec1 = await mount.GetDeclinationAsync(ct);
 
-        await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(1), ct);
+        await mount.StartPulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(1), ct);
         var dec2 = await mount.GetDeclinationAsync(ct);
 
         var firstMove = (dec1 - 45.0) * 3600;
@@ -284,7 +284,7 @@ public class FakeMountDriverTests(ITestOutputHelper output)
         (await mount.IsPulseGuidingAsync(ct)).ShouldBeFalse();
 
         // Start a pulse guide
-        await mount.PulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(2), ct);
+        await mount.StartPulseGuideAsync(GuideDirection.North, TimeSpan.FromSeconds(2), ct);
 
         // During pulse: guiding
         (await mount.IsPulseGuidingAsync(ct)).ShouldBeTrue();

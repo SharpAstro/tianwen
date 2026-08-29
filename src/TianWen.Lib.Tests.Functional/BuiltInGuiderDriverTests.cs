@@ -113,7 +113,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         var router = new PulseGuideRouter(PulseGuideSource.Mount, null, mount);
 
         // Should not throw: routes to mount
-        await router.PulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(100), ct);
+        await router.StartPulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(100), ct);
 
         var isPulseGuiding = await router.IsPulseGuidingAsync(ct);
         // Pulse guiding state depends on mount implementation
@@ -148,7 +148,7 @@ public class BuiltInGuiderDriverTests(ITestOutputHelper output)
         var target = new MountPulseGuideTarget(mount);
 
         var raBefore = await mount.GetRightAscensionAsync(ct);
-        await target.PulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(500), ct);
+        await target.StartPulseGuideAsync(GuideDirection.West, TimeSpan.FromMilliseconds(500), ct);
 
         // Wait for pulse to complete
         await timeProvider.SleepAsync(TimeSpan.FromMilliseconds(600), ct);

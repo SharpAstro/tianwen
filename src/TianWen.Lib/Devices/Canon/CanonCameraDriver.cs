@@ -469,7 +469,7 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
 
     // --- Pulse guiding (not supported) ---
     public ValueTask<bool> GetIsPulseGuidingAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(false);
-    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
+    public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default) => ValueTask.CompletedTask;
 
     // --- Exposure state ---
     public DateTimeOffset? LastExposureStartTime => _lastExposureStartTime;

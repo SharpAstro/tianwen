@@ -166,7 +166,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     /// </summary>
     public int GearNoiseSeed { get; set; } = 17;
 
-    // Backlash tracking (applied in PulseGuideAsync, independent of the disturbance model)
+    // Backlash tracking (applied in StartPulseGuideAsync, independent of the disturbance model)
     private int _lastDecDirection; // +1 = north, -1 = south, 0 = none
     private double _backlashRemaining; // arcsec of backlash still to be consumed
 
@@ -432,7 +432,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
 
     // --- Pulse guiding ---
 
-    public async ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+    public async ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
         if (!Connected)
         {

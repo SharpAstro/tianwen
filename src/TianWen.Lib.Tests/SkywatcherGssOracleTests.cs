@@ -100,7 +100,7 @@ public class SkywatcherGssOracleTests(ITestOutputHelper output)
     {
         // GSS pulses RA by changing the step period (:I) while the axis keeps
         // running: no stop/start, no motion-mode change. This is the contract
-        // PulseGuideAsync must follow (fix-sw item 3).
+        // StartPulseGuideAsync must follow (fix-sw item 3).
         var cmds = Scenario(scenario).Select(e => e.Cmd[..2]).Distinct().ToList();
         cmds.ShouldNotBeEmpty();
         cmds.ShouldAllBe(prefix => prefix == ":I" || prefix == ":f" || prefix == ":j",

@@ -88,13 +88,41 @@ public interface IMountDriver : IDeviceDriver
     ValueTask UnparkAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Moves the mount in the specified angular direction for the specified time (<paramref name="duration"/>).
+    /// STARTS moving the mount in the specified angular direction for the specified time
+    /// (<paramref name="duration"/>), and returns once the hardware has been commanded -- NOT once
+    /// the pulse has finished.
     /// The directions are in the Equatorial coordinate system only, regardless of the mount’s <see cref="GetAlignmentAsync(CancellationToken)"/>. The distance moved depends on the <see cref="GetGuideRateDeclinationAsync(CancellationToken)"/> and <see cref="GetGuideRateRightAscensionAsync(CancellationToken)"/>,
     /// as well as <paramref name="duration"/>.
     /// </summary>
+    /// <remarks>
+    /// <para><b>The contract, which the name exists to state:</b> the pulse continues after this
+    /// returns, and <see cref="IsPulseGuidingAsync(CancellationToken)"/> reports whether one is
+    /// still running. <b>It must already answer <see langword="true"/> when this returns</b> -- a
+    /// flag raised after the starter returns leaves a window in which a caller sees "no pulse in
+    /// flight" for a pulse that has been issued, which is the whole of GSServer's #109. A caller
+    /// that needs the pulse to have FINISHED waits on that property; a caller that does not is free
+    /// to start the other axis meanwhile.</para>
+    ///
+    /// <para><b>Why this is not called <c>PulseGuideAsync</c> any more.</b> That name says nothing
+    /// about when it returns, and the implementations quietly disagreed: ASCOM, Alpaca, the ST-4
+    /// relay path and the fakes returned once commanded, while
+    /// <c>SkywatcherMountDriverBase</c> blocked for the whole duration -- so RA and Dec guide
+    /// corrections serialised on exactly one mount family and nowhere else. A name that describes
+    /// the moment of return makes a blocking implementation obviously wrong at the point somebody
+    /// writes one, which no amount of documentation on the old name achieved.</para>
+    ///
+    /// <para>Blocking is not a silly choice a driver author made: Synta motor boards have no
+    /// "pulse for N ms" primitive, so the driver must send the <c>:I</c> restore or the <c>:K</c>
+    /// itself and SOMETHING has to hold the duration. Under this contract that something is the
+    /// driver's own background task, never the caller's await.</para>
+    ///
+    /// <para>Simultaneous RA+Dec pulsing is a separate question this contract does not answer.
+    /// ASCOM has <c>CanPulseGuide</c> and no vocabulary for simultaneity, so a driver may legally
+    /// refuse a second axis while the first is running; callers that overlap must ask first.</para>
+    /// </remarks>
     /// <param name="direction">equatorial direction</param>
     /// <param name="duration">Duration (will be rounded to nearest millisecond internally)</param>
-    ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken);
+    ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken);
 
     /// <summary>
     /// True if slewing as a result of <see cref="BeginSlewRaDecAsync(double, double, CancellationToken)"/> or <see cref="BeginSlewHourAngleDecAsync(double, double, CancellationToken)"/>.
@@ -102,7 +130,7 @@ public interface IMountDriver : IDeviceDriver
     ValueTask<bool> IsSlewingAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// True when a pulse guide command is still on-going (<see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>
+    /// True when a pulse guide command is still on-going (<see cref="StartPulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>
     /// </summary>
     ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken);
 
@@ -131,9 +159,9 @@ public interface IMountDriver : IDeviceDriver
     ValueTask SetDeclinationRateAsync(double value, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Get the current rate of change of <see cref="GetRightAscensionAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
+    /// Get the current rate of change of <see cref="GetRightAscensionAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="StartPulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
     /// <list type="bullet">
-    /// <item>This is the rate for both hardware/relay guiding and for <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/></item>
+    /// <item>This is the rate for both hardware/relay guiding and for <see cref="StartPulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/></item>
     /// <item>The mount may not support separate right ascension and declination guide rates. If so, setting either rate must set the other to the same value.</item>
     /// <item>This value must be set to a default upon startup.</item>
     /// </list>
@@ -141,14 +169,14 @@ public interface IMountDriver : IDeviceDriver
     ValueTask<double> GetGuideRateRightAscensionAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Set the current rate of change of <see cref="GetRightAscensionAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
+    /// Set the current rate of change of <see cref="GetRightAscensionAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="StartPulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
     /// </summary>
     ValueTask SetGuideRateRightAscensionAsync(double value, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Get the current rate of change of <see cref="GetDeclinationAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
+    /// Get the current rate of change of <see cref="GetDeclinationAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="StartPulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
     /// <list type="bullet">
-    /// <item>This is the rate for both hardware/relay guiding and for <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/></item>
+    /// <item>This is the rate for both hardware/relay guiding and for <see cref="StartPulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/></item>
     /// <item>The mount may not support separate right ascension and declination guide rates. If so, setting either rate must set the other to the same value.</item>
     /// <item>This value must be set to a default upon startup.</item>
     /// </list>
@@ -156,7 +184,7 @@ public interface IMountDriver : IDeviceDriver
     ValueTask<double> GetGuideRateDeclinationAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Set the current rate of change of <see cref="GetDeclinationAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="PulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
+    /// Set the current rate of change of <see cref="GetDeclinationAsync(CancellationToken)"/> (deg/sec) for guiding, typically via <see cref="StartPulseGuideAsync(GuideDirection, TimeSpan, CancellationToken)"/>.
     /// </summary>
     ValueTask SetGuideRateDeclinationAsync(double value, CancellationToken cancellationToken);
 

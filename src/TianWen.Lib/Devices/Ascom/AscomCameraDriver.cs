@@ -493,7 +493,7 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
         }
     }
 
-    public ValueTask PulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
+    public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken = default)
     {
         var durationMs = (int)duration.Round(TimeSpanRoundingType.Millisecond).TotalMilliseconds;
 
