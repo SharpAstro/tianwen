@@ -1,7 +1,9 @@
 # Video (MetaGuide-style) Guiding
 
-**Status: NOT STARTED.** Raised 2026-08-29 by the user, referencing Frank Antonio's (freestar8n)
-[MetaGuide](https://smallstarspot.com/metaguide/). Not an Astropy-parity item, but **correction:
+**Status: NOT STARTED.** Raised 2026-08-29 by the user, referencing Frank FreeStar8n's
+[MetaGuide](https://smallstarspot.com/metaguide/) (the "Antonio" surname attached to this handle
+elsewhere is unconfirmed -- stick to "Frank FreeStar8n," the name actually used on smallstarspot.com
+and AstroBin). Not an Astropy-parity item, but **correction:
 this IS partly a NINA-parity item** -- NINA has native MetaGuide support (see below), which
 TianWen has neither half of. Cross-linked from [nina-parity.md](nina-parity.md).
 
@@ -66,8 +68,9 @@ overselling:
   estimate than one long CCD exposure could give.
 
 **Not confirmed anywhere in the manual, do not assume:** rolling-shutter-specific sub-frame timing
-correction. An earlier draft of this doc speculated about this from general knowledge of Frank
-Antonio's other work; a full-text search of the actual 2024 manual turns up nothing on
+correction. An earlier draft of this doc speculated about this from general knowledge attributed
+to this author under an unconfirmed surname; a full-text search of the actual 2024 manual turns up
+nothing on
 rolling-shutter handling, so the claim is dropped until it's verified from another source.
 
 `IGuider.ExposureTimeAsync` returning one fixed duration for the whole guiding session is the
