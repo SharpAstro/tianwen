@@ -632,6 +632,35 @@ mount stuck `Slewing`, zero exposures. Never re-introduce a flip-success check l
 *destination* side + the `hasFlipped` memory. Pinned by `MeridianFlipDecisionTests` (joined-already-west
 → Continue, hasFlipped backstop, precedence) + a `mountPort:"SkyWatcher"` observation-loop test.
 
+**Mount safety limits are NOT the meridian flip, and the horizon test keys on HOUR ANGLE, not pier
+side.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`, pure, beside `MeridianFlipDecision`) is
+the mechanical bound -- where the tube meets the pier or the ground -- while a flip is a *scheduling*
+choice about a target that keeps being imaged from the other side. A rig can have one, both or
+neither. Ported from GSServer's `CheckAxisLimits` with three deliberate departures, each load-bearing:
+
+- **`HA > 0` IS "descending"** (altitude is maximal at upper transit and falls monotonically to lower
+  transit), so the horizon limit needs no pier side and no alignment mode. GSS gates its GEM horizon
+  test on `SideOfPier == pierEast`; **our SkyWatcher driver derives pier side from the Dec encoder and
+  reports `Normal` while a GEM tracks west** (see the flip invariant above), so that gate would
+  silently disable the limit on the mount that most needs it. The HA form is also true for fork and
+  AltAz mounts, which have no pier side at all.
+- **Warn and act are a threshold plus a non-negative EXTRA**, never two absolute numbers. The two
+  limits run in opposite directions (hour angle rises toward its limit, altitude falls toward its
+  own), so an absolute pair can be edited into acting before it warns -- differently for each limit.
+  `MeridianActionDeg = Warn + max(0, Extra)` and `HorizonWarnDeg = Action + max(0, Extra)` make
+  warn-before-action hold by construction both ways.
+- **`alreadyActed` is a latch and must downgrade to `Warn`, never to clear.** GSS's
+  `SlewState != SlewType.SlewPark`, commented "only hit this once while in limit": the check runs on a
+  poll loop, so without it a park is re-commanded every tick and the park slew restarts forever,
+  never arriving. Clearing instead of downgrading stops telling the user they are still in the limit.
+
+**Parking is opt-in for both limits**, because a park is MOTION across a path nothing has checked -- a
+mount stopped at 8 deg altitude may be a hand's width from a tripod leg. `Finalise` already parks at
+session end, so the unattended-dawn case needs no limit to slew. Plan + phasing:
+[docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md); the wider GSServer sweep, and
+the two findings still open (sequential RA/Dec guide pulses; `PulseGuideAsync` having no stated
+completion contract) in [docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md).
+
 **No-astro-dark night-window fallback:** `SessionEndTimeAsync` (`Session.Timing.cs`) derives the dark
 window via `ObservationScheduler.CalculateNightWindow`, which has a fallback chain (astronomical −18° →
 amateur-astro −15° → nautical −12° → polar-night 24h). It must **never** demand `EventTimes(...).Count == 1`

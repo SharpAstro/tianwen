@@ -128,6 +128,28 @@
 
 ## Next Up
 
+- [ ] **Mount safety limits: P1-P5** ([docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md)).
+  P0 shipped 2026-08-29: `MountLimits.Evaluate` is the pure decider plus its configuration record,
+  30 tests, three sabotages verified. **Nothing enforces it yet** -- the decider exists and no caller
+  asks it, which is the whole remaining value. Next is P1 (the config on the PROFILE, not
+  `SessionConfiguration`: it is a fact about a pier and a tube, and must apply to a manual slew with
+  no session) then P2 (evaluate in `PollDeviceStatesAsync`, which already refreshes HA and pier side
+  and is already called from every slew wait and the imaging tick; route the verdict to a new
+  `ImageLoopNextAction.LimitReached`). P3 is the half GSServer gets for free and we do not: enforcement
+  with **no session running**, which needs a watcher that respects the hub lease -- observe while a run
+  owns the mount, act when nothing does.
+- [ ] **GSS parity: the two open findings** ([docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md)).
+  (1) `IMountDriver.PulseGuideAsync` has **no stated completion contract** and its implementations
+  disagree -- the SkyWatcher driver blocks for the pulse duration, every other one returns once the
+  pulse is commanded. State the contract (ASCOM semantics) and make SkyWatcher meet it; only THEN
+  overlap the RA and Dec pulses in `GuideLoop`, which are sequential today (GSS #76) and cost up to 4 s
+  per guide frame on that one driver. Ordering matters: overlapping first still serialises. The fake
+  already has the right semantics, so the whole functional suite is blind to this -- do not "fix" the
+  fake to match the driver. (2) 24-bit position-counter rollover is unanswered; decide whether we track
+  the wrap or re-home. Also decide whether to regenerate `gss-oracle-transcripts.json` against
+  `origin/master`: it currently pins GSS's PRE-fix behaviour, and regenerating may legitimately turn
+  `SkywatcherGssOracleTests` red.
+
 - [ ] **Astro Photo Viewer, next release (P11-P21, from the user's notes 2026-08-22 and 2026-08-27)**.
   **Shipped:** the version now leads `--help` (plus `--version`, and the same line in the in-app `?`
   panel beside the AI-enhancer discovery status, which reports which backend resolved, which RC
