@@ -124,39 +124,53 @@ so the worst case is **4 s of pulsing per guide frame** - longer than a typical 
 at which point the loop computes each correction from a frame taken while the previous pair was
 still moving the mount, and oscillates.
 
-### Why it has never been seen, which is the more important half
+### Blocking is inherent to the Synta pulse, not a design slip
 
-**`PulseGuideAsync` has no stated completion contract, and its implementations disagree:**
+**The motor boards have no "pulse for N ms" primitive.** An RA pulse changes the step period (`:I1`)
+and the driver must send the restore itself; a Dec pulse starts the axis (`:J2`) and the driver must
+send the `:K2`. So SOMETHING has to hold the duration. Today that something is the caller's own
+await:
 
-| Implementation | Returns when |
+| Implementation | `PulseGuideAsync` returns when |
 |---|---|
-| `SkywatcherMountDriverBase` | the pulse has **finished** (awaits `SleepAsync(duration)`) |
+| `SkywatcherMountDriverBase` | the pulse has **finished** and the rate has been restored |
+| `FakeSkywatcherMountDriver` | same -- it inherits the base and overrides nothing |
 | `AscomTelescopeDriver` | the COM call returned - pulse still running |
 | `AlpacaTelescopeDriver` | the HTTP PUT returned - pulse still running |
 | `DALCameraDriver` (ST-4) | the relay is energised; a timer opens it later |
 | `FakeMountDriver` | the correction is applied; a timer clears `IsPulseGuiding` later |
 
-`IMountDriver.PulseGuideAsync`'s doc comment describes only the physical effect, so nothing
-says which of these is right, and the divergence went unnoticed.
+`IMountDriver.PulseGuideAsync`'s doc comment describes only the physical effect, so nothing says
+which of these is right, and the divergence went unnoticed. **The two fakes are on opposite sides of
+it**, which is worth knowing before writing a test against either.
 
-**The native SkyWatcher driver is the only one that blocks, and the fake is not one of them.**
-So the serialisation is invisible to the entire functional suite - which drives
-`FakeMountDriver`, returns immediately from both pulses, and therefore measures a loop that
-behaves like the ASCOM path and unlike the hardware path it is meant to model. The stall
-appears only on real SkyWatcher hardware. This is the test-double-diverges-from-the-real-thing
-shape, and it is why guide tuning validated in tests need not transfer to a rig.
+So the fix is NOT "make the SkyWatcher driver return early" -- it cannot, without moving the wait
+somewhere. It is GSS #76's actual shape: run the hold on its own task, return once the hardware has
+been COMMANDED, and let `IsPulseGuiding` carry progress. That is the contract four of the six already
+meet and the one the ASCOM spec states.
 
-### The fix has two parts, and the contract is the load-bearing one
+**That move is not free, and the cost is why this is filed rather than done.** Once the hold runs off
+the caller's path, the RA restore (`:I1`) and the Dec stop (`:K2`) contend for the port lock with each
+other and with every telemetry poll; a pulse that throws has no caller to throw to; and cancellation
+has to reach a task nobody is awaiting. `_pulseGuideInFlight` must then be incremented BEFORE the
+write and cleared by whatever ends the pulse -- see finding 2, which is the same defect waiting to be
+introduced by this fix.
 
-1. **State the contract on `IMountDriver.PulseGuideAsync`** and make every implementation meet
-   it. The ASCOM semantics are the right target (return when the pulse has been COMMANDED;
-   `IsPulseGuiding` carries progress) because four of five already do it, it is what the ASCOM
-   spec says, and it is the only one that lets a caller overlap axes at all.
-2. **Then issue both axes together in `GuideLoop`.** Only meaningful once (1) holds - against
-   today's blocking SkyWatcher driver, issuing "concurrently" would still serialise.
+### Why the sequencing has never been seen
 
-Making the fake match the real driver rather than the other way round would preserve the bug
-and hide it in a different place; the fake is already right.
+Two reasons, and neither is "the fake behaves differently from the driver" -- one of them does.
+
+- **`GuideLoopTests` builds `FakeMountDriver` directly**, which returns once the pulse is commanded.
+  The dedicated guide-loop suite therefore never blocks on a pulse at all, and the serialisation is
+  genuinely absent there.
+- **Where the blocking driver IS driven** (`FakeCameraMountCouplingTests`, on
+  `FakeSkywatcherMountDriver`), `FakeTimeProviderWrapper.SleepAsync` **auto-advances fake time**. The
+  serialisation happens exactly as it would on hardware, costs zero wall-clock, and nothing asserts on
+  the fake time it consumed. So it is exercised and invisible at the same time.
+
+A test that would catch it has to assert on **fake time traversed per guide frame**, not on wall
+clock and not on the corrections themselves -- the same instrument that settled the
+`DeviceOwnershipTests` starvation-vs-race question.
 
 **Do not simply fire-and-forget the two calls.** A dropped `ValueTask` loses exceptions and
 cancellation, and `ValueTask` may not be awaited twice. Whatever the shape, a failed pulse must

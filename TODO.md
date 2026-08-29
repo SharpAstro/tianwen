@@ -140,12 +140,18 @@
   owns the mount, act when nothing does.
 - [ ] **GSS parity: the two open findings** ([docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md)).
   (1) `IMountDriver.PulseGuideAsync` has **no stated completion contract** and its implementations
-  disagree -- the SkyWatcher driver blocks for the pulse duration, every other one returns once the
-  pulse is commanded. State the contract (ASCOM semantics) and make SkyWatcher meet it; only THEN
-  overlap the RA and Dec pulses in `GuideLoop`, which are sequential today (GSS #76) and cost up to 4 s
-  per guide frame on that one driver. Ordering matters: overlapping first still serialises. The fake
-  already has the right semantics, so the whole functional suite is blind to this -- do not "fix" the
-  fake to match the driver. (2) 24-bit position-counter rollover is unanswered; decide whether we track
+  disagree -- `SkywatcherMountDriverBase` (and `FakeSkywatcherMountDriver`, which inherits it) blocks
+  for the pulse duration; ASCOM, Alpaca, the DAL ST-4 path and `FakeMountDriver` return once the pulse
+  is commanded. Blocking is not a slip: the boards have no "pulse for N ms" primitive, so the driver
+  must send the `:I` restore or the `:K` itself and something has to hold the duration. GSS #76's shape
+  is to hold it on its own task and return once commanded. **Budget for the cost**: the RA restore and
+  Dec stop then contend for the port lock, a throwing pulse has no caller to throw to, and cancellation
+  must reach an unawaited task -- and `_pulseGuideInFlight` must be set BEFORE the write or this fix
+  introduces finding 2. Only THEN overlap the RA and Dec pulses in `GuideLoop`, which are sequential
+  today and cost up to 4 s per guide frame on the blocking driver; overlapping first still serialises.
+  **A test for it must assert on fake time traversed per guide frame** -- `GuideLoopTests` builds
+  `FakeMountDriver` so it never blocks, and where the blocking driver is driven the fake clock
+  auto-advances `SleepAsync`, so the stall is real and costs no wall time. (2) 24-bit position-counter rollover is unanswered; decide whether we track
   the wrap or re-home. Also decide whether to regenerate `gss-oracle-transcripts.json` against
   `origin/master`: it currently pins GSS's PRE-fix behaviour, and regenerating may legitimately turn
   `SkywatcherGssOracleTests` red.
