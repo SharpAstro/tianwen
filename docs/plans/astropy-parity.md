@@ -19,6 +19,7 @@ Snapshot taken 2026-08-29 against the codebase at `ca107495`. No prior document 
 | `astropy.time` (scale conversions: UTC/TAI/TT/UT1, leap seconds, Earth rotation) | DONE, as a backend | `Astrometry/SOFA/SofaFunctions.cs` (1813 lines) ports ERFA-equivalent `Utctai`/`Taitt`/`Tttai`/`Taiutc`/`Taiut1`/`Utcut1`, `Cal2jd`/`Jd2cal`/`Dtf2d`, `Dat` + `LeapSecondsTable.cs`, `Era00`/`Gmst06`. No public `Time` value type is exposed, though -- `Astrometry/TimeUtils.cs` is 56 lines of app helpers, not a scale/format-tagged type consumers can hold onto. |
 | `astropy.coordinates` (frame-transform graph: ICRS, AltAz, Galactic, ...) | PARTIAL | `Astrometry/SOFA/Transform.cs` (1173 lines) does J2000<->JNow<->Apparent<->Topocentric with refraction (`Refco`), aberration (`Ab`), light deflection (`Ld`/`Ldsun`), geodetic conversion (`Gd2gc`) -- ERFA-grade math. It is one stateful `Transform` class (`SetJ2000`/`SetJNow`/`SetApparent`), not an extensible frame graph. `CoordinateUtils.cs` is ad hoc helpers (separation, pixel scale), not a coordinate type. |
 | `astropy.wcs` (world coordinate systems, ~30 projections + distortion) | PARTIAL, one projection by design | `Astrometry/WCS.cs` supports TAN (gnomonic) + SIP forward-polynomial distortion (`SipPolynomial.cs`, fit via `PolynomialLeastSquares.cs`). Astropy wraps wcslib's full projection set (SIN, ARC, ZEA, AIT, ZPN, ...) plus SIP/TPV/DSS. TAN is the one amateur imaging actually uses -- see CLAUDE.md's plate-solving section, which never asks for another projection. **But see "Design notes" below for where TAN's limits become load-bearing** (wide-angle lens stitching / large mosaics), not just theoretical. |
+| `reproject` (Astropy-affiliated, NOT core -- WCS-driven resampling/mosaicking: `reproject_interp`/`reproject_exact`) | NOT STARTED | No equivalent exists. [wcs-reprojection.md](wcs-reprojection.md) is the tracked plan to add exactly this: pull/inverse-warp resampling through `WCS.PixelToSky`/`SkyToPixel`, deliberately the opposite resampling direction from `DrizzleStrategy`/`DrizzleKernel` (push/forward-splat, correct for combining many incomplete dithered frames, wrong for resampling one complete source). Same niche as SWarp/Montage/AstroDrizzle in the wider ecosystem. |
 | `astropy.constants` | PARTIAL | `Astrometry/Constants.cs` (63 lines) is a handful of app-specific constants, not a physical-constants table with values + uncertainties + units (G, c, M_sun, ...). |
 | `astropy.units` (`Quantity`, unit-safe arithmetic) | NOT STARTED | Confirmed absent -- no `Quantity`/`Unit` type anywhere in the tree. Every value is a raw `double` carrying its unit by naming convention (`ra1Hours`, `pixelSizeUm`, `focalLengthMm` in `CoordinateUtils.cs`) or by XML-doc prose. **The single biggest structural gap versus Astropy's design** -- everything else here would get safer if it sat on top of this. |
 | `astropy.table` (heterogeneous-column, unit-aware, serializable table) | NOT STARTED | No generic table type; the closest hit is `StarReferenceTable`, which is a domain-specific star-list POCO, not a reusable `Table`. |
@@ -86,10 +87,11 @@ If wide-angle lens stitching or large mosaics become an actual target (not just 
 ranked gap 3 above moves from "nice to have" to load-bearing and should be pulled forward.
 
 **Using `PixelToSky`/`SkyToPixel` generatively (to resample pixels, not just report a header) is
-its own tracked plan: [wcs-reprojection.md](wcs-reprojection.md)** -- single-frame SIP undistort
-(P0) and multi-frame reprojection onto a shared WCS for mosaic stitching (P1), plus why that is a
-deliberate pull/inverse-warp operation where drizzle is an equally deliberate push/forward-splat
-one.
+its own tracked plan: [wcs-reprojection.md](wcs-reprojection.md)** -- the direct analogue of
+Astropy's affiliated `reproject` package (see the dedicated row above), covering single-frame SIP
+undistort (P0) and multi-frame reprojection onto a shared WCS for mosaic stitching (P1), plus why
+that is a deliberate pull/inverse-warp operation where drizzle is an equally deliberate
+push/forward-splat one.
 
 ### Higher-order SIP: what it would take, and why it does not fix corner star shape
 
