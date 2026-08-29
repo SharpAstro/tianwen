@@ -23,7 +23,19 @@ public record Setup(
     Guider Guider,
     GuiderSetup GuiderSetup,
     ImmutableArray<OTA> Telescopes,
-    Weather? Weather = null
+    Weather? Weather = null,
+
+    /// <summary>
+    /// This rig's mechanical limits, projected from the profile by <c>SessionFactory</c>. Null means
+    /// never configured, which <see cref="MountLimitConfiguration"/>'s defaults answer as disabled.
+    /// </summary>
+    /// <remarks>
+    /// The profile stays the source of truth (see <see cref="TianWen.Lib.Devices.ProfileData"/>);
+    /// this is the run's projection of it, which is why it rides on <see cref="Setup"/> -- the
+    /// record that already answers "what hardware am I driving" -- rather than on the per-run
+    /// <see cref="SessionConfiguration"/>.
+    /// </remarks>
+    MountLimitConfiguration? MountLimits = null
 ) : IAsyncDisposable
 {
     /// <summary>

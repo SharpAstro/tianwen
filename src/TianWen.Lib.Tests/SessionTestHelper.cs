@@ -66,6 +66,7 @@ internal static class SessionTestHelper
         bool withManualCover = false,
         bool withFilterWheel = false,
         Func<IServiceProvider, Cover>? coverFactory = null,
+        MountLimitConfiguration? mountLimits = null,
         CancellationToken cancellationToken = default)
     {
         var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -157,7 +158,7 @@ internal static class SessionTestHelper
         var weather = new Weather(weatherDevice, sp);
         await weather.Driver.ConnectAsync(cancellationToken);
 
-        var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota], weather);
+        var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota], weather, mountLimits);
         var plateSolver = new FakePlateSolver();
 
         var config = configuration ?? DefaultConfiguration;

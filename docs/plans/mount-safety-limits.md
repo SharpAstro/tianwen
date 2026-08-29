@@ -109,8 +109,8 @@ constraints GSS never had:
 |-------|------|--------|
 | P0 | **`MountLimits` pure decider** (`TianWen.Lib/Sequencing/` beside `MeridianFlipDecision`): `Evaluate(hourAngleHours, altitudeDeg, isTracking, alreadyActed, MountLimitConfiguration) -> MountLimitVerdict`. No I/O, no driver, no clock. `MountLimitConfiguration` landed with it rather than waiting for P1, because the decider cannot be written without it; P1 keeps the PLACEMENT (profile persistence + UI). **Two departures from the sketch:** it takes no pier side and no alignment mode -- see the note below. | **DONE** (30 tests, 3 sabotages verified) |
 | P1b | **Axis modelling: `GetAxisAngleAsync(TelescopeAxis) -> double?`** (degrees from the mount's home position, signed, hemisphere-corrected), implemented natively by the SkyWatcher driver from steps + CPR and returning `null` everywhere else. **Angle, not steps**: the driver owns its home convention (`0x800000`) and the southern mirroring, and leaking steps + CPR would make every caller re-derive both -- the bug `StepsToRa` already exists to prevent. This is what upgrades the limit from approximation to mechanical truth on the mounts that can support it, and it is independently useful (a true pier-side derivation, PE phase, a mechanical-position readout). | NOT STARTED |
-| P1 | **Profile placement + UI.** Persist `MountLimitConfiguration` (the record itself shipped in P0) and give it an editor. **Lives on the PROFILE, not `SessionConfiguration`** -- it is a static fact about a pier, a tube and a counterweight shaft, exactly like `OTAData`, and it must apply to a manual slew with no session. | NOT STARTED |
-| P2 | **Session enforcement.** Evaluate in `PollDeviceStatesAsync` (already the one place that refreshes `_mountState` with HA and pier side, and already called from every slew wait and the imaging tick). Verdict routes to a new `ImageLoopNextAction.LimitReached`, finalising the run the same way `DeviceUnrecoverable` does. Reuses `ResilientInvokeAsync` for the stop/park. | NOT STARTED |
+| P1 | **Profile placement + UI.** Persist `MountLimitConfiguration` (the record itself shipped in P0) and give it an editor. **Lives on the PROFILE, not `SessionConfiguration`** -- it is a static fact about a pier, a tube and a counterweight shaft, exactly like `OTAData`, and it must apply to a manual slew with no session. | **DONE** for persistence + plumbing; the editor UI is not built |
+| P2 | **Session enforcement.** Evaluate in `PollDeviceStatesAsync` (already the one place that refreshes `_mountState` with HA and pier side, and already called from every slew wait and the imaging tick). Verdict routes to a new `ImageLoopNextAction.LimitReached`, finalising the run the same way `DeviceUnrecoverable` does. Reuses `ResilientInvokeAsync` for the stop/park. | **DONE** (6 tests, 2 sabotages verified) |
 | P3 | **Enforcement outside a session** -- the half GSS gets for free. A `MountLimitWatcher` hosted alongside the device hub, polling any *connected* mount on a slow cadence (5 s) whether or not a session owns it. Must respect the hub lease: a run owns the mount, so the watcher only observes and lets the session act; with no run it acts itself. | NOT STARTED |
 | P4 | **Surface it.** A limit is useless if it fires silently: notification feed entry, a `LimitAlarm`-equivalent state on `ISessionTelemetry` for the Home board's rig card, and the warning threshold shown as a countdown next to the existing flip countdown (`MeridianFlipUtc`). | NOT STARTED |
 | P5 | **Driver-enforced limits, observed not duplicated.** Detect "the mount stopped itself" (tracking off / `AtPark` when we did not command it) and report it as a limit event rather than a device fault, so a GSS-managed rig does not read as a malfunction. | NOT STARTED |
@@ -198,3 +198,44 @@ meridian wins on the tie-break. Right answer, wrong reason, and the broken rank 
 - [`gss-parity-audit.md`](gss-parity-audit.md) -- the rest of the GSServer sweep: which of its
   pulse/slew/queue fixes apply to us and which are structurally impossible here. Read its
   "Read `origin/master`, not a local checkout" note before quoting any GSS behaviour below.
+
+## P1 + P2 as built
+
+**The profile is the source of truth; `Setup` is the run's projection of it.**
+`ProfileData.MountLimits` is nullable so an older profile deserialises unchanged and reads as
+"never configured", which the shipped defaults answer as disabled. `SessionFactory` copies it onto
+`Setup` -- the record that already answers "what hardware am I driving" -- rather than onto the
+per-run `SessionConfiguration`, which keeps the invariant intact while giving the session something
+to read. Note this changes the base64 `data=` segment of every profile URI, which is expected and
+is what `ProfileTests` pins.
+
+**Altitude is GEOMETRIC, and that is a decision rather than an approximation.**
+`SiteContext.AltitudeDegrees(hourAngleHours, decDeg)` is new, sitting beside the `IsAboveHorizon`
+that already cached `sinLat`/`cosLat` (the class's own remarks had flagged altitude as a missing
+use). Refraction lifts a body by up to ~34 arcmin at the horizon, so a refracted altitude reports
+the tube HIGHER than it is and a limit keyed on it fires late -- in the one regime where late is
+the whole failure. A tripod leg is not lifted by the atmosphere. It takes an hour angle rather than
+an RA because the caller reads HA straight off the mount, and going RA -> HA via `LST` would
+re-introduce a clock the mount has already accounted for.
+
+**Enforcement is on the POLL, not the imaging tick.** `PollDeviceStatesAsync` is what every slew
+wait and focus routine already calls; a limit evaluated only between exposures would watch a mount
+drive into a pier during a goto and say nothing.
+
+**Acting does not gate the exit.** Whether the stop succeeded or not, the imaging loop is told to
+finish via the new `ImageLoopNextAction.LimitReached` -- a limit we could not act on is a stronger
+reason to end the night, not a weaker one. `LimitReached` is deliberately distinct from
+`DeviceUnrecoverable`: nothing is broken, the rig reached the edge of where it may point, and
+collapsing the two would report a working mount as a faulty one and send somebody out to check
+cables at 3am.
+
+**Tracking is stopped in BOTH responses, park included.** A park is motion across a path nothing has
+checked, so the axis should not still be driving toward the limit while it is under way -- and if
+the park then fails, a stopped mount is a better place to have left the rig than a tracking one. A
+`Park` response on a mount that cannot park logs and settles for the stop.
+
+**One test lesson.** `SessionMountLimitTests` places the mount by SYNC, not by slew: a slew only
+BEGINS, and the fake advances with the fake clock which these tests never pump, so a slewed mount
+stays exactly where it was and every assertion passes for the wrong reason. Tracking is also
+switched on explicitly, because a freshly built test session has never initialised a mount and
+starts with tracking OFF -- asserting "still tracking" without that passes with enforcement deleted.

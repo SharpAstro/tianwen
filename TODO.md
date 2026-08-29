@@ -128,16 +128,29 @@
 
 ## Next Up
 
-- [ ] **Mount safety limits: P1-P5** ([docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md)).
-  P0 shipped 2026-08-29: `MountLimits.Evaluate` is the pure decider plus its configuration record,
-  30 tests, three sabotages verified. **Nothing enforces it yet** -- the decider exists and no caller
-  asks it, which is the whole remaining value. Next is P1 (the config on the PROFILE, not
-  `SessionConfiguration`: it is a fact about a pier and a tube, and must apply to a manual slew with
-  no session) then P2 (evaluate in `PollDeviceStatesAsync`, which already refreshes HA and pier side
-  and is already called from every slew wait and the imaging tick; route the verdict to a new
-  `ImageLoopNextAction.LimitReached`). P3 is the half GSServer gets for free and we do not: enforcement
-  with **no session running**, which needs a watcher that respects the hub lease -- observe while a run
-  owns the mount, act when nothing does.
+- [ ] **Mount safety limits: P1b, P3-P5, and the P1 editor UI**
+  ([docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md)).
+  **P0 + P1 + P2 shipped 2026-08-29, so a configured limit now actually stops a mount during a run.**
+  The config persists on `ProfileData.MountLimits` (nullable = never configured = disabled) and is
+  projected onto `Setup` by `SessionFactory`; enforcement is in `PollDeviceStatesAsync` (the poll,
+  NOT the imaging tick -- it is what every slew wait and focus routine already calls) and routes to
+  the new `ImageLoopNextAction.LimitReached`. Altitude comes from the new geometric
+  `SiteContext.AltitudeDegrees`, unrefracted on purpose. 6 session tests + 9 altitude tests, two
+  sabotages verified.
+  **What remains, in rough order of value.**
+  (a) **The P1 editor UI** -- the config persists and enforces, but nothing lets a user set it
+  except editing profile JSON.
+  (b) **P3, the half GSServer gets for free and we do not:** enforcement with **no session
+  running**, which needs a watcher respecting the hub lease -- observe while a run owns the mount,
+  act when nothing does. This is also what would protect the rig during a manual 2am slew, the case
+  P1's placement on the profile was chosen for.
+  (c) **P4 surfacing** (notification feed, a `LimitAlarm` on `ISessionTelemetry` for the Home
+  board's rig card, warn threshold as a countdown beside `MeridianFlipUtc`) -- `Session` already
+  exposes `MountLimitVerdict` for this, and nothing reads it yet.
+  (d) **P1b axis modelling** (`GetAxisAngleAsync`), which upgrades the limit from an HA
+  approximation to mechanical truth on mounts that can report it.
+  (e) **P5**: observe a driver-enforced limit rather than duplicating it, so a GSS-managed rig does
+  not read as a malfunction.
 - [ ] **GSS parity: what is left of the pulse contract** (findings 1 and 2; finding 3, the
   unverified pulse-restore, is FIXED) ([docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md)).
   **Done so far:** the restore and both axis stops are verified with a retry and throw

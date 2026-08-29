@@ -86,6 +86,34 @@ public readonly record struct SiteContext
     }
 
     /// <summary>
+    /// Geometric altitude in degrees for an hour angle (HOURS) and declination (degrees), or
+    /// <see cref="double.NaN"/> when the site is unknown or either input is NaN.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Geometric, deliberately: no refraction.</b> This exists for the mechanical horizon
+    /// limit, and a tripod leg is not lifted by the atmosphere. Refraction raises a body by up to
+    /// ~34 arcmin at the horizon, so a refracted altitude would report the tube higher than it is
+    /// and the limit would fire late -- in the one regime where being late is the whole problem.
+    /// Use <see cref="Transform"/> when you want what the eye would see.</para>
+    ///
+    /// <para>Takes an hour angle rather than an RA because the caller that needs this reads HA
+    /// straight off the mount, and going RA -> HA via <see cref="LST"/> would re-introduce a clock
+    /// the mount has already accounted for.</para>
+    /// </remarks>
+    public double AltitudeDegrees(double hourAngleHours, double decDeg)
+    {
+        if (!IsValid || double.IsNaN(hourAngleHours) || double.IsNaN(decDeg))
+        {
+            return double.NaN;
+        }
+
+        var ha = hourAngleHours * Math.PI / 12.0;
+        var (sinDec, cosDec) = Math.SinCos(decDeg * Math.PI / 180.0);
+        var sinAlt = SinLat * sinDec + CosLat * cosDec * Math.Cos(ha);
+        return Math.Asin(Math.Clamp(sinAlt, -1.0, 1.0)) * 180.0 / Math.PI;
+    }
+
+    /// <summary>
     /// Returns the Dec at which altitude = 0 for the given RA.
     /// dec_horizon = atan(-cos(HA) / tan(lat))
     /// </summary>
