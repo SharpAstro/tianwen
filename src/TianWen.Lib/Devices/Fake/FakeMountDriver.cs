@@ -200,7 +200,14 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     public bool CanSetDeclinationRate { get; } = false;
     public bool CanSetGuideRates { get; } = true;
     public bool CanPulseGuide { get; } = true;
-    public bool CanPark { get; } = true;
+    /// <summary>
+    /// Settable so a test can model a mount that cannot park -- a star tracker such as the iOptron
+    /// SkyGuider Pro, whose driver reports <c>CanPark = false</c>. It matters because
+    /// <see cref="ParkAsync"/> stops tracking as a side effect, which MASKS a finaliser that fails to
+    /// stop it: on a parkable mount the motor comes to rest either way, so the no-park configuration is
+    /// the only one where "did the finaliser actually command the stop?" is observable at all.
+    /// </summary>
+    public bool CanPark { get; set; } = true;
     public bool CanSetPark { get; } = false;
     public bool CanUnpark { get; } = true;
     public bool CanSlew { get; } = true;
