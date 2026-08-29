@@ -393,6 +393,9 @@ of `R` or `Ha`, which shares no token with any key but ends one) is explicitly e
 token is all it ever had to offer. Pinned by `ABrandTokenAloneIsNotAFilterMatch` over all six rows
 above, by `AOneSidedTokenDifferenceStillResolves` / `ATwoSidedTokenDifferenceIsRefused`, and by
 `TheColourMagicDuoBandsPassTheirOwnLineAndBlockTheOther`, which pins the names beside the physics.
+The "second route" above (a new curve capturing its own siblings) is pinned separately by
+`AddingASpecificProductDoesNotCaptureItsSiblings` -- re-run `ReportKnownLightPollutionFilters` after
+adding any curve and read every line, including ones you did not touch.
 
 **Optolong's duo-bands genuinely are not in the database except pre-convolved with a sensor**
 (`SONY_CMOS_*-UVIRCUT` / `CANON_FULL_SPECTRUM_*` x L-eNhance / L-eXtreme / L-ULTIMATE), so "no match"

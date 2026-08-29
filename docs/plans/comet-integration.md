@@ -1272,7 +1272,9 @@ star colour was **flat across every B-V bin** (R/G 0.43 to 0.45 from B-V 0 to 2.
 walked from 0.67 to 1.57, so the fit degenerated to "make the median star look like a B-V 0.5 star".
 10P, with 2940 detections against 1315 catalogue stars, was not fooled (6.5", 599 matches). Fixed in
 `MatchStars`: detections are taken brightest first and **each catalogue star may be claimed once**, in
-the probe and in both passes (`SpccFunnel.Duplicate` counts the refusals). Tycho-2's own limit is why
+the probe and in both passes (`SpccFunnel.Detected` is the count of claimed catalogue stars,
+`SpccFunnel.Duplicate` counts the refusals -- read both against the catalogue count in the footprint
+before trusting any SPCC triple). Tycho-2's own limit is why
 this needs no sample-size constant: the catalogue stars ARE the brightest detections, and once every
 one in the field is claimed no anonymous detection can find an unclaimed one. SWAN now probes to 5"
 and matches 597 one-to-one, and its observed colours track B-V (R/G 0.40 to 0.57 across the range).

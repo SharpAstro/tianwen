@@ -280,6 +280,27 @@ Consumers (CLI command, future GUI menu, hosting API) call `AddTianWenAi()`
 themselves. `TianWen.Lib` does not auto-wire any ONNX impl; keeps the core
 library ORT-free.
 
+### Model resolution: a vendor's weights are read WHERE THE VENDOR PUT THEM
+
+`ModelResolver` probes its three directories with the bare model name, then falls back to
+GraXpert's own cache (`%LOCALAPPDATA%/GraXpert/GraXpert/bge-ai-models/<semver>/model.onnx`, newest
+version first) for `graxpert_bge.onnx`. **All three roots are auto-detected and none takes an
+override** -- the vendor cache is written by GraXpert itself through the platform's per-user data
+directory, which is the same API `LocalAppDataDir` reads, so this is not a best guess.
+
+A search *directory* structurally cannot reach it: the version subdir is not known ahead of time and
+the file is always named `model.onnx`, because for GraXpert the **bucket** (the versioned parent
+directory) carries the identity. So an installed GraXpert used to buy nothing -- the only bridge was
+`tools/tianwen-ai-models-fetch.ps1` hardlinking the weights across, and **a packaged install cannot
+run a repo-relative dev script**. That shipped: the Store build of Astro Photo Viewer failed Enhance
+with "model not found" on a machine whose 207 MB of GraXpert weights were sitting on disk, unreachable
+by the app. The fetch script still runs and its copy still wins (it outlives GraXpert being
+uninstalled), but it is now an optimisation, not the only way in. The same rule already applied to
+SAS Pro, probed in its own install directory -- the RC-Astro CLI's own env-var/install-dir/PATH probe
+in [rc-astro-enhancers.md](rc-astro-enhancers.md) is the sibling pattern.
+
+**Never make a shipped capability depend on a script only a checkout can run.**
+
 ### Future: classical fallbacks
 
 Out of v1 scope, but the design accommodates them cleanly:
