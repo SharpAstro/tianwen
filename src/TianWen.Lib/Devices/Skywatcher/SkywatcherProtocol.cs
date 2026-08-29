@@ -337,20 +337,6 @@ internal static class SkywatcherProtocol
         _ => rawCpr
     };
 
-    /// <summary>
-    /// Guide speed fraction for index 0-4.
-    /// 0=1.0x, 1=0.75x, 2=0.5x, 3=0.25x, 4=0.125x sidereal.
-    /// </summary>
-    internal static double GuideSpeedFraction(int index) => index switch
-    {
-        0 => 1.0,
-        1 => 0.75,
-        2 => 0.5,
-        3 => 0.25,
-        4 => 0.125,
-        _ => 0.5
-    };
-
     internal static int ParseHexNibble(char c) => c switch
     {
         >= '0' and <= '9' => c - '0',

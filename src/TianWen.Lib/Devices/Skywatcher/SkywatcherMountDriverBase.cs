@@ -69,7 +69,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     internal ISerialConnection? SerialConnection => _deviceInfo.SerialDevice;
 
     // Guide state
-    private int _guideSpeedIndex = 2; // default 0.5x sidereal
+    private SkywatcherGuideRate _guideRate = SkywatcherGuideRate.Sidereal0_5;
 
     /// <summary>
     /// Opt-in (<c>?decPulseGoto=true</c> on the mount URI, advanced setting): Dec pulses
@@ -620,7 +620,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     private async ValueTask PulseGuideCoreAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
-        var guideFraction = SkywatcherProtocol.GuideSpeedFraction(_guideSpeedIndex);
+        var guideRate = _guideRate;
         var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
 
         if (direction is GuideDirection.East or GuideDirection.West)
@@ -632,11 +632,19 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             // relative to the sky: a West pulse ran the axis slower than sidereal (-f
             // relative) and an East pulse reversed it (-(1+f) relative), with a (1+f)/f
             // gain asymmetry between the two directions.
-            var rateFactor = direction is GuideDirection.West ? 1.0 + guideFraction : 1.0 - guideFraction;
-            // East at guide fraction 1.0x gives a combined rate of 0; the motor boards
-            // cannot encode a zero step period, so command sidereal/1000 instead; the
-            // axis "looks stopped" without a stop/start transient (GSS does the same).
-            var guideSpeed = siderealDegPerSec * Math.Max(rateFactor, 1e-3);
+            // Never negative for East: SkywatcherGuideRate bounds Fraction at 1.0, so the axis
+            // never has to reverse and a live :I (which sets magnitude only, direction living in :G)
+            // is the correct command. That bound is the type's whole purpose -- see its remarks, and
+            // GSServer's #89, which had to stop/re-:G/restart precisely because its rate is unbounded.
+            var rateFactor = direction is GuideDirection.West
+                ? guideRate.WestRateFactor
+                : guideRate.EastRateFactor;
+            // At 1.0x an East pulse cancels tracking exactly, and the boards cannot encode a zero step
+            // period -- command sidereal/1000 so the axis looks stopped without a stop/start transient
+            // (GSS does the same). Named on the type rather than a Math.Max clamp here: a clamp reads
+            // as defence against negatives and would keep silently "working" if the bound were lifted.
+            var guideSpeed = siderealDegPerSec *
+                (direction is GuideDirection.East && guideRate.EastPulseHaltsTheAxis ? 1e-3 : rateFactor);
             var t1Pulse = SkywatcherProtocol.EncodeUInt24(
                 SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprRa, guideSpeed, false, _highSpeedRatio));
 
@@ -693,7 +701,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 GuideDirection.South => false, // Dec reverse
                 _ => throw new ArgumentException($"Unknown guide direction {direction}", nameof(direction))
             };
-            var guideSpeed = siderealDegPerSec * guideFraction;
+            var guideSpeed = siderealDegPerSec * guideRate.Fraction;
 
             if (_decPulseGoTo)
             {
@@ -777,25 +785,27 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public ValueTask<double> GetGuideRateRightAscensionAsync(CancellationToken cancellationToken)
     {
-        var fraction = SkywatcherProtocol.GuideSpeedFraction(_guideSpeedIndex);
-        return ValueTask.FromResult(fraction * SIDEREAL_RATE / 3600.0);
+        // Reports what the mount is ACTUALLY set to, derived from the snapped rate rather than from
+        // whatever was last requested -- ASCOM's contract is that a getter reflects the hardware.
+        return ValueTask.FromResult(_guideRate.Fraction * SIDEREAL_RATE / 3600.0);
     }
 
     public async ValueTask SetGuideRateRightAscensionAsync(double value, CancellationToken cancellationToken)
     {
-        // Map to nearest guide speed index (0-4)
+        // The firmware offers five rates and nothing between them, so an ASCOM client's arbitrary
+        // double must snap. SAY SO when it moves materially: guiding at a rate nobody asked for looks
+        // like poor seeing or a mis-tuned aggressiveness, and silence there costs a night to diagnose.
         var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
         var fraction = value / siderealDegPerSec;
-        _guideSpeedIndex = fraction switch
+        _guideRate = SkywatcherGuideRate.Nearest(fraction);
+        if (SkywatcherGuideRate.WasSnapped(fraction, _guideRate))
         {
-            >= 0.875 => 0,   // 1.0x
-            >= 0.625 => 1,   // 0.75x
-            >= 0.375 => 2,   // 0.5x
-            >= 0.1875 => 3,  // 0.25x
-            _ => 4            // 0.125x
-        };
+            Logger.LogInformation(
+                "{MountName}: guide rate {Requested:F3}x sidereal is not encodable; using {Applied:F3}x.",
+                Name, fraction, _guideRate.Fraction);
+        }
         // Send :P to set the ST-4 autoguide port speed on the mount hardware
-        await SendCommandAsync('P', '1', _guideSpeedIndex.ToString(), cancellationToken);
+        await SendCommandAsync('P', '1', _guideRate.WireIndex, cancellationToken);
     }
 
     public ValueTask<double> GetGuideRateDeclinationAsync(CancellationToken cancellationToken)
@@ -804,9 +814,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     public async ValueTask SetGuideRateDeclinationAsync(double value, CancellationToken cancellationToken)
     {
         await SetGuideRateRightAscensionAsync(value, cancellationToken);
-        // RA setter already updates _guideSpeedIndex and sends :P to axis 1;
+        // RA setter already snapped the rate and sent :P to axis 1;
         // also send to axis 2 for the Dec ST-4 port
-        await SendCommandAsync('P', '2', _guideSpeedIndex.ToString(), cancellationToken);
+        await SendCommandAsync('P', '2', _guideRate.WireIndex, cancellationToken);
     }
 
     #endregion
@@ -1123,9 +1133,9 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             // Initialize both axes
             await SendCommandAsync('F', '3', null, cancellationToken);
 
-            // Set ST-4 autoguide port speed to match our guide speed index
-            await SendCommandAsync('P', '1', _guideSpeedIndex.ToString(), cancellationToken);
-            await SendCommandAsync('P', '2', _guideSpeedIndex.ToString(), cancellationToken);
+            // Set ST-4 autoguide port speed to match our guide rate
+            await SendCommandAsync('P', '1', _guideRate.WireIndex, cancellationToken);
+            await SendCommandAsync('P', '2', _guideRate.WireIndex, cancellationToken);
 
             // Read site coordinates from URI
             await GetSiteLatitudeAsync(cancellationToken);

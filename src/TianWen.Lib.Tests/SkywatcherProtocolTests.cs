@@ -356,9 +356,13 @@ public class SkywatcherProtocolTests
     [InlineData(2, 0.5)]
     [InlineData(3, 0.25)]
     [InlineData(4, 0.125)]
-    public void GuideSpeedFraction_ReturnsExpected(int index, double expected)
+    public void GuideSpeedFraction_ReturnsExpected(int wireIndex, double expected)
     {
-        SkywatcherProtocol.GuideSpeedFraction(index).ShouldBe(expected);
+        // Moved off SkywatcherProtocol onto the SkywatcherGuideRate enum, whose value IS this wire
+        // index. The bound that makes a live-:I RA pulse correct (Fraction <= 1, so an East pulse never
+        // reverses the axis) is pinned across the whole enum by SkywatcherGuideRateTests; this keeps
+        // the per-index values themselves nailed down where the rest of the protocol constants live.
+        ((SkywatcherGuideRate)wireIndex).Fraction.ShouldBe(expected);
     }
 
     #endregion
