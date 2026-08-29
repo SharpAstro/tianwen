@@ -605,21 +605,54 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     private static readonly TimeSpan MinPulseDuration = TimeSpan.FromMilliseconds(20);
 
     /// <summary>
-    /// <b>Does not yet honour the <c>Start</c> contract: this blocks for the whole
-    /// <paramref name="duration"/>.</b>
+    /// A background hold that failed after its caller had already been released, kept until someone
+    /// asks. First one wins and it is cleared on read.
     /// </summary>
     /// <remarks>
-    /// The rename landed first, deliberately, so the interface states the intended contract and
-    /// this one violation is visible in one place instead of being a disagreement nobody could see.
-    /// Synta boards have no "pulse for N ms" primitive -- the driver sends the <c>:I</c> restore or
-    /// the <c>:K</c> itself -- so converting means holding the duration on a background task rather
-    /// than on the caller's await, which is a real change with real cancellation and fault
-    /// consequences and gets its own commit. Until then, awaiting this DOES wait for the pulse,
-    /// which is why the guide loop is still correct and RA/Dec still serialise on this mount alone.
-    /// See docs/plans/gss-parity-audit.md, finding 1, step 2.
+    /// Start-and-return means the restore no longer has a caller to throw to, which is the one
+    /// thing the blocking shape did get right. Rather than invent a channel for it, the fault is
+    /// parked here and re-thrown from the next <see cref="StartPulseGuideAsync"/> or
+    /// <see cref="IsPulseGuidingAsync"/> -- and the second of those is the one that matters,
+    /// because it is what the guider polls WHILE waiting for this very pulse, so a failed restore
+    /// still surfaces inside the same guide frame that caused it.
+    /// </remarks>
+    private Exception? _pendingPulseFault;
+
+    private void ThrowPendingPulseFault()
+    {
+        if (Interlocked.Exchange(ref _pendingPulseFault, null) is { } fault)
+        {
+            throw fault;
+        }
+    }
+
+    /// <summary>
+    /// Starts a guide pulse and returns once the motor board has been COMMANDED, honouring the
+    /// contract on <see cref="IMountDriver.StartPulseGuideAsync"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>Synta boards have no "pulse for N ms" primitive -- an RA pulse changes the live step
+    /// period and the driver must send the <c>:I</c> restore itself, a Dec pulse starts the axis and
+    /// the driver must send the <c>:K</c> -- so SOMETHING has to hold the duration. It used to be
+    /// the caller's await, which is why RA and Dec guide corrections serialised on this mount family
+    /// and no other. It is now a background task, and the split is exactly at "commanded": the START
+    /// commands go out on the caller's own path, so a mount that will not accept the pulse is still
+    /// the caller's problem, while the wait and the restore are not.</para>
+    ///
+    /// <para><b>The in-flight count is raised BEFORE the first write and lowered only when the hold
+    /// ends</b> (GSS #109 / finding 2): a caller must never be able to observe "no pulse running"
+    /// for a pulse that has been issued. It stays a counter rather than a flag so an overlapping
+    /// RA+Dec pair clears only when BOTH finish.</para>
+    ///
+    /// <para>The caller's token is deliberately passed into the hold. Cancelling a run should cut a
+    /// pulse short, and the restore already runs under <see cref="CancellationToken.None"/> in a
+    /// <c>finally</c> so it happens anyway -- an abandoned pulse must not leave the axis at
+    /// <c>(1 +/- f) x sidereal</c>.</para>
     /// </remarks>
     public async ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
+        ThrowPendingPulseFault();
+
         if (duration < MinPulseDuration)
         {
             Logger.LogDebug("Ignoring {Direction} pulse of {DurationMs:F1} ms (below the {MinMs} ms floor)",
@@ -631,17 +664,58 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         // IsPulseGuidingAsync reports it instead (ASCOM semantics). Counter, not a flag, so an
         // overlapping RA+Dec pulse pair clears only when BOTH complete.
         Interlocked.Increment(ref _pulseGuideInFlight);
+
+        // Signalled by the core the moment the board has been commanded; the caller waits on this
+        // and nothing more. RunContinuationsAsynchronously so completing it cannot drag the hold's
+        // remaining work onto the caller's thread, which would re-serialise the very thing this
+        // change exists to stop.
+        var commanded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _ = RunPulseAsync(direction, duration, commanded, cancellationToken);
+        await commanded.Task;
+    }
+
+    /// <summary>
+    /// Runs the whole pulse -- start commands, the hold, the restore -- releasing the caller at the
+    /// "commanded" point via <paramref name="commanded"/>.
+    /// </summary>
+    private async Task RunPulseAsync(
+        GuideDirection direction, TimeSpan duration, TaskCompletionSource commanded, CancellationToken cancellationToken)
+    {
         try
         {
-            await PulseGuideCoreAsync(direction, duration, cancellationToken);
+            await PulseGuideCoreAsync(direction, duration, commanded, cancellationToken);
+        }
+        catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+        {
+            // A cancelled pulse is NOT a fault and must not be parked: parking it would re-throw an
+            // OperationCanceledException from some unrelated later IsPulseGuiding, long after the
+            // run that cancelled it had gone. The restore/stop still ran -- every branch does it in
+            // a finally under CancellationToken.None precisely so an abandoned pulse cannot leave
+            // the axis at (1 +/- f) x sidereal. Logged rather than swallowed silently.
+            Logger.LogDebug(ex, "{Direction} pulse cancelled after {DurationMs:F0} ms; the axis was still restored",
+                direction, duration.TotalMilliseconds);
+            commanded.TrySetException(ex);
+        }
+        catch (Exception ex)
+        {
+            // Before "commanded" the caller is still waiting, so the fault is theirs to catch.
+            // After it, nobody is: park it for the next Start or IsPulseGuiding to re-throw.
+            if (!commanded.TrySetException(ex))
+            {
+                Interlocked.CompareExchange(ref _pendingPulseFault, ex, null);
+            }
         }
         finally
         {
+            // Belt and braces: a path that somehow returned without signalling must not wedge the
+            // caller on a task that will never complete.
+            commanded.TrySetResult();
             Interlocked.Decrement(ref _pulseGuideInFlight);
         }
     }
 
-    private async ValueTask PulseGuideCoreAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
+    private async ValueTask PulseGuideCoreAsync(
+        GuideDirection direction, TimeSpan duration, TaskCompletionSource commanded, CancellationToken cancellationToken)
     {
         var guideRate = _guideRate;
         var siderealDegPerSec = SIDEREAL_RATE / 3600.0;
@@ -685,6 +759,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 // decel/accel transients comparable to a short pulse's length, and real
                 // firmware rejects :G while the motor is running (error !2).
                 await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
+                commanded.TrySetResult();
                 try
                 {
                     await TimeProvider.SleepAsync(duration, cancellationToken);
@@ -708,6 +783,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
                 await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
                 await SendCommandAsync('J', '1', null, cancellationToken);
+                commanded.TrySetResult();
                 try
                 {
                     await TimeProvider.SleepAsync(duration, cancellationToken);
@@ -734,7 +810,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
             if (_decPulseGoTo)
             {
-                await DecPulseAsMicroGotoAsync(forward, guideSpeed, duration, cancellationToken);
+                await DecPulseAsMicroGotoAsync(forward, guideSpeed, duration, commanded, cancellationToken);
                 return;
             }
 
@@ -751,6 +827,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             var t1 = SkywatcherProtocol.ComputeT1Preset(_tmrFreq, _cprDec, guideSpeed, false, _highSpeedRatio);
             await SendCommandAsync('I', '2', SkywatcherProtocol.EncodeUInt24(t1), cancellationToken);
             await SendCommandAsync('J', '2', null, cancellationToken);
+            commanded.TrySetResult();
             try
             {
                 await TimeProvider.SleepAsync(duration, cancellationToken);
@@ -772,7 +849,8 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// the goto runs it, and we poll until FullStop (3.5 s cap, GSS's wait). Faster settling
     /// than holding the rate for the full duration, and the displacement is exact.
     /// </summary>
-    private async ValueTask DecPulseAsMicroGotoAsync(bool forward, double guideSpeedDegPerSec, TimeSpan duration, CancellationToken cancellationToken)
+    private async ValueTask DecPulseAsMicroGotoAsync(
+        bool forward, double guideSpeedDegPerSec, TimeSpan duration, TaskCompletionSource commanded, CancellationToken cancellationToken)
     {
         var arcsec = guideSpeedDegPerSec * 3600.0 * duration.TotalSeconds;
         var steps = (int)Math.Round(arcsec * _cprDec / (360.0 * 3600.0));
@@ -793,6 +871,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         await SendCommandAsync('H', '2', SkywatcherProtocol.EncodeUInt24((uint)steps), cancellationToken);
         await SendCommandAsync('M', '2', SkywatcherProtocol.EncodeUInt24(0), cancellationToken);
         await SendCommandAsync('J', '2', null, cancellationToken);
+        commanded.TrySetResult();
 
         var pollInterval = TimeSpan.FromMilliseconds(25);
         var timeout = TimeSpan.FromSeconds(3.5);
@@ -809,8 +888,22 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         Logger.LogWarning("Dec micro-GOTO pulse ({Steps} steps) did not reach full stop within {TimeoutSeconds:F1}s", steps, timeout.TotalSeconds);
     }
 
+    /// <summary>
+    /// Whether any pulse is still running -- and the place a failed background hold is reported.
+    /// </summary>
+    /// <remarks>
+    /// Throwing from what looks like a read is deliberate. The guider polls this WHILE waiting for
+    /// a pulse it just started, so it is the only place a restore that would not take can be
+    /// reported inside the guide frame that caused it; report it from the next
+    /// <see cref="StartPulseGuideAsync"/> alone and a run that stops guiding right afterwards never
+    /// hears about a mount left at <c>(1 +/- f) x sidereal</c>. ASCOM allows any property to throw a
+    /// driver exception, and this is exactly the situation the allowance is for.
+    /// </remarks>
     public ValueTask<bool> IsPulseGuidingAsync(CancellationToken cancellationToken)
-        => ValueTask.FromResult(Volatile.Read(ref _pulseGuideInFlight) > 0);
+    {
+        ThrowPendingPulseFault();
+        return ValueTask.FromResult(Volatile.Read(ref _pulseGuideInFlight) > 0);
+    }
 
     #endregion
 

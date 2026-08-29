@@ -347,10 +347,46 @@ blocking today; that is the path `FakeCameraMountCouplingTests` drives, and it c
    by `AFaultedRaPulseStillAwaitsTheDecPulse`, whose discriminator is that the composite is still
    INCOMPLETE after the RA fault has had every chance to escape -- asserting on the Dec flag alone
    would be flaky, because the abandoned async method still runs to completion on its own.
-5. Convert `SkywatcherMountDriverBase` to a background hold. Moved LAST deliberately: it is the only
-   implementation that violates the primitive's contract, it is the whole risk of the sequence, and
-   with steps 3-4 already in place the guide loop is waiting properly before the driver stops doing
-   the waiting for it. Reversing that order would leave a window where nothing waits on any mount.
+5. **DONE.** Convert `SkywatcherMountDriverBase` to a background hold. Moved LAST deliberately: it
+   is the only implementation that violated the primitive's contract, it is the whole risk of the
+   sequence, and with steps 3-4 already in place the guide loop was waiting properly before the
+   driver stopped doing the waiting for it. Reversing that order would have left a window where
+   nothing waits on any mount.
+
+   **The split is at "commanded", and it is a signal rather than a return.** `PulseGuideCoreAsync`
+   keeps its exact structure and gains four `commanded.TrySetResult()` calls -- one per branch, each
+   immediately after that branch's start commands (`:I1` live; `:G1/:I1/:J1`; `:G2/:I2/:J2`; the
+   micro-GOTO's `:J2`). The caller awaits that `TaskCompletionSource` and nothing else, so a mount
+   that will not ACCEPT the pulse is still the caller's problem while the wait and the restore are
+   not. Restructuring the method into begin/finish halves was the obvious alternative and the worse
+   one: four branches with three different endings, all of them delicate.
+
+   **The fault path had to be rebuilt, because start-and-return removes the caller it threw to.** A
+   failed restore is parked in `_pendingPulseFault` (first wins, cleared on read) and re-thrown from
+   the next `StartPulseGuideAsync` **and from `IsPulseGuidingAsync`**. The second is the one that
+   matters and is worth the surprise of a read that throws: the guider polls it WHILE waiting for
+   the very pulse whose restore failed, so the fault still lands in the guide frame that caused it.
+   Reporting only from the next start would lose it entirely for a run that stops guiding
+   immediately afterwards. **The ordering makes the poll deterministic rather than racy**: the hold
+   parks the fault BEFORE lowering the in-flight count, and `IsPulseGuidingAsync` checks the fault
+   BEFORE reading that count, so once the hold has failed the very next poll throws whichever side
+   of the decrement it lands on.
+
+   **A cancelled pulse is not a fault, and parking it would be a booby trap.** The hold catches
+   `OperationCanceledException` separately and logs it instead of parking, because a parked one
+   would be re-thrown from some later, unrelated `IsPulseGuidingAsync` long after the run that
+   cancelled it had gone. The axis is still put back either way -- every branch restores in a
+   `finally` under `CancellationToken.None`, precisely so an abandoned pulse cannot leave RA at
+   `(1 +/- f) x sidereal`. Pinned by `ACancelledPulseIsNotParkedAsAFault`, which asserts both halves
+   (no parked fault AND the restore went out), and caught by a fifth sabotage.
+
+   **Two test lessons.** `TheStarterReturnsOnceCommandedNotOnceFinished` needs
+   `ExternalTimePump` -- with the clock auto-advancing, the hold can finish before the assertion
+   runs and the test passes against a blocking driver too. And it needs `[Fact(Timeout = 30_000)]`,
+   because the regression it guards does not fail, it **hangs**: a driver that went back to blocking
+   awaits its own hold, which parks in the pumped clock's sleep, and the advance that would release
+   it lives after the starter returns. The sabotage run proved both -- unbounded it wedged the
+   suite, bounded it is one red test at 30 s.
 6. Pin with **fake time traversed per guide frame** -- under `FakeTimeProviderWrapper` the difference
    is free in wall time, so a wall-clock assertion cannot see it either way.
 

@@ -45,7 +45,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
     /// case that used to reach no code path whatsoever.</summary>
     private const string? NoAnswer = null;
 
-    private async Task<(IMountDriver Driver, FakeSkywatcherSerialDevice Serial)> ConnectTrackingMountAsync(
+    private async Task<(IMountDriver Driver, FakeSkywatcherSerialDevice Serial, FakeTimeProviderWrapper Clock)> ConnectTrackingMountAsync(
         CancellationToken cancellationToken)
     {
         var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2026, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -70,11 +70,92 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
         var serial = ((SkywatcherMountDriverBase<FakeDevice>)driver).SerialConnection
             .ShouldBeOfType<FakeSkywatcherSerialDevice>();
 
-        return (driver, serial);
+        return (driver, serial, timeProvider);
+    }
+
+    /// <summary>
+    /// Runs the background hold to completion and returns the fault it parked, or null.
+    /// </summary>
+    /// <remarks>
+    /// <b>This is deterministic despite looking like a poll race.</b> The hold parks its fault
+    /// BEFORE it lowers the in-flight count, and <c>IsPulseGuidingAsync</c> checks for a parked
+    /// fault BEFORE it reads that count -- so once the hold has failed, the very next poll throws,
+    /// whichever side of the decrement it lands on. The loop is only waiting for the hold to get
+    /// there, which under the auto-advancing fake clock costs no wall time.
+    /// </remarks>
+    private static async Task<SkywatcherDriverException?> DrainForFaultAsync(
+        IMountDriver driver, CancellationToken cancellationToken)
+    {
+        for (var i = 0; i < 500; i++)
+        {
+            try
+            {
+                if (!await driver.IsPulseGuidingAsync(cancellationToken))
+                {
+                    return null;
+                }
+            }
+            catch (SkywatcherDriverException ex)
+            {
+                return ex;
+            }
+            await Task.Yield();
+        }
+        return null;
     }
 
     private static int CountRaStepPeriodCommands(FakeSkywatcherSerialDevice serial)
         => serial.CommandLogSnapshot.Count(c => c.StartsWith(":I1", StringComparison.Ordinal));
+
+    #region The starter does not hold the duration
+
+    /// <remarks>
+    /// Bounded, because the regression this guards against does not fail -- it HANGS. A driver that
+    /// went back to blocking would await its own hold, which parks in the pumped clock's sleep, and
+    /// the advance that would release it lives after the starter returns. Without the bound that is
+    /// a wedged suite and a multi-GB hang dump instead of one red test.
+    /// </remarks>
+    [Fact(Timeout = 30_000)]
+    public async Task TheStarterReturnsOnceCommandedNotOnceFinished()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (driver, serial, clock) = await ConnectTrackingMountAsync(cancellationToken);
+
+        // No auto-advance: the hold's SleepAsync parks until this test releases it, so "the starter
+        // came back while the pulse was still running" is a fact rather than a race. With the clock
+        // auto-advancing, the hold can finish before the assertion runs and the test would pass
+        // against a blocking driver too.
+        clock.ExternalTimePump = true;
+
+        var before = clock.GetUtcNow();
+        await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken);
+
+        // The whole point of the conversion: the caller is back, the mount is still moving.
+        (clock.GetUtcNow() - before).ShouldBeLessThan(PulseDuration);
+        (await driver.IsPulseGuidingAsync(cancellationToken)).ShouldBeTrue(
+            "IsPulseGuiding must be observable BEFORE the starter returns (GSS #109)");
+
+        // The restore has not gone out yet -- it belongs to the hold, which is parked in its sleep.
+        var beforeRelease = CountRaStepPeriodCommands(serial);
+
+        while (clock.WaiterCount == 0)
+        {
+            await Task.Yield();
+        }
+        clock.Advance(PulseDuration);
+
+        // ExternalTimePump parks in a real 1 ms poll, so releasing it costs real time; yields alone
+        // spin orders of magnitude faster than it can wake, which is why this loop delays.
+        for (var i = 0; i < 500 && await driver.IsPulseGuidingAsync(cancellationToken); i++)
+        {
+            await Task.Delay(1, cancellationToken);
+        }
+
+        (await driver.IsPulseGuidingAsync(cancellationToken)).ShouldBeFalse();
+        CountRaStepPeriodCommands(serial).ShouldBe(beforeRelease + 1, "the hold owns the :I1 restore");
+    }
+
+    #endregion
 
     #region The RA rate restore
 
@@ -84,14 +165,16 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
     public async Task AnUnacknowledgedRateRestoreIsAFaultAndNotALogLine(string? response)
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var (driver, serial) = await ConnectTrackingMountAsync(cancellationToken);
+        var (driver, serial, _) = await ConnectTrackingMountAsync(cancellationToken);
 
         // Let the pulse's own :I1 through, then refuse every restore attempt.
         serial.InjectCommandFault('I', '1', occurrences: 8, response: response, skipFirstMatches: 1);
 
-        var ex = await Should.ThrowAsync<SkywatcherDriverException>(
-            async () => await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken));
+        // The starter returns once COMMANDED, so the restore -- and its failure -- happens on the
+        // background hold. The fault must still reach whoever is waiting for the pulse.
+        await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken);
 
+        var ex = (await DrainForFaultAsync(driver, cancellationToken)).ShouldNotBeNull();
         ex.Data["Command"].ShouldBe(":I1");
     }
 
@@ -99,7 +182,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
     public async Task ARestoreThatSucceedsOnARetryIsNotAFault()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var (driver, serial) = await ConnectTrackingMountAsync(cancellationToken);
+        var (driver, serial, _) = await ConnectTrackingMountAsync(cancellationToken);
 
         // One bad restore, then the board answers. Retrying is half the fix: a single serial hiccup
         // must not end the night, and only an exhausted budget is a genuine fault.
@@ -107,9 +190,12 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
         serial.InjectCommandFault('I', '1', occurrences: 1, response: FirmwareRefusal, skipFirstMatches: 1);
 
         await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken);
+        (await DrainForFaultAsync(driver, cancellationToken)).ShouldBeNull();
 
         // Three :I1 sends belong to the pulse: the pulse rate, a refused restore, and the retry that
         // was accepted. Counted as a DELTA because connecting and tracking send :I1 of their own.
+        // Drained first: the restore now happens on the background hold, so counting straight after
+        // the starter returns would count whatever the hold had happened to reach.
         (CountRaStepPeriodCommands(serial) - before).ShouldBe(3);
     }
 
@@ -117,12 +203,13 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
     public async Task AnEastPulseVerifiesTheRestoreToo()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var (driver, serial) = await ConnectTrackingMountAsync(cancellationToken);
+        var (driver, serial, _) = await ConnectTrackingMountAsync(cancellationToken);
 
         serial.InjectCommandFault('I', '1', occurrences: 8, response: FirmwareRefusal, skipFirstMatches: 1);
 
-        await Should.ThrowAsync<SkywatcherDriverException>(
-            async () => await driver.StartPulseGuideAsync(GuideDirection.East, PulseDuration, cancellationToken));
+        await driver.StartPulseGuideAsync(GuideDirection.East, PulseDuration, cancellationToken);
+
+        (await DrainForFaultAsync(driver, cancellationToken)).ShouldNotBeNull();
     }
 
     #endregion
@@ -133,15 +220,15 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
     public async Task AnUnacknowledgedDecStopIsAFault()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var (driver, serial) = await ConnectTrackingMountAsync(cancellationToken);
+        var (driver, serial, _) = await ConnectTrackingMountAsync(cancellationToken);
 
         // Dec has no tracking baseline, so its pulse is G/I/J and the :K2 in the finally is the only
         // thing that ends the motion. Same failure class as the RA restore, same treatment.
         serial.InjectCommandFault('K', '2', occurrences: 8, response: FirmwareRefusal);
 
-        var ex = await Should.ThrowAsync<SkywatcherDriverException>(
-            async () => await driver.StartPulseGuideAsync(GuideDirection.North, PulseDuration, cancellationToken));
+        await driver.StartPulseGuideAsync(GuideDirection.North, PulseDuration, cancellationToken);
 
+        var ex = (await DrainForFaultAsync(driver, cancellationToken)).ShouldNotBeNull();
         ex.Data["Command"].ShouldBe(":K2");
     }
 
@@ -149,20 +236,53 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
     public async Task AnUnacknowledgedRaStopIsAFaultWhenNotTracking()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var (driver, serial) = await ConnectTrackingMountAsync(cancellationToken);
+        var (driver, serial, _) = await ConnectTrackingMountAsync(cancellationToken);
 
         await driver.SetTrackingAsync(false, cancellationToken);
 
         // Not tracking, so the RA pulse runs the axis outright and :K1 is what stops it again.
         serial.InjectCommandFault('K', '1', occurrences: 8, response: FirmwareRefusal);
 
-        var ex = await Should.ThrowAsync<SkywatcherDriverException>(
-            async () => await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken));
+        await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cancellationToken);
 
+        var ex = (await DrainForFaultAsync(driver, cancellationToken)).ShouldNotBeNull();
         ex.Data["Command"].ShouldBe(":K1");
     }
 
     #endregion
+
+    [Fact(Timeout = 30_000)]
+    public async Task ACancelledPulseIsNotParkedAsAFault()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var (driver, serial, clock) = await ConnectTrackingMountAsync(cancellationToken);
+        clock.ExternalTimePump = true;
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        await driver.StartPulseGuideAsync(GuideDirection.West, PulseDuration, cts.Token);
+
+        while (clock.WaiterCount == 0)
+        {
+            await Task.Yield();
+        }
+
+        var beforeRestore = CountRaStepPeriodCommands(serial);
+        await cts.CancelAsync();
+
+        for (var i = 0; i < 500 && await driver.IsPulseGuidingAsync(cancellationToken); i++)
+        {
+            await Task.Delay(1, cancellationToken);
+        }
+
+        // Cancelling a run must not leave a booby-trapped driver: parking the OperationCanceled-
+        // Exception would re-throw it from some later, unrelated IsPulseGuiding.
+        (await driver.IsPulseGuidingAsync(cancellationToken)).ShouldBeFalse();
+        (await DrainForFaultAsync(driver, cancellationToken)).ShouldBeNull();
+
+        // And the axis is still put back: the restore runs in a finally under None, so an abandoned
+        // pulse cannot leave RA at (1 +/- f) x sidereal.
+        CountRaStepPeriodCommands(serial).ShouldBe(beforeRestore + 1);
+    }
 
     #region What stays best-effort
 
@@ -170,7 +290,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
     public async Task AnOrdinaryCommandStillFailsForward()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var (driver, serial) = await ConnectTrackingMountAsync(cancellationToken);
+        var (driver, serial, _) = await ConnectTrackingMountAsync(cancellationToken);
 
         // The pulse's OWN :I1 (as opposed to the restore) costs one guide correction if the board
         // refuses it, and the next frame re-issues one. That stays a log line on purpose: making
@@ -184,7 +304,7 @@ public class SkywatcherPulseRestoreTests(ITestOutputHelper output)
     public async Task APulseBelowTheFloorTouchesNothing()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
-        var (driver, serial) = await ConnectTrackingMountAsync(cancellationToken);
+        var (driver, serial, _) = await ConnectTrackingMountAsync(cancellationToken);
 
         var before = serial.CommandLogSnapshot.Length;
         serial.InjectCommandFault('I', '1', occurrences: 8, response: FirmwareRefusal);

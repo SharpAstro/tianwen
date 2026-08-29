@@ -673,14 +673,28 @@ plane and the planetary recenter nudge genuinely want start-and-return. `GuiderC
 hand-written the pair at eight consecutive-line call sites, which is the evidence it wanted to be
 one call.
 
-Two consequences that are easy to get backwards. **`SkywatcherMountDriverBase` still BLOCKS** and so
-openly violates the primitive's contract (its doc comment says so): Synta boards have no "pulse for
-N ms" primitive, so the driver sends the `:I` restore itself and something must hold the duration.
-That is why RA/Dec guide pulses serialise on Synta hardware **and nowhere else** -- every other
-driver already returns once commanded. And the mirror image is the bug that matters: **`GuideLoop`
-never waits for a pulse at all**, which the blocking driver was accidentally covering up on one
-mount family. So the composite lands in the guide loop BEFORE the SkyWatcher conversion; reversing
-that order leaves a window in which nothing waits on any mount.
+**Every driver honours the primitive now, SkyWatcher included.** Synta boards have no "pulse for N
+ms" primitive -- the driver sends the `:I` restore itself -- so something must hold the duration; it
+is a background task, split from the caller exactly at *commanded* (four `TrySetResult` points, one
+per branch, each right after that branch's start commands). Two rules ride on it. **The in-flight
+count rises BEFORE the first write and falls only when the hold ends** (GSS #109): a caller must
+never observe "no pulse running" for a pulse already issued, and it stays a counter so an
+overlapping RA+Dec pair clears only when both finish. And **a failed restore has no caller to throw
+to any more**, so it parks in `_pendingPulseFault` and is re-thrown from the next
+`StartPulseGuideAsync` *and from `IsPulseGuidingAsync`* -- the latter is a read that throws on
+purpose, because the guider polls it while waiting for the very pulse that failed, so the fault
+lands in the guide frame that caused it. The ordering is what makes that deterministic rather than
+racy: the hold parks the fault BEFORE lowering the count, and `IsPulseGuidingAsync` checks the fault
+BEFORE reading it.
+
+**The order this was done in was load-bearing; do not reorder it if you revisit.** The composite had
+to reach `GuideLoop` BEFORE SkyWatcher stopped blocking, because the loop never waited for a pulse
+at all and that driver's blocking was accidentally covering it up on one mount family. Converting
+first would have left a window in which nothing waits on any mount. **A test for the non-blocking
+starter needs `ExternalTimePump` and a `[Fact(Timeout=…)]`**: under an auto-advancing clock the hold
+can finish before the assertion runs, so the test passes against a blocking driver too -- and the
+regression does not fail, it HANGS, because a blocking driver awaits its own hold, which parks in
+the pumped clock's sleep waiting for an advance that comes after the starter returns.
 
 **No-astro-dark night-window fallback:** `SessionEndTimeAsync` (`Session.Timing.cs`) derives the dark
 window via `ObservationScheduler.CalculateNightWindow`, which has a fallback chain (astronomical −18° →
