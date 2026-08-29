@@ -358,6 +358,9 @@ internal sealed class CanonCameraDriver : ICameraDriver, IVideoCameraDriver
     public bool CanFastReadout => false;
     public bool CanSetBitDepth => false;
     public bool CanPulseGuide => false;
+
+    /// <summary>False; this camera has no guide port at all.</summary>
+    public bool CanPulseGuideSimultaneously => false;
     public bool CanMirrorLockup => true;
     public bool UsesGainValue => false;
     public bool UsesGainMode => true; // ISO via mode list

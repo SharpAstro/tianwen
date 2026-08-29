@@ -11,6 +11,8 @@ namespace TianWen.Lib.Devices.Guider;
 /// </summary>
 internal sealed class MountPulseGuideTarget(IMountDriver mount) : IPulseGuideTarget
 {
+    public bool CanPulseGuideSimultaneously => mount.CanPulseGuideSimultaneously;
+
     public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
         => mount.StartPulseGuideAsync(direction, duration, cancellationToken);
 

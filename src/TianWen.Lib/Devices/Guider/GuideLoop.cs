@@ -596,23 +596,28 @@ internal sealed class GuideLoop
 
                 LastCorrection = correction;
 
-                // Apply RA correction
-                if (correction.HasRaCorrection)
-                {
-                    var direction = correction.RaPulseMs > 0
-                        ? GuideDirection.West
-                        : GuideDirection.East;
-                    await _pulseTarget.StartPulseGuideAsync(direction, correction.RaPulseDuration, cancellationToken);
-                }
-
-                // Apply Dec correction
-                if (correction.HasDecCorrection)
-                {
-                    var direction = correction.DecPulseMs > 0
-                        ? GuideDirection.North
-                        : GuideDirection.South;
-                    await _pulseTarget.StartPulseGuideAsync(direction, correction.DecPulseDuration, cancellationToken);
-                }
+                // Apply both corrections as ONE operation. They came from one star measurement at
+                // one instant, so the composite overlaps them where the mount allows it (GSS #76)
+                // and -- the part that actually mattered -- WAITS for the pair.
+                //
+                // The two bare awaits this replaces only waited on a mount whose driver happened to
+                // block, which was SkyWatcher alone; on ASCOM, Alpaca, ST-4 and the fakes the loop
+                // went straight on to expose the next frame while the mount was still moving, and
+                // then measured that frame as though it were settled. Overlapping is the speedup;
+                // waiting is the fix.
+                await _pulseTarget.PulseGuideAsync(
+                    correction.HasRaCorrection
+                        ? new GuidePulse(
+                            correction.RaPulseMs > 0 ? GuideDirection.West : GuideDirection.East,
+                            correction.RaPulseDuration)
+                        : null,
+                    correction.HasDecCorrection
+                        ? new GuidePulse(
+                            correction.DecPulseMs > 0 ? GuideDirection.North : GuideDirection.South,
+                            correction.DecPulseDuration)
+                        : null,
+                    _timeProvider,
+                    cancellationToken);
 
                 if (correction.HasRaCorrection || correction.HasDecCorrection)
                 {

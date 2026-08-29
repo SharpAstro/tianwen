@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -152,6 +152,12 @@ internal class AscomCameraDriver : AscomDeviceDriverBase, ICameraDriver
     public bool CanSetBitDepth { get; } = false;
 
     public bool CanPulseGuide { get; private set; }
+
+    /// <summary>
+    /// False, for the same reason as the telescope driver: the ST-4 wiring could carry a diagonal
+    /// pulse, but nothing in the ASCOM contract says the driver behind it will.
+    /// </summary>
+    public bool CanPulseGuideSimultaneously => false;
 
     public bool UsesGainValue { get; private set; }
 

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -72,6 +72,13 @@ internal abstract class DALCameraDriver<TDevice, TDeviceInfo> : DALDeviceDriverB
     public bool CanSetBitDepth => _supportedBitDepth.Count > 1;
 
     public bool CanPulseGuide { get; private set; }
+
+    /// <summary>
+    /// Matches <see cref="CanPulseGuide"/>: an ST-4 port is four independent relay lines, and this
+    /// driver already keys its stop timers per DIRECTION (<c>_pulseGuiderTimers[(int)direction]</c>)
+    /// with the in-flight set held as a CAS'd bitmask, so a diagonal pulse needs nothing new.
+    /// </summary>
+    public bool CanPulseGuideSimultaneously => CanPulseGuide;
 
     public bool UsesGainValue { get; private set; }
 

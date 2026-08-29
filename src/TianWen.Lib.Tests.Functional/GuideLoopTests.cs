@@ -1,4 +1,4 @@
-using TianWen.Lib.Imaging;
+﻿using TianWen.Lib.Imaging;
 using Shouldly;
 using System;
 using System.Collections.Specialized;
@@ -1307,6 +1307,11 @@ public class GuideLoopTests(ITestOutputHelper output)
     /// <summary>Pulse target that ignores corrections; the test scripts the star error directly.</summary>
     private sealed class NoOpPulseGuideTarget : IPulseGuideTarget
     {
+        // True, so the loop exercises the overlapped path -- the one with the Task.WhenAll and the
+        // single shared wait, which is the arrangement worth covering here. IsPulseGuiding answers
+        // false immediately, so the wait costs nothing and the scripted error drives the test.
+        public bool CanPulseGuideSimultaneously => true;
+
         public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
             => ValueTask.CompletedTask;
 

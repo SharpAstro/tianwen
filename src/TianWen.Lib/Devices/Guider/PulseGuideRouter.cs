@@ -45,6 +45,13 @@ internal sealed class PulseGuideRouter : IPulseGuideTarget
         };
     }
 
+    /// <summary>
+    /// The answer of whichever device the route actually resolved to -- asking the other one would
+    /// describe hardware this router is not driving.
+    /// </summary>
+    public bool CanPulseGuideSimultaneously
+        => _useCamera ? _camera!.CanPulseGuideSimultaneously : _mount!.CanPulseGuideSimultaneously;
+
     public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
     {
         if (_useCamera)

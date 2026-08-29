@@ -35,6 +35,19 @@ public interface ICameraDriver : IDeviceDriver
     bool CanPulseGuide { get; }
 
     /// <summary>
+    /// True when an RA pulse and a Dec pulse may be in flight at the same time on this camera's
+    /// ST-4 port. See
+    /// <see cref="IMountDriver.CanPulseGuideSimultaneously"/> for the full reasoning.
+    /// </summary>
+    /// <remarks>
+    /// An ST-4 port is four independent relay lines, so the CABLE can always carry a diagonal pulse.
+    /// That does not settle it: a camera that delegates to a coupled mount inherits the mount's
+    /// answer, and an SDK that serialises its own guide calls cannot deliver one whatever the wiring
+    /// says.
+    /// </remarks>
+    bool CanPulseGuideSimultaneously { get; }
+
+    /// <summary>
     /// True if the camera supports mirror lockup (MLU) control.
     /// When supported, <see cref="GetMirrorLockupAsync"/> and <see cref="SetMirrorLockupAsync"/>
     /// can be used to read/write the setting. Primarily relevant for Canon DSLRs.

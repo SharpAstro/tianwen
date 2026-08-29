@@ -124,6 +124,17 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
 
     public bool CanPulseGuide { get; } = true;
 
+    /// <summary>
+    /// Forwards the coupled mount's answer, because an ST-4 pulse from this camera IS a pulse on
+    /// that mount -- a camera cannot be more capable than the thing its cable is plugged into. With
+    /// no mount coupled the in-camera fallback shifts a per-axis accumulator, so a diagonal pulse is
+    /// fine.
+    /// </summary>
+    public bool CanPulseGuideSimultaneously
+        => ResolveCoupledMount() is { CanPulseGuide: true } mount
+            ? mount.CanPulseGuideSimultaneously
+            : true;
+
     // Accumulated star position (PE drift + ST-4 corrections share the same integrator)
     private double _starPositionX;
     private double _starPositionY;

@@ -1,4 +1,4 @@
-using TianWen.Lib.Imaging;
+﻿using TianWen.Lib.Imaging;
 using Shouldly;
 using System;
 using System.Collections.Immutable;
@@ -722,6 +722,11 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         public double RatePxPerSec { get; set; } = 3.0;
         public (double Dx, double Dy) WestResponse { get; set; } = (-1.0, 0.0);
         public (double Dx, double Dy) NorthResponse { get; set; } = (0.0, -1.0);
+
+        // False: calibration pulses one axis at a time by construction, so this is never read.
+        // Answering false rather than true keeps it that way -- if a future change starts consulting
+        // it here, the sequential path is the safe one to land on.
+        public bool CanPulseGuideSimultaneously => false;
 
         public ValueTask StartPulseGuideAsync(GuideDirection direction, TimeSpan duration, CancellationToken cancellationToken)
         {
