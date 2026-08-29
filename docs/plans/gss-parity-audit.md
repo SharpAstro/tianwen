@@ -176,6 +176,59 @@ clock and not on the corrections themselves -- the same instrument that settled 
 cancellation, and `ValueTask` may not be awaited twice. Whatever the shape, a failed pulse must
 still surface to the loop.
 
+### Decision: state the contract as BLOCKING, and adapt at the Alpaca boundary
+
+Not GSServer's shape. GSS made `AxisPulse` asynchronous and left the caller to poll; we go the other
+way -- **`PulseGuideAsync` completes when the pulse is complete, every implementation honours that,
+and a caller that wants both axes at once says so with `WhenAll`.** Four reasons, in order of how
+much they decide it:
+
+1. **The async contract cannot express dual-axis waiting at all.** `IsPulseGuiding` is ONE flag for
+   BOTH axes (ASCOM defines it as "pulse guiding in either axis"). A caller that has started an RA and
+   a Dec pulse and wants to know when the RA one finished has no way to ask. So the shape GSS adopted
+   to *enable* independent axes is the shape that cannot wait on them independently. `WhenAll` over two
+   awaitables can.
+
+2. **The workaround already exists and it costs us real time today.**
+   `GuiderCalibration.WaitForPulseCompletionAsync` sleeps 90% of the pulse duration and THEN polls
+   `IsPulseGuiding` -- belt-and-braces for a contract nobody stated: wait it out in case the driver
+   returned early, poll in case it did not. Against the blocking SkyWatcher driver the
+   `await PulseGuideAsync` has ALREADY consumed the full duration, so calibration then sleeps another
+   0.9x of it. **Calibration takes about 1.9x as long as it should on a SkyWatcher**, in shipped code,
+   for no reason but the missing contract. A stated blocking contract deletes the helper.
+
+3. **Blocking is what both internal callers actually want.** The guide loop must not expose the next
+   frame while the mount is still moving, and calibration must not measure until the pulse has landed.
+   Both hand-roll that wait today. Under the async contract every caller would have to keep
+   hand-rolling it; under this one the await IS the wait, and overlap is opt-in and explicit.
+
+4. **Structured concurrency.** Errors and cancellation flow through the await. The async shape needs
+   an orphan task per pulse with nowhere to throw, cancellation that has to reach something nobody is
+   awaiting, and a port lock contended by a restore (`:I1`) and a stop (`:K2`) that no caller sequenced.
+
+**The one thing that must not regress is the Alpaca SERVER plane.** `AlpacaMembers` maps `pulseguide`
+straight onto the driver call, so a blocking contract makes our `PUT /pulseguide` block for the
+duration, which an ASCOM Conform run would flag. Note it **already does exactly that against a
+SkyWatcher mount today** -- so this is an existing inconsistency in our public wire surface, to be
+fixed at the boundary rather than a new cost the decision creates. The adapter starts the pulse, keeps
+the task, and answers `ispulseguiding` from it. That is the one consumer that genuinely needs ASCOM's
+async shape, and a protocol adapter is where that belongs -- not pushed down into nine drivers.
+
+**Work, in order (the order is not optional):**
+
+1. State the contract on `IMountDriver.PulseGuideAsync` and `ICameraDriver.PulseGuideAsync`.
+2. Make the early-returning implementations honour it -- Ascom/Alpaca telescope + camera, DAL ST-4,
+   `FakeMountDriver`, and check `SgpMountDriverBase` and `MeadeLX200ProtocolMountDriverBase`, which
+   have their own `IsPulseGuidingAsync` bookkeeping. Canon is a no-op and stays one.
+3. Adapt the Alpaca server plane so `PUT /pulseguide` keeps ASCOM's async semantics.
+4. Delete `GuiderCalibration.WaitForPulseCompletionAsync`; the await is the wait.
+5. Only THEN overlap RA and Dec in `GuideLoop`. `ValueTask` cannot go into `Task.WhenAll` and must not
+   be awaited twice, so this is `Task.WhenAll(ra.AsTask(), dec.AsTask())` -- two allocations per guide
+   frame at well under 1 Hz, which is worth stating only because the repo defaults to `ValueTask` for
+   the hot paths and this is deliberately not one.
+6. Pin it with **fake time traversed per guide frame**, not wall clock: under `FakeTimeProviderWrapper`
+   the serialisation is free in wall time, so a wall-clock assertion cannot see it.
+
 ## Finding 2: an "in progress" flag that is not observable when the starter returns
 
 `fb6e682` and `2c9cd16` are the same defect in two places: `SlewToCoordinatesAsync` returned
