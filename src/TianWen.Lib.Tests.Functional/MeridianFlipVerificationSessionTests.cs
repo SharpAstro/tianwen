@@ -1,3 +1,5 @@
+using Meziantou.Extensions.Logging.Xunit.v3;
+using Microsoft.Extensions.Logging;
 using Shouldly;
 using System;
 using System.Diagnostics;
@@ -16,62 +18,6 @@ using Xunit;
 namespace TianWen.Lib.Tests.Functional;
 
 /// <summary>
-/// A solver that reports the orientation the fake camera actually rendered its field at, plus the
-/// frame's own centre. It stands in for the one step of the chain this suite does not exercise --
-/// recovering a CD matrix from pixels -- so the rest of it can be driven end to end: mount
-/// mechanical state -&gt; the instrument's roll -&gt; a solve that describes it -&gt; the session's
-/// flip verdict -&gt; what the session then does about it.
-/// <para>
-/// That step is stubbed deliberately, not for convenience. The real <c>CatalogPlateSolver</c> cannot
-/// currently lock onto a <see cref="FakeCameraDriver"/> synthetic field: the render places far fewer
-/// stars than the solver draws catalog anchors for (43 detected against 160 anchors on a one-degree
-/// field), so every solve is refused by its acceptance gate. That is a gap in the fake's
-/// star-density model, not in the flip logic, and it is recorded in
-/// <c>docs/plans/meridian-flip-verification.md</c>. The pixels-to-angle half is pinned separately by
-/// <c>WcsRotationTests</c> (the CD matrix maths) and <c>VelaMosaicFieldTests</c> (the solver, on real
-/// fields).
-/// </para>
-/// </summary>
-internal sealed class RenderedFieldPlateSolver(Func<FakeCameraDriver> camera) : IPlateSolver
-{
-    private const double PixelScaleDeg = 1.0 / 3600.0;
-
-    public string Name => "Rendered-field plate solver";
-
-    public float Priority => 1.0f;
-
-    public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default) => ValueTask.FromResult(true);
-
-    public Task<PlateSolveResult> SolveFileAsync(string fitsFile, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("this stand-in solves frames, not files");
-
-    public Task<PlateSolveResult> SolveImageAsync(Image image, ImageDim? imageDim = null, float range = 0.03F, WCS? searchOrigin = null, double? searchRadius = null, CancellationToken cancellationToken = default)
-    {
-        var sw = Stopwatch.StartNew();
-
-        // Where the frame is centred, which is what a real solve recovers and what the session syncs
-        // the mount to: the pointing the frame was taken at, never the target.
-        var (centreRa, centreDec) = !double.IsNaN(image.ImageMeta.TargetRA) && !double.IsNaN(image.ImageMeta.TargetDec)
-            ? (image.ImageMeta.TargetRA, image.ImageMeta.TargetDec)
-            : searchOrigin is { } origin ? (origin.CenterRA, origin.CenterDec) : (0.0, 0.0);
-
-        // And how it lies: the roll the camera rendered this frame at, which on a coupled fake mount
-        // already carries the instrument's half-turn whenever the tube is through the pole.
-        var (sin, cos) = Math.SinCos(double.DegreesToRadians(camera().LastRenderRotationDeg));
-        var wcs = new WCS(centreRa, centreDec)
-        {
-            CRPix1 = (image.Width + 1) / 2.0,
-            CRPix2 = (image.Height + 1) / 2.0,
-            CD1_1 = -PixelScaleDeg * cos,
-            CD2_1 = PixelScaleDeg * sin,
-            CD1_2 = PixelScaleDeg * sin,
-            CD2_2 = PixelScaleDeg * cos
-        };
-        return Task.FromResult(new PlateSolveResult(wcs, sw.Elapsed));
-    }
-}
-
-/// <summary>
 /// P2 of the meridian-flip verification plan (docs/plans/meridian-flip-verification.md), through the
 /// session: the flip is read off the frame, not off the mount.
 /// <para>
@@ -81,6 +27,14 @@ internal sealed class RenderedFieldPlateSolver(Func<FakeCameraDriver> camera) : 
 /// pier-side change, concludes the firmware auto-flipped, skips the slew and carries on. The tube
 /// never moved. Every frame after that is upside down and the guider's Dec sense is inverted, and
 /// nothing in the run says so.
+/// </para>
+/// <para>
+/// Driven through the REAL <see cref="CatalogPlateSolver"/>, so the whole chain is exercised: mount
+/// mechanical state -&gt; the instrument's roll -&gt; a genuine CD matrix recovered from pixels -&gt;
+/// the session's flip verdict -&gt; what the session does about it. This used to stub the
+/// pixels-to-WCS step, on the belief that the solver could not handle a synthetic field; measurement
+/// showed the fake's projection is exact and the frame was simply too SMALL, which
+/// <c>withCatalogStarField</c> fixes.
 /// </para>
 /// </summary>
 [Collection("Session")]
@@ -110,15 +64,19 @@ public class MeridianFlipVerificationSessionTests(ITestOutputHelper output)
     /// </summary>
     private async Task<SessionTestContext> ArrangeEastOfMeridianAsync(CancellationToken ct)
     {
-        // The camera does not exist until CreateSessionAsync has built it, and the solver is one of
-        // its arguments, so the solver reaches it through a closure over the context.
-        SessionTestContext? built = null;
+        // The REAL solver, against the field the fake actually renders. withCatalogStarField is what
+        // makes that possible: it hands FakeExternal a loaded catalog (so the camera projects Tycho-2
+        // stars instead of falling back to a random field) and widens the ROI to 2048, because at the
+        // helper's default 512 the frame spans 0.28 deg and holds 2-7 catalog stars against the
+        // solver's MinStarsForMatch of 6. Both measured in FakeFieldSolveProbe.
+        var solverLogger = LoggerFactory
+            .Create(b => b.SetMinimumLevel(LogLevel.Debug).AddProvider(new XUnitLoggerProvider(output, false)))
+            .CreateLogger<CatalogPlateSolver>();
         var ctx = await SessionTestHelper.CreateSessionAsync(
             output, SessionTestHelper.DefaultConfiguration, AcrossMeridianObservation(),
             now: WinterNightStart, focalLength: 480, mountPort: null,
-            plateSolverOverride: new RenderedFieldPlateSolver(() => built!.Camera),
-            coupleCameraToMount: true, cancellationToken: ct);
-        built = ctx;
+            plateSolverOverride: new CatalogPlateSolver(await SharedCatalogDB.InitAsync(ct), solverLogger),
+            coupleCameraToMount: true, withCatalogStarField: true, cancellationToken: ct);
 
         ctx.Camera.TrueBestFocus = 1000;
         ctx.Camera.FocusPosition = 1000;
@@ -126,6 +84,11 @@ public class MeridianFlipVerificationSessionTests(ITestOutputHelper output)
         // tests drive one flip rather than a whole run, so they state the optics themselves; without
         // a focal length the camera renders no star field and has no roll to report.
         ctx.Camera.FocalLength = 480;
+        // And what ImagingLoopAsync sets before it exposes on a target (Session.Imaging.cs:60). The
+        // fake renders CATALOG stars only when it knows where the OTA points, and for the main camera
+        // that is Target; without it the render silently falls back to a random field, which no solver
+        // can match against a real catalog.
+        ctx.Camera.Target = FlipTarget;
 
         ctx.Session.AdvanceObservationForTest();
 
@@ -148,7 +111,15 @@ public class MeridianFlipVerificationSessionTests(ITestOutputHelper output)
         (await ((IFakeMechanicalPointingStateSource)mount).GetMechanicalPointingStateAsync(ct))
             .ShouldBe(PointingState.ThroughThePole, "east of the meridian a GEM looks through the pole");
 
-        (await ctx.Session.CenterOnTargetAsync(FlipTarget, 0, thresholdArcmin: 60.0, maxAttempts: 2, ct))
+        var centred = await ctx.Session.CenterOnTargetAsync(FlipTarget, 0, thresholdArcmin: 60.0, maxAttempts: 2, ct);
+
+        // Assert the PREMISE before the outcome. A random star field cannot plate-solve against a real
+        // catalog by construction, so without this a broken fake binding reads as a solver failure --
+        // which is exactly how it was misdiagnosed once already.
+        ctx.Camera.LastCatalogRenderCentre.ShouldNotBeNull(
+            "the camera must render a CATALOG field; the random fallback is unsolvable by construction");
+
+        centred
             .ShouldBeTrue("the run needs a solved field behind it, or there is nothing to compare against");
         ctx.Session.PlateSolveHistory.Any(r => r is { Succeeded: true, Solution.HasCDMatrix: true })
             .ShouldBeTrue("and that solve must carry an orientation, or the check under test is inert");

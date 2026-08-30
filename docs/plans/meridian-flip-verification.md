@@ -188,18 +188,45 @@ reference state:
 P0-P2 are the safety win (detect and fail-loud on a missed commanded flip; accept a real auto-flip)
 and are SHIPPED. P3 is the guiding-quality correction and can follow.
 
-### The one gap P0-P2 left, and why it is not in the flip logic
+### The gap P0-P2 left, closed 2026-08-31: the E2E runs on the REAL solver
 
-**`CatalogPlateSolver` cannot lock onto a `FakeCameraDriver` synthetic field**, so the session-level
-tests stub the pixels-to-WCS step with a solver that reports the roll the camera rendered at. Measured
-on a one-degree field: 43 detected stars against 160 catalog anchors, and every solve refused by the
-acceptance gate as indistinguishable from noise. That is the fake's star-density model disagreeing
-with the solver's expectations -- the render's magnitude cutoff is SNR-derived per
-`SyntheticStarFieldRenderer.DetectabilityMagCutoff` while the solver draws its anchor pool from the
-catalog independently -- and it is worth closing on its own account, since it currently makes the
-whole plate-solve half of the session untestable against fakes. The pixels-to-angle half is covered
-instead by `WcsRotationTests` (the CD matrix maths) and `VelaMosaicFieldTests` (the solver, on real
-fields).
+The session tests used to stub the pixels-to-WCS step, on the recorded belief that
+**`CatalogPlateSolver` could not lock onto a `FakeCameraDriver` synthetic field** -- "43 detected
+against 160 catalog anchors, every solve refused by the acceptance gate". That diagnosis was wrong,
+and the way it was wrong is worth keeping.
+
+`TianWen.Lib.Tests/FakeFieldSolveProbe.cs` renders the fake's field and separates the candidate
+causes, because "no solution" looks identical whichever one it is. Across ten configurations
+(aperture unset/50/100 mm, exposure 1-30 s, four fields including this plan's own FlipTarget and
+sparse high-galactic-latitude ones) the fake's projection is EXACT: every detection lands on a star
+the fake placed, and on a catalog star under the true WCS. All ten solved, recovering the centre to
+the printed precision. **It was never the metadata, the projection, or the solver.**
+
+Two real causes, both in the test harness:
+
+1. **`FakeExternal.GetCelestialObjectDBAsync` throws unless `CelestialObjectDB` is set**, and
+   `SessionTestHelper` never set it. `FakeCameraDriver` catches that, logs at Debug, and renders a
+   **random star field** -- whose ~50 stars are the "43 detected" that was read as a density
+   measurement. A random field cannot solve against a real catalog by construction.
+2. **512x512 is too little SKY.** The helper's ROI spans 0.28 deg at 480 mm on the IMX294C preset,
+   holding 2-7 Tycho-2 stars against the solver's `MinStarsForMatch` of 6. Measured: 512 never
+   solves, 1024 solves in 28 ms, 2048 solves in both a dense and a sparse field. No renderer or
+   solver change can fix a small ROI -- the stars are not in that much sky.
+
+`CreateSessionAsync` gained `withCatalogStarField`, which supplies the shared catalog (one Tycho-2
+bulk load for the suite) and widens the ROI to 2048. `MeridianFlipVerificationSessionTests` now runs
+the real `CatalogPlateSolver` end to end and reads a field rotation of **180.00 deg** with the
+acceptance gate passing 80/80 against 0.1 expected by chance.
+
+Three things this left behind, each guarding the way it was misread:
+
+- **The camera's main-sensor render needs `Target` set**, which `ImagingLoopAsync` does before it
+  exposes; a test driving a subset of the loop must state that premise, as it already does for
+  `FocalLength`. Without it `hasPointing` is false and the render falls back to random.
+- **The arrange asserts `LastCatalogRenderCentre` is non-null before asserting the outcome.** A
+  random field reads as a solver failure, which is exactly how this was misdiagnosed once.
+- **The swallowed catalog-resolve failure is a WARNING now, not Debug.** A test that wanted a real
+  field and silently got noise had no other way to find out.
 
 Related: `SessionTestHelper.CreateSessionAsync` gained `coupleCameraToMount`, which connects the mount
 through the `IDeviceHub` so `FakeCameraDriver` can find it. That is the PRODUCTION shape -- every real

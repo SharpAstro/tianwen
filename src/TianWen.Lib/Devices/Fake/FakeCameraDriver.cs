@@ -863,7 +863,9 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                 // Genuine failure (e.g. catalog not installed). Leave the gate
                 // claimed so we don't re-await every exposure; the synth falls
                 // back to a random star field (the prior behaviour).
-                Logger.LogDebug(ex, "FakeCamera: catalog DB resolve failed; synthetic frames will use a random star field");
+                // WARNING, not Debug: a caller that wanted a real field and silently got noise has no
+                // other way to find out, and a random field can never plate-solve against a catalog.
+                Logger.LogWarning(ex, "FakeCamera: catalog DB resolve failed; synthetic frames will use a RANDOM star field, which cannot plate-solve");
             }
         }
 
