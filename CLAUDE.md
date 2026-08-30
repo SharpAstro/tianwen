@@ -639,12 +639,22 @@ imaging loop can never re-issue a flip it already performed. Two backstops, in o
 return Continue` (a per-observation flag set after a successful flip in `Session.Imaging.cs`), then
 `if (pierSideChanged) return AlreadyFlipped`. The HA-zone switch only reaches `CommandFlip` when
 `!alreadyOnCorrectSide`, where `alreadyOnCorrectSide` compares the current pier side against
-`DestinationSideOfPierAsync(target)`. **Why this is load-bearing on SkyWatcher:** the SkyWatcher driver
-derives pier side from the Dec encoder (`GetSideOfPierAsync`: the MECHANICAL state, which tracking never
-changes), so an unflipped GEM tracking west keeps reporting the state it was slewed in and a naive "flip
-when HA > 0" check is trivially true forever → mount stuck `Slewing`, zero exposures. Never re-introduce a flip-success check like `HA > 0`; gate on the
-*destination* side + the `hasFlipped` memory. Pinned by `MeridianFlipDecisionTests` (joined-already-west
-→ Continue, hasFlipped backstop, precedence) + a `mountPort:"SkyWatcher"` observation-loop test.
+`DestinationSideOfPierAsync(target)`. **Load-bearing on SkyWatcher**, whose pier side is the Dec encoder
+(the MECHANICAL state, which tracking never changes), so an unflipped GEM tracking west keeps reporting
+the state it was slewed in and a naive "flip when HA > 0" is trivially true forever -> stuck `Slewing`,
+zero exposures. **Never re-introduce an HA-only flip check**; gate on the *destination* side + the
+`hasFlipped` memory. Pinned by `MeridianFlipDecisionTests` + a `mountPort:"SkyWatcher"` loop test.
+
+**Whether a flip HAPPENED is read off the IMAGE wherever the pointing state is `Computed`** (LX200 base,
+SGP: derived from HA, so it turns over as the POINTING crosses whether or not the tube moved -- the
+flip-SUCCESS twin of the trap above). `WCS.RotationDeg` measures it against the recentre's own solve,
+which already happens; `MeridianFlipVerification.FromSolves` judges. **The likelier failure is
+`AlreadyFlipped`, not the commanded flip**: such a mount reports the flipped side at the crossing, so the
+loop skips the slew and images on upside down with the guider's Dec inverted; a field that did not turn
+now makes the session COMMAND the flip. `Inconclusive` falls back to the mount's report, or every rig on
+a coordinates-only solver fails every flip. `FakeMountDriver` has a mechanical tube state only MOTION
+changes (**a sync must not touch it**) and `FakeCameraDriver` rolls off that, never off the report.
+[docs/plans/meridian-flip-verification.md](docs/plans/meridian-flip-verification.md)
 
 **Mount safety limits are NOT the meridian flip, and the horizon test keys on HOUR ANGLE, not pier
 side.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`, pure, beside `MeridianFlipDecision`) is
