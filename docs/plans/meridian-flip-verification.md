@@ -164,12 +164,17 @@ reference state:
     the parameterless API could not express. Its old comment claiming an end-to-end fake session
     "could not catch a flip sign error here" is obsolete: P0 made the fake roll, and
     `FakeCameraMountCouplingTests` pins that rotation on rendered pixels.
-  - **`reverseDecAfterFlip` changed meaning AND default.** It used to gate whether flip handling ran at
-    all; it now selects only whether Dec moves too, because RA inverts across every flip on every
-    mount and a rig configured "no Dec reversal" still needs its calibration re-expressed. The default
-    went **true -> false**: the mount family this codebase drives is axis-based-Dec, where the mount's
-    own reversal cancels the sensor's. A profile carrying an explicit `reverseDecAfterFlip=true` now
-    means something different from what it meant when it was written.
+  - **`reverseDecAfterFlip` keeps its meaning and its `true` default.** It gates whether a detected
+    flip re-orients the calibration at all -- which is what it always meant; only the answer to "what
+    does re-orienting DO" changed, and that was never the switch's job. The internal property is
+    renamed `ReorientCalibrationOnFlip` and the UI label to "Reorient on Flip", because a name
+    asserting the wrong physics is exactly what let this bug live. The URI key keeps its PHD2 spelling
+    so existing profiles keep working.
+  - **The Dec convention is a fact about the MOUNT, not a preference**, so it is deliberately not a
+    user setting: `DecIsSkyRelative` is a private constant-valued property (false -- every mount family
+    here is axis-based), kept as a named seam rather than a literal for the day a compensating driver
+    turns up. At that point it wants to come from `IMountDriver` the way `PointingStateSource` does,
+    not from a switch a user has to guess at.
   - **`Session.GetSideOfPierAsync` is the canonical pier side.** Everything that needs to know where
     the tube is asks it rather than the mount: a `Measured` driver is believed verbatim, a `Computed`
     one only until the session knows better. The latch lives on the slewing-to-idle edge in
