@@ -1,3 +1,4 @@
+using TianWen.Lib.Sequencing;
 using System;
 using Shouldly;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -35,6 +36,64 @@ public class RouteOnlyExtractionTests(ITestOutputHelper output)
             pLon.ShouldBe(eLon, 1e-9);
             pElev.ShouldBe(eElev);
         }
+    }
+
+    [Theory]
+    [InlineData("20", "20", "10", "5", true)]
+    [InlineData("0", "0", "0", "0", true)]          // extremes accepted: warn and act coincide, floor at the horizon
+    [InlineData("360", "360", "60", "60", true)]
+    [InlineData("361", "0", "10", "5", false)]      // meridian out of range
+    [InlineData("20", "20", "61", "5", false)]      // horizon out of range
+    [InlineData("-1", "20", "10", "5", false)]      // a negative threshold
+    [InlineData("twenty", "20", "10", "5", false)]  // unparseable
+    public void TryParseMountLimits_validates_ranges_and_keeps_the_switch_and_responses(
+        string warn, string extra, string floor, string above, bool expected)
+    {
+        var current = new MountLimitConfiguration(Enabled: true, MeridianResponse: MountLimitResponse.Park, HorizonResponse: MountLimitResponse.Warn);
+
+        var ok = EquipmentActions.TryParseMountLimits(warn, extra, floor, above, current, out var parsed);
+
+        ok.ShouldBe(expected);
+        if (expected)
+        {
+            parsed.MeridianWarnMinutes.ShouldBe(double.Parse(warn, System.Globalization.CultureInfo.InvariantCulture));
+            parsed.MeridianActionExtraMinutes.ShouldBe(double.Parse(extra, System.Globalization.CultureInfo.InvariantCulture));
+            parsed.HorizonActionDeg.ShouldBe(double.Parse(floor, System.Globalization.CultureInfo.InvariantCulture));
+            parsed.HorizonWarnExtraDeg.ShouldBe(double.Parse(above, System.Globalization.CultureInfo.InvariantCulture));
+            // The buttons own these; the text fields must not reset them.
+            parsed.Enabled.ShouldBeTrue();
+            parsed.MeridianResponse.ShouldBe(MountLimitResponse.Park);
+            parsed.HorizonResponse.ShouldBe(MountLimitResponse.Warn);
+        }
+        else
+        {
+            parsed.ShouldBe(current, "a rejected edit leaves the configuration alone");
+        }
+    }
+
+    [Fact]
+    public void DescribeMountLimits_reads_as_absolute_thresholds_or_off()
+    {
+        EquipmentActions.DescribeMountLimits(null).ShouldBe("Limits: off");
+        EquipmentActions.DescribeMountLimits(new MountLimitConfiguration(Enabled: false)).ShouldBe("Limits: off");
+
+        // Warn 20 + extra 20 = act at 40; floor 10 + extra 5 = warn from 15. The stored EXTRAS never show.
+        var text = EquipmentActions.DescribeMountLimits(new MountLimitConfiguration(Enabled: true));
+        text.ShouldContain("stop at 40 min (warn 20)");
+        text.ShouldContain("stop at 10\u00b0 (warn 15\u00b0)");
+    }
+
+    [Fact]
+    public void SetMountLimits_round_trips_every_other_profile_field()
+    {
+        var data = ProfileData.Empty with { SiteLatitude = 48.2, SiteLongitude = 16.3 };
+        var limits = new MountLimitConfiguration(Enabled: true, MeridianWarnMinutes: 30.0);
+
+        var updated = EquipmentActions.SetMountLimits(data, limits);
+
+        updated.MountLimits.ShouldBe(limits);
+        updated.SiteLatitude.ShouldBe(48.2);
+        EquipmentActions.SetMountLimits(updated, null).MountLimits.ShouldBeNull();
     }
 
     [Fact]

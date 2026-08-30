@@ -1,6 +1,8 @@
 # PLAN: Mount safety limits (hour-angle + horizon)
 
-> Status: **P0, P1b (SkyWatcher), P2 and P3 (server) DONE; P1's editor UI, P4, P5 and P3's GUI half NOT STARTED.**
+> Status: **ALL PHASES DONE as of 2026-08-30** (P0, P1 incl. the editor UI, P1b for SkyWatcher, P2, P3 for
+> both hosts, P4, P5). Open: hardware validation of the SkyWatcher axis-solution change, and the
+> follow-ups listed under "What is still open" at the end.
 > **Corrected 2026-08-30: the meridian test takes the mount's POINTING STATE** -- read on hour angle
 > alone it stopped every rig ~30 min after a successful flip. See "The meridian test needs the
 > pointing state" below, which also records a SkyWatcher-driver finding fixed the same day
@@ -116,11 +118,11 @@ constraints GSS never had:
 |-------|------|--------|
 | P0 | **`MountLimits` pure decider** (`TianWen.Lib/Sequencing/` beside `MeridianFlipDecision`): `Evaluate(hourAngleHours, pointingState, altitudeDeg, isTracking, alreadyActed, MountLimitConfiguration) -> MountLimitVerdict`. No I/O, no driver, no clock. `MountLimitConfiguration` landed with it rather than waiting for P1, because the decider cannot be written without it; P1 keeps the PLACEMENT (profile persistence + UI). **Two departures from the sketch:** the HORIZON test takes no pier side, and neither test takes an alignment mode -- see the note below. The MERIDIAN test takes the pointing state, as of 2026-08-30. | **DONE** (39 cases, 3 sabotages verified; pointing state added 2026-08-30, seen to fail first) |
 | P1b | **Axis modelling: `GetAxisAngleAsync(TelescopeAxis) -> double?`** (degrees from the mount's home position, signed, hemisphere-corrected), implemented natively by the SkyWatcher driver from steps + CPR and returning `null` everywhere else. **Angle, not steps**: the driver owns its home convention (`0x800000`) and the southern mirroring, and leaking steps + CPR would make every caller re-derive both -- the bug `StepsToRa` already exists to prevent. This is what upgrades the limit from approximation to mechanical truth on the mounts that can support it, and it is independently useful (a true pier-side derivation, PE phase, a mechanical-position readout). | **DONE for SkyWatcher** (2026-08-30): `IMountDriver.GetAxisAngleAsync`, null on every other driver, and `MountLimits.Evaluate` prefers it -- see "P1b as built" |
-| P1 | **Profile placement + UI.** Persist `MountLimitConfiguration` (the record itself shipped in P0) and give it an editor. **Lives on the PROFILE, not `SessionConfiguration`** -- it is a static fact about the mount's geometry AND the tube bolted to it, exactly like `OTAData`, and it must apply to a manual slew with no session. | **DONE** for persistence + plumbing; the editor UI is not built |
+| P1 | **Profile placement + UI.** Persist `MountLimitConfiguration` (the record itself shipped in P0) and give it an editor. **Lives on the PROFILE, not `SessionConfiguration`** -- it is a static fact about the mount's geometry AND the tube bolted to it, exactly like `OTAData`, and it must apply to a manual slew with no session. | **DONE** (editor UI 2026-08-30: `PanelSection.MountLimits` on the profile panel, and the flip settings' first UI as a "Meridian Flip" config group whose deadline carries the limit's clamp as a caveat -- see "P1 editor UI as built") |
 | P2 | **Session enforcement.** Evaluate in `PollDeviceStatesAsync` (already the one place that refreshes `_mountState` with HA and pier side, and already called from every slew wait and the imaging tick). Verdict routes to a new `ImageLoopNextAction.LimitReached`, finalising the run the same way `DeviceUnrecoverable` does. Reuses `ResilientInvokeAsync` for the stop/park. | **DONE** (9 tests, 2 sabotages verified) |
-| P3 | **Enforcement outside a session** -- the half GSS gets for free. A `MountLimitWatcher` hosted alongside the device hub, polling any *connected* mount on a slow cadence (5 s) whether or not a session owns it. Must respect the hub lease: a run owns the mount, so the watcher only observes and lets the session act; with no run it acts itself. | **DONE for `tianwen-server`** (11 tests, 2 sabotages verified); **the GUI's own manual-slew path is NOT yet wired** -- see "P3 as built" below |
-| P4 | **Surface it.** A limit is useless if it fires silently: notification feed entry, a `LimitAlarm`-equivalent state on `ISessionTelemetry` for the Home board's rig card, and the warning threshold shown as a countdown next to the existing flip countdown (`MeridianFlipUtc`). | NOT STARTED |
-| P5 | **Driver-enforced limits, observed not duplicated.** Detect "the mount stopped itself" (tracking off / `AtPark` when we did not command it) and report it as a limit event rather than a device fault, so a GSS-managed rig does not read as a malfunction. | NOT STARTED |
+| P3 | **Enforcement outside a session** -- the half GSS gets for free. A `MountLimitWatcher` hosted alongside the device hub, polling any *connected* mount on a slow cadence (5 s) whether or not a session owns it. Must respect the hub lease: a run owns the mount, so the watcher only observes and lets the session act; with no run it acts itself. | **DONE for both hosts** (13 tests, 2 sabotages verified): `BackgroundService` in `tianwen-server`, `tracker.Run(watcher.RunAsync)` from `tianwen-gui`'s composition root (2026-08-30) -- see "P3 as built" |
+| P4 | **Surface it.** A limit is useless if it fires silently: notification feed entry, a `LimitAlarm`-equivalent state on `ISessionTelemetry` for the Home board's rig card, and the warning threshold shown as a countdown next to the existing flip countdown (`MeridianFlipUtc`). | **DONE** (2026-08-30): `ISessionTelemetry.MountLimitVerdict`, `MountLimitDto` on the wire, `RemoteSessionMirror`, `LiveSessionState`, the Home board (Flip column doubles as the limit countdown; a detail row) and both notification feeds on class transitions -- see \"P4 + P5 as built\" |
+| P5 | **Driver-enforced limits, observed not duplicated.** Detect "the mount stopped itself" (tracking off / `AtPark` when we did not command it) and report it as a limit event rather than a device fault, so a GSS-managed rig does not read as a malfunction. | **DONE** (2026-08-30): `MountLimitKind.DriverEnforced`, latched by `Session.DetectDriverEnforcedStop` -- see \"P4 + P5 as built\" |
 
 ### P0 as built: two departures from the sketch above
 
@@ -329,18 +331,20 @@ plan's invariants exist to prevent (a park re-commanded every poll, never arrivi
 
 **Deliberately left for a follow-up, not silently dropped:**
 
-- **The GUI's own manual-slew path is not yet covered.** The plan's own gap ("The GUI can slew, jog
-  and track with no session at all") is exactly the scenario `MountLimitWatcher` was built to close,
-  but only `tianwen-server` drives it today. The GUI is not an ASP.NET host, so it needs a different
-  integration (most likely a fire-and-forget `Task.Run(() => watcher.RunAsync(appShutdownToken))`
-  from its own composition root, or a tick from its existing per-frame poll loop) rather than a
-  `BackgroundService` -- deliberately scoped out of this pass rather than bolted on without the same
-  care given to when it starts/stops relative to the render loop and app lifetime.
-- **P1b (native axis-angle modelling) is unaffected**: the watcher reads HA the same way `Session`
-  does today, so it inherits the same sky-coordinate-approximation caveat until P1b lands.
-- **No telemetry surfacing (P4) yet**: the watcher logs, but nothing it does reaches a notification
-  feed or the Home board. A rig sitting idle with a tripped limit is invisible unless someone reads
-  the log.
+- ~~The GUI's own manual-slew path is not yet covered.~~ **DONE 2026-08-30**: `tianwen-gui`'s
+  `Program.cs` drives `MountLimitWatcher.RunAsync` through its `BackgroundTaskTracker` on the
+  background token, the way it drives `LanDiscovery` -- quitting stops it without touching a running
+  session, whose leased mount the watcher skips on its own. No per-frame tick: the 5 s loop is the
+  same one the server runs, so the two hosts cannot drift.
+- ~~P1b is unaffected~~: **the watcher now reads the axis angle too** (NaN when the driver has none),
+  and trusts only a MEASURED pointing state (`PointingStateSource`), so on a SkyWatcher it is on the
+  mechanical tier like the session.
+- ~~No telemetry surfacing (P4) yet~~: the watcher still only logs (it has no session to carry a
+  verdict), which is the residual of P4 below -- a rig sitting idle in its limit with no session is
+  visible in the log and in the driver's stopped tracking, nowhere else.
+- **The profile is matched by the hub's own identity rule** (`Uri.DeviceKey`, scheme + host + path,
+  2026-08-30): whole-URI equality skipped any profile whose mount query had drifted from the connected
+  URI (re-discovery, a reconciled setting), silently. Pinned.
 
 ## The meridian test needs the pointing state (corrected 2026-08-30)
 
@@ -515,6 +519,95 @@ horizon test is untouched), two session cases (a SkyWatcher verdict reports `Axi
 50 min, a plain fake reports `HourAngle`), one watcher case (axis wins both ways), four SkyWatcher-fake
 cases (home reads -90/0, eastern and western gotos read +45/-45 and -45/+45, the southern primary angle is
 hemisphere-corrected, alt-az answers null). Sabotage (decider ignores the axis) fails the tier tests.
+
+## Only a MEASURED pointing state may drive the limit (2026-08-30)
+
+`IMountDriver.PointingStateSource` (`None` / `Computed` / `Measured`, default `Computed`) says how a
+driver knows the state it reports, and `MountLimits.TrustedPointingState` hands `Evaluate`
+`Unknown` for anything not measured. The LX200-base driver, SGP and `FakeMountDriver` derive the state
+from the hour angle -- "the firmware will have flipped", a prediction -- and west of the meridian that
+reads as post-flip, which would silence the meridian limit on exactly the rig tracking into its pier.
+Untrusted, the limit falls back to the hour-angle tier there, which can stop a flipped rig 30 min early
+but cannot be silenced; the flip logic keeps reading `GetSideOfPierAsync`, because "would a slew to
+here flip" wants the computed answer. Measured: SkyWatcher (Dec encoder; `None` in alt-az), OnStep
+(`:Gm#`), ASCOM and Alpaca (the device's own `SideOfPier`). The fake is measured only while a test has
+forced a state through `SetSideOfPierAsync`, which is what lets the session tests hold a rig pre-flip.
+**Default `Computed`, deliberately**: an unaware driver then reports the weaker claim and can never
+silence the limit. Pinned in the pure, session and watcher suites (a computed `Normal` at HA +1 h still
+stops).
+
+## P4 + P5 as built (2026-08-30)
+
+**P4.** `ISessionTelemetry.MountLimitVerdict` is the surface; `Session` already had it. It crosses the
+wire as `MountLimitDto` inside `SessionStateDto` (numeric enums, `ExceededBy` through `ForWire`;
+nullable and NOT required, so an older node reads as `Clear` and an older client still deserialises),
+reaches `RemoteSessionMirror` and `LiveSessionState` (holder-boxed: a 24-byte struct crossing the poll
+and render threads would tear), and from there the Home board -- `RigCard.MountLimit`, set only when
+breached -- where the **Flip column doubles as the limit column** (`limit 7m` for a meridian warning,
+`LIMIT` once acted, warning colour; the limit is what ends the night, so it outranks the flip) and the
+detail card gets the full `Describe()` sentence directly under the status, not gated on the rig
+running (a stopped rig is exactly the one to show). **Both notification feeds fire on CLASS
+transitions only** -- clear -> warning -> acted -> clear -- never per poll (`AppSignalHandler
+.NotifyLimitTransitions` for the GUI, `EventBroadcaster.NotifyLimitTransition` for the node, whose
+notification then rides to remote cards as `LastNotification`). The latch's downgrade to `Warn` after
+acting leaves `IsWarningOnly` false, so it is not a transition. The TUI renders the same
+`HomeBoardLayout`, so it got the cell and the row for free.
+
+**P5.** `Session.DetectDriverEnforcedStop`, on the poll: a mount whose tracking was observed ON and is
+now OFF while it is not slewing and this session did not ask for the stop has enforced a limit of its
+own (GSServer, OnStep, an ASCOM driver with limits) or stalled. It is latched as
+`MountLimitVerdict.DriverEnforcedStop` (`MountLimitKind.DriverEnforced`, response `Warn`: the driver
+already acted) and ends the run through `LimitReached` -- not as a fault, and NOT fought: without this
+the next observation's `EnsureTrackingAsync` switched tracking straight back on against the driver's
+stop. Independent of `Setup.MountLimits`, because the driver's limit exists whether or not ours does.
+Three guards decide whether it means anything: **slewing gates it** (a Synta goto runs the axes
+"running, not tracking" until it arrives, the same signature as a stop), **the poll reads `IsSlewing`
+BEFORE `IsTracking`** (on SkyWatcher `IsSlewingAsync` is the goto-completion hook that resumes
+tracking, so the other order can read "not slewing, not tracking" for a mount that is fine), and **it
+is debounced over two polls**. Every place the session itself stops tracking (`Finalise`, sky flats,
+the configured limit) raises `_mountStopCommanded` first, cleared the next time tracking is seen on.
+Pinned: the fake stopping on its own is read as `DriverEnforced` after two polls and not one; the
+session's own limit stop keeps its own name; a slewing SkyWatcher with tracking off is not a stop.
+
+## P1 editor UI as built (2026-08-30)
+
+Two places, because the two things being edited live in two places:
+
+- **The limits are a profile fact, so they are edited on the profile panel**: `PanelSection.MountLimits`
+  right after `Site`, built by `EquipmentTab.BuildMountLimits` on the `BuildSite` pattern. The display
+  row is `EquipmentActions.DescribeMountLimits` -- absolute thresholds ("stop at 40 min (warn 20)"),
+  never the stored extras -- with `[>]` posting `EditMountLimitsSignal`. The editor asks for the four
+  numbers in measurable terms ("past meridian, warn at (min)", "act a further (min)", "horizon floor
+  (deg)", "warn from (deg above)"), parsed and range-checked by the pure `TryParseMountLimits`
+  (0..360 min, 0..60 deg) onto the current record so the switch and responses survive a text save;
+  the On/Off switch and the Warn/Stop/Park responses are buttons that save at once through
+  `UpdateProfileSignal` (one save path, `SetMountLimits` a `with`). Cancel/Escape leave the edit. The
+  handler routes only.
+- **The flip settings are a session preference, so they got their first UI in the session config
+  editor**: a "Meridian Flip" `ConfigGroup` (pause before, earliest, latest; all in minutes, the
+  unit the limit shares; earliest can never pass latest). **The deadline carries a caveat** --
+  `ConfigFieldDescriptor.Caveat`, a `Func<SessionConfiguration, ProfileData?, string?>` -- rendered in
+  the warning colour beside the value on the GUI (`SessionConfigStyle.WarnText`) and appended to the
+  value on the TUI: "mount limit clamps this to N min" whenever
+  `MountLimitConfiguration.ClampFlipLatestMinutes` would bite. The clamp keeps the rig safe silently;
+  the editor says so where the number is set. `SessionTabState.ActiveProfileData` carries the profile
+  from the render entry point (which has the app state) to where the form is built (which does not).
+
+What the editor does NOT yet do: label the tier (`MountLimitVerdict.Basis` is known only once a
+verdict exists; showing "this rig's limit will be measured / estimated" needs the mount's
+`PointingStateSource` at edit time, i.e. a connected driver), and the "ask in measurable terms"
+wording could still say WHY (Dec- and tube-dependent) in a tooltip the panel has no room for.
+
+## What is still open
+
+- **Hardware validation** of the SkyWatcher axis-solution port (`SkyToSteps`) and the forced flip: the
+  fake motor controller executes whatever step targets it is given.
+- **Watcher-side surfacing**: a rig idle in its limit with NO session is visible only in the log and
+  the driver's stopped tracking (the watcher has no session telemetry to carry a verdict). A
+  hub-level "last limit event" the Home board could read is the natural next step.
+- **Tier labelling in the editor**, above.
+- **OnStep axis angle**: exposes raw steps, axis model not studied; stays on the hour-angle tier.
+- **A verdict on the TUI's Live Session surface** beyond the Home board cell/row.
 
 ## Correcting the physics, and making the limit the clamp
 

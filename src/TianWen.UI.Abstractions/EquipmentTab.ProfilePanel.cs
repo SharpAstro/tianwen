@@ -258,6 +258,8 @@ namespace TianWen.UI.Abstractions
 
                 case PanelSection.Site:
                     return BuildSite(pd);
+                case PanelSection.MountLimits:
+                    return BuildMountLimits(pd);
 
                 case PanelSection.GuideFocalLength:
                     return BuildGuideFocalLength(pd, innerW);
@@ -357,6 +359,74 @@ namespace TianWen.UI.Abstractions
                         .Clickable(new HitResult.ButtonHit("EditSite"), _ => PostSignal(new EditSiteSignal())),
                     Layout.Builder.Spacer().Stretch())
                 .RowH(BaseButtonHeight);
+        }
+
+        /// <summary>
+        /// Mount safety limits (docs/plans/mount-safety-limits.md, P1), modelled on <see cref="BuildSite"/>: a
+        /// display row with <c>[&gt;]</c>, and an editor whose four numbers save together while the on/off
+        /// switch and the two responses save at once through <see cref="UpdateProfileSignal"/>. The numbers
+        /// are asked for in terms the user can measure -- how far past the meridian THIS rig can track before
+        /// the tube meets the pier, at its lowest imaging Dec with the longest tube fitted -- because the
+        /// threshold is a conservative approximation of a Dec- and tube-dependent envelope, not an exact figure.
+        /// </summary>
+        private Layout.Node BuildMountLimits(ProfileData pd)
+        {
+            var limits = pd.MountLimits ?? new MountLimitConfiguration();
+            if (State.IsEditingMountLimits)
+            {
+                float fieldH = BaseItemHeight * 1.2f;
+                const float labelW = 128f;
+                Layout.Node InputRow(string label, TextInputState input)
+                    => FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText,
+                        input, inputFontSize: BaseFontSize * 0.9f);
+                Layout.Node ChoiceBtn(string label, bool active, string hit, MountLimitConfiguration next) =>
+                    Layout.Builder.Text(label, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
+                        .WStar().HStar().Bg(active ? SlotActive : CreateButton)
+                        .Clickable(new HitResult.ButtonHit(hit), _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetMountLimits(pd, next))));
+                Layout.Node Gap() => Layout.Builder.Spacer().WFixed(4f).HStar();
+                Layout.Node ChoiceRow(string label, string hitPrefix, MountLimitResponse current, Func<MountLimitResponse, MountLimitConfiguration> with) =>
+                    Layout.Builder.HStack(
+                            Layout.Builder.Text(label, BaseFontSize * 0.85f, DimText).WFixed(labelW).HStar(),
+                            ChoiceBtn("Warn", current == MountLimitResponse.Warn, hitPrefix + "Warn", with(MountLimitResponse.Warn)),
+                            Gap(),
+                            ChoiceBtn("Stop", current == MountLimitResponse.StopTracking, hitPrefix + "Stop", with(MountLimitResponse.StopTracking)),
+                            Gap(),
+                            ChoiceBtn("Park", current == MountLimitResponse.Park, hitPrefix + "Park", with(MountLimitResponse.Park)))
+                        .RowH(BaseButtonHeight);
+
+                var onRow = Layout.Builder.HStack(
+                        Layout.Builder.Text("  Limits:", BaseFontSize * 0.85f, DimText).WFixed(labelW).HStar(),
+                        ChoiceBtn("On", limits.Enabled, "LimitsOn", limits with { Enabled = true }),
+                        Gap(),
+                        ChoiceBtn("Off", !limits.Enabled, "LimitsOff", limits with { Enabled = false }))
+                    .RowH(BaseButtonHeight);
+                var saveRow = Layout.Builder.HStack(
+                        Layout.Builder.Text("Save Limits", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                            .WFixed(88f).HStar().Bg(CreateButton)
+                            .Clickable(new HitResult.ButtonHit("SaveMountLimits"), _ => State.LimitMeridianWarnInput.OnCommit?.Invoke(State.LimitMeridianWarnInput.Text)),
+                        Gap(),
+                        Layout.Builder.Text("Cancel", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
+                            .WFixed(60f).HStar().Bg(SlotNormal)
+                            .Clickable(new HitResult.ButtonHit("CancelMountLimits"), _ => State.LimitMeridianWarnInput.OnCancel?.Invoke()),
+                        Layout.Builder.Spacer().Stretch())
+                    .RowH(BaseButtonHeight);
+                return Layout.Builder.VStack(
+                        onRow,
+                        InputRow("  Past meridian, warn at (min):", State.LimitMeridianWarnInput),
+                        InputRow("  ...act a further (min):", State.LimitMeridianExtraInput),
+                        ChoiceRow("  Meridian action:", "MeridianResponse", limits.MeridianResponse, r => limits with { MeridianResponse = r }),
+                        InputRow("  Horizon floor (deg):", State.LimitHorizonActionInput),
+                        InputRow("  ...warn from (deg above):", State.LimitHorizonExtraInput),
+                        ChoiceRow("  Horizon action:", "HorizonResponse", limits.HorizonResponse, r => limits with { HorizonResponse = r }),
+                        saveRow)
+                    .WithGap(2f).WStar();
+            }
+
+            return Layout.Builder.HStack(
+                    Layout.Builder.Text("  " + EquipmentActions.DescribeMountLimits(pd.MountLimits), BaseFontSize * 0.9f, SiteText).Stretch(),
+                    Layout.Builder.Text("[>]", BaseFontSize * 0.85f, DimText, TextAlign.Center, TextAlign.Center).WFixed(BaseArrowWidth).HStar())
+                .RowH(BaseItemHeight).Bg(SlotNormal)
+                .Clickable(new HitResult.ButtonHit("EditMountLimits"), _ => PostSignal(new EditMountLimitsSignal()));
         }
 
         /// <summary>Guide-scope focal-length input row.</summary>

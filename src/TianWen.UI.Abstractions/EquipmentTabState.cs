@@ -23,6 +23,14 @@ public class EquipmentTabState
     public TextInputState LongitudeInput { get; } = new() { Placeholder = "Longitude (e.g. 16.3)" };
     public TextInputState ElevationInput { get; } = new() { Placeholder = "Elevation m (e.g. 200)" };
 
+    // Mount safety limits (docs/plans/mount-safety-limits.md, P1). The four numbers are text inputs saved
+    // together like the site; the on/off switch and the two responses are buttons that save at once.
+    public bool IsEditingMountLimits { get; set; }
+    public TextInputState LimitMeridianWarnInput { get; } = new() { Placeholder = "min past meridian (e.g. 20)" };
+    public TextInputState LimitMeridianExtraInput { get; } = new() { Placeholder = "further min (e.g. 20)" };
+    public TextInputState LimitHorizonActionInput { get; } = new() { Placeholder = "altitude deg (e.g. 10)" };
+    public TextInputState LimitHorizonExtraInput { get; } = new() { Placeholder = "deg above (e.g. 5)" };
+
     // Device discovery
     public IReadOnlyList<DeviceBase> DiscoveredDevices { get; set; } = [];
     public bool IsDiscovering { get; set; }

@@ -1,3 +1,4 @@
+using TianWen.Lib.Devices;
 using System;
 using System.Collections.Immutable;
 using TianWen.Lib.Sequencing;
@@ -32,7 +33,8 @@ namespace TianWen.UI.Abstractions
         string unit,
         Func<SessionConfiguration, string> formatValue,
         Func<SessionConfiguration, SessionConfiguration> increment,
-        Func<SessionConfiguration, SessionConfiguration> decrement)
+        Func<SessionConfiguration, SessionConfiguration> decrement,
+        Func<SessionConfiguration, ProfileData?, string?>? caveat = null)
     {
         public string Label { get; } = label;
         public ConfigFieldKind Kind { get; } = kind;
@@ -40,6 +42,15 @@ namespace TianWen.UI.Abstractions
         public Func<SessionConfiguration, string> FormatValue { get; } = formatValue;
         public Func<SessionConfiguration, SessionConfiguration> Increment { get; } = increment;
         public Func<SessionConfiguration, SessionConfiguration> Decrement { get; } = decrement;
+
+        /// <summary>
+        /// A short warning about the field's CURRENT value relative to the active PROFILE, or null when
+        /// there is none -- e.g. a flip deadline the profile's mount safety limit will clamp. A session
+        /// preference can be legal on its own and still be overridden by a fact about the rig; the editor
+        /// says so beside the value rather than letting the clamp act silently at 2am. Renderers show it
+        /// in the warning colour; the TUI appends it to the value.
+        /// </summary>
+        public Func<SessionConfiguration, ProfileData?, string?>? Caveat { get; } = caveat;
     }
 
     /// <summary>
@@ -100,6 +111,24 @@ namespace TianWen.UI.Abstractions
 
             var result = up ? ts.Value + step : ts.Value - step;
             return result < TimeSpan.Zero ? null : result;
+        }
+
+        /// <summary>
+        /// The mount safety limit is the ULTIMATE clamp on the flip deadline
+        /// (<see cref="MountLimitConfiguration.ClampFlipLatestMinutes"/>): a deadline past the limit's action
+        /// threshold less the clearance is never honoured, the mount would be stopped instead. Say so here,
+        /// where the deadline is being set, rather than only in the log the night it happens.
+        /// </summary>
+        internal static string? FlipDeadlineCaveat(SessionConfiguration config, ProfileData? profile)
+        {
+            if (profile?.MountLimits is not { Enabled: true } limits)
+            {
+                return null;
+            }
+            var clamped = limits.ClampFlipLatestMinutes(config.MeridianFlipLatestMinutesAfter);
+            return clamped < config.MeridianFlipLatestMinutesAfter
+                ? $"mount limit clamps this to {clamped:F0} min"
+                : null;
         }
 
         private static ImmutableArray<ConfigGroup> BuildGroups()
@@ -169,6 +198,30 @@ namespace TianWen.UI.Abstractions
                         c => FormatNullableTimeSpan(c.MaxWaitForRisingTarget),
                         c => c with { MaxWaitForRisingTarget = StepNullableTimeSpan(c.MaxWaitForRisingTarget, TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(15), true) },
                         c => c with { MaxWaitForRisingTarget = StepNullableTimeSpan(c.MaxWaitForRisingTarget, TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(15), false) }),
+                ]),
+
+                // The flip settings' first UI. All three in MINUTES of hour angle, the unit the mount safety
+                // limit shares with them (docs/plans/mount-safety-limits.md, "one unit for the meridian"),
+                // and the deadline carries a caveat when the profile's limit would clamp it: the clamp keeps
+                // the rig safe silently, the editor says so out loud.
+                new ConfigGroup("Meridian Flip",
+                [
+                    new ConfigFieldDescriptor(
+                        "Pause Before", ConfigFieldKind.IntStepper, "min",
+                        c => $"{c.MeridianFlipObstructionZoneMinutesBefore:F0}",
+                        c => c with { MeridianFlipObstructionZoneMinutesBefore = Math.Min(c.MeridianFlipObstructionZoneMinutesBefore + 5, 60) },
+                        c => c with { MeridianFlipObstructionZoneMinutesBefore = Math.Max(c.MeridianFlipObstructionZoneMinutesBefore - 5, 0) }),
+                    new ConfigFieldDescriptor(
+                        "Flip Earliest", ConfigFieldKind.IntStepper, "min",
+                        c => $"{c.MeridianFlipEarliestMinutesAfter:F0}",
+                        c => c with { MeridianFlipEarliestMinutesAfter = Math.Min(c.MeridianFlipEarliestMinutesAfter + 5, c.MeridianFlipLatestMinutesAfter) },
+                        c => c with { MeridianFlipEarliestMinutesAfter = Math.Max(c.MeridianFlipEarliestMinutesAfter - 5, 0) }),
+                    new ConfigFieldDescriptor(
+                        "Flip Latest", ConfigFieldKind.IntStepper, "min",
+                        c => $"{c.MeridianFlipLatestMinutesAfter:F0}",
+                        c => c with { MeridianFlipLatestMinutesAfter = Math.Min(c.MeridianFlipLatestMinutesAfter + 5, 180) },
+                        c => c with { MeridianFlipLatestMinutesAfter = Math.Max(c.MeridianFlipLatestMinutesAfter - 5, c.MeridianFlipEarliestMinutesAfter) },
+                        caveat: FlipDeadlineCaveat),
                 ]),
 
                 new ConfigGroup("Focusing",

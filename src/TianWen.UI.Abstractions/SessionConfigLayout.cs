@@ -1,3 +1,4 @@
+using TianWen.Lib.Devices;
 using System;
 using System.Collections.Immutable;
 using DIR.Lib;
@@ -19,6 +20,7 @@ namespace TianWen.UI.Abstractions
         RGBAColor32 RowBg, RGBAColor32 RowAltBg, RGBAColor32 SelectedRowBg,
         RGBAColor32 ToggleOnBg, RGBAColor32 ToggleOffBg, RGBAColor32 CycleBg,
         RGBAColor32 DisabledBg,
+        RGBAColor32 WarnText,
         float FontSize, float HeaderHeight, float ItemHeight,
         float LabelWidth, float Padding,
         float ToggleButtonWidth, float CycleButtonWidth);
@@ -71,7 +73,8 @@ namespace TianWen.UI.Abstractions
             in SessionConfigStyle style,
             Func<int, Action<InputModifier>?>? onSelectField = null,
             Func<ConfigFieldDescriptor, Action<InputModifier>?>? onDecrement = null,
-            Func<ConfigFieldDescriptor, Action<InputModifier>?>? onIncrement = null)
+            Func<ConfigFieldDescriptor, Action<InputModifier>?>? onIncrement = null,
+            ProfileData? profile = null)
         {
             var btnW = style.Stepper.ButtonDesignW;
             var children = ImmutableArray.CreateBuilder<Layout.Node>();
@@ -90,7 +93,7 @@ namespace TianWen.UI.Abstractions
                     // Alternating background resets per group (matches the old fi % 2 walk).
                     var rowBg = isSelected ? style.SelectedRowBg : (fi % 2 == 0 ? style.RowBg : style.RowAltBg);
                     children.Add(FieldRow(field, idx, rowBg, config, valueWidth, btnW, running, style,
-                        onSelectField, onDecrement, onIncrement));
+                        onSelectField, onDecrement, onIncrement, profile));
                 }
 
                 // Small gap between groups (mirrors the old cursor += padding * 0.5 step).
@@ -121,7 +124,8 @@ namespace TianWen.UI.Abstractions
             SessionConfiguration config, float valueWidth, float btnW, bool running, in SessionConfigStyle style,
             Func<int, Action<InputModifier>?>? onSelectField,
             Func<ConfigFieldDescriptor, Action<InputModifier>?>? onDecrement,
-            Func<ConfigFieldDescriptor, Action<InputModifier>?>? onIncrement)
+            Func<ConfigFieldDescriptor, Action<InputModifier>?>? onIncrement,
+            ProfileData? profile)
         {
             // pad + label = the select-clickable region. Height = Star so the whole-row-height hit matches
             // the old RegisterClickable(rect.X, cursor, labelW + padding, itemH) exactly -- the control
@@ -134,8 +138,13 @@ namespace TianWen.UI.Abstractions
 
             var control = Control(field, config, valueWidth, btnW, running, style, onDecrement, onIncrement);
 
-            return Layout.Builder.HStack(selectCell, control)
-                .RowH(style.ItemHeight).Bg(rowBg);
+            // A caveat is a fact about the rig overriding this preference (see ConfigFieldDescriptor.Caveat);
+            // it sits beside the value in the warning colour and takes the row's remaining width.
+            var row = field.Caveat?.Invoke(config, profile) is { } caveat
+                ? Layout.Builder.HStack(selectCell, control,
+                    Layout.Builder.Text($"  \u26A0 {caveat}", style.FontSize * 0.85f, style.WarnText).Stretch())
+                : Layout.Builder.HStack(selectCell, control);
+            return row.RowH(style.ItemHeight).Bg(rowBg);
         }
 
         private static Layout.Node Control(

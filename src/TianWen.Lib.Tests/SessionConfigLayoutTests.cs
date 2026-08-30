@@ -1,3 +1,4 @@
+using TianWen.Lib.Devices;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -30,6 +31,7 @@ namespace TianWen.Lib.Tests
             ToggleOnBg: new RGBAColor32(0x30, 0x60, 0x40, 0xff), ToggleOffBg: new RGBAColor32(0x40, 0x30, 0x30, 0xff),
             CycleBg: new RGBAColor32(0x30, 0x50, 0x80, 0xff),
             DisabledBg: new RGBAColor32(0x33, 0x33, 0x3a, 0xff),
+            WarnText: new RGBAColor32(0xff, 0xa0, 0x40, 0xff),
             FontSize: 14f, HeaderHeight: 28f, ItemHeight: 26f,
             LabelWidth: 160f, Padding: 8f,
             ToggleButtonWidth: 60f, CycleButtonWidth: 140f);
@@ -84,6 +86,46 @@ namespace TianWen.Lib.Tests
         private static Layout.Node RowFor(Layout.Node tree, int index) =>
             ((Layout.Node.Stack)tree).Children.First(c =>
                 Flatten(c).Any(n => n.Hit is HitResult.ListItemHit { ListId: "ConfigField" } li && li.Index == index));
+
+        [Fact]
+        public void TheFlipDeadlineCarriesTheLimitClampCaveatOnlyWhenTheProfileClampsIt()
+        {
+            // Warn 5 + extra 5 = act at 10 min; the clamp keeps 5 min of clearance, so a 10 min deadline
+            // (the default) is silently pulled to 5. That is exactly what the editor has to say out loud.
+            var clamping = ProfileData.Empty with
+            {
+                MountLimits = new MountLimitConfiguration(Enabled: true, MeridianWarnMinutes: 5.0, MeridianActionExtraMinutes: 5.0),
+            };
+            Config.MeridianFlipLatestMinutesAfter.ShouldBe(10.0, "premise: the default deadline");
+
+            var caveated = SessionConfigLayout.Build(Groups, Config, -1, false, 80f, Style, profile: clamping);
+            var warned = Flatten(caveated).Where(n => n is Layout.Node.Leaf { Content: Layout.Content.Text { Color: var c } } && c.Equals(Style.WarnText)).ToList();
+            warned.Count.ShouldBe(1);
+            TextLeaves(caveated).ShouldContain(t => t.Contains("clamps this to 5 min"));
+
+            // No profile, or a profile whose limit does not bite: nothing in the warning colour anywhere.
+            Flatten(SessionConfigLayout.Build(Groups, Config, -1, false, 80f, Style))
+                .Any(n => n is Layout.Node.Leaf { Content: Layout.Content.Text { Color: var c } } && c.Equals(Style.WarnText))
+                .ShouldBeFalse("no profile, no caveat");
+            var roomy = ProfileData.Empty with { MountLimits = new MountLimitConfiguration(Enabled: true) };
+            Flatten(SessionConfigLayout.Build(Groups, Config, -1, false, 80f, Style, profile: roomy))
+                .Any(n => n is Layout.Node.Leaf { Content: Layout.Content.Text { Color: var c } } && c.Equals(Style.WarnText))
+                .ShouldBeFalse("a limit with room does not clamp");
+        }
+
+        [Fact]
+        public void TheFlipGroupStepsInMinutesAndKeepsEarliestAtOrBeforeLatest()
+        {
+            var earliest = Field("Flip Earliest");
+            var latest = Field("Flip Latest");
+            var c = Config; // earliest 5, latest 10
+
+            earliest.Increment(c).MeridianFlipEarliestMinutesAfter.ShouldBe(10.0);
+            earliest.Increment(earliest.Increment(c)).MeridianFlipEarliestMinutesAfter.ShouldBe(10.0, "capped at the deadline");
+            latest.Decrement(c).MeridianFlipLatestMinutesAfter.ShouldBe(5.0);
+            latest.Decrement(latest.Decrement(c)).MeridianFlipLatestMinutesAfter.ShouldBe(5.0, "never below the earliest");
+            latest.Increment(c).MeridianFlipLatestMinutesAfter.ShouldBe(15.0);
+        }
 
         [Fact]
         public void Build_EmitsOneHeaderPerGroup()

@@ -116,6 +116,9 @@ namespace TianWen.UI.Abstractions
             {
                 State.InitializeFromProfile(appState.ActiveProfile, appState.DeviceHub);
             }
+            // The config form's caveats compare a preference against the profile (the flip deadline against
+            // the mount safety limit); the form is built deeper in, where the profile is not in scope.
+            State.ActiveProfileData = appState.ActiveProfile?.Data;
 
             var layout = new PixelLayout(contentRect);
 
@@ -298,6 +301,7 @@ namespace TianWen.UI.Abstractions
             RowBg: ContentBg, RowAltBg: RowAltBg, SelectedRowBg: SelectedRowBg,
             ToggleOnBg: ToggleOnBg, ToggleOffBg: ToggleOffBg, CycleBg: CycleBg,
             DisabledBg: DisabledBtnBg,
+            WarnText: GuiTheme.Palette.Warn,
             FontSize: BaseFontSize, HeaderHeight: BaseHeaderHeight, ItemHeight: BaseItemHeight,
             LabelWidth: BaseLabelW, Padding: BasePadding,
             ToggleButtonWidth: BaseToggleBtnW, CycleButtonWidth: BaseCycleBtnW);
@@ -682,7 +686,8 @@ namespace TianWen.UI.Abstractions
                 valueWidth, ConfigStyle,
                 onSelectField: idx => _ => { State.SelectedFieldIndex = idx; State.NeedsRedraw = true; },
                 onDecrement: field => _ => { State.Configuration = field.Decrement(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
-                onIncrement: field => _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; });
+                onIncrement: field => _ => { State.Configuration = field.Increment(State.Configuration); State.IsDirty = true; State.NeedsRedraw = true; },
+                profile: State.ActiveProfileData);
 
             var contentTop = rect.Y - _configScroll.Offset * ScrollLineHeight;
             var arranged = ArrangeLayout(tree, new RectF32(rect.X, contentTop, rect.Width, _totalConfigHeight));

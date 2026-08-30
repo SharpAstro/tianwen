@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using TianWen.Lib.Sequencing;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -146,6 +147,66 @@ public static class EquipmentActions
 
     public static ProfileData SetSite(ProfileData data, double lat, double lon, double? elevation = null)
         => data with { SiteLatitude = lat, SiteLongitude = lon, SiteElevation = elevation };
+
+    /// <summary>
+    /// Replaces the profile's mount safety limits (docs/plans/mount-safety-limits.md, P1). Lives on the
+    /// PROFILE, beside the site, because where the tube meets the pier is a fact about the rig, not about a
+    /// night; a <c>with</c>, so every other field round-trips.
+    /// </summary>
+    public static ProfileData SetMountLimits(ProfileData data, MountLimitConfiguration? limits)
+        => data with { MountLimits = limits };
+
+    /// <summary>
+    /// Parses + range-validates the four numeric limit fields (invariant culture; meridian minutes
+    /// 0..360, horizon degrees 0..60) onto <paramref name="current"/>, whose switch and responses are kept
+    /// -- those are buttons that save on their own. Pure, extracted from the commit callback so the
+    /// callback routes only, exactly like <see cref="TryParseSite"/>.
+    /// </summary>
+    public static bool TryParseMountLimits(
+        string meridianWarnMinutes, string meridianActionExtraMinutes,
+        string horizonActionDeg, string horizonWarnExtraDeg,
+        MountLimitConfiguration current, out MountLimitConfiguration parsed)
+    {
+        parsed = current;
+        if (double.TryParse(meridianWarnMinutes, CultureInfo.InvariantCulture, out var warn)
+            && double.TryParse(meridianActionExtraMinutes, CultureInfo.InvariantCulture, out var extra)
+            && double.TryParse(horizonActionDeg, CultureInfo.InvariantCulture, out var floor)
+            && double.TryParse(horizonWarnExtraDeg, CultureInfo.InvariantCulture, out var above)
+            && warn is >= 0 and <= 360 && extra is >= 0 and <= 360
+            && floor is >= 0 and <= 60 && above is >= 0 and <= 60)
+        {
+            parsed = current with
+            {
+                MeridianWarnMinutes = warn,
+                MeridianActionExtraMinutes = extra,
+                HorizonActionDeg = floor,
+                HorizonWarnExtraDeg = above,
+            };
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// One line for the profile panel's display row. Absolute thresholds, not the stored extras: the user
+    /// reads "stop at 40 min", and the warn-before-act invariant is the record's business.
+    /// </summary>
+    public static string DescribeMountLimits(MountLimitConfiguration? limits)
+    {
+        if (limits is not { Enabled: true } l)
+        {
+            return "Limits: off";
+        }
+        return $"Limits: meridian {Verb(l.MeridianResponse)} at {l.MeridianActionMinutes:F0} min (warn {l.MeridianWarnMinutes:F0}), "
+             + $"horizon {Verb(l.HorizonResponse)} at {l.HorizonActionDeg:F0}\u00b0 (warn {l.HorizonWarnDeg:F0}\u00b0)";
+
+        static string Verb(MountLimitResponse response) => response switch
+        {
+            MountLimitResponse.Park => "park",
+            MountLimitResponse.StopTracking => "stop",
+            _ => "warn",
+        };
+    }
 
     /// <summary>
     /// Parses + range-validates the three site text-input fields (invariant culture,
