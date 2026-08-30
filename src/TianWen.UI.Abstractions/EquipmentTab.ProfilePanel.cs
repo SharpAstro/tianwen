@@ -371,35 +371,43 @@ namespace TianWen.UI.Abstractions
         /// </summary>
         private Layout.Node BuildMountLimits(ProfileData pd)
         {
-            var limits = pd.MountLimits ?? new MountLimitConfiguration();
             if (State.IsEditingMountLimits)
             {
                 float fieldH = BaseItemHeight * 1.2f;
-                const float labelW = 128f;
+                // Wide enough for the longest label at this font (seen truncated to "Past meridian, wa..." at 128);
+                // the fields and choice buttons are Star-sized and take what is left of the panel.
+                const float labelW = 210f;
                 Layout.Node InputRow(string label, TextInputState input)
                     => FormRowLayout.LabeledInputRow(label, labelW, fieldH, 0f, BaseFontSize * 0.85f, DimText,
                         input, inputFontSize: BaseFontSize * 0.9f);
-                Layout.Node ChoiceBtn(string label, bool active, string hit, MountLimitConfiguration next) =>
-                    Layout.Builder.Text(label, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
-                        .WStar().HStar().Bg(active ? SlotActive : CreateButton)
-                        .Clickable(new HitResult.ButtonHit(hit), _ => PostSignal(new UpdateProfileSignal(EquipmentActions.SetMountLimits(pd, next))));
-                Layout.Node Gap() => Layout.Builder.Spacer().WFixed(4f).HStar();
-                Layout.Node ChoiceRow(string label, string hitPrefix, MountLimitResponse current, Func<MountLimitResponse, MountLimitConfiguration> with) =>
+                // The switch and the two responses are ONE cycle button each showing the PENDING value, the way
+                // a device setting is edited ("Dec Pulse as GOTO": Yes / No; an enum cycles through its values)
+                // -- not a pair of pills, which painted both halves in the active colour (CreateButton IS
+                // SegmentActive) and wrote the profile on every click, past Cancel.
+                var state = State;
+                Layout.Node CycleRow(string label, string value, string hit, Action cycle) =>
                     Layout.Builder.HStack(
                             Layout.Builder.Text(label, BaseFontSize * 0.85f, DimText).WFixed(labelW).HStar(),
-                            ChoiceBtn("Warn", current == MountLimitResponse.Warn, hitPrefix + "Warn", with(MountLimitResponse.Warn)),
-                            Gap(),
-                            ChoiceBtn("Stop", current == MountLimitResponse.StopTracking, hitPrefix + "Stop", with(MountLimitResponse.StopTracking)),
-                            Gap(),
-                            ChoiceBtn("Park", current == MountLimitResponse.Park, hitPrefix + "Park", with(MountLimitResponse.Park)))
+                            Layout.Builder.Text(value, BaseFontSize * 0.85f, BodyText, TextAlign.Center, TextAlign.Center)
+                                .WStar().HStar().Bg(EditButtonBg)
+                                .Clickable(new HitResult.ButtonHit(hit), _ => cycle()))
                         .RowH(BaseButtonHeight);
+                static MountLimitResponse NextResponse(MountLimitResponse r) => r switch
+                {
+                    MountLimitResponse.Warn => MountLimitResponse.StopTracking,
+                    MountLimitResponse.StopTracking => MountLimitResponse.Park,
+                    _ => MountLimitResponse.Warn,
+                };
+                static string ResponseLabel(MountLimitResponse r) => r switch
+                {
+                    MountLimitResponse.Warn => "Warn",
+                    MountLimitResponse.StopTracking => "Stop tracking",
+                    _ => "Park",
+                };
+                Layout.Node Gap() => Layout.Builder.Spacer().WFixed(4f).HStar();
 
-                var onRow = Layout.Builder.HStack(
-                        Layout.Builder.Text("  Limits:", BaseFontSize * 0.85f, DimText).WFixed(labelW).HStar(),
-                        ChoiceBtn("On", limits.Enabled, "LimitsOn", limits with { Enabled = true }),
-                        Gap(),
-                        ChoiceBtn("Off", !limits.Enabled, "LimitsOff", limits with { Enabled = false }))
-                    .RowH(BaseButtonHeight);
+                var onRow = CycleRow("  Limits:", state.LimitEnabledPending ? "Yes" : "No", "CycleLimitsEnabled",
+                    () => state.LimitEnabledPending = !state.LimitEnabledPending);
                 var saveRow = Layout.Builder.HStack(
                         Layout.Builder.Text("Save Limits", BaseFontSize, BodyText, TextAlign.Center, TextAlign.Center)
                             .WFixed(88f).HStar().Bg(CreateButton)
@@ -414,10 +422,12 @@ namespace TianWen.UI.Abstractions
                         onRow,
                         InputRow("  Past meridian, warn at (min):", State.LimitMeridianWarnInput),
                         InputRow("  ...act a further (min):", State.LimitMeridianExtraInput),
-                        ChoiceRow("  Meridian action:", "MeridianResponse", limits.MeridianResponse, r => limits with { MeridianResponse = r }),
+                        CycleRow("  Meridian action:", ResponseLabel(state.LimitMeridianResponsePending), "CycleMeridianResponse",
+                            () => state.LimitMeridianResponsePending = NextResponse(state.LimitMeridianResponsePending)),
                         InputRow("  Horizon floor (deg):", State.LimitHorizonActionInput),
                         InputRow("  ...warn from (deg above):", State.LimitHorizonExtraInput),
-                        ChoiceRow("  Horizon action:", "HorizonResponse", limits.HorizonResponse, r => limits with { HorizonResponse = r }),
+                        CycleRow("  Horizon action:", ResponseLabel(state.LimitHorizonResponsePending), "CycleHorizonResponse",
+                            () => state.LimitHorizonResponsePending = NextResponse(state.LimitHorizonResponsePending)),
                         saveRow)
                     .WithGap(2f).WStar();
             }

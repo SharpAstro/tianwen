@@ -30,6 +30,11 @@ public class EquipmentTabState
     public TextInputState LimitMeridianExtraInput { get; } = new() { Placeholder = "further min (e.g. 20)" };
     public TextInputState LimitHorizonActionInput { get; } = new() { Placeholder = "altitude deg (e.g. 10)" };
     public TextInputState LimitHorizonExtraInput { get; } = new() { Placeholder = "deg above (e.g. 5)" };
+    // The switch and the two responses are pending edit state like the four inputs above: applied on Save,
+    // dropped on Cancel. They used to write the profile on every click, which Cancel could not undo.
+    public bool LimitEnabledPending { get; set; }
+    public MountLimitResponse LimitMeridianResponsePending { get; set; }
+    public MountLimitResponse LimitHorizonResponsePending { get; set; }
 
     // Device discovery
     public IReadOnlyList<DeviceBase> DiscoveredDevices { get; set; } = [];

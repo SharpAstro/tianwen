@@ -151,8 +151,8 @@ namespace TianWen.UI.Abstractions
 
             // Mount safety limits (docs/plans/mount-safety-limits.md, P1): the same shape as the site above.
             // Parse in EquipmentActions, replace through UpdateProfileSignal (one save path), reflect into UI
-            // state -- nothing else. The switch and the response buttons never come through here: the panel
-            // posts UpdateProfileSignal for those directly.
+            // state -- nothing else. The switch and the two responses ride along as pending state (the panel
+            // cycles them the way a device setting is cycled), so Cancel drops them together with the numbers.
             Func<Task> saveLimits = () =>
             {
                 if (appState.ActiveProfile is not { } limitsProfile)
@@ -160,7 +160,12 @@ namespace TianWen.UI.Abstractions
                     return Task.CompletedTask;
                 }
                 var limitsData = limitsProfile.Data ?? ProfileData.Empty;
-                var current = limitsData.MountLimits ?? new MountLimitConfiguration();
+                var current = (limitsData.MountLimits ?? new MountLimitConfiguration()) with
+                {
+                    Enabled = eqState.LimitEnabledPending,
+                    MeridianResponse = eqState.LimitMeridianResponsePending,
+                    HorizonResponse = eqState.LimitHorizonResponsePending,
+                };
                 if (!EquipmentActions.TryParseMountLimits(
                         eqState.LimitMeridianWarnInput.Text, eqState.LimitMeridianExtraInput.Text,
                         eqState.LimitHorizonActionInput.Text, eqState.LimitHorizonExtraInput.Text,
@@ -366,6 +371,9 @@ namespace TianWen.UI.Abstractions
                 eqState.LimitMeridianExtraInput.Text = l.MeridianActionExtraMinutes.ToString("0.##", inv);
                 eqState.LimitHorizonActionInput.Text = l.HorizonActionDeg.ToString("0.##", inv);
                 eqState.LimitHorizonExtraInput.Text = l.HorizonWarnExtraDeg.ToString("0.##", inv);
+                eqState.LimitEnabledPending = l.Enabled;
+                eqState.LimitMeridianResponsePending = l.MeridianResponse;
+                eqState.LimitHorizonResponsePending = l.HorizonResponse;
                 appState.NeedsRedraw = true;
             });
 
