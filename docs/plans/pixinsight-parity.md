@@ -8,7 +8,7 @@ places exceeds, its capabilities the same way Astropy is the science-layer targe
 already has its own plan doc carrying the real detail; this just says what's shipped, what isn't,
 and points at where. Siril (52 mentions/10 files) and GraXpert (25/9 files) are already framed
 alongside PixInsight as prior art for background extraction specifically, so they get a shared
-section rather than their own files. SetiAstro gets its own section: it has **four** distinct
+section rather than their own files. SetiAstro gets its own section: it has **five** distinct
 relationships to this codebase that must not be conflated.
 
 Snapshot taken 2026-08-29. Update the STATUS cell in place as linked plans change state.
@@ -28,7 +28,7 @@ Snapshot taken 2026-08-29. Update the STATUS cell in place as linked plans chang
 | Subsystem | Status | Detail |
 |---|---|---|
 | RC-Astro (BlurX/NoiseX/StarXTerminator) | Phases 1-3 DONE | [rc-astro-enhancers.md](rc-astro-enhancers.md) -- has its own plan already; point here, don't duplicate. These are PixInsight plugins, which is why they belong in this family, but the detail lives in their own doc. |
-| SetiAstro | See dedicated section below -- four distinct relationships, do not collapse them. | |
+| SetiAstro | See dedicated section below -- five distinct relationships, do not collapse them. | |
 
 ## SetiAstro: five relationships, not one
 

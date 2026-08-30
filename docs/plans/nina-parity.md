@@ -52,7 +52,7 @@ otherwise. Don't repeat that here.
 | Area | Status | Detail |
 |---|---|---|
 | Meridian flip (with oscillation/safety guards) | DONE | CLAUDE.md "Meridian-flip oscillation invariant" |
-| Mount safety limits (hour-angle / altitude) | MECHANISM DONE, NOT WIRED for users | [mount-safety-limits.md](mount-safety-limits.md) -- P0-P2 shipped 2026-08-29; no config UI, no enforcement outside an active session, no notification surfacing |
+| Mount safety limits (hour-angle / altitude) | MECHANISM + SERVER-SIDE OUT-OF-SESSION ENFORCEMENT DONE, GUI + CONFIG UI + NOTIFICATION NOT WIRED | [mount-safety-limits.md](mount-safety-limits.md) -- P0/P2 shipped 2026-08-29; P3 (`MountLimitWatcher`) shipped 2026-08-30 for `tianwen-server` only (the GUI's own manual-slew path -- the scenario P3 exists for -- is not yet wired, since the GUI isn't an ASP.NET host); still no config UI and no notification-feed/Home-board surfacing when a limit fires |
 | Rotator (per-OTA field rotation) | NOT STARTED | [rotator.md](rotator.md), [docs/todo/drivers.md](../todo/drivers.md) L90-106 |
 | Dome (slaved to mount) | NOT STARTED | [docs/todo/drivers.md](../todo/drivers.md) L107-119 -- no dedicated plan doc yet |
 | SafetyMonitor (ASCOM `ISafetyMonitorV3`) | NOT STARTED | [TODO.md](../../TODO.md) "Next Up"; [docs/todo/drivers.md](../todo/drivers.md) L120-121 |
@@ -90,8 +90,9 @@ otherwise. Don't repeat that here.
 ## Biggest remaining gaps, ranked
 
 1. Dome + Rotator + SafetyMonitor -- three standard ASCOM device types, zero implementation.
-2. Mount safety limits need a config UI and enforcement outside a session -- the mechanism works,
-   nobody can turn it on or see it yet.
+2. Mount safety limits need a config UI, the GUI's own manual-slew enforcement (server-side
+   out-of-session enforcement shipped 2026-08-30), and notification surfacing -- the mechanism
+   works, nobody can turn it on from a GUI or see it fire yet.
 3. Multi-night progress tracking + resume-interrupted-session.
 4. PlayerOne / ToupTek / SVBony native camera support.
 5. Discrete autofocus trigger conditions beyond the HFD trend.
