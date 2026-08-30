@@ -145,7 +145,7 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
             DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SGP", StringComparison.OrdinalIgnoreCase)
                 => new FakeSgpSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, SiteLatitude >= 0, true),
             DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "SkyWatcher", StringComparison.OrdinalIgnoreCase)
-                => new FakeSkywatcherSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, true),
+                => new FakeSkywatcherSerialDevice(logger, encoding ?? Encoding.ASCII, timeProvider, true, SlewStartLatency),
             DeviceType.Mount when string.Equals(Query.QueryValue(DeviceQueryKey.Port), "OnStep", StringComparison.OrdinalIgnoreCase)
                 => new FakeOnStepSerialDevice(logger, encoding ?? Encoding.Latin1, timeProvider, SiteLatitude, SiteLongitude, true),
             DeviceType.Mount
@@ -154,6 +154,12 @@ public record FakeDevice(Uri DeviceUri) : DeviceBase(DeviceUri)
         });
 
     [JsonIgnore]
+    /// <summary>See <see cref="DeviceQueryKey.SlewStartLatencyMs"/>; zero unless the URI asks for a slow-starting controller.</summary>
+    private TimeSpan SlewStartLatency =>
+        double.TryParse(Query.QueryValue(DeviceQueryKey.SlewStartLatencyMs), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ms) && ms > 0
+            ? TimeSpan.FromMilliseconds(ms)
+            : TimeSpan.Zero;
+
     private double SiteLatitude => double.TryParse(Query.QueryValue(DeviceQueryKey.Latitude), out var latitude) ? latitude : throw new InvalidOperationException("Failed to parse latitude");
 
     [JsonIgnore]
