@@ -205,6 +205,30 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// </summary>
     internal ICameraDriver? CameraDriver => _camera;
 
+    /// <summary>
+    /// Who to believe about which side of the pier the OTA is on. Null (the default) means ask the
+    /// mount, which is right for a guider driven on its own. A <see cref="Sequencing.Session"/> sets
+    /// this to its own canonical answer, which is a BETTER one: on a mount whose
+    /// <see cref="IMountDriver.PointingStateSource"/> is
+    /// <see cref="PointingStateSource.Computed"/> the driver's report turns over the moment the
+    /// POINTING crosses the meridian, whether or not the tube moved, and a guider that believed it
+    /// would reverse a calibration for a flip that never happened -- inverting the very sense that
+    /// keeps the loop converging. The session has the image to go on and the driver does not.
+    /// <para>
+    /// A delegate rather than a session reference, deliberately: this is a driver, and the dependency
+    /// runs session -> guider. It must never run back the other way.
+    /// </para>
+    /// </summary>
+    internal Func<CancellationToken, ValueTask<PointingState>>? PointingStateOracle { get; set; }
+
+    /// <summary>
+    /// Which side of the pier the OTA is on, from <see cref="PointingStateOracle"/> when one is set
+    /// and the mount otherwise. Every pier-side read in this driver goes through here so the two
+    /// answers can never be mixed within one calibration.
+    /// </summary>
+    private ValueTask<PointingState> ReadPointingStateAsync(IMountDriver mount, CancellationToken ct)
+        => PointingStateOracle is { } oracle ? oracle(ct) : mount.GetSideOfPierAsync(ct);
+
     public void LinkDevices(IMountDriver mount, ICameraDriver? camera)
     {
         _mount = mount;
@@ -592,7 +616,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
             case CalibrationValidationResult.Valid:
                 Logger.LogInformation("Saved calibration validated, reusing.");
                 _lastCalibration = savedCalibration;
-                _calibrationPierSide = await _mount!.GetSideOfPierAsync(ct);
+                _calibrationPierSide = await ReadPointingStateAsync(_mount!, ct);
                 return savedCalibration;
 
             case CalibrationValidationResult.RateDrifted:
@@ -624,7 +648,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 {
                     // Record pier side at the time we load the calibration; this is our reference
                     // for detecting meridian flips later when guiding restarts after a slew.
-                    _calibrationPierSide = await mount.GetSideOfPierAsync(ct);
+                    _calibrationPierSide = await ReadPointingStateAsync(mount, ct);
                 }
             }
 
@@ -639,7 +663,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 }
 
                 _lastCalibration = calResult;
-                _calibrationPierSide = await mount.GetSideOfPierAsync(ct);
+                _calibrationPierSide = await ReadPointingStateAsync(mount, ct);
             }
             else
             {
@@ -650,7 +674,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 // so a rig configured "no Dec reversal" still needs its calibration re-expressed -- it
                 // just keeps its Dec sense. The flag selects which axes move, never whether the flip
                 // is handled at all.
-                var currentPierSide = await mount.GetSideOfPierAsync(ct);
+                var currentPierSide = await ReadPointingStateAsync(mount, ct);
                 if (_calibrationPierSide is { } calPier && calPier != currentPierSide)
                 {
                     var flipped = calResult.Value.WithMeridianFlip(ReverseDecOnFlip);
@@ -801,7 +825,7 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 }
                 calResult = fresh;
                 _lastCalibration = fresh;
-                _calibrationPierSide = await mount.GetSideOfPierAsync(ct);
+                _calibrationPierSide = await ReadPointingStateAsync(mount, ct);
                 // loop back -> re-acquire + rebuild loop with the fresh calibration
             }
         }
