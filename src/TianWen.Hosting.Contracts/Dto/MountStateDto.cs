@@ -24,3 +24,26 @@ public sealed class MountStateDto
         IsTracking = state.IsTracking,
     };
 }
+
+/// <summary>
+/// Wire form of <see cref="MountLimitVerdict"/>. The enums travel as numbers like every other enum on this
+/// contract; <see cref="ExceededBy"/> goes through <see cref="JsonNumber.ForWire"/> because a non-finite
+/// double is a bodiless 500 for the WHOLE state endpoint.
+/// </summary>
+public sealed class MountLimitDto
+{
+    public required MountLimitKind Kind { get; init; }
+    public required MountLimitResponse Response { get; init; }
+    public required double ExceededBy { get; init; }
+    public required MountLimitBasis Basis { get; init; }
+
+    public static MountLimitDto FromVerdict(MountLimitVerdict verdict) => new()
+    {
+        Kind = verdict.Kind,
+        Response = verdict.Response,
+        ExceededBy = JsonNumber.ForWire(verdict.ExceededBy),
+        Basis = verdict.Basis,
+    };
+
+    public MountLimitVerdict ToVerdict() => new(Kind, Response, ExceededBy, Basis);
+}

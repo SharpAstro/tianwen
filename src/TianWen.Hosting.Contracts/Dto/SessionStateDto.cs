@@ -48,6 +48,13 @@ public sealed class SessionStateDto
     public DateTimeOffset? MeridianFlipUtc { get; init; }
 
     /// <summary>
+    /// The node's mount safety-limit verdict. Nullable and not required, so a client reading an older node
+    /// (or an older client reading this one) sees "no verdict" rather than an undeserializable payload;
+    /// the mirror reads null as <see cref="MountLimitVerdict.Clear"/>.
+    /// </summary>
+    public MountLimitDto? MountLimit { get; init; }
+
+    /// <summary>
     /// The newest entry of the node's notification feed, or null when it has recorded nothing.
     /// <para>
     /// Carried on the polled state rather than left to <c>GET /session/notifications</c> so a client
@@ -218,6 +225,7 @@ public sealed class SessionStateDto
             LastFramePath = session.LastFramePath,
             Mount = MountStateDto.FromState(session.MountState),
             MeridianFlipUtc = session.MeridianFlipUtc,
+            MountLimit = MountLimitDto.FromVerdict(session.MountLimitVerdict),
             LastNotification = lastNotification,
             MountDisplayName = session.MountDisplayName,
             Guider = GuiderStateDto.FromSession(session),

@@ -80,6 +80,7 @@ internal sealed class EventBroadcaster(
             if (session is not null)
             {
                 PushNewGuideSteps(session);
+                NotifyLimitTransition(session);
             }
 
             // Liveness bound on an outstanding prompt: see OnPromptRequested for why this replaces a
@@ -425,6 +426,33 @@ internal sealed class EventBroadcaster(
             logger.LogWarning("Prompt '{Title}' was outstanding when the last observer disconnected", prompt.Title);
             Notify("Warning", $"{prompt.Title}: observer disconnected before answering");
         }
+    }
+
+    // P4 of mount-safety-limits.md, the headless half of what AppSignalHandler.NotifyLimitTransitions does
+    // for the GUI: a limit reaches the node's feed (and so the remote client's card, via LastNotification)
+    // when its verdict changes CLASS -- clear -> warning -> acted, or a driver-enforced stop -- never per
+    // poll. The latch's downgrade to Warn after acting leaves IsWarningOnly false, so it is not a change.
+    private (MountLimitKind Kind, bool WarningOnly) _lastLimitClass;
+
+    private void NotifyLimitTransition(ISessionTelemetry session)
+    {
+        var verdict = session.MountLimitVerdict;
+        var cls = (verdict.Kind, verdict.IsWarningOnly);
+        if (cls == _lastLimitClass)
+        {
+            return;
+        }
+        var wasBreached = _lastLimitClass.Kind is not MountLimitKind.None;
+        _lastLimitClass = cls;
+        if (!verdict.IsBreached)
+        {
+            if (wasBreached)
+            {
+                Notify("Info", "Mount is clear of its safety limits again.");
+            }
+            return;
+        }
+        Notify(verdict.IsWarningOnly ? "Warning" : "Error", $"Mount safety limit: {verdict.Describe()}");
     }
 
     /// <summary>Records a notification and pushes it to connected clients.</summary>

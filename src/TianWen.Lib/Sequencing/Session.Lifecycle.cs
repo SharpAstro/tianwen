@@ -147,6 +147,8 @@ internal partial record Session
         // Reported honestly either way: command the stop when the mount has a tracking switch, then
         // report what the mount SAYS, so a tracker that cannot be commanded is not credited with a stop
         // it never made.
+        // Ours, so the poll must not read the stop as the driver enforcing a limit of its own.
+        _mountStopCommanded = true;
         var trackingStopped = await CatchAsync(async cancellationToken =>
         {
             if (mount.Driver.CanSetTracking)

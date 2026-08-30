@@ -1012,6 +1012,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     #region Pier Side
 
+    /// <summary>Read off the Dec encoder half -- the mechanical state -- except in alt-az, which has none.</summary>
+    public PointingStateSource PointingStateSource
+        => _alignmentMode == AlignmentMode.AltAz ? PointingStateSource.None : PointingStateSource.Measured;
+
     public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
         // Alt-az mounts have no pier side. Reporting Unknown also makes the session's GEM-only flip
@@ -1040,8 +1044,39 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         return PointingState.Normal;
     }
 
-    public ValueTask SetSideOfPierAsync(PointingState pointingState, CancellationToken cancellationToken)
-        => throw new InvalidOperationException("Skywatcher does not support setting side of pier directly");
+    /// <summary>
+    /// GSS's forced flip: reach the CURRENT sky position through the other axis solution. A no-op when
+    /// the mount is already in the requested state. Refuses <see cref="PointingState.Unknown"/> and
+    /// alt-az. GSS additionally refuses a forced flip outside its flip limits; this driver knows no such
+    /// bound of its own -- the mount safety limit is the one that applies, and it acts on the result.
+    /// </summary>
+    public async ValueTask SetSideOfPierAsync(PointingState pointingState, CancellationToken cancellationToken)
+    {
+        EnsureEquatorialAlignment("Set side of pier");
+        if (pointingState is not (PointingState.Normal or PointingState.ThroughThePole))
+        {
+            throw new ArgumentOutOfRangeException(nameof(pointingState), pointingState, "A pointing state to flip to must be Normal or ThroughThePole");
+        }
+        if (_cprRa == 0 || _cprDec == 0)
+        {
+            throw new InvalidOperationException("Mount not initialized");
+        }
+        if (await GetSideOfPierAsync(cancellationToken) == pointingState)
+        {
+            return;
+        }
+
+        // The same target, the other solution: exactly what a goto does when the destination's pier side
+        // differs from the current one, so it shares the goto's refinement state and its command-time
+        // choice of solution (see _gotoPointingState).
+        var ra = await GetRightAscensionAsync(cancellationToken);
+        var dec = await GetDeclinationAsync(cancellationToken);
+        _gotoPointingState = pointingState;
+        _gotoTargetRa = ra;
+        _gotoTargetDec = dec;
+        _gotoRefineAttempts = 0;
+        await SlewToRaDecCoreAsync(ra, dec, pointingState, cancellationToken);
+    }
 
     public ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
     {

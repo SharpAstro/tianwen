@@ -145,6 +145,14 @@ namespace TianWen.Lib.Sequencing
         /// </summary>
         DateTimeOffset? MeridianFlipUtc { get; }
 
+        /// <summary>
+        /// The most recent mount safety-limit verdict (<c>docs/plans/mount-safety-limits.md</c> P4): clear, a
+        /// warning with a countdown in <see cref="MountLimitVerdict.ExceededBy"/>, an action already taken,
+        /// or a driver-enforced stop. Telemetry, so a remote mirror can carry it and the Home board can show
+        /// a rig sitting in its limit; the ACTING stays the session's own.
+        /// </summary>
+        MountLimitVerdict MountLimitVerdict { get; }
+
         /// <summary>Per-camera latest frame metrics (star count, HFD, FWHM). One per OTA.</summary>
         FrameMetrics[] LastFrameMetrics { get; }
 

@@ -40,6 +40,25 @@ namespace TianWen.Lib.Tests
             (new ViewContexts(), new RemoteRigRegistry(), new GuiAppState());
 
         [Fact]
+        public void ARigInsideItsSafetyLimitCarriesTheVerdictAndAClearRigCarriesNone()
+        {
+            var (contexts, rigs, appState) = Board();
+            var session = contexts.Local.LiveSession;
+
+            HomeBoard.BuildCards(contexts, rigs, appState, Now)[0].MountLimit.ShouldBeNull("clear is nothing to show");
+
+            // 7 min short of the meridian action threshold: a warning with a countdown, from the axis tier.
+            session.MountLimitVerdict = new MountLimitVerdict(
+                MountLimitKind.Meridian, MountLimitResponse.StopTracking, -7.0, MountLimitBasis.AxisAngle);
+            var card = HomeBoard.BuildCards(contexts, rigs, appState, Now)[0];
+
+            var limit = card.MountLimit.ShouldNotBeNull();
+            limit.IsWarningOnly.ShouldBeTrue();
+            limit.ExceededBy.ShouldBe(-7.0);
+            limit.Describe().ShouldContain("measured on the RA axis");
+        }
+
+        [Fact]
         public void TheLocalNodeIsTheFirstCardAndNeedsNothingConnected()
         {
             var (contexts, rigs, appState) = Board();

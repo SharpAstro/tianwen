@@ -1,3 +1,4 @@
+using TianWen.Lib.Sequencing;
 using System;
 using System.Collections.Immutable;
 using DIR.Lib;
@@ -607,6 +608,26 @@ namespace TianWen.UI.Abstractions
                 .RowH(DetailRowHeight)
                 .WithGap(8f);
 
+        /// <summary>
+        /// The Flip column doubles as the limit column. A rig inside its safety limit has a more urgent
+        /// countdown than its flip -- the limit is what ends the night -- and a rig the limit has already
+        /// stopped has no flip coming. Warning colour, because it is one; the countdown is the meridian
+        /// warning's <see cref="MountLimitVerdict.ExceededBy"/>, already in minutes.
+        /// </summary>
+        private static Layout.Node LimitOrFlipCell(RigCard card, DateTimeOffset now, HomeBoardStyle style)
+        {
+            if (card.MountLimit is { } limit)
+            {
+                var text = limit.IsWarningOnly && limit.Kind is MountLimitKind.Meridian
+                    ? $"limit {-limit.ExceededBy:F0}m"
+                    : limit.IsWarningOnly ? "limit" : "LIMIT";
+                return TableCell(text, style.WarnText, 1f, 70f);
+            }
+            return TableCell(card.TimeToMeridianFlip(now) is { } untilFlip
+                ? LiveSessionActions.FormatDuration(untilFlip)
+                : "", style.DimText, 1f, 70f);
+        }
+
         private static Layout.Node TableRow(
             RigCard card, HomeBoardStyle style, DateTimeOffset now,
             Func<RigCard, Action<InputModifier>?>? onSelect)
@@ -621,9 +642,7 @@ namespace TianWen.UI.Abstractions
                     .WStar(2f, 130f)
                     .Bg(style.PromptBg)
                     .Radius(4f), (Layout.Node?)null)
-                : (TableCell(card.TimeToMeridianFlip(now) is { } untilFlip
-                        ? LiveSessionActions.FormatDuration(untilFlip)
-                        : "", style.DimText, 1f, 70f),
+                : (LimitOrFlipCell(card, now, style),
                    TableCell(card.GuideRmsArcsec is { } rms ? $"{rms:F2}\"" : "", style.DimText, 1f, 60f));
 
             var cells = ImmutableArray.CreateBuilder<Layout.Node>(9);
@@ -792,6 +811,14 @@ namespace TianWen.UI.Abstractions
                 DetailRowHeight);
 
             Row(Layout.Builder.Text(card.Status, BaseFontSize * 0.9f, style.BodyText), StatusRowHeight);
+
+            // A limit is the other thing that ends a night while you sleep -- and unlike a flip it may already
+            // have, which is why it sits directly under the status and is not gated on the rig running.
+            // The full sentence, warning colour; a meridian warning's countdown is inside it.
+            if (card.MountLimit is { } limit)
+            {
+                Row(Layout.Builder.Text(limit.Describe(), BaseFontSize * 0.85f, style.WarnText), DetailRowHeight);
+            }
 
             // Cooling sits directly under the status because during setup it IS the status, and it is the one
             // row that answers a question about a rig you are NOT looking at: is this one ready yet. Settled

@@ -132,7 +132,12 @@ public sealed class MountLimitWatcher(
     {
         foreach (var device in deviceDiscovery.RegisteredDevices(DeviceType.Profile))
         {
-            if (device is Profile { Data: { } data } && data.Mount == mountUri && data.MountLimits is { } limits)
+            // The hub's own identity rule (scheme + host + path): a profile whose mount query has drifted
+            // from the connected URI (re-discovery, a reconciled setting) is still this mount's profile.
+            if (device is Profile { Data: { } data }
+                && data.Mount is { } profileMount
+                && string.Equals(profileMount.DeviceKey, mountUri.DeviceKey, StringComparison.OrdinalIgnoreCase)
+                && data.MountLimits is { } limits)
             {
                 return (limits, data.SiteLatitude);
             }
@@ -151,7 +156,9 @@ public sealed class MountLimitWatcher(
         var hourAngle = await mount.Logger.CatchAsync(mount.GetHourAngleAsync, cancellationToken, double.NaN).ConfigureAwait(false);
         // Unknown on a failed read, never Normal: Normal is the FLIPPED state, in which the meridian
         // limit is silent, so defaulting there would switch the limit off on the mounts it reads worst.
-        var pointingState = await mount.Logger.CatchAsync(mount.GetSideOfPierAsync, cancellationToken, PointingState.Unknown).ConfigureAwait(false);
+        var pointingState = MountLimits.TrustedPointingState(
+            mount.PointingStateSource,
+            await mount.Logger.CatchAsync(mount.GetSideOfPierAsync, cancellationToken, PointingState.Unknown).ConfigureAwait(false));
         // The mechanical tier where the driver has one; null (the interface default) elsewhere, and NaN
         // on a failed read too -- an unreadable axis must fall back to the estimate, not fire.
         var primaryAxisAngleDeg = await mount.Logger.CatchAsync(

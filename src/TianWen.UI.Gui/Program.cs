@@ -231,6 +231,13 @@ int _lastShutdownPendingCount = -1;
 var signalHandler = handlers.SignalHandler;
 tracker.Run(() => signalHandler.LoadSessionConfigAsync(backgroundCts.Token), "Load session config");
 
+// P3 of docs/plans/mount-safety-limits.md, the GUI half: a profile's mount safety limits apply to a MANUAL
+// slew with no session running -- the case the config was put on the profile for -- and a session only
+// enforces them on the mount it leases. The GUI runs a bare ServiceCollection, so the watcher's loop is
+// driven here the way LanDiscovery's lifecycle is above, on the background token: quitting stops it
+// without touching a running session, whose leased mount the watcher skips on its own anyway.
+tracker.Run(() => sp.GetRequiredService<MountLimitWatcher>().RunAsync(backgroundCts.Token), "Mount limit watcher");
+
 if (appState.ActiveProfile is not null)
 {
     // Legacy migration: earlier builds stored site in the Mount URI query string.

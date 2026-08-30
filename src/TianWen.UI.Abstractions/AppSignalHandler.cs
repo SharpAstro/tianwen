@@ -489,6 +489,7 @@ namespace TianWen.UI.Abstractions
             // screen does zero device I/O" a property that can be stated rather than argued.
             _appState.HomeCards = HomeBoard.BuildCards(_contexts, _rigs, _appState, _timeProvider.GetUtcNow());
             RefreshRigProfileNames();
+            NotifyLimitTransitions();
 
             if (LocalLiveSession.IsRunning) return;
 
@@ -943,6 +944,35 @@ namespace TianWen.UI.Abstractions
         /// session, planner) sets that state's <c>NeedsRedraw</c> explicitly at the call site
         /// -- a redraw-everything hammer would mask missing-redraw bugs and cost frames.
         /// </summary>
+        // P4 of mount-safety-limits.md: the limit reaches the feed the moment its verdict changes CLASS --
+        // clear -> warning -> acted, or the driver stopping the mount -- and never per poll, since the same
+        // verdict repeats every tick for as long as the rig sits in the limit. The latch's downgrade to Warn
+        // after acting leaves IsWarningOnly false, so it is not a change here. Only the LOCAL rig: a remote
+        // node's own feed carries its limit (EventBroadcaster does the same there) and rides in on its card.
+        private (MountLimitKind Kind, bool WarningOnly) _lastLimitClass;
+
+        private void NotifyLimitTransitions()
+        {
+            var verdict = LocalLiveSession.MountLimitVerdict;
+            var cls = (verdict.Kind, verdict.IsWarningOnly);
+            if (cls == _lastLimitClass)
+            {
+                return;
+            }
+            var wasBreached = _lastLimitClass.Kind is not MountLimitKind.None;
+            _lastLimitClass = cls;
+            if (!verdict.IsBreached)
+            {
+                if (wasBreached)
+                {
+                    Notify(NotificationSeverity.Info, "Mount is clear of its safety limits again.");
+                }
+                return;
+            }
+            Notify(verdict.IsWarningOnly ? NotificationSeverity.Warning : NotificationSeverity.Error,
+                $"Mount safety limit: {verdict.Describe()}");
+        }
+
         private void Notify(NotificationSeverity severity, string message)
         {
             _appState.AppendNotification(_timeProvider.GetUtcNow(), severity, message);

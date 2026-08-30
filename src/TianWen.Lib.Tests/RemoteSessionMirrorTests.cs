@@ -754,6 +754,41 @@ public class RemoteSessionMirrorTests
     }
 
     [Fact]
+    public async Task TheMountLimitVerdictSurvivesTheRoundTripAndAnOlderNodeReadsAsClear()
+    {
+        var verdict = new MountLimitVerdict(MountLimitKind.Meridian, MountLimitResponse.Park, 12.5, MountLimitBasis.HourAngle);
+        var session = Substitute.For<ISessionTelemetry>();
+        session.Phase.Returns(SessionPhase.Observing);
+        session.MountDisplayName.Returns("Fake Mount");
+        session.MountLimitVerdict.Returns(verdict);
+        session.MountState.Returns(new MountState(5.5, -5.0, 0.75, PointingState.ThroughThePole, false, false));
+        session.TelescopeDisplays.Returns([]);
+        session.CameraStates.Returns([]);
+        session.LastFrameMetrics.Returns([]);
+        session.Observations.Returns(new ScheduledObservationTree([]));
+        session.PhaseTimeline.Returns([]);
+        session.GuideSamples.Returns([]);
+
+        var projected = SessionStateDto.FromSession(session, pendingPrompt: null, lastNotification: null);
+        var (mirror, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(projected)));
+        await using var _mirror = mirror;
+        await mirror.PollOnceAsync(TestContext.Current.CancellationToken);
+
+        mirror.MountLimitVerdict.ShouldBe(verdict, "the Home board renders a remote rig's limit from this");
+
+        // A node that predates the field sends no MountLimit at all -- the same as no snapshot yet: Clear,
+        // not an error, so an older server and a newer GUI keep talking.
+        var (fresh, _) = BuildMirror(_ => Json(ResponseEnvelope<SessionStateDto>.Ok(projected)));
+        await using var _fresh = fresh;
+        fresh.MountLimitVerdict.ShouldBe(MountLimitVerdict.Clear);
+    }
+
+    [Fact]
+    public void ANonFiniteExceededByIsMadeWireSafe()
+        => MountLimitDto.FromVerdict(new MountLimitVerdict(MountLimitKind.Horizon, MountLimitResponse.Warn, double.NaN))
+            .ExceededBy.ShouldBe(JsonNumber.ForWire(double.NaN));
+
+    [Fact]
     public async Task TheFlipInstantAndTheLastNoteSurviveTheRoundTrip()
     {
         var flipDue = new DateTimeOffset(2026, 7, 26, 23, 12, 0, TimeSpan.Zero);

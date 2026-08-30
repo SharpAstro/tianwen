@@ -144,6 +144,40 @@ public class MountLimitsTests
 
     #endregion
 
+    #region Trusting the pointing state
+
+    [Theory]
+    [InlineData(PointingStateSource.Measured, PointingState.Normal, PointingState.Normal)]
+    [InlineData(PointingStateSource.Measured, PointingState.ThroughThePole, PointingState.ThroughThePole)]
+    [InlineData(PointingStateSource.Computed, PointingState.Normal, PointingState.Unknown)]
+    [InlineData(PointingStateSource.Computed, PointingState.ThroughThePole, PointingState.Unknown)]
+    [InlineData(PointingStateSource.None, PointingState.Normal, PointingState.Unknown)]
+    public void OnlyAMeasuredPointingStateIsTrusted(PointingStateSource source, PointingState reported, PointingState expected)
+        => MountLimits.TrustedPointingState(source, reported).ShouldBe(expected);
+
+    [Fact]
+    public void AComputedNormalWestOfTheMeridianDoesNotSilenceTheLimit()
+    {
+        // The LX200-base case: the driver derives Normal from HA >= 0 -- "the firmware will have flipped"
+        // -- while the real mount may be tracking through the pole into its pier. Untrusted, the state
+        // becomes Unknown and the hour-angle tier fires; trusted, it would read as post-flip and stay silent.
+        var trusted = MountLimits.TrustedPointingState(PointingStateSource.Computed, PointingState.Normal);
+        MountLimits.Evaluate(1.0, trusted, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+            .Kind.ShouldBe(MountLimitKind.Meridian);
+    }
+
+    [Fact]
+    public void ADriverEnforcedStopDescribesItselfAsALimitNotAFault()
+    {
+        var verdict = MountLimitVerdict.DriverEnforcedStop;
+        verdict.Kind.ShouldBe(MountLimitKind.DriverEnforced);
+        verdict.IsBreached.ShouldBeTrue();
+        verdict.Response.ShouldBe(MountLimitResponse.Warn, "the driver already acted; there is nothing left to do to the mount");
+        verdict.Describe().ShouldContain("not a fault");
+    }
+
+    #endregion
+
     #region Axis angle (the mechanical tier)
 
     [Fact]

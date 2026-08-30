@@ -43,6 +43,10 @@ public class MountLimitWatcherTests
         // enforcement deleted. Through-the-pole (counterweight down, looking east, not yet flipped) is
         // the state in which tracking west carries the tube toward the pier.
         mount.GetSideOfPierAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(pointingState));
+        // Measured, or the watcher rightly refuses to trust the state above (a computed one reads as
+        // post-flip west of the meridian). An unconfigured mock returns default = None, which is also
+        // untrusted -- so the flipped-mount test would go red on a missing line here, never green.
+        mount.PointingStateSource.Returns(PointingStateSource.Measured);
         // Null is the interface default and the safe one here (no axis model -> hour-angle tier), unlike
         // the pointing state above, so a test that wants the mechanical tier opts in explicitly.
         mount.GetAxisAngleAsync(TelescopeAxis.Primary, Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(axisAngleDeg));
@@ -55,7 +59,8 @@ public class MountLimitWatcherTests
     }
 
     private static (IDeviceHub Hub, IDeviceDiscovery Discovery) HubAndDiscoveryFor(
-        IMountDriver mount, MountLimitConfiguration? limits, bool leased = false, double? siteLatitude = 45.0)
+        IMountDriver mount, MountLimitConfiguration? limits, bool leased = false, double? siteLatitude = 45.0,
+        Uri? profileMount = null)
     {
         var hub = Substitute.For<IDeviceHub>();
         hub.ConnectedDevices.Returns(new List<(Uri DeviceUri, IDeviceDriver Driver)> { (MountUri, mount) });
@@ -63,7 +68,7 @@ public class MountLimitWatcherTests
 
         var discovery = Substitute.For<IDeviceDiscovery>();
         var profileData = new ProfileData(
-            Mount: MountUri,
+            Mount: profileMount ?? MountUri,
             Guider: NoneDevice.Instance.DeviceUri,
             OTAs: [],
             SiteLatitude: siteLatitude,
@@ -120,6 +125,36 @@ public class MountLimitWatcherTests
         var (hub2, discovery2) = HubAndDiscoveryFor(upAxis, StopTrackingPastTheMeridian);
         await WatcherFor(hub2, discovery2).TickAsync(ct);
         await upAxis.Received(1).SetTrackingAsync(false, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AComputedPointingStateIsNotTrustedSoAComputedNormalStillStops()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // The LX200-base shape: Normal derived from HA >= 0, a prediction that the firmware flipped. The
+        // watcher must fall back to the hour angle and stop, not read "post-flip" and stay silent.
+        var mount = MountAt(hourAngleHours: 1.0, pointingState: PointingState.Normal);
+        mount.PointingStateSource.Returns(PointingStateSource.Computed);
+        var (hub, discovery) = HubAndDiscoveryFor(mount, StopTrackingPastTheMeridian);
+
+        await WatcherFor(hub, discovery).TickAsync(ct);
+
+        await mount.Received(1).SetTrackingAsync(false, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AProfileWhoseMountUriDiffersOnlyInItsQueryIsStillThisMountsProfile()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // The hub keys a connected device by scheme + host + path; re-discovery and reconciliation rewrite
+        // the query. Whole-URI equality here skipped the profile -- and the limit -- silently.
+        var mount = MountAt(hourAngleHours: 1.0);
+        var (hub, discovery) = HubAndDiscoveryFor(
+            mount, StopTrackingPastTheMeridian, profileMount: new Uri("Mount://FakeDevice/FakeMount1?latitude=48.2&port=SkyWatcher"));
+
+        await WatcherFor(hub, discovery).TickAsync(ct);
+
+        await mount.Received(1).SetTrackingAsync(false, Arg.Any<CancellationToken>());
     }
 
     [Fact]
