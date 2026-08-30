@@ -395,6 +395,8 @@ public class MountLimitsTests
         acted.IsBreached.ShouldBeTrue();
         acted.Kind.ShouldBe(MountLimitKind.Meridian);
         acted.Response.ShouldBe(MountLimitResponse.Warn);
+        acted.Latched.ShouldBeTrue("the downgrade is a latch, and the sentence must say so rather than \"warn only\"");
+        acted.Describe().ShouldContain("already acted");
     }
 
     [Fact]

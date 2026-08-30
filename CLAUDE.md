@@ -364,6 +364,18 @@ Each subclass reads query keys (`?key=value`) defined in `DeviceQueryKey`. See c
 for supported keys. Full driver hierarchy (ASCOM / Alpaca / ZWO / QHY / native-serial subgraphs):
 [docs/architecture/device-architecture.md](docs/architecture/device-architecture.md).
 
+**A profile scan never probes a COM port, and a port that will not TAKE bytes is given up, not retried.**
+`DiscoverOnlyDeviceType(type)` runs the serial probe pass only when a source for that type consumes it (it
+used to run for `Profile` -- at GUI start-up on the main thread and from `MountLimitWatcher` every 5 s).
+`SerialConnectionBase` bounds every write twice (port `WriteTimeout` + task deadline) and `SerialConnection`
+bounds the close, because a Windows Bluetooth SPP listener port (`bthmodem.sys`, created for any paired
+device advertising SPP) accepts an open and then never completes a write, and `SerialStream` ignores its
+token. Only a write the driver never completed raises `ISerialConnection.HasAbandonedIo`, on which the pass
+drops the port for the rest of the discovery; a READ timeout never does -- a device at the wrong baud or
+awaiting another protocol completes the write and stays silent, and still gets every probe and baud. Found
+and measured live 2026-08-30: [docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md),
+"Live verification".
+
 ### Device Ownership (the hub lease)
 
 A run that is driving hardware **claims it from the hub**, and nothing else may disconnect or command a

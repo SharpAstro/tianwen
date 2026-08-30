@@ -579,10 +579,13 @@ Two places, because the two things being edited live in two places:
   never the stored extras -- with `[>]` posting `EditMountLimitsSignal`. The editor asks for the four
   numbers in measurable terms ("past meridian, warn at (min)", "act a further (min)", "horizon floor
   (deg)", "warn from (deg above)"), parsed and range-checked by the pure `TryParseMountLimits`
-  (0..360 min, 0..60 deg) onto the current record so the switch and responses survive a text save;
-  the On/Off switch and the Warn/Stop/Park responses are buttons that save at once through
-  `UpdateProfileSignal` (one save path, `SetMountLimits` a `with`). Cancel/Escape leave the edit. The
-  handler routes only.
+  (0..360 min, 0..60 deg) onto the current record composed with the pending switch and responses;
+  the switch and the two responses are ONE cycle button each showing the pending value (Yes / No;
+  Warn -> Stop tracking -> Park), the way a device setting such as "Dec Pulse as GOTO" is edited, and
+  save with the numbers through `UpdateProfileSignal` (one save path, `SetMountLimits` a `with`).
+  Cancel/Escape drop all seven. The first cut drew On|Off and Warn|Stop|Park as pill PAIRS that saved
+  on every click -- past Cancel -- and painted both halves in the active colour (`CreateButton` is
+  the same mix as `SegmentActive`), which is how it read live. The handler routes only.
 - **The flip settings are a session preference, so they got their first UI in the session config
   editor**: a "Meridian Flip" `ConfigGroup` (pause before, earliest, latest; all in minutes, the
   unit the limit shares; earliest can never pass latest). **The deadline carries a caveat** --
@@ -641,6 +644,7 @@ mount.
 | Watcher (P3, no session) | `MountLimitWatcherService` | `Program.cs` tracker | `TuiSubCommand` tracker |
 | Verdict on the Home board | n/a | shared `HomeBoardLayout` | shared `HomeBoardLayout` (cards built per frame in `TuiHomeTab`) |
 | Feed on class transitions | `EventBroadcaster` | `PollPreviewTelemetry` -> `NotifyLimitTransitions` | loop -> `NotifyLimitTransitions` (the TUI has no telemetry poll) |
+| Verdict with NO session (manual slew) | log only | `NotifyLimitTransitions` -> `MountLimitWatcher.VerdictFor` -> local `LiveSessionState` -> card + feed | same call, same seam |
 | Flip settings + clamp caveat | n/a | "Meridian Flip" config group | same group; caveat appended to the value |
 | Limits editor | n/a | `PanelSection.MountLimits` | **not built** -- the TUI equipment tab has its own site bar and key routing; a limits row there is open |
 | Live Session tab verdict | n/a | not shown (the flip countdown lives on the Home board only) | same |
@@ -649,14 +653,48 @@ mount.
 
 - **Hardware validation** of the SkyWatcher axis-solution port (`SkyToSteps`) and the forced flip: the
   fake motor controller executes whatever step targets it is given.
-- **Watcher-side surfacing**: a rig idle in its limit with NO session is visible only in the log and
-  the driver's stopped tracking (the watcher has no session telemetry to carry a verdict). A
-  hub-level "last limit event" the Home board could read is the natural next step.
+- ~~**Watcher-side surfacing**~~ (done 2026-08-30, found live -- see "Live verification" below):
+  `MountLimitWatcher.VerdictFor(mountUri)` publishes the last tick's verdict per mount (by `DeviceKey`,
+  dropped for any mount the tick skipped), and `AppSignalHandler.NotifyLimitTransitions` feeds the LOCAL
+  `LiveSessionState.MountLimitVerdict` from it whenever no session exists, so the Home card row and the
+  feed work for a manual slew exactly as for a run. The server still has no session-less surface for it.
 - **Tier labelling in the editor**, above.
 - **OnStep axis angle**: exposes raw steps, axis model not studied; stays on the hour-angle tier.
 - **A verdict on the TUI's Live Session surface** beyond the Home board cell/row, and **a limits editor
   row in the TUI equipment tab** (its site bar is bespoke, not the profile-panel section list).
-- **Live GUI/TUI verification** of the editor: blocked on this box by serial probing wedging start-up.
+- **Live TUI verification** of the editor path (the GUI was verified live 2026-08-30, below).
+
+## Live verification, 2026-08-30 (GUI, fake SkyWatcher, Melbourne profile)
+
+Driven through the SDL inspector against `tianwen-gui`; every finding below was fixed the same day.
+
+1. **Start-up wedged before the first frame, and it was ours.** `DiscoverOnlyDeviceType(Profile)` ran the
+   whole serial probe pass for a scan of JSON files -- at start-up on the MAIN thread, and from this
+   watcher's every 5 s tick (so every unconnected serial device was being probed nine times a tick). On
+   this box the first probe opened COM4, a Windows "Standard Serial over Bluetooth link" listener port
+   (created for a paired RAX20 advertising SPP; `bthmodem.sys`), and its `:GVP#` write never completed:
+   `SerialPort.WriteTimeout` is infinite by default and `SerialStream.WriteAsync` ignores its token, so no
+   budget could end it. A `dotnet-stack` dump showed NO thread in serial I/O -- a pending overlapped write
+   is invisible -- and the tell was the missing `COM4 --> :GVP#` line, which is logged after the await.
+   Fixes, each pinned: the profile scan no longer probes (`DeviceDiscoveryTests`); writes are bounded at
+   the port AND as a task (`SerialConnectionBase.WriteTimeoutMs`), closes are bounded (`TryClose`), and
+   an attempt whose I/O ignores its budget is abandoned (`SerialProbeService.AbandonGrace`); a write the
+   driver never completed marks the connection (`ISerialConnection.HasAbandonedIo`) and the pass gives
+   that port up for the rest of the discovery (`SerialProbeServiceTests`, two cases). The distinction is
+   deliberate: a device at the wrong baud or waiting for a different message still COMPLETES the write
+   (no handshaking is ever enabled) and only its READ times out, which still walks every protocol and
+   baud as before -- COM5 did, all 9 x 3 x 2. Only a port that would not take the bytes is given up.
+2. **The editor's On|Off and Warn|Stop|Park pill pairs painted both halves in the active colour**
+   (`CreateButton` is the same palette mix as `SegmentActive`) and saved on every click, past Cancel.
+   Now one cycle button each showing the pending value, saved with the numbers -- the app's existing
+   convention for a bool/enum setting ("Dec Pulse as GOTO": Yes / No). Label column widened 128 -> 210.
+3. **The watcher stopped the mount and the GUI showed nothing.** Profile limits enabled with a 45 deg
+   horizon floor, fake mount connected at home (alt 37.9 deg here), `SkyMapSlewToObject` to a 35 deg
+   target: the log read warn (4.5 deg margin, mid-slew) -> `StopTracking` (6.5 deg below) -> latched, in
+   three ticks, while the Home card read "Idle" and the feed carried only the slew's notification. Closed
+   by `VerdictFor` above. Two wordings fixed on the way: `Describe()` ended with a period the watcher's
+   log line then doubled, and the latched verdict said "Will warn only" about a mount it had just stopped
+   -- `MountLimitVerdict.Latched` (also on the wire, optional) makes it say the limit has already acted.
 
 ## Carried over from the 2026-08-29 handoff notes
 

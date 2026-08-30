@@ -487,9 +487,9 @@ namespace TianWen.UI.Abstractions
             // here is state mirroring and one throttled HTTP read per rig; the gate guards polling
             // already-connected DRIVERS, so keeping the board on this side of it is what makes "the home
             // screen does zero device I/O" a property that can be stated rather than argued.
+            NotifyLimitTransitions(); // first: it also refreshes the local verdict the cards below read
             _appState.HomeCards = HomeBoard.BuildCards(_contexts, _rigs, _appState, _timeProvider.GetUtcNow());
             RefreshRigProfileNames();
-            NotifyLimitTransitions();
 
             if (LocalLiveSession.IsRunning) return;
 
@@ -951,9 +951,42 @@ namespace TianWen.UI.Abstractions
         // node's own feed carries its limit (EventBroadcaster does the same there) and rides in on its card.
         private (MountLimitKind Kind, bool WarningOnly) _lastLimitClass;
 
-        /// <summary>Once per frame, by the host: the GUI from <see cref="PollPreviewTelemetry"/>, the TUI from its loop. A no-op between class changes.</summary>
+        // With no session at all, the LOCAL rig's verdict comes from the MountLimitWatcher (P3): a manual slew
+        // that a limit stopped used to reach only the log -- the Home card read "Idle" and the feed carried the
+        // slew's own notification and nothing else. A session (running, or a flats run holding the lease) owns
+        // its rig's verdict through LiveSessionState.PollSession, and the watcher steps back from a leased mount
+        // anyway, so the two sources never overlap. Resolved lazily: a host that never registered the watcher
+        // (tests, a bare service collection) simply keeps Clear.
+        private MountLimitWatcher? _limitWatcher;
+        private bool _limitWatcherResolved;
+
+        private void RefreshWatcherVerdict()
+        {
+            if (LocalLiveSession.ActiveSession is not null)
+            {
+                return;
+            }
+            if (!_limitWatcherResolved)
+            {
+                _limitWatcher = _sp.GetService<MountLimitWatcher>();
+                _limitWatcherResolved = true;
+            }
+            if (_limitWatcher is null)
+            {
+                return;
+            }
+            LocalLiveSession.MountLimitVerdict = _appState.ActiveProfile?.Data?.Mount is { } mountUri
+                ? _limitWatcher.VerdictFor(mountUri)
+                : MountLimitVerdict.Clear;
+        }
+
+        /// <summary>
+        /// Once per frame, by the host: the GUI from <see cref="PollPreviewTelemetry"/>, the TUI from its loop. Refreshes
+        /// the local verdict from the watcher when no session exists, then a no-op between class changes.
+        /// </summary>
         public void NotifyLimitTransitions()
         {
+            RefreshWatcherVerdict();
             var verdict = LocalLiveSession.MountLimitVerdict;
             var cls = (verdict.Kind, verdict.IsWarningOnly);
             if (cls == _lastLimitClass)

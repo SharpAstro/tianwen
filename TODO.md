@@ -172,9 +172,13 @@
   feeds), P5 (`MountLimitKind.DriverEnforced`), plus: only a MEASURED pointing state drives the limit
   (`IMountDriver.PointingStateSource`), the watcher matches profiles by `Uri.DeviceKey`, SkyWatcher
   `SetSideOfPierAsync` is the forced flip. Still open (plan doc, "What is still open"): hardware
-  validation of the SkyWatcher axis-solution port, watcher-side surfacing for a rig idle in its limit
-  with no session, the tier label in the editor, OnStep's axis angle, a limits editor row in the TUI
-  equipment tab (the TUI has the config group + caveat, the watcher and the feed hook, not the editor).
+  validation of the SkyWatcher axis-solution port, the tier label in the editor, OnStep's axis angle, a
+  limits editor row in the TUI equipment tab (the TUI has the config group + caveat, the watcher and the
+  feed hook, not the editor), a session-less verdict surface on the server. Verified live in the GUI
+  2026-08-30 (plan doc, "Live verification"): the watcher's verdict now reaches the Home card and the
+  feed with no session (`MountLimitWatcher.VerdictFor`), and the start-up wedge that had blocked the
+  live check was a profile scan probing every COM port (fixed in `DeviceDiscovery`, plus bounded serial
+  writes/closes and per-port give-up in `SerialProbeService`).
   Original entry follows.
   **P0 + P1 + P2 shipped 2026-08-29, so a configured limit now actually stops a mount during a run.**
   The config persists on `ProfileData.MountLimits` (nullable = never configured = disabled) and is

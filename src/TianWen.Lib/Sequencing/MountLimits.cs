@@ -100,11 +100,18 @@ public enum MountLimitResponse
 /// <see cref="MountLimitVerdict.Describe"/> renders the right unit; do not format this raw.
 /// </para>
 /// </param>
+/// <param name="Latched">
+/// True once the limit has ACTED and the mount is still inside it: <see cref="MountLimitVerdict.Response"/>
+/// is downgraded to <see cref="MountLimitResponse.Warn"/> so nothing commands the recovery twice, and this
+/// flag is what lets <see cref="MountLimitVerdict.Describe"/> say so -- read live, the downgraded verdict
+/// announced "Will warn only" about a mount the limit had just stopped.
+/// </param>
 public readonly record struct MountLimitVerdict(
     MountLimitKind Kind,
     MountLimitResponse Response,
     double ExceededBy,
-    MountLimitBasis Basis = MountLimitBasis.HourAngle)
+    MountLimitBasis Basis = MountLimitBasis.HourAngle,
+    bool Latched = false)
 {
     /// <summary>Nothing is wrong.</summary>
     public static MountLimitVerdict Clear { get; } =
@@ -138,11 +145,11 @@ public readonly record struct MountLimitVerdict(
         MountLimitKind.Meridian when IsWarningOnly =>
             $"Approaching the meridian limit: {-ExceededBy:F0} min of hour angle before the mount will {ResponsePhrase()} ({BasisPhrase()}).",
         MountLimitKind.Meridian =>
-            $"Meridian limit reached: the tube is {ExceededBy:F0} min of hour angle past the limit ({BasisPhrase()}). Will {ResponsePhrase()}.",
+            $"Meridian limit reached: the tube is {ExceededBy:F0} min of hour angle past the limit ({BasisPhrase()}). {ActionPhrase()}",
         MountLimitKind.Horizon when IsWarningOnly =>
             $"Approaching the horizon limit: {-ExceededBy:F1} deg of altitude before the mount will {ResponsePhrase()}.",
         MountLimitKind.Horizon =>
-            $"Horizon limit reached: the pointing is {ExceededBy:F1} deg below the limit. Will {ResponsePhrase()}.",
+            $"Horizon limit reached: the pointing is {ExceededBy:F1} deg below the limit. {ActionPhrase()}",
         _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "unknown limit kind"),
     };
 
@@ -152,6 +159,11 @@ public readonly record struct MountLimitVerdict(
         MountLimitBasis.HourAngle => "estimated from the hour angle",
         _ => throw new ArgumentOutOfRangeException(nameof(Basis), Basis, "unknown limit basis"),
     };
+
+    /// <summary>What is about to happen -- or, once latched, what already did and why nothing more will.</summary>
+    private string ActionPhrase() => Latched
+        ? "The limit has already acted (tracking is stopped); it acts again only once the mount is clear."
+        : $"Will {ResponsePhrase()}.";
 
     private string ResponsePhrase() => Response switch
     {
@@ -377,7 +389,7 @@ public static class MountLimits
         // The latch. Downgrade to Warn rather than to Clear: the mount is still in the limit and the
         // user must keep being told so, we simply must not command the same recovery twice.
         return alreadyActed && verdict.IsBreached && !verdict.IsWarningOnly
-            ? verdict with { Response = MountLimitResponse.Warn }
+            ? verdict with { Response = MountLimitResponse.Warn, Latched = true }
             : verdict;
     }
 

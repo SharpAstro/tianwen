@@ -202,6 +202,35 @@ public class MountLimitWatcherTests
     }
 
     [Fact]
+    public async Task TheLatestVerdictIsPublishedPerMountAndForgottenOnceTheMountIsNoLongerWatched()
+    {
+        // The surfacing seam (VerdictFor): the first live run stopped a manually slewed mount and the GUI
+        // showed nothing -- the verdict lived only in the log. A host with no session reads it from here.
+        var ct = TestContext.Current.CancellationToken;
+        var mount = MountAt(hourAngleHours: 1.0);
+        var (hub, discovery) = HubAndDiscoveryFor(mount, StopTrackingPastTheMeridian);
+        var watcher = WatcherFor(hub, discovery);
+        watcher.VerdictFor(MountUri).ShouldBe(MountLimitVerdict.Clear, "nothing evaluated yet");
+
+        await watcher.TickAsync(ct);
+        var acted = watcher.VerdictFor(MountUri);
+        acted.Kind.ShouldBe(MountLimitKind.Meridian);
+        acted.Response.ShouldBe(MountLimitResponse.StopTracking);
+        acted.Latched.ShouldBeFalse("the tick that acts reports the action it took");
+
+        await watcher.TickAsync(ct);
+        var latched = watcher.VerdictFor(MountUri);
+        latched.Latched.ShouldBeTrue("still in the limit, already acted");
+        latched.Describe().ShouldContain("already acted");
+        watcher.VerdictFor(new Uri(MountUri + "?port=COM9")).Latched.ShouldBeTrue("the query is not part of a mount's identity");
+
+        // A session takes the lease: the watcher steps back and stops answering for the mount at once.
+        hub.TryGetLease(MountUri, out Arg.Any<DeviceLease>()).Returns(true);
+        await watcher.TickAsync(ct);
+        watcher.VerdictFor(MountUri).ShouldBe(MountLimitVerdict.Clear, "a verdict must not outlive the tick that produced it");
+    }
+
+    [Fact]
     public async Task LimitsThatAreNotConfiguredDoNothingAtAll()
     {
         var ct = TestContext.Current.CancellationToken;
