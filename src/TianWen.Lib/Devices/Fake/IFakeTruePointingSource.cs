@@ -30,6 +30,30 @@ internal interface IFakeTruePointingSource
 }
 
 /// <summary>
+/// Internal seam exposing a fake mount's TRUE (mechanical) pointing state -- which side of the
+/// pier the OTA is PHYSICALLY on -- as the pointing-state twin of <see cref="IFakeTruePointingSource"/>.
+/// The public <see cref="IMountDriver.GetSideOfPierAsync"/> read is what the mount SAYS, and on a
+/// <see cref="PointingStateSource.Computed"/> mount that answer is derived from the hour angle: it
+/// reads as counterweight-down west of the meridian whether or not the tube ever moved. The
+/// difference between the two is exactly the failure a missed meridian flip is -- a goto that just
+/// misses the firmware's flip window and tracks straight through, leaving the mount reporting a
+/// flipped state over an unflipped tube -- so a fake that cannot separate them cannot model it.
+/// <para>
+/// Consumed exclusively by the fake camera, which rolls its rendered field 180 degrees when the
+/// mechanical state differs from the one it first saw: the image is the only witness to a flip that
+/// does not go through the mount's own reads, and it must follow the TUBE, never the report.
+/// </para>
+/// </summary>
+internal interface IFakeMechanicalPointingStateSource
+{
+    /// <summary>
+    /// The side of the pier the OTA is physically on. <see cref="PointingState.Unknown"/> when the
+    /// fake has no mechanical model to answer from, in which case the caller keeps the roll it has.
+    /// </summary>
+    ValueTask<PointingState> GetMechanicalPointingStateAsync(CancellationToken cancellationToken);
+}
+
+/// <summary>
 /// J2000 convenience over <see cref="IFakeTruePointingSource"/> mirroring
 /// <see cref="IMountDriver.GetRaDecJ2000Async(Transform, bool, CancellationToken)"/>
 /// step for step (connected gate, NaN gate, epoch short-circuits, optional mount-UTC

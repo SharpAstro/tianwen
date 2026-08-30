@@ -166,6 +166,14 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     private double _mountCachedDec;     // mount Dec snapshot (J2000 degrees)
     private bool _mountPointingValid;   // a snapshot has been taken at least once
 
+    // Which side of the pier the OTA is PHYSICALLY on, snapshotted per exposure from the coupled
+    // mount's mechanical state (IFakeMechanicalPointingStateSource). A German mount looking through
+    // the pole carries its whole instrument assembly -- OTA, camera, guide scope -- turned over, so
+    // everything downstream of it arrives rotated 180 degrees. Unknown for a mount with no mechanical
+    // model (and for an alt-az, which has no pier side at all), which renders square. Guarded by
+    // _lock like the other snapshots.
+    private PointingState _mountCachedPierSide = PointingState.Unknown;
+
     // Sensor-side seeing (SensorDelta): a one-term DisturbanceModel built lazily on the first frame
     // after SeeingArcsec is set, then cached so the per-frame draw advances off a stable epoch.
     private DisturbanceModel? _sensorModel;
@@ -193,23 +201,52 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// </summary>
     private bool IsGuideCamera => _fakeDevice.DeviceUri.AbsolutePath.Contains("GuideCam", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Guide-scope cone error, RA component in arcminutes (guide camera only). The guide scope
-    /// never points exactly where the mount believes the main OTA points; the catalog star field
-    /// is projected at the mount pointing offset by this. Default models a typical mini guide
-    /// scope in adjustable rings (~10' total misalignment).
-    /// </summary>
-    internal double GuideConeErrorRaArcmin { get; set; } = 9.0;
-
-    /// <summary>Guide-scope cone error, Dec component in arcminutes (guide camera only).</summary>
-    internal double GuideConeErrorDecArcmin { get; set; } = -6.0;
+    // The guide scope's aim relative to the main OTA's, as the polar pair it physically is: a
+    // distance and a bearing, both fixed in the INSTRUMENT frame by how the scope is bolted on.
+    // Stated as an east/north pair here only so the default rig reads as the ~10' misalignment of a
+    // typical mini guide scope in adjustable rings rather than as two derived decimals.
+    private const double DefaultGuideOffsetEastArcmin = 9.0;
+    private const double DefaultGuideOffsetNorthArcmin = -6.0;
 
     /// <summary>
-    /// Guide camera roll angle in degrees (guide camera only). Real guide cams are never
-    /// north-up; the guider's calibration sweep measures this angle empirically, so a non-zero
-    /// default exercises that path.
+    /// How far the guide scope aims from the main OTA's axis, arcminutes (guide camera only). The
+    /// guide scope never points exactly where the mount believes the main OTA points, so the catalog
+    /// star field is projected at the mount pointing offset by this.
     /// </summary>
-    internal double GuideRotationDeg { get; set; } = 15.0;
+    internal double GuideOffsetArcmin { get; set; }
+        = double.Hypot(DefaultGuideOffsetEastArcmin, DefaultGuideOffsetNorthArcmin);
+
+    /// <summary>
+    /// The bearing of that offset, degrees, as a position angle in the INSTRUMENT frame: 0 points
+    /// along the instrument's own "north", rising toward its "east". It is fixed by the guide scope's
+    /// rings, NOT by the sky, so a meridian flip turns it over with the rest of the assembly and the
+    /// offset lands on the opposite side of the target. Splitting it into sky-frame RA and Dec
+    /// components -- which is how this used to be written -- states it in a frame it does not live in,
+    /// and a flip then silently leaves the guide scope aiming somewhere the rig cannot put it.
+    /// </summary>
+    internal double GuideOffsetBearingDeg { get; set; }
+        = double.RadiansToDegrees(Math.Atan2(DefaultGuideOffsetEastArcmin, DefaultGuideOffsetNorthArcmin));
+
+    /// <summary>
+    /// This camera's roll in its focuser, degrees -- how the sensor is clocked relative to the
+    /// instrument it is bolted to, and so a constant of the rig, not of where it points. Real guide
+    /// cams are never square; the guider's calibration sweep measures the angle empirically, so a
+    /// guide camera defaults to a non-zero roll to exercise that path while a main imaging camera
+    /// defaults to square and renders north-up.
+    /// <para>
+    /// This is NOT the field rotation the sensor sees: that is this angle plus whatever the mount
+    /// contributes, which <see cref="FieldRotationDeg"/> resolves.
+    /// </para>
+    /// </summary>
+    internal double CameraRollDeg
+    {
+        get => _cameraRollDeg ?? (IsGuideCamera ? DefaultGuideCameraRollDeg : 0.0);
+        set => _cameraRollDeg = value;
+    }
+
+    private double? _cameraRollDeg;
+
+    private const double DefaultGuideCameraRollDeg = 15.0;
 
     /// <summary>
     /// Pointing jump (arcseconds) between consecutive guide exposures beyond which the coupled
@@ -830,6 +867,29 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
             }
         }
 
+        // Fake-only (both camera roles): snapshot which side of the pier the OTA is PHYSICALLY on, so
+        // the (sync) render path knows how the instrument is clocked. It must be the MECHANICAL state
+        // and never the mount's own GetSideOfPierAsync report: on a mount whose pointing state is
+        // merely COMPUTED from the hour angle that report turns over the instant the pointing crosses
+        // the meridian, whether or not anything moved, so a camera keyed to it would render a flip
+        // that never happened -- and could never show the missed one, which is the whole failure the
+        // image is here to witness.
+        if (FocalLength > 0 && ResolveCoupledMount() is IFakeMechanicalPointingStateSource pierSource)
+        {
+            try
+            {
+                var pierSide = await pierSource.GetMechanicalPointingStateAsync(cancellationToken).ConfigureAwait(false);
+                lock (_lock)
+                {
+                    _mountCachedPierSide = pierSide;
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Logger.LogDebug(ex, "FakeCamera: pier-side read failed; the rendered field keeps its previous orientation this frame");
+            }
+        }
+
         // Fake-only (guide camera): snapshot the coupled mount's current pointing so
         // the (sync) render path can offset the guide star by the mount's drift.
         // Reading RA/Dec is async (per-call SOFA recompute) and StopExposureCore is a
@@ -1021,15 +1081,20 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                     // the coupled mount's hidden cone/polar error (the session's centering loop
                     // plate-solves that offset and syncs it away). The guide camera has no Target:
                     // it renders at the coupled mount's LIVE true pointing (snapshot taken in
-                    // StartExposureAsync) offset by the guide scope's cone error, with the camera's
-                    // roll angle applied - so the field is correct at any pointing and mount drift
-                    // shows up as field motion automatically. In that branch the star offset must
+                    // StartExposureAsync) offset by where the guide scope actually aims, at the
+                    // field rotation the instrument is clocked to - so the field is correct at any
+                    // pointing and mount drift shows up as field motion automatically. In that
+                    // branch the star offset must
                     // be the in-camera part only (PE + ST-4); the mount-drift term already lives
                     // in the moving projection centre.
                     var pointingRa = 0.0;
                     var pointingDec = 0.0;
                     var hasPointing = false;
-                    var rotationDeg = 0.0;
+                    // How the whole instrument is clocked for this frame: the camera's own roll in
+                    // its focuser plus the half-turn a mount looking through the pole applies to
+                    // everything it carries. Resolved once, because the guide scope's aim is measured
+                    // in the same frame and has to turn over with it.
+                    var rotationDeg = FieldRotationDeg();
                     if (Target is { } target)
                     {
                         double trueDeltaRa, trueDeltaDec;
@@ -1045,22 +1110,30 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                     }
                     else if (IsGuideCamera)
                     {
+                        // The guide scope's aim, carried from the instrument frame onto the sky: its
+                        // bearing turns with the assembly, so the mount's half-turn (already in
+                        // rotationDeg) is what puts the offset on the other side of the target after
+                        // a flip. The camera's own roll is deliberately NOT in this term -- clocking
+                        // a camera in its focuser does not re-aim the scope it sits in.
+                        var bearingRad = (GuideOffsetBearingDeg + InstrumentRotationDeg()) * Math.PI / 180.0;
+                        var offsetEastArcmin = GuideOffsetArcmin * Math.Sin(bearingRad);
+                        var offsetNorthArcmin = GuideOffsetArcmin * Math.Cos(bearingRad);
                         lock (_lock)
                         {
                             if (_mountPointingValid)
                             {
                                 var cosPointingDec = Math.Max(Math.Cos(_mountCachedDec * Math.PI / 180.0), 0.01);
-                                pointingRa = _mountCachedRa + GuideConeErrorRaArcmin / (60.0 * 15.0 * cosPointingDec);
-                                pointingDec = Math.Clamp(_mountCachedDec + GuideConeErrorDecArcmin / 60.0, -90.0, 90.0);
+                                pointingRa = _mountCachedRa + offsetEastArcmin / (60.0 * 15.0 * cosPointingDec);
+                                pointingDec = Math.Clamp(_mountCachedDec + offsetNorthArcmin / 60.0, -90.0, 90.0);
                                 hasPointing = true;
                             }
                         }
-                        rotationDeg = GuideRotationDeg;
                     }
 
                     LastCatalogRenderCentre = CelestialObjectDB is not null && hasPointing && FocalLength > 0
                         ? (pointingRa, pointingDec)
                         : null;
+                    LastRenderRotationDeg = rotationDeg;
 
                     if (CelestialObjectDB is { } db && hasPointing && FocalLength > 0)
                     {
@@ -1358,6 +1431,34 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     /// the last render fell back to the random star field.
     /// </summary>
     internal (double RaJ2000, double DecJ2000)? LastCatalogRenderCentre { get; private set; }
+
+    /// <summary>
+    /// Test seam: the field rotation (degrees) the most recent catalog-star render was drawn at.
+    /// 0 until the first render.
+    /// </summary>
+    internal double LastRenderRotationDeg { get; private set; }
+
+    /// <summary>
+    /// The half-turn the MOUNT contributes: 180 while the OTA is through the pole, 0 while it is
+    /// normal, and 0 for a mount with no pier side to speak of. It is an absolute function of where
+    /// the tube is now, not of any remembered starting state -- a flip and a flip back land on the
+    /// same two orientations however the rig got there.
+    /// </summary>
+    private double InstrumentRotationDeg()
+    {
+        lock (_lock)
+        {
+            return _mountCachedPierSide is PointingState.ThroughThePole ? 180.0 : 0.0;
+        }
+    }
+
+    /// <summary>
+    /// The rotation of the sky on THIS sensor: the camera's roll in its focuser plus the mount's
+    /// half-turn. Both are simple angles about the optical axis and they add, because a German flip
+    /// is a pure rotation -- parity is fixed by the optical train and a flip does not change it,
+    /// whatever the mirror count.
+    /// </summary>
+    private double FieldRotationDeg() => CameraRollDeg + InstrumentRotationDeg();
 
     // ── Video / planetary lucky-imaging capture (IVideoCameraDriver) ─────────────
     // The fake renders a drifting synthetic planet disk (SyntheticPlanetRenderer) into a software ROI
