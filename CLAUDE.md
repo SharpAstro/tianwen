@@ -718,10 +718,28 @@ session has never initialised a mount). Plan + phasing:
 **The profile placement above makes the config APPLY to a manual slew with no session; it does not
 by itself make anything ENFORCE it there.** `MountLimitWatcher` (`Sequencing/`) is the enforcement
 half: host-agnostic (only `IDeviceHub`/`IDeviceDiscovery`, no ASP.NET dependency), matching a
-connected mount's URI against every discovered profile's own `Mount` field each 5s tick rather than
-any single "active profile" (no such uniform concept exists across the GUI/server/CLI), and skipping
-any mount a session already leases. Wired as a `BackgroundService` for `tianwen-server` only --
-**the GUI's own manual slew, the scenario this exists for, is not yet covered.**
+connected mount by the hub's own identity rule (`Uri.DeviceKey`, scheme+host+path -- whole-URI
+equality skipped profiles whose mount query had drifted) against every discovered profile's `Mount`
+each 5s tick rather than any single "active profile" (no such uniform concept exists across the
+GUI/server/CLI), and skipping any mount a session already leases. Driven as a `BackgroundService` in
+`tianwen-server` and from `tianwen-gui`'s `Program.cs` through its `BackgroundTaskTracker` (the GUI
+runs a bare `ServiceCollection`, so nothing starts hosted services for it).
+
+**Three more rules, all 2026-08-30.** (1) **Only a MEASURED pointing state drives the limit**:
+`IMountDriver.PointingStateSource` (default `Computed`); LX200-base, SGP and `FakeMountDriver` derive
+the state from HA, which reads as post-flip west of the meridian and would silence the limit --
+`MountLimits.TrustedPointingState` hands `Evaluate` `Unknown` instead (the flip gate keeps the
+computed answer). (2) **A mount that stops tracking without being asked is a LIMIT EVENT, not a
+fault** (`MountLimitKind.DriverEnforced`, P5): `Session.DetectDriverEnforcedStop` latches it and ends
+the run instead of `EnsureTrackingAsync` fighting a GSServer/OnStep/ASCOM driver's own stop -- gated
+on not-slewing (a Synta goto is "running, not tracking"), debounced over two polls, and every
+session-side stop raises `_mountStopCommanded` first; the poll reads `IsSlewing` BEFORE `IsTracking`
+because on SkyWatcher the former resumes the latter. (3) **The verdict is telemetry** (P4):
+`ISessionTelemetry.MountLimitVerdict` -> `MountLimitDto` (nullable, older nodes read `Clear`) ->
+mirror -> `LiveSessionState` (holder-boxed) -> Home board (Flip column doubles as the limit
+countdown) -> both feeds on CLASS transitions only. The editor is `PanelSection.MountLimits` on the
+profile panel plus a "Meridian Flip" config group whose deadline shows the limit's clamp as a
+`ConfigFieldDescriptor.Caveat`.
 
 **A guide pulse is TWO methods, and picking the wrong one is silent.**
 `StartPulseGuideAsync` (`IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`) is the primitive: it

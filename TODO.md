@@ -146,8 +146,9 @@
   across the pier); then hardware validation. GSS itself never flips while tracking -- the flip IS the
   next goto landing on the other solution -- which matches how `Session` already re-slews.
   [docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md), "the pointing state".
-- [ ] **A COMPUTED pointing state must not feed the mount limit as if measured** (LX200 base, SGP,
-  `FakeMountDriver`). `MeadeLX200ProtocolMountDriverBase.CalculateSideOfPierAsync` and the fake derive
+- [x] **A COMPUTED pointing state must not feed the mount limit as if measured** (LX200 base, SGP,
+  `FakeMountDriver`). **DONE 2026-08-30**: `IMountDriver.PointingStateSource` (None/Computed/Measured,
+  default Computed) + `MountLimits.TrustedPointingState`; the flip gate keeps the computed answer. `MeadeLX200ProtocolMountDriverBase.CalculateSideOfPierAsync` and the fake derive
   pier side from HA (`>= 0 -> Normal`), SGP answers a constant `Normal`: the state a mount WOULD be in
   if its firmware always flipped. West of the meridian that reads as post-flip, so the meridian limit
   can never fire on those drivers -- wrong on any LX200-protocol mount that tracks past the meridian
@@ -155,8 +156,15 @@
   state and are fine. Decide: computed answers reach `MountLimits.Evaluate` as `Unknown` (HA
   approximation, fires past the meridian), or split "measured vs computed" on `IMountDriver` -- the
   flip gate wants the computed one and has `DestinationSideOfPierAsync`. Same plan doc, same section.
-- [ ] **Mount safety limits: P3's GUI half, P4, P5, and the P1 editor UI**
+- [x] **Mount safety limits: P3's GUI half, P4, P5, and the P1 editor UI**
   ([docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md)).
+  **ALL DONE 2026-08-30** -- editor (`PanelSection.MountLimits` + "Meridian Flip" config group with the
+  clamp caveat), GUI watcher (`Program.cs`), P4 surfacing (telemetry -> wire -> mirror -> Home board ->
+  feeds), P5 (`MountLimitKind.DriverEnforced`), plus: only a MEASURED pointing state drives the limit
+  (`IMountDriver.PointingStateSource`), the watcher matches profiles by `Uri.DeviceKey`, SkyWatcher
+  `SetSideOfPierAsync` is the forced flip. Still open (plan doc, "What is still open"): hardware
+  validation of the SkyWatcher axis-solution port, watcher-side surfacing for a rig idle in its limit
+  with no session, the tier label in the editor, OnStep's axis angle. Original entry follows.
   **P0 + P1 + P2 shipped 2026-08-29, so a configured limit now actually stops a mount during a run.**
   The config persists on `ProfileData.MountLimits` (nullable = never configured = disabled) and is
   projected onto `Setup` by `SessionFactory`; enforcement is in `PollDeviceStatesAsync` (the poll,

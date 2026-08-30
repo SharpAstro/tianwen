@@ -37,6 +37,19 @@ namespace TianWen.Lib.Tests
         }
 
         [Fact]
+        public void MountLimits_FollowTheSite_BecauseBothAreFactsAboutTheRig()
+        {
+            // docs/plans/mount-safety-limits.md P1: where the tube meets the pier is a property of the mount
+            // and the tube bolted to it, edited beside the site rather than among the per-night settings.
+            var sections = _content.GetProfilePanelSections(Data(Ota("A")));
+
+            var site = sections.ToList().FindIndex(s => s is PanelSection.Site);
+            site.ShouldBeGreaterThan(0);
+            sections[site + 1].ShouldBeOfType<PanelSection.MountLimits>();
+            sections.OfType<PanelSection.MountLimits>().Count().ShouldBe(1, "one rig, one set of limits");
+        }
+
+        [Fact]
         public void OtaHeaderCount_TracksTheNumberOfOtas()
         {
             _content.GetProfilePanelSections(Data(Ota("A")))

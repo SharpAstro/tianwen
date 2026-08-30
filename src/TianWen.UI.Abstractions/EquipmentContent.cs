@@ -68,6 +68,9 @@ public abstract record PanelSection
     /// <summary>The site latitude/longitude/elevation block (display, edit, or "set site").</summary>
     public sealed record Site : PanelSection;
 
+    /// <summary>Mount safety limits (docs/plans/mount-safety-limits.md, P1): a fact about the rig, so it lives beside the site.</summary>
+    public sealed record MountLimits : PanelSection;
+
     /// <summary>The guide-scope focal-length input row.</summary>
     public sealed record GuideFocalLength : PanelSection;
 
@@ -225,6 +228,7 @@ public class EquipmentContent(IDeviceHub? registry = null)
         b.Add(new PanelSection.MountTelemetry(data.Mount));
         b.Add(new PanelSection.DeviceSettings(data.Mount, "Mount Settings"));
         b.Add(new PanelSection.Site());
+        b.Add(new PanelSection.MountLimits());
         b.Add(new PanelSection.Spacer(PanelGap.Half));
 
         // Guider group: guider, guide camera, guide focuser, guide-scope focal length, guider settings.

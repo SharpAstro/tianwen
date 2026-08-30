@@ -149,6 +149,42 @@ namespace TianWen.UI.Abstractions
             eqState.LongitudeInput.OnCancel = cancelSite;
             eqState.ElevationInput.OnCancel = cancelSite;
 
+            // Mount safety limits (docs/plans/mount-safety-limits.md, P1): the same shape as the site above.
+            // Parse in EquipmentActions, replace through UpdateProfileSignal (one save path), reflect into UI
+            // state -- nothing else. The switch and the response buttons never come through here: the panel
+            // posts UpdateProfileSignal for those directly.
+            Func<Task> saveLimits = () =>
+            {
+                if (appState.ActiveProfile is not { } limitsProfile)
+                {
+                    return Task.CompletedTask;
+                }
+                var limitsData = limitsProfile.Data ?? ProfileData.Empty;
+                var current = limitsData.MountLimits ?? new MountLimitConfiguration();
+                if (!EquipmentActions.TryParseMountLimits(
+                        eqState.LimitMeridianWarnInput.Text, eqState.LimitMeridianExtraInput.Text,
+                        eqState.LimitHorizonActionInput.Text, eqState.LimitHorizonExtraInput.Text,
+                        current, out var parsedLimits))
+                {
+                    Notify(NotificationSeverity.Warning, "Invalid mount limits (meridian 0..360 min, horizon 0..60 deg)");
+                    return Task.CompletedTask;
+                }
+                eqState.IsEditingMountLimits = false;
+                bus.Post(new DeactivateTextInputSignal());
+                bus.Post(new UpdateProfileSignal(EquipmentActions.SetMountLimits(limitsData, parsedLimits)));
+                return Task.CompletedTask;
+            };
+            Action cancelLimits = () =>
+            {
+                eqState.IsEditingMountLimits = false;
+                bus.Post(new DeactivateTextInputSignal());
+            };
+            foreach (var limitInput in new[] { eqState.LimitMeridianWarnInput, eqState.LimitMeridianExtraInput, eqState.LimitHorizonActionInput, eqState.LimitHorizonExtraInput })
+            {
+                limitInput.OnCommit = _ => saveLimits();
+                limitInput.OnCancel = cancelLimits;
+            }
+
             // Guide scope focal length: commit on Enter
             eqState.GuiderFocalLengthInput.OnCommit = async text =>
             {
@@ -319,6 +355,18 @@ namespace TianWen.UI.Abstractions
                 appState.ActiveProfile = updated;
                 appState.NeedsRedraw = true;
                 await updated.SaveAsync(external, cts.Token);
+            });
+
+            bus.Subscribe<EditMountLimitsSignal>(_ =>
+            {
+                eqState.IsEditingMountLimits = true;
+                var l = appState.ActiveProfile?.Data?.MountLimits ?? new MountLimitConfiguration();
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                eqState.LimitMeridianWarnInput.Text = l.MeridianWarnMinutes.ToString("0.##", inv);
+                eqState.LimitMeridianExtraInput.Text = l.MeridianActionExtraMinutes.ToString("0.##", inv);
+                eqState.LimitHorizonActionInput.Text = l.HorizonActionDeg.ToString("0.##", inv);
+                eqState.LimitHorizonExtraInput.Text = l.HorizonWarnExtraDeg.ToString("0.##", inv);
+                appState.NeedsRedraw = true;
             });
 
             bus.Subscribe<EditSiteSignal>(_ =>

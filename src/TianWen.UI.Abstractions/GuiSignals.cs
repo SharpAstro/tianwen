@@ -15,6 +15,9 @@ public readonly record struct AddOtaSignal;
 /// <summary>Start editing site coordinates.</summary>
 public readonly record struct EditSiteSignal;
 
+/// <summary>Start editing the profile's mount safety limits (the numeric fields; the on/off and response choices save at once).</summary>
+public readonly record struct EditMountLimitsSignal;
+
 /// <summary>Start creating a new profile.</summary>
 public readonly record struct CreateProfileSignal;
 

@@ -99,7 +99,11 @@ internal sealed class TuiSessionTab(
                     Field = field,
                     FieldIndex = fieldIdx,
                     IsSelected = fieldIdx == sessionState.SelectedFieldIndex,
-                    FormattedValue = field.FormatValue(sessionState.Configuration),
+                    // The caveat (a fact about the rig overriding this preference) rides on the value here,
+                    // the TUI having no second column for it.
+                    FormattedValue = field.Caveat?.Invoke(sessionState.Configuration, appState.ActiveProfile?.Data) is { } caveat
+                        ? $"{field.FormatValue(sessionState.Configuration)}  ! {caveat}"
+                        : field.FormatValue(sessionState.Configuration),
                 });
                 fieldIdx++;
             }

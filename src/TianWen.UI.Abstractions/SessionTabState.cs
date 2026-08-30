@@ -58,6 +58,13 @@ namespace TianWen.UI.Abstractions
     /// </summary>
     public class SessionTabState
     {
+    /// <summary>
+    /// The active profile's data as of the last render, for the config form's caveats (a preference judged
+    /// against a fact about the rig, e.g. the flip deadline against the mount safety limit). Written by the
+    /// tab's render entry point, which has the app state; read where the form is built, which does not.
+    /// </summary>
+    public ProfileData? ActiveProfileData { get; set; }
+
         /// <summary>The computed schedule from proposals. Null until scheduling is run from this tab.</summary>
         public ScheduledObservationTree? Schedule { get; set; }
 
