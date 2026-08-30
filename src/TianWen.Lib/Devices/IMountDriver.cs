@@ -376,6 +376,31 @@ public interface IMountDriver : IDeviceDriver
         => ValueTask.FromResult<long?>(null);
 
     /// <summary>
+    /// The MECHANICAL angle of an axis, in degrees from the mount's home position, folded into
+    /// (-180, 180]; <see langword="null"/> when the driver cannot model the axis (no encoders, an
+    /// alt-az mode, a protocol that only speaks sky coordinates).
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Angle, not steps, and the driver owns the convention.</b> Home is the counterweight-down,
+    /// tube-at-the-pole position of a German equatorial (GSServer <c>HomeAxisX/Y = 90</c>). The
+    /// <see cref="TelescopeAxis.Primary"/> angle is hemisphere-corrected so that positive means "turned in
+    /// the tracking direction from home" in both hemispheres: in the Normal pointing state it equals
+    /// <c>(HA - 6 h) x 15</c>, through the pole <c>(HA + 6 h) x 15</c>. The <see cref="TelescopeAxis.Seconary"/>
+    /// angle is positive in the straight (Normal) half and negative through the pole. A caller therefore
+    /// never sees steps, CPR or the southern mirroring -- the re-derivation <c>StepsToRa</c> exists to
+    /// prevent, which <see cref="GetAxisPositionAsync"/>'s raw ticks would force on every consumer.</para>
+    ///
+    /// <para><b>The one consumer contract:</b> <c>|primary| - 90</c> is how far the counterweight is above
+    /// horizontal, in degrees, whatever the pointing state. That is the quantity the meridian safety limit
+    /// is about, and it is read here with no dependence on the clock, the site or the pointing state a
+    /// sync believed -- a wrong longitude shifts the hour angle by hours while the axis has not moved.
+    /// It IS relative to the encoders' home, so a mount powered on off home, or synced to a wrong
+    /// solution, reports an angle wrong by exactly that much; no software can see that.</para>
+    /// </remarks>
+    ValueTask<double?> GetAxisAngleAsync(TelescopeAxis axis, CancellationToken cancellationToken)
+        => ValueTask.FromResult<double?>(null);
+
+    /// <summary>
     /// Gets the number of encoder steps per single worm gear rotation for the specified axis.
     /// This is the PE period in encoder ticks: <c>CPR / wormTeeth</c>.
     /// Used together with <see cref="GetAxisPositionAsync"/> to compute worm gear PE phase

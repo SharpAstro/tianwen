@@ -128,8 +128,13 @@
 
 ## Next Up
 
-- [ ] **SkyWatcher driver: `RaToSteps`/`DecToSteps` only ever produce the Normal-state axis solution.**
-  There is no through-the-pole branch (GSServer chooses one from the destination's hour angle), so a
+- [x] **SkyWatcher driver: `RaToSteps`/`DecToSteps` only ever produce the Normal-state axis solution.**
+  **DONE 2026-08-30 -- `SkyToSteps(ra, dec, PointingState)`**: a goto chooses the solution from
+  `DestinationSideOfPierAsync` once and keeps it for refinement passes, a sync keeps the half the Dec
+  encoder is in, `StepsToRa` reads the half off the Dec encoder, home boundary inclusive (Normal). Six
+  `FakeSkywatcherMountDriverTests` cases, five seen to fail first; an unflipped fake now really flips on
+  a re-slew. Still outstanding: hardware validation, and `SetSideOfPierAsync` (forced flip) stays
+  unsupported. Original finding: there was no through-the-pole branch (GSServer chooses one from the destination's hour angle), so a
   goto or sync to an EASTERN target lands the encoder model in `Normal` -- counterweight-UP in the
   driver's own convention (home = HA 6 h, counterweight down) -- and a session "flip" re-slews to
   identical encoder targets, i.e. moves nothing. Found 2026-08-30 while fixing the mount-limit
@@ -150,7 +155,7 @@
   state and are fine. Decide: computed answers reach `MountLimits.Evaluate` as `Unknown` (HA
   approximation, fires past the meridian), or split "measured vs computed" on `IMountDriver` -- the
   flip gate wants the computed one and has `DestinationSideOfPierAsync`. Same plan doc, same section.
-- [ ] **Mount safety limits: P1b, P3-P5, and the P1 editor UI**
+- [ ] **Mount safety limits: P3's GUI half, P4, P5, and the P1 editor UI**
   ([docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md)).
   **P0 + P1 + P2 shipped 2026-08-29, so a configured limit now actually stops a mount during a run.**
   The config persists on `ProfileData.MountLimits` (nullable = never configured = disabled) and is
@@ -161,7 +166,10 @@
   sabotages verified.
   **What remains, in rough order of value.**
   (a) **The P1 editor UI** -- the config persists and enforces, but nothing lets a user set it
-  except editing profile JSON.
+  except editing profile JSON. Design notes from the 2026-08-29 session are in the plan doc ("P1
+  editor UI: design notes"): a `PanelSection.MountLimits` after `Site` modelled on `BuildSite`, and --
+  the user's ask -- the FLIP settings get their first UI in the same editor and are validated against
+  the limit (a flip deadline the limit would clamp is flagged, both in minutes).
   (b) **P3, the half GSServer gets for free and we do not:** enforcement with **no session
   running**, which needs a watcher respecting the hub lease -- observe while a run owns the mount,
   act when nothing does. This is also what would protect the rig during a manual 2am slew, the case
@@ -169,8 +177,10 @@
   (c) **P4 surfacing** (notification feed, a `LimitAlarm` on `ISessionTelemetry` for the Home
   board's rig card, warn threshold as a countdown beside `MeridianFlipUtc`) -- `Session` already
   exposes `MountLimitVerdict` for this, and nothing reads it yet.
-  (d) **P1b axis modelling** (`GetAxisAngleAsync`), which upgrades the limit from an HA
-  approximation to mechanical truth on mounts that can report it.
+  (d) ~~P1b axis modelling~~ **DONE 2026-08-30 for SkyWatcher**: `IMountDriver.GetAxisAngleAsync`
+  (degrees from the counterweight-down home, hemisphere-corrected, null elsewhere), `Evaluate` prefers it
+  (`|angle| - 90` = counterweight above horizontal, no clock/site/sync), `MountLimitVerdict.Basis` labels
+  the tier. OnStep exposes raw steps but was not modelled.
   (e) **P5**: observe a driver-enforced limit rather than duplicating it, so a GSS-managed rig does
   not read as a malfunction.
 - [ ] **GSS parity: what is left of the pulse contract** (findings 1 and 2; finding 3, the

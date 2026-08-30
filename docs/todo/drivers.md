@@ -70,6 +70,13 @@ keeps reporting open), rebuilding the connection when the handshake goes silent.
       ZWO/ASI/PlayerOne/QHYCCD) are clean. Fix: host ASCOM COM calls on an STA thread with a real message
       pump. Plan: [../plans/ascom-com-sta-message-pump.md](../plans/ascom-com-sta-message-pump.md).
 
+- [ ] **Serial round-trip time distribution per command** (idea salvaged 2026-08-29 from GSS `f70d821`'s
+  `CommandQueueStatistics`; we have no command queue to instrument, but the analogous measurement is worth
+  having and we have none). A failing USB cable, a saturated port or a mount that has begun retrying all
+  present as "guiding got worse", and nothing in the logs separates those from seeing. Per-command
+  histogram (p50/p95/max) on `SendAndReceiveAsync` in the serial drivers, surfaced in the log summary
+  and, later, the Home board's rig card.
+
 ## GUI (runtime, unrelated to the driver work, flagged during bring-up)
 
 - [ ] **GUI preview render crashes on this box (native, Release).** Reproducible: on the Equipment tab, right
@@ -169,6 +176,14 @@ Findings from comparing `SkywatcherMountDriverBase` against GSServer's `SkyWatch
 - [x] **`:f` axis-status reply is 3 nibbles, not 6 hex chars** (found via the GSS oracle); DONE (`71de9b7`): nibble0 = mode/dir/high-speed bits, nibble1 = running, nibble2 = init; driver parse + fake reply flipped together.
 - [x] **GOTO `:M` break-point increment + speed-tier selection** (found via the GSS oracle); DONE (`71de9b7`): `:H` then `:M` (3500 high-speed / 0 low-speed) then `:J`; low-speed GOTO func within the 640-sidereal-second margin, high-speed beyond it.
 - [x] **Iterative goto refinement (EQMOD-style)**: DONE (2026-06-11, believed/true split branch): the goto's RA target steps encode the HA at COMMAND time, so a long slew landed late by the slew duration of sidereal motion (~9' for a multi-hour swing). `IsSlewingAsync` is the completion-detection point: when the axes stop with a goto pending and the residual exceeds 30", it re-issues a short refinement goto (max 2 passes, `Interlocked` gate against concurrent pollers); callers' wait-for-completion loops are unchanged because the mount keeps reporting "slewing" during refinement. `AbortSlewAsync`/`ParkAsync` disarm the pending target. Validated by `GivenTopocentricSkywatcherWhenSlewingToJ2000TargetThenJ2000ReadbackMatches` (readback err 9.4' -> <3').
+- [x] **A goto chooses the axis SOLUTION from the target's pier side (GSS `Axes.RaDecToAxesXy`)**: DONE
+  2026-08-30 (`SkyToSteps(ra, dec, PointingState)`): east of the meridian -> through the pole (RA axis
+  +12 h, Dec axis mirrored through home), decided once per goto and kept for refinement passes; a sync
+  keeps the half the Dec encoder is in; `StepsToRa` reads the half off the Dec encoder; home boundary
+  inclusive (Normal). Before this every target took the straight solution (eastern targets
+  counterweight-UP) and a meridian "flip" re-slewed to identical steps. `GetAxisAngleAsync` exposes the
+  folded, hemisphere-corrected axis angle for the mount safety limit's mechanical tier. Still open:
+  hardware validation; `SetSideOfPierAsync` (GSS forced flip) still throws.
 - [ ] Dec backlash compensation in pulse guide: GSS converts configured backlash steps into extra pulse duration (capped +1000 ms so PHD2's 2 s return expectation holds, `SkyWatcher.cs:500-506`). We have per-focuser backlash inference; mounts have none. Lower priority: the built-in guider's calibration absorbs steady-state Dec lash partially.
 - [ ] Verify on real hardware whether EQ6-class firmware auto-resumes sidereal tracking after a GOTO (the fake models auto-resume; GSS does not rely on it). Low risk either way: `Session` re-ensures tracking via `EnsureTrackingAsync` before focus/imaging, which is status-driven and firmware-legal now.
 - [ ] Verify iterative goto refinement on real hardware (EQMOD does the same multi-pass goto; our 30" tolerance / 2-pass cap may need tuning against real motor ramp + stop-wait times).

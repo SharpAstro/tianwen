@@ -79,7 +79,7 @@ public class MountLimitsTests
         // 8 h past the meridian and 40 deg below the horizon: physically impossible on a real rig,
         // and still silent, because the master switch is the master switch.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 8.0, PointingState.ThroughThePole, altitudeDeg: -40.0, isTracking: true, alreadyActed: false,
+            hourAngleHours: 8.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: -40.0, isTracking: true, alreadyActed: false,
             new MountLimitConfiguration());
 
         verdict.IsBreached.ShouldBeFalse();
@@ -94,7 +94,7 @@ public class MountLimitsTests
     [InlineData(0.0)]   // exactly on the meridian
     [InlineData(0.08)]  // ~4.8 min west, just inside the 5 min warn threshold
     public void EastOfTheWarnThresholdIsClear(double hourAngleHours)
-        => MountLimits.Evaluate(hourAngleHours, PointingState.ThroughThePole, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+        => MountLimits.Evaluate(hourAngleHours, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
 
     [Fact]
@@ -102,7 +102,7 @@ public class MountLimitsTests
     {
         // 7 min past the meridian: warn is 5, action is 5 + 5 = 10.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 7.0 / 60.0, PointingState.ThroughThePole, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
+            hourAngleHours: 7.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
 
         verdict.Kind.ShouldBe(MountLimitKind.Meridian);
         verdict.IsWarningOnly.ShouldBeTrue();
@@ -116,7 +116,7 @@ public class MountLimitsTests
     {
         // 12 min past: 2 min beyond the 10 min action point.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 12.0 / 60.0, PointingState.ThroughThePole, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
+            hourAngleHours: 12.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
 
         verdict.Kind.ShouldBe(MountLimitKind.Meridian);
         verdict.IsWarningOnly.ShouldBeFalse();
@@ -129,7 +129,7 @@ public class MountLimitsTests
     {
         // Being past the limit is a fact about where the tube IS, not about the motors. A mount that
         // was stopped inside the limit is still inside it.
-        MountLimits.Evaluate(12.0 / 60.0, PointingState.ThroughThePole, 60.0, isTracking: false, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(12.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, 60.0, isTracking: false, alreadyActed: false, Enabled())
             .Kind.ShouldBe(MountLimitKind.Meridian);
     }
 
@@ -138,8 +138,84 @@ public class MountLimitsTests
     {
         // NaN compares false against everything, so a naive `haDeg >= warn` would answer "clear" by
         // accident rather than by decision. Make it a decision.
-        MountLimits.Evaluate(double.NaN, PointingState.ThroughThePole, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(double.NaN, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
+    }
+
+    #endregion
+
+    #region Axis angle (the mechanical tier)
+
+    [Fact]
+    public void AnAxisAngleBeyondHorizontalIsTheMeridianOffsetWhateverTheSkySays()
+    {
+        // 100 deg from the counterweight-down home = counterweight 10 deg above horizontal = 40 min of
+        // hour angle. The sky inputs say "on the meridian, not flipped", i.e. clear -- and are not asked.
+        var verdict = MountLimits.Evaluate(
+            0.0, PointingState.ThroughThePole, primaryAxisAngleDeg: 100.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
+
+        verdict.Kind.ShouldBe(MountLimitKind.Meridian);
+        verdict.Basis.ShouldBe(MountLimitBasis.AxisAngle);
+        verdict.IsWarningOnly.ShouldBeFalse();
+        verdict.ExceededBy.ShouldBe(30.0, tolerance: 1e-9); // 40 past, action at 10
+        verdict.Describe().ShouldContain("measured on the RA axis");
+    }
+
+    [Theory]
+    [InlineData(100.0)]
+    [InlineData(-100.0)]
+    public void TheAxisSignDoesNotMatterOnlyHowFarPastHorizontal(double axisDeg)
+        => MountLimits.Evaluate(0.0, PointingState.Unknown, axisDeg, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+            .Kind.ShouldBe(MountLimitKind.Meridian);
+
+    [Theory]
+    [InlineData(0.0)]    // counterweight straight down
+    [InlineData(-90.0)]  // horizontal, the meridian in the Normal state
+    [InlineData(91.0)]   // 1 deg = 4 min above horizontal, inside the 5 min warn threshold
+    public void AnAxisAtOrBelowHorizontalIsClear(double axisDeg)
+        => MountLimits.Evaluate(1.0, PointingState.ThroughThePole, axisDeg, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+            .IsBreached.ShouldBeFalse("the hour angle says 60 min past, the axis says counterweight down -- the axis wins");
+
+    [Fact]
+    public void TheAxisWinsOverAnHourAngleThatDisagreesInEitherDirection()
+    {
+        // Fallback, never cross-check. An unsynced mount is the case the limit exists for, so the two
+        // are not required to agree before acting -- the axis is the thing with a pier in its way.
+        MountLimits.Evaluate(1.0, PointingState.ThroughThePole, 45.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+            .IsBreached.ShouldBeFalse("sky says 60 min past, axis says safe");
+        MountLimits.Evaluate(-6.0, PointingState.ThroughThePole, 105.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+            .Kind.ShouldBe(MountLimitKind.Meridian, "sky says deep in the east, axis says counterweight up");
+    }
+
+    [Fact]
+    public void TheAxisNeedsNoHourAngle()
+    {
+        // The whole point of the tier: a wrong longitude or a stale clock shifts the hour angle by hours
+        // and the axis has not moved. With no hour angle at all the meridian test still answers.
+        MountLimits.Evaluate(double.NaN, PointingState.Unknown, 100.0, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+            .Kind.ShouldBe(MountLimitKind.Meridian);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(double.NaN)]
+    public void WithoutAnAxisAngleTheHourAngleTierAnswersAndSaysSo(double? axisDeg)
+    {
+        var verdict = MountLimits.Evaluate(12.0 / 60.0, PointingState.ThroughThePole, axisDeg, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
+
+        verdict.Kind.ShouldBe(MountLimitKind.Meridian);
+        verdict.Basis.ShouldBe(MountLimitBasis.HourAngle);
+        verdict.Describe().ShouldContain("estimated from the hour angle");
+    }
+
+    [Fact]
+    public void TheAxisDoesNotTouchTheHorizonTest()
+    {
+        // The horizon is a sky fact and keeps needing the hour angle to know it is descending.
+        MountLimits.Evaluate(double.NaN, PointingState.Unknown, 45.0, altitudeDeg: 2.0, isTracking: true, alreadyActed: false, Enabled())
+            .IsBreached.ShouldBeFalse();
+        MountLimits.Evaluate(DescendingClearOfMeridian, PointingState.Unknown, 45.0, altitudeDeg: 6.0, isTracking: true, alreadyActed: false, Enabled())
+            .Kind.ShouldBe(MountLimitKind.Horizon);
     }
 
     #endregion
@@ -156,7 +232,7 @@ public class MountLimitsTests
         // Tracking west from there carries the tube AWAY from the pier, so no hour angle is too large.
         // This is the bug the state parameter exists to fix: reading the hour angle alone stopped every
         // rig that had flipped the moment its HA reached the action threshold, ~30 min after a good flip.
-        MountLimits.Evaluate(hourAngleHours, PointingState.Normal, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(hourAngleHours, PointingState.Normal, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
     }
 
@@ -167,7 +243,7 @@ public class MountLimitsTests
         // exactly as much as a through-the-pole mount 12 min west of it. A wrong-way goto or a bad sync
         // puts a rig here; the limit must read it, not wave it through as "east = rising = safe".
         var verdict = MountLimits.Evaluate(
-            -12.0 / 60.0, PointingState.Normal, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
+            -12.0 / 60.0, PointingState.Normal, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
 
         verdict.Kind.ShouldBe(MountLimitKind.Meridian);
         verdict.IsWarningOnly.ShouldBeFalse();
@@ -178,7 +254,7 @@ public class MountLimitsTests
     public void AThroughThePoleMountEastOfTheMeridianIsClear()
     {
         // Counterweight down, looking east, rising toward the meridian: the ordinary start of a night.
-        MountLimits.Evaluate(-3.0, PointingState.ThroughThePole, altitudeDeg: 30.0, isTracking: true, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(-3.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 30.0, isTracking: true, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
     }
 
@@ -188,9 +264,9 @@ public class MountLimitsTests
         // A driver that cannot say leaves nothing better than the sky-coordinate approximation this
         // limit shipped with: right for a mount that has not flipped, wrong after one. Pinned so the
         // fallback stays deliberate, and stays labelled as the weaker tier in the plan.
-        MountLimits.Evaluate(12.0 / 60.0, PointingState.Unknown, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(12.0 / 60.0, PointingState.Unknown, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
             .Kind.ShouldBe(MountLimitKind.Meridian);
-        MountLimits.Evaluate(-12.0 / 60.0, PointingState.Unknown, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(-12.0 / 60.0, PointingState.Unknown, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
     }
 
@@ -198,7 +274,7 @@ public class MountLimitsTests
     public void ThePointingStateDoesNotTouchTheHorizonTest()
     {
         // Altitude is a sky quantity: HA > 0 is descending whichever side of the pier the tube is on.
-        MountLimits.Evaluate(DescendingClearOfMeridian, PointingState.Normal, altitudeDeg: 6.0, isTracking: true, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(DescendingClearOfMeridian, PointingState.Normal, primaryAxisAngleDeg: null, altitudeDeg: 6.0, isTracking: true, alreadyActed: false, Enabled())
             .Kind.ShouldBe(MountLimitKind.Horizon);
     }
 
@@ -211,7 +287,7 @@ public class MountLimitsTests
     {
         // HA > 0 = past upper transit = descending. 6 deg altitude against a 10 deg floor.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: DescendingClearOfMeridian, PointingState.ThroughThePole, altitudeDeg: 6.0, isTracking: true, alreadyActed: false, Enabled());
+            hourAngleHours: DescendingClearOfMeridian, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 6.0, isTracking: true, alreadyActed: false, Enabled());
 
         verdict.Kind.ShouldBe(MountLimitKind.Horizon);
         verdict.IsWarningOnly.ShouldBeFalse();
@@ -224,7 +300,7 @@ public class MountLimitsTests
     {
         // Floor 10, warn 15. At 13 deg the user is told and nothing is taken away.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: DescendingClearOfMeridian, PointingState.ThroughThePole, altitudeDeg: 13.0, isTracking: true, alreadyActed: false, Enabled());
+            hourAngleHours: DescendingClearOfMeridian, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 13.0, isTracking: true, alreadyActed: false, Enabled());
 
         verdict.Kind.ShouldBe(MountLimitKind.Horizon);
         verdict.IsWarningOnly.ShouldBeTrue();
@@ -241,7 +317,7 @@ public class MountLimitsTests
         // refuse most of a night's early schedule. Altitude is maximal at HA = 0 and falls only
         // afterwards, so HA <= 0 is exactly "not descending" -- in both hemispheres, and for fork and
         // AltAz mounts that have no pier side for GSServer's version of this test to read.
-        MountLimits.Evaluate(hourAngleHours, PointingState.ThroughThePole, altitudeDeg: 4.0, isTracking: true, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(hourAngleHours, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 4.0, isTracking: true, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
     }
 
@@ -250,13 +326,13 @@ public class MountLimitsTests
     {
         // A parked or stowed mount routinely sits below the floor. Alarming there would alarm forever,
         // at exactly the times nothing is at risk.
-        MountLimits.Evaluate(DescendingClearOfMeridian, PointingState.ThroughThePole, altitudeDeg: 2.0, isTracking: false, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(DescendingClearOfMeridian, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 2.0, isTracking: false, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
     }
 
     [Fact]
     public void AnUnknownAltitudeDoesNotProduceAHorizonVerdict()
-        => MountLimits.Evaluate(DescendingClearOfMeridian, PointingState.ThroughThePole, double.NaN, isTracking: true, alreadyActed: false, Enabled())
+        => MountLimits.Evaluate(DescendingClearOfMeridian, PointingState.ThroughThePole, primaryAxisAngleDeg: null, double.NaN, isTracking: true, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
 
     [Fact]
@@ -264,7 +340,7 @@ public class MountLimitsTests
     {
         // Without an HA we cannot establish that the pointing is getting worse, and a horizon verdict
         // whose whole justification is "it will keep falling" must not be issued on an assumption.
-        MountLimits.Evaluate(double.NaN, PointingState.ThroughThePole, altitudeDeg: 2.0, isTracking: true, alreadyActed: false, Enabled())
+        MountLimits.Evaluate(double.NaN, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 2.0, isTracking: true, alreadyActed: false, Enabled())
             .IsBreached.ShouldBeFalse();
     }
 
@@ -280,7 +356,7 @@ public class MountLimitsTests
         // forever, never arriving. Downgrading to Warn rather than Clear is the point: the mount is
         // still in the limit and the user must keep being told.
         var acted = MountLimits.Evaluate(
-            hourAngleHours: 12.0 / 60.0, PointingState.ThroughThePole, altitudeDeg: 60.0, isTracking: true, alreadyActed: true, Enabled());
+            hourAngleHours: 12.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: true, Enabled());
 
         acted.IsBreached.ShouldBeTrue();
         acted.Kind.ShouldBe(MountLimitKind.Meridian);
@@ -292,7 +368,7 @@ public class MountLimitsTests
     {
         // A stale latch must not keep alarming once the mount is back inside the limits, or the
         // caller can never clear it.
-        MountLimits.Evaluate(0.0, PointingState.ThroughThePole, altitudeDeg: 60.0, isTracking: true, alreadyActed: true, Enabled())
+        MountLimits.Evaluate(0.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: true, Enabled())
             .IsBreached.ShouldBeFalse();
     }
 
@@ -300,7 +376,7 @@ public class MountLimitsTests
     public void AlreadyActedLeavesAWarningAloneSoTheCountdownKeepsRunning()
     {
         var warning = MountLimits.Evaluate(
-            hourAngleHours: 7.0 / 60.0, PointingState.ThroughThePole, altitudeDeg: 60.0, isTracking: true, alreadyActed: true, Enabled());
+            hourAngleHours: 7.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: true, Enabled());
 
         warning.IsWarningOnly.ShouldBeTrue();
         warning.ExceededBy.ShouldBe(-3.0, tolerance: 1e-9);
@@ -322,7 +398,7 @@ public class MountLimitsTests
         // distinction entirely, because both sides then tie and the meridian wins on the tie-break --
         // the right answer for the wrong reason, and a broken rank would have shipped.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 12.0 / 60.0, PointingState.ThroughThePole, altitudeDeg: 13.0, isTracking: true, alreadyActed: false,
+            hourAngleHours: 12.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 13.0, isTracking: true, alreadyActed: false,
             Enabled(meridianResponse: MountLimitResponse.Warn,
                     horizonResponse: MountLimitResponse.Park));
 
@@ -338,7 +414,7 @@ public class MountLimitsTests
         // stronger action is right even though the meridian is the more dangerous limit. What the
         // verdict then NAMES is the limit driving the action, which is the horizon.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 12.0 / 60.0, PointingState.ThroughThePole, altitudeDeg: 2.0, isTracking: true, alreadyActed: false,
+            hourAngleHours: 12.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 2.0, isTracking: true, alreadyActed: false,
             Enabled(meridianResponse: MountLimitResponse.StopTracking,
                     horizonResponse: MountLimitResponse.Park));
 
@@ -352,7 +428,7 @@ public class MountLimitsTests
         // The genuine tie, and the only case the kind precedence decides. The meridian ends with the
         // tube against the pier; the horizon merely ends with it pointed somewhere useless.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 12.0 / 60.0, PointingState.ThroughThePole, altitudeDeg: 2.0, isTracking: true, alreadyActed: false,
+            hourAngleHours: 12.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 2.0, isTracking: true, alreadyActed: false,
             Enabled(meridianResponse: MountLimitResponse.Park,
                     horizonResponse: MountLimitResponse.Park));
 
@@ -361,7 +437,7 @@ public class MountLimitsTests
 
     [Fact]
     public void WhenOnlyTheHorizonIsDueTheHorizonWins()
-        => MountLimits.Evaluate(DescendingClearOfMeridian, PointingState.ThroughThePole, altitudeDeg: 2.0, isTracking: true, alreadyActed: false, Enabled())
+        => MountLimits.Evaluate(DescendingClearOfMeridian, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 2.0, isTracking: true, alreadyActed: false, Enabled())
             .Kind.ShouldBe(MountLimitKind.Horizon);
 
     #endregion
@@ -388,7 +464,7 @@ public class MountLimitsTests
     {
         // A user who wants no grace period gets none, rather than an unreachable action threshold.
         var verdict = MountLimits.Evaluate(
-            hourAngleHours: 5.0 / 60.0, PointingState.ThroughThePole, altitudeDeg: 60.0, isTracking: true, alreadyActed: false,
+            hourAngleHours: 5.0 / 60.0, PointingState.ThroughThePole, primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false,
             Enabled(meridianWarnMinutes: 5.0, meridianActionExtraMinutes: 0.0));
 
         verdict.Kind.ShouldBe(MountLimitKind.Meridian);

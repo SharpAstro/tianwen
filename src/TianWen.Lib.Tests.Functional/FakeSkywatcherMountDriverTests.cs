@@ -582,6 +582,191 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
 
     #endregion
 
+    #region Pointing state (which axis solution a goto chooses)
+
+    /// <summary>The RA that sits <paramref name="hourAngleHours"/> from the meridian right now.</summary>
+    private static async Task<double> RaAtHourAngleAsync(FakeSkywatcherMountDriver mount, double hourAngleHours, CancellationToken ct)
+    {
+        var lst = await mount.GetSiderealTimeAsync(ct);
+        return ((lst - hourAngleHours) % 24.0 + 24.0) % 24.0;
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenHomedMountThenPointingStateIsNormal()
+    {
+        // GSS SideOfPier: |Y| < 90.0000000001 -> pierEast, so the home boundary is INCLUSIVE: a mount that
+        // has never moved reports the Normal state, and the connect-time pole sync round-trips to HA 0
+        // (a through-the-pole reading there would add 12 h to it).
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct);
+
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal);
+        (await mount.GetHourAngleAsync(ct)).ShouldBe(0.0, 1e-3);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(90.0, 1e-3);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenEasternTargetWhenSlewedThenTheThroughThePoleSolutionIsChosen()
+    {
+        // GSS Axes.RaDecToAxesXy: a target EAST of the meridian is reached through the pole -- RA axis half
+        // a turn round, Dec axis mirrored through home -- which is the counterweight-DOWN solution for a
+        // rising target. The straight solution puts the counterweight above horizontal for the same sky
+        // position, and until this was ported every eastern goto took it.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct);
+        var ra = await RaAtHourAngleAsync(mount, -3.0, ct);
+
+        await mount.BeginSlewRaDecAsync(ra, 45.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole);
+        (await mount.GetAxisPositionAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBeLessThan(0L, "Dec axis mirrored through home");
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(ra, 0.05);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(45.0, 0.05);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenWesternTargetWhenSlewedThenTheNormalSolutionIsChosen()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct);
+        var ra = await RaAtHourAngleAsync(mount, 3.0, ct);
+
+        await mount.BeginSlewRaDecAsync(ra, 45.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal);
+        (await mount.GetAxisPositionAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBeGreaterThan(0L);
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(ra, 0.05);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(45.0, 0.05);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenThroughThePoleMountWhenSyncedThenTheSyncKeepsItsHalf()
+    {
+        // A sync is a statement about where the mount already IS. It must pick the solution in the half
+        // the Dec encoder is in, never teleport the model across the pier to the straight one.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct);
+        var ra = await RaAtHourAngleAsync(mount, -3.0, ct);
+        await mount.BeginSlewRaDecAsync(ra, 45.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole, "premise");
+
+        var syncRa = (ra + 0.02) % 24.0;
+        await mount.SyncRaDecAsync(syncRa, 45.5, ct);
+
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole);
+        (await mount.GetAxisPositionAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBeLessThan(0L);
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(syncRa, 1e-3);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(45.5, 1e-3);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenUnflippedMountPastTheMeridianWhenReslewedToItsTargetThenItFlips()
+    {
+        // GSS never flips while tracking: the flip IS the next goto landing on the other solution. The
+        // session's meridian flip re-slews to the same target, so that goto must choose the Normal
+        // solution once the target is west. Before this port it re-slewed to identical encoder targets
+        // and the "flip" moved nothing.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct);
+        var ra = await RaAtHourAngleAsync(mount, -0.25, ct); // 15 min east
+        await mount.BeginSlewRaDecAsync(ra, 30.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole, "premise: reached through the pole");
+
+        external.TimeProvider.Advance(TimeSpan.FromMinutes(45));
+        (await mount.GetHourAngleAsync(ct)).ShouldBeGreaterThan(0.0, "premise: tracked across the meridian");
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole, "tracking never flips by itself");
+
+        await mount.BeginSlewRaDecAsync(ra, 30.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal);
+        (await mount.GetAxisPositionAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBeGreaterThan(0L);
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(ra, 0.05);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(30.0, 0.05);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenTargetAboutToTransitWhenSlewedThenRefinementKeepsTheSolutionChosenAtCommandTime()
+    {
+        // The iterative goto re-issues the core slew after the axes stop. By then a target that was
+        // just east of the meridian has crossed it, so deciding the solution per pass would flip the
+        // mount in the middle of its own goto. The state is decided ONCE, at command time.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct);
+        var ra = await RaAtHourAngleAsync(mount, -0.002, ct); // 7 s east: the slew itself takes longer
+
+        await mount.BeginSlewRaDecAsync(ra, 45.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+
+        (await mount.GetHourAngleAsync(ct)).ShouldBeGreaterThan(0.0, "premise: the target transited during the slew");
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole);
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(ra, 0.05);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(45.0, 0.05);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenHomedMountThenAxisAnglesAreMinus90AndZero()
+    {
+        // After the connect-time pole sync the RA axis sits a quarter turn short of the
+        // counterweight-down home (HA 0 in the Normal state = (0 - 6 h) x 15 = -90 deg: counterweight
+        // horizontal), and the Dec axis is on the pole.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct);
+
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(-90.0, 0.01);
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(0.0, 0.01);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenEasternAndWesternTargetsThenAxisAnglesFollowTheChosenSolution()
+    {
+        // Through the pole at HA -3 h: RA axis (HA + 6 h) x 15 = +45 deg, Dec axis -(90 - 45) = -45 deg.
+        // Straight at HA +3 h: RA axis (HA - 6 h) x 15 = -45 deg, Dec axis +45 deg. Both counterweight
+        // 45 deg below horizontal, which is what |angle| - 90 < 0 says. Tracking during the pumped slew
+        // moves the RA axis a fraction of a degree, hence the tolerance.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct);
+
+        await mount.BeginSlewRaDecAsync(await RaAtHourAngleAsync(mount, -3.0, ct), 45.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(45.0, 2.0);
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(-45.0, 0.01);
+
+        await mount.BeginSlewRaDecAsync(await RaAtHourAngleAsync(mount, 3.0, ct), 45.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(-45.0, 2.0);
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(45.0, 0.01);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSouthernMountThenThePrimaryAxisAngleIsHemisphereCorrected()
+    {
+        // The southern motor runs the other way (axisHours = 6 - HA), so the raw encoder sign is
+        // mirrored. The reported angle is not: (HA - 6 h) x 15 in the Normal state in BOTH hemispheres,
+        // which is what lets the meridian limit read |angle| - 90 without knowing where it is.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct, latitude: -33.9, longitude: 18.4);
+        await mount.SyncRaDecAsync(await RaAtHourAngleAsync(mount, 2.0, ct), -45.0, ct);
+
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe((2.0 - 6.0) * 15.0, 0.01);
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBe(45.0, 0.01);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAltAzAlignmentThenAxisAnglesAreNull()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct, alignment: "altaz");
+
+        (await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldBeNull();
+    }
+
+    #endregion
+
     #region Camera Snap
 
     [Fact(Timeout = 60_000)]

@@ -29,4 +29,11 @@ public readonly record struct MountState(
     /// and the site latitude; NaN when the site or the pointing is unknown. Unrefracted on purpose --
     /// it feeds the mechanical horizon limit, and a tripod leg is not lifted by the atmosphere.
     /// </summary>
-    double Altitude = double.NaN);
+    double Altitude = double.NaN,
+    /// <summary>
+    /// The RA axis angle from the counterweight-down home, degrees in (-180, 180]
+    /// (<see cref="IMountDriver.GetAxisAngleAsync"/>); NaN when the driver cannot model its axis (the
+    /// driver's null, carried as NaN like every other unknown here). Feeds the meridian safety limit's
+    /// mechanical tier, which wins over the hour-angle estimate when present.
+    /// </summary>
+    double PrimaryAxisAngleDeg = double.NaN);

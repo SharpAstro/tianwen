@@ -440,6 +440,11 @@ internal partial record Session(
 
             var hourAngle = await PollDriverReadAsync(mount, mount.GetHourAngleAsync, _mountState.HourAngle, cancellationToken);
             var isTracking = await PollDriverReadAsync(mount, mount.IsTrackingAsync, _mountState.IsTracking, cancellationToken);
+            // Null on every driver that cannot model its axis (the interface default), carried as NaN like
+            // the other unknowns in MountState; the limit falls back to the hour angle for it.
+            var primaryAxisAngleDeg = await PollDriverReadAsync(
+                mount, async ct => await mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct) ?? double.NaN,
+                _mountState.PrimaryAxisAngleDeg, cancellationToken);
 
             _mountState = new MountState(
                 RightAscension: ra,
@@ -451,7 +456,8 @@ internal partial record Session(
                 RaJ2000: raJ2000,
                 DecJ2000: decJ2000,
                 Altitude: SiteContext.Create(Configuration.SiteLatitude, Configuration.SiteLongitude, _timeProvider)
-                    .AltitudeDegrees(hourAngle, dec));
+                    .AltitudeDegrees(hourAngle, dec),
+                PrimaryAxisAngleDeg: primaryAxisAngleDeg);
 
             await EnforceMountLimitsAsync(mount, cancellationToken);
         }
@@ -485,9 +491,11 @@ internal partial record Session(
 
         // The pointing state is what tells the decider which way the hour angle counts: a rig that has
         // flipped is safe however far west it tracks, and the first cut of this stopped every such rig
-        // ~30 min after its flip. See MountLimits.Evaluate's pointingState remarks.
+        // ~30 min after its flip. The axis angle, where the driver has one, makes even that moot -- it
+        // is the mechanical fact the hour angle only estimates. See MountLimits.Evaluate's remarks.
         var verdict = MountLimits.Evaluate(
-            _mountState.HourAngle, _mountState.PierSide, _mountState.Altitude, _mountState.IsTracking, _limitActed, limits);
+            _mountState.HourAngle, _mountState.PierSide, _mountState.PrimaryAxisAngleDeg,
+            _mountState.Altitude, _mountState.IsTracking, _limitActed, limits);
 
         if (!verdict.IsBreached)
         {
