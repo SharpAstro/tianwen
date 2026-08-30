@@ -27,8 +27,14 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
 
     private readonly SerialPort _port =  new SerialPort(ISerialConnection.CleanupPortName(portName), baud);
 
+    // SerialPort.Close blocks for as long as the driver takes to complete or cancel the handle's pending I/O,
+    // and the Bluetooth virtual port that ignored WriteTimeout never completes the write it is holding.
+    private const int CloseTimeoutMs = 2000;
+
     protected override Stream OpenStream()
     {
+        // The port-level half of the write bound; the task-level half is in TryWriteAsync. See WriteTimeoutMs.
+        _port.WriteTimeout = WriteTimeoutMs;
         // Assert DTR + RTS before opening for bridges that hold the MCU in reset otherwise
         // (e.g. the Gemini FlatPanel's CH341). Opt-in: off for every device that doesn't need it.
         if (assertControlLines)
@@ -100,13 +106,33 @@ internal sealed class SerialConnection(string portName, int baud, Encoding encod
     /// <returns>true if the prot is closed</returns>
     public override bool TryClose()
     {
-        if (_port.IsOpen)
+        if (!_port.IsOpen)
         {
-            _port.Close();
-
-            return base.TryClose();
+            return true;
         }
-        return !_port.IsOpen;
+
+        // An unbounded Close here would move the wedge from the probe to its cleanup (see CloseTimeoutMs), so
+        // the close runs on a pool thread with a deadline; past it the HANDLE is abandoned rather than the
+        // caller -- one blocked pool thread until the driver lets go, and a port the next open reports busy,
+        // both logged. Blocking on a Task is otherwise banned in this codebase; this one wraps a synchronous
+        // native call with no continuation to deadlock on, behind a synchronous interface member.
+        var close = Task.Run(_port.Close);
+        try
+        {
+            if (!close.Wait(CloseTimeoutMs))
+            {
+                _logger.LogWarning("{Port} did not close within {Timeout}ms (pending I/O the driver never completed); abandoning the handle.",
+                    _port.PortName, CloseTimeoutMs);
+                return false;
+            }
+        }
+        catch (AggregateException ex)
+        {
+            _logger.LogWarning(ex.InnerException ?? ex, "{Port} failed to close.", _port.PortName);
+            return false;
+        }
+
+        return base.TryClose();
     }
 
     // ReadTimeout slice for the synchronous read path: short enough to observe cancellation promptly,

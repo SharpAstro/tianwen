@@ -107,13 +107,23 @@ internal class DeviceDiscovery(
 
         await RefreshUnsupportedAsync(cancellationToken);
 
+        var sources = _supportedSources.Where(s => s.RegisteredDeviceTypes.Contains(type)).ToList();
+
         // Centralised serial probing runs before per-source discovery so sources can
         // consume probe matches from ISerialProbeService instead of opening ports
         // themselves. Safe no-op when no ISerialProbe is registered (Phase 1 default).
-        await RunSerialProbesAsync(cancellationToken);
+        // Only when a source for THIS type consumes it: a Profile scan is a handful of JSON
+        // files, yet it used to open every COM port and run all nine protocol probes -- at
+        // GUI start-up on the main thread, where a Bluetooth port with no peer parked the
+        // process for good (see SerialConnection.WriteTimeoutMs), and from MountLimitWatcher
+        // on every 5 s tick. Pinned by DeviceDiscoveryTests.
+        if (sources.Exists(static s => s.ConsumesSerialProbe))
+        {
+            await RunSerialProbesAsync(cancellationToken);
+        }
 
         await Parallel.ForEachAsync(
-            _supportedSources.Where(s => s.RegisteredDeviceTypes.Contains(type)),
+            sources,
             cancellationToken,
             async (source, ct) =>
             {

@@ -61,6 +61,16 @@ internal sealed class SerialProbeService : ISerialProbeService
     // probes hold the lock for up to Budget each.
     private const int MaxPortParallelism = 4;
 
+    // How long past its budget an attempt may run before the pass gives it up. The budget cancels a token,
+    // which every cooperative read honours; an I/O that ignores the token (a Bluetooth virtual COM port with
+    // nobody on the far end never completes its overlapped write, and SerialStream does not observe
+    // cancellation) would otherwise hold the whole pass -- and, when the pass is awaited at start-up, the
+    // host -- for good.
+    private static readonly TimeSpan AbandonGrace = TimeSpan.FromSeconds(1);
+
+    // Ports whose I/O ignored its budget this pass: every later pass skips them (each would only hang again).
+    private readonly ConcurrentDictionary<string, byte> _unresponsivePorts = new(StringComparer.OrdinalIgnoreCase);
+
     public SerialProbeService(
         ITimeProvider timeProvider,
         IExternal external,
@@ -85,6 +95,7 @@ internal sealed class SerialProbeService : ISerialProbeService
     public async ValueTask ProbeAllAsync(CancellationToken cancellationToken)
     {
         _results.Clear();
+        _unresponsivePorts.Clear();
 
         if (_probes.Length == 0)
         {
@@ -160,9 +171,9 @@ internal sealed class SerialProbeService : ISerialProbeService
                 async (port, ct) => await ProbePortAsync(port, _probes, ct,
                     budgetMultiplier: passMult, isolatePerProbe: isolatePerProbe));
 
-            // Drop ports that produced any match from subsequent passes.
+            // Drop ports that produced any match -- and ports that stopped answering -- from subsequent passes.
             var matched = GetPortsWithAnyMatch();
-            remainingPorts = [.. remainingPorts.Where(p => !matched.Contains(p))];
+            remainingPorts = [.. remainingPorts.Where(p => !matched.Contains(p) && !_unresponsivePorts.ContainsKey(p))];
         }
     }
 
@@ -297,11 +308,17 @@ internal sealed class SerialProbeService : ISerialProbeService
         foreach (var baudGroup in baudGroups)
         {
             if (cancellationToken.IsCancellationRequested) return;
-            await ProbeBaudGroupAsync(port, baudGroup, onMatch, budgetMultiplier, isolatePerProbe, cancellationToken);
+            if (!await ProbeBaudGroupAsync(port, baudGroup, onMatch, budgetMultiplier, isolatePerProbe, cancellationToken))
+            {
+                _unresponsivePorts.TryAdd(port, 0);
+                _logger.LogWarning("{Port}: I/O ignored its budget; skipping its remaining probes and every later pass (a virtual port with nobody on the far end never completes).", port);
+                return;
+            }
         }
     }
 
-    private async ValueTask ProbeBaudGroupAsync(
+    /// <returns><see langword="false"/> when the port's I/O ignored a budget and the port must be given up.</returns>
+    private async ValueTask<bool> ProbeBaudGroupAsync(
         string port,
         IGrouping<int, ISerialProbe> baudGroup,
         Func<SerialProbeMatch, bool>? onMatch,
@@ -346,14 +363,14 @@ internal sealed class SerialProbeService : ISerialProbeService
             // Shared handle for the whole group: never assert control lines here; toggling DTR on a handle
             // other probes reuse could reset a different DTR-triggered controller on this port.
             conn = await TryOpenAsync(assertControlLines: false);
-            if (conn is null) return;
+            if (conn is null) return true;
         }
 
         try
         {
             foreach (var probe in probesToRun)
             {
-                if (cancellationToken.IsCancellationRequested) return;
+                if (cancellationToken.IsCancellationRequested) return true;
 
                 // On the shared handle DTR is never asserted, so a probe that REQUIRES it cannot answer here.
                 // Skip it (it gets its own DTR-asserted open on the isolated pass) instead of burning its
@@ -373,7 +390,10 @@ internal sealed class SerialProbeService : ISerialProbeService
 
                 try
                 {
-                    await RunSingleProbeAsync(port, probe, conn, onMatch, budgetMultiplier, cancellationToken);
+                    if (!await RunSingleProbeAsync(port, probe, conn, onMatch, budgetMultiplier, cancellationToken))
+                    {
+                        return false; // this handle's I/O ignores cancellation: nothing further on it can answer
+                    }
                 }
                 finally
                 {
@@ -384,6 +404,8 @@ internal sealed class SerialProbeService : ISerialProbeService
                     }
                 }
             }
+
+            return true;
         }
         finally
         {
@@ -433,7 +455,8 @@ internal sealed class SerialProbeService : ISerialProbeService
         }
     }
 
-    private async ValueTask RunSingleProbeAsync(
+    /// <returns><see langword="false"/> when the attempt's I/O ignored its budget and was abandoned.</returns>
+    private async ValueTask<bool> RunSingleProbeAsync(
         string port,
         ISerialProbe probe,
         ISerialConnection conn,
@@ -471,6 +494,7 @@ internal sealed class SerialProbeService : ISerialProbeService
             conn.DiscardInBuffer();
         }
 
+        var abandoned = false;
         try
         {
             for (var attempt = 1; attempt <= probe.MaxAttempts; attempt++)
@@ -480,7 +504,34 @@ internal sealed class SerialProbeService : ISerialProbeService
  
                 try
                 {
-                    var match = await probe.ProbeAsync(port, conn, linkedCts.Token);
+                    // Two bounds. The budget cancels the linked token, which every cooperative read honours;
+                    // the WaitAsync is for I/O that does not (see AbandonGrace) and gives the attempt up -- the
+                    // task keeps running on a handle the caller is about to close, and TryClose is bounded too.
+                    var attemptTask = probe.ProbeAsync(port, conn, linkedCts.Token).AsTask();
+                    SerialProbeMatch? match;
+                    try
+                    {
+                        match = await attemptTask.WaitAsync(budget + AbandonGrace, _timeProvider.System, cancellationToken);
+                    }
+                    catch (TimeoutException) when (!attemptTask.IsCompleted)
+                    {
+                        _logger.LogWarning("No answer to cancellation {Grace}ms after the {Budget}ms budget; abandoning this probe's I/O on {Port}.",
+                            AbandonGrace.TotalMilliseconds, budget.TotalMilliseconds, port);
+                        // Observe whatever the abandoned task eventually does (an I/O abort once the handle closes).
+                        _ = attemptTask.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                        abandoned = true;
+                        return false;
+                    }
+
+                    // The attempt came back, but only because a write inside it gave up on the driver: the
+                    // port does not complete I/O, and "no match" is not what that means. Give the port up.
+                    if (conn.HasAbandonedIo)
+                    {
+                        _logger.LogWarning("{Port} did not complete an I/O the {Probe} probe had to abandon; giving the port up.", port, probe.Name);
+                        abandoned = true;
+                        return false;
+                    }
+
                     if (match is not null)
                     {
                         // onMatch is the verification gate: returns true to publish, false to
@@ -492,11 +543,11 @@ internal sealed class SerialProbeService : ISerialProbeService
                             PublishMatch(probe.Name, match);
                             _logger.LogInformation("Match -> {DeviceUri}", match.DeviceUri);
                         }
-                        return;
+                        return true;
                     }
 
                     // Null = no match at the protocol level; no point retrying.
-                    return;
+                    return true;
                 }
                 catch (OperationCanceledException) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
                 {
@@ -511,9 +562,11 @@ internal sealed class SerialProbeService : ISerialProbeService
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Probe threw - treating as no-match.");
-                    return;
+                    return true;
                 }
             }
+
+            return true; // every attempt timed out: no match, but the port answered its cancellation
         }
         finally
         {
@@ -523,8 +576,11 @@ internal sealed class SerialProbeService : ISerialProbeService
             // waiting for the '#'). Doing it here, before the VerboseTag reset,
             // attributes the drained-bytes log line to the probe that actually
             // triggered them rather than the next probe in line.
-            try { conn.DiscardInBuffer(); }
-            catch (Exception ex) { _logger.LogDebug(ex, "Post-probe drain failed on {Port} [{Probe}]", port, probe.Name); }
+            if (!abandoned) // the abandoned attempt still owns the handle's I/O; do not touch it from here
+            {
+                try { conn.DiscardInBuffer(); }
+                catch (Exception ex) { _logger.LogDebug(ex, "Post-probe drain failed on {Port} [{Probe}]", port, probe.Name); }
+            }
             conn.VerboseTag = previousTag;
         }
     }

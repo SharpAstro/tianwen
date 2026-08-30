@@ -139,6 +139,55 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         service.ResultsFor("Slow").ShouldBeEmpty();
     }
 
+    [Fact(Timeout = 30_000)]
+    public async Task WithProbeWhoseIoIgnoresCancellationThePassAbandonsThePortAndCompletes()
+    {
+        // A Bluetooth virtual COM port with nobody on the far end never completes its overlapped write, and
+        // SerialStream.WriteAsync does not observe cancellation, so the budget alone could not end the
+        // probe: discovery wedged there for good (and, awaited at GUI start-up, the main thread with it).
+        // This stub ignores its token the same way. The pass must give the port up after budget + grace,
+        // skip the port's other probes and later passes, and still complete.
+        var external = new ProbeTestExternal { Ports = ["serial:COM4"] };
+        var stuck = new StubProbe("Stuck", baud: 9600, budget: TimeSpan.FromMilliseconds(50),
+            match: async (_, _) =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan); // no token: cancellation is ignored, as on the wire
+                return (SerialProbeMatch?)null;
+            });
+        var next = StubProbe.Sync("Next", baud: 115200, match: (port, _) => new SerialProbeMatch(port, new Uri("Mount://Next/never")));
+        var service = BuildService(external, output, StubPinnedPortsProvider.Empty, passBudgetMultipliers: [1.0, 2.0], stuck, next);
+
+        var probeTask = service.ProbeAllAsync(TestContext.Current.CancellationToken);
+        await PumpFakeTimeUntilCompleteAsync(external.TimeProvider, probeTask, TestContext.Current.CancellationToken);
+        await probeTask;
+
+        service.ResultsFor("Stuck").ShouldBeEmpty();
+        service.ResultsFor("Next").ShouldBeEmpty("the port's remaining probes are skipped once its I/O ignored a budget");
+        external.OpenCalls.Count.ShouldBe(1, "one open for the stuck baud group; no 115200 open and no pass-2 retry on a port that does not answer");
+    }
+
+    [Fact]
+    public async Task WithAConnectionThatHadToAbandonAWriteThePortIsGivenUpAfterThatProbe()
+    {
+        // The wire form of the case above: the write's own deadline fires while the driver still holds the
+        // write (SerialConnectionBase.TryWriteAsync), so the probe sees a failed write, reads nothing and
+        // returns null -- indistinguishable from a device that is not there. HasAbandonedIo is what tells the
+        // two apart. Without it every remaining probe on the port burned a full budget and every close of the
+        // port stranded a thread: nine of each per discovery on the Bluetooth listener port.
+        var external = new ProbeTestExternal { Ports = ["serial:COM4"], ConnectionsAbandonIo = true };
+        var secondRan = 0;
+        var first = StubProbe.Sync("First", baud: 9600, match: (_, _) => null);
+        var second = StubProbe.Sync("Second", baud: 9600, match: (_, _) => { Interlocked.Increment(ref secondRan); return null; });
+        var next = StubProbe.Sync("Next", baud: 115200, match: (port, _) => new SerialProbeMatch(port, new Uri("Mount://Next/never")));
+        var service = BuildService(external, output, StubPinnedPortsProvider.Empty, passBudgetMultipliers: [1.0, 2.0], first, second, next);
+
+        await service.ProbeAllAsync(TestContext.Current.CancellationToken);
+
+        secondRan.ShouldBe(0, "the port is given up after the probe whose I/O was abandoned");
+        service.ResultsFor("Next").ShouldBeEmpty();
+        external.OpenCalls.Count.ShouldBe(1, "one open at 9600; no 115200 open and no pass-2 retry");
+    }
+
     [Fact]
     public async Task WithRetryBudgetProbeIsRetriedOnTimeout()
     {
@@ -424,10 +473,13 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public List<string> Ports { get; set; } = [];
         public ConcurrentBag<(string Port, int Baud)> OpenCalls { get; } = [];
 
+        /// <summary>When set, every connection handed out reports <see cref="ISerialConnection.HasAbandonedIo"/>.</summary>
+        public bool ConnectionsAbandonIo { get; set; }
+
         public override ValueTask<ISerialConnection> OpenSerialDeviceAsync(string address, int baud, Encoding encoding, bool assertControlLines = false, CancellationToken cancellationToken = default)
         {
             OpenCalls.Add((address, baud));
-            ISerialConnection conn = new StubSerialConnection(address, baud, encoding);
+            ISerialConnection conn = new StubSerialConnection(address, baud, encoding) { HasAbandonedIo = ConnectionsAbandonIo };
             return ValueTask.FromResult(conn);
         }
 
@@ -478,6 +530,7 @@ public class SerialProbeServiceTests(ITestOutputHelper output)
         public int Baud => baud;
         public bool IsOpen { get; private set; } = true;
         public Encoding Encoding => encoding;
+        public bool HasAbandonedIo { get; init; }
 
         public bool TryClose() { IsOpen = false; return true; }
         public void Dispose() => TryClose();
