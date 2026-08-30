@@ -28,7 +28,7 @@ enum ImageLoopNextAction
     LimitReached
 }
 
-internal readonly record struct MeridianFlipResult(bool Success, double HourAngle, PointingState PierSide)
+internal readonly record struct MeridianFlipResult(bool Success, double HourAngle, PointingState PierSide, FlipVerdict Verdict = default)
 {
-    public static readonly MeridianFlipResult Failed = new(false, double.NaN, PointingState.Unknown);
+    public static readonly MeridianFlipResult Failed = new(false, double.NaN, PointingState.Unknown, FlipVerdict.Inconclusive);
 }

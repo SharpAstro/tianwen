@@ -1198,7 +1198,7 @@ internal partial record Session
     /// <c>:MNe</c>/<c>:MNw</c>) and we just need to plate-solve recenter and restart the guider.
     /// </summary>
     /// <returns>A <see cref="MeridianFlipResult"/> indicating success, the post-flip hour angle, and observed pier side.</returns>
-    private async ValueTask<MeridianFlipResult> PerformMeridianFlipAsync(
+    internal async ValueTask<MeridianFlipResult> PerformMeridianFlipAsync(
         ScheduledObservation observation,
         bool alreadyFlipped,
         CancellationToken cancellationToken)
@@ -1209,13 +1209,41 @@ internal partial record Session
         var mount = Setup.Mount;
         var guider = Setup.Guider;
 
+        // The field as it lies BEFORE the flip: the last solve this OTA produced, which is the
+        // centering that put us on this target (every observation is centred on arrival, and nothing
+        // between then and now can roll the field -- an equatorial mount's field rotation is a
+        // function of the pier side alone, not of where it points). Taken before anything moves,
+        // because the recenter inside CompleteMeridianFlipAsync will append the solve it is compared
+        // against.
+        var preFlipSolution = LastFieldOrientationSolve(Setup.Telescopes[0].Name);
+
+        // Whose word is final on whether the flip happened. A mount that MEASURES its pointing state
+        // knows something the image cannot improve on, so there the frame is only a cross-check. A
+        // mount that COMPUTES it from the hour angle is, at the meridian, asserting exactly the thing
+        // under test -- it reports the flipped state whether or not the tube moved -- so there the
+        // image wins. Never let this become an hour-angle test again: that IS the bug.
+        var imageHasTheLastWord = mount.Driver.PointingStateSource is PointingStateSource.Computed;
+
         _logger.LogInformation("Meridian flip: stopping guider for {Target} (alreadyFlipped={AlreadyFlipped}).", observation.Target, alreadyFlipped);
         await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
 
         if (alreadyFlipped)
         {
             // Mount already on the new pier side: skip the re-slew; just centre + restart guider.
-            return await CompleteMeridianFlipAsync(observation, cancellationToken);
+            var detected = await CompleteMeridianFlipAsync(observation, preFlipSolution, cancellationToken);
+            if (!detected.Success || !imageHasTheLastWord || detected.Verdict.Evidence is not FlipEvidence.NotFlipped)
+            {
+                return detected;
+            }
+
+            // The pier side changed and the field did not: on a computed-state mount that is not an
+            // auto-flip at all, it is the reported state turning over as the POINTING crossed the
+            // meridian. Command the flip after all rather than image on from the side we are still on.
+            _logger.LogWarning(
+                "Meridian flip: {Target} reported an auto-flip but the field did not rotate ({Delta:F1} deg); "
+                + "the mount computes its pointing state, so commanding the flip instead.",
+                observation.Target, detected.Verdict.RotationDeltaDeg);
+            await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
         }
 
         // Wait for any ongoing slew to complete before attempting the flip
@@ -1269,10 +1297,24 @@ internal partial record Session
                 ResilientCallOptions.IdempotentRead, cancellationToken);
             _logger.LogInformation("Meridian flip: slew complete, HA={NewHA:F4}h (attempt {Attempt}).", newHourAngle, attempt);
 
-            // Verify the HA is now positive (west of meridian); the flip actually happened
+            // HA positive means the POINTING is west of the meridian. On a mount that measures its
+            // pointing state that is the end of it; on one that computes it, it is true the moment
+            // the target crosses and says nothing about the tube, so the recentre's own plate solve
+            // is asked whether the field turned over.
             if (newHourAngle > 0)
             {
-                return await CompleteMeridianFlipAsync(observation, cancellationToken);
+                var flipped = await CompleteMeridianFlipAsync(observation, preFlipSolution, cancellationToken);
+                if (!flipped.Success || !imageHasTheLastWord || flipped.Verdict.Evidence is not FlipEvidence.NotFlipped)
+                {
+                    return flipped;
+                }
+
+                _logger.LogWarning(
+                    "Meridian flip: HA={NewHA:F4}h says the flip took on attempt {Attempt}, but the field did not "
+                    + "rotate ({Delta:F1} deg) -- the mount did not move the tube. Retrying with a larger offset.",
+                    newHourAngle, attempt, flipped.Verdict.RotationDeltaDeg);
+                await guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
+                continue;
             }
 
             _logger.LogWarning("Meridian flip: HA={NewHA:F4}h still east of meridian after attempt {Attempt}, retrying with larger offset.",
@@ -1289,6 +1331,7 @@ internal partial record Session
     /// </summary>
     private async ValueTask<MeridianFlipResult> CompleteMeridianFlipAsync(
         ScheduledObservation observation,
+        WCS? preFlipSolution,
         CancellationToken cancellationToken)
     {
         var mount = Setup.Mount;
@@ -1306,6 +1349,28 @@ internal partial record Session
             _logger.LogWarning("Meridian flip: centering did not converge, proceeding with current pointing.");
         }
 
+        // The recentre has just solved this OTA's field; comparing its orientation against the
+        // pre-flip one is the only check here that does not go through the mount.
+        var verdict = MeridianFlipVerification.FromSolves(
+            preFlipSolution, LastFieldOrientationSolve(Setup.Telescopes[0].Name));
+        switch (verdict.Evidence)
+        {
+            case FlipEvidence.Flipped:
+                _logger.LogInformation("Meridian flip: the field rotated {Delta:F1} deg, so the tube went over.",
+                    verdict.RotationDeltaDeg);
+                break;
+            case FlipEvidence.NotFlipped:
+                _logger.LogWarning(
+                    "Meridian flip: the field did NOT rotate ({Delta:F1} deg) -- whatever the mount reports, "
+                    + "the tube is still on the side it started on.", verdict.RotationDeltaDeg);
+                break;
+            default:
+                _logger.LogDebug(
+                    "Meridian flip: no usable pair of solves to read the field rotation from (delta={Delta}); "
+                    + "going on the mount's own report.", verdict.RotationDeltaDeg);
+                break;
+        }
+
         _logger.LogInformation("Meridian flip: restarting guiding for {Target}.", observation.Target);
         if (!await ResilientInvokeAsync(
                 guider.Driver,
@@ -1316,9 +1381,35 @@ internal partial record Session
             return MeridianFlipResult.Failed;
         }
 
-        _logger.LogInformation("Meridian flip: completed successfully for {Target}, HA={NewHA:F4}h, PierSide={PierSide}.",
-            observation.Target, newHourAngle, newPierSide);
-        return new MeridianFlipResult(true, newHourAngle, newPierSide);
+        _logger.LogInformation("Meridian flip: completed successfully for {Target}, HA={NewHA:F4}h, PierSide={PierSide}, Field={Evidence}.",
+            observation.Target, newHourAngle, newPierSide, verdict.Evidence);
+        return new MeridianFlipResult(true, newHourAngle, newPierSide, verdict);
+    }
+
+    /// <summary>
+    /// The most recent solve that can speak for how <paramref name="otaName"/>'s field is oriented:
+    /// successful, carrying a CD matrix, and from that OTA's own camera.
+    /// <para>
+    /// The OTA filter is load-bearing on a multi-OTA rig, where the sensors sit at different rolls in
+    /// their focusers -- a pair drawn from two of them differs by that constant and says nothing about
+    /// the pier. It also excludes <see cref="PlateSolveContext.GuiderFocus"/> for the same reason:
+    /// the guide camera is a different sensor at a different roll.
+    /// </para>
+    /// </summary>
+    private WCS? LastFieldOrientationSolve(string otaName)
+    {
+        WCS? newest = null;
+        // The queue is in solve order, so the last match wins; it is short (one session's solves) and
+        // this runs once per flip.
+        foreach (var record in _plateSolveHistory)
+        {
+            if (record is { Succeeded: true, Context: not PlateSolveContext.GuiderFocus, Solution: { HasCDMatrix: true } wcs }
+                && string.Equals(record.OtaName, otaName, StringComparison.Ordinal))
+            {
+                newest = wcs;
+            }
+        }
+        return newest;
     }
 
     /// <summary>

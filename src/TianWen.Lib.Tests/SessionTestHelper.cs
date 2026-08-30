@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using System;
 using System.Collections.Concurrent;
@@ -7,6 +8,7 @@ using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Focus;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Fake;
 using TianWen.Lib.Imaging;
@@ -67,6 +69,8 @@ internal static class SessionTestHelper
         bool withFilterWheel = false,
         Func<IServiceProvider, Cover>? coverFactory = null,
         MountLimitConfiguration? mountLimits = null,
+        IPlateSolver? plateSolverOverride = null,
+        bool coupleCameraToMount = false,
         CancellationToken cancellationToken = default)
     {
         var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
@@ -138,6 +142,16 @@ internal static class SessionTestHelper
         var mountDevice = new FakeDevice(DeviceType.Mount, 1, mountQuery);
         var guiderDevice = new FakeDevice(DeviceType.Guider, 1);
         var guiderCamDevice = new FakeDevice(new Uri($"Camera://{nameof(FakeDevice)}/FakeGuideCam#Fake Guide Cam ({FakeCameraDriver.GuideCameraPreset.SensorName})"));
+        if (coupleCameraToMount)
+        {
+            // Putting the mount in the hub is what couples the cameras to it: FakeCameraDriver finds
+            // the mount it renders against by looking there, and ControllableDeviceBase then BORROWS
+            // that driver rather than building a second one. This is the production shape -- every
+            // real host connects through the hub -- but it turns on the whole coupling at once (the
+            // guide camera's drift, the main camera's hidden polar misalignment, the pier side), so
+            // it stays opt-in rather than silently changing what every session test images.
+            await sp.GetRequiredService<IDeviceHub>().ConnectAsync(mountDevice, cancellationToken);
+        }
         var mount = new Mount(mountDevice, sp);
         var guider = new Guider(guiderDevice, sp);
         var guiderCam = new Camera(guiderCamDevice, sp);
@@ -159,7 +173,9 @@ internal static class SessionTestHelper
         await weather.Driver.ConnectAsync(cancellationToken);
 
         var setup = new Setup(mount, guider, new GuiderSetup(guiderCam, FocalLength: 130), [ota], weather, mountLimits);
-        var plateSolver = new FakePlateSolver();
+        // FakePlateSolver reports the target coordinates and nothing else -- no CD matrix, so no
+        // orientation. A test that needs the solve to describe how the field LIES supplies its own.
+        var plateSolver = plateSolverOverride ?? new FakePlateSolver();
 
         var config = configuration ?? DefaultConfiguration;
         var obs = observations ?? DefaultScheduledObservations;
