@@ -149,7 +149,7 @@ reference state:
     drawn from two of them differs by that constant and says nothing about the pier.
   Pinned by `MeridianFlipVerificationTests` (the classifier) and `MeridianFlipVerificationSessionTests`
   (through the session; seen to fail with the override removed, leaving the tube through the pole).
-- **P3 -- Feed the truth to the guider, and fix `WithMeridianFlip`. PARTLY DONE.**
+- **P3 -- Feed the truth to the guider, and fix `WithMeridianFlip`. DONE.**
   - **The sense fix is in.** `WithMeridianFlip(bool decIsSkyRelative = false)` now rotates the measured
     axis ANGLES rather than negating rates: `CameraAngleRad + PI` always, `DecAngleRad + PI` only for a
     sky-relative-Dec mount. Rotating the angle rather than negating the rate matters because
@@ -170,12 +170,15 @@ reference state:
     went **true -> false**: the mount family this codebase drives is axis-based-Dec, where the mount's
     own reversal cancels the sensor's. A profile carrying an explicit `reverseDecAfterFlip=true` now
     means something different from what it meant when it was written.
-  - **Still open:** the guider's flip AUTO-DETECT still reads `mount.GetSideOfPierAsync`
-    (`BuiltInGuiderDriver`), which is the same unreliable signal the session stopped trusting -- on a
-    computed-state mount it turns over as the pointing crosses, so the guider can still flip its
-    calibration for a flip that never happened. The session now KNOWS the answer
-    (`MeridianFlipResult.Verdict`); routing it there without making the driver reach back into the
-    session is the remaining piece.
+  - **`Session.GetSideOfPierAsync` is the canonical pier side.** Everything that needs to know where
+    the tube is asks it rather than the mount: a `Measured` driver is believed verbatim, a `Computed`
+    one only until the session knows better. The latch lives on the slewing-to-idle edge in
+    `PollDeviceStatesAsync` -- a goto is the only thing in ordinary operation that carries a tube
+    across the pier, so the landing is the one moment the report is certainly right, and a verified
+    flip is the only other thing that moves it. The built-in guider reads it through a
+    `PointingStateOracle` delegate the session sets at init: a delegate rather than a session
+    reference, because the dependency runs session -> guider and must never run back. Unset, the
+    guider asks the mount exactly as before, which is right for one driven on its own.
 
 P0-P2 are the safety win (detect and fail-loud on a missed commanded flip; accept a real auto-flip)
 and are SHIPPED. P3 is the guiding-quality correction and can follow.
@@ -213,11 +216,14 @@ meridian-limit test. It is opt-in for now; making it the default is its own piec
 
 ## Status
 
-**P0-P2 DONE, P3 PARTLY DONE (2026-08-30).** The session no longer takes a computed-state mount's word
-for a flip: it reads the field rotation off the recentre's own plate solve and, when the frame says
-nothing turned, commands the flip instead of imaging on from the wrong side. `WithMeridianFlip` is
-corrected on both axes and its old test's circular premise with it. What remains of P3 is routing the
-session's verified answer into the guider's auto-detect, which still asks the mount.
+**P0-P3 DONE (2026-08-30), PR #212.** The session no longer takes a computed-state mount's word for a
+flip: it reads the field rotation off the recentre's own plate solve and, when the frame says nothing
+turned, commands the flip instead of imaging on from the wrong side. `WithMeridianFlip` is corrected on
+both axes and its old test's circular premise with it, and `Session.GetSideOfPierAsync` is now the one
+canonical pier side that the imaging loop and the guider both read.
+
+What is left is not in the flip logic: the fake's star density (above), and the rotator gate once
+`DeviceType.Rotator` exists.
 
 Design captured 2026-08-30 from a session discussion. No meridian-flip plan existed before this; the
 flip behaviour is otherwise pinned by `SessionObservationLoopTests` (the GEM-only `[Theory]` and the
