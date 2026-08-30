@@ -3,7 +3,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Shouldly;
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.Catalogs;
@@ -808,9 +810,8 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         guideCam.NumX = 800;
         guideCam.NumY = 600;
         // Zero the realism offsets so the projection centre is the converted pointing exactly.
-        guideCam.GuideConeErrorRaArcmin = 0;
-        guideCam.GuideConeErrorDecArcmin = 0;
-        guideCam.GuideRotationDeg = 0;
+        guideCam.GuideOffsetArcmin = 0;
+        guideCam.CameraRollDeg = 0;
 
         // Expected J2000 centre computed through the same SOFA path the driver helper uses.
         var transform = await mount.TryGetTransformAsync(ct);
@@ -881,4 +882,239 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
         (Math.Abs(nativeRa - raJ2000) * 15.0 * 60.0 * cosDec).ShouldBeGreaterThan(5.0,
             "native (JNOW) and J2000 must differ by ~25 years of precession (~8' at this pointing), if not, this test lost its teeth");
     }
+
+    /// <summary>
+    /// Counts how many of <paramref name="from"/>'s stars have a counterpart in <paramref name="to"/>
+    /// at the position <paramref name="map"/> predicts, within <paramref name="tolPx"/>. Used to test a
+    /// candidate field transform against the two frames that bracket a meridian flip.
+    /// </summary>
+    private static int MatchCount(
+        IReadOnlyList<ImagedStar> from,
+        IReadOnlyList<ImagedStar> to,
+        Func<ImagedStar, (double X, double Y)> map,
+        double tolPx)
+    {
+        var matched = 0;
+        foreach (var star in from)
+        {
+            var (mx, my) = map(star);
+            foreach (var candidate in to)
+            {
+                var dx = candidate.XCentroid - mx;
+                var dy = candidate.YCentroid - my;
+                if (dx * dx + dy * dy <= tolPx * tolPx)
+                {
+                    matched++;
+                    break;
+                }
+            }
+        }
+        return matched;
+    }
+
+    /// <summary>
+    /// P0 of the meridian-flip verification plan (docs/plans/meridian-flip-verification.md): the
+    /// rendered field must ROLL 180 degrees when the OTA changes sides of the pier. A German flip is
+    /// a PURE 180 degree field rotation (parity is fixed by the optical train and a flip does not
+    /// change it), and the image is the only witness to a flip that does not go through the mount's
+    /// own reads -- so a fake that renders the same field on both pier sides can neither prove a flip
+    /// happened nor catch one that did not, and both defects the plan is about were untestable while
+    /// that was true.
+    /// <para>
+    /// Driven against <c>FakeSkywatcherMountDriver</c>, whose pointing state is MEASURED (read off
+    /// the Dec encoder half), so the flip here is real on both the report and the tube. Asserts the
+    /// detected star pattern maps under (x, y) -&gt; (W - x, H - y) -- the renderer rotates the
+    /// tangent-plane coordinates about the sensor centre -- and, so the measurement is known to have
+    /// SEEN the change, that the identity map does NOT explain the same pair of frames.
+    /// </para>
+    /// </summary>
+    [Fact(Timeout = 180_000)]
+    public async Task GivenSkywatcherWhenTheTubeChangesPierSideThenTheRenderedFieldRolls180Degrees()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var db = new CelestialObjectDB();
+        await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+        external.CelestialObjectDB = db;
+
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        // A well-aligned mount: the roll is the subject here, and polar-misalignment drift between
+        // the two frames would blur the very displacement being measured.
+        var mount = await ConnectMisalignedMountAsync(hub, ct, azArcmin: 0.0, altArcmin: 0.0);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.BinX = 1;
+        guideCam.NumX = 800;
+        guideCam.NumY = 600;
+        // Zero the per-camera realism offsets: the projection centre and the baseline roll must be
+        // identical across the two frames so the only thing left between them is the flip's 180.
+        guideCam.GuideOffsetArcmin = 0;
+        guideCam.CameraRollDeg = 0;
+        guideCam.PePeakTopeakArcsec = 0;
+
+        IExternal externalItf = external;
+
+        var before = await BuiltInGuiderDriver.CaptureGuideFrameAsync(
+            guideCam, TimeSpan.FromSeconds(2), external.TimeProvider, externalItf.ImageReadyPollInterval, ct);
+        var starsBefore = (await before.FindStarsAsync(0, snrMin: 10, cancellationToken: ct)).ToList();
+        var centreBefore = guideCam.LastCatalogRenderCentre;
+        var rollBefore = guideCam.LastRenderRotationDeg;
+        before.Release();
+        starsBefore.Count.ShouldBeGreaterThan(5, "the pre-flip frame must carry a field to compare against");
+
+        // Flip the tube: the same pointing reached through the other axis solution, which is exactly
+        // what a goto does when the destination's pier side differs from the current one.
+        var sideBefore = await mount.GetSideOfPierAsync(ct);
+        sideBefore.ShouldNotBe(PointingState.Unknown, "a GEM must report a pier side to flip from");
+        var flipTo = sideBefore is PointingState.Normal ? PointingState.ThroughThePole : PointingState.Normal;
+        await mount.SetSideOfPierAsync(flipTo, ct);
+        for (var i = 0; i < 1200 && await mount.IsSlewingAsync(ct); i++)
+        {
+            external.TimeProvider.Advance(TimeSpan.FromSeconds(1));
+            await Task.Delay(1, ct);
+        }
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse("the flip slew must complete within the pumped window");
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(flipTo, "the mount must actually be on the other side now");
+
+        var after = await BuiltInGuiderDriver.CaptureGuideFrameAsync(
+            guideCam, TimeSpan.FromSeconds(2), external.TimeProvider, externalItf.ImageReadyPollInterval, ct);
+        var starsAfter = (await after.FindStarsAsync(0, snrMin: 10, cancellationToken: ct)).ToList();
+        var centreAfter = guideCam.LastCatalogRenderCentre;
+        var rollAfter = guideCam.LastRenderRotationDeg;
+        after.Release();
+        starsAfter.Count.ShouldBeGreaterThan(5, "the post-flip frame must still carry a field");
+
+        output.WriteLine(
+            $"pier {sideBefore} -> {flipTo}; roll {rollBefore:F1} -> {rollAfter:F1} deg; " +
+            $"stars {starsBefore.Count} -> {starsAfter.Count}; " +
+            $"centre {centreBefore?.RaJ2000:F5}h/{centreBefore?.DecJ2000:F4} -> {centreAfter?.RaJ2000:F5}h/{centreAfter?.DecJ2000:F4}");
+
+        // The two frames must be of the SAME sky, or a rotation is not the transform between them.
+        centreBefore.HasValue.ShouldBeTrue();
+        centreAfter.HasValue.ShouldBeTrue();
+        Math.Abs(centreAfter!.Value.DecJ2000 - centreBefore!.Value.DecJ2000).ShouldBeLessThan(0.05,
+            "the flip returns the tube to the same pointing; only the roll may change");
+
+        const double tolPx = 6.0;
+        var width = guideCam.NumX;
+        var height = guideCam.NumY;
+        var rotated = MatchCount(starsBefore, starsAfter, s => (width - s.XCentroid, height - s.YCentroid), tolPx);
+        var identity = MatchCount(starsBefore, starsAfter, s => ((double)s.XCentroid, (double)s.YCentroid), tolPx);
+        output.WriteLine($"of {starsBefore.Count} pre-flip stars: {rotated} match under a 180 deg roll, {identity} under the identity");
+
+        rotated.ShouldBeGreaterThan(starsBefore.Count / 2,
+            "a meridian flip rotates the field 180 degrees on the sensor; most stars must land at (W - x, H - y)");
+        // Proof the measurement saw the change: a field that had NOT rolled would match the identity
+        // just as well, and this assertion is what fails if the fake goes back to rendering both pier
+        // sides the same way.
+        identity.ShouldBeLessThan(rotated,
+            "the identity must NOT explain the pair, or the frames are indistinguishable and the test proves nothing");
+        Math.Abs(rollAfter - rollBefore).ShouldBe(180.0, tolerance: 1e-9,
+            "the mount's contribution to the field rotation is a half turn, whichever way the tube went");
+    }
+
+
+    /// <summary>
+    /// The other half of P0, and the failure the whole plan is about: a mount whose pointing state is
+    /// COMPUTED reports a flip it never performed. <c>FakeMountDriver</c> derives
+    /// <c>GetSideOfPierAsync</c> from the hour angle, so the moment the POINTING crosses the meridian
+    /// it starts answering "counterweight-down, west" -- while the tube sits where its last goto left
+    /// it, because tracking does not move it across the pier. The rendered field must follow the TUBE:
+    /// it stays exactly where it was, which is what makes a missed flip observable at all. Were the
+    /// camera keyed to the mount's report instead, it would roll here and corroborate the lie.
+    /// </summary>
+    [Fact(Timeout = 180_000)]
+    public async Task GivenComputedPierSideWhenTrackingPastTheMeridianThenTheFieldDoesNotRoll()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
+        var db = new CelestialObjectDB();
+        await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+        external.CelestialObjectDB = db;
+
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        // The plain fake mount: a GEM that computes its pointing state, the family the LX200 base
+        // driver and SGP belong to.
+        var mountDevice = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
+        {
+            { "latitude", "48.2" },
+            { "longitude", "16.3" }
+        });
+        var mount = (IMountDriver)await hub.ConnectAsync(mountDevice, ct);
+        await mount.SetSiteLatitudeAsync(48.2, ct);
+        await mount.SetSiteLongitudeAsync(16.3, ct);
+        mount.PointingStateSource.ShouldBe(PointingStateSource.Computed,
+            "this test is about the family of mounts that GUESS their pointing state");
+
+        // Place the mount an hour EAST of the meridian by sync -- a slew only begins, and these frames
+        // are captured with no clock pump to finish one.
+        var lst = await mount.GetSiderealTimeAsync(ct);
+        var targetRa = (lst + 1.0) % 24.0;   // HA = -1h
+        const double targetDec = 45.0;
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(targetRa, targetDec, ct);
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole,
+            "east of the meridian a GEM looks through the pole");
+
+        // The guide camera renders at the mount's live pointing, which tracking holds fixed for the
+        // whole test, so the only thing that can move the stars is the instrument turning over. Its
+        // own roll and its scope's offset are zeroed so the frame is the bare field.
+        var camera = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        camera.FocalLength = 130;
+        camera.BinX = 1;
+        camera.NumX = 800;
+        camera.NumY = 600;
+        camera.GuideOffsetArcmin = 0;
+        camera.CameraRollDeg = 0;
+
+        IExternal externalItf = external;
+        var before = await BuiltInGuiderDriver.CaptureGuideFrameAsync(
+            camera, TimeSpan.FromSeconds(2), external.TimeProvider, externalItf.ImageReadyPollInterval, ct);
+        var starsBefore = (await before.FindStarsAsync(0, snrMin: 10, cancellationToken: ct)).ToList();
+        var rollBefore = camera.LastRenderRotationDeg;
+        before.Release();
+        starsBefore.Count.ShouldBeGreaterThan(5, "the pre-meridian frame must carry a field to compare against");
+
+        // Track for two hours. Nothing is commanded: no goto, no flip, no hand-box press.
+        external.TimeProvider.Advance(TimeSpan.FromHours(2));
+
+        var hourAngle = await mount.GetHourAngleAsync(ct);
+        hourAngle.ShouldBeGreaterThan(0.0, "the pointing must have crossed the meridian for the mount to mis-report");
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal,
+            "and here is the lie: the mount now reports the flipped state, having flipped nothing");
+
+        var after = await BuiltInGuiderDriver.CaptureGuideFrameAsync(
+            camera, TimeSpan.FromSeconds(2), external.TimeProvider, externalItf.ImageReadyPollInterval, ct);
+        var starsAfter = (await after.FindStarsAsync(0, snrMin: 10, cancellationToken: ct)).ToList();
+        var rollAfter = camera.LastRenderRotationDeg;
+        after.Release();
+        starsAfter.Count.ShouldBeGreaterThan(5, "the post-meridian frame must still carry a field");
+
+        output.WriteLine(
+            $"HA {hourAngle:F2}h; reported side ThroughThePole -> Normal; roll {rollBefore:F1} -> {rollAfter:F1} deg; " +
+            $"stars {starsBefore.Count} -> {starsAfter.Count}");
+
+        const double tolPx = 6.0;
+        var width = camera.NumX;
+        var height = camera.NumY;
+        var identity = MatchCount(starsBefore, starsAfter, s => ((double)s.XCentroid, (double)s.YCentroid), tolPx);
+        var rotated = MatchCount(starsBefore, starsAfter, s => (width - s.XCentroid, height - s.YCentroid), tolPx);
+        output.WriteLine($"of {starsBefore.Count} pre-meridian stars: {identity} match under the identity, {rotated} under a 180 deg roll");
+
+        identity.ShouldBeGreaterThan(starsBefore.Count / 2,
+            "nothing moved the tube, so the field must be where it was");
+        rotated.ShouldBeLessThan(identity,
+            "a 180 degree roll must NOT explain the pair -- that would be the camera corroborating a flip that never happened");
+        rollAfter.ShouldBe(rollBefore, tolerance: 1e-9);
+    }
+
 }

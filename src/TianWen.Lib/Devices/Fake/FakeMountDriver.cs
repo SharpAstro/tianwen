@@ -17,7 +17,7 @@ namespace TianWen.Lib.Devices.Fake;
 /// Supports configurable error injection: periodic error, polar misalignment drift,
 /// mount backlash, and cone error.
 /// </summary>
-internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakeDeviceDriverBase(fakeDevice, serviceProvider), IMountDriver
+internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider serviceProvider) : FakeDeviceDriverBase(fakeDevice, serviceProvider), IMountDriver, IFakeMechanicalPointingStateSource
 {
     // --- Physical constants ---
     private const double DEFAULT_GUIDE_RATE_DEG_PER_SEC = SIDEREAL_RATE * 2.0 / 3.0 / 3600.0;
@@ -533,6 +533,12 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
             _isTracking = true;
             _forcedPointingState = null;
             LastCommandedHourAngle = CoordinateUtils.ConditionHA(LocalSiderealTime() - ra);
+            // The tube ends up on the side the destination calls for -- the same rule
+            // DestinationSideOfPierAsync answers with, evaluated on the HA just computed. This is the
+            // only place ordinary operation moves the tube across the pier, which is what makes a
+            // mount that tracks past the meridian without flipping fall out of the model rather than
+            // needing to be staged.
+            _mechanicalPointingState = LastCommandedHourAngle >= 0 ? PointingState.Normal : PointingState.ThroughThePole;
         }
 
         // Start slew timer (outside lock)
@@ -593,6 +599,11 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         _ra = ra;
         _dec = dec;
         _forcedPointingState = null;
+        // A sync tells the mount where it POINTS. It does not move it, so it must leave the tube
+        // state alone -- and that is load-bearing rather than pedantic: plate-solve centring syncs
+        // constantly, so a sync that re-derived the tube state from the hour angle would silently
+        // "flip" the mount every time it solved west of the meridian, which is the exact fiction this
+        // fake exists to expose.
         ResetTrackingErrors();
     }
 
@@ -626,8 +637,34 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     public ValueTask SetSideOfPierAsync(PointingState pointingState, CancellationToken cancellationToken)
     {
         _forcedPointingState = pointingState is PointingState.Unknown ? null : pointingState;
+        // Commanding a pointing state IS commanding a flip: the tube goes where it was told.
+        if (_forcedPointingState is { } commanded)
+        {
+            _mechanicalPointingState = commanded;
+        }
         return ValueTask.CompletedTask;
     }
+
+    /// <summary>
+    /// Where the TUBE is, which is a different fact from what <see cref="GetSideOfPierAsync"/> reports
+    /// and only MOTION changes: a goto puts the tube on the destination's side, a sync re-anchors the
+    /// mount's idea of itself but not its mechanics, and tracking moves it not at all. Starts
+    /// <see cref="PointingState.Normal"/> -- the GEM home position, counterweight down at the pole,
+    /// which is also where a test that never slews leaves it.
+    /// <para>
+    /// The gap between this and the reported state is not an artefact; it is the mount tracking past
+    /// the meridian. The report is computed from the hour angle, so it turns over the moment the
+    /// POINTING crosses, while the tube stays where its last goto left it -- which is precisely the
+    /// missed meridian flip this fake exists to let us see (a goto that just misses the firmware's
+    /// flip window and tracks straight through, after which the mount goes on reporting "west of the
+    /// meridian, so counterweight-down" over a tube that never moved).
+    /// </para>
+    /// </summary>
+    private PointingState _mechanicalPointingState = PointingState.Normal;
+
+    /// <inheritdoc/>
+    public ValueTask<PointingState> GetMechanicalPointingStateAsync(CancellationToken cancellationToken)
+        => ValueTask.FromResult(_mechanicalPointingState);
 
     public async ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
     {

@@ -11,7 +11,7 @@ using TianWen.Lib.Devices.Skywatcher;
 
 namespace TianWen.Lib.Devices.Fake;
 
-internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider serviceProvider) : SkywatcherMountDriverBase<FakeDevice>(device, serviceProvider), IFakeTruePointingSource
+internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider serviceProvider) : SkywatcherMountDriverBase<FakeDevice>(device, serviceProvider), IFakeTruePointingSource, IFakeMechanicalPointingStateSource
 {
     /// <summary>
     /// Current azimuth misalignment in arcminutes, in the topocentric (horizon)
@@ -202,6 +202,16 @@ internal class FakeSkywatcherMountDriver(FakeDevice device, IServiceProvider ser
     // positional periodic-error phase (worm angle = encoder position mod worm period).
     private uint _wormStepsRa;
     private bool _wormStepsRaProbed;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// A Synta board's pier side is already mechanical -- the base driver reads it off the Dec
+    /// encoder half, which tracking never moves -- so what the mount reports IS where the tube is,
+    /// and the two seams coincide. The missed-flip case this interface exists for cannot arise on
+    /// a mount that measures its own state; it belongs to the computed-state family.
+    /// </remarks>
+    public ValueTask<PointingState> GetMechanicalPointingStateAsync(CancellationToken cancellationToken)
+        => GetSideOfPierAsync(cancellationToken);
 
     /// <inheritdoc/>
     /// <remarks>
