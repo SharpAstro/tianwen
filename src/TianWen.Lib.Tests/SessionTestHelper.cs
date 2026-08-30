@@ -71,10 +71,19 @@ internal static class SessionTestHelper
         MountLimitConfiguration? mountLimits = null,
         IPlateSolver? plateSolverOverride = null,
         bool coupleCameraToMount = false,
+        bool withCatalogStarField = false,
         CancellationToken cancellationToken = default)
     {
         var timeProvider = new FakeTimeProviderWrapper(now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var external = new FakeExternal(output, timeProvider);
+        if (withCatalogStarField)
+        {
+            // FakeExternal THROWS from GetCelestialObjectDBAsync unless this is set, and
+            // FakeCameraDriver swallows that failure and renders a RANDOM star field instead. A random
+            // field cannot plate-solve against a real catalog by construction, so anything that solves
+            // needs this. Shared process-wide, so the Tycho-2 bulk load is paid once for the suite.
+            external.CelestialObjectDB = await SharedCatalogDB.InitAsync(cancellationToken);
+        }
 
         var cameraDevice = new FakeDevice(DeviceType.Camera, 1);
         var focuserDevice = new FakeDevice(DeviceType.Focuser, 1);
@@ -89,8 +98,14 @@ internal static class SessionTestHelper
         var focuserDriver = (FakeFocuserDriver)focuser.Driver;
 
         cameraDriver.BinX = 1;
-        cameraDriver.NumX = 512;
-        cameraDriver.NumY = 512;
+        // 512x512 keeps a synthetic render cheap, and at any realistic focal length it is also far too
+        // little SKY to plate-solve: 0.28 deg on the IMX294C preset at 480 mm, which holds 2-7 Tycho-2
+        // stars against the solver's MinStarsForMatch of 6. Measured in FakeFieldSolveProbe -- 512 never
+        // solves, 1024 solves in 28 ms, 2048 solves in both a dense and a sparse field. No renderer or
+        // solver change can fix the small ROI: the stars are not in that much sky.
+        var roi = withCatalogStarField ? 2048 : 512;
+        cameraDriver.NumX = roi;
+        cameraDriver.NumY = roi;
 
         Cover? cover = null;
         if (coverFactory is not null)
