@@ -56,7 +56,8 @@ keeps reporting open), rebuilding the connection when the handshake goes silent.
 - [ ] **Pinned-verify tier skips a DTR-only device.** `SerialProbeService.VerifyPinnedPortsAsync` probes on
       the shared handle (`isolatePerProbe: false`), so with the new DTR-skip a pinned Gemini is skipped in
       verification and falls to Stage 2 (direct URI connect of a pinned panel still works). Fix: isolate
-      (assert DTR + warmup) for probes that need control lines. Tracked in [../plans/soft-discovery.md](../plans/soft-discovery.md).
+      (assert DTR + warmup) for probes that need control lines. Tracked in [../plans/soft-discovery.md](../plans/soft-discovery.md);
+      bench confirmation with a pinned panel: [hardware-validation.md](hardware-validation.md) item 20.
 
 ## Serial I/O reliability (cross-cutting)
 
@@ -158,7 +159,7 @@ simpler than the per-OTA rotator.
 - [ ] LX800 fixed GW response not being terminated issue, account for that (`MeadeLX200ProtocolMountDriverBase.cs:143`)
 - [ ] Pier side detection only works for GEM mounts (`MeadeLX200ProtocolMountDriverBase.cs:305`)
 - [ ] Support `:RgSS.S#` to set guide rate on AutoStar II (`MeadeLX200ProtocolMountDriverBase.cs:573,583`)
-- [ ] Verify `:Q#` stops pulse guiding as well (`MeadeLX200ProtocolMountDriverBase.cs:873`)
+- `:Q#` stopping pulse guiding too (`MeadeLX200ProtocolMountDriverBase.cs:873`): bench check, [hardware-validation.md](hardware-validation.md) item 13.
 - [x] Use standard atmosphere for `SitePressure` (`IMountDriver.cs:344`); DONE (branch `feat/top-5-todo`): the `1010` hardcode is gone; `TryGetTransformAsync` now leaves `SitePressure` unset for the standard tier (`SiteConditions.Standard`), so `Transform` auto-derives it barometrically from elevation (more accurate at altitude than a flat 1010).
 - [x] Check online or via connected devices for `SiteTemperature` (`IMountDriver.cs:345`); DONE (branch `feat/top-5-todo`): `SiteConditions.Resolve` consults a connected `IWeatherDriver` (live), else standard, per value. Session resolves it via `Session.ResolveSiteConditions()`; polar alignment uses the same resolver. (No profile-stored override, temp/pressure vary.)
 - [ ] Handle refraction, assumes driver does not support/do refraction (`IMountDriver.cs:347`), still open; the `Refraction = true` assumption (per-driver native-refraction handling) is deliberately out of scope of `docs/plans/site-conditions.md`.
@@ -182,11 +183,10 @@ Findings from comparing `SkywatcherMountDriverBase` against GSServer's `SkyWatch
   keeps the half the Dec encoder is in; `StepsToRa` reads the half off the Dec encoder; home boundary
   inclusive (Normal). Before this every target took the straight solution (eastern targets
   counterweight-UP) and a meridian "flip" re-slewed to identical steps. `GetAxisAngleAsync` exposes the
-  folded, hemisphere-corrected axis angle for the mount safety limit's mechanical tier. Still open:
-  hardware validation; `SetSideOfPierAsync` (GSS forced flip) still throws.
-- [ ] Dec backlash compensation in pulse guide: GSS converts configured backlash steps into extra pulse duration (capped +1000 ms so PHD2's 2 s return expectation holds, `SkyWatcher.cs:500-506`). We have per-focuser backlash inference; mounts have none. Lower priority: the built-in guider's calibration absorbs steady-state Dec lash partially.
-- [ ] Verify on real hardware whether EQ6-class firmware auto-resumes sidereal tracking after a GOTO (the fake models auto-resume; GSS does not rely on it). Low risk either way: `Session` re-ensures tracking via `EnsureTrackingAsync` before focus/imaging, which is status-driven and firmware-legal now.
-- [ ] Verify iterative goto refinement on real hardware (EQMOD does the same multi-pass goto; our 30" tolerance / 2-pass cap may need tuning against real motor ramp + stop-wait times).
+  folded, hemisphere-corrected axis angle for the mount safety limit's mechanical tier. `SetSideOfPierAsync`
+  is the forced flip since 2026-08-30. Hardware validation of all of it: [hardware-validation.md](hardware-validation.md)
+  items 1-3. (The EQ6 tracking-after-goto, goto-refinement and Dec-backlash bench checks moved there too,
+  items 4, 5 and 10.)
 
 ## Mount / Believed vs True Pointing (fakes) + Sky-Map Solve & Sync
 
@@ -215,7 +215,7 @@ The fakes now model this honestly, and the sky map gained the discovery tool:
 
 - [ ] GSS ServoCAT / SiTech protocol support + simulator
 - [x] iOptron SkyGuider Pro (SGP) mount driver: `SgpMountDriverBase<T>` with custom serial protocol at 28800 baud, RA-only axis, pulse guiding via timed move, CameraSnap support, `FakeSgpSerialDevice` for testing
-- [ ] iOptron SkyGuider Pro: investigate patching the SGP handbox firmware (STM32F103, same as iOptron SmartEQ) to support the standard iOptron serial protocol, enabling features like position reporting and goto
+- iOptron SkyGuider Pro handbox firmware patch feasibility (STM32F103): needs the handbox + a probe, [hardware-validation.md](hardware-validation.md) item 22.
 - [ ] iOptron SkyGuider Pro: device identity; no UUID mechanism available (firmware has no user string storage, doesn't read STM32 hardware UID); falls back to firmware version + port name
 - [ ] Generic iOptron serial protocol support (SmartEQ, CEM series); same 28800 baud, similar command set but with position feedback
 - [ ] SGP pulse guiding should restore previous speed not just siderial (wait Pulse guiding is wrong, it will be 1x siderial but SGP has a different guide rate configured) or make this configurable; alternative: if guide rate is 0.5, half guide pulse time by 2

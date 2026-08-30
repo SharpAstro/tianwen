@@ -195,7 +195,8 @@ Edited:
 - **Does ZWOptical.SDK re-enumerate the camera on USB re-plug with the
   same device id?** If not, reconnect after a real re-plug needs to
   re-resolve via `IDeviceUriRegistry`, which is a bigger change than this
-  plan describes. Verify on real hardware before sub-plan A merges.
+  plan describes. Verify on real hardware before sub-plan A merges --
+  [hardware-validation.md](../todo/hardware-validation.md) item 16.
 - **Guider-specific reconnect.** PHD2 exposes a WS; `TcpSerialConnection`
   doesn't own the guider connection (it's a separate `IGuiderDriver`).
   Does that driver already have its own reconnect? If yes, skip Phase 4

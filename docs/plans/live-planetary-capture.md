@@ -524,4 +524,5 @@ mount actuation in the controller, and a RECENTER panel section on top.
 
 **Out of scope (deferred):** a guider-style mount-jog **calibration** (to learn the on-sky sign + scale instead
 of the uncalibrated flip flags), and drag-to-set ROI on the image. The coarse auto mount-jog + manual nudge are
-enough for first light; calibration is the natural next refinement.
+enough for first light; calibration is the natural next refinement. Confirming the sign on a real planet is
+[hardware-validation.md](../todo/hardware-validation.md) item 17.
