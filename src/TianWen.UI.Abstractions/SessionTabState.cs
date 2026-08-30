@@ -56,7 +56,7 @@ namespace TianWen.UI.Abstractions
     /// <summary>
     /// Shared state for the session configuration tab, used by both GUI and TUI.
     /// </summary>
-    public class SessionTabState
+    public class SessionTabState : PersistableState<SaveSessionConfigSignal>
     {
     /// <summary>
     /// The active profile's data as of the last render, for the config form's caveats (a preference judged
@@ -98,35 +98,11 @@ namespace TianWen.UI.Abstractions
         /// <summary>Total number of editable config fields (computed during render).</summary>
         public int FieldCount { get; set; }
 
-        /// <summary>Signal bus for posting session config events. Set by the host during initialization.</summary>
-        public SignalBus? Bus { get; set; }
-
         /// <summary>Index of the observation whose exposure is being edited via text input, or -1 if none.</summary>
         public int EditingExposureIndex { get; set; } = -1;
 
         /// <summary>Text input for editing an observation's sub-exposure duration (in seconds).</summary>
         public TextInputState ExposureInput { get; } = new() { Placeholder = "seconds" };
-
-        /// <summary>Marks the configuration as dirty and triggers a save signal.</summary>
-        public void MarkDirty()
-        {
-            IsDirty = true;
-        }
-
-        /// <summary>Whether the session configuration has unsaved changes.</summary>
-        public bool IsDirty
-        {
-            get => _isDirty;
-            internal set
-            {
-                _isDirty = value;
-                if (value)
-                {
-                    Bus?.Post(new SaveSessionConfigSignal());
-                }
-            }
-        }
-        private bool _isDirty;
 
         /// <summary>Whether the display needs a redraw.</summary>
         public bool NeedsRedraw { get; set; }
