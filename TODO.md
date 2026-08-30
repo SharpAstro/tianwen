@@ -156,6 +156,15 @@
   state and are fine. Decide: computed answers reach `MountLimits.Evaluate` as `Unknown` (HA
   approximation, fires past the meridian), or split "measured vs computed" on `IMountDriver` -- the
   flip gate wants the computed one and has `DestinationSideOfPierAsync`. Same plan doc, same section.
+- [ ] **LAN.Lib 2.0 pin bump, once nuget.org has it** (LAN.Lib branch `feat/discovery-port-and-bind-degradation`,
+  `7572b68`): the discovery port moved 52821 -> 38821 (out of Windows' dynamic range, where Hyper-V/WSL
+  exclusions killed tianwen-gui at DI resolution with WSAEACCES 10013 on 2026-08-30) and a failed bind now
+  degrades to announce-only with `ILanTransport.Degradation` instead of throwing. When the package is
+  published: bump `LAN.Lib` in `src/Directory.Packages.props` to 2.0.*, log `lanDiscovery.Degradation` once
+  from `TianWen.UI.Gui/Program.cs` after `StartAsync` (the server gets it from `LanDiscoveryHostedService`),
+  and replace the four `52821` literals in `docs/plans/remote-profile.md`. Until then a local build already
+  uses the sibling source (`UseLocalSiblings`); CI still builds against 1.2. Old and new nodes on one LAN do
+  not see each other -- update every node together.
 - [x] **Mount safety limits: P3's GUI half, P4, P5, and the P1 editor UI**
   ([docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md)).
   **ALL DONE 2026-08-30** -- editor (`PanelSection.MountLimits` + "Meridian Flip" config group with the
