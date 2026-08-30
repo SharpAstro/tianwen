@@ -483,8 +483,11 @@ internal partial record Session(
             return;
         }
 
+        // The pointing state is what tells the decider which way the hour angle counts: a rig that has
+        // flipped is safe however far west it tracks, and the first cut of this stopped every such rig
+        // ~30 min after its flip. See MountLimits.Evaluate's pointingState remarks.
         var verdict = MountLimits.Evaluate(
-            _mountState.HourAngle, _mountState.Altitude, _mountState.IsTracking, _limitActed, limits);
+            _mountState.HourAngle, _mountState.PierSide, _mountState.Altitude, _mountState.IsTracking, _limitActed, limits);
 
         if (!verdict.IsBreached)
         {

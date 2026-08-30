@@ -128,6 +128,28 @@
 
 ## Next Up
 
+- [ ] **SkyWatcher driver: `RaToSteps`/`DecToSteps` only ever produce the Normal-state axis solution.**
+  There is no through-the-pole branch (GSServer chooses one from the destination's hour angle), so a
+  goto or sync to an EASTERN target lands the encoder model in `Normal` -- counterweight-UP in the
+  driver's own convention (home = HA 6 h, counterweight down) -- and a session "flip" re-slews to
+  identical encoder targets, i.e. moves nothing. Found 2026-08-30 while fixing the mount-limit
+  pointing-state bug: the limit reads the driver's state, so on this driver it fires right after a slew
+  to an eastern target and never on the west-tracking case. The port is GSS `origin/master`
+  `Axes.RaDecToAxesXy`'s `if (axes[0] > 180) { X += 180; Y = 180 - Dec }` branch (Dec sign mirrored
+  south FIRST), chosen per goto from the target's hour angle; `SyncRaDecAsync` picks the solution
+  nearest the CURRENT encoder half (a sync says where the mount IS, it must not teleport the model
+  across the pier); then hardware validation. GSS itself never flips while tracking -- the flip IS the
+  next goto landing on the other solution -- which matches how `Session` already re-slews.
+  [docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md), "the pointing state".
+- [ ] **A COMPUTED pointing state must not feed the mount limit as if measured** (LX200 base, SGP,
+  `FakeMountDriver`). `MeadeLX200ProtocolMountDriverBase.CalculateSideOfPierAsync` and the fake derive
+  pier side from HA (`>= 0 -> Normal`), SGP answers a constant `Normal`: the state a mount WOULD be in
+  if its firmware always flipped. West of the meridian that reads as post-flip, so the meridian limit
+  can never fire on those drivers -- wrong on any LX200-protocol mount that tracks past the meridian
+  until the next goto. OnStep (`:Gm#`), SkyWatcher (Dec encoder), ASCOM/Alpaca report the mechanical
+  state and are fine. Decide: computed answers reach `MountLimits.Evaluate` as `Unknown` (HA
+  approximation, fires past the meridian), or split "measured vs computed" on `IMountDriver` -- the
+  flip gate wants the computed one and has `DestinationSideOfPierAsync`. Same plan doc, same section.
 - [ ] **Mount safety limits: P1b, P3-P5, and the P1 editor UI**
   ([docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md)).
   **P0 + P1 + P2 shipped 2026-08-29, so a configured limit now actually stops a mount during a run.**

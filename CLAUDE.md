@@ -640,11 +640,22 @@ choice about a target that keeps being imaged from the other side. A rig can hav
 neither. Ported from GSServer's `CheckAxisLimits` with three deliberate departures, each load-bearing:
 
 - **`HA > 0` IS "descending"** (altitude is maximal at upper transit and falls monotonically to lower
-  transit), so the horizon limit needs no pier side and no alignment mode. GSS gates its GEM horizon
-  test on `SideOfPier == pierEast`; **our SkyWatcher driver derives pier side from the Dec encoder and
-  reports `Normal` while a GEM tracks west** (see the flip invariant above), so that gate would
-  silently disable the limit on the mount that most needs it. The HA form is also true for fork and
-  AltAz mounts, which have no pier side at all.
+  transit), so the HORIZON limit needs no pier side and no alignment mode -- altitude is a sky
+  quantity, and the HA form is also true for fork and AltAz mounts, which have no pier side at all.
+  **The MERIDIAN limit is the opposite: a test on the RA AXIS, where the pointing state is
+  load-bearing.** The same HA puts the axis in two places: a GEM that has not flipped
+  (`ThroughThePole`, counterweight down looking east) swings its tube toward the pier tracking west;
+  one that has flipped (`Normal`) is 12 h round and moving AWAY, and its hazard is pointing EAST.
+  `Evaluate` reads the offset as `Normal ? -HA : HA` (`Unknown` = the HA approximation). The first
+  cut read HA alone and **stopped every rig ~30 min after a successful flip** -- with the flip clamp,
+  the one place a rig is guaranteed to be. Two test traps: `default(PointingState)` is `Normal`, the
+  state in which the meridian test is SILENT, so an unconfigured mock passes with enforcement deleted;
+  and `FakeMountDriver` derives its state from HA (flips the instant it crosses), so hold it pre-flip
+  with `SetSideOfPierAsync`. The limit is only as right as the state under it, and two drivers fail
+  it differently (both `TODO.md`): SkyWatcher ported GSS's *reporting* rule (Dec encoder) but not its
+  *choosing* rule (`RaDecToAxesXy`: east -> through the pole), so every target lands in the straight
+  solution; LX200-base, SGP and `FakeMountDriver` report a COMPUTED state (`HA >= 0 -> Normal`), which
+  reads as post-flip west of the meridian whatever the mount did and silences the limit there.
 - **Warn and act are a threshold plus a non-negative EXTRA**, never two absolute numbers. The two
   limits run in opposite directions (hour angle rises toward its limit, altitude falls toward its
   own), so an absolute pair can be edited into acting before it warns -- differently for each limit.

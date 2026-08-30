@@ -28,13 +28,21 @@ public class MountLimitWatcherTests
         MeridianActionExtraMinutes: 5.0,
         MeridianResponse: MountLimitResponse.StopTracking);
 
-    private static IMountDriver MountAt(double hourAngleHours, bool isTracking = true, bool canPark = false)
+    private static IMountDriver MountAt(
+        double hourAngleHours, bool isTracking = true, bool canPark = false,
+        PointingState pointingState = PointingState.ThroughThePole)
     {
         var mount = Substitute.For<IMountDriver>();
         mount.Name.Returns("FakeMount1");
         mount.Connected.Returns(true);
         mount.Logger.Returns(NullLogger.Instance);
         mount.GetHourAngleAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(hourAngleHours));
+        // Configured explicitly, always. An unconfigured NSubstitute ValueTask<PointingState> returns
+        // default, and default(PointingState) is Normal -- the FLIPPED state, in which the meridian limit
+        // is silent -- so left to the default every "it stops the mount" case here would go green with
+        // enforcement deleted. Through-the-pole (counterweight down, looking east, not yet flipped) is
+        // the state in which tracking west carries the tube toward the pier.
+        mount.GetSideOfPierAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(pointingState));
         mount.GetDeclinationAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(45.0));
         mount.IsTrackingAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(isTracking));
         mount.SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(ValueTask.CompletedTask);
@@ -72,6 +80,20 @@ public class MountLimitWatcherTests
         var ct = TestContext.Current.CancellationToken;
         // 1 min east of the meridian: approaching, but not even at the warn threshold.
         var mount = MountAt(hourAngleHours: -1.0 / 60.0);
+        var (hub, discovery) = HubAndDiscoveryFor(mount, StopTrackingPastTheMeridian);
+
+        await WatcherFor(hub, discovery).TickAsync(ct);
+
+        await mount.DidNotReceive().SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AMountThatHasFlippedIsLeftAloneHoweverFarPastTheMeridianItTracks()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // Normal = counterweight down while looking west = AFTER the flip. Tracking west from there moves
+        // the tube away from the pier; the hour-angle-only first cut stopped this rig 30 min post-flip.
+        var mount = MountAt(hourAngleHours: 1.0, pointingState: PointingState.Normal);
         var (hub, discovery) = HubAndDiscoveryFor(mount, StopTrackingPastTheMeridian);
 
         await WatcherFor(hub, discovery).TickAsync(ct);

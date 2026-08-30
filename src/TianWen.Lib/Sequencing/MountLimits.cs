@@ -1,4 +1,5 @@
 using System;
+using TianWen.Lib.Devices;
 
 namespace TianWen.Lib.Sequencing;
 
@@ -9,8 +10,9 @@ public enum MountLimitKind
     None,
 
     /// <summary>
-    /// The mount has tracked too far past the meridian. A GEM's OTA eventually meets the pier;
-    /// this is the mechanical bound on how long an <c>AcrossMeridian</c> observation may run.
+    /// The RA axis has carried the tube too far toward the pier: past the meridian in the pre-flip
+    /// pointing state, or (the mirror case) east of it after a flip. A GEM's OTA eventually meets
+    /// the pier; this is the mechanical bound on how long an <c>AcrossMeridian</c> observation may run.
     /// </summary>
     Meridian,
 
@@ -89,9 +91,9 @@ public readonly record struct MountLimitVerdict(
     {
         MountLimitKind.None => "Within all configured mount limits.",
         MountLimitKind.Meridian when IsWarningOnly =>
-            $"Approaching the meridian limit: {-ExceededBy:F0} min of tracking before the mount will {ResponsePhrase()}.",
+            $"Approaching the meridian limit: {-ExceededBy:F0} min of hour angle before the mount will {ResponsePhrase()}.",
         MountLimitKind.Meridian =>
-            $"Meridian limit reached: the mount has tracked {ExceededBy:F0} min past the limit. Will {ResponsePhrase()}.",
+            $"Meridian limit reached: the tube is {ExceededBy:F0} min of hour angle past the limit. Will {ResponsePhrase()}.",
         MountLimitKind.Horizon when IsWarningOnly =>
             $"Approaching the horizon limit: {-ExceededBy:F1} deg of altitude before the mount will {ResponsePhrase()}.",
         MountLimitKind.Horizon =>
@@ -213,13 +215,21 @@ public sealed record MountLimitConfiguration(
 ///
 /// <para><b>Departure from GSServer, deliberately: the horizon test keys on HOUR ANGLE, not pier
 /// side.</b> GSS gates its GEM horizon check on <c>SideOfPier == pierEast</c>. The intent is right --
-/// only act when the pointing is getting WORSE -- but the signal is wrong for us twice over. First,
-/// altitude is maximal at upper transit and falls monotonically until lower transit, so
-/// <c>HA &gt; 0</c> IS "descending", exactly and in both hemispheres, with no dependence on a driver
-/// convention. Second, our SkyWatcher driver derives pier side from the Dec encoder and reports
-/// Normal while a GEM tracks west -- the very case the gate exists to catch (see the meridian-flip
-/// oscillation invariant in CLAUDE.md). Keying on HA makes the rule true for AltAz and fork mounts
-/// as well, which have no pier side at all.</para>
+/// only act when the pointing is getting WORSE -- but altitude is a SKY quantity: it is maximal at
+/// upper transit and falls monotonically until lower transit, so <c>HA &gt; 0</c> IS "descending",
+/// exactly and in both hemispheres, with no dependence on a driver convention. Keying on HA makes the
+/// rule true for AltAz and fork mounts as well, which have no pier side at all.</para>
+///
+/// <para><b>The MERIDIAN test is the opposite case, and the pointing state is load-bearing there.</b>
+/// It is a test on the RA AXIS, and the same hour angle puts that axis in two different places: a
+/// GEM that has not flipped (<see cref="PointingState.ThroughThePole"/>, counterweight down while
+/// looking east) is swinging its tube toward the pier as it tracks west, while one that has flipped
+/// (<see cref="PointingState.Normal"/>) is 12 h round on the same axis and moving AWAY from it. The
+/// first cut read the hour angle alone and so stopped every rig about 30 minutes after a successful
+/// flip -- the moment its hour angle reached the action threshold -- which with the flip clamp in
+/// place is the one time a rig is guaranteed to be there. A driver that cannot report the state
+/// (<see cref="PointingState.Unknown"/>) gets the hour-angle approximation, labelled as the weaker
+/// tier; a driver whose report is wrong gets a wrong limit, which no arithmetic here can repair.</para>
 /// </remarks>
 public static class MountLimits
 {
@@ -229,6 +239,18 @@ public static class MountLimits
     /// <param name="hourAngleHours">
     /// Current hour angle, signed hours: negative = east of the meridian (rising), positive = west
     /// (descending). <see cref="double.NaN"/> disables the meridian test only.
+    /// </param>
+    /// <param name="pointingState">
+    /// The mount's reported pointing state, which decides WHICH WAY the hour angle counts toward the
+    /// meridian limit. <see cref="PointingState.ThroughThePole"/> (ASCOM <c>pierWest</c>: counterweight
+    /// down while looking east) is where a GEM sits from the slew to a rising target until it flips, and
+    /// tracking past the meridian in that state swings the tube toward the pier -- the classic case.
+    /// <see cref="PointingState.Normal"/> (<c>pierEast</c>: counterweight down while looking west) is
+    /// where it sits AFTER the flip; tracking west from there moves the tube AWAY from the pier however
+    /// far it goes, and the hazard is instead pointing EAST of the meridian -- the mirror case, which a
+    /// wrong-way goto or a bad sync produces. <see cref="PointingState.Unknown"/> falls back to reading
+    /// the hour angle as the offset (right for a mount that has not flipped, wrong after one), because a
+    /// driver that cannot say leaves nothing better. Ignored by the horizon test, which is about the sky.
     /// </param>
     /// <param name="altitudeDeg">
     /// Current pointing altitude in degrees. <see cref="double.NaN"/> disables the horizon test only.
@@ -260,6 +282,7 @@ public static class MountLimits
     /// </returns>
     public static MountLimitVerdict Evaluate(
         double hourAngleHours,
+        PointingState pointingState,
         double altitudeDeg,
         bool isTracking,
         bool alreadyActed,
@@ -272,7 +295,7 @@ public static class MountLimits
             return MountLimitVerdict.Clear;
         }
 
-        var meridian = EvaluateMeridian(hourAngleHours, config);
+        var meridian = EvaluateMeridian(hourAngleHours, pointingState, config);
         var horizon = EvaluateHorizon(hourAngleHours, altitudeDeg, isTracking, config);
 
         // Most severe wins; the meridian breaks an exact tie. Comparing on Response alone is not
@@ -297,16 +320,25 @@ public static class MountLimits
         _ => 2 + (int)verdict.Response,
     };
 
-    private static MountLimitVerdict EvaluateMeridian(double hourAngleHours, MountLimitConfiguration config)
+    private static MountLimitVerdict EvaluateMeridian(
+        double hourAngleHours, PointingState pointingState, MountLimitConfiguration config)
     {
         if (double.IsNaN(hourAngleHours))
         {
             return MountLimitVerdict.Clear;
         }
 
-        // West of the meridian only. East is approaching transit and getting safer by the minute.
-        var haMinutes = hourAngleHours * 60.0;
-        if (haMinutes < config.MeridianWarnMinutes)
+        // The offset of the RA axis toward the pier, in hour angle. In the pre-flip (through-the-pole)
+        // state it IS the hour angle: west of the meridian the tube swings down toward the pier. After
+        // a flip (Normal) the same axis is 12 h round, so west is safe and EAST is the hazard -- the
+        // sign flips. Unknown keeps the pre-flip reading, the approximation this limit shipped with.
+        // (The zone has an upper edge too -- some 12 h less the limit, where the tube comes back up on
+        // the far side -- but that is lower culmination, below the horizon for anything imaged.)
+        var offsetHours = pointingState is PointingState.Normal ? -hourAngleHours : hourAngleHours;
+
+        // Counterweight-down side only: the tube is rising away from the pier and getting safer.
+        var offsetMinutes = offsetHours * 60.0;
+        if (offsetMinutes < config.MeridianWarnMinutes)
         {
             return MountLimitVerdict.Clear;
         }
@@ -314,7 +346,7 @@ public static class MountLimits
         return new MountLimitVerdict(
             MountLimitKind.Meridian,
             config.MeridianResponse,
-            haMinutes - config.MeridianActionMinutes);
+            offsetMinutes - config.MeridianActionMinutes);
     }
 
     private static MountLimitVerdict EvaluateHorizon(

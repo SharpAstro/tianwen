@@ -531,6 +531,7 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
             _targetDec = dec;
             _isSlewing = true;
             _isTracking = true;
+            _forcedPointingState = null;
             LastCommandedHourAngle = CoordinateUtils.ConditionHA(LocalSiderealTime() - ra);
         }
 
@@ -591,19 +592,35 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
         using var @lock = await _sem.AcquireLockAsync(cancellationToken);
         _ra = ra;
         _dec = dec;
+        _forcedPointingState = null;
         ResetTrackingErrors();
     }
 
     // --- Pier side ---
 
+    // Set by SetSideOfPierAsync and cleared by the next slew or sync. Left alone, the fake derives its
+    // pointing state from the CURRENT hour angle -- it models a mount that flips the instant it crosses
+    // the meridian, and so can never be in the counterweight-up state a real GEM tracks into. A test
+    // that needs that state (the mount-limit tests do) forces it here, the way ASCOM lets a client
+    // command a pointing state by writing SideOfPier.
+    private PointingState? _forcedPointingState;
+
     public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
+        if (_forcedPointingState is { } forced)
+        {
+            return forced;
+        }
+
         var ha = await GetHourAngleAsync(cancellationToken);
         return ha >= 0 ? PointingState.Normal : PointingState.ThroughThePole;
     }
 
     public ValueTask SetSideOfPierAsync(PointingState pointingState, CancellationToken cancellationToken)
-        => throw new NotSupportedException("Cannot set side of pier on FakeMountDriver");
+    {
+        _forcedPointingState = pointingState is PointingState.Unknown ? null : pointingState;
+        return ValueTask.CompletedTask;
+    }
 
     public async ValueTask<PointingState> DestinationSideOfPierAsync(double ra, double dec, CancellationToken cancellationToken)
     {

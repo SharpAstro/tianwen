@@ -1,7 +1,8 @@
-using Shouldly;
+﻿using Shouldly;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.Devices;
 using TianWen.Lib.Sequencing;
 using Xunit;
 
@@ -31,8 +32,16 @@ public class SessionMountLimitTests(ITestOutputHelper output)
         MeridianActionExtraMinutes: 5.0,
         MeridianResponse: MountLimitResponse.StopTracking);
 
+    /// <param name="pointingState">
+    /// Forced onto the fake AFTER the sync (a sync clears it). Defaults to through-the-pole -- counterweight
+    /// down while looking east, the state a GEM is in until it flips -- because that is the state in which
+    /// tracking past the meridian carries the tube toward the pier. The fake left to itself reports
+    /// Normal for any HA &gt;= 0, i.e. a mount that flipped the instant it crossed, in which the meridian
+    /// limit is rightly silent; every "it stops the mount" case below would fail against that default.
+    /// </param>
     private static async Task<SessionTestContext> TrackingRigAsync(
-        ITestOutputHelper output, MountLimitConfiguration? limits, double hourAngleHours, CancellationToken ct)
+        ITestOutputHelper output, MountLimitConfiguration? limits, double hourAngleHours, CancellationToken ct,
+        PointingState pointingState = PointingState.ThroughThePole)
     {
         var ctx = await SessionTestHelper.CreateSessionAsync(output, mountLimits: limits, cancellationToken: ct);
 
@@ -42,9 +51,11 @@ public class SessionMountLimitTests(ITestOutputHelper output)
         var lst = await ctx.Mount.GetSiderealTimeAsync(ct);
         var ra = ((lst - hourAngleHours) % 24.0 + 24.0) % 24.0;
         await ctx.Mount.SyncRaDecAsync(ra, 45.0, ct);
+        await ctx.Mount.SetSideOfPierAsync(pointingState, ct);
         await ctx.Mount.SetTrackingAsync(true, ct);
 
         (await ctx.Mount.GetHourAngleAsync(ct)).ShouldBe(hourAngleHours, tolerance: 1e-3);
+        (await ctx.Mount.GetSideOfPierAsync(ct)).ShouldBe(pointingState);
         return ctx;
     }
 
@@ -94,6 +105,67 @@ public class SessionMountLimitTests(ITestOutputHelper output)
         verdict.Kind.ShouldBe(MountLimitKind.Meridian);
 
         (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeFalse("the limit must actually stop the mount");
+    }
+
+    [Fact]
+    public async Task AMountThatHasFlippedIsLeftAloneHoweverFarPastTheMeridianItTracks()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // 1 h past the meridian in the NORMAL pointing state: ASCOM pierEast, counterweight down while
+        // looking west, which is where a GEM is AFTER its meridian flip. Tracking west from there moves
+        // the tube AWAY from the pier, so no hour angle is too large. This is the case the first cut got
+        // wrong: it read the hour angle alone and stopped every rig ~30 min after a successful flip.
+        var ctx = await TrackingRigAsync(output, StopTrackingPastTheMeridian, 1.0, ct, PointingState.Normal);
+
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        ctx.Session.MountLimitVerdict.IsBreached.ShouldBeFalse("a flipped mount tracking west is moving away from the pier");
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task AFlippedMountPointingEastIsStoppedTheSameAsAnUnflippedOnePointingWest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // The mirror case: Normal (the looking-west, counterweight-down state) but 1 h EAST of the
+        // meridian is counterweight-up by the same amount as through-the-pole 1 h west. A wrong-way goto
+        // puts a rig here, and "east = rising = safe" must not wave it through.
+        var ctx = await TrackingRigAsync(output, StopTrackingPastTheMeridian, -1.0, ct, PointingState.Normal);
+
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        var verdict = ctx.Session.MountLimitVerdict;
+        verdict.Kind.ShouldBe(MountLimitKind.Meridian);
+        verdict.IsWarningOnly.ShouldBeFalse();
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task AHomedSkyWatcherProducesNoVerdict()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // The one position every session passes through before its first slew, on the driver whose
+        // pointing state comes from the Dec encoder rather than from the hour angle. The first poll of a
+        // run happens right here, so a false verdict at home would end every night before it began.
+        // Asserts its premise: the mount is actually at the pole, not wherever a sync left it.
+        var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, mountPort: "SkyWatcher", mountLimits: StopTrackingPastTheMeridian, cancellationToken: ct);
+        // What InitialisationAsync does before the first poll (Session.Lifecycle.cs): push the site to
+        // the mount. Until it lands, the SkyWatcher driver reports raw home as HA = +6 h, through the
+        // pole -- which the meridian test would read as 6 h past the limit -- and on landing it re-syncs
+        // home to (LST, pole), HA = 0. A poll before the site is set cannot build a J2000 transform
+        // either, so the session never issues one; a mount connected with NO site at all is the
+        // residual edge only the sessionless watcher can see.
+        await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
+        await ctx.Mount.SetTrackingAsync(true, ct);
+        (await ctx.Mount.GetDeclinationAsync(ct)).ShouldBe(90.0, tolerance: 0.01, "premise: parked at the pole");
+        (await ctx.Mount.GetHourAngleAsync(ct)).ShouldBe(0.0, tolerance: 1e-3, "premise: home re-synced to the meridian once the site landed");
+
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        ctx.Session.MountLimitVerdict.IsBreached.ShouldBeFalse();
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeTrue();
     }
 
     [Fact]
