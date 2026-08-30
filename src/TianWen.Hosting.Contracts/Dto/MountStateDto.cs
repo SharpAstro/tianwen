@@ -36,6 +36,8 @@ public sealed class MountLimitDto
     public required MountLimitResponse Response { get; init; }
     public required double ExceededBy { get; init; }
     public required MountLimitBasis Basis { get; init; }
+    /// <summary>Not <c>required</c>: an older node never writes it, and "not latched" is the right reading of its absence.</summary>
+    public bool Latched { get; init; }
 
     public static MountLimitDto FromVerdict(MountLimitVerdict verdict) => new()
     {
@@ -43,7 +45,8 @@ public sealed class MountLimitDto
         Response = verdict.Response,
         ExceededBy = JsonNumber.ForWire(verdict.ExceededBy),
         Basis = verdict.Basis,
+        Latched = verdict.Latched,
     };
 
-    public MountLimitVerdict ToVerdict() => new(Kind, Response, ExceededBy, Basis);
+    public MountLimitVerdict ToVerdict() => new(Kind, Response, ExceededBy, Basis, Latched);
 }

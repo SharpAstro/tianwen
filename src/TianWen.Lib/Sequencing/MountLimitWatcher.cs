@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
@@ -58,6 +59,22 @@ public sealed class MountLimitWatcher(
     // let one mount's latch mask another's.
     private readonly ConcurrentDictionary<Uri, byte> _acted = new();
 
+    // The latest verdict per mount this watcher evaluated on its last tick, keyed by the hub's identity rule
+    // (Uri.DeviceKey) so a profile URI whose query has drifted still finds it. Entries for mounts the tick
+    // skipped (disconnected, leased by a session, no limits configured) are dropped, so a stale verdict can
+    // never outlive the situation that produced it.
+    private readonly ConcurrentDictionary<string, MountLimitVerdict> _verdicts = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The verdict from the last tick for the mount at <paramref name="mountUri"/> (query ignored), or
+    /// <see cref="MountLimitVerdict.Clear"/> when this watcher is not evaluating that mount. This is the
+    /// surfacing seam for a host with NO session: the GUI/TUI feed the local rig's verdict from here when
+    /// nothing else owns the mount, so a manual slew a limit stops shows on the Home card and in the feed
+    /// instead of only in the log -- which is exactly how it presented the first time it ran live.
+    /// </summary>
+    public MountLimitVerdict VerdictFor(Uri mountUri)
+        => _verdicts.TryGetValue(mountUri.DeviceKey, out var verdict) ? verdict : MountLimitVerdict.Clear;
+
     /// <summary>
     /// Runs until <paramref name="cancellationToken"/> is cancelled, ticking every <see cref="PollInterval"/>.
     /// Never throws for a transient per-mount failure: a single mount's bad read is logged and skipped,
@@ -100,6 +117,7 @@ public sealed class MountLimitWatcher(
         // a restart, and this is a handful of small JSON files, not a cost worth caching around.
         await deviceDiscovery.DiscoverOnlyDeviceType(DeviceType.Profile, cancellationToken).ConfigureAwait(false);
 
+        var evaluated = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (deviceUri, driver) in hub.ConnectedDevices)
         {
             if (driver is not IMountDriver mount)
@@ -119,8 +137,18 @@ public sealed class MountLimitWatcher(
                 continue;
             }
 
+            evaluated.Add(deviceUri.DeviceKey);
             await EvaluateAndActAsync(deviceUri, mount, found.Config, found.SiteLatitude, cancellationToken)
                 .ConfigureAwait(false);
+        }
+
+        // Forget every mount this tick did not evaluate (see _verdicts).
+        foreach (var key in _verdicts.Keys)
+        {
+            if (!evaluated.Contains(key))
+            {
+                _verdicts.TryRemove(key, out _);
+            }
         }
     }
 
@@ -177,6 +205,7 @@ public sealed class MountLimitWatcher(
 
         var alreadyActed = _acted.ContainsKey(mountUri);
         var verdict = MountLimits.Evaluate(hourAngle, pointingState, primaryAxisAngleDeg, altitude, isTracking, alreadyActed, config);
+        _verdicts[mountUri.DeviceKey] = verdict;
 
         if (!verdict.IsBreached)
         {
@@ -193,7 +222,8 @@ public sealed class MountLimitWatcher(
             return;
         }
 
-        logger.LogError("{Mount} mount safety limit: {Verdict}. Responding with {Response} (no session owns this mount).",
+        // Describe() is a full sentence already; no separator before the next one.
+        logger.LogError("{Mount} mount safety limit: {Verdict} Responding with {Response} (no session owns this mount).",
             mount.Name, verdict.Describe(), verdict.Response);
         _acted[mountUri] = 0;
 
