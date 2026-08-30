@@ -208,6 +208,20 @@ public static class CoordinateUtils
         return r < 0 ? r + 360.0 : r;
     }
 
+    /// <summary>
+    /// Condition degrees to (-180, 180] -- the form a DIFFERENCE of two angles wants, where the
+    /// answer is "how far apart, and which way round" and 359 degrees really means one degree the
+    /// other way. <see cref="ConditionDegrees"/>'s [0, 360) is the form a POSITION wants.
+    /// </summary>
+    /// <param name="deg">A decimal degree</param>
+    /// <returns>Conditioned value</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static double ConditionDegreesSigned(double deg)
+    {
+        var r = Math.IEEERemainder(deg, 360.0);
+        return r <= -180.0 ? r + 360.0 : r;
+    }
+
     public static double HMSToHours(string? hms)
     {
         const double minToHours = 1.0 / 60.0;

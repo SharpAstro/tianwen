@@ -105,6 +105,35 @@ public record struct WCS(double CenterRA, double CenterDec)
         !double.IsNaN(CRPix1) && !double.IsNaN(CRPix2);
 
     /// <summary>
+    /// Position angle of the sensor's +Y axis on the sky, degrees in [0, 360), measured from north
+    /// through east -- the frame's ORIENTATION, and 0 for a conventional north-up image. NaN with no
+    /// CD matrix.
+    /// <para>
+    /// The +Y pixel direction maps through the CD matrix onto the intermediate world coordinates
+    /// (<c>CD1_2</c>, <c>CD2_2</c>), which are east and north respectively (see the <c>u</c>/<c>v</c>
+    /// pair in <see cref="PixelToSky"/>), so the angle is <c>atan2(east, north)</c>.
+    /// </para>
+    /// <para>
+    /// This is PARITY-INDEPENDENT by construction: a mirror in the optical train reverses the sense
+    /// in which the angle grows but not the direction the +Y axis points, so two frames from the same
+    /// train are always comparable. That is what makes it a witness to a German meridian flip, which
+    /// is a pure 180 degree rotation of the field and changes nothing else -- see
+    /// <c>docs/plans/meridian-flip-verification.md</c>. Do not fold a handedness term into it.
+    /// </para>
+    /// </summary>
+    public readonly double RotationDeg => HasCDMatrix
+        ? CoordinateUtils.ConditionDegrees(double.RadiansToDegrees(Math.Atan2(CD1_2, CD2_2)))
+        : double.NaN;
+
+    /// <summary>
+    /// How far this frame's field is rotated from <paramref name="other"/>'s, degrees in (-180, 180].
+    /// NaN when either lacks a CD matrix. A magnitude near 180 across a commanded meridian flip is
+    /// the flip having physically happened; near 0 is it having been declined.
+    /// </summary>
+    public readonly double RotationDeltaDeg(in WCS other)
+        => CoordinateUtils.ConditionDegreesSigned(RotationDeg - other.RotationDeg);
+
+    /// <summary>
     /// Pixel scale in arcseconds per pixel, derived from the CD matrix determinant.
     /// Returns <see cref="double.NaN"/> if no CD matrix is available.
     /// </summary>
