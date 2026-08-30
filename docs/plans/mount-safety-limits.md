@@ -651,8 +651,10 @@ mount.
 
 ## What is still open
 
-- **Hardware validation** of the SkyWatcher axis-solution port (`SkyToSteps`) and the forced flip: the
-  fake motor controller executes whatever step targets it is given.
+- **Hardware validation** of the SkyWatcher axis-solution port (`SkyToSteps`), the forced flip, the axis
+  tier, P5 against a real driver's own limit stop, and the whole thing on a real GEM under the sky: the fake
+  motor controller executes whatever step targets it is given. Bench procedures and the checkboxes live in
+  [docs/todo/hardware-validation.md](../todo/hardware-validation.md) (items 1-9, 23).
 - ~~**Watcher-side surfacing**~~ (done 2026-08-30, found live -- see "Live verification" below):
   `MountLimitWatcher.VerdictFor(mountUri)` publishes the last tick's verdict per mount (by `DeviceKey`,
   dropped for any mount the tick skipped), and `AppSignalHandler.NotifyLimitTransitions` feeds the LOCAL

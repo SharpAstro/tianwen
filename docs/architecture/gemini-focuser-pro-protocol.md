@@ -120,9 +120,7 @@ entry per physical focuser. If no native device is found, the ASCOM twin passes 
 
 ## Open items (hardware validation)
 
-- **Exact `:04#` firmware name**; recorded in probe metadata; tighten the matcher only if a distinctive
-  string appears.
-- **DTR-reset requirement**: the vendor gates it behind a `ResetControllerOnConnect` setting; we default to
-  assert + 2.2 s boot. Confirm the board needs it (and the exact boot time).
-- **Whether Move/Halt are truly unacked on this firmware**: the vendor treats them as silent; if the board
-  acks them, add a bounded drain to `SendAsync` (mirroring the temp-comp toggle / the FlatPanel path).
+Three things only a board can answer -- the exact `:04#` firmware name, whether DTR-reset is required at all
+and the real boot time, and whether Move/Halt are truly unacked -- are queued with their procedures as
+[docs/todo/hardware-validation.md](../todo/hardware-validation.md) item 19. The design consequences of each
+answer are described above (the matcher, `ResetControllerOnConnect`, the bounded drain in `SendAsync`).

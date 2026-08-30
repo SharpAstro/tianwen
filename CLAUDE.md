@@ -21,6 +21,7 @@ Canonical project state lives in these markdown files; read the relevant ones be
 | `docs/architecture/*.md` | Architecture deep-dives: the subject in full, where a section below keeps only the rules (e.g. `image-pipeline.md`, `stacking-render-pipeline.md`, `stretch-pipeline.md`, `viewer-gpu-lifetime.md`, `widgets-and-controls.md`, `hosting-api.md`, `unattended-ui-driving.md`, `desktop-shell.md`, `driver-resilience.md`, `sibling-builds-and-releases.md`) |
 | `TODO.md` | Active / high-priority task list (repo root) |
 | `docs/todo/*.md` | Full backlog + done-archive + unsorted inbox, split by area |
+| `docs/todo/hardware-validation.md` | The bench queue: every check only a real device or night can answer, indexed by GEAR; one home per item (plans keep the *why* + a pointer, never a second checkbox) |
 | `docs/known-limitations.md` | Root causes of limitations/bugs (the *why*); read before "fixing" a suspected bug |
 
 ## Custom Skills

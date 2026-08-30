@@ -1,5 +1,8 @@
 # TODOs
 
+Checks that only a real device or a real night can answer live in ONE place, indexed by the gear they need:
+[docs/todo/hardware-validation.md](docs/todo/hardware-validation.md) (the bench queue; tick there, not here).
+
 ## High Priority
 
 - [x] **Finalise never stopped tracking; it only checked** (SHIPPED 2026-08-29). The step logged
@@ -133,8 +136,9 @@
   `DestinationSideOfPierAsync` once and keeps it for refinement passes, a sync keeps the half the Dec
   encoder is in, `StepsToRa` reads the half off the Dec encoder, home boundary inclusive (Normal). Six
   `FakeSkywatcherMountDriverTests` cases, five seen to fail first; an unflipped fake now really flips on
-  a re-slew. Still outstanding: hardware validation, and `SetSideOfPierAsync` (forced flip) stays
-  unsupported. Original finding: there was no through-the-pole branch (GSServer chooses one from the destination's hour angle), so a
+  a re-slew. Hardware validation is queued in
+  [docs/todo/hardware-validation.md](docs/todo/hardware-validation.md) items 1-3; `SetSideOfPierAsync`
+  became the forced flip later the same day. Original finding: there was no through-the-pole branch (GSServer chooses one from the destination's hour angle), so a
   goto or sync to an EASTERN target lands the encoder model in `Normal` -- counterweight-UP in the
   driver's own convention (home = HA 6 h, counterweight down) -- and a session "flip" re-slews to
   identical encoder targets, i.e. moves nothing. Found 2026-08-30 while fixing the mount-limit
@@ -143,7 +147,7 @@
   `Axes.RaDecToAxesXy`'s `if (axes[0] > 180) { X += 180; Y = 180 - Dec }` branch (Dec sign mirrored
   south FIRST), chosen per goto from the target's hour angle; `SyncRaDecAsync` picks the solution
   nearest the CURRENT encoder half (a sync says where the mount IS, it must not teleport the model
-  across the pier); then hardware validation. GSS itself never flips while tracking -- the flip IS the
+  across the pier). GSS itself never flips while tracking -- the flip IS the
   next goto landing on the other solution -- which matches how `Session` already re-slews.
   [docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md), "the pointing state".
 - [x] **A COMPUTED pointing state must not feed the mount limit as if measured** (LX200 base, SGP,

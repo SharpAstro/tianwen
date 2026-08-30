@@ -221,7 +221,8 @@ Edited: `DeviceType.cs`, `OTA.cs`, `ProfileDto.cs`, `AscomDevice.cs`, `AlpacaDev
 ## Out of scope / deferred
 
 - **Real-hardware verification** -- no rotator on hand; sign off against ASCOM/Alpaca simulators and
-  defer the physical check (same posture as the Skywatcher "verify on real hardware" items).
+  defer the physical check (same posture as the Skywatcher "verify on real hardware" items):
+  [hardware-validation.md](../todo/hardware-validation.md) item 21.
 - **Manual rotator** (software-only, user types the angle) -- NINA ships one; low value here until a
   user asks. The fake covers the demo path.
 - **Configurable path/filename template** -- `$$ROTATORANGLE$$` is emitted, but the token-driven

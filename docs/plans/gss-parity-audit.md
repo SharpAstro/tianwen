@@ -460,7 +460,8 @@ advanced all read slewing and issue no further `:J`. Sabotage (grace removed) fa
 **Still open: the ASCOM / Alpaca audit.** `AscomTelescopeDriver` / `AlpacaTelescopeDriver` and their
 camera counterparts inherit whatever the remote driver does for `Slewing` / `IsPulseGuiding` /
 `ImageReady` and cannot be reasoned about from here; LX200 and SkyWatcher are right by construction.
-The check is against a live device or simulator (`TianWen.Lib.Tests.Simulators`), not code.
+The check is against a live device or simulator (`TianWen.Lib.Tests.Simulators`), not code -- queued as
+[hardware-validation.md](../todo/hardware-validation.md) item 11 (and item 6 for the SkyWatcher grace itself).
 
 ## Finding 3: the commands that END a pulse were never verified. FIXED
 
