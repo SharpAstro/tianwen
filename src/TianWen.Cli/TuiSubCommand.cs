@@ -1,4 +1,5 @@
-﻿using Console.Lib;
+﻿using TianWen.Lib.Sequencing;
+using Console.Lib;
 using DIR.Lib;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -126,6 +127,11 @@ internal class TuiSubCommand(
 
         // Load saved session configuration for the active profile
         tracker.Run(() => signalHandler.LoadSessionConfigAsync(cts.Token), "Load session config");
+
+        // P3 of docs/plans/mount-safety-limits.md for this host too: a profile's mount safety limits apply to
+        // a manual slew with no session running, and only a session enforces them on the mount it leases.
+        // Same loop the server and the GUI drive; quitting cancels it, and it skips any mount a run owns.
+        tracker.Run(() => sp.GetRequiredService<MountLimitWatcher>().RunAsync(cts.Token), "Mount limit watcher");
 
         // Resolve location from profile
         var transform = Plan.LocationResolver.ResolveFromProfile(consoleHost, profile, consoleHost.TimeProvider);
@@ -288,6 +294,10 @@ internal class TuiSubCommand(
             // GUI (VkGuiRenderer.RenderContent), and is what keeps a local session current while a
             // remote context is on screen. Free when no session is running.
             contexts.PollAll();
+            // The GUI runs this inside its per-frame telemetry poll, which the TUI does not have: a limit's
+            // verdict changing class (clear -> warning -> acted, or a driver's own stop) reaches the
+            // notification feed -- and so the Home board's note -- from here.
+            signalHandler.NotifyLimitTransitions();
 
             // Force periodic redraw on live session/guider tab (~2 Hz) for clock, cooling, mount, guide updates
             if (contexts.Active.LiveSession.IsRunning && appState.ActiveTab is GuiTab.LiveSession or GuiTab.Guider)

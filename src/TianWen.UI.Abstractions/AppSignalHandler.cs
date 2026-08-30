@@ -951,7 +951,8 @@ namespace TianWen.UI.Abstractions
         // node's own feed carries its limit (EventBroadcaster does the same there) and rides in on its card.
         private (MountLimitKind Kind, bool WarningOnly) _lastLimitClass;
 
-        private void NotifyLimitTransitions()
+        /// <summary>Once per frame, by the host: the GUI from <see cref="PollPreviewTelemetry"/>, the TUI from its loop. A no-op between class changes.</summary>
+        public void NotifyLimitTransitions()
         {
             var verdict = LocalLiveSession.MountLimitVerdict;
             var cls = (verdict.Kind, verdict.IsWarningOnly);
