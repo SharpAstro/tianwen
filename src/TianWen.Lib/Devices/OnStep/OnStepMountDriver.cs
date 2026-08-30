@@ -89,6 +89,9 @@ internal class OnStepMountDriver<TDevice>(TDevice device, IServiceProvider servi
     }
 
     private static readonly ReadOnlyMemory<byte> GmCommand = "Gm"u8.ToArray();
+    /// <summary><c>:Gm#</c> is the controller's own answer, not a derivation.</summary>
+    public override PointingStateSource PointingStateSource => PointingStateSource.Measured;
+
     public override async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
         // OnStep :Gm# returns single char: 'N' (none/parked/unaligned), 'E' (pier east), 'W' (pier west).

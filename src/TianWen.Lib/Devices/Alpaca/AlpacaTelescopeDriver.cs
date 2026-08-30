@@ -215,6 +215,9 @@ internal class AlpacaTelescopeDriver(AlpacaDevice device, IServiceProvider servi
         await PutMethodAsync("tracking", [new("Tracking", value.ToString())], cancellationToken);
     }
 
+    /// <summary>The device's own sideofpier, which the Alpaca specification defines as the pointing state.</summary>
+    public PointingStateSource PointingStateSource => PointingStateSource.Measured;
+
     public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
         var val = await Client.GetIntAsync(BaseUrl, AlpacaDeviceType, AlpacaDeviceNumber, "sideofpier", cancellationToken);

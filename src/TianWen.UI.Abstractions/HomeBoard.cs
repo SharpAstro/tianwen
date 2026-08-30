@@ -203,6 +203,8 @@ namespace TianWen.UI.Abstractions
     /// true between polls instead of freezing at whatever it was when the poll landed.</param>
     /// <param name="LastNote">The newest notification, or <see langword="null"/> when the rig has said
     /// nothing.</param>
+    /// <param name="MountLimit">The mount safety-limit verdict when the rig is inside one (warning, acted,
+    /// or a driver-enforced stop); null when clear or unknown. See <see cref="HomeBoard.LimitOf"/>.</param>
     public readonly record struct RigCard(
         string Title,
         string? Subtitle,
@@ -220,7 +222,8 @@ namespace TianWen.UI.Abstractions
         RigCardCooling? Cooling = null,
         double? MedianHfd = null,
         DateTimeOffset? MeridianFlipUtc = null,
-        RigCardNote? LastNote = null)
+        RigCardNote? LastNote = null,
+        MountLimitVerdict? MountLimit = null)
     {
         /// <summary>
         /// How long until the flip, against <paramref name="now"/>, or <see langword="null"/> when no flip is
@@ -318,7 +321,8 @@ namespace TianWen.UI.Abstractions
                 Cooling: DescribeCooling(session, now),
                 MedianHfd: DescribeHfd(session),
                 MeridianFlipUtc: session.MeridianFlipUtc,
-                LastNote: LocalNote(appState, now));
+                LastNote: LocalNote(appState, now),
+                MountLimit: LimitOf(session));
         }
 
         /// <summary>
@@ -360,7 +364,8 @@ namespace TianWen.UI.Abstractions
                 Cooling: online ? DescribeCooling(session, now) : null,
                 MedianHfd: online ? DescribeHfd(session) : null,
                 MeridianFlipUtc: online ? session.MeridianFlipUtc : null,
-                LastNote: RemoteNote(connection.Mirror.LastNotification, now));
+                LastNote: RemoteNote(connection.Mirror.LastNotification, now),
+                MountLimit: online ? LimitOf(session) : null);
         }
 
         /// <summary>
@@ -594,6 +599,14 @@ namespace TianWen.UI.Abstractions
         /// oldest-first (matching how it is read for display). Each is indexed on its own terms.
         /// </para>
         /// </summary>
+        /// <summary>
+        /// The rig's safety-limit verdict when one is in play, else null so the card draws nothing. A limit
+        /// belongs on the board for the same reason a prompt does: it is what ends a night on a rig you are
+        /// not looking at, and a warning carries the countdown in <see cref="MountLimitVerdict.ExceededBy"/>.
+        /// </summary>
+        private static MountLimitVerdict? LimitOf(LiveSessionState session) =>
+            session.MountLimitVerdict is { IsBreached: true } verdict ? verdict : null;
+
         private static RigCardNote? LocalNote(GuiAppState appState, DateTimeOffset now) =>
             appState.Notifications is { IsDefaultOrEmpty: false } feed
                 ? new RigCardNote(feed[0].Severity, feed[0].Message, Age(feed[0].When, now))

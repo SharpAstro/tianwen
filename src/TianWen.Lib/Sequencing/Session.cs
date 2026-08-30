@@ -120,6 +120,18 @@ internal partial record Session(
     private bool _limitReached;
     private MountLimitVerdict _limitVerdict = MountLimitVerdict.Clear;
 
+    // P5 (mount-safety-limits.md): a mount that stops tracking WITHOUT being asked is reporting its own
+    // limit (or a stall), and must be read as a limit stop rather than a fault -- or fought, since the
+    // next observation would switch tracking straight back on. _mountStopCommanded is raised by every
+    // place this session itself stops tracking (the limit, sky flats, Finalise) and cleared the next
+    // time tracking is observed ON; _sawTracking guards the start of a run, where tracking is off
+    // legitimately; _untrackedPolls debounces, because a driver that has just finished a goto can be
+    // read "not slewing, not yet tracking" for one poll.
+    private bool _mountStopCommanded;
+    private bool _sawTracking;
+    private int _untrackedPolls;
+    private const int DriverStopDebouncePolls = 2;
+
     /// <summary>
     /// The most recent mount-limit verdict, for telemetry and the notification feed.
     /// </summary>
@@ -439,6 +451,11 @@ internal partial record Session(
             }
 
             var hourAngle = await PollDriverReadAsync(mount, mount.GetHourAngleAsync, _mountState.HourAngle, cancellationToken);
+            // Slewing BEFORE tracking: on the SkyWatcher driver IsSlewingAsync is the goto-completion hook
+            // that resumes tracking, so read the other way round a poll can see "not slewing, not
+            // tracking" for a mount that is fine -- exactly the signature the driver-stop detector below
+            // looks for.
+            var isSlewing = await PollDriverReadAsync(mount, mount.IsSlewingAsync, _mountState.IsSlewing, cancellationToken);
             var isTracking = await PollDriverReadAsync(mount, mount.IsTrackingAsync, _mountState.IsTracking, cancellationToken);
             // Null on every driver that cannot model its axis (the interface default), carried as NaN like
             // the other unknowns in MountState; the limit falls back to the hour angle for it.
@@ -451,7 +468,7 @@ internal partial record Session(
                 Declination: dec,
                 HourAngle: hourAngle,
                 PierSide: await PollDriverReadAsync(mount, mount.GetSideOfPierAsync, _mountState.PierSide, cancellationToken),
-                IsSlewing: await PollDriverReadAsync(mount, mount.IsSlewingAsync, _mountState.IsSlewing, cancellationToken),
+                IsSlewing: isSlewing,
                 IsTracking: isTracking,
                 RaJ2000: raJ2000,
                 DecJ2000: decJ2000,
@@ -459,8 +476,41 @@ internal partial record Session(
                     .AltitudeDegrees(hourAngle, dec),
                 PrimaryAxisAngleDeg: primaryAxisAngleDeg);
 
+            DetectDriverEnforcedStop(isTracking, isSlewing);
             await EnforceMountLimitsAsync(mount, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// P5: a mount that stopped tracking while nothing here asked it to has enforced a limit of its own
+    /// (or stalled). Latches <see cref="MountLimitVerdict.DriverEnforcedStop"/> and ends the run the way a
+    /// configured limit does -- and, unlike a configured limit, does so whether or not
+    /// <see cref="Setup.MountLimits"/> is set, because the driver's limit exists whether or not ours does.
+    /// </summary>
+    private void DetectDriverEnforcedStop(bool isTracking, bool isSlewing)
+    {
+        if (isTracking)
+        {
+            _sawTracking = true;
+            _mountStopCommanded = false;
+            _untrackedPolls = 0;
+            return;
+        }
+
+        if (!_sawTracking || isSlewing || _mountStopCommanded || _limitReached)
+        {
+            _untrackedPolls = 0;
+            return;
+        }
+
+        if (++_untrackedPolls < DriverStopDebouncePolls)
+        {
+            return;
+        }
+
+        _limitVerdict = MountLimitVerdict.DriverEnforcedStop;
+        _limitReached = true;
+        _logger.LogWarning("Mount safety limit: {Verdict}", _limitVerdict.Describe());
     }
 
     /// <summary>
@@ -484,7 +534,9 @@ internal partial record Session(
     /// </remarks>
     private async ValueTask EnforceMountLimitsAsync(IMountDriver mount, CancellationToken cancellationToken)
     {
-        if (Setup.MountLimits is not { Enabled: true } limits)
+        // A driver-enforced stop is latched for the rest of the run; a configured limit evaluating Clear
+        // afterwards must not overwrite the verdict the run is ending on.
+        if (Setup.MountLimits is not { Enabled: true } limits || _limitVerdict.Kind is MountLimitKind.DriverEnforced)
         {
             return;
         }
@@ -494,7 +546,9 @@ internal partial record Session(
         // ~30 min after its flip. The axis angle, where the driver has one, makes even that moot -- it
         // is the mechanical fact the hour angle only estimates. See MountLimits.Evaluate's remarks.
         var verdict = MountLimits.Evaluate(
-            _mountState.HourAngle, _mountState.PierSide, _mountState.PrimaryAxisAngleDeg,
+            _mountState.HourAngle,
+            MountLimits.TrustedPointingState(mount.PointingStateSource, _mountState.PierSide),
+            _mountState.PrimaryAxisAngleDeg,
             _mountState.Altitude, _mountState.IsTracking, _limitActed, limits);
 
         if (!verdict.IsBreached)
@@ -519,6 +573,7 @@ internal partial record Session(
         _logger.LogError("Mount safety limit: {Verdict}. Responding with {Response}.", verdict.Describe(), verdict.Response);
         Volatile.Write(ref _limitActed, true);
         _limitReached = true;
+        _mountStopCommanded = true;
 
         // Stop tracking first in BOTH responses. A park is motion across a path nothing has checked,
         // so the axis should not still be driving toward the limit while it is under way -- and if

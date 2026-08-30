@@ -314,6 +314,17 @@ public interface IMountDriver : IDeviceDriver
     /// </summary>
     ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// How <see cref="GetSideOfPierAsync"/> knows its answer. Defaults to
+    /// <see cref="PointingStateSource.Computed"/> so that a driver which has not said reports the WEAKER
+    /// claim: the mount safety limit then ignores the state and falls back to its hour-angle tier, which
+    /// can stop a flipped rig too early but can never be silenced. Override with
+    /// <see cref="PointingStateSource.Measured"/> only when the state comes from the mount itself.
+    /// The flip logic keeps reading <see cref="GetSideOfPierAsync"/> either way: a computed state IS
+    /// the right input for "would a slew to here flip".
+    /// </summary>
+    PointingStateSource PointingStateSource => PointingStateSource.Computed;
+
 
     /// <summary>
     /// Force a flip of the mount, if <see cref="CanSetSideOfPier"></see> is supported.

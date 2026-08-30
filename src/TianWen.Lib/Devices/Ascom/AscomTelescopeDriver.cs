@@ -168,6 +168,9 @@ internal class AscomTelescopeDriver : AscomDeviceDriverBase, IMountDriver
 
     public bool CanSetGuideRates { get; private set; }
 
+    /// <summary>The device's own SideOfPier, which the ASCOM specification defines as the pointing state.</summary>
+    public PointingStateSource PointingStateSource => PointingStateSource.Measured;
+
     public ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(SafeGet(() => (PointingState)_telescope.SideOfPier, PointingState.Unknown));
 

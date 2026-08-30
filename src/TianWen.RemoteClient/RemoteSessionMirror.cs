@@ -799,6 +799,9 @@ namespace TianWen.RemoteClient
         /// </summary>
         public DateTimeOffset? MeridianFlipUtc => Snapshot?.MeridianFlipUtc;
 
+        /// <summary>The node's limit verdict, verbatim; Clear when the node predates the field or nothing is wrong.</summary>
+        public MountLimitVerdict MountLimitVerdict => Snapshot?.MountLimit?.ToVerdict() ?? MountLimitVerdict.Clear;
+
         /// <summary>
         /// The newest entry of the node's notification ring, carried on the state poll. Not part of
         /// <see cref="ISessionTelemetry"/> -- a local session raises notifications as events and the app

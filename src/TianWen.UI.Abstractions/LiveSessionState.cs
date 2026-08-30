@@ -189,6 +189,20 @@ namespace TianWen.UI.Abstractions
             set => Interlocked.Exchange(ref _mountStateHolder, new MountStateHolder(value));
         }
 
+        /// <summary>
+        /// The session's most recent mount safety-limit verdict (P4 of mount-safety-limits.md), copied by
+        /// <see cref="PollSession"/>; Clear while nothing is wrong or no session runs. Boxed in a holder for
+        /// the same reason <see cref="MountState"/> is: a 24-byte record struct written by the poll and read
+        /// by the render thread would tear.
+        /// </summary>
+        private sealed record MountLimitVerdictHolder(MountLimitVerdict Value);
+        private MountLimitVerdictHolder _mountLimitVerdictHolder = new(MountLimitVerdict.Clear);
+        public MountLimitVerdict MountLimitVerdict
+        {
+            get => Volatile.Read(ref _mountLimitVerdictHolder).Value;
+            set => Interlocked.Exchange(ref _mountLimitVerdictHolder, new MountLimitVerdictHolder(value));
+        }
+
         /// <summary>Resolved mount display name for the current <see cref="MountState"/> source
         /// (preview poll when idle, the running session's mount otherwise).</summary>
         public string? MountDisplayName { get; set; }
@@ -474,6 +488,7 @@ namespace TianWen.UI.Abstractions
                 MountDisplayName = session.MountDisplayName;
             }
             MeridianFlipUtc = session.MeridianFlipUtc;
+            MountLimitVerdict = session.MountLimitVerdict;
             CurrentActivity = session.CurrentActivity;
             LastFramePath = session.LastFramePath;
             LastCapturedImages = session.LastCapturedImages;

@@ -44,7 +44,7 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
 
     public async ValueTask<IDeviceDriver> ConnectAsync(DeviceBase device, CancellationToken cancellationToken = default)
     {
-        var key = DeviceKey(device.DeviceUri);
+        var key = device.DeviceUri.DeviceKey;
 
         if (_connected.TryGetValue(key, out var existing) && existing.Driver.Connected)
         {
@@ -76,7 +76,7 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
 
     public async ValueTask DisconnectAsync(Uri deviceUri, bool force = false, CancellationToken cancellationToken = default)
     {
-        var key = DeviceKey(deviceUri);
+        var key = deviceUri.DeviceKey;
 
         // Ownership is checked BEFORE the TryRemove: refusing after the entry is gone would leave the hub
         // believing the device is disconnected while the run keeps driving it.
@@ -108,7 +108,7 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
 
     public bool TryGetConnectedDriver<T>(Uri deviceUri, [NotNullWhen(true)] out T? driver) where T : class, IDeviceDriver
     {
-        var key = DeviceKey(deviceUri);
+        var key = deviceUri.DeviceKey;
 
         if (_connected.TryGetValue(key, out var entry) && entry.Driver is T typed && entry.Driver.Connected)
         {
@@ -124,13 +124,13 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
         _connected.Values.Select(e => (e.Device.DeviceUri, e.Driver)).ToList();
 
     public bool IsConnected(Uri deviceUri) =>
-        _connected.TryGetValue(DeviceKey(deviceUri), out var entry) && entry.Driver.Connected;
+        _connected.TryGetValue(deviceUri.DeviceKey, out var entry) && entry.Driver.Connected;
 
     // ── Ownership ──
 
     public bool TryAcquireLease(Uri deviceUri, string ownerLabel, [NotNullWhen(true)] out IDisposable? lease)
     {
-        var key = DeviceKey(deviceUri);
+        var key = deviceUri.DeviceKey;
         var handle = new LeaseHandle(this, key, new DeviceLease(deviceUri, ownerLabel));
 
         if (!_leases.TryAdd(key, handle))
@@ -146,7 +146,7 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
 
     public bool TryGetLease(Uri deviceUri, out DeviceLease lease)
     {
-        if (_leases.TryGetValue(DeviceKey(deviceUri), out var handle))
+        if (_leases.TryGetValue(deviceUri.DeviceKey, out var handle))
         {
             lease = handle.Claim;
             return true;
@@ -192,7 +192,7 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
 
     public async ValueTask<bool> IsCoolingAsync(Uri deviceUri, CancellationToken cancellationToken = default)
     {
-        if (!_connected.TryGetValue(DeviceKey(deviceUri), out var entry))
+        if (!_connected.TryGetValue(deviceUri.DeviceKey, out var entry))
         {
             return false;
         }
@@ -229,5 +229,4 @@ internal class DeviceHub(IServiceProvider serviceProvider, ILogger<DeviceHub> lo
     /// Device identity key: scheme + authority + path, ignoring query/fragment.
     /// Matches <see cref="DeviceBase.SameDevice"/>.
     /// </summary>
-    private static string DeviceKey(Uri uri) => uri.GetLeftPart(UriPartial.Path);
 }

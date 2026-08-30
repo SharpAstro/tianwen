@@ -41,7 +41,7 @@ public class SessionMountLimitTests(ITestOutputHelper output)
     /// </param>
     private static async Task<SessionTestContext> TrackingRigAsync(
         ITestOutputHelper output, MountLimitConfiguration? limits, double hourAngleHours, CancellationToken ct,
-        PointingState pointingState = PointingState.ThroughThePole)
+        PointingState? pointingState = PointingState.ThroughThePole)
     {
         var ctx = await SessionTestHelper.CreateSessionAsync(output, mountLimits: limits, cancellationToken: ct);
 
@@ -51,11 +51,16 @@ public class SessionMountLimitTests(ITestOutputHelper output)
         var lst = await ctx.Mount.GetSiderealTimeAsync(ct);
         var ra = ((lst - hourAngleHours) % 24.0 + 24.0) % 24.0;
         await ctx.Mount.SyncRaDecAsync(ra, 45.0, ct);
-        await ctx.Mount.SetSideOfPierAsync(pointingState, ct);
+        if (pointingState is { } forced)
+        {
+            // Forcing a state is what makes the fake's state MEASURED; left alone it is computed from the
+            // hour angle and the limit rightly refuses to trust it (see the computed-state test below).
+            await ctx.Mount.SetSideOfPierAsync(forced, ct);
+            (await ctx.Mount.GetSideOfPierAsync(ct)).ShouldBe(forced);
+        }
         await ctx.Mount.SetTrackingAsync(true, ct);
 
         (await ctx.Mount.GetHourAngleAsync(ct)).ShouldBe(hourAngleHours, tolerance: 1e-3);
-        (await ctx.Mount.GetSideOfPierAsync(ct)).ShouldBe(pointingState);
         return ctx;
     }
 
@@ -176,6 +181,84 @@ public class SessionMountLimitTests(ITestOutputHelper output)
         await ctx.Session.PollDeviceStatesAsync(ct);
 
         ctx.Session.MountLimitVerdict.Basis.ShouldBe(MountLimitBasis.HourAngle);
+    }
+
+    [Fact]
+    public async Task AComputedPointingStateIsNotTrustedSoAComputedNormalStillStops()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // Nothing forced: the fake derives Normal from HA >= 0 ("the firmware flipped"), a PREDICTION. Trusted,
+        // that would read as post-flip and silence the limit on exactly the rig tracking into its pier
+        // (the LX200-base case). Untrusted, the hour-angle tier fires as it did before pointing states.
+        var ctx = await TrackingRigAsync(output, StopTrackingPastTheMeridian, 1.0, ct, pointingState: null);
+        ctx.Mount.PointingStateSource.ShouldBe(PointingStateSource.Computed, "premise");
+        (await ctx.Mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal, "premise: the computed answer says flipped");
+
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        ctx.Session.MountLimitVerdict.Kind.ShouldBe(MountLimitKind.Meridian);
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task AMountThatStopsTrackingOnItsOwnIsReadAsADriverEnforcedLimitNotAFault()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // No limits configured at all: the driver's limit exists whether or not ours does. The session
+        // saw tracking on, then the mount stopped by itself (GSServer / OnStep / an ASCOM driver acting
+        // on its own limit). Two polls (the debounce), and the run is told to end as a limit stop.
+        var ctx = await TrackingRigAsync(output, null, 0.5, ct);
+        await ctx.Session.PollDeviceStatesAsync(ct);
+        ctx.Session.MountLimitVerdict.IsBreached.ShouldBeFalse("premise: tracking, nothing wrong");
+
+        await ctx.Mount.SetTrackingAsync(false, ct);
+        await ctx.Session.PollDeviceStatesAsync(ct);
+        ctx.Session.MountLimitVerdict.IsBreached.ShouldBeFalse("one poll is a possible goto-completion race, not a stop");
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        var verdict = ctx.Session.MountLimitVerdict;
+        verdict.Kind.ShouldBe(MountLimitKind.DriverEnforced);
+        verdict.Describe().ShouldContain("not a fault");
+    }
+
+    [Fact]
+    public async Task TheSessionsOwnLimitStopIsNotReadAsADriverEnforcedOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ctx = await TrackingRigAsync(output, StopTrackingPastTheMeridian, 1.0, ct);
+
+        // The configured limit stops the mount; the poll then keeps seeing "not tracking" for as long as
+        // the run lasts. That stop is ours and must keep its own name.
+        await ctx.Session.PollDeviceStatesAsync(ct);
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeFalse("premise: the limit acted");
+        await ctx.Session.PollDeviceStatesAsync(ct);
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        ctx.Session.MountLimitVerdict.Kind.ShouldBe(MountLimitKind.Meridian);
+    }
+
+    [Fact]
+    public async Task ASlewingSkyWatcherWithTrackingOffIsNotADriverEnforcedStop()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // A Synta goto runs the axes "running, not tracking" until it arrives -- the same signature as a
+        // stop. Slewing must gate the detector, however many polls the goto takes.
+        var ctx = await SessionTestHelper.CreateSessionAsync(output, mountPort: "SkyWatcher", cancellationToken: ct);
+        await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
+        await ctx.Mount.SetTrackingAsync(true, ct);
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        var lst = await ctx.Mount.GetSiderealTimeAsync(ct);
+        await ctx.Mount.BeginSlewRaDecAsync(((lst + 3.0) % 24.0 + 24.0) % 24.0, 45.0, ct);
+        (await ctx.Mount.IsSlewingAsync(ct)).ShouldBeTrue("premise");
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeFalse("premise: axes run in goto mode, not tracking");
+        for (var i = 0; i < 4; i++)
+        {
+            await ctx.Session.PollDeviceStatesAsync(ct);
+        }
+
+        ctx.Session.MountLimitVerdict.IsBreached.ShouldBeFalse();
     }
 
     [Fact]

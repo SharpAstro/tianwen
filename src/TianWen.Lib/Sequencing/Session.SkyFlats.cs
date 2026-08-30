@@ -93,6 +93,7 @@ internal partial record Session
         // averages them out (no dither slews needed).
         if (mount.Driver.CanSetTracking)
         {
+            _mountStopCommanded = true; // ours, not a driver-enforced limit stop
             await mount.Driver.SetTrackingAsync(false, cancellationToken).ConfigureAwait(false);
         }
 

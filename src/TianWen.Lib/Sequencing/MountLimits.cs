@@ -21,6 +21,15 @@ public enum MountLimitKind
     /// and at the very bottom the ground.
     /// </summary>
     Horizon,
+
+    /// <summary>
+    /// The MOUNT stopped tracking on its own: a driver-enforced limit (GSServer, OnStep, an ASCOM
+    /// driver with its own limits) or a stall. Not something <see cref="MountLimits.Evaluate"/> decides
+    /// -- the session observes it -- and not a device fault: the rig did what it was configured to do,
+    /// so the run ends as a limit stop instead of a reconnect storm or a night spent fighting the
+    /// driver's stop with <c>EnsureTrackingAsync</c>.
+    /// </summary>
+    DriverEnforced,
 }
 
 /// <summary>
@@ -101,6 +110,13 @@ public readonly record struct MountLimitVerdict(
     public static MountLimitVerdict Clear { get; } =
         new MountLimitVerdict(MountLimitKind.None, MountLimitResponse.Warn, 0.0);
 
+    /// <summary>
+    /// The mount stopped tracking without being asked to (<see cref="MountLimitKind.DriverEnforced"/>).
+    /// <see cref="MountLimitResponse.Warn"/> because there is nothing left to act on: the driver already did.
+    /// </summary>
+    public static MountLimitVerdict DriverEnforcedStop { get; } =
+        new MountLimitVerdict(MountLimitKind.DriverEnforced, MountLimitResponse.Warn, 0.0);
+
     /// <summary>True when any limit is in play, warning included.</summary>
     public bool IsBreached => Kind is not MountLimitKind.None;
 
@@ -117,6 +133,8 @@ public readonly record struct MountLimitVerdict(
     public string Describe() => Kind switch
     {
         MountLimitKind.None => "Within all configured mount limits.",
+        MountLimitKind.DriverEnforced =>
+            "The mount stopped tracking on its own: a driver-enforced limit (or a stall), not a fault. Ending the observation rather than fighting it.",
         MountLimitKind.Meridian when IsWarningOnly =>
             $"Approaching the meridian limit: {-ExceededBy:F0} min of hour angle before the mount will {ResponsePhrase()} ({BasisPhrase()}).",
         MountLimitKind.Meridian =>
@@ -267,6 +285,16 @@ public sealed record MountLimitConfiguration(
 /// </remarks>
 public static class MountLimits
 {
+    /// <summary>
+    /// The pointing state a mechanical limit may trust: the reported one when the driver MEASURED it,
+    /// <see cref="PointingState.Unknown"/> otherwise. A state derived from the hour angle
+    /// (<see cref="PointingStateSource.Computed"/>) reads as post-flip west of the meridian whatever the
+    /// mount actually did, which would silence the meridian test on exactly the rig tracking into its
+    /// pier; Unknown makes <see cref="Evaluate"/> fall back to the hour-angle reading instead.
+    /// </summary>
+    public static PointingState TrustedPointingState(PointingStateSource source, PointingState reported)
+        => source is PointingStateSource.Measured ? reported : PointingState.Unknown;
+
     /// <summary>
     /// Decide whether the mount is at a safety limit.
     /// </summary>

@@ -291,6 +291,9 @@ internal abstract partial class SgpMountDriverBase<TDevice>(TDevice device, ISer
 
     #region Pier Side
 
+    /// <summary>A star tracker has no Dec axis and no pier; the constant Normal below is a placeholder.</summary>
+    public PointingStateSource PointingStateSource => PointingStateSource.None;
+
     public ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
         => ValueTask.FromResult(PointingState.Normal);
 

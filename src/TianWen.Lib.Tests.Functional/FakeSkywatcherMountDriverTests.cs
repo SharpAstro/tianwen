@@ -709,6 +709,41 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenThroughThePoleMountWhenSideOfPierIsSetToNormalThenItFlipsInPlace()
+    {
+        // GSS's forced flip: the same sky position through the other solution. Reaching an eastern
+        // target normally lands through the pole; asking for Normal swings the RA axis half a turn and
+        // mirrors the Dec axis, and the pointing reads back unchanged.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct);
+        var ra = await RaAtHourAngleAsync(mount, -2.0, ct);
+        await mount.BeginSlewRaDecAsync(ra, 30.0, ct);
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole, "premise");
+
+        await mount.SetSideOfPierAsync(PointingState.Normal, ct);
+        (await mount.IsSlewingAsync(ct)).ShouldBeTrue("a forced flip is a goto");
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal);
+        (await mount.GetAxisPositionAsync(TelescopeAxis.Seconary, ct)).ShouldNotBeNull().ShouldBeGreaterThan(0L);
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(ra, 0.05);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(30.0, 0.05);
+
+        // Asking for the state the mount is already in moves nothing.
+        await mount.SetSideOfPierAsync(PointingState.Normal, ct);
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse();
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenSkywatcherMountThenItsPointingStateIsMeasured()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct);
+        mount.PointingStateSource.ShouldBe(PointingStateSource.Measured);
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenHomedMountThenAxisAnglesAreMinus90AndZero()
     {
         // After the connect-time pole sync the RA axis sits a quarter turn short of the

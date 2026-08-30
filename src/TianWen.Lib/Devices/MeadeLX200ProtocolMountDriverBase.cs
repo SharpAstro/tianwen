@@ -342,6 +342,14 @@ internal abstract class MeadeLX200ProtocolMountDriverBase<TDevice>(TDevice devic
         return (raSideOfPier, lst);
     }
 
+    /// <summary>
+    /// The LX200 protocol has no pier-side query, so the base driver DERIVES the state from the hour angle
+    /// (<see cref="CalculateSideOfPierAsync"/>) -- the state the mount would be in if its firmware flipped
+    /// at the meridian, which is the assumption this protocol runs on. A dialect that can ask the mount
+    /// (OnStep's <c>:Gm#</c>) overrides both this and <see cref="GetSideOfPierAsync"/>.
+    /// </summary>
+    public virtual PointingStateSource PointingStateSource => PointingStateSource.Computed;
+
     public virtual async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
         var (pointingState, _) = await CheckPointingStateAsync(await GetRightAscensionAsync(cancellationToken), cancellationToken);

@@ -605,6 +605,13 @@ internal sealed class FakeMountDriver(FakeDevice fakeDevice, IServiceProvider se
     // command a pointing state by writing SideOfPier.
     private PointingState? _forcedPointingState;
 
+    /// <summary>
+    /// Computed (from the hour angle) unless a test has forced a state, which models a client that told
+    /// the mount its state -- the one case the limit may trust on this fake.
+    /// </summary>
+    public PointingStateSource PointingStateSource
+        => _forcedPointingState is null ? PointingStateSource.Computed : PointingStateSource.Measured;
+
     public async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
     {
         if (_forcedPointingState is { } forced)
