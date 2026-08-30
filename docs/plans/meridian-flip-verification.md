@@ -97,29 +97,84 @@ reference state:
 
 ## Phasing
 
-- **P0 -- Fake camera rotates on flip.** `FakeCameraDriver` adds 180 deg to its render roll (guide AND
-  main path) when the coupled mount's reported pier side differs from a captured reference. Test-first:
-  write the computed-state missed-flip E2E and watch it PASS WRONGLY (the defect), and a
-  fake-SkyWatcher post-flip-rotation E2E. `GuideRotationDeg` stays the constant baseline roll; the flip
-  adds to it. No production behaviour changes yet.
-- **P1 -- `WCS.RotationDeg`.** A rotation/position-angle accessor derived from the CD matrix
-  (`atan2(CD2_1, CD1_1)` in the standard convention; `WCS` today exposes `CD1_1..CD2_2` and
-  `HasCDMatrix` but no rotation -- the CROTA handling in `WCS.FromHeader` is read-path only). Unit-test
-  on a known CD matrix and on a matrix rotated 180 deg from it.
-- **P2 -- PA cross-check in the flip path.** In `PerformMeridianFlipAsync` /
-  `CompleteMeridianFlipAsync`, compute `dPA` from the last pre-flip successful centering solve in
-  `_plateSolveHistory` against the post-flip centering solve. On a computed-state mount the PA verdict
-  OVERRIDES the HA-only check: a commanded flip with `dPA ~ 0` retries and then fails the observation
-  (`ImageLoopNextAction.RepeatCurrentObservation` already exists as the failed-flip exit); an auto-flip
-  with `dPA ~ 180` is accepted even when the computed pier side did not move. Measured-state mounts log
-  the PA agreement as a cross-check but keep their pier-side verdict.
+- **P0 -- Fake camera rotates on flip. DONE.** Built differently from this sketch, and the difference
+  is the point: the roll is an ABSOLUTE function of where the tube is (`CameraRollDeg` plus 180 while
+  the mount is `ThroughThePole`), not a delta from a captured reference. A reference is history; the
+  field orientation is not, and a flip and a flip back must land on the same two orientations however
+  the rig got there.
+  - **The camera reads a MECHANICAL pier side, never the mount's report**
+    (`IFakeMechanicalPointingStateSource`, beside `IFakeTruePointingSource` and the same idea one
+    concept over: what the instrument DOES versus what the mount SAYS). Keying the render to the
+    report would have made the fake agree with the lie -- a computed-state mount reports the flip the
+    instant the pointing crosses -- so the fake could never have shown a missed flip at all.
+  - **`FakeMountDriver` grew a real tube state**, changed only by MOTION: a goto puts it on the
+    destination's side, `SetSideOfPierAsync` commands it there, and tracking moves it not at all. The
+    gap between that and the hour-angle-computed report is therefore emergent -- the missed flip falls
+    out of the model instead of being staged by a test hook. **A sync must NOT touch it** (a sync says
+    where the mount points, not where the tube is); an early cut had it re-derive the state from HA
+    and plate-solve centring then silently "flipped" the mount every time it solved west.
+  - **The guide scope's offset became polar and instrument-framed** (`GuideOffsetArcmin` +
+    `GuideOffsetBearingDeg`, replacing the `GuideConeErrorRa/DecArcmin` sky-frame pair). It is bolted
+    to the OTA, so it turns over WITH the flip; stated as RA/Dec components it silently stayed put and
+    left the guide scope aiming somewhere the rig cannot put it. It rotates with the mount's half turn
+    only -- clocking a camera in its focuser does not re-aim the scope it sits in.
+  - Pinned by `FakeCameraMountCouplingTests`: a fake-SkyWatcher flip rolls the detected star pattern
+    onto `(W - x, H - y)` (and the identity does NOT explain the same pair, so the measurement is
+    known to have seen the change), and a computed-state mount tracking past the meridian does NOT
+    roll it. Each was seen to fail with its own half of the mechanism removed.
+- **P1 -- `WCS.RotationDeg`. DONE.** The position angle of the sensor's +Y axis, north through east:
+  `atan2(CD1_2, CD2_2)`, not this sketch's `atan2(CD2_1, CD1_1)`. Both differ by 180 across a flip so
+  either would serve the test, but only the +Y form is the conventional image orientation and reads
+  **0 for a north-up frame** rather than 180 -- and someone will eventually read the number at face
+  value. `RotationDeltaDeg` is the wrapped difference, over a new
+  `CoordinateUtils.ConditionDegreesSigned` ((-180, 180], the form a DIFFERENCE wants, beside the
+  existing [0, 360) `ConditionDegrees` a POSITION wants). Pinned by `WcsRotationTests`, including that
+  a mirrored optical train does not move the answer.
+- **P2 -- PA cross-check in the flip path. DONE.** `MeridianFlipVerification.FromSolves` is the pure
+  judgement (`Flipped` / `NotFlipped` / `Inconclusive`, beside `MeridianFlipDecision` and
+  `MountLimits`); `Session.Imaging.cs` takes the pre-flip reference before anything moves and compares
+  it against the recentre's own solve, gated on `PointingStateSource == Computed` exactly as planned.
+  Three things worth knowing that the sketch did not anticipate:
+  - **The `AlreadyFlipped` path is the likelier way in, not the commanded one.** On a computed-state
+    mount the reported pier side turns over as the POINTING crosses, so `pierSideChanged` fires, the
+    loop concludes the firmware auto-flipped and **skips the slew entirely**. The session now finds the
+    field unmoved and COMMANDS the flip rather than failing the observation -- a better answer than the
+    sketch's, since nothing was ever attempted.
+  - **An unreadable witness must never overrule a readable one.** `Inconclusive` covers a missing
+    solve, a centre-only solve (which is what `FakePlateSolver` and any solver reporting coordinates
+    alone returns) and a rotation no pier flip can produce; all three fall back to the mount's report.
+    Without that, every rig on such a solver would fail every flip.
+  - **The pre/post pair must come from ONE camera.** `LastFieldOrientationSolve(otaName)` filters on
+    the OTA and excludes `GuiderFocus`: sensors sit at different rolls in their focusers, so a pair
+    drawn from two of them differs by that constant and says nothing about the pier.
+  Pinned by `MeridianFlipVerificationTests` (the classifier) and `MeridianFlipVerificationSessionTests`
+  (through the session; seen to fail with the override removed, leaving the tube through the pole).
 - **P3 -- Feed the truth to the guider, and fix `WithMeridianFlip`.** The "really flipped" answer from
   P2 (not the computed pier side) drives whether the guider flips its calibration, and
   `WithMeridianFlip` is corrected to "RA + 180 always, Dec + 180 only for sky-relative-Dec mounts"
   (the `reverseDecAfterFlip` switch keeps its name, meaning inverted), now testable via P0.
 
-P0-P2 are the safety win (detect and fail-loud on a missed commanded flip; accept a real auto-flip).
-P3 is the guiding-quality correction and can follow.
+P0-P2 are the safety win (detect and fail-loud on a missed commanded flip; accept a real auto-flip)
+and are SHIPPED. P3 is the guiding-quality correction and can follow.
+
+### The one gap P0-P2 left, and why it is not in the flip logic
+
+**`CatalogPlateSolver` cannot lock onto a `FakeCameraDriver` synthetic field**, so the session-level
+tests stub the pixels-to-WCS step with a solver that reports the roll the camera rendered at. Measured
+on a one-degree field: 43 detected stars against 160 catalog anchors, and every solve refused by the
+acceptance gate as indistinguishable from noise. That is the fake's star-density model disagreeing
+with the solver's expectations -- the render's magnitude cutoff is SNR-derived per
+`SyntheticStarFieldRenderer.DetectabilityMagCutoff` while the solver draws its anchor pool from the
+catalog independently -- and it is worth closing on its own account, since it currently makes the
+whole plate-solve half of the session untestable against fakes. The pixels-to-angle half is covered
+instead by `WcsRotationTests` (the CD matrix maths) and `VelaMosaicFieldTests` (the solver, on real
+fields).
+
+Related: `SessionTestHelper.CreateSessionAsync` gained `coupleCameraToMount`, which connects the mount
+through the `IDeviceHub` so `FakeCameraDriver` can find it. That is the PRODUCTION shape -- every real
+host connects through the hub -- but turning it on for the whole suite switches on the guide camera's
+drift and the main camera's hidden polar misalignment at the same time, which wedged the SkyWatcher
+meridian-limit test. It is opt-in for now; making it the default is its own piece of work.
 
 ## Invariants to preserve
 
@@ -135,10 +190,15 @@ P3 is the guiding-quality correction and can follow.
 
 ## Status
 
-**NOT STARTED** (design captured 2026-08-30 from a session discussion; both defects currently live only
-in that conversation). No meridian-flip plan existed before this; the flip behaviour is otherwise pinned
-only by `SessionObservationLoopTests` (the GEM-only `[Theory]` and the across-meridian flip case) and
-touched by `mount-safety-limits.md` as the limit's neighbour. Related but distinct:
+**P0-P2 DONE (2026-08-30), P3 NOT STARTED.** The session no longer takes a computed-state mount's word
+for a flip: it reads the field rotation off the recentre's own plate solve and, when the frame says
+nothing turned, commands the flip instead of imaging on from the wrong side. The guider-sense fix (P3)
+is untouched and is now unblocked -- the fake rolls its field, so `WithMeridianFlip` can finally be
+tested against a rig whose sensor really is upside down.
+
+Design captured 2026-08-30 from a session discussion. No meridian-flip plan existed before this; the
+flip behaviour is otherwise pinned by `SessionObservationLoopTests` (the GEM-only `[Theory]` and the
+across-meridian flip case) and touched by `mount-safety-limits.md` as the limit's neighbour. Related but distinct:
 `docs/todo/drivers.md` "post-meridian-flip re-rotate" (driving a physical rotator to preserve framing,
 not verifying the flip) and `docs/todo/sequencing.md` "audit that every exit path leaves a sane flip
 state".
