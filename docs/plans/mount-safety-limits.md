@@ -634,6 +634,17 @@ Two defects the E2E found that the unit and poll-level tests could not:
 Not verified live: the GUI's editor panel (start-up wedged in serial probing on this box), and any real
 mount.
 
+## Hosts, as of 2026-08-30
+
+| Surface | tianwen-server | tianwen-gui | tianwen (TUI) |
+|---|---|---|---|
+| Watcher (P3, no session) | `MountLimitWatcherService` | `Program.cs` tracker | `TuiSubCommand` tracker |
+| Verdict on the Home board | n/a | shared `HomeBoardLayout` | shared `HomeBoardLayout` (cards built per frame in `TuiHomeTab`) |
+| Feed on class transitions | `EventBroadcaster` | `PollPreviewTelemetry` -> `NotifyLimitTransitions` | loop -> `NotifyLimitTransitions` (the TUI has no telemetry poll) |
+| Flip settings + clamp caveat | n/a | "Meridian Flip" config group | same group; caveat appended to the value |
+| Limits editor | n/a | `PanelSection.MountLimits` | **not built** -- the TUI equipment tab has its own site bar and key routing; a limits row there is open |
+| Live Session tab verdict | n/a | not shown (the flip countdown lives on the Home board only) | same |
+
 ## What is still open
 
 - **Hardware validation** of the SkyWatcher axis-solution port (`SkyToSteps`) and the forced flip: the
@@ -643,7 +654,9 @@ mount.
   hub-level "last limit event" the Home board could read is the natural next step.
 - **Tier labelling in the editor**, above.
 - **OnStep axis angle**: exposes raw steps, axis model not studied; stays on the hour-angle tier.
-- **A verdict on the TUI's Live Session surface** beyond the Home board cell/row.
+- **A verdict on the TUI's Live Session surface** beyond the Home board cell/row, and **a limits editor
+  row in the TUI equipment tab** (its site bar is bespoke, not the profile-panel section list).
+- **Live GUI/TUI verification** of the editor: blocked on this box by serial probing wedging start-up.
 
 ## Carried over from the 2026-08-29 handoff notes
 
