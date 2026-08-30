@@ -696,6 +696,14 @@ session has never initialised a mount). Plan + phasing:
 [docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md); the wider GSServer sweep in
 [docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md).
 
+**The profile placement above makes the config APPLY to a manual slew with no session; it does not
+by itself make anything ENFORCE it there.** `MountLimitWatcher` (`Sequencing/`) is the enforcement
+half: host-agnostic (only `IDeviceHub`/`IDeviceDiscovery`, no ASP.NET dependency), matching a
+connected mount's URI against every discovered profile's own `Mount` field each 5s tick rather than
+any single "active profile" (no such uniform concept exists across the GUI/server/CLI), and skipping
+any mount a session already leases. Wired as a `BackgroundService` for `tianwen-server` only --
+**the GUI's own manual slew, the scenario this exists for, is not yet covered.**
+
 **A guide pulse is TWO methods, and picking the wrong one is silent.**
 `StartPulseGuideAsync` (`IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`) is the primitive: it
 commands the hardware and RETURNS, with `IsPulseGuidingAsync` carrying progress and required to be

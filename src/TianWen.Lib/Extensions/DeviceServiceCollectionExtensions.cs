@@ -3,6 +3,7 @@ using System;
 using System.Diagnostics.CodeAnalysis;
 using TianWen.Lib.Devices;
 using TianWen.Lib.Devices.Discovery;
+using TianWen.Lib.Sequencing;
 
 namespace TianWen.Lib.Extensions;
 
@@ -19,7 +20,13 @@ public static class DeviceServiceCollectionExtensions
         .AddDeviceType(uri => new ManualFilterWheelDevice(uri))
         .AddSingleton<IDeviceHub, DeviceHub>()
         .AddSingleton<ISerialProbeService, SerialProbeService>()
-        .AddSingleton<IDeviceDiscovery, DeviceDiscovery>();
+        .AddSingleton<IDeviceDiscovery, DeviceDiscovery>()
+        // Registering the singleton costs nothing by itself -- MountLimitWatcher.RunAsync is never
+        // called until a host explicitly starts it (see TianWen.Hosting's MountLimitWatcherService
+        // for the ASP.NET-hosted case). Bundled here rather than a separate AddMountLimitWatcher()
+        // because it depends on nothing beyond IDeviceHub/IDeviceDiscovery, which this method already
+        // provides.
+        .AddSingleton<MountLimitWatcher>();
 
     internal static IServiceCollection AddDeviceType<TDevice>(this IServiceCollection services, Func<Uri, TDevice> func) where TDevice : DeviceBase => services
         .AddKeyedSingleton<Func<Uri, DeviceBase>>(typeof(TDevice).Name.ToLowerInvariant(), func);

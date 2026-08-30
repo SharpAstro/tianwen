@@ -1,9 +1,12 @@
 # PLAN: Mount safety limits (hour-angle + horizon)
 
-> Status: **NOT STARTED**. Design captured 2026-08-29 after the `Finalise` tracking fix
-> (PR #205) surfaced that **there are no hour-angle or altitude safety limits anywhere in the
-> codebase** -- `grep` finds no `HALimit`, `LimitReached` or `SafetyLimit` -- so a failed meridian
-> flip has no backstop that stops a mount tracking into the pier.
+> Status: **P0, P2 and P3 (server) DONE; P1's editor UI, P1b, P4, P5 and P3's GUI half NOT STARTED.**
+> Design captured 2026-08-29 after the `Finalise` tracking fix (PR #205) surfaced that **there were
+> no hour-angle or altitude safety limits anywhere in the codebase** -- a failed meridian flip had no
+> backstop that stopped a mount tracking into the pier. P0 (the pure decider) and P2 (session
+> enforcement) shipped the same day; P3's `MountLimitWatcher` (enforcement with no session running)
+> shipped for `tianwen-server` afterward -- see its own section below for what it does and does not
+> yet cover.
 
 ## The gap
 
@@ -111,7 +114,7 @@ constraints GSS never had:
 | P1b | **Axis modelling: `GetAxisAngleAsync(TelescopeAxis) -> double?`** (degrees from the mount's home position, signed, hemisphere-corrected), implemented natively by the SkyWatcher driver from steps + CPR and returning `null` everywhere else. **Angle, not steps**: the driver owns its home convention (`0x800000`) and the southern mirroring, and leaking steps + CPR would make every caller re-derive both -- the bug `StepsToRa` already exists to prevent. This is what upgrades the limit from approximation to mechanical truth on the mounts that can support it, and it is independently useful (a true pier-side derivation, PE phase, a mechanical-position readout). | NOT STARTED |
 | P1 | **Profile placement + UI.** Persist `MountLimitConfiguration` (the record itself shipped in P0) and give it an editor. **Lives on the PROFILE, not `SessionConfiguration`** -- it is a static fact about the mount's geometry AND the tube bolted to it, exactly like `OTAData`, and it must apply to a manual slew with no session. | **DONE** for persistence + plumbing; the editor UI is not built |
 | P2 | **Session enforcement.** Evaluate in `PollDeviceStatesAsync` (already the one place that refreshes `_mountState` with HA and pier side, and already called from every slew wait and the imaging tick). Verdict routes to a new `ImageLoopNextAction.LimitReached`, finalising the run the same way `DeviceUnrecoverable` does. Reuses `ResilientInvokeAsync` for the stop/park. | **DONE** (6 tests, 2 sabotages verified) |
-| P3 | **Enforcement outside a session** -- the half GSS gets for free. A `MountLimitWatcher` hosted alongside the device hub, polling any *connected* mount on a slow cadence (5 s) whether or not a session owns it. Must respect the hub lease: a run owns the mount, so the watcher only observes and lets the session act; with no run it acts itself. | NOT STARTED |
+| P3 | **Enforcement outside a session** -- the half GSS gets for free. A `MountLimitWatcher` hosted alongside the device hub, polling any *connected* mount on a slow cadence (5 s) whether or not a session owns it. Must respect the hub lease: a run owns the mount, so the watcher only observes and lets the session act; with no run it acts itself. | **DONE for `tianwen-server`** (10 tests, 2 sabotages verified); **the GUI's own manual-slew path is NOT yet wired** -- see "P3 as built" below |
 | P4 | **Surface it.** A limit is useless if it fires silently: notification feed entry, a `LimitAlarm`-equivalent state on `ISessionTelemetry` for the Home board's rig card, and the warning threshold shown as a countdown next to the existing flip countdown (`MeridianFlipUtc`). | NOT STARTED |
 | P5 | **Driver-enforced limits, observed not duplicated.** Detect "the mount stopped itself" (tracking off / `AtPark` when we did not command it) and report it as a limit event rather than a device fault, so a GSS-managed rig does not read as a malfunction. | NOT STARTED |
 
@@ -175,11 +178,13 @@ meridian wins on the tie-break. Right answer, wrong reason, and the broken rank 
 
 ## Open questions (decide at the phase, not now)
 
-- **Does P3 belong in the hub or in the hosted server?** A watcher that acts on hardware nobody
-  leased is a new kind of actor in a codebase whose whole ownership model is "a run claims the rig".
-  The safest reading is that the watcher acts only when *nothing* holds a lease, which is precisely
-  when the hub knows the rig is idle -- but that wants writing down against `DeviceOwnershipGate`
-  before it is built.
+- ~~**Does P3 belong in the hub or in the hosted server?**~~ **RESOLVED, see "P3 as built" below.**
+  Neither, exactly: the watcher's own logic (`MountLimitWatcher`) lives beside `IDeviceHub` in
+  `TianWen.Lib` so it is available to every host, but *driving* it (calling `RunAsync`) is a per-host
+  decision, because `TianWen.Lib` takes no dependency on `Microsoft.Extensions.Hosting` and "the
+  active profile" is tracked differently by the GUI, the server and the CLI. It acts only when
+  `IDeviceHub.TryGetLease` says nothing holds the mount, exactly the safest reading this question
+  proposed.
 - **Do we get park positions at all?** GSS's named-park model presumes a list of park positions;
   TianWen has `ParkAsync` and nothing else. The fallback (`StopAxes` equivalent = stop tracking,
   abort slew) may be all v1 can offer, which is fine and should be stated rather than discovered.
@@ -239,6 +244,63 @@ BEGINS, and the fake advances with the fake clock which these tests never pump, 
 stays exactly where it was and every assertion passes for the wrong reason. Tracking is also
 switched on explicitly, because a freshly built test session has never initialised a mount and
 starts with tracking OFF -- asserting "still tracking" without that passes with enforcement deleted.
+
+## P3 as built
+
+**`MountLimitWatcher` (`TianWen.Lib/Sequencing/`) is host-agnostic by construction.** It depends on
+only `IDeviceHub` and `IDeviceDiscovery` -- both already singletons in every host -- and exposes a
+plain `RunAsync(CancellationToken)` loop, not an `IHostedService`/`BackgroundService`: `TianWen.Lib`
+takes no dependency on `Microsoft.Extensions.Hosting`, so a host wires the loop up as it sees fit.
+`TianWen.Server` gets a thin `MountLimitWatcherService : BackgroundService` in `TianWen.Hosting`,
+registered alongside `IHostedSession` -- node-scoped, not session-scoped, so it keeps running whether
+or not a session is active.
+
+**No "active profile" abstraction exists across hosts, so the watcher does not use one.** The GUI, the
+hosted server (`IHostedSession.ActiveProfileId`) and the CLI each track "which profile" differently,
+and unifying that was explicitly out of scope for this phase. Instead, every tick it re-discovers all
+profiles (`IDeviceDiscovery.DiscoverOnlyDeviceType(DeviceType.Profile, ct)`, the same mechanism
+`ProfileEndpoints` uses) and matches each connected mount's URI against every profile's
+`ProfileData.Mount`, using whichever one matches for that mount's `MountLimitConfiguration` and
+`SiteLatitude`. Re-discovering every 5 s is deliberate, not an oversight: it is what lets a limit just
+enabled in the profile editor take effect without a restart, and a handful of small JSON files costs
+nothing worth caching around.
+
+**Altitude uses the LATITUDE-only static overload** (`SiteContext.AltitudeDegrees(latitudeDeg,
+hourAngleHours, decDeg)`), not `SiteContext.Create(lat, lon, timeProvider)`: altitude from HA + Dec +
+Lat has no dependence on longitude or the clock (LST is only needed to go from RA to HA, and the
+watcher already reads HA straight off the mount), so the watcher needs no `ITimeProvider` read on this
+path at all -- only for its own poll-interval sleep.
+
+**The per-entry latch is keyed on mount URI** (`ConcurrentDictionary<Uri, byte>`, the per-key
+in-flight-set shape from CLAUDE.md's background-task-state table), not a single field like `Session`
+uses for its one rig: the hub can have more than one mount connected across profiles, and each needs
+its own "have I already acted since the last clear verdict" memory.
+
+**Respecting the lease is a plain skip, not a softer action.** `hub.TryGetLease(deviceUri, out _)`
+returning true means a session already owns this mount and is already evaluating the same
+`MountLimits.Evaluate` on its own poll -- the watcher does not also warn or log, it simply does
+nothing for that mount this tick, so the two are never both acting on the same axis.
+
+**Verified with 2 sabotages** (both against the two lines this feature is actually *for*): disabling
+the lease check made `ALeasedMountIsNeverActedOnEvenPastTheLimit` fail (the watcher stopped tracking
+on a leased mount); disabling the per-mount latch made `TheActionFiresOnceAndThenLatchesUntilClear`
+fail (`SetTrackingAsync(false)` fired twice instead of once) -- the GSS-derived failure mode this
+plan's invariants exist to prevent (a park re-commanded every poll, never arriving).
+
+**Deliberately left for a follow-up, not silently dropped:**
+
+- **The GUI's own manual-slew path is not yet covered.** The plan's own gap ("The GUI can slew, jog
+  and track with no session at all") is exactly the scenario `MountLimitWatcher` was built to close,
+  but only `tianwen-server` drives it today. The GUI is not an ASP.NET host, so it needs a different
+  integration (most likely a fire-and-forget `Task.Run(() => watcher.RunAsync(appShutdownToken))`
+  from its own composition root, or a tick from its existing per-frame poll loop) rather than a
+  `BackgroundService` -- deliberately scoped out of this pass rather than bolted on without the same
+  care given to when it starts/stops relative to the render loop and app lifetime.
+- **P1b (native axis-angle modelling) is unaffected**: the watcher reads HA the same way `Session`
+  does today, so it inherits the same sky-coordinate-approximation caveat until P1b lands.
+- **No telemetry surfacing (P4) yet**: the watcher logs, but nothing it does reaches a notification
+  feed or the Home board. A rig sitting idle with a tripped limit is invisible unless someone reads
+  the log.
 
 ## Correcting the physics, and making the limit the clamp
 

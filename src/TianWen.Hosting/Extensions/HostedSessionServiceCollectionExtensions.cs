@@ -25,6 +25,10 @@ public static class HostedSessionServiceCollectionExtensions
         services.AddSingleton<HostedSession>();
         services.AddSingleton<IHostedSession>(sp => sp.GetRequiredService<HostedSession>());
         services.AddSingleton<EventHub>();
+        // P3 of docs/plans/mount-safety-limits.md: enforces a configured mount limit against any
+        // connected mount whether or not a session owns it. Node-scoped (survives across sessions
+        // starting and ending), not part of IHostedSession itself.
+        services.AddHostedService<MountLimitWatcherService>();
         // Single-flight server-side AI enhancer behind POST /api/v1/image/enhance. The SharpenPipeline
         // is OPTIONAL -- it is registered only by AddRcAstroAi()/AddTianWenAi(), which a host (the
         // functional-test host, or a server with no AI models) need not wire. Resolve it via GetService
