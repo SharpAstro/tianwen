@@ -60,6 +60,17 @@ public interface ISerialConnection : IDisposable
     /// </summary>
     bool SynchronousReads { get => false; set { } }
 
+    /// <summary>
+    /// True once an I/O on this connection had to be abandoned: a deadline or token fired while the operation
+    /// was still pending, so the DRIVER never completed it -- cancellation was observed by the caller, not by
+    /// the port. That is the difference between a device that did not answer (retry it, try the next
+    /// protocol) and a port that does not complete I/O at all (give it up: every further exchange on it
+    /// costs a full budget and every close of it a stuck thread). The Bluetooth listener port Windows creates
+    /// for any paired device advertising the Serial Port Profile is the case that found this. Default false;
+    /// in-memory fakes never abandon anything.
+    /// </summary>
+    bool HasAbandonedIo => false;
+
     bool TryClose();
 
     /// <summary>

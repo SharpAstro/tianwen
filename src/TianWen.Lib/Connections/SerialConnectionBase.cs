@@ -44,6 +44,11 @@ internal abstract class SerialConnectionBase : ISerialConnection
     /// <inheritdoc />
     public bool SynchronousReads { get; set; }
 
+    private int _abandonedIo;
+
+    /// <inheritdoc />
+    public bool HasAbandonedIo => Volatile.Read(ref _abandonedIo) != 0;
+
     public ValueTask<ResourceLock> WaitAsync(CancellationToken cancellationToken) => _semaphore.AcquireLockAsync(cancellationToken);
 
     /// <summary>
@@ -88,11 +93,33 @@ internal abstract class SerialConnectionBase : ISerialConnection
         }
     }
 
+    /// <summary>
+    /// A write to a healthy port completes in milliseconds (handshaking is never enabled, so the driver's
+    /// buffer absorbs a command outright), yet <c>SerialPort.WriteTimeout</c> defaults to infinite, and on a
+    /// "Standard Serial over Bluetooth link" port with nobody on the far end (the INCOMING port Windows
+    /// creates for every paired device that advertises the Serial Port Profile, headphones included) the
+    /// overlapped <c>WriteFile</c> simply never completes. <c>SerialStream.WriteAsync</c> does not observe its
+    /// cancellation token, so no probe budget could end it either: discovery wedged there for good, and a
+    /// <c>dotnet-stack</c> dump showed NO thread in serial I/O at all (a pending overlapped write is invisible
+    /// to a stack dump; the first probe on that port never logged its <c>--&gt;</c> line, which is written
+    /// after the await). Bounded twice, both with this value: the port's own <c>WriteTimeout</c>
+    /// (<c>SerialConnection.OpenStream</c>) for drivers that honour <c>COMMTIMEOUTS</c>, and a task-level
+    /// deadline in <see cref="TryWriteAsync"/> for the ones that do not -- <c>bthmodem.sys</c> ignored the
+    /// former. Same value as <c>TcpSerialConnection</c>'s stream timeouts. A timeout surfaces as a failed
+    /// <c>Try*</c> write, which a probe reads as no-match and a session driver as a fault for
+    /// <c>ResilientCall</c> to reconnect through.
+    /// </summary>
+    internal const int WriteTimeoutMs = 2000;
+
     public async ValueTask<bool> TryWriteAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken)
     {
+        // Started outside the try so the catch can tell a write that FAILED from one that is still PENDING when
+        // the deadline or the token fires; only the latter marks the port (see HasAbandonedIo). An abandoned
+        // write stays pending on the handle until a (bounded) close releases it; see WriteTimeoutMs.
+        var write = _stream.WriteAsync(message, cancellationToken).AsTask();
         try
         {
-            await _stream.WriteAsync(message, cancellationToken).ConfigureAwait(false);
+            await write.WaitAsync(TimeSpan.FromMilliseconds(WriteTimeoutMs), cancellationToken).ConfigureAwait(false);
             if (LogVerbose)
             {
                 var rendered = Encoding.GetString(message.Span).ReplaceNonPrintableWithHex();
@@ -113,6 +140,16 @@ internal abstract class SerialConnectionBase : ISerialConnection
         }
         catch (Exception ex)
         {
+            if (!write.IsCompleted)
+            {
+                Volatile.Write(ref _abandonedIo, 1);
+                // Observe whatever the abandoned write eventually does (an I/O abort once the handle closes).
+                _ = write.ContinueWith(static t => _ = t.Exception, TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
+                _logger.LogWarning("{Port} never completed the write of {Message}; the port is marked as not completing I/O.",
+                    DisplayName, Encoding.GetString(message.Span).ReplaceNonPrintableWithHex());
+                return false;
+            }
+
             _logger.LogError(ex, "Error while sending message {Message} to serial device on serial port {Port}",
                 Encoding.GetString(message.Span), DisplayName);
 
