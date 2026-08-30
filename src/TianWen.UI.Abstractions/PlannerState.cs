@@ -15,7 +15,7 @@ namespace TianWen.UI.Abstractions;
 /// <summary>
 /// Shared state for the observation planner, used by both TUI and GUI.
 /// </summary>
-public class PlannerState
+public class PlannerState : PersistableState<SavePlannerSessionSignal>
 {
     /// <summary>The active equipment profile.</summary>
     public Profile? ActiveProfile { get; set; }
@@ -187,32 +187,6 @@ public class PlannerState
     /// Changing this triggers recomputation of the night window and targets.
     /// </summary>
     public DateTimeOffset? PlanningDate { get; set; }
-
-    /// <summary>Signal bus for posting planner events. Set by the host during initialization.</summary>
-    public SignalBus? Bus { get; set; }
-
-    /// <summary>Whether the planner session has unsaved changes (proposals, sliders, settings).</summary>
-    public bool IsDirty
-    {
-        get => _isDirty;
-        internal set
-        {
-            _isDirty = value;
-            if (value)
-            {
-                Bus?.Post(new SavePlannerSessionSignal());
-            }
-        }
-    }
-    private bool _isDirty;
-
-    /// <summary>
-    /// Clears the dirty flag once the host has persisted the session. The flag's setter is
-    /// internal (mutations go through <see cref="PlannerActions"/>), so out-of-assembly hosts; 
-    /// e.g. the browser host's localStorage store: call this from their
-    /// <see cref="SavePlannerSessionSignal"/> subscriber, mirroring the desktop handler.
-    /// </summary>
-    public void MarkSessionSaved() => _isDirty = false;
 
     /// <summary>Whether the display needs a redraw.</summary>
     public bool NeedsRedraw { get; set; }

@@ -905,7 +905,7 @@ namespace TianWen.UI.Abstractions
                 {
                     return;
                 }
-                plannerState.IsDirty = false;
+                plannerState.MarkSaved();
                 await PlannerPersistence.SaveAsync(plannerState, profile, external, _timeProvider, ActiveRemoteBindingId, cts.Token);
             });
 
@@ -915,7 +915,7 @@ namespace TianWen.UI.Abstractions
                 {
                     return;
                 }
-                sessionState.IsDirty = false;
+                sessionState.MarkSaved();
                 await SessionPersistence.SaveAsync(sessionState, profile, external, cts.Token);
             });
 
