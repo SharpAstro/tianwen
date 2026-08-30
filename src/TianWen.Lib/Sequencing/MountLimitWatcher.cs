@@ -124,6 +124,10 @@ public sealed class MountLimitWatcher(
         }
     }
 
+    /// <summary>The driver's null ("no axis model") carried as NaN, the way the session's <c>MountState</c> does.</summary>
+    private static async ValueTask<double> ReadPrimaryAxisAngleAsync(IMountDriver mount, CancellationToken cancellationToken)
+        => await mount.GetAxisAngleAsync(TelescopeAxis.Primary, cancellationToken).ConfigureAwait(false) ?? double.NaN;
+
     private (MountLimitConfiguration Config, double? SiteLatitude)? FindConfiguration(Uri mountUri)
     {
         foreach (var device in deviceDiscovery.RegisteredDevices(DeviceType.Profile))
@@ -148,6 +152,10 @@ public sealed class MountLimitWatcher(
         // Unknown on a failed read, never Normal: Normal is the FLIPPED state, in which the meridian
         // limit is silent, so defaulting there would switch the limit off on the mounts it reads worst.
         var pointingState = await mount.Logger.CatchAsync(mount.GetSideOfPierAsync, cancellationToken, PointingState.Unknown).ConfigureAwait(false);
+        // The mechanical tier where the driver has one; null (the interface default) elsewhere, and NaN
+        // on a failed read too -- an unreadable axis must fall back to the estimate, not fire.
+        var primaryAxisAngleDeg = await mount.Logger.CatchAsync(
+            ct => ReadPrimaryAxisAngleAsync(mount, ct), cancellationToken, double.NaN).ConfigureAwait(false);
         var declination = await mount.Logger.CatchAsync(mount.GetDeclinationAsync, cancellationToken, double.NaN).ConfigureAwait(false);
         var isTracking = await mount.Logger.CatchAsync(mount.IsTrackingAsync, cancellationToken).ConfigureAwait(false);
 
@@ -161,7 +169,7 @@ public sealed class MountLimitWatcher(
             : double.NaN;
 
         var alreadyActed = _acted.ContainsKey(mountUri);
-        var verdict = MountLimits.Evaluate(hourAngle, pointingState, altitude, isTracking, alreadyActed, config);
+        var verdict = MountLimits.Evaluate(hourAngle, pointingState, primaryAxisAngleDeg, altitude, isTracking, alreadyActed, config);
 
         if (!verdict.IsBreached)
         {

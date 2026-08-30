@@ -141,6 +141,44 @@ public class SessionMountLimitTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task ASkyWatcherVerdictIsMeasuredOnTheAxisNotEstimatedFromTheSky()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        // The SkyWatcher driver models its RA axis, so the session reads the mechanical tier. From home
+        // (Normal) a sync 1 h EAST keeps the Normal solution -- the axis at (HA - 6 h) x 15 = -105 deg,
+        // counterweight 15 deg above horizontal -- which is 60 min of hour angle past the meridian limit
+        // in BOTH tiers; the verdict must say it came from the axis.
+        var ctx = await SessionTestHelper.CreateSessionAsync(
+            output, mountPort: "SkyWatcher", mountLimits: StopTrackingPastTheMeridian, cancellationToken: ct);
+        await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
+        var lst = await ctx.Mount.GetSiderealTimeAsync(ct);
+        await ctx.Mount.SyncRaDecAsync(((lst + 1.0) % 24.0 + 24.0) % 24.0, 45.0, ct);
+        await ctx.Mount.SetTrackingAsync(true, ct);
+        (await ctx.Mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldNotBeNull().ShouldBe(-105.0, 0.01, "premise: the driver models its axis");
+
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        var verdict = ctx.Session.MountLimitVerdict;
+        verdict.Kind.ShouldBe(MountLimitKind.Meridian);
+        verdict.Basis.ShouldBe(MountLimitBasis.AxisAngle);
+        verdict.ExceededBy.ShouldBe(50.0, 0.05); // 60 min past, action at 10
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task APlainFakeHasNoAxisModelSoItsVerdictIsEstimatedFromTheSky()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ctx = await TrackingRigAsync(output, StopTrackingPastTheMeridian, 1.0, ct);
+        (await ctx.Mount.GetAxisAngleAsync(TelescopeAxis.Primary, ct)).ShouldBeNull("premise: FakeMountDriver keeps the interface default");
+
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        ctx.Session.MountLimitVerdict.Basis.ShouldBe(MountLimitBasis.HourAngle);
+    }
+
+    [Fact]
     public async Task AHomedSkyWatcherProducesNoVerdict()
     {
         var ct = TestContext.Current.CancellationToken;

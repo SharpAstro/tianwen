@@ -1,9 +1,10 @@
 # PLAN: Mount safety limits (hour-angle + horizon)
 
-> Status: **P0, P2 and P3 (server) DONE; P1's editor UI, P1b, P4, P5 and P3's GUI half NOT STARTED.**
+> Status: **P0, P1b (SkyWatcher), P2 and P3 (server) DONE; P1's editor UI, P4, P5 and P3's GUI half NOT STARTED.**
 > **Corrected 2026-08-30: the meridian test takes the mount's POINTING STATE** -- read on hour angle
 > alone it stopped every rig ~30 min after a successful flip. See "The meridian test needs the
-> pointing state" below, which also records a SkyWatcher-driver finding that gates the limit there.
+> pointing state" below, which also records a SkyWatcher-driver finding fixed the same day
+> (`SkyToSteps`) and an LX200-base one still open.
 > Design captured 2026-08-29 after the `Finalise` tracking fix (PR #205) surfaced that **there were
 > no hour-angle or altitude safety limits anywhere in the codebase** -- a failed meridian flip had no
 > backstop that stopped a mount tracking into the pier. P0 (the pure decider) and P2 (session
@@ -114,7 +115,7 @@ constraints GSS never had:
 | Phase | What | Status |
 |-------|------|--------|
 | P0 | **`MountLimits` pure decider** (`TianWen.Lib/Sequencing/` beside `MeridianFlipDecision`): `Evaluate(hourAngleHours, pointingState, altitudeDeg, isTracking, alreadyActed, MountLimitConfiguration) -> MountLimitVerdict`. No I/O, no driver, no clock. `MountLimitConfiguration` landed with it rather than waiting for P1, because the decider cannot be written without it; P1 keeps the PLACEMENT (profile persistence + UI). **Two departures from the sketch:** the HORIZON test takes no pier side, and neither test takes an alignment mode -- see the note below. The MERIDIAN test takes the pointing state, as of 2026-08-30. | **DONE** (39 cases, 3 sabotages verified; pointing state added 2026-08-30, seen to fail first) |
-| P1b | **Axis modelling: `GetAxisAngleAsync(TelescopeAxis) -> double?`** (degrees from the mount's home position, signed, hemisphere-corrected), implemented natively by the SkyWatcher driver from steps + CPR and returning `null` everywhere else. **Angle, not steps**: the driver owns its home convention (`0x800000`) and the southern mirroring, and leaking steps + CPR would make every caller re-derive both -- the bug `StepsToRa` already exists to prevent. This is what upgrades the limit from approximation to mechanical truth on the mounts that can support it, and it is independently useful (a true pier-side derivation, PE phase, a mechanical-position readout). | NOT STARTED |
+| P1b | **Axis modelling: `GetAxisAngleAsync(TelescopeAxis) -> double?`** (degrees from the mount's home position, signed, hemisphere-corrected), implemented natively by the SkyWatcher driver from steps + CPR and returning `null` everywhere else. **Angle, not steps**: the driver owns its home convention (`0x800000`) and the southern mirroring, and leaking steps + CPR would make every caller re-derive both -- the bug `StepsToRa` already exists to prevent. This is what upgrades the limit from approximation to mechanical truth on the mounts that can support it, and it is independently useful (a true pier-side derivation, PE phase, a mechanical-position readout). | **DONE for SkyWatcher** (2026-08-30): `IMountDriver.GetAxisAngleAsync`, null on every other driver, and `MountLimits.Evaluate` prefers it -- see "P1b as built" |
 | P1 | **Profile placement + UI.** Persist `MountLimitConfiguration` (the record itself shipped in P0) and give it an editor. **Lives on the PROFILE, not `SessionConfiguration`** -- it is a static fact about the mount's geometry AND the tube bolted to it, exactly like `OTAData`, and it must apply to a manual slew with no session. | **DONE** for persistence + plumbing; the editor UI is not built |
 | P2 | **Session enforcement.** Evaluate in `PollDeviceStatesAsync` (already the one place that refreshes `_mountState` with HA and pier side, and already called from every slew wait and the imaging tick). Verdict routes to a new `ImageLoopNextAction.LimitReached`, finalising the run the same way `DeviceUnrecoverable` does. Reuses `ResilientInvokeAsync` for the stop/park. | **DONE** (9 tests, 2 sabotages verified) |
 | P3 | **Enforcement outside a session** -- the half GSS gets for free. A `MountLimitWatcher` hosted alongside the device hub, polling any *connected* mount on a slow cadence (5 s) whether or not a session owns it. Must respect the hub lease: a run owns the mount, so the watcher only observes and lets the session act; with no run it acts itself. | **DONE for `tianwen-server`** (11 tests, 2 sabotages verified); **the GUI's own manual-slew path is NOT yet wired** -- see "P3 as built" below |
@@ -176,7 +177,9 @@ meridian wins on the tie-break. Right answer, wrong reason, and the broken rank 
 - **Axis angle wins when available; HA is the fallback, never a cross-check.** If both are
   available and they DISAGREE, that is a sync fault worth surfacing -- but the limit must act on the
   axis, because that is the thing with a pier in its way. Do not average them, and do not require
-  both to agree before acting: an unsynced mount is the case the limit exists for.
+  both to agree before acting: an unsynced mount is the case the limit exists for. *(Implemented
+  2026-08-30: `Evaluate` takes `primaryAxisAngleDeg` and does not consult HA or the pointing state
+  for the meridian test when it is present; the disagreement is not yet surfaced anywhere.)*
 - **A limit that cannot be evaluated does not fire.** `double.NaN` hour angle (transform
   unavailable, driver read failed) means unknown; unknown must never mean "in limit", or a flaky
   driver read parks the mount mid-target. The opposite failure -- a rig with no HA at all -- is
@@ -212,6 +215,34 @@ meridian wins on the tie-break. Right answer, wrong reason, and the broken rank 
 - [`gss-parity-audit.md`](gss-parity-audit.md) -- the rest of the GSServer sweep: which of its
   pulse/slew/queue fixes apply to us and which are structurally impossible here. Read its
   "Read `origin/master`, not a local checkout" note before quoting any GSS behaviour below.
+
+## P1 editor UI: design notes (not built; from the 2026-08-29 session)
+
+The config persists and enforces, but the only way to set it is hand-editing
+`%LOCALAPPDATA%/TianWen/Profiles/<id>.json`. What the editor should be, so the next session does not
+start from nothing:
+
+- **Placement.** A `PanelSection.MountLimits` after `PanelSection.Site()` in
+  `EquipmentContent.GetProfilePanelSections`, rendered in `EquipmentTab.ProfilePanel.cs`. Follow
+  `BuildSite` exactly -- it is the closest analogue: a display row with `[>]`, an edit mode with inputs
+  and a Save row. Needs `EquipmentActions.SetMountLimits` (pure `data with { ... }`, so unknown fields
+  round-trip), an `EditMountLimitsSignal`, `IsEditingMountLimits` plus `TextInputState`s on
+  `EquipmentTabState`, and a subscribe in `AppSignalHandler.Equipment.cs` mirroring `EditSiteSignal`
+  (route only: one helper call, reflect into state).
+- **The flip settings get their first UI here, and are validated against the limit.** The user asked
+  for this. `MeridianFlipEarliestMinutesAfter` / `MeridianFlipLatestMinutesAfter` are edited nowhere
+  today, so whatever editor is built owns them: show both and the limit in MINUTES (the unit fix in
+  `c04400f1` is what makes them comparable), and flag or refuse a flip deadline that
+  `ClampFlipLatestMinutes` would clamp -- the clamp keeps the rig safe silently, the editor should say
+  so out loud.
+- **Ask for the number in terms the user can measure.** The envelope is Dec- and tube-dependent (see
+  "Correcting the physics"), so present the meridian threshold as "how far past the meridian this rig
+  can track before the tube meets the pier, at your LOWEST imaging Dec with the LONGEST tube fitted",
+  not as an exact figure. Suggested to the user 2026-08-29, unanswered.
+- **Label the tier.** `MountLimitVerdict.Basis` exists for this: the editor (and P4's surfacing) should
+  say whether this rig's meridian limit will be measured on the RA axis (SkyWatcher) or estimated from
+  the hour angle (everything else), because the two are set differently -- an estimate needs margin
+  for clock/site/sync error, a measured axis does not.
 
 ## P1 + P2 as built
 
@@ -349,14 +380,14 @@ Seen to fail first: the post-flip session case against the unfixed decider (moun
 "it stops the mount" session cases against the fixed decider WITHOUT the forced state (fake reports
 `Normal`, nothing stops) -- which is why the helper forces `ThroughThePole` by default.
 
-**A SkyWatcher-driver finding, out of scope here and tracked in `TODO.md`.**
-`SkywatcherMountDriverBase.RaToSteps` / `DecToSteps` only ever produce the NORMAL-state axis solution:
+**A SkyWatcher-driver finding -- RESOLVED 2026-08-30, see "as ported" below.**
+`SkywatcherMountDriverBase.RaToSteps` / `DecToSteps` only ever produced the NORMAL-state axis solution:
 there is no through-the-pole branch (GSServer picks one from the destination's hour angle). So a goto or
 sync to an EASTERN target lands the encoder model in `Normal`, which in the driver's own convention
 (home = HA 6 h, counterweight down) is counterweight-UP, and a session "flip" re-slews to identical
 encoder targets, i.e. moves nothing. The limit reads the driver's state, so on this driver it fires
 right after a slew to an eastern target and never on the west-tracking case -- honest to what the driver
-reports, and useless until the driver is. A limit is only as right as the pointing state under it.
+reported, and useless until the driver was. A limit is only as right as the pointing state under it.
 
 **How GSS handles the flip (`origin/master` `eb7e92c`), which is the port the SkyWatcher driver is
 missing.** GSS is a driver, so it owns both halves, and it keeps them apart:
@@ -373,11 +404,46 @@ missing.** GSS is a driver, so it owns both halves, and it keeps them apart:
   IS that goto landing on the other solution. Writing `SideOfPier` is a forced flip to the alternate
   solution, refused outside the flip limits.
 
-So the SkyWatcher driver ported the reporting half and not the choosing half. The fix is the
-`if (axes[0] > 180)` branch of `RaDecToAxesXy` (with its hemisphere mirroring) in `BeginSlewRaDecAsync`,
-and `SyncRaDecAsync` choosing the solution nearest the CURRENT encoder half rather than always the
-straight one -- a sync is a statement about where the mount already is, and must not teleport the
-model across the pier.
+The SkyWatcher driver had ported the reporting half and not the choosing half.
+
+**As ported (2026-08-30): `SkyToSteps(ra, dec, PointingState)`.** In the driver's own step convention
+(home = HA 6 h, counterweight down, Dec axis at the pole) the two solutions are: straight,
+`raSteps = (HA - 6h)/24 * CPR`, `decSteps = (90 - Dec)/360 * CPR`; through the pole, the same with
+`HA + 12 h` and `decSteps` NEGATED (the Dec axis the same angle the negative way from home) -- GSS's
+`X += 180; Y = 180 - Y` in our coordinates. Checked against the physics rather than trusted: with tracking
+increasing steps, `Normal` at HA 0 is counterweight horizontal and at HA +6 h counterweight DOWN, so
+Normal is the west-safe (post-flip) solution and through-the-pole the east-safe (pre-flip) one, in both
+hemispheres, which is exactly the mapping `MountLimits.Evaluate` assumes. Five decisions ride on it:
+
+- **The state is a CHOICE made by the caller, not by the conversion.** A goto asks
+  `DestinationSideOfPierAsync` (HA >= 0 -> Normal, the rule the session's flip logic already uses);
+  a sync keeps the half the Dec encoder is in (`IsThroughThePole(_posDec)`), because a sync says
+  where the mount already IS and must not teleport the model across the pier on every plate-solve
+  sync of an unflipped rig.
+- **Decided ONCE per goto and kept for the refinement passes** (`_gotoPointingState`): a target just
+  east of the meridian has crossed it by the time the axes stop, and re-deciding per pass would flip
+  the mount in the middle of its own goto.
+- **`StepsToRa` needs the Dec encoder** (through the pole the same RA axis angle looks 12 h away),
+  and `StepsToDec` takes the magnitude of the folded axis angle, so a Dec axis wound past half a turn
+  reads as the mirror it physically is.
+- **The home boundary is INCLUSIVE, Normal** -- GSS `|Y| < 90.0000000001` -- so a mount that has
+  never moved is Normal and the connect-time pole sync round-trips to HA 0 rather than 12 h.
+- **The flip is the next goto, exactly as in GSS.** Nothing flips while tracking; the session's
+  re-slew to the same target now chooses the Normal solution and the mount physically flips.
+  `pierSideChanged` is a real signal on this driver for the first time.
+
+Deliberately unchanged: a Dec guide pulse still moves the Dec AXIS in the commanded direction, so the
+sky Dec sense reverses in the through-the-pole state as it does on every GEM -- the guider's
+calibration owns that (CLAUDE.md, guider calibration pier-side invariant), not the driver.
+`SetSideOfPierAsync` (GSS's forced flip to the alternate solution) is still unsupported. Hardware
+validation is still outstanding: this was verified against the fake motor controller, which executes
+whatever step targets it is given.
+
+Pinned by six `FakeSkywatcherMountDriverTests` cases -- an eastern goto lands through the pole (Dec steps
+negative) and reads back, a western one lands straight, a sync keeps its half, an unflipped rig tracked
+45 min past the meridian FLIPS when re-slewed to its target, a target that transits during its own slew
+keeps the command-time solution, home is Normal -- five of which failed against the old driver. The full
+Functional suite (347) and the full unit suite (5206, 69 gated skips) stayed green.
 
 **LX200-base, SGP and the fake report a COMPUTED pointing state, and a computed state must not feed the
 limit as if it were measured.** `MeadeLX200ProtocolMountDriverBase.CalculateSideOfPierAsync` derives
@@ -405,6 +471,50 @@ could not build a J2000 transform without it anyway), so a run never sees the ra
 `AHomedSkyWatcherProducesNoVerdict` pins that with its premise asserted. The residual is the
 sessionless watcher on a mount connected with no site at all: one logged action (a no-op stop on a
 mount that is not tracking) and a warning per tick until a profile pushes the site.
+
+## P1b as built: the axis angle, and the limit prefers it (2026-08-30)
+
+**`IMountDriver.GetAxisAngleAsync(TelescopeAxis) -> ValueTask<double?>`**, a default interface method
+returning null, overridden by the SkyWatcher driver only. Degrees from the mount's home position, folded
+into (-180, 180]: for a GEM home is counterweight down with the tube on the pole (GSS `HomeAxisX/Y = 90`).
+The primary angle is hemisphere-corrected -- negated in the south, where the motor runs the other way
+(`axisHours = 6 - HA`) -- so that positive is "turned in the tracking direction from home" everywhere:
+`(HA - 6 h) x 15` in the Normal state, `(HA + 6 h) x 15` through the pole. The secondary angle is
+positive in the straight half, negative through the pole, which `StepsToDec`'s hemisphere mirror already
+arranges. **Angle, not steps**, exactly as the phase table asked: a consumer never sees CPR, the
+`0x800000` home or the southern mirroring, the re-derivation `StepsToRa` exists to prevent.
+
+**The one consumer contract is `|primary| - 90`**: how far the counterweight is above horizontal, in
+degrees, in EITHER pointing state. That is the quantity the meridian limit is about, and it is what
+`MountLimits.Evaluate` now takes as `primaryAxisAngleDeg`: when present (non-null, non-NaN) the meridian
+test uses `(|angle| - 90) x 4` minutes of hour angle and does not consult the hour angle or the pointing
+state at all -- fallback, never cross-check, per the invariant above. On a synced SkyWatcher this is the
+same number the hour-angle tier produces (the port of `SkyToSteps` made the two coincide), so what the
+tier buys is independence from the clock, the site and the pointing state a sync believed: a wrong
+longitude shifts the hour angle by hours while the axis has not moved. What it cannot buy is
+independence from the encoders' home -- Synta step counters are relative, a mount powered on off home or
+synced to a wrong solution reports an angle wrong by exactly that much, and GSS has the same blind spot.
+
+**The tier is labelled.** `MountLimitVerdict.Basis` (`HourAngle` | `AxisAngle`) says which one answered
+and `Describe()` prints it ("measured on the RA axis" / "estimated from the hour angle"), which is the
+plan's requirement that a user never mistakes a sky-coordinate estimate for a mechanical limit -- they
+set the threshold wrong in opposite directions depending on which they believe they have.
+
+**Plumbing.** `MountState.PrimaryAxisAngleDeg` (NaN = no model, like every other unknown there; the
+session's `PollDriverReadAsync` is constrained to non-nullable structs, so the driver's null becomes NaN at
+the read) is polled beside the hour angle and pier side, and `MountLimitWatcher` reads the same thing
+with NaN as its failed-read default -- an unreadable axis must fall back to the estimate, not fire.
+`FakeMountDriver` keeps the interface default, so the plain fake exercises the hour-angle tier and the
+SkyWatcher fake the axis tier; both are pinned. Not done for OnStep, which exposes raw steps but whose
+axis model (and home convention) this pass did not study.
+
+**Tests**: seven pure cases (axis beyond horizontal is the offset whatever the sky says; sign does not
+matter; at/below horizontal is clear even when the sky says 60 min past; the axis wins over a disagreeing
+hour angle in both directions; the axis needs no hour angle at all; null/NaN fall back and say so; the
+horizon test is untouched), two session cases (a SkyWatcher verdict reports `AxisAngle` with the expected
+50 min, a plain fake reports `HourAngle`), one watcher case (axis wins both ways), four SkyWatcher-fake
+cases (home reads -90/0, eastern and western gotos read +45/-45 and -45/+45, the southern primary angle is
+hemisphere-corrected, alt-az answers null). Sabotage (decider ignores the axis) fails the tier tests.
 
 ## Correcting the physics, and making the limit the clamp
 

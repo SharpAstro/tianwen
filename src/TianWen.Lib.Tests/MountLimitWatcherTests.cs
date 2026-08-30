@@ -30,7 +30,7 @@ public class MountLimitWatcherTests
 
     private static IMountDriver MountAt(
         double hourAngleHours, bool isTracking = true, bool canPark = false,
-        PointingState pointingState = PointingState.ThroughThePole)
+        PointingState pointingState = PointingState.ThroughThePole, double? axisAngleDeg = null)
     {
         var mount = Substitute.For<IMountDriver>();
         mount.Name.Returns("FakeMount1");
@@ -43,6 +43,9 @@ public class MountLimitWatcherTests
         // enforcement deleted. Through-the-pole (counterweight down, looking east, not yet flipped) is
         // the state in which tracking west carries the tube toward the pier.
         mount.GetSideOfPierAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(pointingState));
+        // Null is the interface default and the safe one here (no axis model -> hour-angle tier), unlike
+        // the pointing state above, so a test that wants the mechanical tier opts in explicitly.
+        mount.GetAxisAngleAsync(TelescopeAxis.Primary, Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(axisAngleDeg));
         mount.GetDeclinationAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(45.0));
         mount.IsTrackingAsync(Arg.Any<CancellationToken>()).Returns(ValueTask.FromResult(isTracking));
         mount.SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(ValueTask.CompletedTask);
@@ -99,6 +102,24 @@ public class MountLimitWatcherTests
         await WatcherFor(hub, discovery).TickAsync(ct);
 
         await mount.DidNotReceive().SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AnAxisAngleWinsOverTheHourAngleInEitherDirection()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        // Sky says 60 min past and not flipped; the axis says counterweight down. Left alone.
+        var safeAxis = MountAt(hourAngleHours: 1.0, axisAngleDeg: 45.0);
+        var (hub1, discovery1) = HubAndDiscoveryFor(safeAxis, StopTrackingPastTheMeridian);
+        await WatcherFor(hub1, discovery1).TickAsync(ct);
+        await safeAxis.DidNotReceive().SetTrackingAsync(Arg.Any<bool>(), Arg.Any<CancellationToken>());
+
+        // Sky says 1 min east of the meridian (clear); the axis says counterweight 15 deg up. Stopped.
+        var upAxis = MountAt(hourAngleHours: -1.0 / 60.0, axisAngleDeg: 105.0);
+        var (hub2, discovery2) = HubAndDiscoveryFor(upAxis, StopTrackingPastTheMeridian);
+        await WatcherFor(hub2, discovery2).TickAsync(ct);
+        await upAxis.Received(1).SetTrackingAsync(false, Arg.Any<CancellationToken>());
     }
 
     [Fact]

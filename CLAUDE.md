@@ -627,9 +627,9 @@ return Continue` (a per-observation flag set after a successful flip in `Session
 `if (pierSideChanged) return AlreadyFlipped`. The HA-zone switch only reaches `CommandFlip` when
 `!alreadyOnCorrectSide`, where `alreadyOnCorrectSide` compares the current pier side against
 `DestinationSideOfPierAsync(target)`. **Why this is load-bearing on SkyWatcher:** the SkyWatcher driver
-derives pier side from the Dec encoder (`GetSideOfPierAsync` → Normal while `0 < pos < CPR/2`), so a GEM
-tracking west still reports `Normal` and a naive "flip when HA > 0" check is trivially true forever →
-mount stuck `Slewing`, zero exposures. Never re-introduce a flip-success check like `HA > 0`; gate on the
+derives pier side from the Dec encoder (`GetSideOfPierAsync`: the MECHANICAL state, which tracking never
+changes), so an unflipped GEM tracking west keeps reporting the state it was slewed in and a naive "flip
+when HA > 0" check is trivially true forever → mount stuck `Slewing`, zero exposures. Never re-introduce a flip-success check like `HA > 0`; gate on the
 *destination* side + the `hasFlipped` memory. Pinned by `MeridianFlipDecisionTests` (joined-already-west
 → Continue, hasFlipped backstop, precedence) + a `mountPort:"SkyWatcher"` observation-loop test.
 
@@ -648,14 +648,22 @@ neither. Ported from GSServer's `CheckAxisLimits` with three deliberate departur
   one that has flipped (`Normal`) is 12 h round and moving AWAY, and its hazard is pointing EAST.
   `Evaluate` reads the offset as `Normal ? -HA : HA` (`Unknown` = the HA approximation). The first
   cut read HA alone and **stopped every rig ~30 min after a successful flip** -- with the flip clamp,
-  the one place a rig is guaranteed to be. Two test traps: `default(PointingState)` is `Normal`, the
+  the one place a rig is guaranteed to be. That is the SKY tier; **`IMountDriver.GetAxisAngleAsync`
+  (SkyWatcher only, null elsewhere) is the MECHANICAL tier and wins when present**: `|angle| - 90` deg
+  is how far the counterweight is above horizontal in either state, read with no clock, site or sync
+  (fallback, never cross-check), and `MountLimitVerdict.Basis` says which tier answered -- a user who
+  mistakes the estimate for a mechanical limit sets the threshold wrong. Inside `MountState` the
+  driver's null is NaN (`PollDriverReadAsync` is `where T : struct`, which excludes `Nullable<T>`). Two test traps: `default(PointingState)` is `Normal`, the
   state in which the meridian test is SILENT, so an unconfigured mock passes with enforcement deleted;
   and `FakeMountDriver` derives its state from HA (flips the instant it crosses), so hold it pre-flip
-  with `SetSideOfPierAsync`. The limit is only as right as the state under it, and two drivers fail
-  it differently (both `TODO.md`): SkyWatcher ported GSS's *reporting* rule (Dec encoder) but not its
-  *choosing* rule (`RaDecToAxesXy`: east -> through the pole), so every target lands in the straight
-  solution; LX200-base, SGP and `FakeMountDriver` report a COMPUTED state (`HA >= 0 -> Normal`), which
-  reads as post-flip west of the meridian whatever the mount did and silences the limit there.
+  with `SetSideOfPierAsync`. The limit is only as right as the state under it. SkyWatcher now carries
+  BOTH halves of GSS's model: `SkyToSteps` CHOOSES the axis solution per goto from the target's HA
+  (east -> through the pole: RA axis +12 h, Dec axis mirrored through home), decided once in
+  `BeginSlewRaDecAsync` and kept for refinement passes; a sync keeps the half the Dec encoder is in;
+  `GetSideOfPierAsync`/`StepsToRa` REPORT from the Dec encoder (home inclusive = Normal). Before that
+  every target took the straight solution and a "flip" re-slewed to identical steps. Still open
+  (`TODO.md`): LX200-base, SGP and `FakeMountDriver` report a COMPUTED state (`HA >= 0 -> Normal`),
+  which reads as post-flip west of the meridian whatever the mount did and silences the limit there.
 - **Warn and act are a threshold plus a non-negative EXTRA**, never two absolute numbers. The two
   limits run in opposite directions (hour angle rises toward its limit, altitude falls toward its
   own), so an absolute pair can be edited into acting before it warns -- differently for each limit.

@@ -159,6 +159,11 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     // J2000 slew -> J2000 readback round-trips. NaN RA = no goto pending.
     private double _gotoTargetRa = double.NaN;
     private double _gotoTargetDec;
+    // The axis solution the goto was commanded with (see SkyToSteps). Decided ONCE in
+    // BeginSlewRaDecAsync and reused by every refinement pass: a target just east of the meridian
+    // has crossed it by the time the axes stop, and re-deciding per pass would flip the mount in the
+    // middle of its own goto.
+    private PointingState _gotoPointingState = PointingState.Normal;
     private int _gotoRefineAttempts;
     private int _gotoRefineInFlight; // Interlocked gate: concurrent IsSlewing pollers must not double-issue the refinement goto
 
@@ -295,7 +300,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         {
             _posRa = SkywatcherProtocol.DecodePosition(data.AsSpan(0, 6));
         }
-        return StepsToRa(_posRa);
+        return StepsToRa(_posRa, _posDec);
     }
 
     public virtual async ValueTask<double> GetDeclinationAsync(CancellationToken cancellationToken)
@@ -344,6 +349,37 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             return SkywatcherProtocol.DecodePosition(data.AsSpan(0, 6));
         }
         return null;
+    }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// One fresh <c>:j</c> round trip, the same read <see cref="GetAxisPositionAsync"/> makes, converted
+    /// with the conventions <see cref="SkyToSteps"/> and <see cref="StepsToRa"/> already own: the RA
+    /// angle is negated in the south (the motor runs the other way, <c>axisHours = 6 - HA</c>) so that
+    /// positive is the tracking direction from home in both hemispheres; the Dec angle needs no such
+    /// correction because <see cref="StepsToDec"/>'s mirror already keeps the straight half positive.
+    /// Refreshes the cached position as a side effect, like every other read. Alt-az has no such axes.
+    /// </remarks>
+    public async ValueTask<double?> GetAxisAngleAsync(TelescopeAxis axis, CancellationToken cancellationToken)
+    {
+        if (_alignmentMode == AlignmentMode.AltAz || axis is not (TelescopeAxis.Primary or TelescopeAxis.Seconary))
+        {
+            return null;
+        }
+        var cpr = axis == TelescopeAxis.Primary ? _cprRa : _cprDec;
+        if (cpr == 0 || await GetAxisPositionAsync(axis, cancellationToken) is not { } pos)
+        {
+            return null;
+        }
+        var steps = (int)pos;
+        if (axis == TelescopeAxis.Primary)
+        {
+            _posRa = steps;
+            var folded = FoldDegrees((double)steps / cpr * 360.0);
+            return IsSouthernHemisphere ? -folded : folded;
+        }
+        _posDec = steps;
+        return FoldedDecAxisDegrees(steps);
     }
 
     #endregion
@@ -402,7 +438,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                         Logger.LogInformation(
                             "Iterative goto refinement {Attempt}/{Max}: residual {Err:F1}\" -> re-slewing to RA={Ra:F4}h Dec={Dec:F4}",
                             _gotoRefineAttempts, MaxGotoRefineAttempts, errArcsec, _gotoTargetRa, _gotoTargetDec);
-                        await SlewToRaDecCoreAsync(_gotoTargetRa, _gotoTargetDec, cancellationToken);
+                        await SlewToRaDecCoreAsync(_gotoTargetRa, _gotoTargetDec, _gotoPointingState, cancellationToken);
                         return true;
                     }
                 }
@@ -441,13 +477,21 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             throw new InvalidOperationException("Mount not initialized");
         }
 
+        // Which of the two axis solutions reaches this target counterweight-down is decided by the
+        // target's hour angle (GSS Axes.RaDecToAxesXy: east of the meridian -> through the pole), the
+        // same rule DestinationSideOfPierAsync already answers for the session's flip logic. The
+        // flip IS this choice landing on the other solution on a re-slew; GSS never flips while
+        // tracking, and neither does this driver.
+        var destination = await DestinationSideOfPierAsync(ra, dec, cancellationToken);
+        _gotoPointingState = destination is PointingState.ThroughThePole ? destination : PointingState.Normal;
+
         // Arm the iterative-goto refinement (see IsSlewingAsync) BEFORE the first pass
         // so a poll racing the slew start still sees the pending target.
         _gotoTargetRa = ra;
         _gotoTargetDec = dec;
         _gotoRefineAttempts = 0;
 
-        await SlewToRaDecCoreAsync(ra, dec, cancellationToken);
+        await SlewToRaDecCoreAsync(ra, dec, _gotoPointingState, cancellationToken);
     }
 
     /// <summary>
@@ -456,7 +500,7 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// <see cref="BeginSlewRaDecAsync"/> (which arms the refinement state) and the
     /// refinement passes in <see cref="IsSlewingAsync"/> (which must not re-arm it).
     /// </summary>
-    private async ValueTask SlewToRaDecCoreAsync(double ra, double dec, CancellationToken cancellationToken)
+    private async ValueTask SlewToRaDecCoreAsync(double ra, double dec, PointingState pointingState, CancellationToken cancellationToken)
     {
         // Stop both axes and wait for FullStop: :K only STARTS a deceleration, and
         // real firmware rejects the goto's :G with !2 until the motor has stopped.
@@ -483,12 +527,11 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             _posDec = SkywatcherProtocol.DecodePosition(decData.AsSpan(0, 6));
         }
 
-        var targetRaSteps = RaToSteps(ra);
-        var targetDecSteps = DecToSteps(dec);
+        var (targetRaSteps, targetDecSteps) = SkyToSteps(ra, dec, pointingState);
 
         Logger.LogInformation(
-            "BeginSlewRaDec: target RA={RaH:F4}h Dec={Dec:F4} | RA steps {CurRa}->{TgtRa} (delta {DRa}) | Dec steps {CurDec}->{TgtDec} (delta {DDec})",
-            ra, dec, _posRa, targetRaSteps, targetRaSteps - _posRa,
+            "BeginSlewRaDec: target RA={RaH:F4}h Dec={Dec:F4} ({State}) | RA steps {CurRa}->{TgtRa} (delta {DRa}) | Dec steps {CurDec}->{TgtDec} (delta {DDec})",
+            ra, dec, pointingState, _posRa, targetRaSteps, targetRaSteps - _posRa,
             _posDec, targetDecSteps, targetDecSteps - _posDec);
 
         // Slew RA axis
@@ -540,8 +583,12 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     {
         EnsureEquatorialAlignment("Sync to RA/Dec");
 
-        var raSteps = RaToSteps(ra);
-        var decSteps = DecToSteps(dec);
+        // A sync says where the mount already IS, so it stays in the half the Dec encoder is in: the
+        // straight solution for a mount that has flipped (or sits at home), the through-the-pole one
+        // for a mount that has not. Choosing by the target's hour angle here would teleport the model
+        // across the pier on every plate-solve sync of an unflipped rig.
+        var pointingState = IsThroughThePole(_posDec) ? PointingState.ThroughThePole : PointingState.Normal;
+        var (raSteps, decSteps) = SkyToSteps(ra, dec, pointingState);
 
         // Set encoder positions
         await SendCommandAsync('E', '1', SkywatcherProtocol.EncodePosition(raSteps), cancellationToken);
@@ -976,16 +1023,19 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
         // Pier side is determined from the Dec encoder position (the physical orientation of
         // the telescope), not from HA (which only tells you where the target is in the sky).
-        // Following GSServer GermanPolar convention:
+        // Following GSServer GermanPolar convention (SkyServer.SideOfPier):
         //   Raw mount Dec axis = pos / CPR * 360 + 90  (home encoder 0x800000 = 90°)
         //   App-space = 180 - raw
-        //   Normal (counterweight down) when |app-space| < 90, i.e., 0 < raw < 180
-        //   This simplifies to: 0 < pos < CPR/2  →  Normal
+        //   Normal (counterweight down while looking WEST) when |app-space| < 90.0000000001,
+        //   i.e. 0 <= raw < 180, which is 0 <= pos < CPR/2 -- the home boundary is INCLUSIVE, so a
+        //   mount that has never moved is Normal and the connect-time pole sync round-trips to HA 0.
+        // This is the REPORTING half of GSS's model; SkyToSteps is the CHOOSING half, and the two
+        // must agree or a goto lands in a state it then mis-reports.
         var response = await SendAndReceiveAsync('j', '2', null, cancellationToken);
         if (SkywatcherProtocol.TryParseResponse(response, out var data) && data.Length >= 6 && _cprDec > 0)
         {
-            var pos = SkywatcherProtocol.DecodePosition(data.AsSpan(0, 6));
-            return pos > 0 && pos < _cprDec / 2 ? PointingState.Normal : PointingState.ThroughThePole;
+            _posDec = SkywatcherProtocol.DecodePosition(data.AsSpan(0, 6));
+            return IsThroughThePole(_posDec) ? PointingState.ThroughThePole : PointingState.Normal;
         }
         return PointingState.Normal;
     }
@@ -1471,42 +1521,60 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     #region Coordinate Conversion
 
+    // A GEM reaches every sky position two ways: the straight solution, and the one with the RA axis
+    // half a turn round and the Dec axis mirrored through home ("through the pole"). Which is
+    // counterweight-DOWN depends on which side of the meridian the target is, and the encoders
+    // record which one the mount is actually in: the Dec axis sits in the positive half-turn from
+    // home for the straight solution and the negative one for the other. GSS keeps the two halves of
+    // this apart -- Axes.RaDecToAxesXy CHOOSES (east of the meridian -> through the pole),
+    // SkyServer.SideOfPier REPORTS (from the Dec axis) -- and so does this driver: SkyToSteps takes
+    // the state as a parameter, StepsToRa/StepsToDec read it back off the Dec encoder. The first
+    // cut ported only the reporting half, so every target took the straight solution: an eastern
+    // goto landed counterweight-up, and a meridian "flip" re-slewed to identical steps.
+
+    /// <summary>
+    /// True when <paramref name="decSteps"/> is in the through-the-pole half: the Dec axis has been
+    /// turned the negative way from home (GSS <c>SideOfPier</c>: app-space <c>|Y| &lt; 90.0000000001</c>
+    /// is Normal, so home itself is Normal). Taken on the angle folded into one turn, so a Dec axis
+    /// wound more than half a turn the positive way is read as the mirror it physically is.
+    /// </summary>
+    private bool IsThroughThePole(int decSteps) => _cprDec > 0 && FoldedDecAxisDegrees(decSteps) < 0.0;
+
+    /// <summary>The Dec axis angle from home in (-180, 180], positive = the straight half.</summary>
+    private double FoldedDecAxisDegrees(int decSteps) => FoldDegrees((double)decSteps / _cprDec * 360.0);
+
+    /// <summary>Folds an angle into (-180, 180].</summary>
+    private static double FoldDegrees(double degrees)
+    {
+        degrees = ((degrees + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+        return degrees == -180.0 ? 180.0 : degrees;
+    }
+
     /// <summary>
     /// Convert encoder steps to RA hours.
     /// Home position (steps=0) corresponds to HA=6h (counterweight-down, scope at pole),
     /// matching the GSServer GermanPolar convention where HomeAxisX=90°.
     /// North: HA = steps / CPR * 24 + 6; south: HA = 6 - steps / CPR * 24 (the axis
     /// mapping mirrors below the equator, GSS Axes.AxesAppToMount a[0] = 180 - a[0],
-    /// matching the physically reversed tracking direction). Then RA = LST - HA.
+    /// matching the physically reversed tracking direction). Through the pole the same RA axis
+    /// angle is looking 12 h away, so the Dec encoder decides which (GSS Axes.AxesXyToRaDec:
+    /// <c>if (Y &gt; 90) RA += 180</c>). Then RA = LST - HA.
     /// </summary>
-    private double StepsToRa(int steps)
+    private double StepsToRa(int raSteps, int decSteps)
     {
         if (_cprRa == 0) return 0.0;
         var transform = new Transform(TimeProvider);
         transform.RefreshDateTimeFromTimeProvider();
         transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
         var lst = transform.LocalSiderealTime;
-        var axisHours = (double)steps / _cprRa * 24.0;
+        var axisHours = (double)raSteps / _cprRa * 24.0;
         var ha = IsSouthernHemisphere ? 6.0 - axisHours : 6.0 + axisHours;
+        if (IsThroughThePole(decSteps))
+        {
+            ha -= 12.0;
+        }
         var ra = CoordinateUtils.ConditionRA(lst - ha);
         return ra;
-    }
-
-    /// <summary>
-    /// Convert RA hours to encoder steps.
-    /// Inverse of <see cref="StepsToRa"/>: steps = (HA - 6) / 24 * CPR north,
-    /// (6 - HA) / 24 * CPR south.
-    /// </summary>
-    private int RaToSteps(double ra)
-    {
-        if (_cprRa == 0) return 0;
-        var transform = new Transform(TimeProvider);
-        transform.RefreshDateTimeFromTimeProvider();
-        transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
-        var lst = transform.LocalSiderealTime;
-        var ha = CoordinateUtils.ConditionHA(lst - ra);
-        var axisHours = IsSouthernHemisphere ? 6.0 - ha : ha - 6.0;
-        return (int)Math.Round(axisHours / 24.0 * _cprRa);
     }
 
     /// <summary>
@@ -1515,27 +1583,52 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     /// (counterweight-down), matching the GSServer GermanPolar convention where
     /// HomeAxisY=90°. North: Dec = 90 - steps / CPR * 360; south the mapping
     /// mirrors from the -90 pole: Dec = -90 + steps / CPR * 360. The mirror keeps
-    /// "normal" (counterweight-down) pointings in positive step space in both
-    /// hemispheres, so the pier-side rule in <see cref="GetSideOfPierAsync"/>
-    /// needs no hemisphere branch.
+    /// the straight solution in positive step space in both hemispheres, so the pier-side rule in
+    /// <see cref="GetSideOfPierAsync"/> needs no hemisphere branch; the through-the-pole solution
+    /// is the same angle the negative way, so the magnitude is what carries the declination.
     /// </summary>
     private double StepsToDec(int steps)
     {
         if (_cprDec == 0) return 0.0;
-        var axisDegrees = (double)steps / _cprDec * 360.0;
+        var axisDegrees = Math.Abs(FoldedDecAxisDegrees(steps));
         return IsSouthernHemisphere ? -90.0 + axisDegrees : 90.0 - axisDegrees;
     }
 
     /// <summary>
-    /// Convert declination degrees to encoder steps.
-    /// Inverse of <see cref="StepsToDec"/>: steps = (90 - dec) / 360 * CPR north,
-    /// (dec + 90) / 360 * CPR south.
+    /// Convert a sky position to encoder steps in the given axis solution. Inverse of
+    /// <see cref="StepsToRa"/> / <see cref="StepsToDec"/>: the straight solution is
+    /// steps = (HA - 6) / 24 * CPR and (90 - dec) / 360 * CPR north ((6 - HA) and (dec + 90) south);
+    /// through the pole the RA axis is 12 h further round and the Dec axis is the same angle the
+    /// negative way from home (GSS Axes.RaDecToAxesXy: <c>X += 180; Y = 180 - Y</c>).
+    /// <paramref name="pointingState"/> is a CHOICE and is made by the caller -- a goto from the
+    /// target's hour angle, a sync from the half the mount is already in -- because the two callers
+    /// want different answers and nothing here can tell them apart.
     /// </summary>
-    private int DecToSteps(double dec)
+    private (int RaSteps, int DecSteps) SkyToSteps(double ra, double dec, PointingState pointingState)
     {
-        if (_cprDec == 0) return 0;
+        if (_cprRa == 0 || _cprDec == 0) return (0, 0);
+        var throughThePole = pointingState is PointingState.ThroughThePole;
+
+        var transform = new Transform(TimeProvider);
+        transform.RefreshDateTimeFromTimeProvider();
+        transform.SiteLongitude = double.IsNaN(_siteLongitude) ? 0.0 : _siteLongitude;
+        var lst = transform.LocalSiderealTime;
+        var ha = CoordinateUtils.ConditionHA(lst - ra);
+        if (throughThePole)
+        {
+            ha += 12.0;
+        }
+        var axisHours = IsSouthernHemisphere ? 6.0 - ha : ha - 6.0;
+        var raSteps = (int)Math.Round(axisHours / 24.0 * _cprRa);
+
         var axisDegrees = IsSouthernHemisphere ? dec + 90.0 : 90.0 - dec;
-        return (int)Math.Round(axisDegrees / 360.0 * _cprDec);
+        if (throughThePole)
+        {
+            axisDegrees = -axisDegrees;
+        }
+        var decSteps = (int)Math.Round(axisDegrees / 360.0 * _cprDec);
+
+        return (raSteps, decSteps);
     }
 
     #endregion

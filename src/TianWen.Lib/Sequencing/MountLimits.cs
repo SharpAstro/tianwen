@@ -24,6 +24,27 @@ public enum MountLimitKind
 }
 
 /// <summary>
+/// What a meridian verdict was computed FROM. The plan's two tiers, labelled so the user knows which
+/// one they have: a rig that believes it has a mechanical limit and actually has a sky-coordinate one
+/// sets the threshold too tight and gets spurious stops, or too loose and gets none.
+/// </summary>
+public enum MountLimitBasis
+{
+    /// <summary>
+    /// The hour angle plus the reported pointing state: a sky-coordinate estimate of where the axis is.
+    /// Right on a synced mount with a correct clock and site; wrong by exactly whatever they are wrong by.
+    /// </summary>
+    HourAngle,
+
+    /// <summary>
+    /// The RA axis angle read from the mount (<see cref="IMountDriver.GetAxisAngleAsync"/>): the
+    /// mechanical fact, independent of clock, site and the pointing state a sync believed. Relative to
+    /// the encoders' home, which is the one thing it cannot check.
+    /// </summary>
+    AxisAngle,
+}
+
+/// <summary>
 /// What to do when a limit is reached. Deliberately ORDERED by severity, so
 /// <c>&gt;=</c> comparisons are meaningful and a caller can escalate.
 /// </summary>
@@ -52,6 +73,11 @@ public enum MountLimitResponse
 /// </summary>
 /// <param name="Kind">Which limit, or <see cref="MountLimitKind.None"/>.</param>
 /// <param name="Response">What to do. Meaningless when <paramref name="Kind"/> is None.</param>
+/// <param name="Basis">
+/// For a <see cref="MountLimitKind.Meridian"/> verdict, whether the offset was measured on the RA axis
+/// or estimated from the hour angle; <see cref="MountLimitBasis.HourAngle"/> otherwise. Rendered by
+/// <see cref="Describe"/>, so the log and the UI always say which tier the user has.
+/// </param>
 /// <param name="ExceededBy">
 /// How far past the ACTION threshold, or -- while only the warning threshold has been crossed -- a
 /// negative number giving how far is still left before action. So the sign is the answer to "has it
@@ -68,7 +94,8 @@ public enum MountLimitResponse
 public readonly record struct MountLimitVerdict(
     MountLimitKind Kind,
     MountLimitResponse Response,
-    double ExceededBy)
+    double ExceededBy,
+    MountLimitBasis Basis = MountLimitBasis.HourAngle)
 {
     /// <summary>Nothing is wrong.</summary>
     public static MountLimitVerdict Clear { get; } =
@@ -91,14 +118,21 @@ public readonly record struct MountLimitVerdict(
     {
         MountLimitKind.None => "Within all configured mount limits.",
         MountLimitKind.Meridian when IsWarningOnly =>
-            $"Approaching the meridian limit: {-ExceededBy:F0} min of hour angle before the mount will {ResponsePhrase()}.",
+            $"Approaching the meridian limit: {-ExceededBy:F0} min of hour angle before the mount will {ResponsePhrase()} ({BasisPhrase()}).",
         MountLimitKind.Meridian =>
-            $"Meridian limit reached: the tube is {ExceededBy:F0} min of hour angle past the limit. Will {ResponsePhrase()}.",
+            $"Meridian limit reached: the tube is {ExceededBy:F0} min of hour angle past the limit ({BasisPhrase()}). Will {ResponsePhrase()}.",
         MountLimitKind.Horizon when IsWarningOnly =>
             $"Approaching the horizon limit: {-ExceededBy:F1} deg of altitude before the mount will {ResponsePhrase()}.",
         MountLimitKind.Horizon =>
             $"Horizon limit reached: the pointing is {ExceededBy:F1} deg below the limit. Will {ResponsePhrase()}.",
         _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "unknown limit kind"),
+    };
+
+    private string BasisPhrase() => Basis switch
+    {
+        MountLimitBasis.AxisAngle => "measured on the RA axis",
+        MountLimitBasis.HourAngle => "estimated from the hour angle",
+        _ => throw new ArgumentOutOfRangeException(nameof(Basis), Basis, "unknown limit basis"),
     };
 
     private string ResponsePhrase() => Response switch
@@ -252,6 +286,15 @@ public static class MountLimits
     /// the hour angle as the offset (right for a mount that has not flipped, wrong after one), because a
     /// driver that cannot say leaves nothing better. Ignored by the horizon test, which is about the sky.
     /// </param>
+    /// <param name="primaryAxisAngleDeg">
+    /// The RA axis angle from the counterweight-down home, degrees, folded into (-180, 180]
+    /// (<see cref="IMountDriver.GetAxisAngleAsync"/>), or <see langword="null"/> when the driver cannot
+    /// model its axis. <b>When present it WINS</b>: <c>|angle| - 90</c> is how far the counterweight is
+    /// above horizontal whatever the pointing state, read without clock, site or sync, so the hour angle
+    /// and pointing state are not consulted for the meridian test at all -- a fallback, never a
+    /// cross-check (the plan's invariant: an unsynced mount is the case the limit exists for, so the two
+    /// must not be required to agree before acting). NaN is treated as null.
+    /// </param>
     /// <param name="altitudeDeg">
     /// Current pointing altitude in degrees. <see cref="double.NaN"/> disables the horizon test only.
     /// </param>
@@ -283,6 +326,7 @@ public static class MountLimits
     public static MountLimitVerdict Evaluate(
         double hourAngleHours,
         PointingState pointingState,
+        double? primaryAxisAngleDeg,
         double altitudeDeg,
         bool isTracking,
         bool alreadyActed,
@@ -295,7 +339,7 @@ public static class MountLimits
             return MountLimitVerdict.Clear;
         }
 
-        var meridian = EvaluateMeridian(hourAngleHours, pointingState, config);
+        var meridian = EvaluateMeridian(hourAngleHours, pointingState, primaryAxisAngleDeg, config);
         var horizon = EvaluateHorizon(hourAngleHours, altitudeDeg, isTracking, config);
 
         // Most severe wins; the meridian breaks an exact tie. Comparing on Response alone is not
@@ -321,23 +365,38 @@ public static class MountLimits
     };
 
     private static MountLimitVerdict EvaluateMeridian(
-        double hourAngleHours, PointingState pointingState, MountLimitConfiguration config)
+        double hourAngleHours, PointingState pointingState, double? primaryAxisAngleDeg, MountLimitConfiguration config)
     {
-        if (double.IsNaN(hourAngleHours))
+        double offsetMinutes;
+        MountLimitBasis basis;
+        if (primaryAxisAngleDeg is { } axisDeg && !double.IsNaN(axisDeg))
         {
-            return MountLimitVerdict.Clear;
+            // The mechanical tier. Home is counterweight down, so |angle| - 90 is how far the counterweight
+            // is above horizontal -- the same quantity in both pointing states, with the state, the clock
+            // and the site all out of the picture. 1 deg of axis is 4 min of hour angle.
+            offsetMinutes = (Math.Abs(axisDeg) - 90.0) * 4.0;
+            basis = MountLimitBasis.AxisAngle;
+        }
+        else
+        {
+            if (double.IsNaN(hourAngleHours))
+            {
+                return MountLimitVerdict.Clear;
+            }
+
+            // The sky-coordinate tier: the offset of the RA axis toward the pier, in hour angle. In the
+            // pre-flip (through-the-pole) state it IS the hour angle: west of the meridian the tube swings
+            // down toward the pier. After a flip (Normal) the same axis is 12 h round, so west is safe and
+            // EAST is the hazard -- the sign flips. Unknown keeps the pre-flip reading, the approximation
+            // this limit shipped with. (The zone has an upper edge too -- some 12 h less the limit, where
+            // the tube comes back up on the far side -- but that is lower culmination, below the horizon
+            // for anything imaged.)
+            var offsetHours = pointingState is PointingState.Normal ? -hourAngleHours : hourAngleHours;
+            offsetMinutes = offsetHours * 60.0;
+            basis = MountLimitBasis.HourAngle;
         }
 
-        // The offset of the RA axis toward the pier, in hour angle. In the pre-flip (through-the-pole)
-        // state it IS the hour angle: west of the meridian the tube swings down toward the pier. After
-        // a flip (Normal) the same axis is 12 h round, so west is safe and EAST is the hazard -- the
-        // sign flips. Unknown keeps the pre-flip reading, the approximation this limit shipped with.
-        // (The zone has an upper edge too -- some 12 h less the limit, where the tube comes back up on
-        // the far side -- but that is lower culmination, below the horizon for anything imaged.)
-        var offsetHours = pointingState is PointingState.Normal ? -hourAngleHours : hourAngleHours;
-
         // Counterweight-down side only: the tube is rising away from the pier and getting safer.
-        var offsetMinutes = offsetHours * 60.0;
         if (offsetMinutes < config.MeridianWarnMinutes)
         {
             return MountLimitVerdict.Clear;
@@ -346,7 +405,8 @@ public static class MountLimits
         return new MountLimitVerdict(
             MountLimitKind.Meridian,
             config.MeridianResponse,
-            offsetMinutes - config.MeridianActionMinutes);
+            offsetMinutes - config.MeridianActionMinutes,
+            basis);
     }
 
     private static MountLimitVerdict EvaluateHorizon(
