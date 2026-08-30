@@ -34,6 +34,13 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private int _posRa;
     private int _posDec;
 
+    // Start latency (see DeviceQueryKey.SlewStartLatencyMs): after :J the axis stays "not running" in
+    // the status reply until this many ticks have passed -- the window a real controller can show and a
+    // driver poller must survive. Zero = the axis runs the instant :J is acknowledged.
+    private readonly long _slewStartLatencyTicks;
+    private long _raPendingStartTicks;
+    private long _decPendingStartTicks;
+
     // Axis status
     private bool _raRunning;
     private bool _raTracking; // true=tracking rate, false=slewing rate
@@ -150,9 +157,10 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
     private const int FIRMWARE_MAJOR = 3;
     private const int FIRMWARE_MINOR = 39;
 
-    public FakeSkywatcherSerialDevice(ILogger logger, Encoding encoding, ITimeProvider timeProvider, bool isOpen)
+    public FakeSkywatcherSerialDevice(ILogger logger, Encoding encoding, ITimeProvider timeProvider, bool isOpen, TimeSpan slewStartLatency = default)
     {
         _logger = logger;
+        _slewStartLatencyTicks = slewStartLatency > TimeSpan.Zero ? (long)(slewStartLatency.TotalSeconds * timeProvider.TimestampFrequency) : 0;
         _timeProvider = timeProvider;
         _lastTrackingTicks = timeProvider.GetTimestamp();
         IsOpen = isOpen;
@@ -186,6 +194,18 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
             _lastTrackingTicks = currentTicks;
 
             var elapsedSeconds = (double)elapsedTicks / _timeProvider.TimestampFrequency;
+
+            // A slow-starting controller: promote a pending :J to "running" once its latency has passed.
+            if (_raPendingStartTicks != 0 && currentTicks >= _raPendingStartTicks)
+            {
+                _raRunning = true;
+                _raPendingStartTicks = 0;
+            }
+            if (_decPendingStartTicks != 0 && currentTicks >= _decPendingStartTicks)
+            {
+                _decRunning = true;
+                _decPendingStartTicks = 0;
+            }
 
             // Simulate tracking: advance RA at sidereal rate when in tracking
             // mode (G mode bit cleared by tracking-rate path). For constant-
@@ -535,15 +555,16 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
 
                 case 'J': // Start motion
                 {
+                    var startsAt = _slewStartLatencyTicks > 0 ? _timeProvider.GetTimestamp() + _slewStartLatencyTicks : 0;
                     if (axis == '1' || axis == '3')
                     {
-                        _raRunning = true;
                         // Goto mode moves to H/S target; constant-speed mode is tracking/guide
                         _raTracking = !_raGotoMode;
+                        if (startsAt == 0) _raRunning = true; else _raPendingStartTicks = startsAt;
                     }
                     if (axis == '2' || axis == '3')
                     {
-                        _decRunning = true;
+                        if (startsAt == 0) _decRunning = true; else _decPendingStartTicks = startsAt;
                     }
                     _responseBuffer.Append("=\r");
                     break;
@@ -555,6 +576,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     {
                         _raRunning = false;
                         _raTracking = false;
+                        _raPendingStartTicks = 0;
                         _raSlewDegPerSec = 0;
                         _raHighSpeed = false;
                     }
@@ -562,6 +584,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     {
                         _decRunning = false;
                         _decSlewDegPerSec = 0;
+                        _decPendingStartTicks = 0;
                         _decHighSpeed = false;
                     }
                     _responseBuffer.Append("=\r");
@@ -574,6 +597,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     {
                         _raRunning = false;
                         _raTracking = false;
+                        _raPendingStartTicks = 0;
                         _raSlewDegPerSec = 0;
                         _raHighSpeed = false;
                     }
@@ -581,6 +605,7 @@ internal class FakeSkywatcherSerialDevice : ISerialConnection
                     {
                         _decRunning = false;
                         _decSlewDegPerSec = 0;
+                        _decPendingStartTicks = 0;
                         _decHighSpeed = false;
                     }
                     _responseBuffer.Append("=\r");

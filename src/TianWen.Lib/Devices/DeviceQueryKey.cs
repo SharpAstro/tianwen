@@ -37,6 +37,13 @@ public enum DeviceQueryKey
     PolarMisalignmentAzArcmin,
     PolarMisalignmentAltArcmin,
     DecPulseGoTo,
+
+    /// <summary>
+    /// Fake SkyWatcher only: milliseconds after <c>:J</c> before the controller reports the axis
+    /// "running". Models firmware that answers a status query a moment late, the window in which a
+    /// poller must still read "slewing" (GSS audit finding 2 for slews). Zero/absent = immediate.
+    /// </summary>
+    SlewStartLatencyMs,
     Alignment,
     HasCover,
 }
@@ -93,6 +100,7 @@ public static class DeviceQueryKeyExtensions
             DeviceQueryKey.PolarMisalignmentAzArcmin => "polarMisalignmentAzArcmin",
             DeviceQueryKey.PolarMisalignmentAltArcmin => "polarMisalignmentAltArcmin",
             DeviceQueryKey.DecPulseGoTo => "decPulseGoto",
+            DeviceQueryKey.SlewStartLatencyMs => "slewStartLatencyMs",
             DeviceQueryKey.Alignment => "alignment",
             DeviceQueryKey.HasCover => "hasCover",
             _ => key.ToString().ToLowerInvariant()

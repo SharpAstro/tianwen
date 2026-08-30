@@ -218,7 +218,7 @@ meridian wins on the tie-break. Right answer, wrong reason, and the broken rank 
   pulse/slew/queue fixes apply to us and which are structurally impossible here. Read its
   "Read `origin/master`, not a local checkout" note before quoting any GSS behaviour below.
 
-## P1 editor UI: design notes (not built; from the 2026-08-29 session)
+## P1 editor UI: design notes (from the 2026-08-29 session; built 2026-08-30, see "P1 editor UI as built")
 
 The config persists and enforces, but the only way to set it is hand-editing
 `%LOCALAPPDATA%/TianWen/Profiles/<id>.json`. What the editor should be, so the next session does not
@@ -608,6 +608,32 @@ wording could still say WHY (Dec- and tube-dependent) in a tooltip the panel has
 - **Tier labelling in the editor**, above.
 - **OnStep axis angle**: exposes raw steps, axis model not studied; stays on the hour-angle tier.
 - **A verdict on the TUI's Live Session surface** beyond the Home board cell/row.
+
+## Carried over from the 2026-08-29 handoff notes
+
+The rest of that session's record lives where it belongs -- the GSS findings, the "tests all passed
+either way" lesson and the dual-axis capability table in `gss-parity-audit.md`, the test traps (sync
+not slew, tracking OFF, `ExternalTimePump`, `[Fact(Timeout)]` because the regression hangs) in
+`CLAUDE.md` and the sections above, its outstanding list in `TODO.md`. Three things were only in the
+notes:
+
+- **Geometric altitude existed three times before it existed once.** A fourth copy was written for the
+  limit before the user caught it: `CometObservability.AltitudeDeg` was already half-hoisted (it
+  borrowed `SiteContext.ComputeLST` and hand-rolled the rest), and `SiteContext`'s own remarks already
+  named `NeuralGuideFeatures` as a candidate. Both now use `SiteContext.AltitudeDegrees`. Deliberately
+  NOT hoisted: `IsAboveHorizon` (skips the `Asin`, matters per star on the sky map) and `VSOP87a`
+  (equatorial-to-horizontal wholesale, radians, off SOFA `Gmst06`, its altitude feeds its azimuth).
+  `SOFAHelpers.AltitudeFromAstrom` and `Transform.ElevationTopocentric` are not duplicates either: SOFA
+  apparent place and REFRACTED altitude, which is what a planner and an eye want and what a mechanical
+  limit must not use.
+- **The UI round-trips unknown profile fields by construction.** Every profile mutation goes through
+  `EquipmentActions` as `data with { ... }`; there is no positional `new ProfileData(...)` outside
+  `Empty` and tests. So a `MountLimits` block hand-edited into the JSON survived the GUI rewriting the
+  profile even before the editor existed. (Hedged at the time; the user pushed back; they were right.)
+- **A horizon-limit test must use an hour angle clear of the meridian threshold**, or it asserts on
+  whichever verdict won the ranking -- the two are ranked against each other. Bit twice; now the named
+  constant `DescendingClearOfMeridian` (3 min) in `MountLimitsTests`, whose remark says to check it
+  first if the horizon tests ever fail together.
 
 ## Correcting the physics, and making the limit the clamp
 

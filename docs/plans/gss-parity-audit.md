@@ -444,11 +444,23 @@ and lowers it only when the background hold ends, so the conversion in finding 1
 bug while fixing the other one. It stays a counter, not a flag, so an overlapping RA+Dec pair clears
 only when both finish.
 
-**Still open, two parts.** Slews are worth a matching check against `_isSlewingRa` / `_isSlewingDec`
-for the same property. And the rule has NOT been audited on `AscomTelescopeDriver` /
-`AlpacaTelescopeDriver` / their camera counterparts, which inherit whatever the remote driver does
-and cannot be reasoned about from here -- LX200 and SkyWatcher are right by construction, those four
-are unknown.
+**Done for slews (2026-08-30).** The SkyWatcher driver's slewing flag is the live `:f` status, and a real
+controller can answer "not running" for a moment after `:J`; in that moment `IsSlewingAsync`'s
+refinement branch read "arrived", found the residual huge, stopped the axes and re-issued the goto -- a
+poller faster than the controller starts would restart the slew on every poll, or burn
+`MaxGotoRefineAttempts` and report the goto complete before the mount had moved. Now
+`SlewToRaDecCoreAsync` stamps `_slewCommandedAtTicks` BEFORE the first `:J` (the flag goes up before the
+write, the finding's rule), and `IsSlewingAsync` reports slewing for a commanded goto not yet seen
+running, for up to `SlewStartGrace` (2 s), clearing the stamp the first time the axes are seen running;
+an abort clears the goto and so ends the grace at once. **Tested on the fake SkyWatcher**, which gained a
+`slewStartLatencyMs` URI knob so its controller reports running late: five polls with no fake time
+advanced all read slewing and issue no further `:J`. Sabotage (grace removed) fails the test both ways
+-- extra `:J`s, then "not slewing" once the attempt cap is hit.
+
+**Still open: the ASCOM / Alpaca audit.** `AscomTelescopeDriver` / `AlpacaTelescopeDriver` and their
+camera counterparts inherit whatever the remote driver does for `Slewing` / `IsPulseGuiding` /
+`ImageReady` and cannot be reasoned about from here; LX200 and SkyWatcher are right by construction.
+The check is against a live device or simulator (`TianWen.Lib.Tests.Simulators`), not code.
 
 ## Finding 3: the commands that END a pulse were never verified. FIXED
 

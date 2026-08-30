@@ -226,6 +226,8 @@
   start AND from `IsPulseGuidingAsync` -- the latter deliberately, since the guider polls it while
   waiting for the very pulse that failed. Done LAST on purpose: before the guide loop waited, this
   would have left a window in which NOTHING waits on any mount.
+  **Slews DONE 2026-08-30** (`_slewCommandedAtTicks` + `SlewStartGrace` in `SkywatcherMountDriverBase`,
+  pinned on the fake SkyWatcher with its new `slewStartLatencyMs` knob; see the audit's finding 2).
   **What remains of finding 2:** audit the OTHER drivers for the same "flag observable before the
   starter returns" property. SkyWatcher and LX200 are right by construction; ASCOM/Alpaca inherit
   whatever the remote driver does and have not been checked.

@@ -21,7 +21,8 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         double altMisalignmentArcmin = 0.0,
         DateTimeOffset? now = null,
         bool decPulseGoTo = false,
-        string? alignment = null)
+        string? alignment = null,
+        TimeSpan? slewStartLatency = null)
     {
         var external = new FakeExternal(output, now: now ?? new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
         var query = new NameValueCollection
@@ -40,6 +41,10 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         {
             query.Add("alignment", alignment);
         }
+        if (slewStartLatency is { } latency)
+        {
+            query.Add("slewStartLatencyMs", latency.TotalMilliseconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
         var device = new FakeDevice(DeviceType.Mount, 1, query);
         var mount = new FakeSkywatcherMountDriver(device, external.BuildServiceProvider());
         return (mount, external);
@@ -53,9 +58,10 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         double altMisalignmentArcmin = 0.0,
         DateTimeOffset? now = null,
         bool decPulseGoTo = false,
-        string? alignment = null)
+        string? alignment = null,
+        TimeSpan? slewStartLatency = null)
     {
-        var (mount, external) = CreateMount(latitude, longitude, azMisalignmentArcmin, altMisalignmentArcmin, now, decPulseGoTo, alignment);
+        var (mount, external) = CreateMount(latitude, longitude, azMisalignmentArcmin, altMisalignmentArcmin, now, decPulseGoTo, alignment, slewStartLatency);
         await mount.ConnectAsync(ct);
         await mount.SetSiteLatitudeAsync(latitude, ct);
         await mount.SetSiteLongitudeAsync(longitude, ct);
@@ -706,6 +712,50 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
         (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole);
         (await mount.GetRightAscensionAsync(ct)).ShouldBe(ra, 0.05);
         (await mount.GetDeclinationAsync(ct)).ShouldBe(45.0, 0.05);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAControllerThatReportsRunningLateWhenSlewStartedThenItReadsSlewingAtOnceAndTheGotoIsNotReissued()
+    {
+        // GSS audit finding 2, for slews: the progress flag must be observable when the starter returns.
+        // Real firmware can take a moment to report "running" after :J. A poll inside that window must read
+        // "slewing", not "already arrived" -- and must NOT re-issue the goto: the refinement path stops the
+        // axes and restarts the slew, so a poller faster than the controller kept it from ever getting going
+        // (or exhausted the attempt cap and declared the goto complete before the mount had moved).
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct, slewStartLatency: TimeSpan.FromMilliseconds(500));
+        var serial = mount.SerialConnection.ShouldBeOfType<FakeSkywatcherSerialDevice>();
+        var ra = await RaAtHourAngleAsync(mount, -2.0, ct);
+
+        await mount.BeginSlewRaDecAsync(ra, 30.0, ct);
+        var startsIssued = serial.CommandLogSnapshot.Count(c => c.StartsWith(":J", StringComparison.Ordinal));
+        startsIssued.ShouldBe(2, "premise: one :J per axis");
+
+        // Five polls, no fake time advanced: the controller still says "not running" to every one of them.
+        for (var i = 0; i < 5; i++)
+        {
+            (await mount.IsSlewingAsync(ct)).ShouldBeTrue($"poll {i} inside the controller's start latency");
+        }
+        serial.CommandLogSnapshot.Count(c => c.StartsWith(":J", StringComparison.Ordinal))
+            .ShouldBe(startsIssued, "the goto must not be re-issued while the controller has not started");
+
+        // Then the controller starts, the slew runs, and arrival is detected as always.
+        await PumpUntilNotSlewingAsync(mount, external, ct, TimeSpan.FromMinutes(3));
+        (await mount.GetRightAscensionAsync(ct)).ShouldBe(ra, 0.05);
+        (await mount.GetDeclinationAsync(ct)).ShouldBe(30.0, 0.05);
+    }
+
+    [Fact(Timeout = 60_000)]
+    public async Task GivenAnAbortedSlewThenItStopsReadingSlewingAtOnceEvenInsideTheStartGrace()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, _) = await CreateConnectedMountAsync(ct, slewStartLatency: TimeSpan.FromMilliseconds(500));
+        await mount.BeginSlewRaDecAsync(await RaAtHourAngleAsync(mount, -2.0, ct), 30.0, ct);
+        (await mount.IsSlewingAsync(ct)).ShouldBeTrue("premise");
+
+        await mount.AbortSlewAsync(ct);
+
+        (await mount.IsSlewingAsync(ct)).ShouldBeFalse("an abort ends the grace with the goto");
     }
 
     [Fact(Timeout = 60_000)]

@@ -164,6 +164,12 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     // has crossed it by the time the axes stop, and re-deciding per pass would flip the mount in the
     // middle of its own goto.
     private PointingState _gotoPointingState = PointingState.Normal;
+    // GSS audit finding 2, for slews: when the goto was commanded (TimeProvider timestamp; 0 = none), stamped
+    // BEFORE the first :J so a poll racing the start already sees it. IsSlewingAsync reports "slewing" for a
+    // commanded goto the status has not yet shown running, for up to SlewStartGrace, instead of letting the
+    // refinement branch read "arrived" and restart the slew. Cleared the first time the axes are seen running.
+    private long _slewCommandedAtTicks;
+    private static readonly TimeSpan SlewStartGrace = TimeSpan.FromSeconds(2);
     private int _gotoRefineAttempts;
     private int _gotoRefineInFlight; // Interlocked gate: concurrent IsSlewing pollers must not double-issue the refinement goto
 
@@ -400,8 +406,24 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
         var result = _isSlewingRa || _isSlewingDec;
         if (result)
         {
+            // Seen running: the start grace below has done its job and must not outlive the slew.
+            Volatile.Write(ref _slewCommandedAtTicks, 0);
             Logger.LogDebug("IsSlewingAsync=true: RA(running={RaRun},tracking={RaTrk}) Dec(running={DecRun},tracking={DecTrk})",
                 statusRa.IsRunning, statusRa.IsTracking, statusDec.IsRunning, statusDec.IsTracking);
+            return true;
+        }
+
+        // GSS audit finding 2, for slews: the progress flag must be observable when the starter returns.
+        // The status query IS the flag here, and a real controller can answer "not running" for a moment
+        // after :J. In that moment the refinement branch below would read "arrived", find the residual
+        // huge, STOP the axes and re-issue the goto -- so a poller faster than the controller starts would
+        // restart the slew on every poll, or burn the attempt cap and report the goto complete before the
+        // mount had moved. A goto commanded within the grace and not yet seen running is slewing, by
+        // declaration; an abort clears _gotoTargetRa and so ends the grace at once.
+        if (!double.IsNaN(_gotoTargetRa)
+            && Volatile.Read(ref _slewCommandedAtTicks) is var commandedAt and not 0
+            && TimeProvider.GetElapsedTime(commandedAt) < SlewStartGrace)
+        {
             return true;
         }
 
@@ -533,6 +555,10 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
             "BeginSlewRaDec: target RA={RaH:F4}h Dec={Dec:F4} ({State}) | RA steps {CurRa}->{TgtRa} (delta {DRa}) | Dec steps {CurDec}->{TgtDec} (delta {DDec})",
             ra, dec, pointingState, _posRa, targetRaSteps, targetRaSteps - _posRa,
             _posDec, targetDecSteps, targetDecSteps - _posDec);
+
+        // The progress flag goes up BEFORE the first write (finding 2): a poller that runs between the
+        // two axis commands, or before the controller reports running, must already read "slewing".
+        Volatile.Write(ref _slewCommandedAtTicks, TimeProvider.GetTimestamp());
 
         // Slew RA axis
         await SlewAxisToAsync('1', _posRa, targetRaSteps, cancellationToken);
