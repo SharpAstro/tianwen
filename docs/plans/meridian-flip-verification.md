@@ -149,10 +149,33 @@ reference state:
     drawn from two of them differs by that constant and says nothing about the pier.
   Pinned by `MeridianFlipVerificationTests` (the classifier) and `MeridianFlipVerificationSessionTests`
   (through the session; seen to fail with the override removed, leaving the tube through the pole).
-- **P3 -- Feed the truth to the guider, and fix `WithMeridianFlip`.** The "really flipped" answer from
-  P2 (not the computed pier side) drives whether the guider flips its calibration, and
-  `WithMeridianFlip` is corrected to "RA + 180 always, Dec + 180 only for sky-relative-Dec mounts"
-  (the `reverseDecAfterFlip` switch keeps its name, meaning inverted), now testable via P0.
+- **P3 -- Feed the truth to the guider, and fix `WithMeridianFlip`. PARTLY DONE.**
+  - **The sense fix is in.** `WithMeridianFlip(bool decIsSkyRelative = false)` now rotates the measured
+    axis ANGLES rather than negating rates: `CameraAngleRad + PI` always, `DecAngleRad + PI` only for a
+    sky-relative-Dec mount. Rotating the angle rather than negating the rate matters because
+    `TransformToMountAxes` decomposes the pixel error against those angles -- negating a rate flips the
+    pulse sign but leaves the basis claiming the axis still points the old way, which is equivalent
+    only if the axes are exactly orthogonal, the very assumption that record refuses to make.
+  - **The old test's premise WAS the bug.** `GivenCalibratedGuiderWhenMeridianFlipThenCorrectionsStillConverge`
+    defined its post-flip rig as "RA unchanged, Dec inverted" and then verified the code that assumes
+    exactly that -- circular. Corrected to the real physics (RA inverted, Dec unchanged for an
+    axis-based mount), it fails against the old implementation by running the error from 6.40 px to
+    **69.46 px** on both sensor conventions. It now also covers the sky-relative-Dec convention, which
+    the parameterless API could not express. Its old comment claiming an end-to-end fake session
+    "could not catch a flip sign error here" is obsolete: P0 made the fake roll, and
+    `FakeCameraMountCouplingTests` pins that rotation on rendered pixels.
+  - **`reverseDecAfterFlip` changed meaning AND default.** It used to gate whether flip handling ran at
+    all; it now selects only whether Dec moves too, because RA inverts across every flip on every
+    mount and a rig configured "no Dec reversal" still needs its calibration re-expressed. The default
+    went **true -> false**: the mount family this codebase drives is axis-based-Dec, where the mount's
+    own reversal cancels the sensor's. A profile carrying an explicit `reverseDecAfterFlip=true` now
+    means something different from what it meant when it was written.
+  - **Still open:** the guider's flip AUTO-DETECT still reads `mount.GetSideOfPierAsync`
+    (`BuiltInGuiderDriver`), which is the same unreliable signal the session stopped trusting -- on a
+    computed-state mount it turns over as the pointing crosses, so the guider can still flip its
+    calibration for a flip that never happened. The session now KNOWS the answer
+    (`MeridianFlipResult.Verdict`); routing it there without making the driver reach back into the
+    session is the remaining piece.
 
 P0-P2 are the safety win (detect and fail-loud on a missed commanded flip; accept a real auto-flip)
 and are SHIPPED. P3 is the guiding-quality correction and can follow.
@@ -190,11 +213,11 @@ meridian-limit test. It is opt-in for now; making it the default is its own piec
 
 ## Status
 
-**P0-P2 DONE (2026-08-30), P3 NOT STARTED.** The session no longer takes a computed-state mount's word
+**P0-P2 DONE, P3 PARTLY DONE (2026-08-30).** The session no longer takes a computed-state mount's word
 for a flip: it reads the field rotation off the recentre's own plate solve and, when the frame says
-nothing turned, commands the flip instead of imaging on from the wrong side. The guider-sense fix (P3)
-is untouched and is now unblocked -- the fake rolls its field, so `WithMeridianFlip` can finally be
-tested against a rig whose sensor really is upside down.
+nothing turned, commands the flip instead of imaging on from the wrong side. `WithMeridianFlip` is
+corrected on both axes and its old test's circular premise with it. What remains of P3 is routing the
+session's verified answer into the guider's auto-detect, which still asks the mount.
 
 Design captured 2026-08-30 from a session discussion. No meridian-flip plan existed before this; the
 flip behaviour is otherwise pinned by `SessionObservationLoopTests` (the GEM-only `[Theory]` and the

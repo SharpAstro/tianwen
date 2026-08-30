@@ -646,21 +646,45 @@ internal readonly record struct GuiderCalibrationResult(
     public readonly double DecAngleDeg => DecAngleRad * 180.0 / Math.PI;
 
     /// <summary>
-    /// Returns the calibration with the DEC sense reversed for a German-mount meridian flip
-    /// (PHD2's "reverse Dec output after meridian flip"). Across a GEM flip the Dec axis mechanically
-    /// reverses relative to the sky while RA tracks the same way, so the Dec guide RESPONSE on the
-    /// sensor inverts but the RA response does not. Only the Dec rate/displacement sign flips here; 
-    /// the measured axis ANGLES still describe where the motor axes point on the sensor and are left
-    /// unchanged. Negating <see cref="DecRatePixPerSec"/> inverts the Dec correction direction the
-    /// <see cref="ProportionalGuideController"/> derives, which is exactly what keeps the loop
-    /// converging on the post-flip pier side. Single source of truth for both flip sites in
-    /// <c>BuiltInGuiderDriver</c>; pinned by the post-flip convergence test in GuiderCalibrationTests.
+    /// Returns the calibration re-expressed for the other side of the pier. A German flip rotates the
+    /// field on the sensor by 180 degrees, and the two axes do NOT come out of that the same way:
+    /// <list type="bullet">
+    ///   <item><b>RA always inverts.</b> The axis turns the same way, so a West pulse still moves the
+    ///   pointing west on the sky -- but the sensor is rotated, so the observed response reverses.</item>
+    ///   <item><b>Dec depends on the mount.</b> On an axis-based-Dec mount (SkyWatcher, whose driver
+    ///   notes its own "sky sense reverses post-flip") North now drives the sky south, and that
+    ///   reversal CANCELS the sensor's, leaving the observed Dec response unchanged. Only a mount that
+    ///   keeps Dec sky-relative (a compensating ASCOM driver) inverts Dec on the sensor as well.</item>
+    /// </list>
+    /// So <paramref name="decIsSkyRelative"/> selects the second case, and it is what the
+    /// <c>reverseDecAfterFlip</c> device key now means -- the key kept its name, but PHD2's reading of
+    /// it: RA + 180 always, Dec + 180 only for a sky-relative-Dec mount.
+    /// <para>
+    /// The transform rotates the measured axis ANGLES rather than negating rates, because the angles
+    /// are what <see cref="TransformToMountAxes"/> decomposes the pixel error against. Negating a rate
+    /// flips the pulse sign too, but leaves that basis claiming the axis still points the old way --
+    /// equivalent only when the axes are exactly orthogonal, which is the case this record explicitly
+    /// does not assume (cone error, camera tilt). Rates and displacements are magnitudes along their
+    /// own axes and are left alone; the direction lives in the angle.
+    /// </para>
+    /// <para>
+    /// This used to negate the Dec rate and leave RA untouched, which is inverted on BOTH axes for the
+    /// common axis-based-Dec mount. It survived because the fake guide camera rendered a constant roll
+    /// and never turned the field over with the pier side, so the fake was self-consistent with the
+    /// bug. See <c>docs/plans/meridian-flip-verification.md</c>.
+    /// </para>
+    /// Single source of truth for both flip sites in <c>BuiltInGuiderDriver</c>; pinned by the
+    /// post-flip convergence test in GuiderCalibrationTests.
     /// </summary>
-    public readonly GuiderCalibrationResult WithMeridianFlip()
+    /// <param name="decIsSkyRelative">
+    /// True when the mount compensates its Dec sense across the flip, so the sensor rotation is the
+    /// only reversal and Dec inverts too. False (the default) for an axis-based-Dec mount.
+    /// </param>
+    public readonly GuiderCalibrationResult WithMeridianFlip(bool decIsSkyRelative = false)
         => this with
         {
-            DecRatePixPerSec = -DecRatePixPerSec,
-            DecDisplacementPx = -DecDisplacementPx,
+            CameraAngleRad = CameraAngleRad + Math.PI,
+            DecAngleRad = decIsSkyRelative ? DecAngleRad + Math.PI : DecAngleRad,
         };
 
     /// <summary>

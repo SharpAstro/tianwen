@@ -32,9 +32,11 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     private volatile GuiderCentroidTracker? _calibrationTracker;
 
     /// <summary>
-    /// When true (the default), the DEC guide direction is automatically reversed when
-    /// a meridian flip is detected (hour angle sign change since calibration).
-    /// Configured via the <c>reverseDecAfterFlip</c> query parameter on <see cref="BuiltInGuiderDevice"/>.
+    /// Whether the mount keeps its Dec sense SKY-relative across a meridian flip, in which case Dec
+    /// inverts on the sensor along with RA. False (the default) for an axis-based-Dec mount, where the
+    /// mount's own reversal cancels the sensor's and only RA inverts. A detected flip is ALWAYS acted
+    /// on; this only selects which axes move. Configured via the <c>reverseDecAfterFlip</c> query
+    /// parameter on <see cref="BuiltInGuiderDevice"/>.
     /// </summary>
     internal bool ReverseDecOnFlip { get; set; }
 
@@ -391,10 +393,11 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
 
     public ValueTask FlipCalibrationAsync(CancellationToken cancellationToken = default)
     {
-        // Reverse DEC direction in existing calibration data
+        // Re-express the calibration for the other pier side (RA always, Dec only on a
+        // sky-relative-Dec mount -- see GuiderCalibrationResult.WithMeridianFlip).
         if (_lastCalibration is { } cal)
         {
-            _lastCalibration = cal.WithMeridianFlip();
+            _lastCalibration = cal.WithMeridianFlip(ReverseDecOnFlip);
             // Toggle pier side so a subsequent auto-detect doesn't double-flip
             _calibrationPierSide = _calibrationPierSide?.Flipped;
         }
@@ -638,21 +641,26 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
                 _lastCalibration = calResult;
                 _calibrationPierSide = await mount.GetSideOfPierAsync(ct);
             }
-            else if (ReverseDecOnFlip)
+            else
             {
                 // Detect meridian flip by checking if the mount's pier side changed since calibration.
                 // HA sign alone is unreliable: slewing to a target on the other side of the meridian
                 // changes HA sign without an actual GEM flip.
+                // NOT gated on ReverseDecOnFlip any more: RA inverts across every flip on every mount,
+                // so a rig configured "no Dec reversal" still needs its calibration re-expressed -- it
+                // just keeps its Dec sense. The flag selects which axes move, never whether the flip
+                // is handled at all.
                 var currentPierSide = await mount.GetSideOfPierAsync(ct);
                 if (_calibrationPierSide is { } calPier && calPier != currentPierSide)
                 {
-                    var flipped = calResult.Value.WithMeridianFlip();
+                    var flipped = calResult.Value.WithMeridianFlip(ReverseDecOnFlip);
                     calResult = flipped;
                     _lastCalibration = flipped;
                     _calibrationPierSide = currentPierSide;
 
-                    Logger.LogInformation("Built-in guider: detected meridian flip (pier side {CalPier} → {CurPier}), reversed DEC direction.",
-                        calPier, currentPierSide);
+                    Logger.LogInformation(
+                        "Built-in guider: detected meridian flip (pier side {CalPier} -> {CurPier}), re-expressed the calibration (RA inverted, Dec {DecNote}).",
+                        calPier, currentPierSide, ReverseDecOnFlip ? "inverted" : "unchanged");
                 }
             }
 

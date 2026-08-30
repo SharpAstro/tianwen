@@ -611,17 +611,35 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
     }
 
     [Theory(Timeout = 60_000)]
-    [InlineData(-1.0)] // northern-style sensor: North is CCW from West (North sweep = -Y)
-    [InlineData(1.0)]  // southern-style / flipped sensor: North is CW from West (North sweep = +Y)
-    public async Task GivenCalibratedGuiderWhenMeridianFlipThenCorrectionsStillConverge(double northDy)
+    // northDy: -1 = northern-style sensor (North is CCW from West, sweep = -Y); +1 = southern-style.
+    // decIsSkyRelative: false = axis-based Dec (SkyWatcher and most GEMs); true = a driver that
+    // compensates its Dec sense across the flip, so the sensor rotation is the only reversal left.
+    [InlineData(-1.0, false)]
+    [InlineData(1.0, false)]
+    [InlineData(-1.0, true)]
+    [InlineData(1.0, true)]
+    public async Task GivenCalibratedGuiderWhenMeridianFlipThenCorrectionsStillConverge(double northDy, bool decIsSkyRelative)
     {
-        // A GEM meridian flip reverses the DEC axis relative to the sky (the PHD2 "reverse Dec after
-        // flip" convention BuiltInGuiderDriver implements via GuiderCalibrationResult.WithMeridianFlip):
-        // on the post-flip pier side the DEC guide RESPONSE on the sensor inverts while RA is unchanged.
-        // This pins that the flipped calibration drives a post-flip error back to the lock point AND --
-        // the load-bearing negative check -- that WITHOUT the flip the same DEC error runs away. It must
-        // be a pure-math test: the fake guide camera does NOT model the flip's 180deg field change, so an
-        // end-to-end fake session could not catch a flip sign error here.
+        // What a GEM meridian flip does to the guide responses on the sensor, traced one axis at a
+        // time on the common (axis-based-Dec) mount -- SkyWatcher, whose driver notes its own "sky
+        // sense reverses post-flip":
+        //
+        //   RA:  the axis turns the same way, so a West pulse still moves the pointing west on the
+        //        sky. The SENSOR is rotated 180 deg, so the observed response INVERTS. Always.
+        //   Dec: the mount's North now drives the sky SOUTH (axis-based), and the sensor is rotated
+        //        too. The two reversals CANCEL, so the observed Dec response is UNCHANGED.
+        //
+        // So the post-flip rig below inverts West and leaves North alone -- the opposite of the pair
+        // this test used to assert, which defined the rig as "RA unchanged, Dec inverted" and then
+        // verified the code that assumes exactly that. Circular: the premise was the bug.
+        //
+        // Only a mount that keeps Dec SKY-relative (a compensating ASCOM driver) inverts Dec on the
+        // sensor as well; that is the second convention, and it is what the reverseDecAfterFlip key
+        // should select once WithMeridianFlip can tell the two apart.
+        //
+        // The 180 deg field rotation this rests on is no longer an assumption: FakeCameraDriver rolls
+        // its rendered field with the coupled mount's mechanical pier side, pinned end to end by
+        // FakeCameraMountCouplingTests.GivenSkywatcherWhenTheTubeChangesPierSideThenTheRenderedFieldRolls180Degrees.
         var ct = TestContext.Current.CancellationToken;
         var timeProvider = new FakeTimeProviderWrapper(new DateTimeOffset(2025, 6, 15, 22, 0, 0, TimeSpan.Zero));
 
@@ -641,14 +659,16 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         var calibration = new GuiderCalibration { CalibrationPulseDuration = TimeSpan.FromSeconds(1), CalibrationSteps = 3 };
         var cal = (await calibration.CalibrateAsync(rig, tracker, Render, timeProvider, ct)).ShouldNotBeNull();
 
-        var flipped = cal.WithMeridianFlip();
+        var flipped = cal.WithMeridianFlip(decIsSkyRelative);
 
-        // Post-flip rig: the DEC sweep response inverts, RA unchanged (the established GEM-flip behavior).
+        // Post-flip rig. RA inverts either way (pure sensor rotation). Dec is unchanged on an
+        // axis-based-Dec mount (mount sense reversed x sensor rotation = identity) and inverted on a
+        // sky-relative-Dec one, where the sensor rotation is the only reversal. See the trace above.
         DirectionalStarRig PostFlipRig() => new()
         {
             RatePxPerSec = rig.RatePxPerSec,
-            WestResponse = (-1.0, 0.0),
-            NorthResponse = (0.0, -northDy),
+            WestResponse = (1.0, 0.0),
+            NorthResponse = (0.0, decIsSkyRelative ? -northDy : northDy),
         };
 
         var controller = new ProportionalGuideController { MinPulseMs = 0 };
@@ -663,9 +683,10 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
             await ApplyCorrectionAsync(converging, controller.Compute(flipped, converging.X, converging.Y), ct);
         }
         var flippedErr = Math.Sqrt(converging.X * converging.X + converging.Y * converging.Y);
-        output.WriteLine($"northDy={northDy} flipped: |err| {startErr:F2} -> {flippedErr:F2}px");
+        output.WriteLine($"northDy={northDy} skyRelDec={decIsSkyRelative} flipped: |err| {startErr:F2} -> {flippedErr:F2}px");
         flippedErr.ShouldBeLessThan(startErr * 0.2,
-            "WithMeridianFlip must keep the loop converging on the post-flip pier side");
+            "WithMeridianFlip must keep the loop converging on the post-flip pier side; negating Dec "
+            + "and leaving RA alone is inverted on BOTH axes for an axis-based-Dec mount");
 
         // Negative check: WITHOUT the flip the same DEC error runs away (the classic post-flip Dec runaway).
         var diverging = PostFlipRig();
@@ -675,9 +696,12 @@ public class GuiderCalibrationTests(ITestOutputHelper output)
         {
             await ApplyCorrectionAsync(diverging, controller.Compute(cal, diverging.X, diverging.Y), ct);
         }
-        output.WriteLine($"northDy={northDy} no-flip: DEC {5.0:F2} -> {diverging.Y:F2}px");
-        Math.Abs(diverging.Y).ShouldBeGreaterThan(5.0,
-            "without WithMeridianFlip the DEC error must diverge on the flipped pier side");
+        output.WriteLine($"northDy={northDy} skyRelDec={decIsSkyRelative} no-flip: RA {4.0:F2} -> {diverging.X:F2}px");
+        // The runaway axis is RA, not Dec: RA is the one whose observed response inverted, so an
+        // uncorrected calibration amplifies it. (This is the same negative check as before, moved to
+        // the axis the physics actually puts it on.)
+        Math.Abs(diverging.X).ShouldBeGreaterThan(4.0,
+            "without the flip transform the RA error must diverge on the flipped pier side");
     }
 
     [Fact]
