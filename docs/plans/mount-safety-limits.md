@@ -1,6 +1,9 @@
 # PLAN: Mount safety limits (hour-angle + horizon)
 
 > Status: **P0, P2 and P3 (server) DONE; P1's editor UI, P1b, P4, P5 and P3's GUI half NOT STARTED.**
+> **Corrected 2026-08-30: the meridian test takes the mount's POINTING STATE** -- read on hour angle
+> alone it stopped every rig ~30 min after a successful flip. See "The meridian test needs the
+> pointing state" below, which also records a SkyWatcher-driver finding that gates the limit there.
 > Design captured 2026-08-29 after the `Finalise` tracking fix (PR #205) surfaced that **there were
 > no hour-angle or altitude safety limits anywhere in the codebase** -- a failed meridian flip had no
 > backstop that stopped a mount tracking into the pier. P0 (the pure decider) and P2 (session
@@ -30,8 +33,8 @@ The adjacent things that exist and are **not** this:
 
 ## Reference: what GSServer does
 
-Green Swamp Server (`../../../sebgod/GSServer`, compare against `origin/master` --
-`rmorgan001/GSServer`) is the closest well-worn implementation, and it is a *driver*, which is the
+Green Swamp Server (`../../other/GSServer` relative to this repo, compare against `origin/master` --
+`rmorgan001/GSServer`, `eb7e92c` at the time of writing) is the closest well-worn implementation, and it is a *driver*, which is the
 key difference (see "The layering question" below). Read
 `GS.Server/SkyTelescope/SkyServer.cs::CheckAxisLimits`.
 
@@ -110,27 +113,28 @@ constraints GSS never had:
 
 | Phase | What | Status |
 |-------|------|--------|
-| P0 | **`MountLimits` pure decider** (`TianWen.Lib/Sequencing/` beside `MeridianFlipDecision`): `Evaluate(hourAngleHours, altitudeDeg, isTracking, alreadyActed, MountLimitConfiguration) -> MountLimitVerdict`. No I/O, no driver, no clock. `MountLimitConfiguration` landed with it rather than waiting for P1, because the decider cannot be written without it; P1 keeps the PLACEMENT (profile persistence + UI). **Two departures from the sketch:** it takes no pier side and no alignment mode -- see the note below. | **DONE** (30 tests, 3 sabotages verified) |
+| P0 | **`MountLimits` pure decider** (`TianWen.Lib/Sequencing/` beside `MeridianFlipDecision`): `Evaluate(hourAngleHours, pointingState, altitudeDeg, isTracking, alreadyActed, MountLimitConfiguration) -> MountLimitVerdict`. No I/O, no driver, no clock. `MountLimitConfiguration` landed with it rather than waiting for P1, because the decider cannot be written without it; P1 keeps the PLACEMENT (profile persistence + UI). **Two departures from the sketch:** the HORIZON test takes no pier side, and neither test takes an alignment mode -- see the note below. The MERIDIAN test takes the pointing state, as of 2026-08-30. | **DONE** (39 cases, 3 sabotages verified; pointing state added 2026-08-30, seen to fail first) |
 | P1b | **Axis modelling: `GetAxisAngleAsync(TelescopeAxis) -> double?`** (degrees from the mount's home position, signed, hemisphere-corrected), implemented natively by the SkyWatcher driver from steps + CPR and returning `null` everywhere else. **Angle, not steps**: the driver owns its home convention (`0x800000`) and the southern mirroring, and leaking steps + CPR would make every caller re-derive both -- the bug `StepsToRa` already exists to prevent. This is what upgrades the limit from approximation to mechanical truth on the mounts that can support it, and it is independently useful (a true pier-side derivation, PE phase, a mechanical-position readout). | NOT STARTED |
 | P1 | **Profile placement + UI.** Persist `MountLimitConfiguration` (the record itself shipped in P0) and give it an editor. **Lives on the PROFILE, not `SessionConfiguration`** -- it is a static fact about the mount's geometry AND the tube bolted to it, exactly like `OTAData`, and it must apply to a manual slew with no session. | **DONE** for persistence + plumbing; the editor UI is not built |
-| P2 | **Session enforcement.** Evaluate in `PollDeviceStatesAsync` (already the one place that refreshes `_mountState` with HA and pier side, and already called from every slew wait and the imaging tick). Verdict routes to a new `ImageLoopNextAction.LimitReached`, finalising the run the same way `DeviceUnrecoverable` does. Reuses `ResilientInvokeAsync` for the stop/park. | **DONE** (6 tests, 2 sabotages verified) |
-| P3 | **Enforcement outside a session** -- the half GSS gets for free. A `MountLimitWatcher` hosted alongside the device hub, polling any *connected* mount on a slow cadence (5 s) whether or not a session owns it. Must respect the hub lease: a run owns the mount, so the watcher only observes and lets the session act; with no run it acts itself. | **DONE for `tianwen-server`** (10 tests, 2 sabotages verified); **the GUI's own manual-slew path is NOT yet wired** -- see "P3 as built" below |
+| P2 | **Session enforcement.** Evaluate in `PollDeviceStatesAsync` (already the one place that refreshes `_mountState` with HA and pier side, and already called from every slew wait and the imaging tick). Verdict routes to a new `ImageLoopNextAction.LimitReached`, finalising the run the same way `DeviceUnrecoverable` does. Reuses `ResilientInvokeAsync` for the stop/park. | **DONE** (9 tests, 2 sabotages verified) |
+| P3 | **Enforcement outside a session** -- the half GSS gets for free. A `MountLimitWatcher` hosted alongside the device hub, polling any *connected* mount on a slow cadence (5 s) whether or not a session owns it. Must respect the hub lease: a run owns the mount, so the watcher only observes and lets the session act; with no run it acts itself. | **DONE for `tianwen-server`** (11 tests, 2 sabotages verified); **the GUI's own manual-slew path is NOT yet wired** -- see "P3 as built" below |
 | P4 | **Surface it.** A limit is useless if it fires silently: notification feed entry, a `LimitAlarm`-equivalent state on `ISessionTelemetry` for the Home board's rig card, and the warning threshold shown as a countdown next to the existing flip countdown (`MeridianFlipUtc`). | NOT STARTED |
 | P5 | **Driver-enforced limits, observed not duplicated.** Detect "the mount stopped itself" (tracking off / `AtPark` when we did not command it) and report it as a limit event rather than a device fault, so a GSS-managed rig does not read as a malfunction. | NOT STARTED |
 
 ### P0 as built: two departures from the sketch above
 
-**No pier side, and no alignment mode.** The sketch passed both, following GSServer, whose GEM
-horizon test reads `SideOfPier == pierEast`. The intent there is right -- act only when the pointing
-is getting WORSE -- but the signal is wrong for us twice over:
+**No pier side for the HORIZON test, and no alignment mode.** The sketch passed both, following
+GSServer, whose GEM horizon test reads `SideOfPier == pierEast`. The intent there is right -- act only
+when the pointing is getting WORSE -- but altitude is a SKY quantity: it is maximal at upper transit and
+falls monotonically until lower transit, so **`HA > 0` IS "descending"**, exactly, in both hemispheres,
+with no dependence on any driver convention. It needs no alignment mode either, and it is true for fork
+and AltAz mounts, which have no pier side at all for GSS's version of the test to read.
 
-- Altitude is maximal at upper transit and falls monotonically until lower transit, so **`HA > 0` IS
-  "descending"**, exactly, in both hemispheres, with no dependence on any driver convention. It needs
-  no alignment mode either, and it is true for fork and AltAz mounts, which have no pier side at all
-  for GSS's version of the test to read.
-- **Our SkyWatcher driver derives pier side from the Dec encoder** and reports `Normal` while a GEM
-  tracks west (the meridian-flip oscillation invariant in `CLAUDE.md`). Gating on it would disable the
-  horizon limit on exactly the mount that most needs it, silently.
+*(The first cut extended "no pier side" to the meridian test as well, arguing that our SkyWatcher
+driver's encoder-derived pier side "reports `Normal` while a GEM tracks west". That was the wrong
+lesson: for the MERIDIAN test the pointing state is exactly the mechanical fact wanted, and dropping it
+stopped every rig shortly after its flip. Corrected 2026-08-30 -- see "The meridian test needs the
+pointing state" below.)*
 
 **Warn and action are a threshold plus a non-negative EXTRA, not two absolute thresholds.** The two
 limits run in opposite directions -- hour angle rises toward its limit, altitude falls toward its own --
@@ -158,9 +162,14 @@ meridian wins on the tie-break. Right answer, wrong reason, and the broken rank 
 - **The action fires ONCE per entry into the limit**, not per poll -- GSS's `SlewState !=
   SlewType.SlewPark` guard. The TianWen analogue is a latch cleared only when the verdict returns to
   `None`, which is also what makes "log it in the notification feed" tolerable.
-- **Horizon is gated on tracking and, on a GEM, on the descending pier side.** An east-pointing
-  scope at low altitude is rising and is not a hazard; treating it as one makes the limit fire every
-  night at the start of every low target and the user turns it off.
+- **Horizon is gated on tracking and on DESCENDING, which is `HA > 0`, never a pier side.** An
+  east-pointing scope at low altitude is rising and is not a hazard; treating it as one makes the limit
+  fire every night at the start of every low target and the user turns it off. (Written as "the
+  descending pier side" before P0 was built; see "P0 as built" for why the sky answers this directly.)
+- **The meridian test reads the POINTING STATE, and a driver that cannot say gets the weaker tier.**
+  `Normal ? -HA : HA` -- the same hour angle is toward the pier before a flip and away from it after.
+  `Unknown` keeps the hour-angle reading; a wrong report gives a wrong limit, which no arithmetic in
+  the decider can repair, so a driver's pointing state is part of this feature's correctness surface.
 - **`MinHeightAboveHorizon` is NOT this and must not be reused for it.** One is "do not schedule
   that", the other is "stop the motor". Sharing the number would make raising a scheduling
   preference silently arm a safety stop.
@@ -301,6 +310,101 @@ plan's invariants exist to prevent (a park re-commanded every poll, never arrivi
 - **No telemetry surfacing (P4) yet**: the watcher logs, but nothing it does reaches a notification
   feed or the Home board. A rig sitting idle with a tripped limit is invisible unless someone reads
   the log.
+
+## The meridian test needs the pointing state (corrected 2026-08-30)
+
+**The bug.** `MountLimits.Evaluate` read the hour angle alone, and `Session.EnforceMountLimitsAsync`
+passed only that. But the meridian limit is a test on the RA AXIS, and the same hour angle puts that
+axis in two places: a GEM that has not flipped (`PointingState.ThroughThePole`, ASCOM `pierWest`,
+counterweight down while looking east) swings its tube toward the pier as it tracks west, while one that
+has flipped (`Normal`, `pierEast`) is 12 h round on the same axis and moving AWAY from it. So with the
+shipped defaults (warn 20, act 40, flip latest 10) every `AcrossMeridian` observation went: flip at
+<= 10 min, warning at 20, **tracking stopped at 40 min -> `LimitReached` -> night over**, 30 minutes
+after a successful flip. The flip clamp made it a certainty rather than a chance: it guarantees the flip
+happens BEFORE the action threshold, which is exactly where the rig then sat when the threshold arrived.
+
+**The fix.** `Evaluate` takes `PointingState` and reads the offset toward the pier as
+`Normal ? -HA : HA`: post-flip, west is safe however far it goes, and the hazard is instead pointing
+EAST (the mirror case, which a wrong-way goto or a bad sync produces -- the first cut waved it through
+as "east = rising = safe"). `Unknown` keeps the hour-angle reading, the sky-coordinate approximation
+this limit shipped with (right for a mount that has not flipped, wrong after one), labelled as the
+weaker tier per the two-tier invariant. The horizon test is untouched: altitude is a sky quantity.
+`Session` passes the `PierSide` it already polls; `MountLimitWatcher` reads `GetSideOfPierAsync` with
+`Unknown` as the failed-read default -- **never `Normal`, which is the state in which the meridian test
+is silent.**
+
+**Why no test caught it.** None of the 38 P0/P2 cases involved a flip or a pointing state. Two traps
+that decided how the new ones had to be written:
+
+- **`default(PointingState)` is `Normal`.** An unconfigured NSubstitute `ValueTask<PointingState>`
+  returns it, so the watcher tests left to the default would go green with enforcement deleted. Every
+  mock now configures the state explicitly.
+- **`FakeMountDriver` derives its pointing state from the CURRENT hour angle** (`HA >= 0 ? Normal :
+  ThroughThePole`): it models a mount that flips the instant it crosses, and so can never be in the
+  counterweight-up state a real GEM tracks into. Its `SetSideOfPierAsync` (previously
+  `NotSupportedException`) now forces a state until the next slew or sync, the way ASCOM lets a client
+  command one by writing `SideOfPier`, and `SessionMountLimitTests` uses it to hold the rig pre-flip.
+
+Seen to fail first: the post-flip session case against the unfixed decider (mount stopped); the existing
+"it stops the mount" session cases against the fixed decider WITHOUT the forced state (fake reports
+`Normal`, nothing stops) -- which is why the helper forces `ThroughThePole` by default.
+
+**A SkyWatcher-driver finding, out of scope here and tracked in `TODO.md`.**
+`SkywatcherMountDriverBase.RaToSteps` / `DecToSteps` only ever produce the NORMAL-state axis solution:
+there is no through-the-pole branch (GSServer picks one from the destination's hour angle). So a goto or
+sync to an EASTERN target lands the encoder model in `Normal`, which in the driver's own convention
+(home = HA 6 h, counterweight down) is counterweight-UP, and a session "flip" re-slews to identical
+encoder targets, i.e. moves nothing. The limit reads the driver's state, so on this driver it fires
+right after a slew to an eastern target and never on the west-tracking case -- honest to what the driver
+reports, and useless until the driver is. A limit is only as right as the pointing state under it.
+
+**How GSS handles the flip (`origin/master` `eb7e92c`), which is the port the SkyWatcher driver is
+missing.** GSS is a driver, so it owns both halves, and it keeps them apart:
+
+- **Choosing** (`Axes.RaDecToAxesXy`): the axis solution is picked from the TARGET's hour angle. HA in
+  [0, 180) deg uses the straight solution; HA > 180 (east) is "adjusted to be through the pole" --
+  `X += 180, Y = 180 - Dec` -- with the Dec sign mirrored in the south first. `GetAlternatePosition` may
+  then swap to the 180-deg alternate if it lies inside the Flip Angle and the hardware limits.
+- **Reporting** (`SkyServer.SideOfPier`): from the DEC AXIS app angle, `|Y| < 90 -> pierEast, else
+  pierWest`, mirrored in the south. Mechanical, from the encoders. Our SkyWatcher
+  `GetSideOfPierAsync` (`0 < pos < CPR/2 -> Normal`) is this rule, ported.
+- **Flipping**: GSS never flips on its own while tracking. The client re-issues a goto past the
+  meridian, `IsFlipRequired` compares the new solution's pier side with the current one, and the flip
+  IS that goto landing on the other solution. Writing `SideOfPier` is a forced flip to the alternate
+  solution, refused outside the flip limits.
+
+So the SkyWatcher driver ported the reporting half and not the choosing half. The fix is the
+`if (axes[0] > 180)` branch of `RaDecToAxesXy` (with its hemisphere mirroring) in `BeginSlewRaDecAsync`,
+and `SyncRaDecAsync` choosing the solution nearest the CURRENT encoder half rather than always the
+straight one -- a sync is a statement about where the mount already is, and must not teleport the
+model across the pier.
+
+**LX200-base, SGP and the fake report a COMPUTED pointing state, and a computed state must not feed the
+limit as if it were measured.** `MeadeLX200ProtocolMountDriverBase.CalculateSideOfPierAsync` derives
+pier side from the hour angle (`HA >= 0 -> Normal, else ThroughThePole`); `FakeMountDriver` uses the
+same rule; `SgpMountDriverBase` answers a constant `Normal`. Each is the "the mount handles the flip"
+assumption made concrete: the state a mount WOULD be in if its firmware always kept the counterweight
+down. (`OnStepMountDriver` overrides with a real `:Gm#` query, so OnStep does report the mechanical
+state; ASCOM/Alpaca pass the device's own answer through.) Consequence: west of the meridian such a
+driver always says `Normal`, the offset is `-HA`, and **the meridian limit can never fire on it**. Right
+only if the firmware really flips or stops itself (P5's territory: observe, do not duplicate); wrong on
+the many LX200-protocol mounts that track past the meridian until the next goto, where the driver says
+`Normal` while the mount is mechanically through-the-pole, counterweight up, and the limit is silent
+exactly when it matters. The root is that `GetSideOfPierAsync` answers two different questions across
+drivers -- "which state is the mount IN" (SkyWatcher encoder, OnStep, ASCOM) and "which state would a
+slew to here CHOOSE" (LX200 base, Fake, SGP) -- and the limit wants only the first, while the flip gate
+wants the second and already has `DestinationSideOfPierAsync` for it. **Decision deferred (tracked in
+`TODO.md`):** either a computed answer reaches the limit as `Unknown` (the HA approximation, which DOES
+fire past the meridian), or the interface grows a "measured vs computed" capability the limit and the
+flip gate read differently. Not changed in this pass because the same method feeds the flip gate.
+
+**The home edge.** Raw home (encoders 0,0) reads HA = +6 h on the SkyWatcher, through the pole, which the
+meridian test reads as 6 h past the limit; once the site is pushed the driver re-syncs home to
+(LST, pole), HA = 0. `Session` pushes the site in `InitialisationAsync` before its first poll (which
+could not build a J2000 transform without it anyway), so a run never sees the raw reading --
+`AHomedSkyWatcherProducesNoVerdict` pins that with its premise asserted. The residual is the
+sessionless watcher on a mount connected with no site at all: one logged action (a no-op stop on a
+mount that is not tracking) and a warning per tick until a profile pushes the site.
 
 ## Correcting the physics, and making the limit the clamp
 

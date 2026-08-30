@@ -145,6 +145,9 @@ public sealed class MountLimitWatcher(
         CancellationToken cancellationToken)
     {
         var hourAngle = await mount.Logger.CatchAsync(mount.GetHourAngleAsync, cancellationToken, double.NaN).ConfigureAwait(false);
+        // Unknown on a failed read, never Normal: Normal is the FLIPPED state, in which the meridian
+        // limit is silent, so defaulting there would switch the limit off on the mounts it reads worst.
+        var pointingState = await mount.Logger.CatchAsync(mount.GetSideOfPierAsync, cancellationToken, PointingState.Unknown).ConfigureAwait(false);
         var declination = await mount.Logger.CatchAsync(mount.GetDeclinationAsync, cancellationToken, double.NaN).ConfigureAwait(false);
         var isTracking = await mount.Logger.CatchAsync(mount.IsTrackingAsync, cancellationToken).ConfigureAwait(false);
 
@@ -158,7 +161,7 @@ public sealed class MountLimitWatcher(
             : double.NaN;
 
         var alreadyActed = _acted.ContainsKey(mountUri);
-        var verdict = MountLimits.Evaluate(hourAngle, altitude, isTracking, alreadyActed, config);
+        var verdict = MountLimits.Evaluate(hourAngle, pointingState, altitude, isTracking, alreadyActed, config);
 
         if (!verdict.IsBreached)
         {
