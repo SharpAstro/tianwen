@@ -11,7 +11,10 @@ namespace TianWen.Lib.Devices.Guider;
 /// <list type="bullet">
 ///   <item><c>pulseGuideSource</c>: <see cref="PulseGuideSource"/> (Auto, Camera, Mount)</item>
 ///   <item><c>reuseCalibration</c>: reuse a saved calibration after a quick pulse validation (default true)</item>
-///   <item><c>reverseDecAfterFlip</c>: reverse DEC corrections after a meridian flip (default true)</item>
+///   <item><c>reverseDecAfterFlip</c>: the mount keeps its Dec sense SKY-relative across a meridian
+///     flip, so Dec inverts on the sensor along with RA (default false -- an axis-based-Dec mount
+///     like SkyWatcher cancels the sensor rotation and keeps its Dec response). RA inverts either
+///     way; this key never decides whether the flip is handled, only which axes move.</item>
 ///   <item><c>assumeDecOrthogonal</c>: force the Dec axis exactly perpendicular to RA during
 ///     calibration (default false = use the measured Dec angle, like PHD2). See PHD2's
 ///     "Assume Dec orthogonal to RA"; the Dec sense always comes from the measurement either way.</item>
@@ -63,7 +66,7 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
             PulseGuideSource.Auto),
         DeviceSettingHelper.BoolSetting(
             DeviceQueryKey.ReverseDecAfterFlip.Key, "Rev DEC on Flip",
-            defaultValue: true),
+            defaultValue: false),
         DeviceSettingHelper.BoolSetting(
             DeviceQueryKey.AssumeDecOrthogonal.Key, "Assume DEC Ortho",
             defaultValue: false, trueLabel: "On", falseLabel: "Off",
@@ -133,12 +136,19 @@ public record class BuiltInGuiderDevice(Uri DeviceUri) : GuiderDeviceBase(Device
         }
     }
 
+    /// <summary>
+    /// Whether this mount keeps Dec SKY-relative across a meridian flip. Defaults to FALSE: the mount
+    /// family this codebase actually drives (SkyWatcher, and GEMs generally) is axis-based, so the
+    /// mount's own Dec reversal cancels the sensor's 180 degree rotation and the observed Dec response
+    /// is unchanged. It defaulted to true while the flag meant something else -- see
+    /// <see cref="GuiderCalibrationResult.WithMeridianFlip"/> for what changed and why.
+    /// </summary>
     internal bool ReverseDecAfterFlip
     {
         get
         {
             var value = Query.QueryValue(DeviceQueryKey.ReverseDecAfterFlip);
-            return value is null || !bool.TryParse(value, out var result) || result;
+            return value is not null && bool.TryParse(value, out var result) && result;
         }
     }
 
