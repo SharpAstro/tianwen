@@ -734,7 +734,11 @@ fault** (`MountLimitKind.DriverEnforced`, P5): `Session.DetectDriverEnforcedStop
 the run instead of `EnsureTrackingAsync` fighting a GSServer/OnStep/ASCOM driver's own stop -- gated
 on not-slewing (a Synta goto is "running, not tracking"), debounced over two polls, and every
 session-side stop raises `_mountStopCommanded` first; the poll reads `IsSlewing` BEFORE `IsTracking`
-because on SkyWatcher the former resumes the latter. (3) **The verdict is telemetry** (P4):
+because on SkyWatcher the former resumes the latter. **The imaging loop's `while` leaves on the first
+"not tracking" read, so an undecided exit polls the detector again** until it has had its two looks
+(found by the E2E: without it the run advanced and re-enabled tracking). And on SkyWatcher an RA pulse
+on a STOPPED mount runs the axis in constant-speed mode -- `IsTrackingAsync` masks it
+(`_raPulseOnStoppedAxis`), and `LimitReached` stops the guider. (3) **The verdict is telemetry** (P4):
 `ISessionTelemetry.MountLimitVerdict` -> `MountLimitDto` (nullable, older nodes read `Clear`) ->
 mirror -> `LiveSessionState` (holder-boxed) -> Home board (Flip column doubles as the limit
 countdown) -> both feeds on CLASS transitions only. The editor is `PanelSection.MountLimits` on the

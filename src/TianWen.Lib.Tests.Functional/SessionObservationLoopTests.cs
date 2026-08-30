@@ -37,12 +37,13 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         SessionConfiguration? configuration = null,
         string? mountPort = null,
         DateTimeOffset? now = null,
+        MountLimitConfiguration? mountLimits = null,
         CancellationToken cancellationToken = default)
     {
         var config = configuration ?? SessionTestHelper.DefaultConfiguration;
 
         var ctx = await SessionTestHelper.CreateSessionAsync(
-            output, config, observations, now: now ?? WinterNightStart, focalLength: 480, mountPort: mountPort, cancellationToken: cancellationToken);
+            output, config, observations, now: now ?? WinterNightStart, focalLength: 480, mountPort: mountPort, mountLimits: mountLimits, cancellationToken: cancellationToken);
 
         ctx.Camera.TrueBestFocus = TrueBestFocusPosition;
         ctx.Camera.FocusPosition = TrueBestFocusPosition;
@@ -458,6 +459,177 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             "observation should advance after completing its duration instead of looping");
 
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
+    }
+
+    /// <summary>
+    /// Mount safety limits, end to end on the SkyWatcher fake (docs/plans/mount-safety-limits.md): a GEM with
+    /// limits ENABLED images a target across the meridian. The flip is real on this driver now (the goto
+    /// chooses the other axis solution), so after it the mount is in the Normal state and the meridian
+    /// limit must stay clear however far west it tracks -- the bug the pointing-state fix closed was the
+    /// limit stopping exactly such a rig ~30 min after a good flip. Limits warn 20 / act 40 min, so the
+    /// clamp (act - 5) never touches the default flip window (5-10 min) and the two coexist as designed.
+    /// </summary>
+    [Fact(Timeout = 300_000)]
+    public async Task GivenSkywatcherWithLimitsWhenTargetCrossesMeridianThenItFlipsAndTheLimitStaysClear()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        // Same crossing geometry as the GEM flip test (HA ~-0.15 h at start), imaged for 75 min so the
+        // hour angle ends well past the 40-min action threshold that would have stopped an unflipped rig.
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(4.89, 20.0, "MeridianCrosser", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(75),
+                AcrossMeridian: true,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+        var limits = new MountLimitConfiguration(Enabled: true, MeridianWarnMinutes: 20.0, MeridianActionExtraMinutes: 20.0);
+        await using var ctx = await CreateWinterSessionAsync(observations, mountPort: "SkyWatcher", mountLimits: limits, cancellationToken: ct);
+        await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
+
+        await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
+
+        ctx.Session.MeridianFlipCount.ShouldBeGreaterThan(0, "a GEM crossing the meridian must flip");
+        (await ctx.Mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal, "the SkyWatcher fake really flipped: the other axis solution");
+        (await ctx.Mount.GetHourAngleAsync(ct)).ShouldBeGreaterThan(40.0 / 60.0, "premise: the run ended past the action threshold");
+        ctx.Session.MountLimitVerdict.IsBreached.ShouldBeFalse(
+            $"a flipped rig tracking west is moving away from the pier, yet: {ctx.Session.MountLimitVerdict.Describe()}");
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeTrue("the limit never acted");
+        ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0);
+        ctx.Session.CurrentObservationIndex.ShouldBeGreaterThanOrEqualTo(1, "the observation ran its full duration");
+        output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}, flips: {ctx.Session.MeridianFlipCount}");
+    }
+
+    /// <summary>
+    /// The limit is the ULTIMATE clamp, end to end: the user has set the flip LATER than the mechanical limit
+    /// (earliest 60 min, action at 20 min), so the flip window collapses and the imaging loop sits in the
+    /// pre-flip obstruction pause while the mount tracks on -- through the pole, counterweight rising --
+    /// until the limit acts. The run must end as a LIMIT (tracking stopped, no advance, verdict measured on
+    /// the RA axis since this driver models it), not as a fault and not by quietly moving to the next target.
+    /// </summary>
+    [Fact(Timeout = 300_000)]
+    public async Task GivenSkywatcherWithAFlipConfiguredLaterThanTheLimitThenTheLimitStopsTheRunAsALimit()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(4.89, 20.0, "MeridianCrosser", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(90),
+                AcrossMeridian: true,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            ),
+            new ScheduledObservation(
+                new Target(6.75, 16.7, "NeverReached", null),
+                WinterNightStart + TimeSpan.FromMinutes(90),
+                TimeSpan.FromMinutes(10),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+        var lateFlip = SessionTestHelper.DefaultConfiguration with
+        {
+            MeridianFlipEarliestMinutesAfter = 60,
+            MeridianFlipLatestMinutesAfter = 90,
+        };
+        var limits = new MountLimitConfiguration(Enabled: true, MeridianWarnMinutes: 10.0, MeridianActionExtraMinutes: 10.0);
+        await using var ctx = await CreateWinterSessionAsync(observations, lateFlip, mountPort: "SkyWatcher", mountLimits: limits, cancellationToken: ct);
+        await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
+        var frames = CaptureFrames(ctx);
+
+        await RunObservationLoopWithTimePumpAsync(ctx, subExposure, ct);
+
+        var verdict = ctx.Session.MountLimitVerdict;
+        verdict.Kind.ShouldBe(MountLimitKind.Meridian, verdict.Describe());
+        verdict.Basis.ShouldBe(MountLimitBasis.AxisAngle, "the SkyWatcher driver models its axis, so the mechanical tier answered");
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeFalse("the limit stopped the mount");
+        (await ctx.Mount.GetHourAngleAsync(ct)).ShouldBeInRange(20.0 / 60.0, 30.0 / 60.0, "stopped at the action threshold, not at the flip");
+        ctx.Session.MeridianFlipCount.ShouldBe(0, "the flip never got its window");
+        ctx.Session.CurrentObservationIndex.ShouldBe(0, "a limit ends the run; it does not advance to the next target");
+        frames.ShouldNotContain(f => f.TargetName == "NeverReached");
+        ctx.Session.Phase.ShouldNotBe(SessionPhase.Failed, "nothing is broken: the rig reached the edge of where it may point");
+    }
+
+    /// <summary>
+    /// P5 end to end: the MOUNT stops tracking on its own mid-observation (a GSServer / OnStep / ASCOM driver
+    /// acting on its own limit). The session must read that as a limit event and end the run -- not carry on
+    /// to the next target, whose EnsureTrackingAsync would switch tracking straight back on against the
+    /// driver's stop, and not report a fault. This is also what pins the loop-exit look: the imaging loop's
+    /// while condition leaves on the first "not tracking" read, before the detector's second poll.
+    /// </summary>
+    [Fact(Timeout = 300_000)]
+    public async Task GivenTheMountStopsTrackingOnItsOwnThenTheRunEndsAsALimitAndTheNextTargetIsNeverStarted()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(3.94, 20.0, "FirstTarget", null),
+                WinterNightStart,
+                TimeSpan.FromMinutes(20),
+                AcrossMeridian: true,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            ),
+            new ScheduledObservation(
+                new Target(6.75, 16.7, "SecondTarget", null),
+                WinterNightStart + TimeSpan.FromMinutes(20),
+                TimeSpan.FromMinutes(10),
+                AcrossMeridian: false,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure),
+                Gain: 0,
+                Offset: 0
+            )
+        };
+        // No limits configured at all: the driver's own limit exists whether or not ours does.
+        await using var ctx = await CreateWinterSessionAsync(observations, mountPort: "SkyWatcher", cancellationToken: ct);
+        await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
+        var frames = CaptureFrames(ctx);
+        // The "driver" stops tracking after the third frame of the first target. Issued from the PUMP
+        // thread between two advances, when the loop is parked in its sleep -- from the loop's own
+        // FrameWritten handler the stop landed mid-iteration at an undefined point relative to the poll
+        // and the goto-completion hook, and the test passed or failed on that timing alone.
+        ctx.TimeProvider.ExternalTimePump = true;
+        var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct), ct));
+        var stopped = false;
+        var pumped = TimeSpan.Zero;
+        while (!loopTask.IsCompleted && pumped < TimeSpan.FromHours(4))
+        {
+            if (!stopped && frames.Count(f => f.TargetName == "FirstTarget") >= 3)
+            {
+                await ctx.Mount.SetTrackingAsync(false, ct);
+                stopped = true;
+            }
+            ctx.TimeProvider.Advance(TimeSpan.FromSeconds(5));
+            pumped += TimeSpan.FromSeconds(5);
+            await Task.Delay(1, ct);
+        }
+        loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within the pumped window");
+        await loopTask;
+        output.WriteLine($"verdict: {ctx.Session.MountLimitVerdict.Describe()}; frames: {string.Join(", ", frames.GroupBy(f => f.TargetName).Select(g => $"{g.Key}={g.Count()}"))}; tracking={await ctx.Mount.IsTrackingAsync(ct)}");
+
+        stopped.ShouldBeTrue("premise: the mount was stopped from outside");
+        ctx.Session.MountLimitVerdict.Kind.ShouldBe(MountLimitKind.DriverEnforced, ctx.Session.MountLimitVerdict.Describe());
+        (await ctx.Mount.IsTrackingAsync(ct)).ShouldBeFalse("the session must not fight the driver's stop by re-enabling tracking");
+        frames.ShouldNotContain(f => f.TargetName == "SecondTarget", "a limit ends the run; the next target is never started");
+        ctx.Session.CurrentObservationIndex.ShouldBe(0);
+        ctx.Session.Phase.ShouldNotBe(SessionPhase.Failed);
     }
 
     /// <summary>

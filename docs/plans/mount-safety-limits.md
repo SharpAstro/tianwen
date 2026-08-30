@@ -598,6 +598,42 @@ verdict exists; showing "this rig's limit will be measured / estimated" needs th
 `PointingStateSource` at edit time, i.e. a connected driver), and the "ask in measurable terms"
 wording could still say WHY (Dec- and tube-dependent) in a tooltip the panel has no room for.
 
+## End to end on the fake SkyWatcher (2026-08-30)
+
+Three runs of the real `ObservationLoopAsync` on the observation-loop harness (`SessionObservationLoopTests`,
+fake clock anchored to a December night at Vienna, time pumped in 5 s steps), all on `mountPort:"SkyWatcher"`
+so the axis model, the measured pointing state and the mechanical tier are the ones exercised:
+
+- **Flip + limits coexist.** Limits warn 20 / act 40 min, target crossing the meridian, imaged 75 min. The
+  GEM flips (`MeridianFlipCount > 0`, pier side `Normal` afterwards -- the port made the flip real), the run
+  ends 66 min past the meridian with the verdict CLEAR and tracking on. This is the exact scenario the
+  hour-angle-only decider ended 30 min after the flip.
+- **The limit is the ultimate clamp.** The flip configured LATER than the limit (earliest 60 / latest 90 vs
+  act at 20): the flip window collapses, the loop sits in the pre-flip obstruction pause while the mount
+  tracks through the pole, and at 20 min the limit acts -- verdict `Meridian`, `Basis = AxisAngle`, tracking
+  off, hour angle frozen at 20-30 min, no flip, no advance to the next target, phase not `Failed`.
+- **P5, a driver's own stop.** No limits configured; the mount is stopped from outside after the third
+  frame (issued from the pump thread between two advances -- issued from the loop's own `FrameWritten`
+  handler it landed at an undefined point relative to the poll and the test passed or failed on that
+  alone). The run ends `DriverEnforced`, tracking stays off, the second target is never started.
+
+Two defects the E2E found that the unit and poll-level tests could not:
+
+- **The imaging loop's `while` condition includes `IsTrackingAsync`, so it left on the FIRST "not
+  tracking" read** -- before the driver-stop detector's second poll -- and returned
+  `AdvanceToNextObservation`, whereupon the next observation's `EnsureTrackingAsync` switched tracking
+  straight back on against the driver's stop: the fight P5 exists to prevent. An undecided loop exit now
+  asks the detector again at the tick cadence until it has had its full look (`DriverStopDebouncePolls`).
+- **On the SkyWatcher driver a guide pulse on a STOPPED mount read as tracking**: with tracking off an RA
+  pulse runs the axis in constant-speed mode for its duration, the same status signature as sidereal
+  tracking, and the guider keeps correcting after the limit acts. `IsTrackingAsync` now masks those
+  pulses (`_raPulseOnStoppedAxis`, a counter raised before the first write), and the observation loop stops
+  the guider on `LimitReached` -- Finalise would too, but flats may run first, and on a stopped mount every
+  RA correction is a real axis move.
+
+Not verified live: the GUI's editor panel (start-up wedged in serial probing on this box), and any real
+mount.
+
 ## What is still open
 
 - **Hardware validation** of the SkyWatcher axis-solution port (`SkyToSteps`) and the forced flip: the

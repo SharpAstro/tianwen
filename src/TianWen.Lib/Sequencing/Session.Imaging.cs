@@ -228,6 +228,9 @@ internal partial record Session
                 // parked at its limit.
                 _logger.LogError("Mount safety limit reached during {Observation} after {Runtime:c} ({Verdict}); ending observation loop cleanly.",
                     observation, await GetMountUtcNowAsync(cancellationToken) - imageLoopStart, _limitVerdict.Describe());
+                // The guider is still correcting a star that no longer moves, and on a stopped mount every
+                // RA correction is a real axis move. Finalise stops it too, but flats may run first.
+                await CatchAsync(ct => guider.Driver.StopCaptureAsync(TimeSpan.FromSeconds(15), ct), cancellationToken);
                 break;
             }
             else
@@ -1003,6 +1006,31 @@ internal partial record Session
                 }
             }
         } // end imaging loop
+
+        // The while condition above leaves on the FIRST "not tracking" read -- before the poll's
+        // driver-stop detector has had its second look (DetectDriverEnforcedStop debounces over two
+        // polls, and the condition's read is not a poll at all). Left like that, a mount that stopped
+        // itself is answered with AdvanceToNextObservation and the next observation's
+        // EnsureTrackingAsync switches tracking straight back on against the driver's own limit -- the
+        // fight P5 exists to prevent. So an undecided exit asks the detector again, at the tick cadence,
+        // until it has had its full look; a stop that turns out to be ours, or a goto-completion race,
+        // still leaves the way it always did.
+        if (next is null && !cancellationToken.IsCancellationRequested && mount.Driver.Connected)
+        {
+            for (var look = 0; look < DriverStopDebouncePolls && !Volatile.Read(ref _limitReached); look++)
+            {
+                if (look > 0)
+                {
+                    await _timeProvider.SleepAsync(tickDuration, cancellationToken);
+                }
+                await PollDeviceStatesAsync(cancellationToken);
+            }
+            if (Volatile.Read(ref _limitReached))
+            {
+                _logger.LogError("Mount safety limit reached as the imaging loop ended ({Verdict}); ending the observation.", _limitVerdict.Describe());
+                next = ImageLoopNextAction.LimitReached;
+            }
+        }
 
         if (imageWriteQueue.TryPeek(out _))
         {

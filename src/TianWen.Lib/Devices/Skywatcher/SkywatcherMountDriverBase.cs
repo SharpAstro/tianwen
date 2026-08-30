@@ -49,6 +49,12 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
     // instead. This mirrors the ASCOM contract: Slewing is False during a PulseGuide; the
     // separate IsPulseGuiding property carries pulse-guide motion.
     private int _pulseGuideInFlight;
+    // RA pulses issued while the mount was NOT tracking run the axis in constant-speed mode for the pulse's
+    // duration -- the same status signature as sidereal tracking. IsTrackingAsync masks those, or a
+    // stopped mount reads as tracking for as long as a guider keeps correcting it (a session that has just
+    // been stopped by a limit still has its guider running until Finalise). Counter, like
+    // _pulseGuideInFlight, raised before the first write and lowered after the stop.
+    private int _raPulseOnStoppedAxis;
 
     /// <summary>
     /// Most recent RA encoder reading (steps from home), refreshed by
@@ -245,9 +251,11 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
 
     public async ValueTask<bool> IsTrackingAsync(CancellationToken cancellationToken)
     {
-        // Query RA axis status
+        // Query RA axis status. A pulse on a stopped mount runs the axis in the same constant-speed mode as
+        // tracking; it is not tracking, and reporting it as such made a limit-stopped mount read as
+        // tracking again the moment the guider corrected it (see _raPulseOnStoppedAxis).
         var status = await QueryAxisStatusAsync('1', cancellationToken);
-        return status.IsRunning && status.IsTracking;
+        return status.IsRunning && status.IsTracking && Volatile.Read(ref _raPulseOnStoppedAxis) == 0;
     }
 
     public async ValueTask SetTrackingAsync(bool tracking, CancellationToken cancellationToken)
@@ -853,20 +861,28 @@ internal abstract class SkywatcherMountDriverBase<TDevice>(TDevice device, IServ
                 // Not tracking: there is no baseline to offset. Run the axis at the
                 // combined rate for the duration, then stop it again.
                 var south = IsSouthernHemisphere;
-                await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
-                await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
-                await SendCommandAsync('J', '1', null, cancellationToken);
-                commanded.TrySetResult();
+                Interlocked.Increment(ref _raPulseOnStoppedAxis); // before the first write: IsTrackingAsync must never see this motion as tracking
                 try
                 {
-                    await TimeProvider.SleepAsync(duration, cancellationToken);
+                    await SendCommandAsync('G', '1', SkywatcherProtocol.EncodeMotionMode(SkywatcherMotionFunc.LowSpeedSlew, forward: !south, south), cancellationToken);
+                    await SendCommandAsync('I', '1', t1Pulse, cancellationToken);
+                    await SendCommandAsync('J', '1', null, cancellationToken);
+                    commanded.TrySetResult();
+                    try
+                    {
+                        await TimeProvider.SleepAsync(duration, cancellationToken);
+                    }
+                    finally
+                    {
+                        // Same reasoning as the :I1 restore above: this :K1 is the only thing that ends
+                        // the motion the pulse started, and the axis is NOT tracking, so a lost stop is
+                        // an axis running at the combined rate with nothing scheduled to halt it.
+                        await SendCommandVerifiedAsync('K', '1', null, CancellationToken.None);
+                    }
                 }
                 finally
                 {
-                    // Same reasoning as the :I1 restore above: this :K1 is the only thing that ends
-                    // the motion the pulse started, and the axis is NOT tracking, so a lost stop is
-                    // an axis running at the combined rate with nothing scheduled to halt it.
-                    await SendCommandVerifiedAsync('K', '1', null, CancellationToken.None);
+                    Interlocked.Decrement(ref _raPulseOnStoppedAxis);
                 }
             }
         }

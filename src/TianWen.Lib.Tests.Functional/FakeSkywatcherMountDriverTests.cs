@@ -715,6 +715,39 @@ public class FakeSkywatcherMountDriverTests(ITestOutputHelper output)
     }
 
     [Fact(Timeout = 60_000)]
+    public async Task GivenAStoppedMountWhenAnRaPulseRunsThenItDoesNotReadAsTracking()
+    {
+        // With tracking OFF an RA pulse runs the axis in constant-speed mode for its duration -- the same
+        // status signature as sidereal tracking. A mount a safety limit has just stopped, with its guider
+        // still correcting, must go on reading "not tracking" through those pulses; before this it read as
+        // tracking again on the very next correction.
+        var ct = TestContext.Current.CancellationToken;
+        var (mount, external) = await CreateConnectedMountAsync(ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+        await mount.SetTrackingAsync(false, ct);
+        (await mount.IsTrackingAsync(ct)).ShouldBeFalse("premise");
+        // Pump the clock by hand so the pulse's hold parks instead of finishing inside the call.
+        external.TimeProvider.ExternalTimePump = true;
+
+        await mount.StartPulseGuideAsync(GuideDirection.West, TimeSpan.FromSeconds(10), ct);
+
+        (await mount.IsPulseGuidingAsync(ct)).ShouldBeTrue("premise: the pulse is in flight");
+        (await mount.IsTrackingAsync(ct)).ShouldBeFalse("a guide pulse is not tracking");
+        external.TimeProvider.Advance(TimeSpan.FromSeconds(11));
+        for (var i = 0; i < 20 && await mount.IsPulseGuidingAsync(ct); i++)
+        {
+            await Task.Delay(5, ct);
+        }
+        (await mount.IsTrackingAsync(ct)).ShouldBeFalse("and the axis is stopped again afterwards");
+
+        // The tracking case is unaffected: an RA pulse while tracking only re-times the step period.
+        external.TimeProvider.ExternalTimePump = false;
+        await mount.SetTrackingAsync(true, ct);
+        await mount.StartPulseGuideAsync(GuideDirection.West, TimeSpan.FromSeconds(1), ct);
+        (await mount.IsTrackingAsync(ct)).ShouldBeTrue();
+    }
+
+    [Fact(Timeout = 60_000)]
     public async Task GivenAControllerThatReportsRunningLateWhenSlewStartedThenItReadsSlewingAtOnceAndTheGotoIsNotReissued()
     {
         // GSS audit finding 2, for slews: the progress flag must be observable when the starter returns.
