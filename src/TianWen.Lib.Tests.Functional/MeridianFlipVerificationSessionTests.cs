@@ -137,9 +137,13 @@ public class MeridianFlipVerificationSessionTests(ITestOutputHelper output)
         await mount.BeginSlewRaDecAsync(FlipTarget.RA, FlipTarget.Dec, ct);
         for (var i = 0; i < 600 && await mount.IsSlewingAsync(ct); i++)
         {
+            // Poll through the SESSION, which is what every real slew wait does: the poll is where the
+            // canonical pier side latches the value the goto landed on.
+            await ctx.Session.PollDeviceStatesAsync(ct);
             await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(200), ct);
         }
         (await mount.IsSlewingAsync(ct)).ShouldBeFalse("the slew onto the target must complete");
+        await ctx.Session.PollDeviceStatesAsync(ct);
         (await mount.GetHourAngleAsync(ct)).ShouldBeLessThan(0.0, "the target must start east of the meridian");
         (await ((IFakeMechanicalPointingStateSource)mount).GetMechanicalPointingStateAsync(ct))
             .ShouldBe(PointingState.ThroughThePole, "east of the meridian a GEM looks through the pole");
@@ -223,4 +227,36 @@ public class MeridianFlipVerificationSessionTests(ITestOutputHelper output)
         result.Verdict.Evidence.ShouldBe(FlipEvidence.Flipped,
             "a genuine auto-flip must be read off the image and accepted, not re-commanded");
     }
+
+    /// <summary>
+    /// The canonical pier side (<c>Session.GetSideOfPierAsync</c>) must hold what the last goto landed
+    /// on, while the MOUNT's own report drifts. That difference is the entire failure this plan is
+    /// about, reduced to two reads: a computed-state driver turns its answer over as the POINTING
+    /// crosses the meridian, and everything that believed it -- the imaging loop reading an auto-flip
+    /// that never happened, the guider reversing a calibration and inverting the sense that keeps it
+    /// converging -- was wrong downstream of that one drift.
+    /// </summary>
+    [Fact(Timeout = 300_000)]
+    public async Task TheCanonicalPierSideHoldsWhereTheMountsOwnReportDrifts()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var ctx = await ArrangeEastOfMeridianAsync(ct);
+        var mount = ctx.Mount;
+
+        mount.PointingStateSource.ShouldBe(PointingStateSource.Computed);
+        (await ctx.Session.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole,
+            "the goto landed through the pole, and the poll latched it");
+
+        // Track past the meridian. Nothing slews; the tube does not move.
+        ctx.TimeProvider.Advance(TimeSpan.FromHours(2));
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        (await mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal,
+            "the driver's own answer turns over as the pointing crosses -- this is the drift");
+        (await ctx.Session.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole,
+            "the canonical answer must NOT: no slew, so the tube is where the goto left it");
+        (await ((IFakeMechanicalPointingStateSource)mount).GetMechanicalPointingStateAsync(ct))
+            .ShouldBe(PointingState.ThroughThePole, "and the canonical answer is the one that matches the tube");
+    }
+
 }

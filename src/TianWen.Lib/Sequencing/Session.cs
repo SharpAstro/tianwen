@@ -476,6 +476,21 @@ internal partial record Session(
                     .AltitudeDegrees(hourAngle, dec),
                 PrimaryAxisAngleDeg: primaryAxisAngleDeg);
 
+            // Accept the reported pier side only on the edge where a slew has just finished. A goto is
+            // the only thing in ordinary operation that carries a tube across the pier, so that is the
+            // one moment the report is certainly right -- on a mount that merely COMPUTES the state it
+            // drifts from then on, turning over as the POINTING crosses the meridian while the tube
+            // stays put. Holding the landed value is what makes Session.GetSideOfPierAsync canonical.
+            if (isSlewing)
+            {
+                _pierSideMayHaveMoved = true;
+            }
+            else if (_pierSideMayHaveMoved || _verifiedPointingState is PointingState.Unknown)
+            {
+                _verifiedPointingState = _mountState.PierSide;
+                _pierSideMayHaveMoved = false;
+            }
+
             DetectDriverEnforcedStop(isTracking, isSlewing);
             await EnforceMountLimitsAsync(mount, cancellationToken);
         }

@@ -270,6 +270,16 @@ internal partial record Session
         var mount = Setup.Mount;
         var guider = Setup.Guider;
 
+        // From here the session is the authority on which side of the pier the tube is on, so the
+        // built-in guider asks IT rather than the mount. On a mount that only computes its pointing
+        // state the driver's report turns over as the POINTING crosses the meridian, and a guider
+        // believing that reverses its calibration for a flip that never happened -- inverting the
+        // very sense that keeps the loop converging. See Session.GetSideOfPierAsync.
+        if (guider.Driver is Devices.Guider.BuiltInGuiderDriver builtIn)
+        {
+            builtIn.PointingStateOracle = GetSideOfPierAsync;
+        }
+
         _currentActivity = "Connecting mount\u2026";
         _logger.LogDebug("Init: connecting mount {Mount}", mount);
         await ConnectOrFailAsync(mount.Driver, $"mount '{mount.Device.DisplayName}'", null, cancellationToken).ConfigureAwait(false);

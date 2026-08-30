@@ -748,7 +748,7 @@ internal partial record Session
                 if (observation.AcrossMeridian)
                 {
                     var currentHA = await CatchAsync(mount.Driver.GetHourAngleAsync, cancellationToken, double.NaN);
-                    var currentPier = await CatchAsync(mount.Driver.GetSideOfPierAsync, cancellationToken, PointingState.Unknown);
+                    var currentPier = await GetSideOfPierAsync(cancellationToken);
                     var pierSideChanged = pierSideAtSlewTime != PointingState.Unknown
                         && currentPier != PointingState.Unknown
                         && currentPier != pierSideAtSlewTime;
@@ -1340,7 +1340,7 @@ internal partial record Session
         var newHourAngle = await ResilientInvokeAsync(
             mount.Driver, mount.Driver.GetHourAngleAsync,
             ResilientCallOptions.IdempotentRead, cancellationToken);
-        var newPierSide = await CatchAsync(mount.Driver.GetSideOfPierAsync, cancellationToken, PointingState.Unknown);
+        var newPierSide = await GetSideOfPierAsync(cancellationToken);
 
         // Iterative plate-solve centering after flip
         _currentActivity = $"Centering on {observation.Target.Name} after flip\u2026";
@@ -1371,6 +1371,14 @@ internal partial record Session
                 break;
         }
 
+        // Move the latch on evidence only. A confirmed flip puts the tube on the other side; a
+        // confirmed non-flip leaves it exactly where it was, which is the whole point -- the mount is
+        // meanwhile reporting the opposite. No evidence, no move.
+        if (verdict.Evidence is FlipEvidence.Flipped && _verifiedPointingState is not PointingState.Unknown)
+        {
+            _verifiedPointingState = _verifiedPointingState.Flipped;
+        }
+
         _logger.LogInformation("Meridian flip: restarting guiding for {Target}.", observation.Target);
         if (!await ResilientInvokeAsync(
                 guider.Driver,
@@ -1384,6 +1392,47 @@ internal partial record Session
         _logger.LogInformation("Meridian flip: completed successfully for {Target}, HA={NewHA:F4}h, PierSide={PierSide}, Field={Evidence}.",
             observation.Target, newHourAngle, newPierSide, verdict.Evidence);
         return new MeridianFlipResult(true, newHourAngle, newPierSide, verdict);
+    }
+
+    /// <summary>
+    /// The pier side the session has EVIDENCE for, as opposed to the one the mount reports. Latched by
+    /// <c>PollDeviceStatesAsync</c> on the slewing-to-idle edge -- a goto is the only thing in ordinary
+    /// operation that moves a tube across the pier, and the driver's report IS right the moment one
+    /// lands, on any mount -- and thereafter moved only by a flip the image confirmed.
+    /// <see cref="PointingState.Unknown"/> until the first slew completes.
+    /// </summary>
+    private PointingState _verifiedPointingState = PointingState.Unknown;
+
+    /// <summary>
+    /// True once a slew has been observed, until the next idle poll accepts the pier side it landed on.
+    /// </summary>
+    private bool _pierSideMayHaveMoved;
+
+    /// <summary>
+    /// **The canonical pier side. Prefer this over <see cref="IMountDriver.GetSideOfPierAsync"/>
+    /// anywhere a decision depends on where the TUBE is.**
+    /// <para>
+    /// A mount that MEASURES its pointing state is believed verbatim -- it reads its own mechanics and
+    /// the session cannot improve on that. A mount that COMPUTES it from the hour angle is believed
+    /// only until the session knows better: that report is correct when a goto lands and then DRIFTS,
+    /// turning over the moment the pointing crosses the meridian while the tube stays where the goto
+    /// left it. Everything downstream of that drift is a bug -- the imaging loop reading an auto-flip
+    /// that never happened, the guider reversing a calibration and inverting the sense that keeps it
+    /// converging.
+    /// </para>
+    /// <para>
+    /// So the answer here is the latched <see cref="_verifiedPointingState"/> once there is one, and
+    /// the driver's report before that. It is handed to the built-in guider through
+    /// <c>PointingStateOracle</c> rather than the guider reaching for the mount itself.
+    /// </para>
+    /// </summary>
+    internal async ValueTask<PointingState> GetSideOfPierAsync(CancellationToken cancellationToken)
+    {
+        var reported = await CatchAsync(Setup.Mount.Driver.GetSideOfPierAsync, cancellationToken, PointingState.Unknown);
+        return Setup.Mount.Driver.PointingStateSource is PointingStateSource.Computed
+            && _verifiedPointingState is not PointingState.Unknown
+                ? _verifiedPointingState
+                : reported;
     }
 
     /// <summary>
