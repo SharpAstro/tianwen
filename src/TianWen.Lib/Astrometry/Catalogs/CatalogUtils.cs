@@ -372,8 +372,13 @@ public static partial class CatalogUtils
         return Base91.EncodeBytes(bytesN[1..]);
     }
 
+    /// <summary>
+    /// The packed Tycho-2 value <see cref="EncodeTyc2CatalogIndex(Catalog, ushort, ushort, byte)"/>
+    /// base91-encodes. Shared so the string and allocation-free paths cannot drift in their bit
+    /// layout, which is the only part of this that is load-bearing.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    internal static string EncodeTyc2CatalogIndex(Catalog catalog, ushort tyc1, ushort tyc2, byte tyc3)
+    private static ulong PackTyc2(Catalog catalog, ushort tyc1, ushort tyc2, byte tyc3)
     {
         var idAsLongH = (ulong)(tyc1 & TYC1_MASK);
         idAsLongH <<= TYC2_SHIFT;
@@ -382,9 +387,42 @@ public static partial class CatalogUtils
         idAsLongH |= tyc3 & TYC3_MASK;
         idAsLongH <<= ASCIIBits;
         idAsLongH |= (ulong)catalog & ASCIIMask;
+        return idAsLongH;
+    }
 
+    /// <summary>
+    /// The <see cref="CatalogIndex"/> for a Tycho-2 star, without allocating.
+    /// </summary>
+    /// <remarks>
+    /// <para>Identical by construction to
+    /// <c>AbbreviationToCatalogIndex(EncodeTyc2CatalogIndex(...), isBase91Encoded: true)</c>, and
+    /// pinned to it by <c>Tyc2CatalogIndexTests</c> rather than by argument -- the bit layout comes
+    /// from the same <see cref="PackTyc2"/>, and the base91 characters from the same
+    /// <see cref="Base91.EncodeBytes(ReadOnlySpan{byte}, Span{char})"/> that the string form now calls.</para>
+    /// <para><b>Why it exists:</b> the string round trip allocated TWICE per star -- the base91 string,
+    /// and a box from <c>Enum.ToObject</c> inside the generic <c>AbbreviationToEnumMember&lt;T&gt;</c>.
+    /// Measured over the 479,487 records of the HIP/HD cross-reference load: 33.7 MB of Gen0 garbage
+    /// and 11 Gen0 collections, to produce 3.8 MB of longs. Both disappear here: the chars go to a
+    /// <c>stackalloc</c>, and knowing the concrete type makes the enum conversion a free cast where
+    /// the generic helper has to box.</para>
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    internal static CatalogIndex Tyc2CatalogIndex(Catalog catalog, ushort tyc1, ushort tyc2, byte tyc3)
+    {
         Span<byte> bytesN = stackalloc byte[sizeof(ulong)];
-        BinaryPrimitives.WriteUInt64BigEndian(bytesN, idAsLongH);
+        BinaryPrimitives.WriteUInt64BigEndian(bytesN, PackTyc2(catalog, tyc1, tyc2, tyc3));
+
+        Span<char> chars = stackalloc char[Base91.MaxEncodedLength(sizeof(ulong) - 1)];
+        var len = Base91.EncodeBytes(bytesN[1..], chars);
+
+        return CatalogIndex.Base91Enc | (CatalogIndex)AbbreviationToASCIIPackedInt(chars[..len]);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    internal static string EncodeTyc2CatalogIndex(Catalog catalog, ushort tyc1, ushort tyc2, byte tyc3)
+    {
+        Span<byte> bytesN = stackalloc byte[sizeof(ulong)];
+        BinaryPrimitives.WriteUInt64BigEndian(bytesN, PackTyc2(catalog, tyc1, tyc2, tyc3));
 
         return Base91.EncodeBytes(bytesN[1..]);
     }

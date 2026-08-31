@@ -16,7 +16,29 @@ public static class Base91
     {
         // Worst case: each byte produces ~1.23 output chars, use 2x as safe upper bound.
         // Safety check for large bytes by stackalloc'ing small outputs. This should not happen in practice.
-        Span<char> output = bytes.Length < 100 ? stackalloc char[bytes.Length * 2 + 2] : new char[bytes.Length * 2 + 2];
+        Span<char> output = bytes.Length < 100 ? stackalloc char[MaxEncodedLength(bytes.Length)] : new char[MaxEncodedLength(bytes.Length)];
+        var pos = EncodeBytes(bytes, output);
+        return new string(output[..pos]);
+    }
+
+    /// <summary>Upper bound on the chars <see cref="EncodeBytes(ReadOnlySpan{byte}, Span{char})"/> writes.</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int MaxEncodedLength(int byteCount) => byteCount * 2 + 2;
+
+    /// <summary>
+    /// Encodes into a caller-supplied buffer and returns the number of chars written, so a caller in
+    /// a loop can <c>stackalloc</c> once instead of allocating a string per item.
+    /// </summary>
+    /// <param name="bytes">The sequence of bytes to encode.</param>
+    /// <param name="output">At least <see cref="MaxEncodedLength(int)"/> chars.</param>
+    /// <remarks>
+    /// Split out of the string-returning overload rather than duplicated, so the two cannot drift:
+    /// this IS that method's body. The catalog cross-reference load called the string form 479,487
+    /// times per start and threw every string away, which measured 33.7 MB of Gen0 garbage.
+    /// </remarks>
+    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
+    public static int EncodeBytes(ReadOnlySpan<byte> bytes, Span<char> output)
+    {
         var pos = 0;
         int ebVal = 0, ebBits = 0;
 
@@ -50,7 +72,7 @@ public static class Base91
                 output[pos++] = (char)CharacterTable91[ebVal / 91];
         }
 
-        return new string(output[..pos]);
+        return pos;
     }
 
     /// <summary>Decodes the specified string into a sequence of bytes.</summary>

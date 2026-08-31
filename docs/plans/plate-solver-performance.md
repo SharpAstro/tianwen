@@ -242,12 +242,41 @@ Result:
 | tycho2-cross-ref-join | 269.9 ms | **0.0 ms** |
 | **total init** | **587 ms** | **343 ms** |
 
-**And that makes the other half of this phase pointless, which is worth stating rather than doing.**
-The per-record `EncodeTyc2CatalogIndex` -> base91 string -> `AbbreviationToCatalogIndex` round trip is
-still there, still ~131 ms, and now saves NOTHING: the join waits 0.0 ms, so those 131 ms run entirely
-in the shadow of the ~198 ms of main-thread work (ngc-csv + simbad + shapes + predefined) that precedes
-the await. Removing the string round trip would optimise work that no longer blocks anything. Leave it
-until the main-thread phases shrink below it; the numbers above are how you would know.
+#### The string round trip: "saves nothing" was measured on the wrong axis (FIXED)
+
+I first argued this half was pointless, because with the join at 0.0 ms its ~131 ms runs in the shadow
+of the main-thread phases. That is true of WALL CLOCK and false of everything else. Measured with
+`GC.GetAllocatedBytesForCurrentThread`, the per-record round trip allocated **twice** per star:
+
+| | before | after |
+|---|---|---|
+| `hip_to_tyc` (120,404 records) | 8,301,888 B | 963,640 B |
+| `hd_to_tyc` (359,083 records) | 25,394,712 B | 2,872,728 B |
+| **total allocated** | **33.7 MB** | **3.84 MB** |
+| **Gen0 collections** | **11** | **4** |
+| decode loop | 164.8 ms | 117.6 ms |
+
+70 bytes per star, to produce eight. The two allocations were the base91 **string**, and a **box**:
+`AbbreviationToEnumMember<T>` ends in `(T)Enum.ToObject(typeof(T), ...)`, which boxes the ulong and
+unboxes it back. `CatalogUtils.Tyc2CatalogIndex` avoids both -- the chars go to a `stackalloc` via a
+new span-writing `Base91.EncodeBytes` overload, and knowing the concrete type (`CatalogIndex : ulong`)
+makes the enum conversion a free cast where the generic helper must box.
+
+**The remaining 3.84 MB is exactly the output**: 479,487 x 8 = 3,835,896 B against 3,836,368 measured.
+Transient allocation is now zero, which is the useful stopping condition -- not a ratio.
+
+Two things worth carrying forward. **Gen0 is stop-the-world**, so those 11 collections were pausing the
+main thread while it did ngc-csv and simbad work; "off the critical path" was never quite true even for
+wall clock. And the boxing is in the GENERIC helper, so every other
+`AbbreviationToEnumMember<ObjectType|Constellation|OpenNGCObjectType>` caller in the catalog parse pays
+it too -- deliberately not touched here, because that helper is used across several enums of different
+widths and a wrong reinterpret there corrupts identifiers silently. Fix it separately, with its own
+proof.
+
+`Tyc2CatalogIndexTests` pins the new path byte-identical to the string round trip across ~49,000
+(TYC1, TYC2, TYC3) combinations plus the boundaries base91's own 13-vs-14-bit branch keys on. A
+`CatalogIndex` indexes every catalog dictionary, so one differing value is a star that can never be
+looked up again and nothing would throw.
 
 The new largest item is `hd-hip-cross` at 121.8 ms, and note that is already the 2A snapshot's FAST
 path (read 48.8 + apply 72.0), so it is a different kind of target from a decompression that should
