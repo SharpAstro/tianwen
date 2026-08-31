@@ -90,6 +90,16 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     private const double GateChanceSafetyFactor = 5.0;
 
     /// <summary>
+    /// How far clear of the Poisson chance rate a seed must be before it is allowed to STOP the
+    /// other parity's search. <see cref="PairRansacLock"/> already refuses to return a lock below
+    /// 5x chance, so this is deliberately stricter than merely "it locked": cancelling is an
+    /// irreversible-looking act on a hot path, and the fallback that undoes it costs a whole
+    /// re-run. Measured across the 96 frozen Vela frames, exactly one parity locks on every one of
+    /// them and never both, so a correct winner has never been within reach of this bar.
+    /// </summary>
+    private const double ParityClaimChanceFactor = 10.0;
+
+    /// <summary>
     /// Minimum inlier count required before we attempt a SIP polynomial fit
     /// on top of the linear CD matrix. Order-2 SIP has 5 unknowns per axis
     /// (i + j ∈ [1, 2]) = 10 in total; 30 inliers is a comfortable 3× over-
@@ -111,6 +121,17 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     public float Priority => 0.99f;
 
     private readonly record struct SolveAttempt(WCS? Wcs, int ProjectedStars, int MatchedStars, int Iterations, double RmsResidual, double AffineDeterminant);
+
+    /// <summary>
+    /// Test seam: what the parity race did on the most recent solve. Phase A's whole effect is work
+    /// that DOES NOT happen, which no output can show -- the WCS is identical either way -- so
+    /// without this a test can only assert the solve still works, never that the saving occurred.
+    /// </summary>
+    internal ParityRaceOutcome LastParityRace { get; private set; }
+
+    /// <param name="AbandonedAParity">One parity was stopped because the other seeded clear of chance.</param>
+    /// <param name="ReRanAbandonedParity">The gate needed the abandoned half after all, so it was re-run.</param>
+    internal readonly record struct ParityRaceOutcome(bool AbandonedAParity, bool ReRanAbandonedParity);
 
     /// <summary>
     /// Catalog-star projection result with the originating sky coordinates
@@ -314,14 +335,43 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         var cx = image.Width / 2.0;
         var cy = image.Height / 2.0;
 
-        // Try both orientations in parallel; pick the one with lower re-projection error
+        // Try both orientations in parallel; pick the one with lower re-projection error.
+        //
+        // Exactly one of the two is real work: measured over the 96 frozen Vela frames, one parity
+        // locks on every single frame and never both, while the loser spends 259.5M hypotheses
+        // against the winner's 8.1M -- 97% of the seed's whole cost. So each attempt is given a
+        // token the OTHER one can cancel, and the first seed clear of chance stops its sibling.
+        //
+        // Task.Run keeps the OUTER token, never the per-attempt one: a task started with an
+        // already-cancelled token never runs its delegate and faults the await, which would turn
+        // the winner's success into the whole solve's failure. Cancellation is observed INSIDE
+        // instead, where it returns a WCS-less attempt like any other dead end.
         stageSw.Restart();
-        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, cancellationToken), cancellationToken);
-        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, cancellationToken), cancellationToken);
+        using var stdCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        using var mirrorCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
+        // At most ONE attempt may ever be abandoned. Both parities clearing the bar at once should
+        // be impossible -- it has not happened on any of the 96 frozen frames -- but if it did, two
+        // unguarded claims would cancel each OTHER and the solve would lose both halves and report
+        // failure on a frame it can solve. The interlock makes that outcome unreachable rather than
+        // unlikely, which is the only acceptable standard for a fast path guarding a correct one.
+        var parityClaimed = 0;
+        Action ClaimAgainst(CancellationTokenSource sibling) => () =>
+        {
+            if (Interlocked.CompareExchange(ref parityClaimed, 1, 0) == 0)
+            {
+                sibling.Cancel();
+            }
+        };
+
+        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, ClaimAgainst(mirrorCts), stdCts.Token), cancellationToken);
+        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, ClaimAgainst(stdCts), mirrorCts.Token), cancellationToken);
         await Task.WhenAll(stdTask, mirrorTask);
 
         var std = stdTask.Result;
         var mirror = mirrorTask.Result;
+        var stdAbandoned = stdCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
+        var mirrorAbandoned = mirrorCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
         _logger.LogDebug("CatalogPlateSolver: matching iterations std={StdMatched}/{StdIter} (rms {StdRms:F2}px) mirror={MirrorMatched}/{MirrorIter} (rms {MirRms:F2}px) in {Ms}ms",
             std.MatchedStars, std.Iterations, std.RmsResidual, mirror.MatchedStars, mirror.Iterations, mirror.RmsResidual, stageSw.Elapsed.TotalMilliseconds);
 
@@ -339,14 +389,17 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // bright catalog candidates almost always hits *some* nearby detected
         // star). That used to flip the parity at Dec near -90 deg, picking
         // std=3-matched garbage over mirror=30-matched correct.
+        // Which of the two won is tracked as a FLAG, never by reference identity: SolveAttempt is a
+        // readonly record struct, so ReferenceEquals against it boxes and is unconditionally false.
         SolveAttempt winner, loser;
+        bool winnerIsStd;
         if (std.MatchedStars >= 2 * Math.Max(mirror.MatchedStars, 1))
         {
-            (winner, loser) = (std, mirror);
+            (winner, loser, winnerIsStd) = (std, mirror, true);
         }
         else if (mirror.MatchedStars >= 2 * Math.Max(std.MatchedStars, 1))
         {
-            (winner, loser) = (mirror, std);
+            (winner, loser, winnerIsStd) = (mirror, std, false);
         }
         else
         {
@@ -355,7 +408,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             // projects bright catalog stars onto detected stars.
             var stdError = std.Wcs is { } ws ? ReProjectionError(ws, catalogCoords, detectedStars) : double.MaxValue;
             var mirrorError = mirror.Wcs is { } wm ? ReProjectionError(wm, catalogCoords, detectedStars) : double.MaxValue;
-            (winner, loser) = stdError <= mirrorError ? (std, mirror) : (mirror, std);
+            winnerIsStd = stdError <= mirrorError;
+            (winner, loser) = winnerIsStd ? (std, mirror) : (mirror, std);
         }
 
         // Chance-aware acceptance gate. In a dense field the proximity loop can hand back a
@@ -367,9 +421,50 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // under the final WCS at ~100x the chance rate. Reject anything that cannot beat
         // chance -- a failed solve is recoverable (the factory falls through to ASTAP /
         // astrometry.net), a silently wrong WCS is not.
-        winner = ApplyAcceptanceGate(winner, loser, catalogCoords, detectedStars, dim, Math.Max(GateTolerancePx, GateTolerancePx * detectionScale));
+        var tolerance = Math.Max(GateTolerancePx, GateTolerancePx * detectionScale);
+        LastParityRace = new ParityRaceOutcome(stdAbandoned || mirrorAbandoned, false);
+
+        // The gate can OVERTURN the parity pick, so it needs a real loser to fall back on -- and the
+        // loser may be an attempt we abandoned mid-seed, whose null WCS means "never finished
+        // looking", not "nothing there". Re-run it, uncancelled, in that one case. This is the
+        // fallback that makes cancelling safe rather than a gamble: it costs a full extra attempt,
+        // and it is reached only when the winner has already failed the chance test, which on a
+        // solvable frame is rare and on an unsolvable one was going to fail anyway.
+        var loserAbandoned = winnerIsStd ? mirrorAbandoned : stdAbandoned;
+        if (loserAbandoned && loser.Wcs is null
+            && !WouldPassAcceptanceGate(winner, catalogCoords, detectedStars, dim, tolerance))
+        {
+            _logger.LogDebug("CatalogPlateSolver: winner failed the acceptance gate and the other parity was abandoned mid-seed; re-running it before reporting failure");
+            var loserXSign = winnerIsStd ? -1.0 : 1.0;
+            loser = TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad,
+                cx, cy, dim, loserXSign, range, onSeedClearOfChance: null, cancellationToken);
+            LastParityRace = LastParityRace with { ReRanAbandonedParity = true };
+        }
+
+        winner = ApplyAcceptanceGate(winner, loser, catalogCoords, detectedStars, dim, tolerance);
 
         return Result(winner);
+    }
+
+    /// <summary>
+    /// Whether <paramref name="attempt"/> would survive <see cref="ApplyAcceptanceGate"/> on its own
+    /// merits. Split out so the caller can ask BEFORE deciding whether it needs to re-run an
+    /// abandoned parity, without the gate's logging or its fallback running twice.
+    /// </summary>
+    private static bool WouldPassAcceptanceGate(
+        SolveAttempt attempt,
+        List<(double RA, double Dec, double VMag)> catalogCoords,
+        StarList detectedStars,
+        ImageDim dim,
+        double tolerancePx)
+    {
+        if (attempt.Wcs is not { } wcs)
+        {
+            return false;
+        }
+
+        var v = CountTightMatches(wcs, catalogCoords, detectedStars, dim, tolerancePx);
+        return v.Hits >= Math.Max(MinStarsForMatch, GateChanceSafetyFactor * v.ExpectedChance);
     }
 
     /// <summary>
@@ -510,6 +605,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         ImageDim dim,
         double xSign,
         float scaleRange,
+        Action? onSeedClearOfChance,
         CancellationToken cancellationToken
     )
     {
@@ -549,8 +645,22 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 detPts[i] = new Vector2(rankedDetected[i].XCentroid, rankedDetected[i].YCentroid);
             }
 
-            if (TrySeedPairLock(catalogCoords, detPts, currentOrigin, pixelScaleRad, cx, cy, dim, xSign,
-                    Math.Max(scaleRange, MinPairLockScaleTolerance), _logger) is { } locked
+            var seedLock = TrySeedPairLock(catalogCoords, detPts, currentOrigin, pixelScaleRad, cx, cy,
+                dim, xSign, Math.Max(scaleRange, MinPairLockScaleTolerance), out _, _logger, cancellationToken);
+
+            // A seed this far clear of chance settles the parity, so tell the sibling to stop --
+            // deliberately BEFORE the invert/project below, because a lock is evidence about the
+            // parity whether or not the transform it carries turns out to be usable. Kept out of
+            // the condition chain for the same reason: claiming is a side effect, and a claim that
+            // could short-circuit the seed would be a behaviour change wearing an optimisation's
+            // clothes.
+            if (seedLock is { } strong
+                && strong.Hits >= ParityClaimChanceFactor * Math.Max(1.0, strong.ExpectedChanceHits))
+            {
+                onSeedClearOfChance?.Invoke();
+            }
+
+            if (seedLock is { } locked
                 && Matrix3x2.Invert(locked.Transform, out var seedInv)
                 && InverseTanProject(Vector2.Transform(new Vector2((float)cx, (float)cy), seedInv),
                     currentOrigin, pixelScaleRad, cx, cy, xSign) is { } seededWcs)
@@ -1458,7 +1568,41 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         double xSign,
         float scaleTolerance,
         ILogger? logger = null)
+        => TrySeedPairLock(catalogCoords, rankedDetectedPoints, origin, pixelScaleRad, cx, cy, dim,
+            xSign, scaleTolerance, out _, logger);
+
+    /// <summary>
+    /// As <see cref="TrySeedPairLock(List{ValueTuple{double, double, double}}, ReadOnlySpan{Vector2}, WCS, double, double, double, ImageDim, double, float, ILogger?)"/>,
+    /// additionally reporting what the attempt COST.
+    /// </summary>
+    /// <param name="cost">
+    /// Hypotheses summed over every pool policy tried, and how many were tried. A parity that never
+    /// locks still runs all of them and today discards each pool's diagnostics, so without this the
+    /// expensive half of the parity race is the half nothing can measure.
+    /// </param>
+    /// <remarks>
+    /// This exists so the phase-A baseline can be taken against the REAL pool policy rather than a
+    /// copy of it in a test -- the same reason <see cref="TrySeedPairLock(List{ValueTuple{double, double, double}}, ReadOnlySpan{Vector2}, WCS, double, double, double, ImageDim, double, float, ILogger?)"/>
+    /// is internal at all. Hypotheses are deterministic for a given input, so they compare across
+    /// machines and across builds in a way wall clock does not.
+    /// </remarks>
+    internal static PairRansacLock.LockResult? TrySeedPairLock(
+        List<(double RA, double Dec, double VMag)> catalogCoords,
+        ReadOnlySpan<Vector2> rankedDetectedPoints,
+        WCS origin,
+        double pixelScaleRad,
+        double cx,
+        double cy,
+        ImageDim dim,
+        double xSign,
+        float scaleTolerance,
+        out SeedCost cost,
+        ILogger? logger = null,
+        CancellationToken cancellationToken = default)
     {
+        var hypotheses = 0;
+        var poolsTried = 0;
+        var cancelled = false;
         foreach (var (marginFraction, rotationInvariant) in PoolPolicies)
         {
             var seedProjected = ProjectCatalogStars(catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign, marginFraction, rotationInvariant);
@@ -1476,9 +1620,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             }
 
             var lockResult = PairRansacLock.TryLock(catPts, rankedDetectedPoints, rankedDetectedPoints,
-                dim.Width, dim.Height, scaleTolerance, out var lockDiagnostics);
+                dim.Width, dim.Height, scaleTolerance, out var lockDiagnostics,
+                cancellationToken: cancellationToken);
+            poolsTried++;
+            hypotheses += lockDiagnostics.Hypotheses;
             if (lockResult is { } locked)
             {
+                cost = new SeedCost(hypotheses, poolsTried);
                 logger?.LogDebug("CatalogPlateSolver: pair-lock seed (xSign={XSign}, anchor pool {Pool}) consensus {Hits}/{Census} (chance {Chance:F1}) after {Hypotheses} hypotheses",
                     xSign, PoolName(marginFraction, rotationInvariant), locked.Hits, locked.Census, locked.ExpectedChanceHits, locked.Hypotheses);
                 return locked;
@@ -1489,10 +1637,24 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             // the diagnostics distinguish them.
             logger?.LogDebug("CatalogPlateSolver: no pair-lock seed (xSign={XSign}, anchor pool {Pool}): {Diagnostics}",
                 xSign, PoolName(marginFraction, rotationInvariant), lockDiagnostics.ToString());
+
+            // The pools are a fallback chain, so a cancelled scan must not roll on to the next
+            // one: three pools each abandoned mid-scan is three times the work saved nothing.
+            if (lockDiagnostics.Cancelled)
+            {
+                cancelled = true;
+                break;
+            }
         }
 
+        cost = new SeedCost(hypotheses, poolsTried, cancelled);
         return null;
     }
+
+    /// <summary>What one parity's seed attempt spent. See the <c>out cost</c> overload above.</summary>
+    /// <param name="Hypotheses">Summed over every pool policy tried.</param>
+    /// <param name="PoolsTried">How many of <c>PoolPolicies</c> were reached before locking or giving up.</param>
+    internal readonly record struct SeedCost(int Hypotheses, int PoolsTried, bool Cancelled = false);
 
     /// <summary>
     /// The anchor-pool policies the seed tries, in order. See <see cref="TrySeedPairLock"/> for

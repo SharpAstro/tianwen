@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace TianWen.Lib.Astrometry.PlateSolve;
 
@@ -146,7 +147,9 @@ internal static class PairRansacLock
         int BestHits,
         double AcceptThreshold,
         double ExpectedChanceHits,
-        int Refinements)
+        int Refinements,
+        /// <summary>The scan was abandoned because the other parity locked first, so "no lock" here is not evidence there is none.</summary>
+        bool Cancelled = false)
     {
         /// <summary>Fraction of bright detected pairs the scan actually got to.</summary>
         internal double Coverage => DetectedPairsTotal == 0 ? 0 : (double)DetectedPairsTried / DetectedPairsTotal;
@@ -174,8 +177,10 @@ internal static class PairRansacLock
         int height,
         float scaleTolerance,
         out LockDiagnostics diagnostics,
-        float verifyRadiusPx = 4f)
+        float verifyRadiusPx = 4f,
+        CancellationToken cancellationToken = default)
     {
+        var cancelled = false;
         var nCat = Math.Min(MaxCatalogAnchors, catalogBright.Length);
         var nDet = Math.Min(MaxDetectedAnchors, detectedBright.Length);
         diagnostics = new LockDiagnostics(nCat, nDet, 0, false, 0, Math.Max(0, nDet * (nDet - 1) / 2), 0, 0, 0, 0);
@@ -304,6 +309,19 @@ internal static class PairRansacLock
                         goto scanDone;
                     }
 
+                    // Give up when the OTHER parity has already locked. Checked every 4096
+                    // hypotheses rather than every one: this is the innermost loop of the whole
+                    // solve, and a token read here would be measurable where the abandoned work
+                    // it saves is ~250k hypotheses. Leaves by the same path as the cap, so the
+                    // diagnostics still describe how far the scan actually got -- and says
+                    // CANCELLED, because "no lock" and "never finished looking" are different
+                    // facts and only one of them justifies not retrying.
+                    if ((hypotheses & 0xFFF) == 0 && cancellationToken.IsCancellationRequested)
+                    {
+                        cancelled = true;
+                        goto scanDone;
+                    }
+
                     // Similarity linear part from the complex ratio (detJ-detI)/(catB-catA):
                     // rotation + uniform scale, always chirality-preserving (det = re^2+im^2 > 0).
                     var dcx = catB.X - catA.X;
@@ -377,7 +395,7 @@ internal static class PairRansacLock
     scanDone:
         diagnostics = new LockDiagnostics(
             nCat, nDet, hypotheses, capHit, detectedPairsTried, nDet * (nDet - 1) / 2,
-            bestHits, acceptThreshold, expectedChance, refinements);
+            bestHits, acceptThreshold, expectedChance, refinements, cancelled);
 
         if (bestHits < acceptThreshold)
         {
