@@ -176,6 +176,22 @@
          repository with no LFS budget to spend. obj\ is gitignored, and the content does not vary by
          configuration, so sharing one copy across them is right anyway. -->
     <_Tycho2Expanded>$(BaseIntermediateOutputPath)tyc2.bin</_Tycho2Expanded>
+    <!-- The same treatment for the two HIP/HD to TYC cross-reference arrays, for the same reason and
+         with the same LFS-neutrality: the .lz files stay exactly as committed and are read-only
+         inputs, while the expansion lands in obj/ and is never a tracked object.
+         Measured 2026-08-31, cold init: LoadCrossRefBinFile spent 274.7 ms decompressing these two
+         (83.9 hip + 190.8 hd) against 131.4 ms actually decoding their records, and the main thread
+         blocks ~228 ms on the task at the tycho2-cross-ref-join phase, the largest item in a 530 ms
+         init. tyc2.bin got expanded and these did not, which is the whole of the gap; the code
+         comment calling them "cheap to decompress" was the assumption that hid it.
+         Expanded they are 0.57 + 1.71 = 2.29 MiB, against the 43.5 MiB expansion already accepted
+         next door, so this is a cheap trade. The .lz stay embedded as the fallback rather than being
+         Removed like tyc2's: at ~1.2 MiB they cost little, and keeping them means no build shape,
+         Lightweight included, can silently lose the HD/HIP cross-references. -->
+    <_HipToTycLz>$(MSBuildThisFileDirectory)Astrometry/Catalogs/hip_to_tyc.bin.lz</_HipToTycLz>
+    <_HipToTycExpanded>$(BaseIntermediateOutputPath)hip_to_tyc.bin</_HipToTycExpanded>
+    <_HdToTycLz>$(MSBuildThisFileDirectory)Astrometry/Catalogs/hd_to_tyc.bin.lz</_HdToTycLz>
+    <_HdToTycExpanded>$(BaseIntermediateOutputPath)hd_to_tyc.bin</_HdToTycExpanded>
   </PropertyGroup>
 
   <Target Name="ExpandTycho2"
@@ -187,7 +203,7 @@
     <PropertyGroup>
       <_LzipLibDllTyc>@(ReferenceCopyLocalPaths->WithMetadataValue('FileName','Lzip.Lib')->WithMetadataValue('Extension','.dll'))</_LzipLibDllTyc>
     </PropertyGroup>
-    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)..\..\tools\expand-tycho2.ps1&quot; -LzPath &quot;$(_Tycho2Lz)&quot; -OutPath &quot;$(_Tycho2Expanded)&quot; -LzipAssembly &quot;$(_LzipLibDllTyc)&quot;" />
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)../../tools/expand-tycho2.ps1&quot; -LzPath &quot;$(_Tycho2Lz)&quot; -OutPath &quot;$(_Tycho2Expanded)&quot; -LzipAssembly &quot;$(_LzipLibDllTyc)&quot;" />
   </Target>
 
   <!-- Registered in its own ungated target so the embed set is the same on an incremental build as
@@ -201,6 +217,38 @@
     <ItemGroup>
       <EmbeddedResource Include="$(_Tycho2Expanded)"
                         LogicalName="TianWen.Lib.Astrometry.Catalogs.tyc2.bin"
+                        WithCulture="false" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Mirrors ExpandTycho2 / EmbedTycho2Expanded for the cross-reference arrays. expand-tycho2.ps1
+       is already generic over (-LzPath, -OutPath), so this reuses it rather than adding a script. -->
+  <Target Name="ExpandTycho2CrossRef"
+          BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="ResolveReferences"
+          Condition="'$(Lightweight)' != 'true' AND Exists('$(_HipToTycLz)') AND Exists('$(_HdToTycLz)')"
+          Inputs="$(_HipToTycLz);$(_HdToTycLz)"
+          Outputs="$(_HipToTycExpanded);$(_HdToTycExpanded)">
+    <PropertyGroup>
+      <_LzipLibDllXref>@(ReferenceCopyLocalPaths->WithMetadataValue('FileName','Lzip.Lib')->WithMetadataValue('Extension','.dll'))</_LzipLibDllXref>
+    </PropertyGroup>
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)../../tools/expand-tycho2.ps1&quot; -LzPath &quot;$(_HipToTycLz)&quot; -OutPath &quot;$(_HipToTycExpanded)&quot; -LzipAssembly &quot;$(_LzipLibDllXref)&quot;" />
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)../../tools/expand-tycho2.ps1&quot; -LzPath &quot;$(_HdToTycLz)&quot; -OutPath &quot;$(_HdToTycExpanded)&quot; -LzipAssembly &quot;$(_LzipLibDllXref)&quot;" />
+  </Target>
+
+  <!-- Ungated so the embed set is identical incremental vs clean, as for EmbedTycho2Expanded.
+       LogicalName is explicit because these live in obj/, so the name MSBuild would derive from the
+       path is not the one LoadCrossRefBinFile looks for. -->
+  <Target Name="EmbedTycho2CrossRefExpanded"
+          BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="ExpandTycho2CrossRef"
+          Condition="'$(Lightweight)' != 'true' AND Exists('$(_HipToTycLz)') AND Exists('$(_HdToTycLz)')">
+    <ItemGroup>
+      <EmbeddedResource Include="$(_HipToTycExpanded)"
+                        LogicalName="TianWen.Lib.Astrometry.Catalogs.hip_to_tyc.bin"
+                        WithCulture="false" />
+      <EmbeddedResource Include="$(_HdToTycExpanded)"
+                        LogicalName="TianWen.Lib.Astrometry.Catalogs.hd_to_tyc.bin"
                         WithCulture="false" />
     </ItemGroup>
   </Target>

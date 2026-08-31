@@ -1645,13 +1645,36 @@ internal sealed partial class CelestialObjectDB : ICelestialObjectDB
 
     private static CatalogIndex[]? LoadCrossRefBinFile(Assembly assembly, string[] manifestNames, string name)
     {
-        var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + name + ".bin.lz"));
-        if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+        // EXPANDED FIRST, exactly as ReadTycho2Bulk does, and for a measured reason: decompressing
+        // these two cost 274.7 ms of a 530 ms cold init (83.9 hip + 190.8 hd) against 131.4 ms to
+        // decode their records, and the main thread blocks on the task for ~228 ms at the
+        // tycho2-cross-ref-join phase. tyc2.bin was expanded at build time and these were not, which
+        // was the entire gap; nothing about them is "cheap to decompress" as the old comment here
+        // claimed. The build's ExpandTycho2CrossRef writes the expansion into obj/, so the committed
+        // .lz -- an LFS object -- is untouched and stays the fallback for a build that skipped the
+        // target (Lightweight), which is why this is a preference and not a replacement.
+        var expandedManifest = manifestNames.FirstOrDefault(p => p.EndsWith("." + name + ".bin"));
+        byte[] data;
+        if (expandedManifest is not null && assembly.GetManifestResourceStream(expandedManifest) is Stream expandedStream)
         {
-            return null;
+            using (expandedStream)
+            {
+                data = ReadFully(expandedStream);
+            }
         }
+        else
+        {
+            var manifestFileName = manifestNames.FirstOrDefault(p => p.EndsWith("." + name + ".bin.lz"));
+            if (manifestFileName is null || assembly.GetManifestResourceStream(manifestFileName) is not Stream stream)
+            {
+                return null;
+            }
 
-        var data = LzipDecoder.Decompress(stream);
+            using (stream)
+            {
+                data = LzipDecoder.Decompress(stream);
+            }
+        }
 
         const int recordSize = 5;
         var count = data.Length / recordSize;

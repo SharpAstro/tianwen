@@ -218,7 +218,42 @@ Full init breakdown, `InitDBAsync(waitForTycho2BulkLoad: true)`, 587 ms total:
 | predefined | 16.9 |
 | **tycho2-bulk-wait** | **0.3** |
 
-**The real bottleneck is `ReadTycho2CrossRefArrays`** (`hip_to_tyc` + `hd_to_tyc`), and note what the
+#### What was actually wrong, and the fix (SHIPPED 2026-08-31)
+
+`LoadCrossRefBinFile` still lzip-decompressed `hip_to_tyc.bin.lz` and `hd_to_tyc.bin.lz` on every
+start. `tyc2.bin` got the build-time expansion and these two never did, and that was the entire gap:
+
+| file | records | decompress | decode loop |
+|---|---|---|---|
+| `hip_to_tyc` | 120,404 | 83.9 ms | 39.9 ms |
+| `hd_to_tyc` | 359,083 | 190.8 ms | 91.5 ms |
+| total | 479,487 | **274.7 ms** | 131.4 ms |
+
+`ExpandTycho2CrossRef` reuses the existing (already generic) `expand-tycho2.ps1`, and the loader
+prefers the expanded resource with the `.lz` kept as fallback. **LFS-neutral by construction**, which
+is the point: the committed `.lz` are LFS objects and are untouched read-only inputs, while the
+expansion lands in `obj/` and is never tracked. Expanded they are 0.57 + 1.71 = 2.29 MiB, against the
+43.5 MiB expansion already accepted next door.
+
+Result:
+
+| phase | before | after |
+|---|---|---|
+| tycho2-cross-ref-join | 269.9 ms | **0.0 ms** |
+| **total init** | **587 ms** | **343 ms** |
+
+**And that makes the other half of this phase pointless, which is worth stating rather than doing.**
+The per-record `EncodeTyc2CatalogIndex` -> base91 string -> `AbbreviationToCatalogIndex` round trip is
+still there, still ~131 ms, and now saves NOTHING: the join waits 0.0 ms, so those 131 ms run entirely
+in the shadow of the ~198 ms of main-thread work (ngc-csv + simbad + shapes + predefined) that precedes
+the await. Removing the string round trip would optimise work that no longer blocks anything. Leave it
+until the main-thread phases shrink below it; the numbers above are how you would know.
+
+The new largest item is `hd-hip-cross` at 121.8 ms, and note that is already the 2A snapshot's FAST
+path (read 48.8 + apply 72.0), so it is a different kind of target from a decompression that should
+never have been happening.
+
+**The original bottleneck claim, for the record:** (`hip_to_tyc` + `hd_to_tyc`), and note what the
 270 ms IS: a `await tycho2CrossRefTask`, i.e. the main thread BLOCKED. That task is already kicked off
 first and already overlapped with every other main-thread phase, so the 270 ms is what remains after
 all the overlap there is -- its own wall is ~446 ms. Making init faster therefore means making that
