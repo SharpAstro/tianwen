@@ -72,7 +72,10 @@ public class RealFrameSolveTests(ITestOutputHelper output)
             sw.Stop();
             if (result.Solution is { } s)
             {
-                output.WriteLine($"{label,-8} SOLVED {sw.ElapsedMilliseconds,6} ms  centre=({s.CenterRA:F5}h, {s.CenterDec:F4}) rot={s.RotationDeg:F2} scale={s.PixelScaleArcsec:F4}\"/px  CD=[{s.CD1_1:E3} {s.CD1_2:E3}; {s.CD2_1:E3} {s.CD2_2:E3}] det={(s.CD1_1 * s.CD2_2 - s.CD1_2 * s.CD2_1):E3}  race: abandoned={solver.LastParityRace.AbandonedAParity} winnerIsStd={solver.LastParityRace.WinnerIsStd} reRan={solver.LastParityRace.ReRanAbandonedParity}");
+                var prior = solver.LastScalePrior is { } sp
+                    ? $"ratio {sp.Ratio:F5} ({sp.Candidates} cands, spread {sp.RelativeSpread:F4}) -> {dim.Value.PixelScale / sp.Ratio:F4}\"/px"
+                    : "declined";
+                output.WriteLine($"{label,-8} SOLVED {sw.ElapsedMilliseconds,6} ms  centre=({s.CenterRA:F5}h, {s.CenterDec:F4}) rot={s.RotationDeg:F2} scale={s.PixelScaleArcsec:F4}\"/px  CD=[{s.CD1_1:E3} {s.CD1_2:E3}; {s.CD2_1:E3} {s.CD2_2:E3}] det={(s.CD1_1 * s.CD2_2 - s.CD1_2 * s.CD2_1):E3}  race: abandoned={solver.LastParityRace.AbandonedAParity} winnerIsStd={solver.LastParityRace.WinnerIsStd} reRan={solver.LastParityRace.ReRanAbandonedParity}  quad scale: {prior}");
             }
             else
             {

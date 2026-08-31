@@ -288,6 +288,137 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// Picks the guard the recovered scale must pass before it is trusted, from data rather
+        /// than by guess.
+        ///
+        /// <para>A tight window around a WRONG scale locks nothing, so narrowing the seed to +/-1%
+        /// is only safe when we can tell a good recovery from a bad one WITHOUT knowing the answer.
+        /// The measurement above found 23 of 24 panels within 1% -- so the whole design rests on
+        /// whether that 24th panel is IDENTIFIABLE at the time, and the only signals available then
+        /// are the candidate count and the spread of the candidate ratios. This reports both against
+        /// the error, per panel, so the threshold is read off the separation instead of invented.
+        /// </para>
+        ///
+        /// <para>Spread is the more promising of the two on principle: a contaminated candidate set
+        /// is contaminated by CHANCE ratio matches, which scatter, while a set carrying real shared
+        /// quads agrees tightly. A count cannot distinguish fifty agreeing candidates from fifty
+        /// scattered ones. But principle is not evidence, so both are printed.</para>
+        /// </summary>
+        [Fact]
+        public void ReportWhichSignalIdentifiesABadScaleRecovery()
+        {
+            Assert.SkipUnless(
+                !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TIANWEN_QUAD_FEASIBILITY")),
+                "Set TIANWEN_QUAD_FEASIBILITY=1 to run the phase-C feasibility probe");
+
+            var manifest = VelaMosaicStarLists.Manifest;
+            const float Tol = 0.004f;
+
+            // Truth is NOT the nominal scale times the injected error. The manifest's
+            // PixelScaleArcsec is the panel's DECLARED scale (what the header said); the frozen
+            // solution's own CD matrix says what the optics actually deliver, and the two differ by
+            // the same sub-percent class this whole plan is about. Comparing against the declared
+            // one charges the recovery for the header's error, which is the error it exists to find.
+            output.WriteLine("panel    cands   median  truth    err%     IQR/med   MAD/med  hdr-vs-solved%");
+            var goodMinCands = int.MaxValue;
+            var goodMaxSpread = 0.0;
+            var badCands = new List<int>();
+            var badSpread = new List<double>();
+
+            foreach (var panel in manifest.Panels)
+            {
+                var frame = panel.Frames[0];
+                var det = frame.DetectedPoints(TopK);
+
+                var wrongDim = new ImageDim(panel.PixelScaleArcsec * ScaleErrorFactor, panel.Width, panel.Height);
+                var hintWcs = VelaProjection.HintWcs(frame.Hint, wrongDim);
+                var catAll = VelaProjection.ProjectInFrameIndexed(
+                    manifest.Catalog, hintWcs, panel.Width, panel.Height);
+                var catTake = Math.Min(TopK, catAll.Count);
+                var cat = new Vector2[catTake];
+                for (var i = 0; i < catTake; i++)
+                {
+                    cat[i] = new Vector2(catAll[i].X, catAll[i].Y);
+                }
+
+                if (det.Length < 50 || cat.Length < 50)
+                {
+                    continue;
+                }
+
+                var imageQuads = BuildQuads(det);
+                var catQuads = BuildQuads(cat);
+
+                var ratios = new List<float>();
+                for (var i = 0; i < imageQuads.Count; i++)
+                {
+                    var q = imageQuads[i];
+                    for (var j = 0; j < catQuads.Count; j++)
+                    {
+                        var c = catQuads[j];
+                        if (MathF.Abs(q.Dist2 - c.Dist2) <= Tol
+                            && MathF.Abs(q.Dist3 - c.Dist3) <= Tol
+                            && MathF.Abs(q.Dist4 - c.Dist4) <= Tol
+                            && MathF.Abs(q.Dist5 - c.Dist5) <= Tol
+                            && MathF.Abs(q.Dist6 - c.Dist6) <= Tol
+                            && c.Dist1 > 0)
+                        {
+                            ratios.Add(q.Dist1 / c.Dist1);
+                        }
+                    }
+                }
+
+                if (ratios.Count == 0)
+                {
+                    output.WriteLine($"{panel.Id,-8} {0,5}   -- no candidates --");
+                    badCands.Add(0);
+                    badSpread.Add(double.PositiveInfinity);
+                    continue;
+                }
+
+                ratios.Sort();
+                var median = Pct(ratios, 0.5);
+
+                // The catalog was projected at (declared x injected error) arcsec/px and the image
+                // sits at whatever the optics actually deliver, so the ratio a correct recovery
+                // returns is that quotient -- not the injected factor alone.
+                var solvedScale = frame.Wcs.PixelScaleArcsec;
+                var truth = panel.PixelScaleArcsec * ScaleErrorFactor / solvedScale;
+                var headerVsSolved = 100.0 * (panel.PixelScaleArcsec - solvedScale) / solvedScale;
+                var errPct = 100.0 * Math.Abs(median - truth) / truth;
+                var iqr = (Pct(ratios, 0.75) - Pct(ratios, 0.25)) / median;
+
+                // MAD about the median, normalised -- the robust scatter of the candidate set.
+                var devs = new List<float>(ratios.Count);
+                foreach (var r in ratios)
+                {
+                    devs.Add(MathF.Abs(r - median));
+                }
+                devs.Sort();
+                var mad = Pct(devs, 0.5) / median;
+
+                output.WriteLine(
+                    $"{panel.Id,-8} {ratios.Count,5}   {median:F4}  {truth:F4}  {errPct,6:F3}   {iqr,7:F4}   {mad,7:F4}  {headerVsSolved,8:F3}");
+
+                if (errPct <= 1.0)
+                {
+                    goodMinCands = Math.Min(goodMinCands, ratios.Count);
+                    goodMaxSpread = Math.Max(goodMaxSpread, mad);
+                }
+                else
+                {
+                    badCands.Add(ratios.Count);
+                    badSpread.Add(mad);
+                }
+            }
+
+            output.WriteLine("");
+            output.WriteLine($"within 1%: min candidates {goodMinCands}, max MAD/median {goodMaxSpread:F4}");
+            output.WriteLine($"outside 1%: candidates [{string.Join(", ", badCands)}], " +
+                $"MAD/median [{string.Join(", ", badSpread.ConvertAll(d => d.ToString("F4")))}]");
+        }
+
+        /// <summary>
         /// What a recovered scale would be WORTH to the seed, which is the question that decides
         /// whether the recovery above is worth building.
         ///
@@ -308,7 +439,21 @@ namespace TianWen.Lib.Tests
 
             var manifest = VelaMosaicStarLists.Manifest;
 
-            foreach (var scaleTol in new[] { 0.05f, 0.02f, 0.01f })
+            // Swept below 1% deliberately. PairRansacLock admits a catalog pair on
+            // [dDet/(1+tol) - 3, dDet/(1-tol) + 3] px, and that +/-3 px is ABSOLUTE, so there is a
+            // floor -- but MEASURED it is far below where reasoning from the minimum baseline puts
+            // it. At the 601 px baseline MinBaselineFraction enforces, 3 px is 0.5% and the absolute
+            // term does dominate; the pair POPULATION is mostly much longer baselines (up to the
+            // ~4,000 px diagonal, where the fractional half-width at 0.5% is 20 px against the same
+            // 3 px), so the fraction still rules for most pairs and counts keep falling to 0.1%.
+            // The floor binds the shortest baselines only.
+            // A window is a width AND a centre, and the centre is the thing under test. "declared"
+            // projects at the header's own scale, which the guard measurement shows is ~0.29% off;
+            // "recovered" projects at the solved scale, standing in for what quad recovery returns
+            // (accurate to better than 0.07%, so the substitution is honest to well inside the
+            // narrowest window swept). Sweeping width against the wrong centre measures the centre.
+            foreach (var centre in new[] { "declared", "recovered" })
+            foreach (var scaleTol in new[] { 0.05f, 0.02f, 0.01f, 0.005f, 0.0025f, 0.001f })
             {
                 long hypotheses = 0;
                 var locks = 0;
@@ -318,10 +463,13 @@ namespace TianWen.Lib.Tests
                 {
                     var frame = panel.Frames[0];
                     var det = frame.DetectedPoints();
+                    var dim = centre == "declared"
+                        ? panel.Dim
+                        : new ImageDim(frame.Wcs.PixelScaleArcsec, panel.Width, panel.Height);
 
                     foreach (var xSign in new[] { -1.0, 1.0 })
                     {
-                        var hintWcs = VelaProjection.HintWcs(frame.Hint, panel.Dim, xSign);
+                        var hintWcs = VelaProjection.HintWcs(frame.Hint, dim, xSign);
                         var pool = VelaProjection.ProjectInFrame(
                             manifest.Catalog, hintWcs, panel.Width, panel.Height);
                         if (pool.Length < 50)
@@ -342,8 +490,9 @@ namespace TianWen.Lib.Tests
                 }
 
                 output.WriteLine(
-                    $"scale window +/-{scaleTol:P0}: {hypotheses:N0} hypotheses over {attempts} parity attempts " +
-                    $"({(attempts > 0 ? hypotheses / (double)attempts : 0):N0}/attempt), {locks} locked");
+                    $"{centre,-9} centre, window +/-{100 * scaleTol,5:F3}%: {hypotheses,12:N0} hypotheses over " +
+                    $"{attempts} parity attempts ({(attempts > 0 ? hypotheses / (double)attempts : 0),9:N0}/attempt), " +
+                    $"{locks,2} locked");
             }
         }
 
