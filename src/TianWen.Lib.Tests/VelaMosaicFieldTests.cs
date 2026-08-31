@@ -2,8 +2,10 @@ using Shouldly;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading.Tasks;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.PlateSolve;
+using TianWen.Lib.Imaging;
 using Xunit;
 
 namespace TianWen.Lib.Tests
@@ -136,13 +138,34 @@ namespace TianWen.Lib.Tests
             {
                 var det = frame.DetectedPoints();
 
+                // Seed the way the SHIPPED path seeds, not through a window of the test's own
+                // choosing: recover the plate scale from the quads and search inside
+                // RecoveredScaleTolerance of it, falling back to the header's scale at
+                // MinPairLockScaleTolerance when the recovery declines. Recovery runs ONCE, off a
+                // single parity, because the five quad ratios are reflection-invariant -- which is
+                // also why the solver computes it before its own parity race.
+                //
+                // It is what a session actually runs, it is ~5x less work than the +/-3% window this
+                // used to spend, and it turns these 96 frames into a LOCK-level guard on the
+                // recovery. That the recovery keeps FIRING is guarded next door, by
+                // QuadScaleRecoveryTests' recovered-panel count; without that, a recovery that
+                // started declining everywhere would quietly fall back to +/-5% here and still pass.
+                var quadHintWcs = VelaProjection.HintWcs(frame.Hint, dim);
+                var quadProjected = VelaProjection.ProjectInFrame(
+                    Manifest.Catalog, quadHintWcs, panel.Width, panel.Height);
+                var recovery = QuadScaleRecovery.TryRecover(det, quadProjected);
+                var seedScaleRad = recovery is { } r ? pixelScaleRad / r.Ratio : pixelScaleRad;
+                var seedTolerance = recovery is null
+                    ? CatalogPlateSolver.MinPairLockScaleTolerance
+                    : CatalogPlateSolver.RecoveredScaleTolerance;
+
                 // Both parities, exactly as the solver tries them.
                 PairRansacLock.LockResult? best = null;
                 var bestXSign = 0.0;
                 foreach (var xSign in new[] { -1.0, 1.0 })
                 {
-                    if (CatalogPlateSolver.TrySeedPairLock(catalog, det, frame.Hint, pixelScaleRad,
-                            cx, cy, dim, xSign, scaleTolerance: 0.03f) is { } locked
+                    if (CatalogPlateSolver.TrySeedPairLock(catalog, det, frame.Hint, seedScaleRad,
+                            cx, cy, dim, xSign, seedTolerance) is { } locked
                         && (best is null || locked.Hits > best.Value.Hits))
                     {
                         best = locked;
@@ -169,7 +192,8 @@ namespace TianWen.Lib.Tests
                 // with the hint projection must therefore reproduce the frozen solution, which is
                 // the only statement that matters: a lock with the right hit count but the wrong
                 // geometry would still ruin the solve.
-                var hintWcs = VelaProjection.HintWcs(frame.Hint, dim, bestXSign);
+                var seedDim = new ImageDim((float)(double.RadiansToDegrees(seedScaleRad) * 3600.0), dim.Width, dim.Height);
+                var hintWcs = VelaProjection.HintWcs(frame.Hint, seedDim, bestXSign);
                 var checkedStars = 0;
                 var worstErr = 0.0;
                 for (var i = 0; i < Manifest.Catalog.Length && checkedStars < 400; i++)
@@ -197,6 +221,7 @@ namespace TianWen.Lib.Tests
                     $"{panelId}/{frame.Name}: seed disagrees with the frozen solution by {worstErr:F1} px");
 
                 output.WriteLine($"{panelId}/{frame.Name}: seeded xSign={bestXSign:+0;-0} " +
+                    $"[{(recovery is { } rec ? $"quad {rec.Ratio:F5}/{rec.Candidates}c, +/-{100 * seedTolerance:F2}%" : $"header, +/-{100 * seedTolerance:F0}%")}] " +
                     $"{lockResult.Hits}/{lockResult.Census} hits (chance {lockResult.ExpectedChanceHits:F1}) " +
                     $"in {lockResult.Hypotheses} hypotheses, worst-of-{checkedStars} seed error {worstErr:F1} px");
             }
@@ -239,19 +264,31 @@ namespace TianWen.Lib.Tests
             {
                 var frame = panel.Frames[0];
                 var dim = panel.Dim;
-                var pixelScaleRad = double.DegreesToRadians(dim.PixelScale / 3600.0);
                 var det = frame.DetectedPoints();
+
+                // Seeded on the shipped window, as the theory above is: this test is about which
+                // anchor POOL locks, so it must not be the last place still paying for a wide scale
+                // search. Recovery is per panel and parity-blind, exactly as the solver runs it.
+                var quadProjected = VelaProjection.ProjectInFrame(
+                    Manifest.Catalog, VelaProjection.HintWcs(frame.Hint, dim), panel.Width, panel.Height);
+                var recovery = QuadScaleRecovery.TryRecover(det, quadProjected);
+                var seedDim = recovery is { } r
+                    ? new ImageDim((float)(dim.PixelScale / r.Ratio), dim.Width, dim.Height)
+                    : dim;
+                var seedTolerance = recovery is null
+                    ? CatalogPlateSolver.MinPairLockScaleTolerance
+                    : CatalogPlateSolver.RecoveredScaleTolerance;
 
                 var strict = false;
                 var margined = false;
                 foreach (var xSign in new[] { -1.0, 1.0 })
                 {
-                    var hintWcs = VelaProjection.HintWcs(frame.Hint, dim, xSign);
+                    var hintWcs = VelaProjection.HintWcs(frame.Hint, seedDim, xSign);
                     foreach (var margin in new[] { 0.0, 0.1 })
                     {
                         var pool = VelaProjection.ProjectInFrame(Manifest.Catalog, hintWcs, panel.Width, panel.Height, margin);
                         if (PairRansacLock.TryLock(pool, det, det, panel.Width, panel.Height,
-                                scaleTolerance: 0.03f, out _) is not null)
+                                seedTolerance, out _) is not null)
                         {
                             if (margin == 0.0)
                             {
@@ -309,45 +346,70 @@ namespace TianWen.Lib.Tests
         public void UnrelatedDenseFieldsMustNotLock()
         {
             var footprints = new Dictionary<string, HashSet<int>>();
+            // Both of these depend on ONE panel, and the pair sweep below asks for them O(n^2)
+            // times: every panel's field was being re-projected out of 78k catalog stars, and its
+            // detected list rebuilt, once per partner rather than once. Hoisting changes nothing
+            // about what is tested.
+            var fields = new Dictionary<string, Vector2[]>();
+            var detected = new Dictionary<string, Vector2[]>();
             foreach (var panel in Manifest.Panels)
             {
                 footprints[panel.Id] = InFrameIndices(panel, panel.Frames[0]);
+                // B's field at full in-frame density, as B's own camera saw it.
+                fields[panel.Id] = VelaProjection.ProjectInFrame(Manifest.Catalog, panel.Frames[0].Wcs, panel.Width, panel.Height);
+                detected[panel.Id] = panel.Frames[0].DetectedPoints();
             }
 
-            var tested = 0;
+            var pairs = new List<(VelaPanel A, VelaPanel B)>();
             foreach (var a in Manifest.Panels)
             {
                 foreach (var b in Manifest.Panels)
                 {
-                    if (ReferenceEquals(a, b) || footprints[a.Id].Overlaps(footprints[b.Id]))
+                    if (!ReferenceEquals(a, b) && !footprints[a.Id].Overlaps(footprints[b.Id]) && fields[b.Id].Length >= 100)
                     {
-                        continue;
-                    }
-
-                    // B's field at full in-frame density, as B's own camera saw it.
-                    var bField = VelaProjection.ProjectInFrame(Manifest.Catalog, b.Frames[0].Wcs, b.Width, b.Height);
-                    if (bField.Length < 100)
-                    {
-                        continue;
-                    }
-
-                    var aDet = a.Frames[0].DetectedPoints();
-                    var result = PairRansacLock.TryLock(bField, aDet, aDet, a.Width, a.Height,
-                        scaleTolerance: 0.03f, out var diagnostics);
-
-                    result.ShouldBeNull($"{a.Id} detected stars must not lock onto {b.Id}'s unrelated field " +
-                        $"({bField.Length} catalog stars in frame): {diagnostics}");
-                    tested++;
-
-                    if (tested <= 5)
-                    {
-                        output.WriteLine($"{a.Id} vs {b.Id}: correctly no lock -- {diagnostics}");
+                        pairs.Add((a, b));
                     }
                 }
             }
 
-            tested.ShouldBeGreaterThan(20, "expected many non-overlapping panel pairs in a 24-panel mosaic");
-            output.WriteLine($"{tested} non-overlapping panel pairs, none locked.");
+            // The one seed in this suite still searching the WIDE window, deliberately: a false lock
+            // is what the pair matcher exists to refuse, and a wide scale search is the adversarial
+            // condition for it -- it hands the matcher the most freedom to find a spurious
+            // consensus. Narrowing this to the shipped +/-0.25% takes it from 45 s to 3 s and makes
+            // the pass mean strictly less, which is the wrong trade for the one test the whole
+            // pair-lock effort was written to satisfy. So it stays wide and gets its time back from
+            // the fact that every pair is an independent pure computation over frozen data instead.
+            // Bounded at half the box rather than left unbounded: other xunit collections run beside
+            // this one, and the suite's own runner is pinned to 4 threads for the same reason.
+            var outcomes = new (bool Locked, string Diagnostics)[pairs.Count];
+            Parallel.For(0, pairs.Count,
+                new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) },
+                i =>
+                {
+                    var (a, b) = pairs[i];
+                    var aDet = detected[a.Id];
+                    var result = PairRansacLock.TryLock(fields[b.Id], aDet, aDet, a.Width, a.Height,
+                        scaleTolerance: 0.03f, out var diagnostics);
+                    outcomes[i] = (result is not null, diagnostics.ToString());
+                });
+
+            // Asserted afterwards, in order, so the failure names every false lock rather than
+            // whichever one a worker happened to throw from first, and so the sample lines below are
+            // the same five pairs on every run.
+            for (var i = 0; i < pairs.Count; i++)
+            {
+                var (a, b) = pairs[i];
+                outcomes[i].Locked.ShouldBeFalse($"{a.Id} detected stars must not lock onto {b.Id}'s unrelated field " +
+                    $"({fields[b.Id].Length} catalog stars in frame): {outcomes[i].Diagnostics}");
+
+                if (i < 5)
+                {
+                    output.WriteLine($"{a.Id} vs {b.Id}: correctly no lock -- {outcomes[i].Diagnostics}");
+                }
+            }
+
+            pairs.Count.ShouldBeGreaterThan(20, "expected many non-overlapping panel pairs in a 24-panel mosaic");
+            output.WriteLine($"{pairs.Count} non-overlapping panel pairs, none locked.");
         }
 
         /// <summary>

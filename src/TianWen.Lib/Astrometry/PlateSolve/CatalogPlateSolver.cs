@@ -636,7 +636,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// distance and an orientation, and a distance has units. Widening the window is what a
     /// pair-based seed can do instead.</para>
     /// </remarks>
-    private const float MinPairLockScaleTolerance = 0.05f;
+    internal const float MinPairLockScaleTolerance = 0.05f;
 
     /// <summary>
     /// Scale window the seed is given once the scale came from the STARS rather than the header.
@@ -655,7 +655,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// The remaining 1.5x is not worth spending the margin on, and an exact prior (a scale carried
     /// forward from a previous solve, the way parity is) is the thing that would earn it.</para>
     /// </remarks>
-    private const float RecoveredScaleTolerance = 0.0025f;
+    internal const float RecoveredScaleTolerance = 0.0025f;
 
     private SolveAttempt TrySolveWithProximityMatching(
         StarList detectedStars,
