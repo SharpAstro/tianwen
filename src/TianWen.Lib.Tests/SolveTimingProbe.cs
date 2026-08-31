@@ -226,6 +226,26 @@ namespace TianWen.Lib.Tests
                         : $"no solution ({r.Elapsed.TotalMilliseconds:F0} ms)"));
             }
 
+
+            // Hypothesis 3, and the one that holds: the hint is simply too far off for an anchor
+            // pool PROJECTED FROM IT. ASTAP -- which searches a spiral of sky positions rather than
+            // trusting the hint as the centre -- puts this crop 1.53 deg from where its header says,
+            // on a 2.17 deg field, so about three quarters of the pool the seed projects into the
+            // frame is not in the frame at all. Widening the search RADIUS cannot touch that: the
+            // radius widens the catalog QUERY, while the pool's footprint is the HINT's own frame.
+            var astapOrigin = new WCS(8.69653, -48.0400);
+            capture.Lines.Clear();
+            output.WriteLine($"  hint is {SepDeg(hint.CenterRA, hint.CenterDec, astapOrigin.CenterRA, astapOrigin.CenterDec) * 60:F0} arcmin off ASTAP's centre, on a {declared.FieldOfView.width:F2} deg frame");
+            var corrected = await solver.SolveImageAsync(image, declared, searchOrigin: astapOrigin, cancellationToken: ct);
+            output.WriteLine($"  re-hinted at ASTAP's centre -> " +
+                (corrected.Solution is { } cs
+                    ? $"SOLVED in {corrected.Elapsed.TotalMilliseconds:F0} ms at ({cs.CenterRA:F5}h {cs.CenterDec:F4}), {cs.PixelScaleArcsec:F4}\"/px, {corrected.MatchedStars} matched"
+                    : $"still no solution ({corrected.Elapsed.TotalMilliseconds:F0} ms)"));
+            foreach (var line in capture.Lines)
+            {
+                output.WriteLine($"    | {line}");
+            }
+
             image.Release();
         }
 

@@ -496,13 +496,39 @@ recovery fires on 94 of 96 frozen Vela frames, so the low coverage is a property
 frames, not of the method.
 
 **The failure path costs 4.0 s, 65x a warm success**, because the refinement loop runs to exhaustion
-before the acceptance gate refuses. The frame that prices it is an open question in its own right:
-the `Vela_SNR_Panel_10` crop does not solve at ANY search radius out to 12 deg (75k catalog stars),
-nor at any scale from 0.5x to 2x the declared one, on a dense star-rich field yielding 1569
-detections -- and the gate's reason is `0 of 120` bright detections within 3 px, which is total rather
-than marginal. Nothing regressed: it had never been asked for a WCS before (it is a stretch / colour /
-codec fixture everywhere else). It is an unexplained gap on a deep narrowband master, and it is the
-one frame in the set whose failure is not understood.
+before the acceptance gate refuses. The frame that prices it, the `Vela_SNR_Panel_10` crop, turns out
+to be a real gap in this solver -- and **the obvious experiment gives the wrong answer about it**. It
+does not solve at any search radius out to 12 deg (75,062 catalog stars) nor at any scale from 0.5x to
+2x the declared one, which reads as "not pointing, not scale". Both sweeps are misleading. ASTAP
+solves the same file in 0.7 s with 71 of 72 quads matched, and its solution says why: the crop's
+header points **93 arcmin** from where the frame actually is, on a **2.17 deg** field. That is 70% of
+the frame width, leaving the hint-projected frame overlapping the real one by **26%**. Hand our own
+solver ASTAP's centre and it solves in **23 ms** with 613 stars matched -- faster than anything else
+in the set.
+
+**A wider search radius cannot fix a bad hint, which is the whole trap.** `searchRadius` widens the
+catalog QUERY, while the seed's anchor pool is the brightest catalog stars that project INSIDE THE
+FRAME from the hint -- so the pool's footprint is the hint's own frame however wide the query gets,
+and three quarters of it is off-frame and undetectable by construction. That is the same failure mode
+the margined anchor pool exists for, at an offset far past what a 10% margin reaches. ASTAP does not
+have it because its `-r` means "search a spiral of sky POSITIONS around the hint", not "query wider".
+The control sits right beside it: the P8 crop's header is 12 arcmin off (5% of its frame width, 93%
+overlap) and solves normally. **So the missing capability is a positional search around the hint**,
+not a bigger radius and not a bigger catalog -- worth its own phase if a wrong-by-a-field-width hint
+is a case worth serving, which for a mosaic crop or a badly-synced mount it is.
+
+**Narrowband is NOT implicated, and the quad-candidate count is not an independent signal.** These
+panels are HOO (Ha into R, OIII into G and B), so "the anchor pool is ranked by a broadband magnitude
+the image does not measure" was the natural competing explanation, and P10's 4 agreeing quad
+candidates against P8's 18 looked like its evidence. It is not: `QuadScaleRecovery` projects the
+catalog through the SAME hint the seed does, so a 74%-off-frame projection starves the quad list by
+exactly the same mechanism. Re-hinted, the identical HOO pixels give **17 candidates at spread
+0.0005**, an rms of 0.19 px and 613 matched stars. **So read a declined recovery as evidence about the
+HINT as much as about the frame** -- which is worth remembering next to the real-frame decline counts
+above, where the header's pointing was never separately checked.
+
+Nothing regressed: P10 had never been asked for a WCS before (it is a stretch / colour / codec fixture
+everywhere else), which is exactly why the gap had gone unmeasured.
 
 ### D. Cap the star list; bin ONLY where sampling allows it
 
