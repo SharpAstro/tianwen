@@ -44,14 +44,32 @@ namespace TianWen.Lib.Imaging;
 /// different populations (faint catalog stars below the detection threshold, detected artefacts
 /// absent from the catalog). The differing nearest-neighbour sets produce incompatible quad
 /// geometries, yielding too few matches for a reliable affine fit, and top-K brightness
-/// selection does <em>not</em> rescue it: probed on a dense Vela field (5,080 in-frame catalog
-/// stars, 1,580 detected), no quad lock formed at any K from 50 to 500 in either parity,
-/// because saturation scrambles the bright-end flux-vs-magnitude ranking and a quad needs the
-/// same four stars with the same three-nearest-neighbour relations on both sides. Plate solving
-/// therefore locks geometry with two-star pair hypotheses instead
-/// (<c>PairRansacLock</c>, which needs only two common members per hypothesis and verifies by
-/// global consensus), followed by proximity matching with brightness-rank penalties
-/// (see <c>CatalogPlateSolver</c>).</para>
+/// selection does <em>not</em> rescue it. Plate solving therefore locks geometry with two-star pair
+/// hypotheses instead (<c>PairRansacLock</c>, which needs only two common members per hypothesis
+/// and verifies by global consensus), followed by proximity matching with brightness-rank
+/// penalties (see <c>CatalogPlateSolver</c>).</para>
+///
+/// <para><b>Quantified 2026-08-31, and the earlier "no quad lock at any K from 50 to 500" was two
+/// effects reported as one.</b> Re-probed by <c>QuadCatalogFeasibilityProbe</c> over 24 frozen Vela
+/// panels with the catalog projected through each frame's own solution -- so the two point sets
+/// share a pixel frame exactly and every confound is removed in quad matching's favour -- 73.2% of
+/// detected stars have a catalog counterpart at K=500 but only <b>15.8% of quads are shared</b>,
+/// against the 28% that independent membership would give. That is the population argument holding
+/// exactly as described: one interloper in a neighbourhood re-wires which four stars are mutually
+/// nearest. But it is not zero, and under that shared frame <see cref="FindFit"/> locks 6 of 24
+/// panels, so the flat "no lock at any K" was measuring something else as well -- the mixed-unit
+/// tolerance noted above. <see cref="StarQuad.WithinTolerance"/> tests <c>Dist1</c> in absolute px
+/// against the same value as the five ratios, so a catalog projection at a hinted (i.e. wrong)
+/// scale is rejected on <c>Dist1</c> before its ratios are ever considered, and no single tolerance
+/// serves both: wide enough for the scale error in px leaves the ratios open to everything.</para>
+///
+/// <para>What the shared quads DO establish is that the descriptor is sharp when the four stars
+/// survive -- worst-of-five-ratios error median 0.0004-0.0010, p90 &lt;= 0.0039 against the 0.008
+/// default -- and that the <c>Dist1</c> ratio recovers the plate scale to within 0.3% of a
+/// deliberately 3.9%-wrong prior on 23 of 24 panels, matching on the five ratios ALONE. So quads
+/// are the right instrument for the solver's SCALE prior (see <c>C'</c> in
+/// <c>docs/plans/plate-solver-performance.md</c>) and the wrong one for its correspondences. Note
+/// they cannot settle parity either: reflection preserves distances.</para>
 /// </summary>
 public class StarReferenceTable
 {

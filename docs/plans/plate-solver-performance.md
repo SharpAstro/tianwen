@@ -76,7 +76,9 @@ comparisons once; we do millions, repeatedly.
 
 **We already own a quad matcher.** `FrameRegistration.TryMatchAsync` and
 `SortedStarList.FindQuadsAsync` do exactly this for frame-to-frame stacking registration (the
-`--quad-stars` knob). It has never been pointed at the catalog side.
+`--quad-stars` knob). ~~It has never been pointed at the catalog side.~~ **It has, and that
+sentence was stale when written** -- `StarReferenceTable`'s own XML doc had said so since
+`edd18996`. What the two claims cost, and what the measurement settled, is phase C below.
 
 ## Phases
 
@@ -86,7 +88,8 @@ Ordered by return per unit of risk; each independently shippable and measurable.
 |---|---|---|---|---|
 | A | Cancel the losing parity (916k wasted hypotheses) -- **SHIPPED** | ~200 ms | nothing | low |
 | B | ~~Tycho-2 pre-baked region index~~ -- **OBSOLETE: already done, worth 0.3 ms** | ~~500 ms~~ 0 | n/a | n/a |
-| C | Quad-descriptor matching, reusing `FrameRegistration`'s existing matcher | ~300 ms | nothing, and it *removes* our reliance on `FOCALLEN` | medium |
+| C | ~~Quad-descriptor matching replacing the refinement loop~~ -- **MEASURED DEAD: 15.8% of quads are shared even under a perfect prior** | ~~300 ms~~ 0 | n/a | n/a |
+| C' | Quads for the SCALE only: recover it with no prior, narrow the seed's window 5% -> 1% | 2.8x fewer seed hypotheses (ms not yet measured) | nothing, and it *removes* our reliance on `FOCALLEN` | low |
 | D | Cap the star list to ~500 -> yes; bin -> **no** | ~60 ms | binning does, so it is gated on measured FWHM and default off | low |
 
 Target after A-C: **~260 ms**, against ASTAP's 162 ms -- **written before B was measured to be
@@ -297,18 +300,100 @@ one a user is watching.
 
 ### C. Quad-descriptor matching against the catalog
 
-The substantive one. Build quads from the top-K detected stars (existing machinery), build quads
-from the catalog window, match on the five scaled distances, take the plate scale from the median
-longest-side ratio. This replaces the iterative proximity loop and also removes our dependence on
-the header scale -- right independently of speed, since `FOCALLEN` was 1.2% wrong on this rig and is
-only ever a hint. Worth noting WHICH side was wrong: the header said 205 mm because that was typed
-into the profile by mistake, while the optics are 202.5 mm and the solver recovered 202.4 mm from
-the stars alone. So the header scale is unreliable not because solving is hard but because nothing
-validates what a human entered, which is the argument for not depending on it.
+**Measured 2026-08-31 by `QuadCatalogFeasibilityProbe` (`TIANWEN_QUAD_FEASIBILITY=1`), and it splits
+this phase in two: the matching half is dead, the SCALE half is alive and is the half this plan
+actually cared about.**
 
-Keep the pair-RANSAC seed: it is what makes dense fields work (see the Vela notes) and it is cheap
-once phase A stops paying for its losing parity. The quad path replaces the REFINEMENT loop, not
-the seed.
+The phase was written as: build quads from the top-K detected stars, build quads from the catalog
+window, match on the five scaled distances, take the plate scale from the median longest-side ratio,
+and let that replace the iterative proximity loop -- removing the dependence on the header scale on
+the way, since `FOCALLEN` is only ever a hint.
+
+The premise needed checking first, because this plan and `StarReferenceTable`'s XML doc contradicted
+each other outright: the plan said the quad matcher had never been pointed at the catalog side, and
+that doc said it had, with the answer "no quad lock at any K from 50 to 500 in either parity". So the
+probe grants quad matching **every** confound in its favour -- the catalog is projected through each
+frame's OWN frozen solution, so the two point sets share a pixel frame exactly: same scale, same
+rotation, same translation, same parity, zero hint error. The headline is then tolerance-free, because
+under a shared frame a genuinely corresponding quad has the same CENTRE, so coincidence can be counted
+with no matcher and no threshold in the way.
+
+| top-K | image quads | catalog quads | stars shared | **quads shared** | existing `FindFit` |
+|---|---|---|---|---|---|
+| 100 | 1,629 | 1,217 | 63.2% | **42 (2.6%)** | 0/24 panels |
+| 200 | 3,414 | 2,624 | 63.4% | **124 (3.6%)** | 0/24 |
+| 300 | 5,230 | 4,242 | 66.8% | **414 (7.9%)** | 0/24 |
+| 500 | 8,989 | 7,898 | 73.2% | **1,419 (15.8%)** | 6/24 |
+
+**Both documents were partly right, and neither conclusion was safe.** Quads ARE shared, so "no lock
+at any K" was not a property of the data -- at K=500 the existing matcher locks 6 of 24 panels. But it
+locks them only because the oracle projection makes `Dist1` comparable to 0.1%: `StarQuad.WithinTolerance`
+compares `Dist1` in absolute px against the same tolerance as the five ratios, a mixed-unit test its own
+doc admits "works because stacking images have near-identical Dist1 values". Under a real hint it does
+not, which is what the earlier probe was measuring.
+
+And the population argument holds where it matters: 73.2% of stars are shared but only 15.8% of quads,
+far below the 0.73^4 = 28% that independent membership would give. One interloper in a neighbourhood --
+a catalog star too faint to detect, a detected artefact absent from the catalog -- re-wires which four
+stars are mutually nearest, so the quad is not the same quad. **That is why the matching half cannot
+replace the refinement loop**, on two counts: 15.8% under the most favourable conditions obtainable
+against the pair seed's 96/96, and a quad match yields quad CENTRES, where the CD matrix and the SIP
+fit consume hundreds of sub-pixel STAR correspondences (the loop produces 300-1,400 per frame).
+
+**What the shared quads do say is that the descriptor and the scale are excellent when the four stars
+survive:** worst-of-five-ratios error median 0.0004-0.0010 and p90 <= 0.0039 against the 0.008 default
+tolerance, with the implied scale (the `Dist1` ratio) at median 0.9998-1.0001 and p10-p90 inside +/-0.14%.
+
+#### C'. What survives: recover the plate scale with no prior
+
+The seed needs a scale prior *because a pair length has units* -- `MinPairLockScaleTolerance`, +/-5%,
+and the comment there already names quads as the structural answer. A quad descriptor is five ratios,
+which are scale-free, so a matched quad hands the scale back as the ratio of the two longest sides.
+This needs a HANDFUL of matched quads, not hundreds of correspondences, which is exactly the regime the
+table above says is available.
+
+Measured under the production condition rather than a favourable one -- catalog through the header hint
+(pointing wrong by up to 40 arcmin across this mosaic, unrotated where the real fields are rotated) and
+the pixel scale deliberately wrong by **3.9%**, the marketed-versus-actual focal length this plan
+already records, with `Dist1` **never compared** so no scale is assumed:
+
+| ratio tolerance | comparisons | candidates | recovered (truth 1.039) | panels within 1% |
+|---|---|---|---|---|
+| 0.002 | 2,919,284 / 24 panels | 44/panel | **1.0360** | **23/24** |
+| 0.004 | " | 52/panel | **1.0361** | **23/24** |
+| 0.008 | " | 56/panel | **1.0362** | **23/24** |
+
+~122k comparisons per panel, which is the same order as ASTAP's ~110k, and the answer lands 0.27% low
+on a prior that was 3.9% wrong. Rotation is not a confound and that is the point: a distance is
+invariant under rotation.
+
+**What it buys, measured on the same frames:** narrowing the seed's window from the shipped +/-5% to
++/-1% cuts hypotheses **2.8x** and costs no locks.
+
+| scale window | hypotheses (48 parity attempts) | per attempt | locked |
+|---|---|---|---|
+| +/-5% (shipped) | 24,923,440 | 519,238 | 23 |
+| +/-2% | 16,085,840 | 335,122 | 24 |
+| +/-1% | 8,835,750 | 184,078 | 23 |
+
+Locks are flat at 23-24 of 48 across the whole range, i.e. exactly one parity per panel -- the same
+fact phase A rests on. So the window is pure cost above 1%, and the reason it is set at 5% is the
+unreliability of `FOCALLEN`, not any property of the sky.
+
+The correctness half is the better argument. The header said 205 mm because that was typed into the
+profile by mistake while the optics are 202.5 mm (1.2%), and a 130 mm lens was entered as its
+MARKETED 135 (3.9%) -- which is systematic rather than a typo, so it recurs, and it put a 3,065-star
+frame with 1,197 catalog stars in it outside the old 3% window entirely, so it did not solve at all.
+A scale read off the stars removes that failure class rather than widening a window to survive it.
+
+**Two things quads cannot do, so nothing downstream should be built expecting them.** They cannot
+settle the PARITY -- reflection preserves distances, so a mirrored field has identical descriptors and
+the parity race stays exactly as phase A left it. And they cannot supply the refinement loop's
+correspondences, per the table above.
+
+**Convert the 2.8x into ms with `PlateSolveBenchmarks` before quoting a saving here.** The seed's share
+of the 331 ms warm solve is not yet measured, so hypotheses are the honest unit, as they were in
+phase A.
 
 ### D. Cap the star list; bin ONLY where sampling allows it
 
