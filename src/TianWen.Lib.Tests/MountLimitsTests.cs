@@ -166,6 +166,45 @@ public class MountLimitsTests
             .Kind.ShouldBe(MountLimitKind.Meridian);
     }
 
+    // The three-argument overload: a caller that verified the state independently of the driver.
+    // Measured still wins outright -- a latched value only moves on a slew edge and would be stale
+    // between them, while a measured driver reads its own mechanics every poll.
+    [Theory]
+    [InlineData(PointingStateSource.Measured, PointingState.Normal, PointingState.ThroughThePole, PointingState.Normal)]
+    [InlineData(PointingStateSource.Computed, PointingState.Normal, PointingState.ThroughThePole, PointingState.ThroughThePole)]
+    [InlineData(PointingStateSource.Computed, PointingState.Normal, PointingState.Unknown, PointingState.Unknown)]
+    [InlineData(PointingStateSource.None, PointingState.Unknown, PointingState.Unknown, PointingState.Unknown)]
+    public void AVerifiedStateBeatsAComputedReportButNeverAMeasuredOne(
+        PointingStateSource source, PointingState reported, PointingState verified, PointingState expected)
+        => MountLimits.TrustedPointingState(source, reported, verified).ShouldBe(expected);
+
+    [Fact]
+    public void AVerifiedFlipCatchesTheMirrorHazardTheHourAngleTierCannotSee()
+    {
+        // The gap this closes, and it has to be the MIRROR case to show anything: west of the meridian
+        // an Unknown state and a ThroughThePole one read the same, so both fire and nothing is proven.
+        // East is where they part. A rig that HAS flipped (verified Normal) and is then pointed east --
+        // a wrong-way goto, a bad sync -- is swinging its tube toward the pier again, and the meridian
+        // test only sees that if it knows the mount is on the far side. A computed driver reports
+        // ThroughThePole here (it derives the state from HA < 0), which the two-argument overload
+        // rightly refuses; Unknown then takes the hour-angle approximation and reads CLEAR.
+        const double eastOfMeridian = -1.0;
+
+        var withoutVerification = MountLimits.Evaluate(
+            eastOfMeridian,
+            MountLimits.TrustedPointingState(PointingStateSource.Computed, PointingState.ThroughThePole),
+            primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
+        withoutVerification.Kind.ShouldBe(MountLimitKind.None,
+            "the premise: without a verified state this hazard is invisible");
+
+        var withVerification = MountLimits.Evaluate(
+            eastOfMeridian,
+            MountLimits.TrustedPointingState(
+                PointingStateSource.Computed, PointingState.ThroughThePole, PointingState.Normal),
+            primaryAxisAngleDeg: null, altitudeDeg: 60.0, isTracking: true, alreadyActed: false, Enabled());
+        withVerification.Kind.ShouldBe(MountLimitKind.Meridian);
+    }
+
     [Fact]
     public void ADriverEnforcedStopDescribesItselfAsALimitNotAFault()
     {

@@ -649,6 +649,43 @@ mount.
 | Limits editor | n/a | `PanelSection.MountLimits` | **not built** -- the TUI equipment tab has its own site bar and key routing; a limits row there is open |
 | Live Session tab verdict | n/a | not shown (the flip countdown lives on the Home board only) | same |
 
+## The limit takes the session's VERIFIED pointing state (2026-08-31)
+
+`TrustedPointingState(source, reported)` refuses a `Computed` driver's report and answers `Unknown`,
+which is right with nothing better to hand -- and for a while nothing was. Since the meridian-flip
+verification work the session carries `_verifiedPointingState`: latched on the slewing-to-idle edge
+(a goto is the one instant a computed report is certainly right, because it went to the side the
+destination called for) and moved thereafter only by a flip read off the image. That is strictly
+better than `Unknown`, and the limit was never wired to it.
+
+A three-argument overload takes it. Measured still wins outright -- it reads its own mechanics every
+poll, whereas a latched value only moves on a slew edge and would be stale between them -- so the
+rule is `Measured ? reported : verified`, and with no verified state the answer is `Unknown` exactly
+as before. `Session.EnforceMountLimitsAsync` passes it; the latch is updated immediately above, in
+the same `PollDeviceStatesAsync` pass, so it is never a tick behind.
+
+**`MountLimitWatcher` must keep the two-argument overload.** It has no run, therefore no latch and no
+flip history, so it has nothing to offer and would only pass `Unknown`. Do not unify the call sites.
+
+**The latch must NOT be seeded from the first poll, and this is the trap the change nearly shipped
+with.** The first cut accepted the report whenever `_verifiedPointingState` was still `Unknown`, which
+looks like harmless initialisation and is not: with no goto behind it, the "verified" state is just the
+driver's own answer wearing the word. The limit -- which asked for a verified state precisely so it
+could refuse a computed one -- was then silenced by the very report it had refused, on exactly the
+LX200-style rig the mechanism exists for. `SessionMountLimitTests.
+AComputedPointingStateIsNotTrustedSoAComputedNormalStillStops` went `Meridian` -> `None` and caught it.
+Before the first goto there is no evidence, and `Unknown` is the honest answer -- which is also what
+`GetSideOfPierAsync` already documented ("Unknown until the first slew completes"), so the seed had
+contradicted its own doc.
+
+**The test has to be the MIRROR case, or it proves nothing.** West of the meridian `Unknown` and
+`ThroughThePole` read alike -- both fire -- so a west-side test passes with the wiring removed. East
+is where they part: a rig that has flipped (verified `Normal`) and is then pointed east, by a
+wrong-way goto or a bad sync, is swinging its tube back toward the pier, and the hour-angle tier
+reads that as CLEAR. `TheLimitActsOnTheVerifiedPointingStateNotTheDriversReport` drives it by SYNC
+(west first to latch `Normal`, then east) and was seen to fail with the wiring reverted, reporting
+"Within all configured mount limits" while the hazard was live.
+
 ## What is still open
 
 - **Hardware validation** of the SkyWatcher axis-solution port (`SkyToSteps`), the forced flip, the axis
