@@ -658,154 +658,114 @@ a coordinates-only solver fails every flip. `FakeMountDriver` has a mechanical t
 changes (**a sync must not touch it**) and `FakeCameraDriver` rolls off that, never off the report.
 [docs/plans/meridian-flip-verification.md](docs/plans/meridian-flip-verification.md)
 
-**Mount safety limits are NOT the meridian flip, and the horizon test keys on HOUR ANGLE, not pier
-side.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`, pure, beside `MeridianFlipDecision`) is
-the mechanical bound -- where the TUBE meets the pier or the ground -- while a flip is a *scheduling*
-choice about a target that keeps being imaged from the other side. A rig can have one, both or
-neither. Ported from GSServer's `CheckAxisLimits` with three deliberate departures, each load-bearing:
+**Mount safety limits are NOT the meridian flip.** `MountLimits.Evaluate` (`Sequencing/MountLimits.cs`,
+pure, beside `MeridianFlipDecision`) is the mechanical bound -- where the TUBE meets the pier or the
+ground -- while a flip is a *scheduling* choice about a target still imaged from the other side. A rig
+can have one, both or neither. Ported from GSServer's `CheckAxisLimits`; the derivations, phasing, live
+verification and the wider GSServer sweep are in
+[docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md) and
+[docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md). The rules that bite:
 
-- **`HA > 0` IS "descending"** (altitude is maximal at upper transit and falls monotonically to lower
-  transit), so the HORIZON limit needs no pier side and no alignment mode -- altitude is a sky
-  quantity, and the HA form is also true for fork and AltAz mounts, which have no pier side at all.
-  **The MERIDIAN limit is the opposite: a test on the RA AXIS, where the pointing state is
-  load-bearing.** The same HA puts the axis in two places: a GEM that has not flipped
-  (`ThroughThePole`, counterweight down looking east) swings its tube toward the pier tracking west;
-  one that has flipped (`Normal`) is 12 h round and moving AWAY, and its hazard is pointing EAST.
-  `Evaluate` reads the offset as `Normal ? -HA : HA` (`Unknown` = the HA approximation). The first
-  cut read HA alone and **stopped every rig ~30 min after a successful flip** -- with the flip clamp,
-  the one place a rig is guaranteed to be. That is the SKY tier; **`IMountDriver.GetAxisAngleAsync`
-  (SkyWatcher only, null elsewhere) is the MECHANICAL tier and wins when present**: `|angle| - 90` deg
-  is how far the counterweight is above horizontal in either state, read with no clock, site or sync
-  (fallback, never cross-check), and `MountLimitVerdict.Basis` says which tier answered -- a user who
-  mistakes the estimate for a mechanical limit sets the threshold wrong. Inside `MountState` the
-  driver's null is NaN (`PollDriverReadAsync` is `where T : struct`, which excludes `Nullable<T>`). Two test traps: `default(PointingState)` is `Normal`, the
-  state in which the meridian test is SILENT, so an unconfigured mock passes with enforcement deleted;
-  and `FakeMountDriver` derives its state from HA (flips the instant it crosses), so hold it pre-flip
-  with `SetSideOfPierAsync`. The limit is only as right as the state under it. SkyWatcher now carries
-  BOTH halves of GSS's model: `SkyToSteps` CHOOSES the axis solution per goto from the target's HA
-  (east -> through the pole: RA axis +12 h, Dec axis mirrored through home), decided once in
-  `BeginSlewRaDecAsync` and kept for refinement passes; a sync keeps the half the Dec encoder is in;
-  `GetSideOfPierAsync`/`StepsToRa` REPORT from the Dec encoder (home inclusive = Normal). Before that
-  every target took the straight solution and a "flip" re-slewed to identical steps. Still open
-  (`TODO.md`): LX200-base, SGP and `FakeMountDriver` report a COMPUTED state (`HA >= 0 -> Normal`),
-  which reads as post-flip west of the meridian whatever the mount did and silences the limit there.
-- **Warn and act are a threshold plus a non-negative EXTRA**, never two absolute numbers. The two
-  limits run in opposite directions (hour angle rises toward its limit, altitude falls toward its
-  own), so an absolute pair can be edited into acting before it warns -- differently for each limit.
+- **The HORIZON test keys on HOUR ANGLE, not pier side** (`HA > 0` IS descending, since altitude is
+  maximal at upper transit), so it needs no alignment mode and holds for fork and AltAz mounts too.
+  **The MERIDIAN test is the opposite -- an RA-AXIS test where the pointing state is load-bearing:**
+  the same HA puts the axis in two places, so `Evaluate` reads the offset as `Normal ? -HA : HA`
+  (`Unknown` = the HA approximation). Reading HA alone stopped every rig ~30 min after a flip.
+- **`IMountDriver.GetAxisAngleAsync` is the MECHANICAL tier and WINS when present** (SkyWatcher only,
+  null elsewhere): `|angle| - 90` deg is how far the counterweight is above horizontal in either
+  state, read with no clock, site or sync. Fallback, never cross-check; `MountLimitVerdict.Basis`
+  says which tier answered, because a user who mistakes the estimate for a mechanical limit sets the
+  threshold wrong. Inside `MountState` the driver's null is NaN (`PollDriverReadAsync` is
+  `where T : struct`, which excludes `Nullable<T>`).
+- **Only a MEASURED pointing state may drive it.** `MountLimits.TrustedPointingState` hands `Evaluate`
+  `Unknown` for a `Computed` driver (LX200 base, SGP, `FakeMountDriver`), whose HA-derived answer
+  reads as post-flip west of the meridian whatever the mount did and would silence the limit there.
+  The flip gate keeps the computed answer.
+- **Warn and act are a threshold plus a non-negative EXTRA**, never two absolute numbers: the limits
+  run in opposite directions (HA rises toward its limit, altitude falls toward its own), so an
+  absolute pair can be edited into acting before it warns -- differently for each.
   `MeridianActionDeg = Warn + max(0, Extra)` and `HorizonWarnDeg = Action + max(0, Extra)` make
   warn-before-action hold by construction both ways.
-- **`alreadyActed` is a latch and must downgrade to `Warn`, never to clear.** GSS's
-  `SlewState != SlewType.SlewPark`, commented "only hit this once while in limit": the check runs on a
-  poll loop, so without it a park is re-commanded every tick and the park slew restarts forever,
-  never arriving. Clearing instead of downgrading stops telling the user they are still in the limit.
+- **`alreadyActed` is a latch and must downgrade to `Warn`, never clear.** The check runs on a poll
+  loop, so without it a park is re-commanded every tick and the park slew restarts forever, never
+  arriving; clearing instead of downgrading stops telling the user they are still in the limit.
+- **The meridian limit is in MINUTES and is the ULTIMATE CLAMP on the flip.** It shares an axis with
+  `MeridianFlipEarliestMinutesAfter`/`LatestMinutesAfter` so it shares their unit -- it was degrees
+  once and the defaults read as the same numbers while differing 4x. Horizon stays in degrees.
+  `MountLimitConfiguration.ClampFlipLatestMinutes` is applied INSIDE `MeridianFlipDecision` so no
+  caller can forget it. **The dependency direction is load-bearing:** how long to keep imaging is a
+  preference, where the tube meets the pier is a fact, and the fact caps the preference. Deriving the
+  limit from the flip instead would let a preference walk a safety bound into the pier; unclamped,
+  the two race and the limit wins, stopping the mount as it was about to flip.
+- **It is the TUBE that collides, not the counterweight** (tracking past the meridian swings the
+  counterweight UP, the tube DOWN toward the pier), so the threshold approximates a three-variable
+  envelope -- optics length x declination -- and must be set for the worst case the rig images.
+- **Config lives on `ProfileData.MountLimits`** (nullable = disabled), projected onto `Setup` by
+  `SessionFactory`, never onto the per-run `SessionConfiguration` -- it must hold for a manual slew
+  with no session. **Enforcement is in `PollDeviceStatesAsync`, not the imaging tick**: a limit
+  evaluated between exposures would watch a mount drive into a pier during a goto. The altitude is
+  **geometric** (`SiteContext.AltitudeDegrees`) -- a tripod leg is not lifted by refraction.
+  Breaching routes to `ImageLoopNextAction.LimitReached`, NOT `DeviceUnrecoverable`: nothing is
+  broken. Tracking stops for a Park response too, before the park slew.
+- **Parking is opt-in for both limits**, because a park is MOTION across a path nothing has checked --
+  a mount stopped at 8 deg altitude may be a hand's width from a tripod leg. `Finalise` already parks
+  at session end, so the unattended-dawn case needs no limit to slew.
+- **A mount that stops tracking without being asked is a LIMIT EVENT, not a fault**
+  (`MountLimitKind.DriverEnforced`): `Session.DetectDriverEnforcedStop` latches it and ends the run
+  instead of `EnsureTrackingAsync` fighting the driver's own stop. Gated on not-slewing (a Synta goto
+  is "running, not tracking"), debounced over two polls, every session-side stop raises
+  `_mountStopCommanded` first, and the poll reads `IsSlewing` BEFORE `IsTracking` (on SkyWatcher the
+  former resumes the latter). **The imaging `while` leaves on the first "not tracking" read, so an
+  undecided exit polls the detector again.** An RA pulse on a STOPPED SkyWatcher axis runs it in
+  constant-speed mode (`_raPulseOnStoppedAxis` masks it); `LimitReached` stops the guider.
+- **SkyWatcher chooses its axis solution per goto** from the target's HA (east -> through the pole),
+  decided once in `BeginSlewRaDecAsync` and kept for refinement; a sync keeps the half the Dec encoder
+  is in, and `GetSideOfPierAsync`/`StepsToRa` REPORT from that encoder. Before this every target took
+  the straight solution and a "flip" re-slewed to identical steps.
+- **Two test traps:** `default(PointingState)` is `Normal`, the state in which the meridian test is
+  SILENT, so an unconfigured mock passes with enforcement deleted; and a test must place the mount by
+  SYNC, not slew (a slew only begins, and these tests run no clock pump), with tracking switched ON
+  explicitly (a fresh test session has never initialised a mount).
+- **The verdict is telemetry:** `ISessionTelemetry.MountLimitVerdict` -> `MountLimitDto` (nullable,
+  older nodes read `Clear`) -> mirror -> `LiveSessionState` (holder-boxed) -> Home card (the Flip
+  column doubles as the limit countdown) -> both feeds, on CLASS transitions only. The editor is
+  `PanelSection.MountLimits` on the profile panel, plus a "Meridian Flip" config group whose deadline
+  shows the limit's clamp as a `ConfigFieldDescriptor.Caveat`.
 
-**Parking is opt-in for both limits**, because a park is MOTION across a path nothing has checked -- a
-mount stopped at 8 deg altitude may be a hand's width from a tripod leg. `Finalise` already parks at
-session end, so the unattended-dawn case needs no limit to slew.
+**`MountLimitWatcher` (`Sequencing/`) is the enforcement half with no session running.** The profile
+placement above makes the config APPLY to a manual slew; this is what ENFORCES it. Host-agnostic (only
+`IDeviceHub`/`IDeviceDiscovery`, no ASP.NET), it matches a connected mount by the hub's own identity
+rule (`Uri.DeviceKey` -- whole-URI equality skipped profiles whose mount query had drifted) against
+every discovered profile's `Mount` each 5 s, rather than any single "active profile" (no such uniform
+concept exists across GUI/server/CLI), and skips any mount a session already leases. Driven as a
+`BackgroundService` in `tianwen-server`, and from `tianwen-gui`'s `Program.cs` through its
+`BackgroundTaskTracker` (the GUI runs a bare `ServiceCollection`, so nothing starts hosted services).
 
-**It is the TUBE that collides, not the counterweight, and the threshold is an approximation.**
-Tracking past the meridian on a GEM swings the counterweight UP, above the OTA, and the tube DOWN
-toward the pier -- so the margin is set by the OPTICS (a long refractor or Newtonian runs out of
-room far sooner than a short lens) and varies with DECLINATION (a tube near the pole barely sweeps;
-one near the equator sweeps the widest arc). A single hour-angle threshold is therefore a
-conservative approximation of a three-variable envelope and must be set for the worst case the rig
-images -- lowest Dec, longest tube. Do not describe this limit as being about the counterweight.
+**A guide pulse is TWO methods, and picking the wrong one is silent.** `StartPulseGuideAsync`
+(`IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`) is the primitive: it commands the hardware
+and RETURNS, with `IsPulseGuidingAsync` required to be true by then. `PulseGuideAsync`
+(`PulseGuideTargetExtensions`, internal to the guider) is the composite: start AND wait, which is
+what a caller almost always means. **Awaiting a start is not waiting for the pulse** -- reach for the
+composite, and keep the primitive only for a caller doing something else meanwhile, which today
+means driving the other axis. It stays off the public driver interfaces because the Alpaca plane and
+the planetary recenter nudge genuinely want start-and-return.
 
-**The meridian limit is in MINUTES and is the ULTIMATE CLAMP on the flip.** It shares an axis with
-`MeridianFlipEarliestMinutesAfter` / `MeridianFlipLatestMinutesAfter`, so it shares their unit --
-it was degrees once and the two defaults read as the same numbers while differing 4x. The horizon
-limit stays in degrees (altitude is an angle). `MountLimitConfiguration.ClampFlipLatestMinutes` caps
-the flip deadline at the action threshold less `FlipClearanceMinutes`, applied INSIDE
-`MeridianFlipDecision` so no caller can forget it. **The dependency direction is load-bearing:** how
-long to keep imaging is a preference, where the tube meets the pier is a fact, and the fact caps the
-preference -- deriving the limit from the flip instead (the threshold-plus-EXTRA trick used for
-warn/act) would let a preference walk a safety bound into the pier. Unclamped the two race and the
-limit wins, stopping the mount at the moment it was about to flip.
+**Every driver honours the primitive, SkyWatcher included.** Synta boards have no "pulse for N ms",
+so the driver holds the duration in a background task split from the caller at *commanded*. Two
+rules ride on it. **The in-flight count rises BEFORE the first write and falls only when the hold
+ends** (GSS #109): a caller must never observe "no pulse running" for a pulse already issued, and it
+is a counter so an overlapping RA+Dec pair clears only when both finish. And **a failed restore has
+no caller to throw to**, so it parks in `_pendingPulseFault` and is re-thrown from the next
+`StartPulseGuideAsync` *and from `IsPulseGuidingAsync`* -- a read that throws on purpose, so the
+fault lands in the guide frame that caused it. Ordering makes that deterministic: the hold parks the
+fault BEFORE lowering the count, and `IsPulseGuidingAsync` checks the fault BEFORE reading it.
+Rationale in [docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md).
 
-**Wired up as of P1+P2, and three placement decisions ride on it.** The config lives on
-`ProfileData.MountLimits` (nullable = never configured = disabled) and `SessionFactory` projects it
-onto `Setup`, never onto the per-run `SessionConfiguration` -- where the tube meets the pier is a
-static fact about a rig, and it has to hold for a manual slew with no session. Enforcement is in
-`PollDeviceStatesAsync`, **not the imaging tick**, because the poll is what every slew wait and
-focus routine already calls; a limit evaluated between exposures would watch a mount drive into a
-pier during a goto. And the altitude it judges is **geometric**
-(`SiteContext.AltitudeDegrees(hourAngleHours, decDeg)`, new): refraction lifts a body by up to
-~34 arcmin at the horizon, so a refracted altitude reports the tube higher than it is and the limit
-fires late, and a tripod leg is not lifted by the atmosphere. Breaching routes to
-`ImageLoopNextAction.LimitReached`, deliberately NOT `DeviceUnrecoverable` -- nothing is broken, so
-do not report a working mount as a faulty one. Tracking is stopped for a Park response too, before
-the park slew. **A test here must place the mount by SYNC, not slew** (a slew only begins, and the
-fake needs a clock pump these tests do not run) and must switch tracking ON explicitly (a fresh test
-session has never initialised a mount). Plan + phasing:
-[docs/plans/mount-safety-limits.md](docs/plans/mount-safety-limits.md); the wider GSServer sweep in
-[docs/plans/gss-parity-audit.md](docs/plans/gss-parity-audit.md).
-
-**The profile placement above makes the config APPLY to a manual slew with no session; it does not
-by itself make anything ENFORCE it there.** `MountLimitWatcher` (`Sequencing/`) is the enforcement
-half: host-agnostic (only `IDeviceHub`/`IDeviceDiscovery`, no ASP.NET dependency), matching a
-connected mount by the hub's own identity rule (`Uri.DeviceKey`, scheme+host+path -- whole-URI
-equality skipped profiles whose mount query had drifted) against every discovered profile's `Mount`
-each 5s tick rather than any single "active profile" (no such uniform concept exists across the
-GUI/server/CLI), and skipping any mount a session already leases. Driven as a `BackgroundService` in
-`tianwen-server` and from `tianwen-gui`'s `Program.cs` through its `BackgroundTaskTracker` (the GUI
-runs a bare `ServiceCollection`, so nothing starts hosted services for it).
-
-**Three more rules, all 2026-08-30.** (1) **Only a MEASURED pointing state drives the limit**:
-`IMountDriver.PointingStateSource` (default `Computed`); LX200-base, SGP and `FakeMountDriver` derive
-the state from HA, which reads as post-flip west of the meridian and would silence the limit --
-`MountLimits.TrustedPointingState` hands `Evaluate` `Unknown` instead (the flip gate keeps the
-computed answer). (2) **A mount that stops tracking without being asked is a LIMIT EVENT, not a
-fault** (`MountLimitKind.DriverEnforced`, P5): `Session.DetectDriverEnforcedStop` latches it and ends
-the run instead of `EnsureTrackingAsync` fighting a GSServer/OnStep/ASCOM driver's own stop -- gated
-on not-slewing (a Synta goto is "running, not tracking"), debounced over two polls, and every
-session-side stop raises `_mountStopCommanded` first; the poll reads `IsSlewing` BEFORE `IsTracking`
-because on SkyWatcher the former resumes the latter. **The imaging loop's `while` leaves on the first
-"not tracking" read, so an undecided exit polls the detector again** until it has had its two looks
-(found by the E2E: without it the run advanced and re-enabled tracking). And on SkyWatcher an RA pulse
-on a STOPPED mount runs the axis in constant-speed mode -- `IsTrackingAsync` masks it
-(`_raPulseOnStoppedAxis`), and `LimitReached` stops the guider. (3) **The verdict is telemetry** (P4):
-`ISessionTelemetry.MountLimitVerdict` -> `MountLimitDto` (nullable, older nodes read `Clear`) ->
-mirror -> `LiveSessionState` (holder-boxed) -> Home board (Flip column doubles as the limit
-countdown) -> both feeds on CLASS transitions only. The editor is `PanelSection.MountLimits` on the
-profile panel plus a "Meridian Flip" config group whose deadline shows the limit's clamp as a
-`ConfigFieldDescriptor.Caveat`.
-
-**A guide pulse is TWO methods, and picking the wrong one is silent.**
-`StartPulseGuideAsync` (`IMountDriver` / `ICameraDriver` / `IPulseGuideTarget`) is the primitive: it
-commands the hardware and RETURNS, with `IsPulseGuidingAsync` carrying progress and required to be
-true by then. `PulseGuideAsync` (`PulseGuideTargetExtensions`, internal to the guider) is the
-composite: start AND wait, which is what a caller almost always means. **Awaiting a start is not
-waiting for the pulse** -- so reach for the composite, and keep the primitive for callers doing
-something else meanwhile, which today means driving the other axis. The composite is an extension
-because a driver has nothing to contribute to it (it is just the primitive plus
-`IsPulseGuidingAsync`), and it stays off the public driver interfaces because the Alpaca device
-plane and the planetary recenter nudge genuinely want start-and-return. `GuiderCalibration` had
-hand-written the pair at eight consecutive-line call sites, which is the evidence it wanted to be
-one call.
-
-**Every driver honours the primitive now, SkyWatcher included.** Synta boards have no "pulse for N
-ms" primitive -- the driver sends the `:I` restore itself -- so something must hold the duration; it
-is a background task, split from the caller exactly at *commanded* (four `TrySetResult` points, one
-per branch, each right after that branch's start commands). Two rules ride on it. **The in-flight
-count rises BEFORE the first write and falls only when the hold ends** (GSS #109): a caller must
-never observe "no pulse running" for a pulse already issued, and it stays a counter so an
-overlapping RA+Dec pair clears only when both finish. And **a failed restore has no caller to throw
-to any more**, so it parks in `_pendingPulseFault` and is re-thrown from the next
-`StartPulseGuideAsync` *and from `IsPulseGuidingAsync`* -- the latter is a read that throws on
-purpose, because the guider polls it while waiting for the very pulse that failed, so the fault
-lands in the guide frame that caused it. The ordering is what makes that deterministic rather than
-racy: the hold parks the fault BEFORE lowering the count, and `IsPulseGuidingAsync` checks the fault
-BEFORE reading it.
-
-**The order this was done in was load-bearing; do not reorder it if you revisit.** The composite had
-to reach `GuideLoop` BEFORE SkyWatcher stopped blocking, because the loop never waited for a pulse
-at all and that driver's blocking was accidentally covering it up on one mount family. Converting
-first would have left a window in which nothing waits on any mount. **A test for the non-blocking
-starter needs `ExternalTimePump` and a `[Fact(Timeout=…)]`**: under an auto-advancing clock the hold
-can finish before the assertion runs, so the test passes against a blocking driver too -- and the
-regression does not fail, it HANGS, because a blocking driver awaits its own hold, which parks in
-the pumped clock's sleep waiting for an advance that comes after the starter returns.
-
+**A test for the non-blocking starter needs `ExternalTimePump` and a `[Fact(Timeout=…)]`**: under an
+auto-advancing clock the hold can finish before the assertion runs, so the test passes against a
+blocking driver too -- and the regression does not fail, it HANGS, because a blocking driver awaits
+its own hold, which parks in the pumped clock's sleep waiting for an advance that comes after the
+starter returns.
 **No-astro-dark night-window fallback:** `SessionEndTimeAsync` (`Session.Timing.cs`) derives the dark
 window via `ObservationScheduler.CalculateNightWindow`, which has a fallback chain (astronomical −18° →
 amateur-astro −15° → nautical −12° → polar-night 24h). It must **never** demand `EventTimes(...).Count == 1`
@@ -948,44 +908,24 @@ stages and the parity notes:
 
 **Comet / moving-target integration (`stack --comet [designation]`)** registers on the BODY (comet
 sharp, stars trail); the rate derives from the frames (`OBJECT` + site + exposure epochs ->
-topocentric JPL Horizons track fitted through the reference WCS), `--comet-rate dx,dy` is the
-offline override. Design + every measurement:
-[docs/plans/comet-integration.md](docs/plans/comet-integration.md). The rules that bite:
+topocentric JPL Horizons track fitted through the reference WCS), `--comet-rate dx,dy` is the offline
+override. **Read [docs/plans/comet-integration.md](docs/plans/comet-integration.md) before touching
+this** -- it carries the design, every measurement, and thirteen traps that break the model SILENTLY
+(pooled amplitude, a starless-plate nucleus, a whole-pixel model centre, a slope fitted after the
+pedestal, five epoch/NaN/calibrator preconditions). Four that reach beyond the feature:
 
-- **Registration is the ONE place the pipeline plate-solves anything but the finished master** --
-  the rate is needed *while* integrating, too late once the master itself solves.
-- **An unknown site refuses rather than falls back geocentric** (wrong by 3.4 deg of heading, and it
-  fits a straighter-but-wrong line, so straightness must never gate anything).
-- **The compose is canvas-space, after the star solution** (`starSolution * translation`, not the
-  reverse -- `Matrix3x2` is row-vector, and a frame-space shift is simply the wrong quantity).
-- **The star layer SUBTRACTS the body; it does not exclude or reject it.** `CometModel` is the
-  method, `CometMask` only the no-`IStarRemover` fallback -- kappa-sigma cannot substitute (the body
-  sits in a third of the frames, which inflates the very sigma meant to catch it).
-- **The model MUST come from star-removed plates** (`--remove-stars`, cached at
-  `<out>/starless/<slug>/`) -- a model differenced from stars-still-in plates smears every star into
-  a dark streak.
-- **Amplitude is fitted PER FRAME and PER CHANNEL** (annulus median vs. per-CFA median sky), never
-  pooled or least-squares over the core -- one pooled amplitude painted SWAN's track red.
-- **The nucleus comes from the RAW frames** (`CometRawCore` + `CometModel.SpliceCore`, an
-  81x81 comet-aligned median stack, gain/offset-fitted and spliced under 12 px) -- a
-  starless-plate model leaves a bright line through the condensation.
-- **The model's reach is decided PER CHANNEL from where that channel's own annular-median profile
-  flattens**, never a fraction of the peak on channel 0 (the faintest channel on a gas-rich comet).
-- **The body is evaluated at the reference's MID-exposure and the model centre is sub-pixel** -- a
-  whole-pixel crop centre subtracts a dipole.
-- **The field's slope is fitted out of the model BEFORE the pedestal is read** (first order only --
-  a higher order extrapolated into the coma eats the coma); missing this drew SWAN's "reflection
-  halo".
-- **Five preconditions break the model silently if missed:** anchor epoch != reference epoch; a
-  NaN comet-aligned canvas + RC-Astro (all-NaN plate for any NaN input); `BayerDrizzle` doesn't
-  normalise; `--remove-stars` must not replace the frame list; each layer needs its own calibrator.
+- **Registration is the ONE place the pipeline plate-solves anything but the finished master** -- the
+  rate is needed *while* integrating, too late once the master itself solves.
+- **The star layer SUBTRACTS the body; it does not exclude or reject it,** and the model MUST come
+  from star-removed plates. Kappa-sigma cannot substitute (the body sits in a third of the frames,
+  inflating the very sigma meant to catch it), and a model differenced from stars-still-in plates
+  smears every star into a dark streak.
 - **A NaN in a rejection sample column disabled rejection everywhere, in every rejector** (NaN
-  comparisons are all false) -- canvas edges had never been rejected. Fixed via
-  `PixelRejection.MarkAbsent`.
+  comparisons are all false), so canvas edges had never been rejected -- fixed via
+  `PixelRejection.MarkAbsent`. Not comet-specific: it affected every stack.
 - **Judge these layers at 1:1, never by a band median** -- edge bars, correlated-noise texture and
   trail streaks all hid behind a clean radial profile; use p0.5/min for streaks, and never compare
   differently-integrated layers against each other.
-
 **Provenance skip (never re-ingest our own outputs).** The scan drops any TianWen-produced FITS
 (`STACK_N > 0` OR a TianWen `SWCREATE`, gated by `--include-integrations`) so a processed image parked
 alongside the lights is never re-stacked as a fresh sub. Markers, the ghost-master failure mode and the
