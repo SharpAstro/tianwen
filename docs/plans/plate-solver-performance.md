@@ -42,9 +42,13 @@ not; that is why the hinted row exists at all.)
 
 The 1158 ms decomposes:
 
+**The init row below is superseded -- see phase B.** "Tycho-2 bulk decode dominant" was wrong even
+when written, or became wrong immediately after: that decode costs 0.3 ms of init, and the 270 ms
+inside init is a different phase entirely.
+
 | stage | time | share |
 |---|---|---|
-| fixed init (Tycho-2 bulk decode dominant) | ~590 ms | 51% |
+| fixed init (~~Tycho-2 bulk decode dominant~~) | ~590 ms | 51% |
 | matching iterations | 446 ms | 39% |
 | star detection (1600 stars, 4164x2795) | 83 ms | 7% |
 | catalog query (2694 stars, R=4.04 deg) | 54 ms | 5% |
@@ -81,12 +85,14 @@ Ordered by return per unit of risk; each independently shippable and measurable.
 | # | change | saves | costs accuracy? | risk |
 |---|---|---|---|---|
 | A | Cancel the losing parity (916k wasted hypotheses) -- **SHIPPED** | ~200 ms | nothing | low |
-| B | Tycho-2 pre-baked region index -- this is TODO 2C, now justified | ~500 ms | nothing | low |
+| B | ~~Tycho-2 pre-baked region index~~ -- **OBSOLETE: already done, worth 0.3 ms** | ~~500 ms~~ 0 | n/a | n/a |
 | C | Quad-descriptor matching, reusing `FrameRegistration`'s existing matcher | ~300 ms | nothing, and it *removes* our reliance on `FOCALLEN` | medium |
 | D | Cap the star list to ~500 -> yes; bin -> **no** | ~60 ms | binning does, so it is gated on measured FWHM and default off | low |
 
-Target after A-C: **~260 ms**, against ASTAP's 162 ms. D is optional and mostly will not apply
-(see below), so it is not counted on.
+Target after A-C: **~260 ms**, against ASTAP's 162 ms -- **written before B was measured to be
+already done.** With B worth 0 and the warm solve now benchmarked at 331 ms, the reachable target is
+whatever C takes off that, and the 1158 ms headline figure is itself stale: it bundled a cold start
+that no longer blocks. Re-derive the goal from `PlateSolveBenchmarks` rather than from this table.
 
 ### A. Short-circuit the losing parity
 
@@ -190,13 +196,40 @@ hypothesis count, which is deterministic and machine-independent; converting tha
 proves the cancellation FIRES end to end (and fails when it is disabled -- the solved WCS is
 byte-identical either way, so nothing else could).
 
-### B. Tycho-2 pre-baked region index
+### B. Tycho-2 pre-baked region index -- **OBSOLETE, the work is already done**
 
-Half the wall clock is init, and it is one known item: `TODO.md` "Catalog cold-start Phase 2", where
-2A (`hd_hip_cross.bin.gz`) and 2B (`simbad_merge.bin.gz`) shipped and **2C, the Tycho-2 bulk load,
-is deferred**. ASTAP never pays this: its `.1476` files are indexed by sky region and it reads only
-the window it needs (342 database stars for this field). This measurement is the argument for doing
-2C -- largest single line item, already scoped.
+**Measured 2026-08-31 and it invalidates this phase.** The Tycho-2 bulk load, budgeted here at
+~500 ms and called the largest single line item, costs **0.3 ms** of init. It runs to completion on a
+background task before init needs it, and the region index this phase proposed BUILDING already
+exists: `tyc2.bin` is stream count + per-GSC-region offset table + region-major 17-byte records, and
+the build's `ExpandTycho2` target expands the `.lz` so reaching one region's ~59 KB no longer costs
+decompressing all 43.5 MB. Both landed after this plan was written. Nothing here is left to do.
+
+Full init breakdown, `InitDBAsync(waitForTycho2BulkLoad: true)`, 587 ms total:
+
+| phase | ms |
+|---|---|
+| **tycho2-cross-ref-join** | **269.9** |
+| hd-hip-cross (2A snapshot applying -- the FAST path) | 114.8 |
+| ngc-csv | 66.5 |
+| simbad-total (2B snapshot applying) | 54.5 |
+| shapes | 38.3 |
+| cross-ref-json | 17.9 |
+| predefined | 16.9 |
+| **tycho2-bulk-wait** | **0.3** |
+
+**The real bottleneck is `ReadTycho2CrossRefArrays`** (`hip_to_tyc` + `hd_to_tyc`), and note what the
+270 ms IS: a `await tycho2CrossRefTask`, i.e. the main thread BLOCKED. That task is already kicked off
+first and already overlapped with every other main-thread phase, so the 270 ms is what remains after
+all the overlap there is -- its own wall is ~446 ms. Making init faster therefore means making that
+task cheaper (a 2A/2B-style pre-baked snapshot of its output is the obvious move), not indexing
+Tycho-2, which is done. The code comment calling those arrays "cheap to decompress" is the assumption
+this measurement contradicts.
+
+**Whether to do it at all is a separate question, and the answer is probably not yet.** Init is paid
+ONCE per process; phase C is paid per solve. A night solving ten frames saves ~270 ms from a perfect
+init fix and ~3,000 ms from phase C. Init only wins on PERCEIVED latency, since the first solve is the
+one a user is watching.
 
 ### C. Quad-descriptor matching against the catalog
 

@@ -50,6 +50,11 @@ public class RealFrameSolveTests(ITestOutputHelper output)
         var db = new CelestialObjectDB();
         await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
         output.WriteLine($"catalog init  {sw.ElapsedMilliseconds} ms  <- phase B targets this");
+        foreach (var (phase, elapsed) in db.LastInitPhaseTimings)
+        {
+            output.WriteLine($"   phase       {elapsed.TotalMilliseconds,8:F1} ms  {phase}");
+        }
+        output.WriteLine($"   tycho2      {db.Tycho2BulkLoadState}");
 
         sw.Restart();
         var stars = await image.FindStarsAsync(channel: 0, snrMin: 10f, cancellationToken: ct);
