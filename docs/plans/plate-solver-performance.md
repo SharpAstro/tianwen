@@ -1,6 +1,7 @@
 # Plate-solver performance: closing the gap to ASTAP
 
-Status: PLANNED. The correctness work is done and shipped; everything below is performance only.
+Status: **PHASE A SHIPPED**; B-D planned. The correctness work was already done; everything below is
+performance only.
 
 ## The governing rule
 
@@ -79,7 +80,7 @@ Ordered by return per unit of risk; each independently shippable and measurable.
 
 | # | change | saves | costs accuracy? | risk |
 |---|---|---|---|---|
-| A | Cancel the losing parity (916k wasted hypotheses) | ~200 ms | nothing | low |
+| A | Cancel the losing parity (916k wasted hypotheses) -- **SHIPPED** | ~200 ms | nothing | low |
 | B | Tycho-2 pre-baked region index -- this is TODO 2C, now justified | ~500 ms | nothing | low |
 | C | Quad-descriptor matching, reusing `FrameRegistration`'s existing matcher | ~300 ms | nothing, and it *removes* our reliance on `FOCALLEN` | medium |
 | D | Cap the star list to ~500 -> yes; bin -> **no** | ~60 ms | binning does, so it is gated on measured FWHM and default off | low |
@@ -119,6 +120,49 @@ captures optics and convention together, needs no user declaration, and is self-
 the camera to the OAG port, changed capture software) must not turn a solvable frame into a
 permanent failure. Skip the other branch speculatively; fall back to trying both on failure. That
 costs nothing in the common case and stays correct in the rare one.
+
+#### What phase A measured, and what it actually did
+
+The one-frame anecdote above (32,179 vs 915,994) understated it. `PlateSolveParityWasteProbe`
+(`TIANWEN_PARITY_WASTE=1`) walks all 96 frozen Vela frames through both parities and reports:
+
+| | hypotheses |
+|---|---|
+| winning parity | 8,089,876 |
+| **losing parity** | **259,493,292** |
+| waste share | **97.0%** |
+| worst single loser | 2,977,624 (P13, summed over its three pool policies) |
+
+And the structural fact that makes the phase safe: **exactly one parity locks on every one of the 96
+frames -- never both, never neither.** So a claim can be granted on the first seed clear of chance
+without any real risk of stopping the eventual winner.
+
+Three things the implementation had to get right, none of them in the original sketch:
+
+- **The acceptance gate CONSUMES the loser.** `ApplyAcceptanceGate` falls back to the losing parity
+  when the winner fails the chance test, and logs "parity pick overturned" when it does -- so
+  cancelling the loser removes a correctness fallback. An abandoned attempt's null WCS means "never
+  finished looking", not "nothing there", so the gate re-runs it, uncancelled, in exactly that case.
+  That re-run is what makes cancelling safe rather than a gamble; it costs a whole extra attempt and
+  is reached only when the winner has already failed.
+- **At most one attempt may ever be abandoned.** Two unguarded claims would cancel each other and
+  lose both halves, failing a solvable frame. An `Interlocked` single-winner claim makes that
+  unreachable rather than merely unlikely.
+- **`SolveAttempt` is a `readonly record struct`, so `ReferenceEquals(loser, std)` is always false.**
+  Which parity won is carried as a flag. The boxed-identity version compiles, runs, and picks the
+  wrong half of the time.
+
+`PairRansacLock.TryLock` now takes a token and checks it every 4096 hypotheses (not every one: it is
+the innermost loop of the solve), leaving by the same path as the hypothesis cap and reporting
+`Cancelled` so a caller can tell an abandoned scan from an exhausted one. `TrySeedPairLock` stops
+descending its pool-policy chain once cancelled -- three pools each abandoned mid-scan would save
+nothing.
+
+**Not yet measured: the wall-clock saving on a real frame.** The 97% figure is the seed stage's
+hypothesis count, which is deterministic and machine-independent; converting that to the plan's
+~200 ms estimate needs the benchmark harness below, on a real FITS. `PlateSolveParityRaceTests`
+proves the cancellation FIRES end to end (and fails when it is disabled -- the solved WCS is
+byte-identical either way, so nothing else could).
 
 ### B. Tycho-2 pre-baked region index
 
