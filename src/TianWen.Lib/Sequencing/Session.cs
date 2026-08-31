@@ -476,16 +476,22 @@ internal partial record Session(
                     .AltitudeDegrees(hourAngle, dec),
                 PrimaryAxisAngleDeg: primaryAxisAngleDeg);
 
-            // Accept the reported pier side only on the edge where a slew has just finished. A goto is
+            // Accept the reported pier side ONLY on the edge where a slew has just finished. A goto is
             // the only thing in ordinary operation that carries a tube across the pier, so that is the
             // one moment the report is certainly right -- on a mount that merely COMPUTES the state it
             // drifts from then on, turning over as the POINTING crosses the meridian while the tube
             // stays put. Holding the landed value is what makes Session.GetSideOfPierAsync canonical.
+            //
+            // Deliberately NOT seeded from the first poll. A seed looks harmless and is not: with no
+            // goto behind it, it is just the driver's own answer wearing the word "verified", and the
+            // safety limit -- which asked for a verified state precisely so it could refuse a computed
+            // one -- would then be silenced by the very report it refused. Before the first goto there
+            // is no evidence, and Unknown is the honest answer.
             if (isSlewing)
             {
                 _pierSideMayHaveMoved = true;
             }
-            else if (_pierSideMayHaveMoved || _verifiedPointingState is PointingState.Unknown)
+            else if (_pierSideMayHaveMoved)
             {
                 _verifiedPointingState = _mountState.PierSide;
                 _pierSideMayHaveMoved = false;
@@ -560,9 +566,17 @@ internal partial record Session(
         // flipped is safe however far west it tracks, and the first cut of this stopped every such rig
         // ~30 min after its flip. The axis angle, where the driver has one, makes even that moot -- it
         // is the mechanical fact the hour angle only estimates. See MountLimits.Evaluate's remarks.
+        // The VERIFIED state, not the raw report: on a computed-pier driver the report reads as
+        // post-flip west of the meridian whatever the tube did, and the two-argument overload rightly
+        // refuses it -- but this session has better than Unknown to offer. _verifiedPointingState is
+        // latched where the goto landed and moved only by a flip the image confirmed, so it is the
+        // same answer GetSideOfPierAsync hands the guider. Fresh here: PollDeviceStatesAsync updates
+        // the latch immediately before calling this. MountLimitWatcher has no session and no latch,
+        // so it keeps the two-argument overload.
         var verdict = MountLimits.Evaluate(
             _mountState.HourAngle,
-            MountLimits.TrustedPointingState(mount.PointingStateSource, _mountState.PierSide),
+            MountLimits.TrustedPointingState(
+                mount.PointingStateSource, _mountState.PierSide, _verifiedPointingState),
             _mountState.PrimaryAxisAngleDeg,
             _mountState.Altitude, _mountState.IsTracking, _limitActed, limits);
 

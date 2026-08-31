@@ -308,6 +308,35 @@ public static class MountLimits
         => source is PointingStateSource.Measured ? reported : PointingState.Unknown;
 
     /// <summary>
+    /// As <see cref="TrustedPointingState(PointingStateSource, PointingState)"/>, but for a caller that
+    /// has VERIFIED the state independently of the driver -- which today means a
+    /// <see cref="Session"/>, whose <c>_verifiedPointingState</c> is latched when a goto lands (the one
+    /// instant a computed report is certainly right, because the goto went to the side the destination
+    /// called for) and moved thereafter only by a flip
+    /// <see cref="MeridianFlipVerification"/> read off the image.
+    /// </summary>
+    /// <param name="verified">
+    /// The caller's own answer, or <see cref="PointingState.Unknown"/> when it does not have one yet.
+    /// </param>
+    /// <remarks>
+    /// <para>Three cases, and the middle one is the point. A <see cref="PointingStateSource.Measured"/>
+    /// driver still wins outright: it reads its own mechanics on every poll, whereas a latched value
+    /// only moves on a slew edge and would be STALE between them. A
+    /// <see cref="PointingStateSource.Computed"/> driver with a verified state gets that state, which is
+    /// strictly better than the hour-angle approximation the two-argument overload falls back to.
+    /// Without one, nothing has changed and the answer is still <see cref="PointingState.Unknown"/>.</para>
+    /// <para><b>A caller with no session must keep using the two-argument overload</b>, and
+    /// <c>MountLimitWatcher</c> does: it has no run, therefore no latch and no flip history, so it has
+    /// no verified state to offer and would only be passing <see cref="PointingState.Unknown"/>. Do not
+    /// unify the two call sites.</para>
+    /// </remarks>
+    public static PointingState TrustedPointingState(
+        PointingStateSource source, PointingState reported, PointingState verified)
+        => source is PointingStateSource.Measured
+            ? reported
+            : verified;
+
+    /// <summary>
     /// Decide whether the mount is at a safety limit.
     /// </summary>
     /// <param name="hourAngleHours">

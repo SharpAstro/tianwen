@@ -677,10 +677,15 @@ verification and the wider GSServer sweep are in
   says which tier answered, because a user who mistakes the estimate for a mechanical limit sets the
   threshold wrong. Inside `MountState` the driver's null is NaN (`PollDriverReadAsync` is
   `where T : struct`, which excludes `Nullable<T>`).
-- **Only a MEASURED pointing state may drive it.** `MountLimits.TrustedPointingState` hands `Evaluate`
-  `Unknown` for a `Computed` driver (LX200 base, SGP, `FakeMountDriver`), whose HA-derived answer
-  reads as post-flip west of the meridian whatever the mount did and would silence the limit there.
-  The flip gate keeps the computed answer.
+- **Only a MEASURED pointing state may drive it -- or one the SESSION verified.**
+  `MountLimits.TrustedPointingState` hands `Evaluate` `Unknown` for a `Computed` driver (LX200 base,
+  SGP, `FakeMountDriver`), whose HA-derived answer reads as post-flip west of the meridian whatever
+  the mount did. Its **three-argument overload** takes `Session._verifiedPointingState` instead --
+  latched where a goto landed, moved only by an image-confirmed flip -- which is strictly better than
+  `Unknown`. It is the MIRROR case that needs it: a flipped rig pointed EAST swings back toward the
+  pier, and the hour-angle tier reads that as clear. **`MountLimitWatcher` has no session and no
+  latch, so it keeps the two-argument form; do not unify the call sites.** The flip gate keeps the
+  computed answer.
 - **Warn and act are a threshold plus a non-negative EXTRA**, never two absolute numbers: the limits
   run in opposite directions (HA rises toward its limit, altitude falls toward its own), so an
   absolute pair can be edited into acting before it warns -- differently for each.

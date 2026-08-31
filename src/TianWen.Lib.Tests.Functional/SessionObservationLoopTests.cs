@@ -507,6 +507,78 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The limit acts on the pointing state the SESSION verified, not the one the driver reports.
+    /// <para>
+    /// The rig is a plain <see cref="FakeMountDriver"/>, whose <see cref="PointingStateSource"/> is
+    /// <see cref="PointingStateSource.Computed"/> -- it derives pier side from the hour angle, so east
+    /// of the meridian it always answers <see cref="PointingState.ThroughThePole"/> whatever the tube
+    /// is doing. <c>MountLimits.TrustedPointingState</c> rightly refuses that report, and the limit
+    /// then falls back to an hour-angle estimate that reads CLEAR here.
+    /// </para>
+    /// <para>
+    /// But the session knows better: the poll latched <see cref="PointingState.Normal"/> while the
+    /// mount was west, and no slew has moved it since. A rig on the far side of the pier that is then
+    /// pointed EAST -- a wrong-way goto, a bad sync -- is swinging its tube back toward the pier, and
+    /// this is the case only the verified state can see. It is deliberately the MIRROR case: west of
+    /// the meridian an Unknown state and a ThroughThePole one read alike, so a west-side test would
+    /// pass with the wiring removed.
+    /// </para>
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task TheLimitActsOnTheVerifiedPointingStateNotTheDriversReport()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var subExposure = TimeSpan.FromSeconds(30);
+        var observations = new[]
+        {
+            new ScheduledObservation(
+                new Target(4.89, 20.0, "MirrorHazard", null),
+                WinterNightStart, TimeSpan.FromMinutes(30), AcrossMeridian: true,
+                FilterPlan: FilterPlanBuilder.BuildSingleFilterPlan(subExposure), Gain: 0, Offset: 0)
+        };
+        var limits = new MountLimitConfiguration(Enabled: true, MeridianWarnMinutes: 20.0, MeridianActionExtraMinutes: 20.0);
+        await using var ctx = await CreateWinterSessionAsync(observations, mountLimits: limits, cancellationToken: ct);
+        await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);
+        await ctx.Mount.SetSiteLongitudeAsync(16.3, ct);
+        // Establish the verified state through an actual GOTO -- the only thing that sets it. There is
+        // no first-poll seed: a seed with no goto behind it is just the driver's own answer wearing the
+        // word "verified", and the limit asked for a verified state precisely to refuse that.
+        // Land WEST but inside the threshold (HA ~ +0.3h against an action point of 40 min), so the
+        // slew itself cannot trip the limit and the latch records Normal.
+        await ctx.Mount.BeginSlewRaDecAsync(4.3, 20.0, ct);
+        for (var i = 0; i < 600 && await ctx.Mount.IsSlewingAsync(ct); i++)
+        {
+            await ctx.Session.PollDeviceStatesAsync(ct);
+            await ctx.TimeProvider.SleepAsync(TimeSpan.FromMilliseconds(200), ct);
+        }
+        (await ctx.Mount.IsSlewingAsync(ct)).ShouldBeFalse("the goto must land, or nothing is latched");
+        await ctx.Session.PollDeviceStatesAsync(ct);
+        (await ctx.Session.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal,
+            "premise: the goto landed Normal and the poll latched it");
+
+        // A fresh test session has never initialised a mount, so tracking is off and the meridian test
+        // would be silent for that reason instead of the one under test. On AFTER the slew, so the goto
+        // cannot trip the limit on its way.
+        await ctx.Mount.SetTrackingAsync(true, ct);
+
+        // Now point EAST by SYNC. Nothing slewed, so the latch holds -- but the driver's computed
+        // answer flips, which is the whole difference this test turns on.
+        await ctx.Mount.SyncRaDecAsync(5.6, 20.0, ct);
+        await ctx.Session.PollDeviceStatesAsync(ct);
+
+        (await ctx.Mount.GetHourAngleAsync(ct)).ShouldBeLessThan(-0.8,
+            "premise: the mount is well east of the meridian");
+        (await ctx.Mount.GetSideOfPierAsync(ct)).ShouldBe(PointingState.ThroughThePole,
+            "premise: the driver COMPUTES its state from the hour angle, so it now reports the wrong side");
+        (await ctx.Session.GetSideOfPierAsync(ct)).ShouldBe(PointingState.Normal,
+            "premise: the session's canonical answer is unmoved -- no slew, so the tube did not change sides");
+
+        var verdict = ctx.Session.MountLimitVerdict;
+        verdict.Kind.ShouldBe(MountLimitKind.Meridian,
+            $"the tube is swinging back toward the pier and only the verified state shows it: {verdict.Describe()}");
+    }
+
+    /// <summary>
     /// The limit is the ULTIMATE clamp, end to end: the user has set the flip LATER than the mechanical limit
     /// (earliest 60 min, action at 20 min), so the flip window collapses and the imaging loop sits in the
     /// pre-flip obstruction pause while the mount tracks on -- through the pole, counterweight rising --
