@@ -14,10 +14,11 @@
 # TianWen consumes only the SharpAstro.* codecs, not the port.
 #
 # The base TianWen.slnx in src/ stays untouched (used by CI and dotnet build). It
-# omits TianWen.UI.Web and TianWen.UI.Web.E2E on purpose, so this generated solution
-# omits them too: the WASM app has its own workflow (pages.yml) as its sole CI, and
-# the E2E suite needs a browser plus a running dev server, so neither belongs in a
-# solution-wide build or `dotnet test`.
+# INCLUDES TianWen.UI.Web, so this generated solution picks it up by re-rooting -- which
+# is what makes a rename in TianWen.UI.Abstractions fail on the .razor call sites that
+# consume it, locally, instead of in CI. It still omits TianWen.UI.Web.E2E on purpose:
+# that suite needs a browser plus a running dev server, so it must not be swept up by a
+# solution-wide `dotnet test`.
 
 $repoRoot = $PSScriptRoot
 $baseSlnx = Join-Path $repoRoot 'src' 'TianWen.slnx'

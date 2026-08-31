@@ -176,9 +176,10 @@ jobs:
         name: nuget-packages
         path: '**/*.nupkg'
         retention-days: 5
-    # TianWen.UI.Web and its E2E harness live OUTSIDE TianWen.slnx, so nothing on the PR path
-    # compiled them: an API change in TianWen.UI.Abstractions, or a sibling pin bump that moves
-    # WebGl.Renderer, could only be found by pages.yml -- AFTER merge, as a broken deploy of main.
+    # TianWen.UI.Web is IN TianWen.slnx, so the Build step above already compiled it; only the E2E
+    # harness lives outside (IsTestProject + Playwright, so a solution-wide dotnet test would sweep a
+    # suite needing a browser and a served app). An API change in TianWen.UI.Abstractions, or a sibling
+    # pin bump that moves WebGl.Renderer, used to reach pages.yml AFTER merge as a broken deploy.
     # This is the QUICK build: interpreted, no AOT and no native relink, so it needs no wasm-tools
     # workload, and it compiles against the libraries this job has already built. That is what makes
     # it affordable on every push and PR (~1 min) rather than the deploy's full AOT publish.
@@ -193,16 +194,14 @@ jobs:
     #  - No -p:Lightweight=true, even though the deploy passes it. It only REMOVES an EmbeddedResource
     #    from TianWen.Lib, so it changes no C# and no razor -- there is nothing extra to cover -- but
     #    it does change Lib's inputs.
-    #  - No --no-restore: the solution restore never saw these two projects, so they restore here.
+    #  - No --no-restore: the solution restore never saw this project, so it restores here.
     #
     # What this CANNOT catch, and pages.yml still owns: the AOT leg (the mono cross-compiler
     # fail-fasts on the vendor SDK assemblies TianWen.UI.Web works around), trimming, and anything at
     # runtime. The E2E suite is COMPILED here but not RUN -- it needs a browser and a served app.
-    - name: Build TianWen.UI.Web + E2E (interpreted, no AOT)
+    - name: Build TianWen.UI.Web.E2E (compiled, not run)
       run: |
-        for p in TianWen.UI.Web TianWen.UI.Web.E2E; do
-          dotnet build "$p/$p.csproj" -c $BUILD_CONF -p:UseLocalSiblings=false -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
-        done
+        dotnet build TianWen.UI.Web.E2E/TianWen.UI.Web.E2E.csproj -c $BUILD_CONF -p:UseLocalSiblings=false -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:ContinuousIntegrationBuild=true
       working-directory: src
 
   test-unit:

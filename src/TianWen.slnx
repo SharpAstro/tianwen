@@ -30,4 +30,5 @@
   <Project Path="TianWen.UI.FitsViewer/TianWen.UI.FitsViewer.csproj" />
   <Project Path="TianWen.UI.Gui/TianWen.UI.Gui.csproj" />
   <Project Path="TianWen.UI.Shared/TianWen.UI.Shared.csproj" />
+  <Project Path="TianWen.UI.Web/TianWen.UI.Web.csproj" />
 </Solution>

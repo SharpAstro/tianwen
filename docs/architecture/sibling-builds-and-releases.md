@@ -39,11 +39,29 @@ silently unloaded rather than failing, so touch one file and re-read the other.
 
 ## The web projects: out of the solution, in CI
 
-**Both web projects stay out of `TianWen.slnx`, which is a separate and legitimate decision.**
-`TianWen.UI.Web` is a Blazor WASM app whose *deploy* CI is `pages.yml` (a mono AOT publish, far too
-heavy for the per-push `dotnet.yml` loop), and `TianWen.UI.Web.E2E` needs a browser plus a running dev
-server, so a solution-wide `dotnet test` must not sweep it up. Run them explicitly:
-`dotnet build TianWen.UI.Web`, `dotnet test TianWen.UI.Web.E2E`.
+**They were both out of `TianWen.slnx`, treated as one decision, and only one of them earned it.**
+`TianWen.UI.Web.E2E` genuinely must stay out: it is `IsTestProject` + Playwright, so a solution-wide
+`dotnet test` would sweep a suite that needs a browser and a served app. Run it explicitly:
+`dotnet test TianWen.UI.Web.E2E`.
+
+**`TianWen.UI.Web` is IN the solution as of 2026-08-31.** Its exclusion rested on the *deploy* being
+heavy -- `pages.yml` is a mono AOT publish, far too heavy for the per-push loop -- but that is an
+argument about `publish`, not about `build`. A plain solution build compiles it interpreted, with no
+AOT and no relink, so it needs no `wasm-tools` workload; measured cost is **+4 s on a no-op
+incremental build** (5.1 s -> 9.1 s).
+
+What that buys is the failure it now catches. The web host consumes `TianWen.UI.Abstractions` from
+`.razor` files, and those sit in exactly the blind spot of both local checks: a rename sweep filtered
+to `--include=*.cs` cannot see a `.razor` call site, and an out-of-solution project is not compiled by
+`dotnet build`. The two overlap precisely, so `MarkSessionSaved` -> `MarkSaved` passed a clean grep AND
+a clean solution build, then failed CI ~15 min later on two lines of `Planner.razor`. With the project
+in the solution the same edit fails locally in 9 s, with the identical `CS1061` -- verified by
+reintroducing it.
+
+`dotnet.yml`'s extra step is therefore now E2E-only; the `Build` step covers the web app. `open-vs.ps1`
+re-roots the base slnx, so the generated local solution picks it up with no change there -- which also
+makes it coherent with `WebGl.Renderer`, already in that solution precisely because `TianWen.UI.Web`
+consumes it.
 
 **Being outside the solution is not a reason to be outside CI, and for a while it was treated as one.**
 `dotnet.yml`'s `build` job now compiles both projects explicitly, after its artifact uploads, the QUICK
