@@ -54,11 +54,17 @@ public readonly record struct FlipVerdict(FlipEvidence Evidence, double Rotation
 /// the mount.
 /// </para>
 /// <para>
-/// Design notes in <c>docs/plans/meridian-flip-verification.md</c>. Two things must not be changed
-/// without reading it: the test is PARITY-INDEPENDENT by construction (a flip is a rotation, never a
-/// reflection, so no mirror-count or handedness term belongs here), and once a rotator exists the
-/// caller must gate on "no rotator moved across the flip" or a deliberate framing rotation reads as
-/// a flip.
+/// Design notes in <c>docs/plans/meridian-flip-verification.md</c>. Three things must not be changed
+/// without reading it. The test is PARITY-INDEPENDENT by construction: a flip is a rotation, never a
+/// reflection, so no mirror-count or handedness term belongs here. Once a rotator exists the caller
+/// must gate on "no rotator moved across the flip", or a deliberate framing rotation reads as a flip.
+/// And it is only meaningful on a GERMAN equatorial mount, because only there is the field position
+/// angle constant except across a flip: a fork (<see cref="Devices.AlignmentMode.Polar"/>) tracks
+/// straight through the meridian and never flips, while an ALT-AZ mount has no pier side at all and
+/// rotates the field CONTINUOUSLY, so a half turn measured there is elapsed tracking rather than
+/// anything mechanical. <c>ImagingLoopAsync</c> gates the whole flip block on
+/// <see cref="Devices.AlignmentMode.GermanPolar"/> and that gate is what keeps this sound -- nothing
+/// in here re-checks it.
 /// </para>
 /// </summary>
 public static class MeridianFlipVerification
