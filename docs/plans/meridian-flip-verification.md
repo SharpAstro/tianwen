@@ -229,10 +229,19 @@ Three things this left behind, each guarding the way it was misread:
   field and silently got noise had no other way to find out.
 
 Related: `SessionTestHelper.CreateSessionAsync` gained `coupleCameraToMount`, which connects the mount
-through the `IDeviceHub` so `FakeCameraDriver` can find it. That is the PRODUCTION shape -- every real
-host connects through the hub -- but turning it on for the whole suite switches on the guide camera's
-drift and the main camera's hidden polar misalignment at the same time, which wedged the SkyWatcher
-meridian-limit test. It is opt-in for now; making it the default is its own piece of work.
+through the `IDeviceHub` so `FakeCameraDriver` can find it -- the PRODUCTION shape, since every real
+host connects through the hub. **It is the DEFAULT as of 2026-08-31.** Cost is inside the noise: the
+functional suite went 2m49 to 3m01 and the unit suite did not move, even though every session test now
+resolves the mount, refreshes a SOFA transform per exposure and projects through the true-pointing
+seam. `ResolveCoupledMount` caches, and the transform is built once with only its clock refreshed.
+
+**One test opts out, and it is a real hang rather than a preference:**
+`GivenSkywatcherWithLimitsWhenTargetCrossesMeridianThenItFlipsAndTheLimitStaysClear` stalls coupled --
+the flip happens and ~128 frames are written, then the loop stops with the pump's `WaiterCount` at 0,
+so fake time never advances again. Not slowness (survives a 900 s budget and halving the frame count)
+and specific to coupled + `FakeSkywatcherMountDriver` + `ExternalTimePump`. Opting that one test out
+keeps the hang out of CI instead of hiding it behind a shorter run, and costs it nothing it had
+before. Root-causing it needs a stack (`--blame-hang`), not more inference.
 
 ## Invariants to preserve
 

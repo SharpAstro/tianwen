@@ -70,7 +70,7 @@ internal static class SessionTestHelper
         Func<IServiceProvider, Cover>? coverFactory = null,
         MountLimitConfiguration? mountLimits = null,
         IPlateSolver? plateSolverOverride = null,
-        bool coupleCameraToMount = false,
+        bool coupleCameraToMount = true,
         bool withCatalogStarField = false,
         CancellationToken cancellationToken = default)
     {
