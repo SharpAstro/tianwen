@@ -491,13 +491,16 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
         var limits = new MountLimitConfiguration(Enabled: true, MeridianWarnMinutes: 20.0, MeridianActionExtraMinutes: 20.0);
-        // OPTS OUT of camera-mount coupling, which is otherwise the default. Coupled, this run stalls:
-        // the flip happens and ~128 frames are written, then the loop stops making progress with the
-        // pump's WaiterCount at 0 -- nothing parked in SleepAsync, so fake time never advances again.
-        // It is not slowness (it survives neither a 900 s budget nor halving the frame count) and it
-        // is specific to this combination: coupled + FakeSkywatcherMountDriver + ExternalTimePump.
-        // Tracked separately; opting out here keeps a real hang out of CI rather than hiding it, and
-        // costs this test nothing it had before -- coupling was opt-in when it was written.
+        // OPTS OUT of camera-mount coupling, which is otherwise the default. Coupled, the GUIDER never
+        // locks on: TryAcquire fails on every guide frame, so _acquired never becomes true, TryTrackAll
+        // never runs, and a full-frame star search burns a core for the whole run. Sampled dumps put
+        // 4 of 4 (and later 3 of 3) stacks in TryAcquire -> FindCandidateStars -> TryCentroid.
+        //
+        // That used to look like a hang, because the guide camera is the IMX178M preset at 3096x2080
+        // and scanning 6.4 MP per frame is slow enough to stop the time pump making progress. The
+        // camera is subframed now, which turns the hang into a 3-minute run -- but a failing scan made
+        // cheap is still a failing scan. The fake's coupled guide star needs to be ACQUIRABLE; until
+        // it is, this test would spend 3 of its 5 minutes guiding at nothing.
         await using var ctx = await CreateWinterSessionAsync(observations, mountPort: "SkyWatcher", mountLimits: limits,
             coupleCameraToMount: false, cancellationToken: ct);
         await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);

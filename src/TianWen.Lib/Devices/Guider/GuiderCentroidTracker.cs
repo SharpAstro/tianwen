@@ -18,6 +18,14 @@ internal sealed class GuiderCentroidTracker
     private const int DefaultMaxStars = 8;
     private const int MinStarSeparation = 32; // pixels; avoid selecting stars too close together
 
+    /// <summary>
+    /// Widest window <see cref="TryTrackAll"/> will re-search before giving a star up. Kept below
+    /// 2x <see cref="MinStarSeparation"/> so a widened search cannot reach past a neighbour that
+    /// acquisition had deliberately kept apart -- recovering the WRONG star is worse than losing this
+    /// one, because the delta it then reports is a fiction the guider will act on.
+    /// </summary>
+    private const int MaxRecoverySearchRadius = 48;
+
     private readonly List<TrackedStar> _stars = new List<TrackedStar>();
     private bool _acquired;
     private int _searchRadius;
@@ -342,8 +350,8 @@ internal sealed class GuiderCentroidTracker
             var centerX = (int)Math.Round(star.LastX);
             var centerY = (int)Math.Round(star.LastY);
 
-            if (!TryCentroid(frame, width, height, centerX, centerY, _searchRadius,
-                out var cx, out var cy, out var flux, out var snr) || snr < MinSNR)
+            if (!TryRecoverCentroid(frame, width, height, centerX, centerY, star.Flux,
+                out var cx, out var cy, out var flux, out var snr))
             {
                 // Star lost: remove from tracking list
                 _stars.RemoveAt(i);
@@ -381,6 +389,80 @@ internal sealed class GuiderCentroidTracker
         // Report primary star position (first in list, brightest)
         var primary = _stars[0];
         return new GuiderCentroidResult(primary.LastX, primary.LastY, avgDeltaX, avgDeltaY, totalFlux, minSNR, trackedCount);
+    }
+
+    /// <summary>
+    /// Re-finds a tracked star that moved further than one <see cref="SearchRadius"/>, before giving
+    /// it up.
+    /// </summary>
+    /// <remarks>
+    /// <para><b>Dropping the lock is not a recoverable state, which is why this exists.</b>
+    /// Re-acquisition re-locks on wherever the star now IS, so the delta it reports is zero: the
+    /// guider learns a new lock position instead of an error, issues no correction, and the drift
+    /// that broke the lock carries on unopposed until it breaks the next one. The loop then re-runs a
+    /// full-frame <see cref="TryAcquire"/> every frame -- pegging a core while guiding silently does
+    /// nothing at all. Keeping the ORIGINAL lock means the drift is still reported as the error it
+    /// is, and gets corrected away.</para>
+    /// <para><b>The search widens; the APERTURE never does.</b> Simply centroiding over a bigger
+    /// circle looks like the same thing and is not: a flux-weighted centroid over a wide aperture is
+    /// dragged toward whatever else lies in it, so a neighbour silently captures the measurement. The
+    /// first cut of this did exactly that, and reported an identical delta for a 22 px drift and a
+    /// 40 px one -- the signature of measuring something that had not moved. So this scans the
+    /// widened window for its brightest pixel and then centroids at the NORMAL radius about that.</para>
+    /// <para>Two guards keep it honest: the window stops at <see cref="MaxRecoverySearchRadius"/>,
+    /// below the separation acquisition enforces between stars, and the recovered star must carry a
+    /// flux comparable to the one that was lost. A confident delta measured against the wrong star is
+    /// worse than an honest loss, because the guider will act on it.</para>
+    /// </remarks>
+    private bool TryRecoverCentroid(
+        float[,] frame, int width, int height, int centerX, int centerY, double lastFlux,
+        out double cx, out double cy, out double flux, out double snr)
+    {
+        // The ordinary case: it is where it was, near enough.
+        if (TryCentroid(frame, width, height, centerX, centerY, _searchRadius, out cx, out cy, out flux, out snr)
+            && snr >= MinSNR)
+        {
+            return true;
+        }
+
+        // It moved further than that. Look wider for a PEAK, not a wider centroid.
+        var bestValue = float.NegativeInfinity;
+        int bestX = -1, bestY = -1;
+        for (var dy = -MaxRecoverySearchRadius; dy <= MaxRecoverySearchRadius; dy++)
+        {
+            var py = centerY + dy;
+            if (py < 0 || py >= height)
+            {
+                continue;
+            }
+
+            for (var dx = -MaxRecoverySearchRadius; dx <= MaxRecoverySearchRadius; dx++)
+            {
+                var px = centerX + dx;
+                if (px < 0 || px >= width)
+                {
+                    continue;
+                }
+
+                var value = frame[py, px];
+                if (value > bestValue)
+                {
+                    bestValue = value;
+                    bestX = px;
+                    bestY = py;
+                }
+            }
+        }
+
+        if (bestX < 0
+            || !TryCentroid(frame, width, height, bestX, bestY, _searchRadius, out cx, out cy, out flux, out snr)
+            || snr < MinSNR)
+        {
+            return false;
+        }
+
+        // A star that recovered with a wildly different flux is probably not the same star.
+        return lastFlux <= 0 || (flux >= lastFlux * 0.25 && flux <= lastFlux * 4.0);
     }
 
     /// <summary>

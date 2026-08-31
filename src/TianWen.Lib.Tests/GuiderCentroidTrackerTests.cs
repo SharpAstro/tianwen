@@ -274,4 +274,65 @@ public class GuiderCentroidTrackerTests(ITestOutputHelper output)
         output.WriteLine($"After offset: tracking {result1.Value.TrackedStarCount} stars, delta=({result1.Value.DeltaX:F3}, {result1.Value.DeltaY:F3})");
         result1.Value.DeltaX.ShouldBe(1.0, 0.5);
     }
+    /// <summary>
+    /// A star that moves further than one search radius between frames must stay LOCKED, and the
+    /// move must be reported as the error it is.
+    /// </summary>
+    /// <remarks>
+    /// The failure this pins is self-perpetuating rather than transient. Losing the lock is not a
+    /// recoverable state: re-acquisition re-locks on wherever the star now IS, so the delta comes
+    /// back zero, the guider issues no correction, and the drift that broke the lock carries on until
+    /// it breaks the next one -- while a full-frame TryAcquire runs every frame, pegging a core.
+    /// Found by sampling a session test that looked like a hang: four dumps of four sat in
+    /// TryAcquire -> FindCandidateStars -> TryCentroid.
+    /// </remarks>
+    [Theory]
+    [InlineData(10)]  // inside one search radius: this always worked
+    [InlineData(22)]  // past it -- this is what used to drop the lock
+    [InlineData(40)]  // and well past it
+    public void AStarThatDriftsFurtherThanTheSearchRadiusIsStillTracked(int drift)
+    {
+        // Same field shape the other drift tests use: a roomy frame with several stars, so the lock
+        // does not sit against an edge where TryCentroid refuses the aperture for reasons of its own.
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var first = SyntheticStarFieldRenderer.Render(640, 480, 0,
+            offsetX: 0, offsetY: 0, starCount: 5, seed: 42);
+        tracker.ProcessFrame(first).ShouldNotBeNull("premise: the tracker must lock on the first frame");
+        tracker.IsAcquired.ShouldBeTrue();
+
+        var moved = SyntheticStarFieldRenderer.Render(640, 480, 0,
+            offsetX: drift, offsetY: 0, starCount: 5, seed: 42);
+        var result = tracker.ProcessFrame(moved);
+
+        tracker.IsAcquired.ShouldBeTrue("dropping the lock here is unrecoverable: the re-acquire reports no error");
+        result.ShouldNotBeNull();
+        result.Value.DeltaX.ShouldBe(drift, 3.0,
+            "the drift must be reported as the error, or nothing ever corrects it");
+    }
+
+    /// <summary>
+    /// The widened search stops short of a neighbour: recovering the WRONG star reports a confident
+    /// delta that is pure fiction, which is worse than an honest loss.
+    /// </summary>
+    [Fact]
+    public void AStarThatVanishesIsGivenUpRatherThanRecoveredOntoSomethingElse()
+    {
+        var tracker = new GuiderCentroidTracker(maxStars: 1);
+        var withStar = SyntheticStarFieldRenderer.Render(640, 480, 0,
+            offsetX: 0, offsetY: 0, starCount: 5, seed: 42);
+        tracker.ProcessFrame(withStar).ShouldNotBeNull("premise");
+
+        var blank = new float[480, 640];
+        for (var y = 0; y < 480; y++)
+        {
+            for (var x = 0; x < 640; x++)
+            {
+                blank[y, x] = 100f;
+            }
+        }
+
+        tracker.ProcessFrame(blank);
+
+        tracker.IsAcquired.ShouldBeFalse("with nothing there, the honest answer is that the star is gone");
+    }
 }
