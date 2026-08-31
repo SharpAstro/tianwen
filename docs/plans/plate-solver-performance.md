@@ -517,6 +517,29 @@ overlap) and solves normally. **So the missing capability is a positional search
 not a bigger radius and not a bigger catalog -- worth its own phase if a wrong-by-a-field-width hint
 is a case worth serving, which for a mosaic crop or a badly-synced mount it is.
 
+**The header is not mis-annotated -- it is accurate about a different thing.** `OBJECT = HD 72800`
+with `OBJCTRA`/`OBJCTDEC` at 08 32 56 / -47 36 17, and the catalogued HD 72800 sits **0.4 arcmin**
+from exactly that (P8's `HD 74167` likewise, 0.3 arcmin). The pointing record is faithful; it records
+where the SCOPE WAS AIMED for the panel, and these pixels are 93 arcmin from it. The frozen star lists
+settle where that came in: the full panel 10 has a hint error of **0.3 arcmin**, so the mount's own
+pointing was excellent and the offset is introduced by the crop, which kept the panel's header. A
+consumer cannot tell: nothing in a FITS header states that `OBJCTRA` still describes the frame after
+someone crops it, which is the same class of trap as `RA`/`DEC` not being the frame centre.
+
+**What actually predicts a seed failure is hint error as a FRACTION OF FRAME WIDTH**, and the frozen
+set brackets it:
+
+| | hint error | frame | as % of width | seeds? |
+|---|---|---|---|---|
+| P8 crop | 8.1 arcmin | 3.90 deg | 3.5% | yes |
+| worst full panel (P15b), of 96 | 58.7 arcmin | 4.98 deg | 19.6% | yes |
+| P10 crop | 93.0 arcmin | 2.17 deg | **71.4%** | no |
+
+The seed's two anchor-pool policies carry margins of 0% and 10%, so tolerating ~20% is about what the
+margined pool plus the frame's own slack buys, and 71% is far outside it. **That is the number to
+design against** -- not the absolute arcminutes, which is why a 4.98 deg panel survives an error seven
+times larger than the one that kills a 2.17 deg crop.
+
 **Narrowband is NOT implicated, and the quad-candidate count is not an independent signal.** These
 panels are HOO (Ha into R, OIII into G and B), so "the anchor pool is ranked by a broadband magnitude
 the image does not measure" was the natural competing explanation, and P10's 4 agreeing quad

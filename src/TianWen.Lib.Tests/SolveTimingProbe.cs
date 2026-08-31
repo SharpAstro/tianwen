@@ -249,6 +249,81 @@ namespace TianWen.Lib.Tests
             image.Release();
         }
 
+        /// <summary>
+        /// Is the P10 crop MIS-ANNOTATED, or merely cropped off-centre? Two independent checks, since
+        /// the header is self-consistent either way: does the catalogued position of the star named in
+        /// OBJECT agree with the OBJCTRA/OBJCTDEC beside it, and is the offset larger than any FULL
+        /// panel of the same mosaic manages (the frozen star lists carry all 24, hint and truth).
+        /// </summary>
+        [Fact(Timeout = 600_000)]
+        public async Task ReportWhetherTheCropIsMisAnnotatedOrJustOffCentre()
+        {
+            Assert.SkipUnless(
+                !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TIANWEN_SOLVE_TIMING")),
+                "Set TIANWEN_SOLVE_TIMING=1 to run the solve timing probe");
+
+            var ct = TestContext.Current.CancellationToken;
+            var db = new CelestialObjectDB();
+            await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+
+            // (named object, header OBJCTRA hours, header OBJCTDEC deg, ASTAP centre hours/deg)
+            var cases = new[]
+            {
+                ("HD 72800", 8.548888, -47.604722, 8.696528, -48.040000, "P10 (fails)"),
+                ("HD 74167", 8.676944, -45.189722, 8.667722, -45.095556, "P8 (solves)"),
+            };
+
+            foreach (var (name, hdrRa, hdrDec, trueRa, trueDec, label) in cases)
+            {
+                output.WriteLine($"{label}  OBJECT = {name}");
+                if (((ICelestialObjectDB)db).TryLookupByIndex(name, out var obj))
+                {
+                    output.WriteLine($"   catalogued at   {obj.RA:F5}h {obj.Dec:+0.0000;-0.0000}  (V={(double)obj.V_Mag:F2})");
+                    output.WriteLine($"   header states   {hdrRa:F5}h {hdrDec:+0.0000;-0.0000}  -> {SepDeg(obj.RA, obj.Dec, hdrRa, hdrDec) * 60:F1} arcmin from the catalogued star");
+                    output.WriteLine($"   frame really is {trueRa:F5}h {trueDec:+0.0000;-0.0000}  -> {SepDeg(obj.RA, obj.Dec, trueRa, trueDec) * 60:F1} arcmin from the catalogued star");
+                }
+                else
+                {
+                    output.WriteLine($"   NOT FOUND in the catalog");
+                }
+
+                output.WriteLine($"   header vs truth {SepDeg(hdrRa, hdrDec, trueRa, trueDec) * 60:F1} arcmin");
+                output.WriteLine("");
+            }
+
+            // How wrong does a hint get on a FULL panel of this same mosaic?
+            var manifest = VelaMosaicStarLists.Manifest;
+            var worst = 0.0;
+            var worstId = "";
+            var nearest = 0.0;
+            var nearestId = "";
+            var nearestHint = 0.0;
+            foreach (var panel in manifest.Panels)
+            {
+                foreach (var frame in panel.Frames)
+                {
+                    var err = SepDeg(frame.Hint.CenterRA, frame.Hint.CenterDec, frame.Wcs.CenterRA, frame.Wcs.CenterDec) * 60;
+                    if (err > worst)
+                    {
+                        worst = err;
+                        worstId = $"{panel.Id}/{frame.Name}";
+                    }
+                }
+
+                var d = SepDeg(panel.Frames[0].Wcs.CenterRA, panel.Frames[0].Wcs.CenterDec, 8.696528, -48.040000) * 60;
+                if (nearestId.Length == 0 || d < nearest)
+                {
+                    nearest = d;
+                    nearestId = panel.Id;
+                    nearestHint = SepDeg(panel.Frames[0].Hint.CenterRA, panel.Frames[0].Hint.CenterDec,
+                        panel.Frames[0].Wcs.CenterRA, panel.Frames[0].Wcs.CenterDec) * 60;
+                }
+            }
+
+            output.WriteLine($"frozen mosaic: worst FULL-panel hint error {worst:F1} arcmin ({worstId}) over {manifest.Panels.Length} panels");
+            output.WriteLine($"the full panel nearest the crop's true centre is {nearestId}, {nearest:F1} arcmin away, its own hint {nearestHint:F1} arcmin off");
+        }
+
         private static double SepDeg(double ra1H, double dec1, double ra2H, double dec2)
         {
             var r1 = double.DegreesToRadians(ra1H * 15.0);
