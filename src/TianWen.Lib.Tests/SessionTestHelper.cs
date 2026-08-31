@@ -175,6 +175,16 @@ internal static class SessionTestHelper
         await guider.Driver.ConnectAsync(cancellationToken);
         await guiderCam.Driver.ConnectAsync(cancellationToken);
         guiderCam.Driver.FocalLength = 130; // typical guide scope
+        // Subframe the guide camera, as the main one already is. The IMX178M preset is 3096x2080 --
+        // 6.4 MP -- and GuiderCentroidTracker.TryAcquire scans the WHOLE frame for candidate stars.
+        // That is affordable while tracking holds, because tracking is the cheap path and acquisition
+        // runs once; it is not affordable once the star drifts out of the search radius every frame,
+        // which is exactly what coupling to a polar-misaligned mount produces. Uncoupled the star sits
+        // still, tracking never fails, and the cost never shows up. A real guiding setup subframes for
+        // the same reason.
+        var guiderCamDriver = (FakeCameraDriver)guiderCam.Driver;
+        guiderCamDriver.NumX = 512;
+        guiderCamDriver.NumY = 512;
         await ((FakeGuider)guider.Driver).ConnectEquipmentAsync(cancellationToken);
 
         // Link mount + guide camera into the fake guider
