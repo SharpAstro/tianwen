@@ -106,6 +106,14 @@ internal sealed class GuideLoop
     internal int StarLostEvents { get; private set; }
 
     /// <summary>
+    /// Frames the loop has processed this run. A test seam beside <see cref="StarLostEvents"/>: under
+    /// a fake clock an exposure costs no wall time, so the loop runs orders of magnitude more frames
+    /// than a real night would, and knowing HOW MANY is the difference between "each frame is slow"
+    /// and "there are simply a great many frames" -- two diagnoses with opposite fixes.
+    /// </summary>
+    internal int GuideFrameCount => _guideFrameCount;
+
+    /// <summary>
     /// True while the loop currently has no guide star lock (the last processed frame returned no
     /// centroid). Read from driver poll threads to surface a PHD2-style "LostLock" app state;
     /// a plain bool read is atomic so no locking is needed for this advisory flag.
