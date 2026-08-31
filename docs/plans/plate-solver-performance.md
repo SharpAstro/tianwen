@@ -454,6 +454,56 @@ that is not the true one, so `QuadScaleRecoveryTests` shifts the second field's 
 x0.80 the answer tracks the shift, at x1.25 it declines outright, and it never invents ~1.0 from
 chance agreement.
 
+#### What a solve costs now, cold and warm (measured 2026-09-01)
+
+`SolveTimingProbe` (env-gated `TIANWEN_SOLVE_TIMING`) solves five committed real frames six times over
+per process, three processes, medians. It exists because the two costs a session pays are different
+and **BenchmarkDotNet can only ever see one of them**: the catalog is cached per process, so a BDN
+second iteration is already a warm start, and the cold half is the 51% row in the budget above.
+
+Cold -- first frame in a fresh process (NGC 3576, the most expensive of the set). Excludes host startup:
+
+| stage | ms |
+|---|---|
+| catalog init (ONCE per process) | 266 |
+| FITS load, 10 MB gz -> 3008x3008 | 184 |
+| solve (query 30 / detect 110 / quad 13 / seed+refine 134) | 312 |
+| **cold, to a WCS** | **762** |
+
+Warm -- the same process, solve only:
+
+| frame | scale | detected | warm | cold pass 1 |
+|---|---|---|---|---|
+| NGC 3576, SH61 270 mm, 3008x3008 GRBG | 2.87"/px | 8103 | **221 ms** | 312 ms |
+| HD 71216, Samyang 130 mm, 3008x3008 | 5.97 | 1932 | **106** | 168 |
+| Horsehead, Samyang 135 mm, 3008x3008 (SharpCap) | 5.74 | 2227 | **60** | 165 |
+| Vela P8 crop, 2354x2150 mono | 5.97 | 4003 | **120** | 248 |
+
+Cold-to-warm on the solve alone is 1.4x-2.7x and it is **all JIT** -- the second solve of ANY frame is
+warm, not only of the same one. Share of a warm solve: seed+refine 43-61%, detection 34-47%, catalog
+query 1.4-3.7%, quad recovery 0.9-2.0%. So **phase B really is finished** (2-6 ms), and **C' costs
+1-2 ms to remove 7.4x of the seed's work**.
+
+**Recovery fires on 2 of these 5 frames, and the gate that refuses is the CANDIDATE COUNT, never the
+spread.** Where it answers: 27 and 18 candidates at spread 0.0017 / 0.0004 against the 0.01 bar. Where
+it declines: 8, 6 and 4 candidates against `MinCandidates = 10`, deterministically, same counts every
+run. The guard that protects correctness is therefore carrying 6-25x of margin while the count gate
+does all the refusing, which makes `RatioTolerance = 0.004f` the knob worth loosening -- coverage
+would rise and the spread guard would still refuse a wrong answer. It matters because the frame it
+declined on is the one that needed it most: the SharpCap Horsehead states `FOCALLEN = 135`, implying
+5.7449"/px against a solved 5.9744 -- **4.0% wrong**, saved only by the +/-5% fallback. The same
+recovery fires on 94 of 96 frozen Vela frames, so the low coverage is a property of real captured
+frames, not of the method.
+
+**The failure path costs 4.0 s, 65x a warm success**, because the refinement loop runs to exhaustion
+before the acceptance gate refuses. The frame that prices it is an open question in its own right:
+the `Vela_SNR_Panel_10` crop does not solve at ANY search radius out to 12 deg (75k catalog stars),
+nor at any scale from 0.5x to 2x the declared one, on a dense star-rich field yielding 1569
+detections -- and the gate's reason is `0 of 120` bright detections within 3 px, which is total rather
+than marginal. Nothing regressed: it had never been asked for a WCS before (it is a stretch / colour /
+codec fixture everywhere else). It is an unexplained gap on a deep narrowband master, and it is the
+one frame in the set whose failure is not understood.
+
 ### D. Cap the star list; bin ONLY where sampling allows it
 
 Two halves with very different risk, and they must not be conflated.
@@ -543,6 +593,26 @@ gate-verified WCS (incl. SIP) as an oracle, plus one mosaic-wide catalog so a ca
 physical star in every panel. `VelaMosaicFieldTests` drives `CatalogPlateSolver.TrySeedPairLock` and
 `PairRansacLock` over them; `VelaMosaicStarListExport` (env-gated, needs the user's archive)
 regenerates the file.
+
+**The suite costs 24 s, and exactly ONE test still searches a wide scale window.** It cost 115 s until
+`SeedsFromHeaderHintAndAgreesWithTheFrozenSolution` and `BothAnchorPoolPoliciesAreNecessary` were
+re-pointed at the SHIPPED two-tier seed -- quad recovery, then `RecoveredScaleTolerance` about the
+recovered scale, falling back to `MinPairLockScaleTolerance` about the header's when it declines --
+which is 6.7x and 5.2x faster AND more faithful, since the +/-3% they used was a window of the tests'
+own invention that production never ran. It also turns these 96 frames into a LOCK-level guard on C'
+(94 of them take the quad tier). That the recovery keeps FIRING is guarded next door by
+`QuadScaleRecoveryTests`' recovered-panel count -- without it, a recovery that started declining
+everywhere would quietly fall back to +/-5% here and still pass.
+
+`UnrelatedDenseFieldsMustNotLock` keeps +/-3% deliberately, and is the one that must: a false lock is
+what the pair matcher exists to refuse, and a WIDE scale search is the adversarial condition for it,
+handing the matcher the most freedom to find a spurious consensus. Narrowing it to the shipped
++/-0.25% takes it from 45 s to 3 s and makes the pass mean strictly less. Its time came back instead
+from the two things that were never the assertion: each panel's field was being re-projected out of
+78k catalog stars once per PARTNER rather than once, and the pairs are independent pure computations
+over frozen data, so they run under a bounded `Parallel.For` with the assertions replayed serially
+afterwards -- which also reports EVERY false lock rather than whichever one a worker threw from first.
+5.1x, same claim.
 
 Star lists because the dense-field failure was purely geometric -- reproducing it needs the positions
 and the DENSITY, not the pixels, and 96 frames of FITS is ~9 GB against 2 MiB of lists.
