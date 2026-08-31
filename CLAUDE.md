@@ -144,8 +144,10 @@ The rules:
 - **A sibling gated on `UseLocalSiblings` must also be in that property's own `Exists(...)` list**, and
   `open-vs.ps1`'s project list must match the same conjunction -- nothing enforces either, and a
   generated solution with unresolvable entries loads with them silently unloaded.
-- **Both web projects stay out of `TianWen.slnx` but are compiled by `dotnet.yml`** (quick, interpreted,
-  same `-p:Version` as the `Build` step). Run them explicitly: `dotnet build TianWen.UI.Web`,
+- **`TianWen.UI.Web` is IN `TianWen.slnx`; only `.E2E` stays out** (`IsTestProject` + Playwright, so a
+  solution-wide `dotnet test` would sweep a suite needing a browser) and `dotnet.yml` compiles it. The
+  web host consumes `UI.Abstractions` from `.razor`, which no `--include=*.cs` grep sees and no
+  out-of-solution project compiles: a rename passed both and broke CI. Run E2E explicitly:
   `dotnet test TianWen.UI.Web.E2E`.
 
 For libraries without auto-detection (`FC.SDK`, `ZWOptical.SDK`, `TianWen.DAL`),
