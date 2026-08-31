@@ -28,7 +28,7 @@ public class PlateSolveParityRaceTests(ITestOutputHelper output)
     private const int Roi = 2048;
 
     private static async System.Threading.Tasks.Task<(Image Image, ImageDim Dim, WCS Hint, CatalogPlateSolver Solver)>
-        BuildSolvableFakeFieldAsync(System.Threading.CancellationToken ct)
+        BuildSolvableFakeFieldAsync(System.Threading.CancellationToken ct, bool flipY = false)
     {
         var preset = FakeCameraDriver.GetPresetForId(1);
         var pixelScaleArcsec = CoordinateUtils.PixelScaleArcsec(preset.PixelSize, FocalLengthMm);
@@ -41,6 +41,25 @@ public class PlateSolveParityRaceTests(ITestOutputHelper output)
             Roi, Roi, defocusSteps: 0, offsetX: 0, offsetY: 0,
             stars: System.Runtime.InteropServices.CollectionsMarshal.AsSpan(stars),
             exposureSeconds: 10.0, noiseSeed: 4242, apertureScaleFactor: 1.0);
+
+        if (flipY)
+        {
+            // A vertical flip IS a parity change, with no mirror anywhere in the optics -- which is
+            // the plan's own point about FITS row order: a BOTTOM-UP frame read as TOP-DOWN differs
+            // from this by nothing. So the correct parity for this frame is the opposite sign, and a
+            // solver that had quietly hard-wired one would fail here rather than merely be slower.
+            var h = data.GetLength(0);
+            var w = data.GetLength(1);
+            var mirrored = new float[h, w];
+            for (var y = 0; y < h; y++)
+            {
+                for (var x = 0; x < w; x++)
+                {
+                    mirrored[y, x] = data[h - 1 - y, x];
+                }
+            }
+            data = mirrored;
+        }
 
         var image = new Image([data], BitDepth.Int16, maxValue: 65535f, minValue: 0f, pedestal: 0f,
             new ImageMeta(
@@ -79,5 +98,49 @@ public class PlateSolveParityRaceTests(ITestOutputHelper output)
             + "this is the assertion that fails if the cancellation is deleted, since the WCS is identical either way");
         race.ReRanAbandonedParity.ShouldBeFalse(
             "a solve whose winner passes the acceptance gate must never pay for the abandoned half again");
+    }
+
+    /// <summary>
+    /// The SAME field flipped on Y, which is a parity change with no mirror in the optics (exactly
+    /// what a BOTTOM-UP frame read as TOP-DOWN is). The other parity must win, and the race must
+    /// abandon the other half.
+    ///
+    /// <para>What it covers: the pick genuinely READS the image. The upright field is won by the
+    /// mirror attempt and the flipped one by the standard attempt, so neither parity is hard-wired
+    /// and neither is merely winning by being tried first.</para>
+    ///
+    /// <para><b>What it does NOT cover, measured rather than assumed:</b> the winner flag's two
+    /// CONSUMERS -- which half counts as abandoned, and which sign gets re-run -- live in the
+    /// acceptance gate's fallback, and a solvable field never reaches it. Reintroducing the original
+    /// bug there (tracking the winner with <c>ReferenceEquals</c> against a
+    /// <c>readonly record struct</c>, which boxes and is unconditionally false) leaves BOTH of these
+    /// tests green. It was checked, precisely because a pair of tests that watch each parity win
+    /// looks like it must cover the flag and does not.</para>
+    /// </summary>
+    [Fact(Timeout = 300_000)]
+    public async System.Threading.Tasks.Task GivenTheSameFieldFlippedOnYThenTheOtherParityWinsAndIsNotHardWired()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var (upright, dimU, hintU, solverU) = await BuildSolvableFakeFieldAsync(ct);
+        var uprightResult = await solverU.SolveImageAsync(upright, dimU, searchOrigin: hintU, cancellationToken: ct);
+        uprightResult.Solution.ShouldNotBeNull("premise: the upright field must solve");
+        var uprightRace = solverU.LastParityRace;
+
+        var (flipped, dimF, hintF, solverF) = await BuildSolvableFakeFieldAsync(ct, flipY: true);
+        var flippedResult = await solverF.SolveImageAsync(flipped, dimF, searchOrigin: hintF, cancellationToken: ct);
+
+        output.WriteLine($"upright: winnerIsStd={uprightRace.WinnerIsStd} abandoned={uprightRace.AbandonedAParity}");
+        output.WriteLine($"flipped: winnerIsStd={solverF.LastParityRace.WinnerIsStd} abandoned={solverF.LastParityRace.AbandonedAParity} solved={flippedResult.Solution is not null}");
+
+        flippedResult.Solution.ShouldNotBeNull(
+            "a Y-flipped field is still a solvable field -- the parity is the only thing that changed");
+
+        var flippedRace = solverF.LastParityRace;
+        flippedRace.WinnerIsStd.ShouldBe(!uprightRace.WinnerIsStd,
+            "flipping the frame on Y inverts the parity, so the OTHER attempt must win; the same winner "
+            + "both times would mean the pick is not actually reading the image");
+        flippedRace.AbandonedAParity.ShouldBeTrue("the winning parity still stops its sibling");
+        flippedRace.ReRanAbandonedParity.ShouldBeFalse("its winner passes the gate, so nothing is re-run");
     }
 }
