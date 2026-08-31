@@ -241,7 +241,7 @@
         _bus.Subscribe<SavePlannerSessionSignal>(async _ =>
         {
             if (!_state.IsDirty) return;
-            _state.MarkSessionSaved();
+            _state.MarkSaved();
             await SavePlannerSessionAsync();
         });
 
@@ -639,7 +639,7 @@
             if (await JS.InvokeAsync<string?>("localStorage.getItem", "tianwen.planner") is { Length: > 0 } json
                 && PlannerPersistence.TryRestoreFromJson(_state, json, Logger))
             {
-                _state.MarkSessionSaved(); // freshly restored == already persisted
+                _state.MarkSaved(); // freshly restored == already persisted
             }
         }
         catch (Exception ex)
