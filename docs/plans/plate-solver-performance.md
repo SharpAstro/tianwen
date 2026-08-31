@@ -102,13 +102,26 @@ orientation is discarded. A header hint carries no CD matrix (the probe prints `
 this pays off only where a caller feeds back a previous solve, which `IncrementalSolver` and the
 polar-align loop already do.
 
-**Cache it per CAMERA, never per rig or per OTA.** Parity is set by the number of reflections in
-that camera's own light path, and an off-axis guider inserts one: its pick-off prism is a single
-reflection before the imaging plane, so on a refractor + OAG the main camera is even-parity and the
-guide camera is ODD -- opposite parity, same rig, at the same time. This is not hypothetical here:
-the polar-align loop solves GUIDER frames while the session solves IMAGING frames, so one cached
-parity per rig would be actively wrong for one of them. Key it by camera device id, the way
-per-focuser backlash is keyed in `Profiles/BacklashHistory/`.
+**Key it by the LIGHT PATH: the (OTA, camera) pair. Never by rig, and neither half alone.** Parity
+is set by the number of reflections between sky and sensor, plus the sensor's own row-order
+convention -- and those two facts live on different objects, which is why neither is a sufficient key.
+
+- **Not per rig.** An off-axis guider's pick-off prism is a single reflection before the imaging
+  plane, so on a refractor + OAG the main camera is even-parity and the guide camera is ODD --
+  opposite parity, same rig, at the same time. Not hypothetical: the polar-align loop solves GUIDER
+  frames while the session solves IMAGING frames, so one parity per rig is actively wrong for one of
+  them.
+- **Not per OTA alone**, for the same reason -- that OAG guide camera is on the same OTA as the main
+  camera and must not share its answer.
+- **Not per camera alone.** The optical train is the OTA's, not the camera's: swapping a camera body
+  onto the same scope changes no reflection, while moving one camera from a refractor to an SCT with
+  a diagonal changes parity for that same camera. A camera-only key gets both of those backwards.
+
+So the key is the pair. The cost of getting it slightly wrong is deliberately low -- parity stays a
+HINT, so a miss costs one unnecessary both-parity solve and self-corrects -- but a key that is wrong
+by CONSTRUCTION would be wrong on a whole class of rigs forever, which is a different thing.
+
+Store it the way per-focuser backlash is stored in `Profiles/BacklashHistory/`, keyed on the pair.
 
 **Do not try to infer parity from the declared optical train.** Counting reflections is
 insufficient even in principle, because FITS ROW ORDER contributes: a `BOTTOM-UP` frame read as
@@ -239,9 +252,40 @@ Speed that costs accuracy is a regression, so every phase is measured against th
    27.75 px fit rather than emit a wrong WCS. Nothing here may loosen `GateTolerancePx` or the
    chance threshold to make a number look better.
 
-Add `PlateSolveBenchmarks` to `TianWen.UI.Benchmarks` so these figures stop being hand-timed wall
-clock. Everything above was measured by hand: fine for deciding what to do, not fine for detecting
-a regression.
+**`PlateSolveBenchmarks` SHIPPED** (2026-08-31), so these figures are no longer hand-timed. Frame:
+NGC 3576, SVBONY SV605CC / IMX533 3008x3008, SH61 EDPH 270 mm f/4.5, 60 s, N.I.N.A. -- already
+committed for `FindStarsBenchmarks`. Solved as a raw GRBG mosaic, which is the shipped path
+(`FindStarsAsync` debayers to mono internally); `SensorType.RGGB` means only "this is a CFA mosaic",
+the pattern riding in the Bayer offsets.
+
+Warm-catalog baseline, Release, medians (see below on why the median):
+
+| | median |
+|---|---|
+| full hinted solve | **331 ms** |
+| detect stars (incl. mono debayer) | 36-48 ms |
+| catalog region query | 7.1 ms |
+
+Plus, from `RealFrameSolveTests`, the two things BDN cannot report: **catalog cold start ~530-690 ms**
+(51% of the budget, all of phase B -- once per process and cached after, so a second BDN iteration of
+it is a warm start) and the scale the stars recover, **2.8669"/px against the 2.8724"/px `FOCALLEN`
+implies**. That 0.19% gap is this plan's own point about the header scale being a hint: 270 mm was
+typed in, the optics are ~269.5 mm, and the solver found it without being told.
+
+**Two traps this harness hit, both worth knowing before writing another one.**
+
+`Image` caches its `StarList` in a single slot keyed on the detection parameters, so the first version
+measured a cache-key comparison: **50.87 ns to find 1,377 stars in a 9 MP frame**, and the "full
+solve" silently stopped including detection from its second iteration. `[IterationSetup]` invalidating
+the cache fixes it and is also the honest model, since a session solves a different frame every time.
+A benchmark that measures nothing is worse than no benchmark, because someone will optimise against
+it.
+
+And **read the median, on a quiet box.** One invocation per iteration (forced by `[IterationSetup]`)
+on work this long is high-variance: medians repeated to within ~3% across runs while the means moved
+12%, and the detect benchmark under `ShortRunJob` reported an Error larger than its own mean. Hence
+`RunStrategy.Monitoring` with 12 iterations. The resolution is right for what the phases target
+(2-4x), not for calling a 10% delta.
 
 ## Explicitly not in scope
 
