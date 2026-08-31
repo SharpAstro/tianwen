@@ -158,6 +158,19 @@ the innermost loop of the solve), leaving by the same path as the hypothesis cap
 descending its pool-policy chain once cancelled -- three pools each abandoned mid-scan would save
 nothing.
 
+**Coverage, stated exactly.** `PlateSolveParityRaceTests` solves the synthetic field twice, once
+upright and once flipped on Y -- a parity change with no mirror in the optics, which is the same
+thing a BOTTOM-UP frame read as TOP-DOWN is. The mirror attempt wins the first and the standard
+attempt the second, so the pick demonstrably reads the image and neither parity is hard-wired.
+
+**What no test here covers, checked rather than assumed:** the winner flag's two consumers (which
+half counts as abandoned, which sign is re-run) sit inside the gate's fallback, and a solvable field
+never reaches it. Reintroducing the `ReferenceEquals`-on-a-record-struct bug leaves both parity tests
+GREEN -- verified, because a pair that watches each parity win looks like it must cover the flag and
+does not. Reaching that branch needs a frame whose seed locks convincingly and whose refinement then
+fails the chance test, which is not constructible on demand without fabricating it. The failure mode
+if it is wrong is a recoverable miss (the factory falls through to ASTAP), never a wrong WCS.
+
 **Not yet measured: the wall-clock saving on a real frame.** The 97% figure is the seed stage's
 hypothesis count, which is deterministic and machine-independent; converting that to the plan's
 ~200 ms estimate needs the benchmark harness below, on a real FITS. `PlateSolveParityRaceTests`

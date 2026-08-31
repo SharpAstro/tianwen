@@ -131,7 +131,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
     /// <param name="AbandonedAParity">One parity was stopped because the other seeded clear of chance.</param>
     /// <param name="ReRanAbandonedParity">The gate needed the abandoned half after all, so it was re-run.</param>
-    internal readonly record struct ParityRaceOutcome(bool AbandonedAParity, bool ReRanAbandonedParity);
+    /// <param name="WinnerIsStd">
+    /// Whether the <c>xSign = +1</c> attempt won. Reported because everything downstream of the pick
+    /// -- which half may be abandoned, which sign to re-run -- is selected off this, and a solve
+    /// looks identical from the outside whichever way it went. A test that never sees the mirror win
+    /// leaves that whole half of the branch unexercised.
+    /// </param>
+    internal readonly record struct ParityRaceOutcome(bool AbandonedAParity, bool ReRanAbandonedParity, bool WinnerIsStd);
 
     /// <summary>
     /// Catalog-star projection result with the originating sky coordinates
@@ -422,7 +428,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // chance -- a failed solve is recoverable (the factory falls through to ASTAP /
         // astrometry.net), a silently wrong WCS is not.
         var tolerance = Math.Max(GateTolerancePx, GateTolerancePx * detectionScale);
-        LastParityRace = new ParityRaceOutcome(stdAbandoned || mirrorAbandoned, false);
+        LastParityRace = new ParityRaceOutcome(stdAbandoned || mirrorAbandoned, false, winnerIsStd);
 
         // The gate can OVERTURN the parity pick, so it needs a real loser to fall back on -- and the
         // loser may be an attempt we abandoned mid-seed, whose null WCS means "never finished
