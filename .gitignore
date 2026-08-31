@@ -46,3 +46,7 @@ obj-aot/
 # Local MSIX packaging output (packaging/windows/msix/build-msix.ps1)
 /artifacts/
 /bundle/
+
+# BenchmarkDotNet run output (dotnet run --project src/TianWen.UI.Benchmarks); lands
+# beside whatever directory the run started from, so both are ignored.
+BenchmarkDotNet.Artifacts/

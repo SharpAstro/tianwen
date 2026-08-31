@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -128,6 +128,14 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// without this a test can only assert the solve still works, never that the saving occurred.
     /// </summary>
     internal ParityRaceOutcome LastParityRace { get; private set; }
+
+    /// <summary>
+    /// Test seam: what the quad scale recovery answered on the most recent solve, or <c>null</c> if
+    /// it declined. Reported for the same reason as <see cref="LastParityRace"/> -- the effect is a
+    /// narrower search, so the WCS is identical whether the recovery fired or not and no output can
+    /// show that it did.
+    /// </summary>
+    internal QuadScaleRecovery.Recovery? LastScalePrior { get; private set; }
 
     /// <param name="AbandonedAParity">One parity was stopped because the other seeded clear of chance.</param>
     /// <param name="ReRanAbandonedParity">The gate needed the abandoned half after all, so it was re-run.</param>
@@ -341,6 +349,35 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         var cx = image.Width / 2.0;
         var cy = image.Height / 2.0;
 
+        // Recover the plate scale from the stars, ONCE for both parities. A quad descriptor is five
+        // scale-free ratios, so this needs no prior -- and it is parity-BLIND, because reflection
+        // preserves distances just as rotation does, so the two attempts would compute the identical
+        // answer twice. Refusal is normal and simply leaves each attempt on the header's scale.
+        stageSw.Restart();
+        var scalePriorDetected = new List<ImagedStar>(detectedStars);
+        scalePriorDetected.Sort(static (a, b) => b.Flux.CompareTo(a.Flux));
+        var scalePriorPoints = new Vector2[scalePriorDetected.Count];
+        for (var i = 0; i < scalePriorDetected.Count; i++)
+        {
+            scalePriorPoints[i] = new Vector2(scalePriorDetected[i].XCentroid, scalePriorDetected[i].YCentroid);
+        }
+
+        var scalePriorProjected = ProjectCatalogStars(catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0);
+        var scalePriorProjectedPoints = new Vector2[scalePriorProjected.Count];
+        for (var i = 0; i < scalePriorProjected.Count; i++)
+        {
+            scalePriorProjectedPoints[i] = new Vector2(
+                scalePriorProjected[i].Pixel.XCentroid, scalePriorProjected[i].Pixel.YCentroid);
+        }
+
+        var scalePrior = QuadScaleRecovery.TryRecover(scalePriorPoints, scalePriorProjectedPoints, _logger);
+        LastScalePrior = scalePrior;
+        _logger.LogDebug("CatalogPlateSolver: quad scale recovery {Outcome} in {Ms}ms",
+            scalePrior is { } sp
+                ? $"ratio {sp.Ratio:F5} (implied {dim.PixelScale / sp.Ratio:F4}\"/px against the header's {dim.PixelScale:F4})"
+                : "declined",
+            stageSw.Elapsed.TotalMilliseconds);
+
         // Try both orientations in parallel; pick the one with lower re-projection error.
         //
         // Exactly one of the two is real work: measured over the 96 frozen Vela frames, one parity
@@ -370,8 +407,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             }
         };
 
-        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, ClaimAgainst(mirrorCts), stdCts.Token), cancellationToken);
-        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, ClaimAgainst(stdCts), mirrorCts.Token), cancellationToken);
+        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, scalePrior, ClaimAgainst(mirrorCts), stdCts.Token), cancellationToken);
+        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, scalePrior, ClaimAgainst(stdCts), mirrorCts.Token), cancellationToken);
         await Task.WhenAll(stdTask, mirrorTask);
 
         var std = stdTask.Result;
@@ -443,7 +480,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             _logger.LogDebug("CatalogPlateSolver: winner failed the acceptance gate and the other parity was abandoned mid-seed; re-running it before reporting failure");
             var loserXSign = winnerIsStd ? -1.0 : 1.0;
             loser = TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad,
-                cx, cy, dim, loserXSign, range, onSeedClearOfChance: null, cancellationToken);
+                cx, cy, dim, loserXSign, range, scalePrior, onSeedClearOfChance: null, cancellationToken);
             LastParityRace = LastParityRace with { ReRanAbandonedParity = true };
         }
 
@@ -601,20 +638,49 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// </remarks>
     private const float MinPairLockScaleTolerance = 0.05f;
 
+    /// <summary>
+    /// Scale window the seed is given once the scale came from the STARS rather than the header.
+    /// </summary>
+    /// <remarks>
+    /// <para>Measured over the 48 parity attempts of the frozen Vela mosaic, sweeping the window
+    /// against both a declared and a recovered centre. Against the DECLARED scale -- itself 0.26-0.31%
+    /// off the solved one on every panel -- locks hold to +/-0.5% (23 of 48) and then collapse: 10 at
+    /// +/-0.25%, 2 at +/-0.1%. Against a recovered centre all three hold 23, and hypotheses fall
+    /// monotonically: 24.9M at +/-5%, 5.2M at +/-0.5%, 3.4M at +/-0.25%, 2.2M at +/-0.1%. So the
+    /// collapse was never a floor in the search, it was the window excluding the truth.</para>
+    /// <para><b>0.25% rather than the 0.1% the measurement also permits</b>, because the sweep
+    /// centred on the frame's own SOLVED scale while <see cref="QuadScaleRecovery"/> delivers 0.065%
+    /// worst-case on 23 of 24 panels: 0.1% would leave 0.035 percentage points of slack over a
+    /// one-dataset error estimate, where 0.25% leaves 0.185 -- 3.8x margin for 7.4x fewer hypotheses.
+    /// The remaining 1.5x is not worth spending the margin on, and an exact prior (a scale carried
+    /// forward from a previous solve, the way parity is) is the thing that would earn it.</para>
+    /// </remarks>
+    private const float RecoveredScaleTolerance = 0.0025f;
+
     private SolveAttempt TrySolveWithProximityMatching(
         StarList detectedStars,
         List<(double RA, double Dec, double VMag)> catalogCoords,
         WCS origin,
-        double pixelScaleRad,
+        double hintPixelScaleRad,
         double cx,
         double cy,
         ImageDim dim,
         double xSign,
         float scaleRange,
+        QuadScaleRecovery.Recovery? scalePrior,
         Action? onSeedClearOfChance,
         CancellationToken cancellationToken
     )
     {
+        // The scale this attempt WORKS in. It starts as the header's and becomes the star-recovered
+        // one if and only if a seed locks against that projection -- and then everything downstream
+        // must use the same value, because the seed's transform, the origin InverseTanProject
+        // derives from it and the CD matrix AttachCDMatrix builds all live in one projection's
+        // space. Correcting the seed's scale alone would mix two, which is the shape of both bugs
+        // the acceptance gate found (the origin-convention bias and the SIP reference-pixel
+        // mismatch).
+        var pixelScaleRad = hintPixelScaleRad;
+
         var currentOrigin = origin;
         Matrix3x2 lastMinv = default;
         var hasMinv = false;
@@ -651,7 +717,34 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 detPts[i] = new Vector2(rankedDetected[i].XCentroid, rankedDetected[i].YCentroid);
             }
 
-            var seedLock = TrySeedPairLock(catalogCoords, detPts, currentOrigin, pixelScaleRad, cx, cy,
+            // Two tiers, tried in order of how well the scale is known.
+            //
+            // A star-recovered scale earns a window 20x narrower than a typed focal length does
+            // (see RecoveredScaleTolerance), and the window's width multiplies the candidate pairs
+            // every hypothesis is drawn from. When it locks, this attempt adopts that scale.
+            PairRansacLock.LockResult? seedLock = null;
+            if (scalePrior is { } recovery)
+            {
+                var recoveredPixelScaleRad = hintPixelScaleRad / recovery.Ratio;
+                seedLock = TrySeedPairLock(catalogCoords, detPts, currentOrigin, recoveredPixelScaleRad,
+                    cx, cy, dim, xSign, RecoveredScaleTolerance, out _, _logger, cancellationToken);
+                if (seedLock is not null)
+                {
+                    pixelScaleRad = recoveredPixelScaleRad;
+                }
+                else
+                {
+                    _logger.LogDebug("CatalogPlateSolver: no seed at the recovered scale (xSign={XSign}, ratio {Ratio:F5}, +/-{Tol:P2}); retrying on the header's scale",
+                        xSign, recovery.Ratio, RecoveredScaleTolerance);
+                }
+            }
+
+            // The header's scale and the window its unreliability demands. Reached with no
+            // recovery, and as the RETRY when a recovery did not pan out -- which is what makes the
+            // narrow window safe to try at all: a stale, mis-measured or simply unlucky scale costs
+            // one extra pass that is cheap by construction (2.2M hypotheses against 24.9M) and can
+            // never turn a solvable frame into a failure.
+            seedLock ??= TrySeedPairLock(catalogCoords, detPts, currentOrigin, pixelScaleRad, cx, cy,
                 dim, xSign, Math.Max(scaleRange, MinPairLockScaleTolerance), out _, _logger, cancellationToken);
 
             // A seed this far clear of chance settles the parity, so tell the sibling to stop --

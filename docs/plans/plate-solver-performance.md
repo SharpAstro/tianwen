@@ -89,7 +89,7 @@ Ordered by return per unit of risk; each independently shippable and measurable.
 | A | Cancel the losing parity (916k wasted hypotheses) -- **SHIPPED** | ~200 ms | nothing | low |
 | B | ~~Tycho-2 pre-baked region index~~ -- **OBSOLETE: already done, worth 0.3 ms** | ~~500 ms~~ 0 | n/a | n/a |
 | C | ~~Quad-descriptor matching replacing the refinement loop~~ -- **MEASURED DEAD: 15.8% of quads are shared even under a perfect prior** | ~~300 ms~~ 0 | n/a | n/a |
-| C' | Quads for the SCALE only: recover it with no prior, narrow the seed's window 5% -> 1% | 2.8x fewer seed hypotheses (ms not yet measured) | nothing, and it *removes* our reliance on `FOCALLEN` | low |
+| C' | Quads for the SCALE only: recover it with no prior, narrow the seed's window 5% -> 0.25% -- **SHIPPED** | 7.4x fewer seed hypotheses | nothing, and it *removes* our reliance on `FOCALLEN` | low |
 | D | Cap the star list to ~500 -> yes; bin -> **no** | ~60 ms | binning does, so it is gated on measured FWHM and default off | low |
 
 Target after A-C: **~260 ms**, against ASTAP's 162 ms -- **written before B was measured to be
@@ -367,18 +367,31 @@ already records, with `Dist1` **never compared** so no scale is assumed:
 on a prior that was 3.9% wrong. Rotation is not a confound and that is the point: a distance is
 invariant under rotation.
 
-**What it buys, measured on the same frames:** narrowing the seed's window from the shipped +/-5% to
-+/-1% cuts hypotheses **2.8x** and costs no locks.
+**What it buys, measured on the same frames.** A window is a WIDTH and a CENTRE, and sweeping the
+width alone measures the centre -- which is how the first version of this table read as a floor that
+was not there:
 
-| scale window | hypotheses (48 parity attempts) | per attempt | locked |
-|---|---|---|---|
-| +/-5% (shipped) | 24,923,440 | 519,238 | 23 |
-| +/-2% | 16,085,840 | 335,122 | 24 |
-| +/-1% | 8,835,750 | 184,078 | 23 |
+| scale window | declared centre | recovered centre |
+|---|---|---|
+| +/-5% (shipped) | 24,923,440 / 23 locked | 24,928,390 / 23 |
+| +/-2% | 16,085,840 / 24 | 16,113,394 / 24 |
+| +/-1% | 8,835,750 / 23 | 8,841,502 / 23 |
+| +/-0.5% | 5,165,820 / 23 | 5,187,187 / 23 |
+| +/-0.25% | 5,440,956 / **10** | **3,350,087 / 23** |
+| +/-0.1% | 4,173,986 / **2** | **2,239,472 / 23** |
 
-Locks are flat at 23-24 of 48 across the whole range, i.e. exactly one parity per panel -- the same
-fact phase A rests on. So the window is pure cost above 1%, and the reason it is set at 5% is the
-unreliability of `FOCALLEN`, not any property of the sky.
+Hypotheses over 48 parity attempts; locks flat at 23-24, i.e. exactly one parity per panel, the fact
+phase A rests on. Against the DECLARED scale locks survive to +/-0.5% and then collapse, because the
+declared scale is itself 0.26-0.31% off the solved one on every panel of this mosaic, so a +/-0.25%
+window excludes the answer. Against a recovered centre all six hold and hypotheses fall
+monotonically to **11.1x**. The reason the shipped window is 5% is the unreliability of `FOCALLEN`,
+not any property of the sky.
+
+An earlier note here predicted a floor at ~0.5% from the `+/-3 px` absolute term in
+`PairRansacLock`'s admission band, reasoning from the 601 px minimum baseline where 3 px IS 0.5%.
+Measured, that is wrong: the pair POPULATION is mostly much longer baselines (to the ~4,000 px
+diagonal, where the fractional half-width at 0.5% is 20 px against the same 3 px), so the fraction
+still rules for most pairs. The floor binds the shortest baselines only.
 
 The correctness half is the better argument. The header said 205 mm because that was typed into the
 profile by mistake while the optics are 202.5 mm (1.2%), and a 130 mm lens was entered as its
@@ -391,9 +404,55 @@ settle the PARITY -- reflection preserves distances, so a mirrored field has ide
 the parity race stays exactly as phase A left it. And they cannot supply the refinement loop's
 correspondences, per the table above.
 
-**Convert the 2.8x into ms with `PlateSolveBenchmarks` before quoting a saving here.** The seed's share
-of the 331 ms warm solve is not yet measured, so hypotheses are the honest unit, as they were in
-phase A.
+#### What shipped
+
+`QuadScaleRecovery` (`Astrometry/PlateSolve/`), wired into `CatalogPlateSolver`:
+
+- **The recovery runs ONCE, before the parity race.** It is parity-blind, so computing it inside each
+  attempt would do identical work twice and could disagree with itself.
+- **The guard is the SPREAD, and the candidate count is INVERTED.** `MaxRelativeSpread` = 0.01 (MAD
+  about the median over the median). Across the 24 panels the 23 accurate ones sit at 0.0004-0.0014
+  and the one bad one at 0.3699 -- a 264x gap. That bad panel produced **92** candidates, more than
+  any good one (26-74), so a count threshold would have singled out the only untrustworthy recovery
+  as the most trustworthy: contamination is chance ratio agreement, which is plentiful and scatters,
+  where real shared quads are scarce and agree. `IQR/median` fails too (0.2968 and 0.1583 on panels
+  that recover to 0.006% and 0.001%) because its percentiles sit in the contaminated tails.
+- **`RecoveredScaleTolerance` = 0.25%, not the 0.1% the sweep permits.** The sweep centred on each
+  frame's own SOLVED scale; the recovery delivers 0.065% worst case, so 0.1% would leave 0.035
+  percentage points of slack over a one-dataset error estimate. 0.25% keeps 3.8x margin for 7.4x
+  fewer hypotheses, and the last 1.5x is what an EXACT prior would earn -- a scale carried forward
+  from a previous solve, which belongs with phase A's unshipped per-(OTA, camera) parity cache rather
+  than with a fresh estimate.
+- **The correction applies to the WHOLE attempt, not just the seed.** The seed's transform, the origin
+  `InverseTanProject` derives from it and the CD matrix `AttachCDMatrix` builds all live in one
+  projection's space; correcting the seed alone mixes two, which is the shape of both bugs the
+  acceptance gate originally found here (the origin-convention bias and the SIP reference-pixel
+  mismatch).
+- **A failed narrow seed RETRIES on the header's scale at +/-5%.** That is what makes the narrow
+  window safe to attempt at all: a stale or unlucky recovery costs one extra pass that is cheap by
+  construction (2.2M hypotheses against 24.9M) and can never turn a solvable frame into a failure.
+
+On the committed NGC 3576 frame the recovery fires and beats the header by 2.5x: `FOCALLEN` implies
+2.8724"/px, the recovery returns 1.00269 from 27 candidates at spread 0.0017 (2.8647"/px), and the
+solve lands at 2.8669 -- 0.077% out, inside the 0.25% window with 3.2x margin.
+
+**`PlateSolveBenchmarks` cannot resolve this, and hypotheses stay the unit.** Run after the change it
+reports the full hinted solve at a MEAN of 272.9 ms with an Error of **+/-98.3 ms** (36%) and a 514 ms
+outlier, on a box that had been building all session. The 331 ms this plan quotes above is a MEDIAN on
+a quiet box, so the two are not comparable -- reading a 331 -> 273 improvement off them would be
+precisely the cross-build wall-clock comparison that is wrong here. The harness's resolution was
+always stated as right for a 2-4x whole-solve target and not for a 10% delta, and the seed is only a
+part of the solve, so a 7.4x cut in SEED hypotheses is expected to sit under that floor. Anyone
+wanting the ms must run before and after in one sitting on an idle machine.
+
+**The negative case for a SCALE estimator is not the obvious one.** Asserting that an unrelated field
+must yield NO scale is wrong, and writing it that way is how this got found: 8 of 24 non-overlapping
+panel pairs answer confidently and every answer is RIGHT, because both panels come from the same
+camera through the same optics, so two unrelated patches of sky genuinely share a plate scale.
+Positional unrelatedness is `PairRansacLock`'s problem. The hazard that matters is a confident ratio
+that is not the true one, so `QuadScaleRecoveryTests` shifts the second field's scale instead: at
+x0.80 the answer tracks the shift, at x1.25 it declines outright, and it never invents ~1.0 from
+chance agreement.
 
 ### D. Cap the star list; bin ONLY where sampling allows it
 
