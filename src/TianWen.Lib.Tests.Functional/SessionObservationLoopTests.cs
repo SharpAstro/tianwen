@@ -491,16 +491,30 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
             )
         };
         var limits = new MountLimitConfiguration(Enabled: true, MeridianWarnMinutes: 20.0, MeridianActionExtraMinutes: 20.0);
-        // OPTS OUT of camera-mount coupling, which is otherwise the default. Coupled, the GUIDER never
-        // locks on: TryAcquire fails on every guide frame, so _acquired never becomes true, TryTrackAll
-        // never runs, and a full-frame star search burns a core for the whole run. Sampled dumps put
-        // 4 of 4 (and later 3 of 3) stacks in TryAcquire -> FindCandidateStars -> TryCentroid.
+        // OPTS OUT of camera-mount coupling, which is otherwise the default -- on COST, not on any
+        // failure. Coupled this test passes, flips once and writes ~147 frames exactly as it does
+        // here; it just takes 3m06 of its 5-minute budget instead of 20 s, and buys nothing with
+        // them: nothing below asserts on a guide frame.
         //
-        // That used to look like a hang, because the guide camera is the IMX178M preset at 3096x2080
-        // and scanning 6.4 MP per frame is slow enough to stop the time pump making progress. The
-        // camera is subframed now, which turns the hang into a 3-minute run -- but a failing scan made
-        // cheap is still a failing scan. The fake's coupled guide star needs to be ACQUIRABLE; until
-        // it is, this test would spend 3 of its 5 minutes guiding at nothing.
+        // Worth recording what the cost is NOT, because two plausible readings are both wrong and
+        // this comment previously stated one of them as fact. It is not the guide star: the tracker
+        // acquires on the first frame and holds (measured; a probe drove 200 coupled guide frames
+        // and stayed locked through 123 px of drift). And it is not the rendering, which is the
+        // reading the fake's own cost invites -- across a full coupled run the synthetic renders
+        // total 946 ms and the coupled mount-pointing reads 860 ms, together 1% of the 186 s.
+        //
+        // What remains is the harness waiting for the session loop to get back to a SleepAsync park,
+        // and that wait is REAL rather than a polling artefact. Worth stating because the obvious
+        // suspect was measured and cleared: PumpUntilCompletedAsync polls Task.Delay(1), which on
+        // Windows returns in ~15.7 ms rather than 1 ms, and the pump's wait was 165 s across 10,445
+        // such polls -- a perfect fit for "the poll granularity IS the cost". It is not.
+        // WindowsTimerResolution now holds the quantum at ~1.5 ms for the pumped run, which made the
+        // uncoupled test 4x faster (20 s -> 5 s) and this whole suite 2.3x faster, and left the
+        // COUPLED time unchanged at ~3m20. So the finer clock only samples the same genuine wait more
+        // often. A signal-based wait was tried too, and was worse (4m12).
+        //
+        // The residue is therefore how long the coupled loop takes to make progress between parks,
+        // which is not yet explained by anything measured. Do not re-derive the two dead ends above.
         await using var ctx = await CreateWinterSessionAsync(observations, mountPort: "SkyWatcher", mountLimits: limits,
             coupleCameraToMount: false, cancellationToken: ct);
         await ctx.Mount.SetSiteLatitudeAsync(48.2, ct);

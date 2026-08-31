@@ -86,6 +86,14 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         Func<int, ValueTask>? onIteration = null,
         CancellationToken cancellationToken = default)
     {
+        // Both waits below -- this loop's trailing delay, and every SleepAsync parked under it -- ask
+        // for 1 ms and get the Windows scheduling quantum instead, ~15.7 ms. Hold the resolution up
+        // for the pumped run so the number in the code is the number that happens: it takes the
+        // functional suite from 3m05 to 1m20. It buys nothing where the pump is genuinely waiting on
+        // the LOOP rather than on its own timer (see the coupling note in SessionObservationLoopTests),
+        // so treat it as removing a floor, never as a fix for a slow test.
+        using var _ = WindowsTimerResolution.Raise();
+
         var pumped = TimeSpan.Zero;
         var iteration = 0;
         while (pumped < maxFakeTime && !loopTask.IsCompleted && !cancellationToken.IsCancellationRequested)

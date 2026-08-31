@@ -726,6 +726,76 @@ public class FakeCameraMountCouplingTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// The coupled guide star is ACQUIRABLE, and the lock survives drift far beyond one search
+    /// radius. Both halves were once believed broken -- a session test opted out of coupling on the
+    /// stated grounds that "TryAcquire fails on every guide frame" -- and neither is: the tracker
+    /// locks on the first frame and is still holding the same star after it has drifted the better
+    /// part of a hundred pixels.
+    /// <para>
+    /// Drift beyond the search radius is the interesting half, because losing the lock is SILENT
+    /// rather than loud. Re-acquisition re-locks on wherever the star now is, so the reported delta
+    /// is ZERO: the guider learns a new lock position instead of an error and issues no correction,
+    /// while the drift that broke the lock carries on. A guider that has quietly stopped guiding
+    /// looks exactly like one with nothing to correct, so assert on the DELTA, never merely on
+    /// <see cref="GuiderCentroidTracker.IsAcquired"/>, which a re-lock keeps true.
+    /// </para>
+    /// </summary>
+    [Fact(Timeout = 120_000)]
+    public async Task GivenACoupledGuideStarThenItIsAcquiredAndTheLockSurvivesLargeDrift()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var external = new FakeExternal(output, now: new DateTimeOffset(2025, 12, 15, 22, 0, 0, TimeSpan.Zero));
+        await using var sp = BuildHubServiceProvider(external);
+        var hub = sp.GetRequiredService<IDeviceHub>();
+
+        var mount = await ConnectMisalignedMountAsync(hub, ct);
+        await mount.SetTrackingAsync(true, ct);
+        await mount.SyncRaDecAsync(6.0, 45.0, ct);
+
+        // Same shape the session helper builds: a guide scope at 130 mm, subframed.
+        var guideCam = (FakeCameraDriver)await hub.ConnectAsync(
+            new FakeDevice(new Uri("camera://FakeDevice/FakeGuideCam1#Fake Guide Cam")), ct);
+        guideCam.FocalLength = 130;
+        guideCam.NumX = 512;
+        guideCam.NumY = 512;
+
+        IExternal ext = external;
+        var tracker = new GuiderCentroidTracker(maxStars: 4);
+
+        async Task<double> ProcessOneFrameAsync()
+        {
+            var frame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(
+                guideCam, TimeSpan.FromSeconds(2), external.TimeProvider, ext.ImageReadyPollInterval, ct);
+            var result = tracker.ProcessFrame(frame.GetChannelArray(0));
+            frame.Release();
+            return result?.DeltaY ?? double.NaN;
+        }
+
+        await ProcessOneFrameAsync();
+        tracker.IsAcquired.ShouldBeTrue("the coupled guide star must be acquirable on the first frame");
+
+        // Drift the field past the search radius BETWEEN CONSECUTIVE FRAMES, which is the case the
+        // recovery exists for. Small steps are not a weaker version of this test, they are a
+        // different one that cannot fail: the tracker re-centres on each frame, so drift accumulated
+        // 0.8 px at a time never presents a single step it cannot follow, and this test passed with
+        // the recovery deleted until the gap was widened. 15 minutes of this misalignment is ~24 px,
+        // comfortably outside the 16 px radius and inside the 48 px recovery bound.
+        var deltaY = double.NaN;
+        for (var i = 0; i < 6; i++)
+        {
+            external.TimeProvider.Advance(TimeSpan.FromMinutes(15));
+            deltaY = await ProcessOneFrameAsync();
+        }
+
+        var drift = Math.Abs(guideCam.CurrentMountDriftPixels.Y);
+        drift.ShouldBeGreaterThan(40.0, "premise: the field must actually drift much further than one search radius");
+        tracker.IsAcquired.ShouldBeTrue("the tracker must not have given the star up");
+        Math.Abs(deltaY).ShouldBeGreaterThan(drift * 0.5,
+            $"the reported delta must still measure the drift ({drift:F1} px); a delta near zero is the "
+            + "signature of a re-lock, where the guider silently adopts the drifted position as its new reference");
+    }
+
+    /// <summary>
     /// With a catalog DB wired, the guide camera projects REAL catalog stars at the coupled
     /// mount's live pointing (guide-scope cone error + camera roll applied), so it produces an
     /// acquirable star field at ANY pointing, including immediately after a GOTO, which was the

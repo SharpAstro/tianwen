@@ -181,6 +181,9 @@ internal sealed class BuiltInGuiderDriver : IDeviceDependentGuider
     /// <summary>Number of times the guide loop re-acquired a star after a loss (all-run).</summary>
     internal int GuideReacquisitionEvents => _guideLoop?.ReacquisitionEvents ?? 0;
 
+    /// <summary>Frames the guide loop has processed (all-run). See <see cref="GuideLoop.GuideFrameCount"/>.</summary>
+    internal int GuideFrameCount => _guideLoop?.GuideFrameCount ?? 0;
+
     /// <summary>
     /// Re-acquisitions where the new primary was a DIFFERENT star (the lock swapped, discarding
     /// the guide reference) -- the "selected guide star changes" / Dec-graph-jump symptom.
