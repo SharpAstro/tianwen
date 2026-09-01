@@ -487,6 +487,17 @@ synthetic suite**, because a synthetic field is built from a transform the test 
 dataset rationale, both measurements above, and what real density covers that synthetic fields cannot:
 [docs/plans/plate-solver-performance.md](docs/plans/plate-solver-performance.md).
 
+**A remembered parity is a hypothesis BUDGET for the other half, never a skip; and it is keyed on the
+LIGHT PATH.** `SolveHintCache` learns each rig's plate scale and parity from an accepted solve.
+Skipping the doubted parity is the tempting form and it inverts the goal: with one half gone, a frame
+that seeds on neither runs them in SERIES (the believed one, then the gate's re-run), where today they
+overlap -- twice the wall clock on the doomed path to save half the CPU. Capped and still parallel it
+is 1.6x fewer hypotheses on the P10 crop. The key is `(Telescope, Instrument, RowOrder, Bin)`: an OAG
+guide camera is the OPPOSITE parity to the main camera on the same rig at the same instant, so per-rig
+is wrong, and per-camera gets a body moved between an SCT and a refractor backwards. The parity rides
+on `SolveAttempt.IsStd` rather than beside the race, because the acceptance gate can overturn the pick
+and the cache must learn the half that actually answered.
+
 **DI registration uses a factory lambda** (`AstrometryServiceCollectionExtensions.cs`):
 
 ```csharp

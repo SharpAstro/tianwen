@@ -120,7 +120,16 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
     public float Priority => 0.99f;
 
-    private readonly record struct SolveAttempt(WCS? Wcs, int ProjectedStars, int MatchedStars, int Iterations, double RmsResidual, double AffineDeterminant);
+    /// <param name="IsStd">
+    /// Which parity produced this attempt (<c>xSign = +1</c>). Stamped by the attempt itself rather
+    /// than tracked beside it, because the ONE consumer that reads it after the acceptance gate is
+    /// asking about the half that actually answered, and the gate can hand back the other one.
+    /// <para>It is also how the phase-A bug stays fixed: <see cref="SolveAttempt"/> is a
+    /// <c>readonly record struct</c>, so <c>ReferenceEquals(loser, std)</c> boxes and is
+    /// unconditionally false. Which half won has to travel as DATA. It compiled, ran, and picked the
+    /// wrong half of the time.</para>
+    /// </param>
+    private readonly record struct SolveAttempt(WCS? Wcs, int ProjectedStars, int MatchedStars, int Iterations, double RmsResidual, double AffineDeterminant, bool IsStd = false);
 
     /// <summary>
     /// Test seam: what the parity race did on the most recent solve. Phase A's whole effect is work
@@ -134,6 +143,9 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// it declined. Reported for the same reason as <see cref="LastParityRace"/> -- the effect is a
     /// narrower search, so the WCS is identical whether the recovery fired or not and no output can
     /// show that it did.
+    /// <para>It reports the RECOVERY, not the prior the seed ran with: when this declines,
+    /// <see cref="SolveHintCache"/> can still supply one from a previous solve on the same light
+    /// path. The two are kept apart deliberately, since one measures THIS frame's stars.</para>
     /// </summary>
     internal QuadScaleRecovery.Recovery? LastScalePrior { get; private set; }
 
@@ -155,6 +167,45 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     internal readonly record struct ProjectedCatalogStar(ImagedStar Pixel, double RA, double Dec);
 
     private int _catalogStars, _detectedStars;
+
+    /// <summary>
+    /// What previous accepted solves on each light path answered about scale and parity. Per solver
+    /// instance, which is per process: the solver is a DI singleton, so a session's second and later
+    /// solves are the ones that benefit -- and a session solves on every recentre, every autofocus
+    /// check and every polar-align rung.
+    /// </summary>
+    private readonly SolveHintCache _hints = new SolveHintCache();
+
+    /// <summary>Test seam: what the solver has learned about the rigs it has solved for.</summary>
+    internal SolveHintCache Hints => _hints;
+
+    private int _seedHypotheses;
+
+    /// <summary>
+    /// Test seam: hypotheses the pair-lock seed spent on the most recent solve, summed over both
+    /// parities, every anchor pool and the relocation retry.
+    /// </summary>
+    /// <remarks>
+    /// The measure the cache has to be judged on, for the same reason phase A was: its entire effect
+    /// is work that DOES NOT HAPPEN, so the emitted WCS is identical with it and without it and only
+    /// the cost moves. Hypotheses rather than milliseconds because they are deterministic for a given
+    /// input, so they compare across machines, across builds and between a Debug and a Release run.
+    /// </remarks>
+    internal int LastSeedHypotheses => _seedHypotheses;
+
+    /// <summary>
+    /// Hypotheses per anchor pool allowed to the parity a remembered solve says is the WRONG one.
+    /// </summary>
+    /// <remarks>
+    /// Sized off what a real lock costs, not off what a scan can afford: the frozen Vela panels seed
+    /// at 235-567 hypotheses, the P10 crop's relocated solve at 749, and phase A's own frame at
+    /// 32,179 -- so 100,000 clears the worst observed lock by 3x while cutting ~93% of the 1.4M-1.6M
+    /// per pool a doomed scan spends. It bounds only the DOUBTED half, so the frames this could bite
+    /// are the ones where the cache is stale, and there the capped half finds nothing and the gate
+    /// re-runs it uncapped. That is why this may be far tighter than <c>PairRansacLock</c>'s own
+    /// 1,000,000, which bounds the only scan there is and was measured to lose real fields at 400k.
+    /// </remarks>
+    internal const int DoubtedParityHypothesisBudget = 100_000;
 
     public ValueTask<bool> CheckSupportAsync(CancellationToken cancellationToken = default)
         => ValueTask.FromResult(true);
@@ -228,6 +279,13 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             MatchedStars = a.MatchedStars,
             Iterations = a.Iterations
         };
+
+        if (allowPositionalSearch)
+        {
+            // Per SOLVE, not per call: the relocation retry re-enters here and its seed is part of
+            // what this solve cost.
+            _seedHypotheses = 0;
+        }
 
         var empty = new SolveAttempt(null, 0, 0, 0, 0, 0);
 
@@ -396,6 +454,20 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 : "declined",
             stageSw.Elapsed.TotalMilliseconds);
 
+        // What this rig already answered, for the two questions the seed is most expensive without.
+        // Read BEFORE the race so both parities see the same hints, and never overriding the quad
+        // recovery: that one measured THIS frame's stars, where the cache only remembers a previous
+        // frame's, so it is the fallback for a decline rather than a competitor. The decline is the
+        // case worth serving -- the recovery needs 10 agreeing quad candidates and answers on 2 of 5
+        // real frames, and it declines through the same starved projection that makes the seed hard.
+        var cachedHint = _hints.TryGet(image.ImageMeta);
+        if (scalePrior is null && cachedHint is { } cached)
+        {
+            scalePrior = new QuadScaleRecovery.Recovery(cached.ScaleRatio, Candidates: 0, RelativeSpread: 0f);
+            _logger.LogDebug("CatalogPlateSolver: no quad recovery, using the scale this light path solved at before -- ratio {Ratio:F5} (implied {Implied:F4}\"/px against the header's {Header:F4})",
+                cached.ScaleRatio, dim.PixelScale / cached.ScaleRatio, dim.PixelScale);
+        }
+
         // Try both orientations in parallel; pick the one with lower re-projection error.
         //
         // Exactly one of the two is real work: measured over the 96 frozen Vela frames, one parity
@@ -425,14 +497,37 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             }
         };
 
-        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, scalePrior, ClaimAgainst(mirrorCts), stdCts.Token), cancellationToken);
-        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, scalePrior, ClaimAgainst(stdCts), mirrorCts.Token), cancellationToken);
+        // A remembered parity SHRINKS the doubted half's budget; it never skips it. Skipping is the
+        // tempting form and it is wrong in the one place this is meant to help: with one parity gone,
+        // a frame that seeds on neither runs the two halves in SERIES -- the believed one, then the
+        // gate's re-run of the other -- where today they overlap, so the doomed path would get twice
+        // as long in wall clock to save half the CPU. Capped and still parallel, the wall time stays
+        // the believed half's and the doubted half stops early, which is the saving without the
+        // trade. And when the cache is wrong, the capped half simply finds nothing and the gate's
+        // existing re-run picks it up uncapped -- the same fallback an abandoned parity already uses.
+        var believedIsStd = cachedHint?.WinnerIsStd;
+        var stdBudget = believedIsStd is false ? DoubtedParityHypothesisBudget : int.MaxValue;
+        var mirrorBudget = believedIsStd is true ? DoubtedParityHypothesisBudget : int.MaxValue;
+        if (believedIsStd is { } believed)
+        {
+            _logger.LogDebug("CatalogPlateSolver: this light path last solved on the {Parity} parity, so the other half is capped at {Budget} hypotheses per pool",
+                believed ? "standard" : "mirror", DoubtedParityHypothesisBudget);
+        }
+
+        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, scalePrior, ClaimAgainst(mirrorCts), stdBudget, stdCts.Token), cancellationToken);
+        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, scalePrior, ClaimAgainst(stdCts), mirrorBudget, mirrorCts.Token), cancellationToken);
         await Task.WhenAll(stdTask, mirrorTask);
 
         var std = stdTask.Result;
         var mirror = mirrorTask.Result;
-        var stdAbandoned = stdCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
-        var mirrorAbandoned = mirrorCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested;
+        // "Abandoned" means the scan STOPPED SHORT, so its empty hands are not evidence -- which is
+        // equally true of a half the cache told us to cap as of one the sibling cancelled. Both feed
+        // the same re-run below, which is what makes a stale cached parity cost one extra pass
+        // instead of a failed solve.
+        var stdAbandoned = (stdCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            || (stdBudget != int.MaxValue && std.Wcs is null);
+        var mirrorAbandoned = (mirrorCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            || (mirrorBudget != int.MaxValue && mirror.Wcs is null);
         _logger.LogDebug("CatalogPlateSolver: matching iterations std={StdMatched}/{StdIter} (rms {StdRms:F2}px) mirror={MirrorMatched}/{MirrorIter} (rms {MirRms:F2}px) in {Ms}ms",
             std.MatchedStars, std.Iterations, std.RmsResidual, mirror.MatchedStars, mirror.Iterations, mirror.RmsResidual, stageSw.Elapsed.TotalMilliseconds);
 
@@ -450,17 +545,17 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // bright catalog candidates almost always hits *some* nearby detected
         // star). That used to flip the parity at Dec near -90 deg, picking
         // std=3-matched garbage over mirror=30-matched correct.
-        // Which of the two won is tracked as a FLAG, never by reference identity: SolveAttempt is a
-        // readonly record struct, so ReferenceEquals against it boxes and is unconditionally false.
+        // Which of the two won is read off the ATTEMPT (see SolveAttempt.IsStd), never by reference
+        // identity: it is a readonly record struct, so ReferenceEquals against it boxes and is
+        // unconditionally false.
         SolveAttempt winner, loser;
-        bool winnerIsStd;
         if (std.MatchedStars >= 2 * Math.Max(mirror.MatchedStars, 1))
         {
-            (winner, loser, winnerIsStd) = (std, mirror, true);
+            (winner, loser) = (std, mirror);
         }
         else if (mirror.MatchedStars >= 2 * Math.Max(std.MatchedStars, 1))
         {
-            (winner, loser, winnerIsStd) = (mirror, std, false);
+            (winner, loser) = (mirror, std);
         }
         else
         {
@@ -469,9 +564,10 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             // projects bright catalog stars onto detected stars.
             var stdError = std.Wcs is { } ws ? ReProjectionError(ws, catalogCoords, detectedStars) : double.MaxValue;
             var mirrorError = mirror.Wcs is { } wm ? ReProjectionError(wm, catalogCoords, detectedStars) : double.MaxValue;
-            winnerIsStd = stdError <= mirrorError;
-            (winner, loser) = winnerIsStd ? (std, mirror) : (mirror, std);
+            (winner, loser) = stdError <= mirrorError ? (std, mirror) : (mirror, std);
         }
+
+        var winnerIsStd = winner.IsStd;
 
         // Chance-aware acceptance gate. In a dense field the proximity loop can hand back a
         // full complement of matches that are pure nearest-neighbour noise -- observed on a
@@ -498,11 +594,22 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             _logger.LogDebug("CatalogPlateSolver: winner failed the acceptance gate and the other parity was abandoned mid-seed; re-running it before reporting failure");
             var loserXSign = winnerIsStd ? -1.0 : 1.0;
             loser = TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad,
-                cx, cy, dim, loserXSign, range, scalePrior, onSeedClearOfChance: null, cancellationToken);
+                cx, cy, dim, loserXSign, range, scalePrior, onSeedClearOfChance: null, seedHypothesisBudget: int.MaxValue, cancellationToken);
             LastParityRace = LastParityRace with { ReRanAbandonedParity = true };
         }
 
         winner = ApplyAcceptanceGate(winner, loser, catalogCoords, detectedStars, dim, tolerance);
+
+        // Learn from an ACCEPTED solve only. A rejected one's parity and scale are whatever noise it
+        // latched onto, and caching those would aim the next solve at a window with nothing in it --
+        // the cache would then be slower than having none, which is the failure mode to avoid in a
+        // structure whose whole justification is that a miss is cheap. The parity is read off the
+        // attempt that answered rather than off the pick, because the gate above is exactly where
+        // those two part company.
+        if (winner.Wcs is { } accepted && accepted.PixelScaleArcsec > 0)
+        {
+            _hints.Store(image.ImageMeta, (float)(dim.PixelScale / accepted.PixelScaleArcsec), winner.IsStd);
+        }
 
         // Last resort: the hint may simply not be where the frame is. The seed's anchor pool is the
         // brightest catalog stars that project INSIDE THE FRAME from the origin, so the pool's
@@ -741,6 +848,11 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// Verifies the picked parity against the chance model; falls back to the losing parity
     /// when it verifies instead, and strips the WCS entirely when neither does.
     /// </summary>
+    /// <remarks>
+    /// The returned attempt carries its own <see cref="SolveAttempt.IsStd"/>, so a caller learning
+    /// the light path's parity from an accepted solve reads the half that actually answered -- which
+    /// is not always the pick, since this is the one place the pick gets overturned.
+    /// </remarks>
     private SolveAttempt ApplyAcceptanceGate(
         SolveAttempt winner,
         SolveAttempt loser,
@@ -896,6 +1008,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         float scaleRange,
         QuadScaleRecovery.Recovery? scalePrior,
         Action? onSeedClearOfChance,
+        int seedHypothesisBudget,
         CancellationToken cancellationToken
     )
     {
@@ -915,7 +1028,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         int projectedCount = 0, matchedCount = 0, iterCount = 0;
         double rmsResidual = 0, affineDet = 0;
 
-        SolveAttempt MakeResult(WCS? wcs) => new SolveAttempt(wcs, projectedCount, matchedCount, iterCount, rmsResidual, affineDet);
+        SolveAttempt MakeResult(WCS? wcs) => new SolveAttempt(wcs, projectedCount, matchedCount, iterCount, rmsResidual, affineDet, IsStd: xSign > 0);
 
         // Rank detected stars by flux once (brightest first); the geometric seed and every
         // matching iteration below consume this ordering.
@@ -954,7 +1067,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             {
                 var recoveredPixelScaleRad = hintPixelScaleRad / recovery.Ratio;
                 seedLock = TrySeedPairLock(catalogCoords, detPts, currentOrigin, recoveredPixelScaleRad,
-                    cx, cy, dim, xSign, RecoveredScaleTolerance, out _, _logger, cancellationToken);
+                    cx, cy, dim, xSign, RecoveredScaleTolerance, out var recoveredCost, _logger, cancellationToken, maxHypotheses: seedHypothesisBudget);
+                Interlocked.Add(ref _seedHypotheses, recoveredCost.Hypotheses);
                 if (seedLock is not null)
                 {
                     pixelScaleRad = recoveredPixelScaleRad;
@@ -971,8 +1085,12 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             // narrow window safe to try at all: a stale, mis-measured or simply unlucky scale costs
             // one extra pass that is cheap by construction (2.2M hypotheses against 24.9M) and can
             // never turn a solvable frame into a failure.
-            seedLock ??= TrySeedPairLock(catalogCoords, detPts, currentOrigin, pixelScaleRad, cx, cy,
-                dim, xSign, Math.Max(scaleRange, MinPairLockScaleTolerance), out _, _logger, cancellationToken);
+            if (seedLock is null)
+            {
+                seedLock = TrySeedPairLock(catalogCoords, detPts, currentOrigin, pixelScaleRad, cx, cy,
+                    dim, xSign, Math.Max(scaleRange, MinPairLockScaleTolerance), out var headerCost, _logger, cancellationToken, maxHypotheses: seedHypothesisBudget);
+                Interlocked.Add(ref _seedHypotheses, headerCost.Hypotheses);
+            }
 
             // A seed this far clear of chance settles the parity, so tell the sibling to stop --
             // deliberately BEFORE the invert/project below, because a lock is evidence about the
