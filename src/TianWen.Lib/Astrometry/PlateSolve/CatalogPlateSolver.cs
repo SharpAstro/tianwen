@@ -94,6 +94,31 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     internal const int MaxStarsCarriedIntoMatching = 500;
 
     /// <summary>
+    /// The narrowest median star, in DETECTION pixels, a binned frame may present before the binning
+    /// is undone. Nyquist: a profile sampled below two pixels per FWHM is aliased, and its centroid
+    /// stops being recoverable.
+    /// </summary>
+    /// <remarks>
+    /// <para>This exists because sampling is what pre-detection binning SPENDS, and no gate on the
+    /// declared plate scale can see it. Sampling is the star's width in pixels -- seeing divided by
+    /// scale -- so a 1.5"/px target lands the binned width at <c>FWHM_arcsec / 1.5</c>, under two
+    /// pixels for any seeing better than 3". That is most usable nights, not a corner case, and the
+    /// gate had no way to know: two rigs at the same scale on nights an arcsecond apart want opposite
+    /// answers. ASTAP gates on image HEIGHT instead, the same shape of proxy one step further from
+    /// the physics.</para>
+    /// <para><b>It is a veto, never a trigger.</b> A frame is only ever un-binned by this, so the
+    /// worst case is one wasted detection pass on the CHEAP (binned) image, and a stale or absent
+    /// measurement leaves the proposal standing. Binning up on a frame that measures wide would be
+    /// the opposite trade -- speculative, and paid in the aliasing this is here to prevent.</para>
+    /// <para><b>Measured FWHM floors near 1.2 px</b>, so a binned reading cannot be multiplied back
+    /// to recover the unbinned width (on the NGC 3576 frame, 2.15 px at bin 1 reads 1.85 px at bin 2,
+    /// not 1.08): an undersampled star cannot measure narrower than the grid it is sampled on. Only
+    /// the comparison against this floor is sound, which is why the fallback goes to full resolution
+    /// and re-measures rather than solving for a better factor.</para>
+    /// </remarks>
+    internal const float MinSampledFwhmPx = 2.0f;
+
+    /// <summary>
     /// Acceptance-gate probe radius in native pixels (scaled up by the detection binning
     /// factor, whose centroid quantisation it must dominate). A genuine solve puts its true
     /// matches within ~1px of the catalog projection; the dense-field failure mode puts them
@@ -182,6 +207,22 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// path. The two are kept apart deliberately, since one measures THIS frame's stars.</para>
     /// </summary>
     internal QuadScaleRecovery.Recovery? LastScalePrior { get; private set; }
+
+    /// <summary>
+    /// What the plate scale PROPOSED for detection binning on the last solve, and what detection
+    /// actually ran at once the sampling floor had its say.
+    /// </summary>
+    /// <remarks>
+    /// Both halves, because <c>Used == 1</c> alone cannot tell a frame that was never a binning
+    /// candidate from one whose bin was vetoed -- and those are the two outcomes worth separating.
+    /// Invisible from the outside otherwise: the solve answers in original-image pixels either way.
+    /// </remarks>
+    internal DetectionBinning LastDetectionBinning { get; private set; }
+
+    /// <param name="Proposed">The factor the declared plate scale asked for; 1 for no bin.</param>
+    /// <param name="Used">The factor detection ran at; below <paramref name="Proposed"/> only where
+    /// <see cref="MinSampledFwhmPx"/> vetoed it.</param>
+    internal readonly record struct DetectionBinning(int Proposed, int Used);
 
     /// <param name="AbandonedAParity">One parity was stopped because the other seeded clear of chance.</param>
     /// <param name="ReRanAbandonedParity">The gate needed the abandoned half after all, so it was re-run.</param>
@@ -372,28 +413,29 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             return Result(empty);
         }
 
-        // Downsample heavily oversampled frames to ~1.5"/px before star
-        // detection. Plate solving doesn't need sub-arcsec centroid accuracy --
-        // catalog projections are already arcsec-scale via the WCS fit -- but
-        // FindStarsAsync's per-pass cost scales with pixel count. A 0.97"/px
-        // 9576x6388 polar preview binned 2x drops to 4788x3194 and runs ~4x
-        // faster per pass. Centroid coords come back in binned pixel space, so
-        // we scale them back to original-image pixels before matching.
+        // Bin heavily oversampled frames before star detection: FindStarsAsync's per-pass cost scales
+        // with pixel count, and a 0.97"/px 9576x6388 polar preview binned 2x drops to 4788x3194 and
+        // runs ~4x faster per pass. Centroid coords come back in binned pixel space, so we scale them
+        // back to original-image pixels before matching.
+        //
+        // The declared plate scale PROPOSES the factor; it does not decide it. See
+        // MinSampledFwhmPx for why scale cannot decide it -- what binning spends is sampling, which
+        // is seeing over scale, and a scale gate cannot see seeing. The proposal is verified below
+        // against the width the detector actually measures, and may only ever be undone.
         var detectionImage = image;
         var detectionScale = 1;
+        var proposedDetectionScale = 1;
         // Integer-tenths comparison: pixelScale * 10 vs 15 dodges the
         // floating-point edge where round(1.5 / 1.293) collapses to 1 and
         // leaves the 600mm/3.76um polar preview running FindStars on the
         // full 9576x6388 frame -- ~5 s wall-clock, which blows the polar
-        // ramp's 5.5 s rung-1 budget. With this gate, anything finer than
-        // 1.5"/px gets binned to ~1.5-3.0"/px (still well above seeing,
-        // still plenty for plate-solving centroid accuracy).
+        // ramp's 5.5 s rung-1 budget.
         const int TargetPixelScaleX10 = 15;
         var pixelScaleX10 = (int)Math.Round(dim.PixelScale * 10);
         if (pixelScaleX10 > 0 && pixelScaleX10 < TargetPixelScaleX10)
         {
             // Ceiling so finer-than-target inputs always get at least 2x bin.
-            detectionScale = (TargetPixelScaleX10 + pixelScaleX10 - 1) / pixelScaleX10;
+            proposedDetectionScale = detectionScale = (TargetPixelScaleX10 + pixelScaleX10 - 1) / pixelScaleX10;
             if (detectionScale > 1)
             {
                 stageSw.Restart();
@@ -423,9 +465,28 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // positions in aggregate, so the faint end it admits is worth having -- which is not true of the
         // detector's other callers (see Image.MaxFirstPassNoiseSigma for what capping them cost).
         stageSw.Restart();
-        var detectedStars = await detectionImage.FindStarsAsync(detectionImage.ReferenceStarChannel, snrMin: 5f, maxStars: 500, minStars: 50, maxRetries: 0, maxFirstPassNoiseSigma: Image.MaxFirstPassNoiseSigma, logger: _logger, cancellationToken: cancellationToken);
+        var detectedStars = await DetectStarsAsync(detectionImage, cancellationToken);
         _logger.LogDebug("CatalogPlateSolver: FindStarsAsync detected {Count} stars in {Ms}ms ({W}x{H})",
             detectedStars.Count, stageSw.Elapsed.TotalMilliseconds, detectionImage.Width, detectionImage.Height);
+
+        // The proposal, judged against what the detector just measured. A binned frame that comes
+        // back under Nyquist was binned past what its stars could carry, and every centroid in it is
+        // aliased -- so throw that pass away and re-detect at full resolution, where the widths are
+        // whatever the optics and the night actually delivered. Costs one pass on the binned (cheap)
+        // image in exactly the case where the alternative is a fit built on aliased positions.
+        if (detectionScale > 1 && MedianStarFwhm(detectedStars) is { } binnedFwhm && binnedFwhm < MinSampledFwhmPx)
+        {
+            _logger.LogDebug("CatalogPlateSolver: bin {Factor} left median FWHM {Fwhm:F2} px below the {Floor:F2} px sampling floor; re-detecting unbinned",
+                detectionScale, binnedFwhm, MinSampledFwhmPx);
+            detectionImage = image;
+            detectionScale = 1;
+            stageSw.Restart();
+            detectedStars = await DetectStarsAsync(image, cancellationToken);
+            _logger.LogDebug("CatalogPlateSolver: FindStarsAsync detected {Count} stars in {Ms}ms ({W}x{H}) after undoing the bin",
+                detectedStars.Count, stageSw.Elapsed.TotalMilliseconds, image.Width, image.Height);
+        }
+
+        LastDetectionBinning = new DetectionBinning(proposedDetectionScale, detectionScale);
 
         // Scale centroids back to original-image pixel space if we downsampled.
         // (factor*x + factor/2 - 0.5) puts the binned-pixel centre back to
@@ -704,6 +765,45 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         }
 
         return Result(winner);
+    }
+
+    /// <summary>
+    /// The solver's detection call, in one place so the binned pass and the un-binned re-run cannot
+    /// drift apart -- they must ask the same question of two rasters for their star counts and widths
+    /// to be comparable at all.
+    /// </summary>
+    private Task<StarList> DetectStarsAsync(Image img, CancellationToken cancellationToken)
+        => img.FindStarsAsync(img.ReferenceStarChannel, snrMin: 5f, maxStars: MaxStarsCarriedIntoMatching, minStars: 50, maxRetries: 0, maxFirstPassNoiseSigma: Image.MaxFirstPassNoiseSigma, logger: _logger, cancellationToken: cancellationToken);
+
+    /// <summary>
+    /// Median fitted star width, or null when nothing in the list carries one.
+    /// </summary>
+    /// <remarks>
+    /// The MEDIAN rather than the mean because the tail this has to survive is one-sided and large:
+    /// a nebula knot, a pair the deblender declined and a satellite streak all read wide, and none of
+    /// them says anything about how the frame is sampled. <c>StarFWHM &lt;= 0</c> is "not measured"
+    /// rather than "zero wide" -- see <see cref="Image.MaxFirstPassNoiseSigma"/>'s neighbours in
+    /// <c>Image.StarDeblend</c> -- so those are excluded rather than counted as narrow, which would
+    /// drag the median toward undoing a bin that was fine.
+    /// </remarks>
+    internal static float? MedianStarFwhm(StarList stars)
+    {
+        var widths = new List<float>(stars.Count);
+        foreach (var s in stars)
+        {
+            if (s.StarFWHM > 0f)
+            {
+                widths.Add(s.StarFWHM);
+            }
+        }
+
+        if (widths.Count == 0)
+        {
+            return null;
+        }
+
+        widths.Sort();
+        return widths[widths.Count / 2];
     }
 
     /// <summary>

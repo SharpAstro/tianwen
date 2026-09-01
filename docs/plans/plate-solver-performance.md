@@ -661,11 +661,55 @@ reliably separable from a hot pixel; the unbinned SIP rms of 0.11 px (0.52") is 
 consumers rely on. A 0.5"/px setup in 3" seeing (FWHM ~6 px) bins to 3 px for free. Same rule, opposite
 answer -- which is the point.
 
-**A gate on the declared plate scale is the same mistake in a better disguise, and we already ship
-one.** `SolveFromOriginAsync` downsamples to ~1.5"/px whenever `dim.PixelScale` is finer than that.
-Scale alone says nothing about seeing: a 0.5"/px rig on a 1" night has FWHM 2 px, and that gate bins
-it to 1 px. It has not bitten because oversampled rigs usually are oversampled in the seeing they get,
-but it is a proxy standing in for a measurement the detector already makes.
+**A gate on the declared plate scale is the same mistake in a better disguise, and we already shipped
+one -- FIXED 2026-09-01.** `SolveFromOriginAsync` downsampled to ~1.5"/px whenever `dim.PixelScale`
+was finer, on the stated grounds that 1.5"/px is "still well above seeing". That is a claim about a
+quantity the gate never looked at. Binned `FWHM_px = FWHM_arcsec / 1.5`, so the target lands **under
+two pixels per FWHM for any seeing better than 3"** -- most usable nights, not a corner case. Two rigs
+at one scale on nights an arcsecond apart want opposite answers, and scale cannot tell them apart.
+
+The fix keeps the scale as a **proposal** and makes the measurement the **verdict**, in the one
+direction that is safe: `MinSampledFwhmPx = 2.0` un-does a bin, and never imposes one. Detection runs
+on the binned raster, the median `StarFWHM` is compared against the floor, and a frame that came back
+aliased is re-detected at full resolution. Worst case is one wasted pass on the *cheap* image, in
+exactly the case whose alternative is a fit built on aliased centroids; a frame that measures nothing
+leaves the proposal standing. `LastDetectionBinning` reports `(Proposed, Used)` because `Used == 1`
+alone cannot separate "never a candidate" from "vetoed".
+
+**What the committed fixtures could and could not answer** (`SolverBinningSamplingProbe`, gated on
+`TIANWEN_BINNING_PROBE`):
+
+| frame | "/px | gate | stars @1 | FWHM @1 | stars @2 | FWHM @2 |
+|---|---|---|---|---|---|---|
+| NGC 3576 (0058) | 2.872 | 1 | 8103 | 2.15 | 3123 | 1.85 |
+| Vela panel 8_1 crop | 5.966 | 1 | 4003 | 1.75 | 2240 | 1.31 |
+| Vela panel 10 crop | 5.966 | 1 | 1569 | 1.94 | 749 | 1.37 |
+| 0002 | 5.966 | 1 | 1932 | 2.00 | 1106 | 1.80 |
+| PlateSolveTestFile | 4.250 | 1 | 11 | 3.20 | 7 | 1.72 |
+
+Three things fall out, and the third is a limit on the change rather than support for it:
+
+- **Every committed fixture is 2.87-5.97"/px, so the gate proposes 1 on all of them** and always did.
+  The shipped behaviour is unchanged on every frame in the repo, which is what makes this safe to land
+  -- and it also means **the class of frame the gate exists for is not represented here at all**.
+- **Binning's measurable cost is the star COUNT, not the width**: roughly half the detections go
+  (8103 -> 3123, 4003 -> 2240), and `PlateSolveTestFile` falls 11 -> 7 -> **3** at bin 3, under
+  `MinStarsForMatch = 6`. A bin can turn a solvable frame into a failure outright.
+- **Measured FWHM floors near 1.2 px**, so a binned width cannot be multiplied back to recover the
+  unbinned one (2.15 px at bin 1 reads 1.85 px at bin 2, not 1.08). Only the comparison against the
+  floor is sound, which is why the fallback re-measures at full resolution instead of solving for a
+  better factor.
+
+**The one open risk, stated rather than hidden.** The gate was tuned for a 0.97"/px 9576x6388 polar
+preview whose 5.5 s rung-1 budget depends on the 4x speedup. If that frame's binned stars land under
+the floor -- which they do for seeing better than ~3" -- it now re-detects unbinned and blows that
+budget. No committed fixture is oversampled and there is no such frame on the dev box, so this is
+reasoned, not measured. It is also the case where the old path was returning aliased centroids to a
+routine whose whole output is a small angular difference between two solves, so the trade is the right
+way round; the follow-up is to buy the budget back with a **central CROP at full resolution** (same
+pixel count as bin 2, same cost, sampling intact) rather than by binning. Wanted:
+[`docs/todo/hardware-validation.md`](../todo/hardware-validation.md) -- an oversampled real frame
+(<1.5"/px) with a recorded FWHM, which is the missing evidence for both halves.
 
 ### E. Positional search around the hint -- **SHIPPED**
 
