@@ -657,6 +657,103 @@ namespace TianWen.Lib.Tests
             }
         }
 
+        /// <summary>
+        /// C2': does a quad match survive the condition it exists FOR -- a hint that is wrong? C0 and
+        /// C1 both projected the catalog through each frame's OWN solution, which is a perfect hint,
+        /// and the entire value of phase C rests on the case where it is not.
+        /// </summary>
+        /// <remarks>
+        /// <para>A quad descriptor is invariant to scale, rotation and translation, so the PREDICTION
+        /// is that a wrong hint costs only the stars it pushes out of the projected window, not the
+        /// geometry -- which is the opposite of what it does to the pair-lock anchor pool, where a
+        /// 0.7-frame-width error starves the pool and the seed never reaches consensus. That is the
+        /// difference the positional search would stop paying for.</para>
+        /// <para>The window is centred on the HINT, as a real solve's would be, and widened by
+        /// <c>Margin</c> so the true field is still covered; the catalog cut is then scaled by the AREA
+        /// so the density matches the image rather than the count. That distinction is load-bearing and
+        /// C0's sweep conflated it: adding catalog stars at the same area means going DEEPER, which
+        /// re-points neighbours and destroys quads, while adding them by widening the area does not
+        /// touch the neighbours of the stars already inside.</para>
+        /// <para>Parity is swept because reflection preserves every pairwise distance, so a mirrored
+        /// projection should match the SAME quads. If it does, the two-parity race the seed runs today
+        /// is pure waste for a quad matcher.</para>
+        /// </remarks>
+        [Fact(Timeout = 1_800_000)]
+        public void ReportWhetherQuadsSurviveAWrongHint()
+        {
+            Assert.SkipUnless(
+                !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TIANWEN_QUAD_FEASIBILITY")),
+                "Set TIANWEN_QUAD_FEASIBILITY=1 to run the phase-C feasibility probe");
+
+            const int KDet = 300;
+            const double Margin = 0.6;
+            const float WrongScale = 1.039f;
+            var areaFactor = (1.0 + 2.0 * Margin) * (1.0 + 2.0 * Margin);
+            var manifest = VelaMosaicStarLists.Manifest;
+
+            output.WriteLine($"image top-K {KDet}, catalog window +/-{Margin:F2} frame (area x{areaFactor:F2}, "
+                + $"cut to {(int)(KDet * areaFactor)} for matched DENSITY), scale prior wrong by {100 * (WrongScale - 1):F1}%");
+
+            foreach (var xSign in new[] { -1.0, +1.0 })
+            {
+                foreach (var offsetFrames in new[] { 0.0, 0.25, 0.5, 0.7 })
+                {
+                    int locks = 0, panels = 0, pairs = 0;
+                    var ratios = new List<float>();
+
+                    foreach (var panel in manifest.Panels)
+                    {
+                        var frame = panel.Frames[0];
+                        var trueScale = frame.Wcs.PixelScaleArcsec;
+                        var dim = new ImageDim(trueScale * WrongScale, panel.Width, panel.Height);
+
+                        // Offset the hint along RA by N frame widths, in degrees on the sky.
+                        var frameWidthDeg = panel.Width * trueScale / 3600.0;
+                        var dRa = offsetFrames * frameWidthDeg / Math.Cos(frame.Wcs.CenterDec * Math.PI / 180.0) / 15.0;
+                        var hint = new TianWen.Lib.Astrometry.WCS(frame.Wcs.CenterRA + dRa, frame.Wcs.CenterDec);
+
+                        var hintWcs = VelaProjection.HintWcs(hint, dim, xSign);
+                        var catAll = VelaProjection.ProjectInFrame(
+                            manifest.Catalog, hintWcs, panel.Width, panel.Height, Margin);
+                        var take = Math.Min((int)(KDet * areaFactor), catAll.Length);
+                        if (take < 50)
+                        {
+                            continue;
+                        }
+
+                        var cat = new Vector2[take];
+                        Array.Copy(catAll, cat, take);
+
+                        var det = frame.DetectedPoints(KDet);
+                        if (det.Length < 50)
+                        {
+                            continue;
+                        }
+
+                        panels++;
+                        var (table, diag) = StarReferenceTable.FindFitWithDiagnostics(
+                            BuildQuads(det), BuildQuads(cat), minimumCount: 3, quadTolerance: 0.008f,
+                            scaleTolerance: 0.05f);
+                        pairs += diag.RawPairs;
+                        if (table is not null)
+                        {
+                            locks++;
+                            if (!float.IsNaN(diag.MedianRatio))
+                            {
+                                ratios.Add(diag.MedianRatio);
+                            }
+                        }
+                    }
+
+                    ratios.Sort();
+                    output.WriteLine(
+                        $"  xSign {xSign,+2:F0}, hint off {offsetFrames,4:F2} frames: LOCKS {locks,2}/{panels}, "
+                        + $"raw pairs {pairs,6}"
+                        + (ratios.Count > 0 ? $", implied scale median {Pct(ratios, 0.5):F4}" : ""));
+                }
+            }
+        }
+
         internal static Vector2[] ProjectTopK(
             VelaMosaicManifest manifest, VelaPanel panel,
             VelaFrame frame, int k)

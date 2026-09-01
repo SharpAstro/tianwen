@@ -707,9 +707,42 @@ the units does. Implied scale comes back at 1.0001, as it must for two fields sh
 pairs is its noise floor, which is why that row reads 6/24 here and 0/24 in the table above. The 24/24
 is far outside that noise.
 
+**C2', the measurement the whole phase actually rests on: a WRONG HINT costs a quad match nothing.**
+C0 and C1 both projected the catalog through each frame's own solution, which is a perfect hint --
+and the case phase C exists for is the one where it is not. Re-run with the window centred on a
+DELIBERATELY WRONG hint, widened by 0.6 frame so the true field is still covered, the catalog cut
+scaled by AREA so the density matches the image, and the scale prior wrong by 3.9%:
+
+| hint error | parity | locks | raw pairs | implied scale |
+|---|---|---|---|---|
+| 0.00 frames | std | 24 / 24 | 431 | 1.0389 |
+| 0.25 frames | std | 24 / 24 | 479 | 1.0383 |
+| 0.50 frames | std | 24 / 24 | 566 | 1.0374 |
+| **0.70 frames** | std | **24 / 24** | 594 | 1.0365 |
+| **0.70 frames** | **mirrored** | **24 / 24** | 595 | 1.0364 |
+
+- **0.70 frame widths is exactly the panel 10 condition** -- the crop whose header points 93 arcmin
+  away, which starves the pair-lock anchor pool and costs 3.17 s in the positional search. The quad
+  match locks every panel at that error, and the raw pair count RISES with it (431 -> 594) because the
+  widened window admits more catalog stars. The geometry never degrades, because a descriptor built
+  from ratios cannot care where the projection was centred.
+- **Parity is free, and this measures it rather than arguing it.** Mirrored and standard differ by one
+  or two pairs in ~595 and both lock 24 of 24. The two-parity race the seed runs today is pure waste
+  for a quad matcher; `SolveHintCache`'s parity half exists to claw back a cost this does not pay.
+- **The 3.9% scale error is irrelevant AND recovered**: implied scale 1.0389 against the 1.039
+  injected.
+
+**Cut the catalog by DENSITY, not by count -- C0's sweep conflated two things.** Adding catalog stars
+at the same area means going DEEPER, which re-points neighbours and destroys quads (the 15.8% -> 4.5%
+-> 1.2% collapse). Adding them by WIDENING the area does not touch the neighbours of the stars already
+inside, which is why a 4.84x window at 4.84x the count behaves like the 1x case. The rule is
+`catalogCount ~= detectedCount * areaRatio`.
+
 Worth the effort because of what point 5 above says it buys: not a constant factor, but a positional
 search whose expensive half stops depending on the trial centre, and the deletion of the parity race
-outright. The two things we measure worst at are the two things it addresses.
+outright. The two things we measure worst at are the two things it addresses. **C2' is the evidence
+that both actually follow** -- a hint wrong by most of a field is what the positional search exists to
+repair, and a quad match simply does not need repairing.
 
 **Revised phasing, in dependency order.** C1 first because it is a latent bug independent of all this;
 C0 is done.
@@ -718,9 +751,16 @@ C0 is done.
 |---|---|---|
 | ~~C0~~ | ~~is it population or construction?~~ | **DONE: population, ceiling 99.8%** |
 | ~~C1~~ | ~~ratio-only descriptor match; `Dist1` demoted to the sliding window and to scale recovery~~ | **DONE: 24 of 24 panels lock** |
-| C2 | catalog cut sized from the detection count, at the measured optimum | shared-quad fraction at or above the 15.8% baseline on the frozen set |
-| C3 | quad seed as an ALTERNATIVE to `PairRansacLock`, behind the existing acceptance gate | no regression on the committed real frames |
+| ~~C2'~~ | ~~does it survive a wrong hint and the wrong parity?~~ | **DONE: 24 of 24 at 0.70 frames, either parity** |
+| C3 | quad seed as an ALTERNATIVE to `PairRansacLock`, behind the existing acceptance gate; catalog cut by density (`detected * areaRatio`) | no regression on the committed real frames |
 | C4 | quads in the positional search: build image quads once, move only the catalogue | the 93-arcmin crop under 1 s (it is 3.17 s today, ASTAP 1.54 s) |
+
+**C3 is where the risk moves from "does it work" to "does it work on OUR inputs".** Everything above
+runs on frozen star lists whose detections are already clean and whose catalog is Tycho-2 projected by
+the test. A real solve adds the things the frozen set cannot: nebulosity ranked as bright by flux
+(`SolverAnchorQualityProbe` exists for exactly this), a catalog query whose region and epoch the solver
+picks, and the acceptance gate's own verdict. Keep `PairRansacLock` -- the quad seed is an alternative
+route to an ORIGIN, judged by the same gate, so a quad failure costs the old path and nothing else.
 
 ### D. Cap the star list; bin ONLY where sampling allows it
 
