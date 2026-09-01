@@ -68,6 +68,33 @@ mapping onto one phase below.
    compares with early-out: about 110k comparisons, once.
 4. **Derive scale from the match.** The median longest-side ratio over matching quads IS the plate
    scale, with outlier rejection on that ratio. The header focal length is never trusted.
+5. **The search moves the CATALOGUE, never the image.** `bin_and_find_stars` and
+   `find_quads(starlist2, ...)` run once, BEFORE the spiral; inside it (lines 1590-1657) only
+   `read_stars` at the trial centre, `find_quads` on the database stars, and
+   `find_offset_and_rotation`. A quad descriptor does not depend on where you think you are pointing,
+   so a trial centre costs one catalogue fetch and nothing else.
+
+**Point 5 is the one that decides a wrong hint, and it is three advantages compounding.** Measured
+2026-09-01 on the Vela panel 10 crop, whose header points 93 arcmin away (Release AOT, quiet box):
+ASTAP 1537 ms against our 3170 ms.
+
+| | ASTAP | TianWen |
+|---|---|---|
+| step between trial centres | `STEP_SIZE := search_field`, a **full FOV** (2.14 deg) | `0.35 x` the short axis (0.75 deg) |
+| how coverage is bought | `oversize` inflates the DATABASE READ to up to 2x image height, so a full-FOV step still overlaps | a finer step -- **8x more centres** for the same radius (0.35^-2) |
+| centres to reach a 1.55 deg error | first square-spiral ring, <= 9 | ring 2, ~20 of 39 |
+| parities per centre | **1** | 2 |
+| work at one centre | ~500-star read + ~110k `abs` compares | a RANSAC seed, <= 20,000 hypotheses x a 250-star verify |
+
+**Parity is free for a quad matcher, and that is not a tuning choice.** The descriptor is the six
+pairwise distances SORTED and divided by the longest (lines 445-460), and a reflection preserves every
+pairwise distance -- so a mirrored field matches the same quad. ASTAP recovers parity afterwards from
+the sign of `solution_vectorX[0]*solution_vectorY[1] - solution_vectorX[1]*solution_vectorY[0]` (line
+1701) and spends it only on the CDELT/CROTA signs. We search both halves on every candidate, which is
+what the light-path parity cache exists to claw back -- against a solver that never pays it at all.
+
+So roughly 9 cheap steps against ~40 expensive ones. The measured 2.1x is if anything flattering to
+us, and it was 4.9x before phase D's cap.
 
 Ours runs a pair-RANSAC seed (up to 916k hypotheses on the parity that does not lock) and then an
 O(n^2) proximity loop of 1600 detected x ~2000 projected, ~3.2M distance computations **per
@@ -602,6 +629,39 @@ above, where the header's pointing was never separately checked.
 Nothing regressed: P10 had never been asked for a WCS before (it is a stretch / colour / codec fixture
 everywhere else), which is exactly why the gap had gone unmeasured.
 
+#### "The matching half is dead" is contradicted by an existence proof, and the difference is HOW the quads are built
+
+**ASTAP solves both Vela crops, from quads, in 0.66 s and 1.54 s** (measured 2026-09-01 against
+CLI-2025.11.19 with the D80 database, on the identical files, agreeing with us to 3.2 arcsec and to 4
+significant figures of plate scale). Our probe says quad matching against the catalog shares 2.6% of
+quads under conditions granted every confound in its favour. Both are real, so **the verdict above is
+about OUR QUAD CONSTRUCTION, not about quad matching**, and it should not be read as closing the idea.
+
+The likely mechanism, from the source rather than from theory. `find_quads` builds each quad from a
+star **plus its three nearest neighbours** (lines 380-413), deduplicated by quad centre. A
+nearest-neighbour graph is only reproducible between two star lists drawn from **comparable
+populations**: one extra faint star in the image that the catalog lacks re-points its neighbours'
+quads and the descriptor changes completely. ASTAP therefore matches the DENSITIES explicitly ---
+`nrstars_required := round(nrstars*(height2/width2))`, scaled by `oversize2^2`, with the comment "So
+the star density will be the same as in the image to solve" (line 1633) --- on top of the hard
+`max_stars` cap that keeps both sides shallow.
+
+The probe's two sides were **not** matched that way: at top-K 100 it built 1,629 image quads against
+1,217 catalog quads, and the deeper rows are further apart still. So it may have been measuring what
+happens when two nearest-neighbour graphs are cut at different depths, which is a different question
+from whether the descriptors can match.
+
+**The test that would settle it** is a rerun of `QuadCatalogFeasibilityProbe` with the catalog window
+truncated to the SAME star count as the detection list (both by brightness), reporting the shared-quad
+fraction against the count ratio. If the fraction climbs as the ratio approaches 1, the phase is alive
+and the earlier reading was an artefact of the cut; if it stays near 2.6%, the verdict stands on much
+firmer ground than it does now. **Not yet run** --- stated here so the next person does not re-derive
+it, and so the "dead" verdict is not quoted without its caveat.
+
+Worth the effort because of what point 5 above says it buys: not a constant factor, but a positional
+search whose expensive half stops depending on the trial centre, and the deletion of the parity race
+outright. The two things we measure worst at are the two things it addresses.
+
 ### D. Cap the star list; bin ONLY where sampling allows it
 
 Two halves with very different risk, and they must not be conflated.
@@ -631,6 +691,21 @@ detections each, so the cap discards about two thirds of every list):
 
 **Not one hit is lost anywhere**, and for a reason rather than by luck: the anchors are the brightest
 CATALOG stars, so the detections a true hypothesis lands on are the bright ones the cap keeps.
+
+**What it is worth in wall clock** (Release AOT `tianwen solve`, whole process including catalog init,
+median of 5 interleaved runs on a quiet box, 2026-09-01). Measure this in RELEASE: the same A/B in
+Debug reads 2.3x on the dense frame, about twice the truth.
+
+| frame | uncapped | capped | |
+|---|---|---|---|
+| NGC 3576, 8,103 detections, hint good | 839 ms | **711 ms** | 1.18x |
+| Vela panel 10 crop, hint 93 arcmin off | 6,931 ms | **3,170 ms** | **2.19x, -3.8 s** |
+
+**The cap pays in proportion to HYPOTHESES TRIED, not to detections discarded** -- which is why the
+frame with 8,103 of them barely notices while the 1,569-star crop saves 3.8 seconds. A frame that
+seeds immediately never reaches the population the cap thins; a frame that has to relocate scores
+every one of its candidates against it. Read the dense-frame row as the cost ceiling of the cap, and
+the crop row as its purpose.
 
 **What the frozen set does NOT cover, stated so nobody reads it as more than it is.** At Vela
 densities the accept bar is the `0.15 x census` floor (24, from 160 anchors) and not the chance term,
