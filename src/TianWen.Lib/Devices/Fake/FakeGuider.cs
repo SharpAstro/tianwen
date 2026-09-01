@@ -320,8 +320,14 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
         // If not already looping, start the capture loop now
         if (_camera is { Connected: true } camera && _mount is { Connected: true } mount && _loopCts is null)
         {
-            _loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            _loopTask = Task.Run(() => RunCaptureLoopAsync(camera, mount, _loopCts.Token), _loopCts.Token);
+            // The lambda reads the LOCAL, never the field. StopCaptureAsync cancels and then nulls
+            // _loopCts, and the thread pool may not have started this delegate yet -- so a field read
+            // here is a NullReferenceException thrown inside the loop task and surfaced, confusingly,
+            // at the awaiting StopCaptureAsync. It needs a busy pool to happen at all, which is why
+            // it shows up as a CI-only failure that passes every time it is run on its own.
+            var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _loopCts = loopCts;
+            _loopTask = Task.Run(() => RunCaptureLoopAsync(camera, mount, loopCts.Token), loopCts.Token);
         }
 
         return ValueTask.CompletedTask;
@@ -419,9 +425,12 @@ internal class FakeGuider(FakeDevice fakeDevice, IServiceProvider serviceProvide
                 var exposureTime = TimeSpan.FromSeconds(2);
                 LastLoopFrame = await BuiltInGuiderDriver.CaptureGuideFrameAsync(camera, exposureTime, TimeProvider, External.ImageReadyPollInterval, cancellationToken);
 
-                // Start the unified capture loop in background
-                _loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                _loopTask = Task.Run(() => RunCaptureLoopAsync(camera, _mount!, _loopCts.Token), _loopCts.Token);
+                // Start the unified capture loop in background, on a LOCAL token source -- see the
+                // note at the other start site: the field is nulled by StopCaptureAsync and the
+                // delegate may not have run yet.
+                var loopCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                _loopCts = loopCts;
+                _loopTask = Task.Run(() => RunCaptureLoopAsync(camera, _mount!, loopCts.Token), loopCts.Token);
             }
         }
 
