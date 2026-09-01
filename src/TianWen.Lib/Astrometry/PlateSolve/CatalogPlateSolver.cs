@@ -60,6 +60,40 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     const int MinStarsForMatch = 6;
 
     /// <summary>
+    /// Brightest detections carried into matching. 500 is what the detection call has always asked
+    /// for; <see cref="Image.FindStarsAsync"/>'s <c>maxStars</c> simply never enforced it.
+    /// </summary>
+    /// <remarks>
+    /// <para>The faint tail costs accuracy nothing -- a fit is anchored on bright stars, and ASTAP
+    /// solves the NGC 3576 frame from 527 where we detect 8,103 -- but it is NOT inert. It is the
+    /// verification census the seed scores every hypothesis against, and the population the proximity
+    /// loop re-matches on each iteration.</para>
+    /// <para><b>It also moves the chance model, which is the part that needed measuring rather than
+    /// asserting.</b> <see cref="PairRansacLock"/> derives its Poisson rate from the detected DENSITY,
+    /// so truncating the list lowers the expected chance hits and with them the accept threshold,
+    /// which is a LOOSER bar on exactly the fields where the dense-field false-lock failure mode
+    /// lives. Measured over the frozen Vela set, capped against uncapped on the same frames (1,394 to
+    /// 1,755 detections each, so the cap discards about two thirds of every list):</para>
+    /// <list type="bullet">
+    /// <item>seeds 96 of 96 either way, none lost to the cap;</item>
+    /// <item>the capped seed keeps <b>100% of the uncapped hits</b> -- minimum, median and maximum --
+    /// because the anchors are the brightest CATALOG stars, so the detections a true hypothesis lands
+    /// on are the bright ones this keeps;</item>
+    /// <item>0 false locks across the 272 disjoint panel pairs, unchanged.</item>
+    /// </list>
+    /// <para>The negative case is untouched there for a reason worth knowing: at these densities the
+    /// accept bar is the <c>0.15 x census</c> floor (24, from the 160 anchors) and not the chance
+    /// term, and the cap does not move the floor. <b>The bar can only fall on a frame dense enough for
+    /// the chance term to exceed that floor</b> -- 8,103 detections on the NGC 3576 frame against the
+    /// Vela panels' ~1,500 -- and in that regime the noise hits fall with it, since they are drawn
+    /// from the same thinned population. The guard for it is
+    /// <c>GivenDenseFieldAndWrongSearchOriginWhenCatalogPlateSolvingThenItFailsInsteadOfReturningGarbage</c>,
+    /// which seeds at 22 hits against a threshold of 24 on 3,250 detections -- a two-hit margin, so
+    /// it is the test that would go red first if this ever loosened the gate.</para>
+    /// </remarks>
+    internal const int MaxStarsCarriedIntoMatching = 500;
+
+    /// <summary>
     /// Acceptance-gate probe radius in native pixels (scaled up by the detection binning
     /// factor, whose centroid quantisation it must dominate). A genuine solve puts its true
     /// matches within ~1px of the catalog projection; the dense-field failure mode puts them
@@ -414,6 +448,37 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         if (detectedStars.Count < MinStarsForMatch)
         {
             return Result(empty);
+        }
+
+        // Carry only the brightest into matching. The detection call has asked for this all along --
+        // it passes maxStars: 500 -- but that parameter caps NOTHING (its only effect is to supply
+        // the default for minStars), so a dense frame has been handing the solver everything it
+        // found: 8,103 stars on the NGC 3576 frame, where ASTAP solves the same field from 527.
+        //
+        // The faint tail is not what a fit is anchored on, and it is not free: it is the verification
+        // census every hypothesis is scored against, the population the proximity loop re-matches on
+        // each of its iterations, and -- see MaxStarsCarriedIntoMatching -- the density the chance
+        // model is derived from.
+        //
+        // _detectedStars above keeps the TRUE count, because that is a property of the frame and the
+        // number a diagnostic wants; what is capped is what matching sees.
+        if (detectedStars.Count > MaxStarsCarriedIntoMatching)
+        {
+            var brightest = new List<ImagedStar>(detectedStars);
+            brightest.Sort(static (a, b) => b.Flux.CompareTo(a.Flux));
+            var kept = new System.Collections.Concurrent.ConcurrentBag<ImagedStar>();
+            for (var i = 0; i < MaxStarsCarriedIntoMatching; i++)
+            {
+                kept.Add(brightest[i]);
+            }
+
+            _logger.LogDebug("CatalogPlateSolver: carrying the brightest {Kept} of {Detected} detections into matching",
+                MaxStarsCarriedIntoMatching, detectedStars.Count);
+
+            // The star MASK is deliberately dropped with the tail: it indexes the pixels the full
+            // detection ran on, so a mask kept beside a truncated list would describe stars the list
+            // no longer contains. Nothing downstream of here reads it.
+            detectedStars = new StarList(kept);
         }
 
         // Sort catalog stars by brightness (lowest mag = brightest first).
