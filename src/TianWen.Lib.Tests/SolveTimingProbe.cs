@@ -324,6 +324,59 @@ namespace TianWen.Lib.Tests
             output.WriteLine($"the full panel nearest the crop's true centre is {nearestId}, {nearest:F1} arcmin away, its own hint {nearestHint:F1} arcmin off");
         }
 
+        /// <summary>
+        /// What the catalog query COSTS as the radius grows, which is the number a positional search
+        /// turns on: it needs one query covering the whole candidate area rather than one per frame.
+        /// If cost tracked area the radius would be free to grow; the general path walks CELLS and
+        /// re-reads each overlapping GSC region's whole entry list per cell, so it should not.
+        /// </summary>
+        [Fact(Timeout = 900_000)]
+        public async Task ReportWhatTheCatalogQueryCostsAsTheRadiusGrows()
+        {
+            Assert.SkipUnless(
+                !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TIANWEN_SOLVE_TIMING")),
+                "Set TIANWEN_SOLVE_TIMING=1 to run the solve timing probe");
+
+            var ct = TestContext.Current.CancellationToken;
+            var db = new CelestialObjectDB();
+            await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+            var solver = new CatalogPlateSolver(db, new StageCapture());
+
+            var origin = new WCS(8.54889, -47.6047);
+            double[] radii = [1.63, 2.5, 3.69, 5.0, 6.0, 8.0, 12.0];
+
+            // Warm the path once so the first row is not measuring JIT.
+            solver.QueryCatalogStarsInRegion(origin, 1.0, 26.0);
+
+            output.WriteLine($"{"radius",8}{"area",10}{"stars",9}{"ms",9}{"us/star",10}{"vs area",9}");
+            var baseArea = Math.PI * radii[0] * radii[0];
+            var baseMs = 0.0;
+            foreach (var r in radii)
+            {
+                var best = double.MaxValue;
+                var count = 0;
+                for (var rep = 0; rep < 3; rep++)
+                {
+                    var sw = Stopwatch.StartNew();
+                    var stars = solver.QueryCatalogStarsInRegion(origin, r, 26.0);
+                    best = Math.Min(best, sw.Elapsed.TotalMilliseconds);
+                    count = stars.Count;
+                }
+
+                var area = Math.PI * r * r;
+                if (baseMs == 0)
+                {
+                    baseMs = best;
+                }
+
+                output.WriteLine($"{r,8:F2}{area,10:F1}{count,9}{best,9:F1}{1000 * best / count,10:F2}{best / baseMs / (area / baseArea),9:F2}x");
+            }
+
+            output.WriteLine("");
+            output.WriteLine("'vs area' is measured cost over the cost a perfectly area-proportional query would have.");
+            output.WriteLine("Above 1.0 means the walk is doing work the returned stars do not account for.");
+        }
+
         private static double SepDeg(double ra1H, double dec1, double ra2H, double dec2)
         {
             var r1 = double.DegreesToRadians(ra1H * 15.0);

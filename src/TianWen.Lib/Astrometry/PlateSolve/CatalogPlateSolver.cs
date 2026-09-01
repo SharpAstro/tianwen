@@ -191,13 +191,31 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         return SolveImageAsync(image, imageDim, range, searchOrigin, searchRadius, cancellationToken);
     }
 
-    public async Task<PlateSolveResult> SolveImageAsync(
+    public Task<PlateSolveResult> SolveImageAsync(
         Image image,
         ImageDim? imageDim = default,
         float range = IPlateSolver.DefaultRange,
         WCS? searchOrigin = default,
         double? searchRadius = default,
         CancellationToken cancellationToken = default
+    )
+        => SolveFromOriginAsync(image, imageDim, range, searchOrigin, searchRadius, allowPositionalSearch: true, cancellationToken);
+
+    /// <param name="allowPositionalSearch">
+    /// False on the ONE retry a positional search may trigger, which is what bounds the recursion at
+    /// a single extra pass. The retry re-enters here rather than resuming mid-solve because
+    /// everything downstream of the catalog query is a function of the origin -- and star detection,
+    /// the expensive half, is cached on the <see cref="Image"/>, so re-entering costs the query, the
+    /// quad recovery and the race, not the detection.
+    /// </param>
+    private async Task<PlateSolveResult> SolveFromOriginAsync(
+        Image image,
+        ImageDim? imageDim,
+        float range,
+        WCS? searchOrigin,
+        double? searchRadius,
+        bool allowPositionalSearch,
+        CancellationToken cancellationToken
     )
     {
         var sw = Stopwatch.StartNew();
@@ -486,7 +504,216 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
         winner = ApplyAcceptanceGate(winner, loser, catalogCoords, detectedStars, dim, tolerance);
 
+        // Last resort: the hint may simply not be where the frame is. The seed's anchor pool is the
+        // brightest catalog stars that project INSIDE THE FRAME from the origin, so the pool's
+        // footprint is the origin's own frame -- and a hint wrong by a large fraction of a frame
+        // width starves it however wide the catalog query was. Widening the radius cannot reach that
+        // (it widens the QUERY, not the pool), which is why this has to be a search over POSITIONS.
+        if (winner.Wcs is null && allowPositionalSearch
+            && TryFindOriginByPositionalSearch(detectedStars, origin, pixelScaleRad, cx, cy, dim, range, dtYr, searchRadius, cancellationToken) is { } relocated)
+        {
+            var retry = await SolveFromOriginAsync(image, dim, range, relocated, searchRadius, allowPositionalSearch: false, cancellationToken).ConfigureAwait(false);
+
+            // Bounding the candidate CENTRES is not the same as bounding the sky examined: a frame
+            // centred at the edge of the search area still reaches half a diagonal beyond it, and
+            // the disc anchor pool reaches further again. So the answer itself is checked. A caller
+            // who passes a radius is saying "the truth is within this of my hint", and a solution
+            // outside it -- however real -- is not an answer to the question they asked.
+            if (retry.Solution is { } found && searchRadius is { } limitDeg
+                && CoordinateUtils.AngularSeparationDeg(origin.CenterRA, origin.CenterDec, found.CenterRA, found.CenterDec) is var sepDeg
+                && sepDeg > limitDeg)
+            {
+                _logger.LogDebug("CatalogPlateSolver: positional search found a field {Sep:F2} deg away, outside the {Limit:F2} deg the caller allowed; reporting failure",
+                    sepDeg, limitDeg);
+                return Result(winner);
+            }
+
+            return retry;
+        }
+
         return Result(winner);
+    }
+
+    /// <summary>
+    /// How far the hint may be wrong, as a multiple of the LONG frame axis. One frame width covers a
+    /// crop that kept its parent's <c>OBJCTRA</c>/<c>OBJCTDEC</c> -- the case this exists for, measured
+    /// at 0.70 frame widths -- without paying for a sky-wide hunt nobody asked for.
+    /// </summary>
+    internal const double PositionalSearchFovMultiple = 1.0;
+
+    /// <summary>
+    /// Candidate spacing, as a fraction of the SHORT frame axis. On a square grid the worst distance
+    /// to the nearest node is step/sqrt(2), so 0.35 keeps every point in the search area within ~25%
+    /// of a frame width of some candidate. The frozen mosaic seeds at a 19.6% hint error and fails at
+    /// 71.4%, so ~25% sits inside the measured envelope with the margined anchor pool covering the
+    /// rest.
+    /// </summary>
+    internal const double PositionalSearchStepFraction = 0.35;
+
+    /// <summary>
+    /// Brightest detections handed to a SEARCH seed. Not an anchor cap -- PairRansacLock already caps
+    /// anchors at 48 -- but a cap on the set every hypothesis is VERIFIED against, which is otherwise
+    /// the whole detected list and is what makes a search candidate cost seconds on a dense frame.
+    /// </summary>
+    internal const int PositionalSearchDetectedCap = 250;
+
+    /// <summary>
+    /// Hypotheses a SEARCH seed may spend before giving up on a candidate. The real seed is allowed a
+    /// million, which is right when the answer is believed to be here and wrong when it is one of
+    /// dozens of guesses: a candidate centred on empty sky should be abandoned early, and a candidate
+    /// centred on the truth locks in the low hundreds (the frame this exists for seeds in 195).
+    /// </summary>
+    internal const int PositionalSearchHypothesisBudget = 20_000;
+
+    /// <summary>
+    /// Walk candidate frame centres outward from the hint until one SEEDS, and answer with that
+    /// centre so the caller can solve from it normally. Nothing here decides a solution: it decides
+    /// an ORIGIN, and the acceptance gate still has the last word downstream, so the search can only
+    /// find a lock that was already there to be found.
+    /// </summary>
+    /// <remarks>
+    /// <para>The query is sized from the geometry rather than from a constant: a frame reaches
+    /// <c>0.5 * pixelScale * hypot(w, h)</c> from its own centre, so a disc of
+    /// <c>searchRadius + halfDiagonal</c> covers every candidate frame exactly. (The single-centre
+    /// form of that quantity is the <c>0.75 * max(fov)</c> the ordinary query uses -- the same
+    /// half-diagonal with ~7% slack.) It is sized for CORRECTNESS, not speed: the query measures
+    /// sub-linear in area -- 13.7 ms for 9,605 stars at 3.69 deg against 66 ms for 75,062 at 12 deg --
+    /// so the radius was never the expensive part and shrinking it further buys nothing.</para>
+    /// <para>Seeds are attempted with NO logger. This runs tens of candidates x two parities x the
+    /// pool policies, and every miss would otherwise write a diagnostic line, burying the one line
+    /// that matters under a hundred that do not.</para>
+    /// </remarks>
+    private WCS? TryFindOriginByPositionalSearch(
+        StarList detectedStars,
+        WCS origin,
+        double pixelScaleRad,
+        double cx,
+        double cy,
+        ImageDim dim,
+        float scaleRange,
+        double dtJulianYears,
+        double? callerSearchRadiusDeg,
+        CancellationToken cancellationToken
+    )
+    {
+        if (detectedStars.Count < MinStarsForMatch)
+        {
+            return null;
+        }
+
+        var fov = dim.FieldOfView;
+        var halfDiagonalDeg = 0.5 * dim.PixelScale
+            * Math.Sqrt((double)dim.Width * dim.Width + (double)dim.Height * dim.Height) / 3600.0;
+        var searchRadiusDeg = PositionalSearchFovMultiple * Math.Max(fov.width, fov.height);
+
+        // An EXPLICIT radius is the caller stating how far the truth might be, and it bounds this
+        // search as surely as it bounds the catalog query -- searching sky the caller ruled out
+        // would answer a question they did not ask. The DEFAULT radius does not bound it: that one
+        // is our own derivation from the frame size, not a statement of intent, and the whole point
+        // here is that the pool footprint rather than the query is what limits the seed.
+        if (callerSearchRadiusDeg is { } capped)
+        {
+            searchRadiusDeg = Math.Min(searchRadiusDeg, capped);
+        }
+        var stepDeg = PositionalSearchStepFraction * Math.Min(fov.width, fov.height);
+        if (stepDeg <= 0 || searchRadiusDeg <= 0)
+        {
+            return null;
+        }
+
+        var stageSw = Stopwatch.StartNew();
+        var wideCatalog = QueryCatalogStarsInRegion(origin, searchRadiusDeg + halfDiagonalDeg, dtJulianYears);
+        if (wideCatalog.Count < MinStarsForMatch)
+        {
+            return null;
+        }
+
+        // COARSE by design, and safe because of what this method returns. It answers an ORIGIN, not
+        // a solution: whatever it finds is re-seeded at full fidelity by the retry and still has to
+        // pass the acceptance gate, so the search may be noisier than the real seed without being
+        // able to admit a wrong answer. Two cuts follow from that, and together they are what make
+        // the search affordable at all -- at full fidelity it costs ~2.9 s per candidate-parity,
+        // which is minutes over a search and far worse than the failure it is trying to rescue.
+        //
+        // The verification set is truncated: PairRansacLock checks every hypothesis against the
+        // WHOLE detected list, which is thousands of stars on exactly the dense frames that need
+        // this, while the anchor side is capped at 48 regardless. A few hundred is a decisive
+        // consensus test (the threshold scales with the census, so the bar moves with it).
+        var ranked = new List<ImagedStar>(detectedStars);
+        ranked.Sort((a, b) => b.Flux.CompareTo(a.Flux));
+        var searchDetected = Math.Min(ranked.Count, PositionalSearchDetectedCap);
+        var detPts = new Vector2[searchDetected];
+        for (var i = 0; i < searchDetected; i++)
+        {
+            detPts[i] = new Vector2(ranked[i].XCentroid, ranked[i].YCentroid);
+        }
+
+        // The header's window, not the recovered one: the quad recovery projects through the same
+        // hint the pool does, so wherever the pool starves the recovery has declined with it.
+        var tolerance = Math.Max(scaleRange, MinPairLockScaleTolerance);
+        var tried = 0;
+
+        foreach (var (dx, dy) in SpiralOffsets(searchRadiusDeg, stepDeg))
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return null;
+            }
+
+            var candidate = OffsetOrigin(origin, dx, dy);
+            foreach (var xSign in new[] { 1.0, -1.0 })
+            {
+                tried++;
+                // One pool: the DISC is tried first precisely because it assumes least about the
+                // camera angle, and where it differs from the rectangle it is the one that is right.
+                if (TrySeedPairLock(wideCatalog, detPts, candidate, pixelScaleRad, cx, cy, dim, xSign,
+                        tolerance, out _, logger: null, cancellationToken, poolPolicyLimit: 1, maxHypotheses: PositionalSearchHypothesisBudget) is { } locked)
+                {
+                    _logger.LogDebug("CatalogPlateSolver: positional search seeded {Hits}/{Census} (chance {Chance:F1}) {Sep:F2} deg from the hint, candidate {Tried}, xSign={XSign}, in {Ms}ms",
+                        locked.Hits, locked.Census, locked.ExpectedChanceHits, Math.Sqrt(dx * dx + dy * dy), tried, xSign, stageSw.Elapsed.TotalMilliseconds);
+                    return candidate;
+                }
+            }
+        }
+
+        _logger.LogDebug("CatalogPlateSolver: positional search found no seed over {Tried} candidates within {Radius:F2} deg (step {Step:F2} deg, {Stars} catalog stars) in {Ms}ms",
+            tried, searchRadiusDeg, stepDeg, wideCatalog.Count, stageSw.Elapsed.TotalMilliseconds);
+        return null;
+    }
+
+    /// <summary>
+    /// Candidate offsets in tangent-plane degrees, in rings outward from the hint. Outward, because a
+    /// hint is far likelier to be a little wrong than very wrong, so the common case exits early. The
+    /// centre itself is skipped: the caller has just tried it and failed.
+    /// </summary>
+    private static IEnumerable<(double Dx, double Dy)> SpiralOffsets(double radiusDeg, double stepDeg)
+    {
+        var rings = (int)Math.Ceiling(radiusDeg / stepDeg);
+        for (var ring = 1; ring <= rings; ring++)
+        {
+            // Clamped, not just counted: ceil() puts the outermost ring PAST the radius, and a
+            // radius the caller supplied is a boundary rather than a suggestion.
+            var r = Math.Min(ring * stepDeg, radiusDeg);
+            var count = Math.Max(6, (int)Math.Ceiling(2.0 * Math.PI * r / stepDeg));
+            for (var k = 0; k < count; k++)
+            {
+                var theta = 2.0 * Math.PI * k / count;
+                yield return (r * Math.Cos(theta), r * Math.Sin(theta));
+            }
+        }
+    }
+
+    /// <summary>
+    /// A small tangent-plane offset applied to a pointing. The flat approximation is deliberate: this
+    /// only has to land a candidate within a fraction of a frame of the truth for the seed to answer,
+    /// and the seed's own transform supplies the real geometry from there.
+    /// </summary>
+    private static WCS OffsetOrigin(WCS origin, double dxDeg, double dyDeg)
+    {
+        var dec = Math.Clamp(origin.CenterDec + dyDeg, -90.0, 90.0);
+        var cosDec = Math.Cos(double.DegreesToRadians(Math.Clamp(dec, -89.9, 89.9)));
+        var ra = origin.CenterRA + dxDeg / (15.0 * Math.Max(cosDec, 1e-3));
+        return new WCS(CoordinateUtils.ConditionRA(ra), dec);
     }
 
     /// <summary>
@@ -1697,12 +1924,16 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         float scaleTolerance,
         out SeedCost cost,
         ILogger? logger = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int poolPolicyLimit = int.MaxValue,
+        int maxHypotheses = int.MaxValue)
     {
         var hypotheses = 0;
         var poolsTried = 0;
         var cancelled = false;
-        foreach (var (marginFraction, rotationInvariant) in PoolPolicies)
+        var bestHits = 0;
+        var bestChance = 0.0;
+        foreach (var (marginFraction, rotationInvariant) in PoolPolicies.AsSpan(0, Math.Min(poolPolicyLimit, PoolPolicies.Length)))
         {
             var seedProjected = ProjectCatalogStars(catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign, marginFraction, rotationInvariant);
             if (seedProjected.Count < MinStarsForMatch)
@@ -1720,12 +1951,18 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
             var lockResult = PairRansacLock.TryLock(catPts, rankedDetectedPoints, rankedDetectedPoints,
                 dim.Width, dim.Height, scaleTolerance, out var lockDiagnostics,
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken, maxHypotheses: maxHypotheses);
             poolsTried++;
             hypotheses += lockDiagnostics.Hypotheses;
+            if (lockDiagnostics.BestHits > bestHits)
+            {
+                bestHits = lockDiagnostics.BestHits;
+                bestChance = lockDiagnostics.ExpectedChanceHits;
+            }
+
             if (lockResult is { } locked)
             {
-                cost = new SeedCost(hypotheses, poolsTried);
+                cost = new SeedCost(hypotheses, poolsTried, BestHits: bestHits, ExpectedChanceHits: bestChance);
                 logger?.LogDebug("CatalogPlateSolver: pair-lock seed (xSign={XSign}, anchor pool {Pool}) consensus {Hits}/{Census} (chance {Chance:F1}) after {Hypotheses} hypotheses",
                     xSign, PoolName(marginFraction, rotationInvariant), locked.Hits, locked.Census, locked.ExpectedChanceHits, locked.Hypotheses);
                 return locked;
@@ -1746,14 +1983,25 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             }
         }
 
-        cost = new SeedCost(hypotheses, poolsTried, cancelled);
+        cost = new SeedCost(hypotheses, poolsTried, cancelled, BestHits: bestHits, ExpectedChanceHits: bestChance);
         return null;
     }
 
     /// <summary>What one parity's seed attempt spent. See the <c>out cost</c> overload above.</summary>
     /// <param name="Hypotheses">Summed over every pool policy tried.</param>
     /// <param name="PoolsTried">How many of <c>PoolPolicies</c> were reached before locking or giving up.</param>
-    internal readonly record struct SeedCost(int Hypotheses, int PoolsTried, bool Cancelled = false);
+    /// <param name="BestHits">
+    /// Best consensus any hypothesis reached, across every pool tried. Reported even when no pool
+    /// locked, because "nothing correlated anywhere" and "something is here but under the bar" are
+    /// different facts about a frame and only this number tells them apart.
+    /// </param>
+    /// <param name="ExpectedChanceHits">What that consensus would have been by chance, for scale.</param>
+    internal readonly record struct SeedCost(
+        int Hypotheses,
+        int PoolsTried,
+        bool Cancelled = false,
+        int BestHits = 0,
+        double ExpectedChanceHits = 0);
 
     /// <summary>
     /// The anchor-pool policies the seed tries, in order. See <see cref="TrySeedPairLock"/> for

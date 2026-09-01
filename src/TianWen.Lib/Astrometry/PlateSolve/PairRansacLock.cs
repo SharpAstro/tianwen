@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Numerics;
 using System.Runtime.InteropServices;
@@ -178,7 +178,8 @@ internal static class PairRansacLock
         float scaleTolerance,
         out LockDiagnostics diagnostics,
         float verifyRadiusPx = 4f,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int maxHypotheses = MaxHypotheses)
     {
         var cancelled = false;
         var nCat = Math.Min(MaxCatalogAnchors, catalogBright.Length);
@@ -303,7 +304,7 @@ internal static class PairRansacLock
                     var detI = flip == 0 ? detectedBright[i] : detectedBright[j];
                     var detJ = flip == 0 ? detectedBright[j] : detectedBright[i];
 
-                    if (++hypotheses > MaxHypotheses)
+                    if (++hypotheses > maxHypotheses)
                     {
                         capHit = true;
                         goto scanDone;
