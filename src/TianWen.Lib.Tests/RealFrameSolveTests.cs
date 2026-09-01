@@ -145,6 +145,36 @@ public class RealFrameSolveTests(ITestOutputHelper output)
             "the whole point is that the answer is NOT near the header hint -- if this drops below an "
             + "arcminute the test has stopped exercising the positional search");
 
+        // And now the SAME rig again, on the same solver, which is what a session does all night.
+        //
+        // What moves is the PARITY half of the cache, and only that: measured 9,165,717 -> 5,813,171
+        // hypotheses, 1.6x. The remembered SCALE cannot help a frame that fails, by construction --
+        // the narrow tier is tried first and falls through to the header's +/-5% window when it does
+        // not lock, so a doomed pass pays the wide scan either way. That fallback is what keeps a
+        // stale scale from turning a solvable frame into a failure, so the ordering is deliberate.
+        // The scale's own win lands on a frame that SOLVES while its quad recovery declines, which
+        // is a real combination (2 of 5 archive frames decline) but not one any committed fixture
+        // reproduces, so it is not asserted here.
+        var firstHypotheses = solver.LastSeedHypotheses;
+        var swSecond = Stopwatch.StartNew();
+        var again = await solver.SolveImageAsync(image, dim.Value, searchOrigin: hint, cancellationToken: ct);
+        swSecond.Stop();
+        var secondHypotheses = solver.LastSeedHypotheses;
+        output.WriteLine($"second solve {swSecond.ElapsedMilliseconds} ms, seed hypotheses {firstHypotheses:N0} -> {secondHypotheses:N0} "
+            + $"({(firstHypotheses > 0 ? (double)firstHypotheses / Math.Max(1, secondHypotheses) : 0):F1}x fewer)");
+
+        Assert.NotNull(again.Solution);
+        var solvedAgain = again.Solution.Value;
+        Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(
+            Astrometry.CoordinateUtils.AngularSeparationDeg(
+                solved.CenterRA, solved.CenterDec, solvedAgain.CenterRA, solvedAgain.CenterDec),
+            1.0 / 3600.0,
+            "a remembered scale and parity may make the solve cheaper, never different");
+        Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(secondHypotheses, (int)(firstHypotheses * 0.75),
+            $"the second solve on a known light path must cost materially less than the first "
+            + $"({firstHypotheses:N0} -> {secondHypotheses:N0} hypotheses; measured 1.6x, and the bar "
+            + "is set at 1.33x so an unrelated seed change cannot fail this by a few percent)");
+
         image.Release();
     }
 

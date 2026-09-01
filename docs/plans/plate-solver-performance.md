@@ -199,6 +199,55 @@ hypothesis count, which is deterministic and machine-independent; converting tha
 proves the cancellation FIRES end to end (and fails when it is disabled -- the solved WCS is
 byte-identical either way, so nothing else could).
 
+#### The cache half -- **SHIPPED 2026-09-01**, and it is a BUDGET, not a skip
+
+`SolveHintCache` remembers, per light path, what an ACCEPTED solve answered: the plate scale (as the
+header-over-solved RATIO, the same quantity `QuadScaleRecovery.Recovery` carries, so it consumes
+through the existing two-tier seed with no new path) and the parity. Keyed
+`(Telescope, Instrument, RowOrder, BinX, BinY)` -- the pair as argued above, plus row order because it
+is a parity determinant in its own right and belongs in the key rather than being learned, plus
+binning because the same camera at 1x1 and 2x2 is two plate scales. In-memory on the solver, which is
+a DI singleton, so a session's second and later solves benefit; persisting it the way
+`BacklashHistory` is persisted would extend that to the first solve of a night and is not done here.
+
+**A remembered parity SHRINKS the doubted half's hypothesis budget; it never skips it.** Skipping is
+the obvious form and it is wrong in exactly the place this is meant to help. With one parity gone, a
+frame that seeds on neither runs the two halves in SERIES -- the believed one, then the gate's re-run
+of the other -- where today they overlap. The doomed path would get twice as long in wall clock to
+save half the CPU, which is the opposite of the goal. Capped and still parallel, the wall time stays
+the believed half's while the doubted half stops early. When the cache is stale the capped half simply
+finds nothing, and it is marked abandoned, so the gate's existing re-run picks it up uncapped -- the
+same fallback an abandoned parity has always used. `DoubtedParityHypothesisBudget = 100_000` is sized
+off what a real lock costs (Vela panels 235-567, P10's relocated solve 749, phase A's own frame
+32,179), not off what a scan can afford.
+
+**Measured on the P10 crop, second solve on the same solver: 9,165,717 -> 5,813,171 hypotheses, 1.6x.**
+Two things that measurement says, both worth keeping:
+
+- **The saving is the PARITY half only, on a frame that fails.** A remembered scale cannot help a
+  doomed pass by construction: the narrow tier is tried first, does not lock, and falls through to the
+  header's +/-5% window, which is the expensive scan it was meant to avoid. That fallback is what
+  stops a stale scale from turning a solvable frame into a failure, so the ordering stays.
+- **The scale half is a net NEGATIVE on a doomed frame, at +13.6%** (9,165,717 -> 10,418,023 with the
+  parity cap disabled): the narrow tier's own pass is pure addition when nothing can lock. The parity
+  cap more than pays for it, and the scale's win lands on a frame that SOLVES while its quad recovery
+  declines -- a real combination (2 of 5 archive frames decline) that no committed fixture reproduces,
+  so it is deliberately not asserted. Worth revisiting: bounding the *cached-scale* tier the same way
+  the doubted parity is bounded would make its failure cost negligible while keeping its win, since
+  the wide-window fallback already covers a narrow scan cut short.
+
+**The parity travels ON `SolveAttempt` (`IsStd`), not beside it.** The consumer that matters reads it
+AFTER the acceptance gate, and the gate is the one place the pick gets overturned -- so a flag tracked
+alongside the race would teach the cache the wrong half in exactly the case the gate exists to catch.
+It also keeps phase A's own bug fixed for the same reason it was a bug: which half won has to be DATA,
+never `ReferenceEquals` on a record struct.
+
+Guarded by `SolveHintCacheTests` (learning, light-path separation, and that an unidentified frame or a
+non-positive ratio teaches nothing) plus the second solve in
+`RealFrameSolveTests.TheCropWhoseHeaderPointsElsewhereStillSolves`, which asserts on
+`CatalogPlateSolver.LastSeedHypotheses` -- deterministic, unlike wall clock -- and was seen to FAIL
+with the cap disabled.
+
 ### B. Tycho-2 pre-baked region index -- **OBSOLETE, the work is already done**
 
 **Measured 2026-08-31 and it invalidates this phase.** The Tycho-2 bulk load, budgeted here at
@@ -644,11 +693,92 @@ passes a radius is saying "the truth is within this of my hint"; a field outside
 not an answer to their question. (The ring loop also had to clamp: `ceil(radius/step)` puts the
 outermost ring past the radius.)
 
-**Outstanding, and it would remove the remaining regression:** gate the search on the direct seed's
-own signal. A misplaced hint scores clearly above chance but under the bar (19-22 hits against a
-chance of 7.5 on the P10 crop); a frame with nothing in it scores AT chance. Gating on that ratio
-would leave the cloudy-frame path paying nothing at all, instead of the +1.8 s it pays now.
-`SeedCost` already carries `BestHits`/`ExpectedChanceHits` for it.
+### Gating the search on the seed's signal: TRIED, and the premise is wrong
+
+The obvious way to remove the remaining +1.8 s was to gate the search on the direct seed's own
+signal -- "a misplaced hint scores above chance, a frame with nothing in it scores AT chance, so
+read `SeedCost.BestHits`/`ExpectedChanceHits`". It was built (threaded up through `SolveAttempt` to
+the gate) and then **reverted, because measurement refuted every leg of it.** Three findings, and
+the third one is the one that settles it.
+
+**1. The populations do not separate, under any normalisation.** Three frames, the seed's best
+consensus at the hint, against both the chance rate and against `PairRansacLock`'s own accept bar
+(which is `max(max(10, 5 x chance), 0.15 x census)`):
+
+| frame | detected | best hits | chance | bar | vs chance | vs bar |
+|---|---|---|---|---|---|---|
+| P10 crop -- hint 71% of a frame off, RELOCATABLE | 1,569 | 32 | 7.5 | 37.3 | 4.3x | **0.86** |
+| dense field solved 6 deg off -- real sky, elsewhere | 3,250 | 22 | 2.9 | 24.0 | 7.6x | **0.92** |
+| random 48-star field -- NO sky in it at all | 48 | 8 | 0.0 | 10.0 | 8.0x | **0.80** |
+
+By chance ratio the frame with no sky in it scores the **highest** of the three: the model assumes an
+independent field, so a real one clusters above it, and a sparse one drives chance to ~0 where 8 hits
+is an enormous multiple of nothing. Against the bar -- the composite that stays meaningful in both
+regimes, which is why the lock uses it -- the no-sky frame lands at 0.80 against the 0.86 of the case
+that must never be refused. There is no threshold in that gap worth a shipped capability.
+
+**2. The middle row is not noise, it is the shape of the problem.** A real star field scores high
+whether or not it is *this frame's* field, because the seed measures "do these detections correlate
+with a star field" and not "is that field mine". So a gate tight enough to refuse the 6-deg-off case
+would refuse relocation too. That case is also the one where the search is *right* to run: there is a
+field, it simply is not within the radius the caller allowed, and the radius check is what refuses it.
+
+**3. The case it was written for never reaches the gate.** A cloudy frame mid-session has a GOOD
+hint, so it does not fail the way the premise assumed. Measured on `FakeCameraDriver`'s cloud model at
+the correct pointing: 0%, 70%, 85%, 93% and 97% coverage all **solve**, in 168-334 ms, still finding
+90-130 stars through the worst of them. A frame with too few stars to seed exits before the race on
+`detectedStars < MinStarsForMatch`, which is also before the search. The +1.8 s is paid only by a
+solve that genuinely fails with a real field on the sensor -- which is the case that deserves it.
+
+So **the regression is narrower than it looked, and the seed cannot be the discriminant.** What
+remains available, in order of how much it would buy:
+
+- **Bound the cost rather than predicting the outcome.** The failure path spends 4.0 s in proximity
+  refinement before the acceptance gate refuses it, which is 2.2x what the search costs on top.
+- **Let the caller state its pointing uncertainty.** An explicit `searchRadius` already clamps the
+  candidate walk, and today exactly one production caller passes one at all (`Session.Focus.cs:882`,
+  at 10 deg); polar alignment, `MasterPostProcessor` and the viewer pass none, so every session solve
+  searches the full frame width. A session that has just slewed knows better than that.
+
+**One thing the attempt did find, worth keeping:** on the random 48-star field the positional search
+**seeded** -- it returned an origin for a frame with no sky in it, and only the acceptance gate on the
+retry refused the result. That is the "returns an ORIGIN, not a solution" design being load-bearing
+rather than decorative, and it is an argument against ever letting a search result skip the gate.
+
+### Where a doomed solve actually spends its time -- it is the SEED, not the refinement
+
+Measured 2026-09-01 off the solver's own stage logs (Debug build, so read the SHARES, not the
+absolute times):
+
+| stage | P10 crop, doomed pass at the header hint | dense field, hint 6 deg off |
+|---|---|---|
+| catalog query + detect + quad recovery | 195 ms | 377 ms |
+| **seed + refine** (the one stage log) | **20,483 ms (98%)** | **8,669 ms (91%)** |
+| positional search | 54 ms (0.3%) | 423 ms (4.5%) |
+| relocated retry, whole solve | ~60 ms | n/a |
+
+**Two attributions in this plan were wrong, and both pointed at the wrong lever.**
+
+**The refinement loop does not run to exhaustion.** Both doomed frames exit it after **3** iterations
+on each parity (P10: std 534 matches / 3 iters, mirror 518 / 3; the dense one: 2,652 / 3). The
+divergence and convergence breaks already work. What fills that stage is the pair-lock SEED: with no
+lock to be had it runs all three anchor-pool policies on both parities to 100% pair coverage --
+1.39M-1.62M hypotheses per pool-parity, ~9.2M in total on P10. Nothing cancels, because the parity
+race only cancels the loser when the winner seeds clear of chance, and on a doomed frame neither does.
+
+**The positional search is not the +1.8 s regression it was recorded as**, at 54 ms on P10 (it seeded
+at candidate 2) and 423 ms walking all 34 candidates on the dense one. Whatever produced the 4.0 s ->
+5.8 s delta above does not reproduce here; the search is 0.3-4.5% of a failure path that is ~95% seed.
+So the thing task #25 was written to remove was ~2% of the cost, and the thing to remove is the seed's
+doomed scan.
+
+**Which does NOT mean lowering `MaxHypotheses`.** The counter-evidence is already in this file: 400k
+"stopped at 37-41% of pairs on real Vela frames and found no seed on fields that do have one". A hard
+frame can need deep coverage, so the budget is load-bearing for exactly the frames it looks wasteful
+on. The lever that survives is **phase A's unshipped half, the per-(OTA, camera) parity cache**: the
+parity is a property of the optical train, not of the frame, so a rig that solved once has already
+answered it. Caching it halves the doomed path outright -- and it is the doomed path that needs it,
+since a successful solve already cancels its loser mid-seed.
 
 ## Correctness gates
 
