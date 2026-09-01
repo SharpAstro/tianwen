@@ -777,8 +777,10 @@ doomed scan.
 frame can need deep coverage, so the budget is load-bearing for exactly the frames it looks wasteful
 on. The lever that survives is **phase A's unshipped half, the per-(OTA, camera) parity cache**: the
 parity is a property of the optical train, not of the frame, so a rig that solved once has already
-answered it. Caching it halves the doomed path outright -- and it is the doomed path that needs it,
-since a successful solve already cancels its loser mid-seed.
+answered it -- and it is the doomed path that needs it, since a successful solve already cancels its
+loser mid-seed. **Shipped, and it came in at 1.6x rather than the 2x this predicted** (the doubted
+half is capped, not skipped, and the retry after a relocation runs a race of its own): see the cache
+subsection under phase A.
 
 ## Correctness gates
 
