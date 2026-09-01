@@ -332,6 +332,44 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// The brightest <paramref name="k"/> catalog stars that project INTO the frame through its
+        /// own frozen solution: a perfect hint, zero error, so whatever fails against this set fails
+        /// for a reason other than pointing.
+        /// </summary>
+        internal static Vector2[] ProjectTopK(
+            VelaMosaicManifest manifest, VelaPanel panel,
+            VelaFrame frame, int k)
+        {
+            var all = ProjectInFrameIndexed(manifest.Catalog, frame.Wcs, panel.Width, panel.Height);
+            var take = Math.Min(k, all.Count);
+            var pts = new Vector2[take];
+            for (var i = 0; i < take; i++)
+            {
+                pts[i] = new Vector2(all[i].X, all[i].Y);
+            }
+
+            return pts;
+        }
+
+        /// <summary>
+        /// Builds a quad list from bare positions. <see cref="StarQuadList"/>'s ctor takes
+        /// <see cref="ImagedStar"/> and reads only the two centroids, and its three-nearest-neighbour
+        /// window is an INDEX range, so the input must be X-sorted (as
+        /// <c>SortedStarList.FindQuadsAsync</c> does before calling it) or that search looks in the
+        /// wrong part of the frame.
+        /// </summary>
+        internal static StarQuadList BuildQuads(Vector2[] points)
+        {
+            var stars = new ImagedStar[points.Length];
+            for (var i = 0; i < points.Length; i++)
+            {
+                stars[i] = new ImagedStar(0, 0, 0, 0, points[i].X, points[i].Y, 0);
+            }
+            Array.Sort(stars, (a, b) => a.XCentroid.CompareTo(b.XCentroid));
+            return new StarQuadList(stars.AsSpan());
+        }
+
+        /// <summary>
         /// Counts how many of <paramref name="probe"/> land within
         /// <paramref name="tolerancePx"/> of a point in <paramref name="field"/>, alongside
         /// the Poisson expectation at the field's density -- the chance model the whole

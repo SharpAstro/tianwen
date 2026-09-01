@@ -675,11 +675,12 @@ catalog cut, which is the only knob a real solve has.
 
 **This also identifies the real blocker, and it is C1 rather than anything about quads.** Under these
 conditions both sides share a pixel frame exactly, so `Dist1` agrees to well under a pixel --- and
-`FindFit` still locked **0 of 24 panels**. Its `quadTolerance` (0.008 default) is applied to `Dist1` in
-ABSOLUTE PIXELS beside five dimensionless ratios, exactly as `StarReferenceTable`'s own doc warns
-("this tolerance has mixed units: it works because stacking images have near-identical Dist1 values").
-15.8% of quads coincide and the matcher rejects every one of them. A ratio-only match with `Dist1`
-demoted to windowing plus scale recovery is the whole fix.
+`FindFit` still locked only **6 of 24 panels** at K=500 and **none at K<=300** (the table above). Its
+`quadTolerance` (0.008 default) is applied to `Dist1` in ABSOLUTE PIXELS beside five dimensionless
+ratios, exactly as `StarReferenceTable`'s own doc warns ("this tolerance has mixed units: it works
+because stacking images have near-identical Dist1 values"). 1,419 quads coincide at K=500 and the
+matcher passes 73 of them as pairs, i.e. rejects 19 in 20. A ratio-only match with `Dist1` demoted to
+windowing plus scale recovery is the whole fix.
 
 **C1, also 2026-09-01: the matcher was the whole blocker, and it is fixed.**
 `FindFit`/`FindFitWithDiagnostics` take an optional `scaleTolerance`. Null keeps the shipped
@@ -703,9 +704,14 @@ not at all, so what blocked them was the window's SHAPE -- absolute pixels again
 quantity -- and not its width. A wider absolute tolerance would never have found this; only changing
 the units does. Implied scale comes back at 1.0001, as it must for two fields sharing a pixel frame.
 
-**Read the `none` rows as "does not work", not as a precise count.** RANSAC is randomised and 73 raw
-pairs is its noise floor, which is why that row reads 6/24 here and 0/24 in the table above. The 24/24
-is far outside that noise.
+**The `none` rows are deterministic, and the 6 is a noise floor, not a fluctuation** (corrected
+2026-09-02). `FindFit`'s RANSAC is seeded (`new Random(42)`), so one input locks the same panels every
+run: the C0 baseline probe and this probe both report exactly 6/24 at K=500 and 0/24 at K=200 in the
+same process. An earlier draft of this section quoted "0 of 24" beside the K=500 figures and explained
+the mismatch as RANSAC noise -- both halves were wrong, and the mechanism had not been checked against
+the code (the seed carries a comment saying the matcher must be reproducible). What the 6 IS fragile
+against is the input set, a different cut or detector, not a re-run. The 24/24 is a different regime
+altogether: 1,368 pairs against 73.
 
 **C2', the measurement the whole phase actually rests on: a WRONG HINT costs a quad match nothing.**
 C0 and C1 both projected the catalog through each frame's own solution, which is a perfect hint --
@@ -723,9 +729,17 @@ scaled by AREA so the density matches the image, and the scale prior wrong by 3.
 
 - **0.70 frame widths is exactly the panel 10 condition** -- the crop whose header points 93 arcmin
   away, which starves the pair-lock anchor pool and costs 3.17 s in the positional search. The quad
-  match locks every panel at that error, and the raw pair count RISES with it (431 -> 594) because the
-  widened window admits more catalog stars. The geometry never degrades, because a descriptor built
+  match locks every panel at that error. The geometry never degrades, because a descriptor built
   from ratios cannot care where the projection was centred.
+- **The raw pair count rises with the offset (431 -> 594), and it is not more catalog stars.** An
+  earlier draft said the widened window admitted more; the window is the same 0.6 margin on every row
+  and the cut sat at its 1,452 cap on every panel at every offset (measured 2026-09-02). What moves is
+  how many of that fixed cut land on the TRUE frame -- 294, 305, 317, 311 per panel across the four
+  offsets, against 300 detected -- because the brightest 1,452 of a shifted window are a different
+  1,452. Inliers rise with the raw pairs (349 -> 485) and catalog quads move 2%, so the extra pairs
+  are genuine, not chance. The density match by window AREA is therefore approximate at the 10% level,
+  and the pair count is sensitive to the catalog's depth on the frame at that level -- slightly deeper
+  being slightly better here, which does not contradict C0's collapse at 2x and 3x.
 - **Parity is free, and this measures it rather than arguing it.** Mirrored and standard differ by one
   or two pairs in ~595 and both lock 24 of 24. The two-parity race the seed runs today is pure waste
   for a quad matcher; `SolveHintCache`'s parity half exists to claw back a cost this does not pay.
