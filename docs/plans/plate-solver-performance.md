@@ -890,10 +890,14 @@ its radius check, which are statements about the hint.
 | seed hypotheses, first solve | 9,165,717 | 8,381 |
 | seed hypotheses, second solve | 5,813,243 | 8,381 |
 | what relocated the frame | the positional search, after both parities had failed at the hint | the quad seed: 20 of 20 pairs, 92.9 arcmin, mirror parity read off the determinant |
+| first solve, Release build | 3.17 s as recorded in the attempt-1 section (configuration not noted there) | 217 ms |
+| second solve, Release build | not measured | 46 ms |
 
 The 1,094x in hypotheses is the number to quote (counts compare across builds; the wall clock is one
-Debug box). The seed itself costs a projection, two quad lists and one two-pointer match, and reports
-its own time on the `quad seed ... in {Ms}ms` debug line.
+box). ASTAP solves this file in 0.7 s (`RealFrameSolveTests`), so the relocating frame that was our
+worst case against it now comes in 3x ahead; the good-hint NGC 3576 frame is 156 ms warm in Release.
+The seed itself costs a projection, two quad lists and one two-pointer match, and reports its own time
+on the `quad seed ... in {Ms}ms` debug line.
 
 Two consequences worth recording:
 
