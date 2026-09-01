@@ -50,12 +50,12 @@ namespace TianWen.Lib.Imaging;
 /// Matching the five scale-free ratios with a multiplicative <c>Dist1</c> window locks <b>24 of 24</b>
 /// frozen Vela panels where the six-value absolute test locks 6 -- the same 6 every run, since the
 /// RANSAC below is seeded: a noise floor, not a fluctuation.</para>
-/// <para>Plate solving still locks geometry with two-star pair hypotheses
-/// (<c>PairRansacLock</c>, which needs only two common members per hypothesis and verifies by global
-/// consensus) followed by proximity matching (see <c>CatalogPlateSolver</c>). Replacing that seed with
-/// a quad match is phases C2-C4 of <c>docs/plans/plate-solver-performance.md</c>, and the prize is not
-/// the constant factor: a quad descriptor does not depend on where the search thinks it is pointing,
-/// so the image side of a positional search is built ONCE instead of per candidate.</para>
+/// <para>Plate solving runs this match FIRST, as <c>CatalogPlateSolver.TrySeedByQuadMatch</c> (phase
+/// C3 of <c>docs/plans/plate-solver-performance.md</c>, 2026-09-02): one parity, a window 0.6 frames
+/// wider than the hint on each side, and a lock answers where the frame is, its scale and its parity
+/// before the two-star pair-lock (<c>PairRansacLock</c>) seeds at full fidelity from there. A quad
+/// descriptor does not depend on where the header thinks the frame is pointing, which is why a crop
+/// 93 arcmin off its own header went from 10.9 s to 0.28 s.</para>
 ///
 /// <para><b>Quantified 2026-08-31, and the earlier "no quad lock at any K from 50 to 500" was two
 /// effects reported as one.</b> Re-probed by <c>QuadCatalogFeasibilityProbe</c> over 24 frozen Vela
@@ -82,8 +82,8 @@ namespace TianWen.Lib.Imaging;
 /// <para><b>Reflection preserves distances, so quads cannot settle parity</b> -- which is a feature
 /// rather than the limitation it reads as. A mirrored field matches the SAME quad, so a quad matcher
 /// never searches both parities; the sign falls out of the fitted affine's determinant afterwards,
-/// which is exactly what ASTAP does with it. Today's seed pays for two parity races that this
-/// would delete.</para>
+/// which is exactly what ASTAP does with it, and what the quad seed hands the parity race as its
+/// belief about which half to cap.</para>
 /// </summary>
 public class StarReferenceTable
 {
