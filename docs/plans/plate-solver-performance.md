@@ -1,4 +1,4 @@
-# Plate-solver performance: closing the gap to ASTAP
+﻿# Plate-solver performance: closing the gap to ASTAP
 
 Status: **PHASE A SHIPPED**; B-D planned. The correctness work was already done; everything below is
 performance only.
@@ -90,7 +90,7 @@ Ordered by return per unit of risk; each independently shippable and measurable.
 | B | ~~Tycho-2 pre-baked region index~~ -- **OBSOLETE: already done, worth 0.3 ms** | ~~500 ms~~ 0 | n/a | n/a |
 | C | ~~Quad-descriptor matching replacing the refinement loop~~ -- **MEASURED DEAD: 15.8% of quads are shared even under a perfect prior** | ~~300 ms~~ 0 | n/a | n/a |
 | C' | Quads for the SCALE only: recover it with no prior, narrow the seed's window 5% -> 0.25% -- **SHIPPED** | 7.4x fewer seed hypotheses | nothing, and it *removes* our reliance on `FOCALLEN` | low |
-| D | Cap the star list to ~500 -> yes; bin -> **no** | ~60 ms | binning does, so it is gated on measured FWHM and default off | low |
+| D | Cap the star list to ~500 -- **SHIPPED**; bin -> only on MEASURED FWHM, not on frame size or plate scale | ~60 ms | binning can, so it is gated on measured FWHM and default off | low |
 
 Target after A-C: **~260 ms**, against ASTAP's 162 ms -- **written before B was measured to be
 already done.** With B worth 0 and the warm solve now benchmarked at 331 ms, the reachable target is
@@ -606,27 +606,66 @@ everywhere else), which is exactly why the gap had gone unmeasured.
 
 Two halves with very different risk, and they must not be conflated.
 
-**Cap the star list: do it.** Carry ~500 brightest into matching instead of 1600. This costs no
-accuracy at all -- the discarded stars are the faintest, they are not what a fit is anchored on, and
-ASTAP solves this field from 527. Phase C makes this mostly moot anyway, since quad matching is
-driven off the top-K.
+**Cap the star list -- SHIPPED 2026-09-01.** `MaxStarsCarriedIntoMatching = 500`, applied in
+`SolveFromOriginAsync` once detection and the binned-centroid rescale are done. The number is not new:
+the detection call has passed `maxStars: 500` all along, and `FindStarsAsync` documents that parameter
+as "**Caps nothing**" -- its only effect is to supply the default for `minStars` -- so a dense frame
+has been handing the solver everything it found. 8,103 stars on the NGC 3576 frame, where ASTAP solves
+the same field from 527.
 
-**Bin before detection: NO, not on this class of frame, and not on ASTAP's rule.**
-`report_binning` gates on image HEIGHT (> 2500 px -> bin 2). Height is the wrong variable: it is a
-proxy for "big sensor, therefore probably oversampled", and this rig breaks the proxy. Measured on
-frame 0018, median star **FWHM = 2.15 px** (10.16" at 4.7172"/px; HFD 2.65 px, from
-`solve --export-stars`). That is already AT critical sampling, so binning 2x lands at 1.08 px FWHM
--- below Nyquist. The cost is not a slightly softer centroid, it is aliasing, and a 1 px FWHM star
-stops being reliably separable from a hot pixel. Our unbinned SIP rms is 0.11 px (0.52"); that is
-the number downstream consumers are relying on.
+The faint tail is not what a fit is anchored on, but it is not inert either: it is the verification
+census every hypothesis is scored against, the population the proximity loop re-matches each
+iteration, and the density `PairRansacLock` derives its Poisson chance rate from.
 
-So if this is done at all, gate it on MEASURED sampling rather than on frame size: bin only while
-the binned FWHM stays comfortably above Nyquist, i.e. roughly FWHM >= 4 px before binning. A
-0.5"/px setup in 3" seeing (FWHM ~6 px) can bin to 3 px for free; this field cannot bin at all.
-Detection already measures FWHM/HFD, so the input is in hand.
+**That last one is the risk, and it is the one worth stating precisely: truncating the list LOWERS the
+accept threshold**, because the bar is `max(max(10, 5 x chance), 0.15 x census)`. A looser bar on
+dense fields is exactly where the dense-field false-lock failure mode lives, so this needed measuring
+rather than asserting. Capped against uncapped over the same 96 frozen Vela frames (1,394-1,755
+detections each, so the cap discards about two thirds of every list):
 
-Default OFF, and skip the whole phase if phases A-C land the budget. It is the smallest win of the
-four and the only one that can cost accuracy.
+| | uncapped | capped at 500 |
+|---|---|---|
+| frames that seed | 96 / 96 | **96 / 96**, none lost |
+| hits kept, vs the uncapped seed | -- | **100%** at min, median AND max |
+| false locks over 272 disjoint pairs | 0 | **0** |
+
+**Not one hit is lost anywhere**, and for a reason rather than by luck: the anchors are the brightest
+CATALOG stars, so the detections a true hypothesis lands on are the bright ones the cap keeps.
+
+**What the frozen set does NOT cover, stated so nobody reads it as more than it is.** At Vela
+densities the accept bar is the `0.15 x census` floor (24, from 160 anchors) and not the chance term,
+so the cap cannot move it there. The bar only falls on a frame dense enough for `5 x chance` to exceed
+that floor -- 8,103 detections against these panels' ~1,500 -- and in that regime the spurious hits
+thin out with the population they are drawn from. The guard is
+`GivenDenseFieldAndWrongSearchOriginWhenCatalogPlateSolvingThenItFailsInsteadOfReturningGarbage`,
+which refuses at 22 hits against a threshold of 24 on 3,250 detections: a two-hit margin, so it is the
+test that goes red first if this ever loosens the gate.
+
+`VelaMosaicFieldTests` now seeds through the cap, since an uncapped seed there would guard a path
+production no longer takes. `UnrelatedDenseFieldsMustNotLock` deliberately stays UNCAPPED: more
+detections is more freedom to pile up a spurious consensus, so the uncapped list is the harder
+question and the one that test exists to ask.
+
+**Bin before detection: gate it on MEASURED SAMPLING, and never on frame size.** ASTAP's
+`report_binning` gates on image HEIGHT (> 2500 px -> bin 2), which is a proxy for "big sensor,
+therefore probably oversampled" -- and a proxy is the wrong shape of rule for a library that solves
+whatever optics and seeing its user has. The right gate is the physical one: bin only while the binned
+FWHM stays comfortably above Nyquist, roughly **FWHM >= 4 px before binning**. Detection already
+measures FWHM/HFD, so the input is in hand.
+
+The frame that made this concrete is one instance of the rule rather than the rule itself: on frame
+0018 the median star **FWHM is 2.15 px** (10.16" at 4.7172"/px; HFD 2.65 px, from
+`solve --export-stars`), already AT critical sampling, so binning 2x lands at 1.08 px -- below
+Nyquist. The cost there is not a softer centroid but aliasing, and a 1 px FWHM star stops being
+reliably separable from a hot pixel; the unbinned SIP rms of 0.11 px (0.52") is what downstream
+consumers rely on. A 0.5"/px setup in 3" seeing (FWHM ~6 px) bins to 3 px for free. Same rule, opposite
+answer -- which is the point.
+
+**A gate on the declared plate scale is the same mistake in a better disguise, and we already ship
+one.** `SolveFromOriginAsync` downsamples to ~1.5"/px whenever `dim.PixelScale` is finer than that.
+Scale alone says nothing about seeing: a 0.5"/px rig on a 1" night has FWHM 2 px, and that gate bins
+it to 1 px. It has not bitten because oversampled rigs usually are oversampled in the seeing they get,
+but it is a proxy standing in for a measurement the detector already makes.
 
 ### E. Positional search around the hint -- **SHIPPED**
 

@@ -136,7 +136,14 @@ namespace TianWen.Lib.Tests
 
             foreach (var frame in panel.Frames)
             {
-                var det = frame.DetectedPoints();
+                // Capped the way the solver caps, for the same reason the scale window below is the
+                // shipped one: these frames carry 1,394-1,755 detections and the solver carries only
+                // the brightest 500 of them into matching, so an uncapped seed here would be guarding
+                // a path production no longer takes. Measured both ways over all 96 frames when the
+                // cap landed -- 96 of 96 seed either way, and the capped seed keeps 100% of the
+                // uncapped hits at every frame, because the anchors are the brightest catalog stars
+                // and the detections a true hypothesis lands on are the bright ones the cap keeps.
+                var det = frame.DetectedPoints(CatalogPlateSolver.MaxStarsCarriedIntoMatching);
 
                 // Seed the way the SHIPPED path seeds, not through a window of the test's own
                 // choosing: recover the plate scale from the quads and search inside
@@ -357,6 +364,11 @@ namespace TianWen.Lib.Tests
                 footprints[panel.Id] = InFrameIndices(panel, panel.Frames[0]);
                 // B's field at full in-frame density, as B's own camera saw it.
                 fields[panel.Id] = VelaProjection.ProjectInFrame(Manifest.Catalog, panel.Frames[0].Wcs, panel.Width, panel.Height);
+                // UNCAPPED, deliberately, and unlike the positive test above. The solver carries only
+                // its brightest 500 into matching, but this is the adversarial case: more detections
+                // is more freedom to pile up a spurious consensus, so the uncapped list is the harder
+                // question and the one worth asking. Measured with the cap too when it landed -- 0
+                // false locks either way across all 272 pairs.
                 detected[panel.Id] = panel.Frames[0].DetectedPoints();
             }
 
