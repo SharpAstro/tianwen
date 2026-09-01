@@ -509,6 +509,24 @@ is wrong, and per-camera gets a body moved between an SCT and a refractor backwa
 on `SolveAttempt.IsStd` rather than beside the race, because the acceptance gate can overturn the pick
 and the cache must learn the half that actually answered.
 
+**The quad seed runs BEFORE the parity race, in ONE parity, and answers where the frame IS -- never a
+solution.** `CatalogPlateSolver.TrySeedByQuadMatch` matches the detected field to the catalog on the five
+scale-free quad ratios (`StarQuad.RatiosWithinTolerance`; `Dist1` demoted to a multiplicative window)
+through a rectangle 0.6 frames wider than the hint on each side, and hands the race its origin, its scale
+and its parity belief (the affine determinant's sign). The pair-lock still seeds at full fidelity from
+there and the acceptance gate still decides, so a wrong quad seed costs a pass, never a wrong WCS.
+Measured on the panel-10 crop, 93 arcmin off its own header: 10.85 s -> 0.28 s, 9.2M -> 8,381 seed
+hypotheses. Three rules: **the catalog cut is by DENSITY over the area the query box actually COVERS of
+the window** (a 9x window cut at 9x inside a box covering 2.25x of it put 4x the image's depth on the
+frame and locked 0 of 24 -- deeper than the image re-points the neighbours that define a quad); **a
+relocation placed AFTER the race saves nothing by construction** (the positional search answered in
+48 ms; the seconds were the two parities failing at the hint, which is why C3's first attempt, a tier
+behind the search, measured nothing); and **a matcher that tests `Dist1` in pixels beside five ratios
+rejects correct catalog quads** (that mixed-unit tolerance, right for stacking, is what "quads do not
+work against a catalog" had been measuring for months). Pinned by `RealFrameSolveTests` and
+`QuadCatalogMatchTests`; the measurements are in
+[docs/plans/plate-solver-performance.md](docs/plans/plate-solver-performance.md), phase C.
+
 **DI registration uses a factory lambda** (`AstrometryServiceCollectionExtensions.cs`):
 
 ```csharp

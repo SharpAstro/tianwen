@@ -224,6 +224,45 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// <see cref="MinSampledFwhmPx"/> vetoed it.</param>
     internal readonly record struct DetectionBinning(int Proposed, int Used);
 
+    /// <summary>
+    /// Test seam: what the quad seed did on the most recent solve (the top-level pass; a relocation
+    /// retry's own quad seed is not reported). Like <see cref="LastParityRace"/>, its effect is the
+    /// parity race STARTING where the frame is rather than where the header says, which the emitted
+    /// WCS cannot show.
+    /// </summary>
+    internal QuadSeedOutcome? LastQuadSeed { get; private set; }
+
+    /// <summary>
+    /// Test seam: which mechanism supplied the origin the parity race ran from on the most recent
+    /// solve. A quad seed that locked reports <see cref="OriginSource.QuadSeed"/> however little it
+    /// moved the origin; <see cref="OriginSource.PositionalSearch"/> means the race failed from the
+    /// hint and the search behind it answered.
+    /// </summary>
+    internal OriginSource LastOriginSource { get; private set; }
+
+    internal enum OriginSource
+    {
+        Hint,
+        QuadSeed,
+        PositionalSearch,
+    }
+
+    /// <param name="RawPairs">Quad pairs whose five ratios agree inside the scale window.</param>
+    /// <param name="Inliers">Of those, the RANSAC affine consensus; 0 where none formed.</param>
+    /// <param name="ScaleRatio">
+    /// Image longest side over catalog longest side, i.e. the header's plate scale over the true one,
+    /// in the convention <see cref="QuadScaleRecovery.Recovery.Ratio"/> uses. NaN without pairs.
+    /// </param>
+    /// <param name="IsStd">
+    /// Whether the locked affine is a proper rotation of the <c>xSign = +1</c> projection rather than
+    /// a reflection of it -- the parity, read off a determinant instead of raced.
+    /// </param>
+    /// <param name="RelocationDeg">How far the seed moved the origin from the hint.</param>
+    internal readonly record struct QuadSeedOutcome(int RawPairs, int Inliers, float ScaleRatio, bool IsStd, double RelocationDeg)
+    {
+        internal bool Locked => Inliers > 0;
+    }
+
     /// <param name="AbandonedAParity">One parity was stopped because the other seeded clear of chance.</param>
     /// <param name="ReRanAbandonedParity">The gate needed the abandoned half after all, so it was re-run.</param>
     /// <param name="WinnerIsStd">
@@ -360,6 +399,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             // Per SOLVE, not per call: the relocation retry re-enters here and its seed is part of
             // what this solve cost.
             _seedHypotheses = 0;
+            LastQuadSeed = null;
+            LastOriginSource = OriginSource.Hint;
         }
 
         var empty = new SolveAttempt(null, 0, 0, 0, 0, 0);
@@ -594,6 +635,41 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 cached.ScaleRatio, dim.PixelScale / cached.ScaleRatio, dim.PixelScale);
         }
 
+        // Where the frame IS, before the race asks the pair-lock to find it where the header says. One
+        // quad match, one parity, through a window wide enough for a hint wrong by most of a frame,
+        // answers the origin, the scale and the parity together -- the three things the race is
+        // expensive without. It moves only what the race STARTS from: the pair-lock still seeds at
+        // full fidelity and the acceptance gate still decides, so a wrong answer here costs a pass,
+        // never a wrong WCS. The caller's origin is kept for the positional search and its radius
+        // check, which are statements about the HINT.
+        var raceOrigin = origin;
+        var believedIsStd = cachedHint?.WinnerIsStd;
+        stageSw.Restart();
+        var quadOrigin = TrySeedByQuadMatch(scalePriorDetected, catalogCoords, origin, pixelScaleRad, cx, cy, dim,
+            searchRadiusDeg, Math.Max(range, MinPairLockScaleTolerance), out var quadSeed);
+        if (quadOrigin is { } fromQuads)
+        {
+            raceOrigin = fromQuads;
+            // Both measured on THIS frame by a verified consensus, so they outrank a histogram over
+            // unverified candidates and a memory of a previous frame alike.
+            believedIsStd = quadSeed.IsStd;
+            scalePrior = new QuadScaleRecovery.Recovery(quadSeed.ScaleRatio, Candidates: 0, RelativeSpread: 0f);
+            _logger.LogDebug("CatalogPlateSolver: quad seed {Inliers}/{Pairs} moved the origin {Sep:F3} deg, scale ratio {Ratio:F5} (implied {Implied:F4}\"/px), {Parity} parity, in {Ms}ms",
+                quadSeed.Inliers, quadSeed.RawPairs, quadSeed.RelocationDeg, quadSeed.ScaleRatio, dim.PixelScale / quadSeed.ScaleRatio,
+                quadSeed.IsStd ? "standard" : "mirror", stageSw.Elapsed.TotalMilliseconds);
+        }
+        else
+        {
+            _logger.LogDebug("CatalogPlateSolver: quad seed declined ({Pairs} raw pairs, {Inliers} inliers) in {Ms}ms; the race runs from the hint",
+                quadSeed.RawPairs, quadSeed.Inliers, stageSw.Elapsed.TotalMilliseconds);
+        }
+
+        if (allowPositionalSearch)
+        {
+            LastQuadSeed = quadSeed;
+            LastOriginSource = quadOrigin is null ? OriginSource.Hint : OriginSource.QuadSeed;
+        }
+
         // Try both orientations in parallel; pick the one with lower re-projection error.
         //
         // Exactly one of the two is real work: measured over the 96 frozen Vela frames, one parity
@@ -631,17 +707,18 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         // the believed half's and the doubted half stops early, which is the saving without the
         // trade. And when the cache is wrong, the capped half simply finds nothing and the gate's
         // existing re-run picks it up uncapped -- the same fallback an abandoned parity already uses.
-        var believedIsStd = cachedHint?.WinnerIsStd;
         var stdBudget = believedIsStd is false ? DoubtedParityHypothesisBudget : int.MaxValue;
         var mirrorBudget = believedIsStd is true ? DoubtedParityHypothesisBudget : int.MaxValue;
         if (believedIsStd is { } believed)
         {
-            _logger.LogDebug("CatalogPlateSolver: this light path last solved on the {Parity} parity, so the other half is capped at {Budget} hypotheses per pool",
-                believed ? "standard" : "mirror", DoubtedParityHypothesisBudget);
+            _logger.LogDebug("CatalogPlateSolver: the {Parity} parity is believed ({Source}), so the other half is capped at {Budget} hypotheses per pool",
+                believed ? "standard" : "mirror",
+                quadOrigin is null ? "this light path last solved on it" : "the quad seed's affine has that handedness",
+                DoubtedParityHypothesisBudget);
         }
 
-        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, scalePrior, ClaimAgainst(mirrorCts), stdBudget, stdCts.Token), cancellationToken);
-        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, scalePrior, ClaimAgainst(stdCts), mirrorBudget, mirrorCts.Token), cancellationToken);
+        var stdTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, raceOrigin, pixelScaleRad, cx, cy, dim, xSign: 1.0, range, scalePrior, ClaimAgainst(mirrorCts), stdBudget, stdCts.Token), cancellationToken);
+        var mirrorTask = Task.Run(() => TrySolveWithProximityMatching(detectedStars, catalogCoords, raceOrigin, pixelScaleRad, cx, cy, dim, xSign: -1.0, range, scalePrior, ClaimAgainst(stdCts), mirrorBudget, mirrorCts.Token), cancellationToken);
         await Task.WhenAll(stdTask, mirrorTask);
 
         var std = stdTask.Result;
@@ -719,7 +796,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         {
             _logger.LogDebug("CatalogPlateSolver: winner failed the acceptance gate and the other parity was abandoned mid-seed; re-running it before reporting failure");
             var loserXSign = winnerIsStd ? -1.0 : 1.0;
-            loser = TrySolveWithProximityMatching(detectedStars, catalogCoords, origin, pixelScaleRad,
+            loser = TrySolveWithProximityMatching(detectedStars, catalogCoords, raceOrigin, pixelScaleRad,
                 cx, cy, dim, loserXSign, range, scalePrior, onSeedClearOfChance: null, seedHypothesisBudget: int.MaxValue, cancellationToken);
             LastParityRace = LastParityRace with { ReRanAbandonedParity = true };
         }
@@ -745,6 +822,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         if (winner.Wcs is null && allowPositionalSearch
             && TryFindOriginByPositionalSearch(detectedStars, origin, pixelScaleRad, cx, cy, dim, range, dtYr, searchRadius, cancellationToken) is { } relocated)
         {
+            LastOriginSource = OriginSource.PositionalSearch;
             var retry = await SolveFromOriginAsync(image, dim, range, relocated, searchRadius, allowPositionalSearch: false, cancellationToken).ConfigureAwait(false);
 
             // Bounding the candidate CENTRES is not the same as bounding the sky examined: a frame
@@ -804,6 +882,124 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
 
         widths.Sort();
         return widths[widths.Count / 2];
+    }
+
+    /// <summary>
+    /// How far outside the hinted frame the quad seed's catalog window reaches, as a fraction of the
+    /// frame size per side. Sized to the case it exists for: a crop carrying its parent's pointing is
+    /// 0.71 frame widths off (the Vela panel-10 crop), and the frozen mosaic locks 24 of 24 through
+    /// this window at a 0.70-frame hint error. A quad descriptor is translation-invariant, so unlike
+    /// the pair-lock's anchor pool the window costs no consensus for being wide -- only catalog stars,
+    /// which the density cut in <see cref="TrySeedByQuadMatch"/> pays back.
+    /// </summary>
+    internal const float QuadSeedMarginFraction = 0.6f;
+
+    /// <summary>
+    /// Raw quad pairs the quad seed needs before RANSAC is asked at all. Six is
+    /// <see cref="MinStarsForMatch"/>, and it sits far above chance: a false pair needs five
+    /// dimensionless ratios to agree within 0.008 AND the longest side to fall inside the scale window,
+    /// so over the few hundred thousand quad pairs a frame offers the expected chance count is well
+    /// under one. The disc row of the production-projection probe locked the panel-10 crop on exactly
+    /// six, and its affine put the frame centre 0.0 arcmin from ASTAP's.
+    /// </summary>
+    internal const int QuadSeedMinimumPairs = 6;
+
+    /// <summary>
+    /// Locks the detected field to the catalog by quad geometry alone and answers the origin the frame
+    /// is actually centred on, or null. Runs BEFORE the parity race, in one parity, through the hinted
+    /// projection: a quad's five ratios are invariant to translation, rotation, scale AND reflection,
+    /// so a window this wide costs nothing in consensus, the hint may be wrong by most of a frame, and
+    /// the mirror question is read off the affine's determinant instead of being raced.
+    /// </summary>
+    /// <remarks>
+    /// <para>It answers an ORIGIN, a scale and a parity belief, never a solution: the pair-lock seed
+    /// then runs from that origin at full fidelity and the acceptance gate keeps the last word, exactly
+    /// as for the positional search. What it replaces is the cost of getting there. On the panel-10
+    /// crop the race spent seconds failing both parities at the header's pointing before the search
+    /// found the field in 48 ms, and a seed placed AFTER the race -- C3's first attempt -- could save
+    /// none of that by construction.</para>
+    /// <para>The catalog cut is by DENSITY over the area the query box actually covers of the window,
+    /// never the nominal window. Measured over the frozen panels: a 9x window cut at 9x the detections
+    /// inside a box covering 2.25x of it landed 4x the image's depth on the frame and locked 0 of 24;
+    /// the same window cut over the covered area locked 24 of 24. Going deeper than the image re-points
+    /// the catalog's nearest neighbours and destroys the very quads being looked for.</para>
+    /// <para>The image side is every detection the solver carries (at most
+    /// <see cref="MaxStarsCarriedIntoMatching"/>), not a bright subset: the density rule sizes the
+    /// catalog to it, and a shallower image side against the same catalog is the mismatch that made
+    /// attempt 1 find nothing.</para>
+    /// </remarks>
+    private static WCS? TrySeedByQuadMatch(
+        List<ImagedStar> rankedDetected,
+        List<(double RA, double Dec, double VMag)> catalogCoords,
+        WCS origin,
+        double pixelScaleRad,
+        double cx,
+        double cy,
+        ImageDim dim,
+        double queryRadiusDeg,
+        float scaleTolerance,
+        out QuadSeedOutcome outcome)
+    {
+        outcome = new QuadSeedOutcome(0, 0, float.NaN, IsStd: true, RelocationDeg: 0);
+        if (rankedDetected.Count < MinStarsForMatch)
+        {
+            return null;
+        }
+
+        var projected = ProjectCatalogStars(catalogCoords, origin, pixelScaleRad, cx, cy, dim, xSign: 1.0, QuadSeedMarginFraction, rotationInvariant: false);
+        if (projected.Count < MinStarsForMatch)
+        {
+            return null;
+        }
+
+        // The window clipped by the query box, in frame areas: the box is +/- the query radius about
+        // the hint on the tangent plane, so it bounds each axis of the window separately.
+        var boxHalfPx = double.DegreesToRadians(queryRadiusDeg) / pixelScaleRad;
+        var coveredWidth = Math.Min((1.0 + 2.0 * QuadSeedMarginFraction) * dim.Width, 2.0 * boxHalfPx);
+        var coveredHeight = Math.Min((1.0 + 2.0 * QuadSeedMarginFraction) * dim.Height, 2.0 * boxHalfPx);
+        var areaRatio = coveredWidth * coveredHeight / ((double)dim.Width * dim.Height);
+        var take = Math.Min((int)Math.Round(rankedDetected.Count * areaRatio), projected.Count);
+        if (take < MinStarsForMatch)
+        {
+            return null;
+        }
+
+        // StarQuadList's three-nearest-neighbour window is an INDEX range, so both inputs must be
+        // X-sorted (SortedStarList does the same before building quads for stacking).
+        var imageStars = rankedDetected.ToArray();
+        Array.Sort(imageStars, static (a, b) => a.XCentroid.CompareTo(b.XCentroid));
+        var catalogStars = new ImagedStar[take];
+        for (var i = 0; i < take; i++)
+        {
+            catalogStars[i] = projected[i].Pixel;
+        }
+
+        Array.Sort(catalogStars, static (a, b) => a.XCentroid.CompareTo(b.XCentroid));
+
+        var (table, diag) = StarReferenceTable.FindFitWithDiagnostics(
+            new StarQuadList(imageStars), new StarQuadList(catalogStars), QuadSeedMinimumPairs, scaleTolerance: scaleTolerance);
+        outcome = outcome with { RawPairs = diag.RawPairs, Inliers = diag.FilteredPairs, ScaleRatio = diag.MedianRatio };
+        if (table is null || table.FitAffineTransform() is not { } imageToPlane)
+        {
+            return null;
+        }
+
+        // The table's dest is the image side and its source the hinted plane, so the affine maps
+        // image pixels onto the plane the catalog was projected into; the frame centre's image there
+        // is the sky the frame is really centred on. A negative determinant says the image is the
+        // MIRROR of the xSign = +1 projection it was matched against.
+        var centreOnPlane = Vector2.Transform(new Vector2((float)cx, (float)cy), imageToPlane);
+        if (InverseTanProject(centreOnPlane, origin, pixelScaleRad, cx, cy, xSign: 1.0) is not { } relocated)
+        {
+            return null;
+        }
+
+        outcome = outcome with
+        {
+            IsStd = imageToPlane.GetDeterminant() > 0f,
+            RelocationDeg = CoordinateUtils.AngularSeparationDeg(origin.CenterRA, origin.CenterDec, relocated.CenterRA, relocated.CenterDec),
+        };
+        return relocated;
     }
 
     /// <summary>

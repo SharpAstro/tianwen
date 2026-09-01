@@ -105,10 +105,15 @@ public class RealFrameSolveTests(ITestOutputHelper output)
     /// it in 0.7 s, which is what said the gap was ours.
     /// </summary>
     /// <remarks>
-    /// The two assertions are deliberately opposed. "It solves" alone would pass on a solver that
+    /// <para>The two assertions are deliberately opposed. "It solves" alone would pass on a solver that
     /// simply trusted the hint if the hint were ever fixed; "the answer is far from the hint" alone
     /// would pass on garbage. Together they say the solver went looking and came back with the right
-    /// field -- and the second one is what fails if the positional search is removed.
+    /// field -- and the second one is what fails if every relocation path is removed.</para>
+    /// <para>The third says WHICH path: the quad seed, ahead of the parity race, not the positional
+    /// search behind it. The search answered this frame in 48 ms; the seconds were the two parities
+    /// failing at the header's pointing before it ran, so a relocation that happens after them saves
+    /// nothing by construction (phase C3, attempt 1). A solve that still reaches the search here is
+    /// correct and slow, and this is what says so.</para>
     /// </remarks>
     [Fact(Timeout = 600_000)]
     public async Task TheCropWhoseHeaderPointsElsewhereStillSolves()
@@ -143,18 +148,30 @@ public class RealFrameSolveTests(ITestOutputHelper output)
             "the relocated solve must land where an independent solver puts this field");
         Shouldly.ShouldBeTestExtensions.ShouldBeGreaterThan(offArcmin, 60.0,
             "the whole point is that the answer is NOT near the header hint -- if this drops below an "
-            + "arcminute the test has stopped exercising the positional search");
+            + "arcminute the test has stopped exercising relocation at all");
+
+        Assert.NotNull(solver.LastQuadSeed);
+        var quadSeed = solver.LastQuadSeed.Value;
+        output.WriteLine($"quad seed {quadSeed.Inliers}/{quadSeed.RawPairs} moved the origin {60.0 * quadSeed.RelocationDeg:F1} arcmin, "
+            + $"scale ratio {quadSeed.ScaleRatio:F5}, {(quadSeed.IsStd ? "standard" : "mirror")} parity; origin source {solver.LastOriginSource}");
+        Shouldly.ShouldBeTestExtensions.ShouldBe(solver.LastOriginSource, CatalogPlateSolver.OriginSource.QuadSeed,
+            "the relocation must come from the quad seed AHEAD of the parity race; reaching the positional search means the race ran and failed at the hint first");
+        Shouldly.ShouldBeTestExtensions.ShouldBeGreaterThan(60.0 * quadSeed.RelocationDeg, 60.0,
+            "the seed must have moved the origin by the header error, not merely locked where the hint already was");
+        Shouldly.ShouldBeTestExtensions.ShouldBe(quadSeed.IsStd, solver.LastParityRace.WinnerIsStd,
+            "the parity read off the seed's determinant must be the parity that actually won the race, or the belief caps the wrong half");
 
         // And now the SAME rig again, on the same solver, which is what a session does all night.
         //
-        // What moves is the PARITY half of the cache, and only that: measured 9,165,717 -> 5,813,171
-        // hypotheses, 1.6x. The remembered SCALE cannot help a frame that fails, by construction --
-        // the narrow tier is tried first and falls through to the header's +/-5% window when it does
-        // not lock, so a doomed pass pays the wide scan either way. That fallback is what keeps a
-        // stale scale from turning a solvable frame into a failure, so the ordering is deliberate.
-        // The scale's own win lands on a frame that SOLVES while its quad recovery declines, which
-        // is a real combination (2 of 5 archive frames decline) but not one any committed fixture
-        // reproduces, so it is not asserted here.
+        // Before the quad seed this was the cache's end-to-end pin: the second solve spent 1.6x fewer
+        // hypotheses (9,165,717 -> 5,813,171) because the remembered PARITY capped the doubted half.
+        // The quad seed measures parity and scale on the frame itself, ahead of the race, so the first
+        // solve already knows everything the cache could tell the second and the two spend the same
+        // 8,381 hypotheses -- 1,094x fewer than the first solve used to. What is pinned now is that no
+        // material saving is LEFT: a second solve markedly cheaper than the first would mean the seed
+        // had stopped supplying parity or scale and the cache was covering for it. The cache's own
+        // behaviour is pinned in SolveHintCacheTests; its end-to-end win survives only on a frame where
+        // the quad seed declines, which no committed fixture reproduces.
         var firstHypotheses = solver.LastSeedHypotheses;
         var swSecond = Stopwatch.StartNew();
         var again = await solver.SolveImageAsync(image, dim.Value, searchOrigin: hint, cancellationToken: ct);
@@ -170,10 +187,12 @@ public class RealFrameSolveTests(ITestOutputHelper output)
                 solved.CenterRA, solved.CenterDec, solvedAgain.CenterRA, solvedAgain.CenterDec),
             1.0 / 3600.0,
             "a remembered scale and parity may make the solve cheaper, never different");
-        Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(secondHypotheses, (int)(firstHypotheses * 0.75),
-            $"the second solve on a known light path must cost materially less than the first "
-            + $"({firstHypotheses:N0} -> {secondHypotheses:N0} hypotheses; measured 1.6x, and the bar "
-            + "is set at 1.33x so an unrelated seed change cannot fail this by a few percent)");
+        Shouldly.ShouldBeTestExtensions.ShouldBe(solver.LastOriginSource, CatalogPlateSolver.OriginSource.QuadSeed,
+            "the second solve must relocate through the quad seed as the first did");
+        Shouldly.ShouldBeTestExtensions.ShouldBeInRange(secondHypotheses, (int)(firstHypotheses * 0.75), (int)(firstHypotheses * 1.25),
+            $"with the quad seed supplying parity and scale on the FIRST solve the cache has nothing material left to add "
+            + $"({firstHypotheses:N0} -> {secondHypotheses:N0} hypotheses; measured equal, and the band is +/-25% because the "
+            + "abandoned parity's count depends on when its sibling cancelled it)");
 
         image.Release();
     }

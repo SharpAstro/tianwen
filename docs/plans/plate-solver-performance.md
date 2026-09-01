@@ -115,7 +115,7 @@ Ordered by return per unit of risk; each independently shippable and measurable.
 |---|---|---|---|---|
 | A | Cancel the losing parity (916k wasted hypotheses) -- **SHIPPED** | ~200 ms | nothing | low |
 | B | ~~Tycho-2 pre-baked region index~~ -- **OBSOLETE: already done, worth 0.3 ms** | ~~500 ms~~ 0 | n/a | n/a |
-| C | ~~Quad-descriptor matching replacing the refinement loop~~ -- **MEASURED DEAD: 15.8% of quads are shared even under a perfect prior** | ~~300 ms~~ 0 | n/a | n/a |
+| C | Quad-descriptor matching -- not replacing the refinement loop (that reading was measured dead at 15.8% shared quads) but as the SEED ahead of the parity race -- **SHIPPED 2026-09-02** (C0-C3 below) | relocating crop 10.85 s -> 0.28 s, 1,094x fewer seed hypotheses; a good hint hands the race its scale and parity | nothing: the pair-lock still seeds and the gate still decides | low |
 | C' | Quads for the SCALE only: recover it with no prior, narrow the seed's window 5% -> 0.25% -- **SHIPPED** | 7.4x fewer seed hypotheses | nothing, and it *removes* our reliance on `FOCALLEN` | low |
 | D | Cap the star list to ~500 -- **SHIPPED**; bin -> only on MEASURED FWHM, not on frame size or plate scale | ~60 ms | binning can, so it is gated on measured FWHM and default off | low |
 
@@ -868,6 +868,51 @@ neighbour. Cut by covered area, both sides span the same range and the ratios ag
 
 **(b) is answered in passing.** The crop is an HOO narrowband frame ranked by measured flux against a
 V-ranked catalog, and it locks with 34-60 inliers. Ranking is not what breaks membership.
+
+#### C3, attempt 2 (c): SHIPPED 2026-09-02 -- the quad seed runs AHEAD of the parity race
+
+`CatalogPlateSolver.TrySeedByQuadMatch`: one ratio-only quad match, one parity (`xSign = +1`), through
+a rectangle `QuadSeedMarginFraction` (0.6) wider than the hinted frame on each side, cut to the image's
+density over the area the query box actually covers, `QuadSeedMinimumPairs` (6) raw pairs before RANSAC
+is asked. A lock answers the three things the race is expensive without, and the race then runs from
+them: the ORIGIN (the frame centre mapped through the affine and inverse-projected), the SCALE (the
+median `Dist1` ratio in `QuadScaleRecovery.Recovery`'s convention, superseding the recovery's histogram
+and the cache's memory alike, since it is a verified consensus on THIS frame) and the PARITY BELIEF (the
+affine determinant's sign, feeding the same doubted-half budget the cache feeds). It moves only what the
+race STARTS from: the pair-lock still seeds at full fidelity and the acceptance gate still decides, so a
+wrong quad seed costs a pass, never a wrong WCS. The caller's hint is kept for the positional search and
+its radius check, which are statements about the hint.
+
+| panel-10 crop (Debug, one box, one session) | before | after |
+|---|---|---|
+| first solve, wall clock | 10,851 ms | 280 ms |
+| second solve on the same light path | 9,868 ms | 65 ms |
+| seed hypotheses, first solve | 9,165,717 | 8,381 |
+| seed hypotheses, second solve | 5,813,243 | 8,381 |
+| what relocated the frame | the positional search, after both parities had failed at the hint | the quad seed: 20 of 20 pairs, 92.9 arcmin, mirror parity read off the determinant |
+
+The 1,094x in hypotheses is the number to quote (counts compare across builds; the wall clock is one
+Debug box). The seed itself costs a projection, two quad lists and one two-pointer match, and reports
+its own time on the `quad seed ... in {Ms}ms` debug line.
+
+Two consequences worth recording:
+
+- **The cache's end-to-end pin on this frame is gone, and that is correct.** The second solve used to
+  spend 1.6x fewer hypotheses because the remembered parity capped the doubted half; the seed now tells
+  the FIRST solve the parity and the scale, so both solves spend the same 8,381, and `RealFrameSolveTests`
+  pins that no material saving is left (+/-25%, since the abandoned half's count depends on when its
+  sibling cancelled it). The cache still earns its keep wherever the quad seed declines; no committed
+  fixture reproduces that.
+- **The frozen-panel pins all hold** -- 24 of 24 seed from the header hint and agree with the frozen
+  solution, and the unrelated-field, triple-overlap and anchor-pool tests are unchanged -- so a
+  near-perfect hint loses nothing: the seed relocates by ~0 and hands the race the scale and parity it
+  would otherwise have raced for.
+
+Not done, deliberately: the pair-lock still runs after the quad seed rather than being replaced by the
+quad affine (that affine is fitted on quad CENTRES from a handful of pairs, where the pair-lock's
+transform is verified star by star over the whole field and everything downstream is built on it), and
+`QuadScaleRecovery` still runs first although the seed's ratio supersedes it whenever the seed locks.
+Both are removals to measure separately, not to assume.
 
 ### D. Cap the star list; bin ONLY where sampling allows it
 
