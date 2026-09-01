@@ -48,7 +48,8 @@ namespace TianWen.Lib.Imaging;
 /// the 3 + quads/100 that ASTAP's own matcher asks for -- an 8x margin. What actually blocked every
 /// lock was this class's own matcher: see <paramref name="scaleTolerance"/> on <see cref="FindFit"/>.
 /// Matching the five scale-free ratios with a multiplicative <c>Dist1</c> window locks <b>24 of 24</b>
-/// frozen Vela panels where the six-value absolute test locks a randomly-varying handful.</para>
+/// frozen Vela panels where the six-value absolute test locks 6 -- the same 6 every run, since the
+/// RANSAC below is seeded: a noise floor, not a fluctuation.</para>
 /// <para>Plate solving still locks geometry with two-star pair hypotheses
 /// (<c>PairRansacLock</c>, which needs only two common members per hypothesis and verifies by global
 /// consensus) followed by proximity matching (see <c>CatalogPlateSolver</c>). Replacing that seed with

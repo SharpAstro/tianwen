@@ -14,10 +14,11 @@ namespace TianWen.Lib.Tests
     /// the rest are dimensionless. Against another frame off the same camera that is right -- the
     /// lengths genuinely agree -- and against a catalog it rejects correct quads, because the
     /// projected length carries the plate scale the solve is trying to recover.</para>
-    /// <para>Asserted on RAW PAIRS rather than only on the lock, because pair counting is
-    /// deterministic while the RANSAC consensus behind a lock is randomised: at the shipped matcher's
-    /// handful of pairs a lock appears and disappears between runs, so a bare "it locks now, it did
-    /// not before" test would be flaky in the direction that hides a regression.</para>
+    /// <para>Asserted on RAW PAIRS rather than only on the lock, because the pair count is the quantity
+    /// C1 changed (73 -> 1,368 over 24 panels) and a lock count does not measure it: the shipped path
+    /// locks 6 of 24 off a 73-pair noise floor, and that 6 is deterministic (the RANSAC is seeded) but
+    /// fragile against any change to the INPUT set -- a detector tweak, a different cut -- so a bare
+    /// "it locks now, it did not before" pin would go red for reasons unrelated to the matcher.</para>
     /// </remarks>
     [Collection("Astrometry")]
     public class QuadCatalogMatchTests
@@ -31,11 +32,11 @@ namespace TianWen.Lib.Tests
             var panel = manifest.Panels[0];
             var frame = panel.Frames[0];
 
-            var imageQuads = QuadCatalogFeasibilityProbe.BuildQuads(frame.DetectedPoints(TopK));
-            var catalogQuads = QuadCatalogFeasibilityProbe.BuildQuads(
-                QuadCatalogFeasibilityProbe.ProjectTopK(manifest, panel, frame, TopK));
+            var imageQuads = VelaProjection.BuildQuads(frame.DetectedPoints(TopK));
+            var catalogQuads = VelaProjection.BuildQuads(
+                VelaProjection.ProjectTopK(manifest, panel, frame, TopK));
 
-            var (shipped, shippedDiag) = StarReferenceTable.FindFitWithDiagnostics(
+            var (_, shippedDiag) = StarReferenceTable.FindFitWithDiagnostics(
                 imageQuads, catalogQuads, minimumCount: 3, quadTolerance: 0.008f, scaleTolerance: null);
             var (ratioOnly, ratioDiag) = StarReferenceTable.FindFitWithDiagnostics(
                 imageQuads, catalogQuads, minimumCount: 3, quadTolerance: 0.008f, scaleTolerance: 0.01f);
@@ -47,7 +48,6 @@ namespace TianWen.Lib.Tests
                 + "and the bar is 5x so an unrelated change cannot fail this by a few percent)");
 
             ratioOnly.ShouldNotBeNull("all 24 frozen panels lock once the descriptor is scale-free");
-            _ = shipped;
         }
 
         /// <summary>
@@ -63,7 +63,7 @@ namespace TianWen.Lib.Tests
 
             // The same field against ITSELF is the stacking question -- one camera, one scale -- and
             // it must still match on the absolute test, with no scale tolerance anywhere.
-            var quads = QuadCatalogFeasibilityProbe.BuildQuads(frame.DetectedPoints(TopK));
+            var quads = VelaProjection.BuildQuads(frame.DetectedPoints(TopK));
 
             var (table, diag) = StarReferenceTable.FindFitWithDiagnostics(
                 quads, quads, minimumCount: 6, quadTolerance: 0.008f);

@@ -28,9 +28,9 @@ public readonly record struct StarQuad(float Dist1, float Dist2, float Dist3, fl
     /// should agree to a fraction of a pixel, and wrong for matching an image against a catalog, where
     /// the projected Dist1 depends on the very plate scale being recovered.</para>
     /// <para>Measured: with an image and a catalog field projected through the frame's own solution --
-    /// so sharing a pixel frame exactly -- 15.8% of quads coincide by centre, and
-    /// <c>StarReferenceTable.FindFit</c> locked 0 of 24 panels anyway. The ratios were never the
-    /// problem.</para>
+    /// so sharing a pixel frame exactly -- 15.8% of quads coincide by centre at 500 stars a side, and
+    /// <c>StarReferenceTable.FindFit</c> locked 6 of 24 panels anyway (none at 300 or fewer). The
+    /// ratios were never the problem.</para>
     /// </remarks>
     [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
     public readonly bool RatiosWithinTolerance(in StarQuad other, float tolerance) =>

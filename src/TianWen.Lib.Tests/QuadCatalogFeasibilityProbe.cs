@@ -4,6 +4,7 @@ using System.Numerics;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using Xunit;
+using static TianWen.Lib.Tests.VelaProjection;
 
 namespace TianWen.Lib.Tests
 {
@@ -698,7 +699,7 @@ namespace TianWen.Lib.Tests
             {
                 foreach (var offsetFrames in new[] { 0.0, 0.25, 0.5, 0.7 })
                 {
-                    int locks = 0, panels = 0, pairs = 0;
+                    int locks = 0, panels = 0, pairs = 0, inliers = 0, catStars = 0, catQuads = 0, imgQuads = 0, cutOnFrame = 0;
                     var ratios = new List<float>();
 
                     foreach (var panel in manifest.Panels)
@@ -713,16 +714,31 @@ namespace TianWen.Lib.Tests
                         var hint = new TianWen.Lib.Astrometry.WCS(frame.Wcs.CenterRA + dRa, frame.Wcs.CenterDec);
 
                         var hintWcs = VelaProjection.HintWcs(hint, dim, xSign);
-                        var catAll = VelaProjection.ProjectInFrame(
+                        var catAll = VelaProjection.ProjectInFrameIndexed(
                             manifest.Catalog, hintWcs, panel.Width, panel.Height, Margin);
-                        var take = Math.Min((int)(KDet * areaFactor), catAll.Length);
+                        var take = Math.Min((int)(KDet * areaFactor), catAll.Count);
                         if (take < 50)
                         {
                             continue;
                         }
 
+                        // How many of the cut lie on the TRUE frame. The density match is by window
+                        // AREA, and whether it holds inside the frame is what this reports.
+                        var trueInFrame = new HashSet<int>();
+                        foreach (var (_, _, idx) in VelaProjection.ProjectInFrameIndexed(manifest.Catalog, frame.Wcs, panel.Width, panel.Height))
+                        {
+                            trueInFrame.Add(idx);
+                        }
+
                         var cat = new Vector2[take];
-                        Array.Copy(catAll, cat, take);
+                        for (var i = 0; i < take; i++)
+                        {
+                            cat[i] = new Vector2(catAll[i].X, catAll[i].Y);
+                            if (trueInFrame.Contains(catAll[i].Index))
+                            {
+                                cutOnFrame++;
+                            }
+                        }
 
                         var det = frame.DetectedPoints(KDet);
                         if (det.Length < 50)
@@ -731,10 +747,15 @@ namespace TianWen.Lib.Tests
                         }
 
                         panels++;
+                        var iq = BuildQuads(det);
+                        var cq = BuildQuads(cat);
+                        catStars += cat.Length;
+                        catQuads += cq.Count;
+                        imgQuads += iq.Count;
                         var (table, diag) = StarReferenceTable.FindFitWithDiagnostics(
-                            BuildQuads(det), BuildQuads(cat), minimumCount: 3, quadTolerance: 0.008f,
-                            scaleTolerance: 0.05f);
+                            iq, cq, minimumCount: 3, quadTolerance: 0.008f, scaleTolerance: 0.05f);
                         pairs += diag.RawPairs;
+                        inliers += diag.FilteredPairs;
                         if (table is not null)
                         {
                             locks++;
@@ -748,25 +769,10 @@ namespace TianWen.Lib.Tests
                     ratios.Sort();
                     output.WriteLine(
                         $"  xSign {xSign,+2:F0}, hint off {offsetFrames,4:F2} frames: LOCKS {locks,2}/{panels}, "
-                        + $"raw pairs {pairs,6}"
+                        + $"raw pairs {pairs,6}, inliers {inliers,5}; cat stars {catStars,6} ({cutOnFrame,5} on the true frame) -> quads {catQuads,6}, img quads {imgQuads,5}"
                         + (ratios.Count > 0 ? $", implied scale median {Pct(ratios, 0.5):F4}" : ""));
                 }
             }
-        }
-
-        internal static Vector2[] ProjectTopK(
-            VelaMosaicManifest manifest, VelaPanel panel,
-            VelaFrame frame, int k)
-        {
-            var all = VelaProjection.ProjectInFrameIndexed(manifest.Catalog, frame.Wcs, panel.Width, panel.Height);
-            var take = Math.Min(k, all.Count);
-            var pts = new Vector2[take];
-            for (var i = 0; i < take; i++)
-            {
-                pts[i] = new Vector2(all[i].X, all[i].Y);
-            }
-
-            return pts;
         }
 
         /// <summary>Quads whose CENTRES coincide, which needs no descriptor tolerance.</summary>
@@ -848,24 +854,6 @@ namespace TianWen.Lib.Tests
 
         private static float Pct(List<float> sorted, double p)
             => sorted[Math.Clamp((int)(p * (sorted.Count - 1)), 0, sorted.Count - 1)];
-
-        /// <summary>
-        /// Builds a quad list from bare positions. <see cref="StarQuadList"/>'s ctor takes
-        /// <see cref="ImagedStar"/> and reads only the two centroids, and its three-nearest-neighbour
-        /// window is an INDEX range, so the input must be X-sorted (as
-        /// <c>SortedStarList.FindQuadsAsync</c> does before calling it) or that search looks in the
-        /// wrong part of the frame.
-        /// </summary>
-        internal static StarQuadList BuildQuads(Vector2[] points)
-        {
-            var stars = new ImagedStar[points.Length];
-            for (var i = 0; i < points.Length; i++)
-            {
-                stars[i] = new ImagedStar(0, 0, 0, 0, points[i].X, points[i].Y, 0);
-            }
-            Array.Sort(stars, (a, b) => a.XCentroid.CompareTo(b.XCentroid));
-            return new StarQuadList(stars.AsSpan());
-        }
 
         private static int CountWithin(Vector2[] a, Vector2[] b, float tolerance)
         {
