@@ -752,7 +752,7 @@ C0 is done.
 | ~~C0~~ | ~~is it population or construction?~~ | **DONE: population, ceiling 99.8%** |
 | ~~C1~~ | ~~ratio-only descriptor match; `Dist1` demoted to the sliding window and to scale recovery~~ | **DONE: 24 of 24 panels lock** |
 | ~~C2'~~ | ~~does it survive a wrong hint and the wrong parity?~~ | **DONE: 24 of 24 at 0.70 frames, either parity** |
-| C3 | quad seed as an ALTERNATIVE to `PairRansacLock`, behind the existing acceptance gate; catalog cut by density (`detected * areaRatio`) | no regression on the committed real frames |
+| C3 | quad seed as an ALTERNATIVE to `PairRansacLock`, ahead of the parity race (attempt 1 placed it after, and REVERTED -- see below) | it fires at all on a committed real frame |
 | C4 | quads in the positional search: build image quads once, move only the catalogue | the 93-arcmin crop under 1 s (it is 3.17 s today, ASTAP 1.54 s) |
 
 **C3 is where the risk moves from "does it work" to "does it work on OUR inputs".** Everything above
@@ -761,6 +761,47 @@ the test. A real solve adds the things the frozen set cannot: nebulosity ranked 
 (`SolverAnchorQualityProbe` exists for exactly this), a catalog query whose region and epoch the solver
 picks, and the acceptance gate's own verdict. Keep `PairRansacLock` -- the quad seed is an alternative
 route to an ORIGIN, judged by the same gate, so a quad failure costs the old path and nothing else.
+
+#### C3, attempt 1: REVERTED, and it moved the target
+
+Wired as an extra tier ahead of the positional search -- reached only where both parities have already
+failed, so a frame that solves today could not pay for it -- and pointed at the Vela panel 10 crop, the
+93-arcmin-off frame the whole phase is aimed at. **It declined, and two measurements came out of the
+attempt that matter more than the feature did.**
+
+**1. The positional search is 48 ms, not seconds.** Instrumented on that frame it seeds at
+*candidate 2, 0.75 deg from the hint, in 47.7 ms*. So the 3.17 s a relocating solve costs is almost
+entirely the two FAILED pair-lock parities that run before it, and **anything placed after them saves
+nothing by construction**. That invalidates C3's placement rather than its idea: a quad seed has to run
+INSTEAD OF the parity race, not after it. It also re-reads the phase-D cap measurement -- the 3.8 s the
+cap saved on this frame was seed cost, not search cost.
+
+**2. Quads that lock 24 of 24 on the frozen lists find ZERO pairs on the real crop.** 442 catalog quads
+against 96 image quads, 0 raw pairs, in both parities. Three fixes were tried and none of them was it:
+its own wider catalog query (the ordinary one is sized to the frame, so a window 0.6 frames wider runs
+off the end of it -- a real bug, and worth keeping in mind); cutting the catalog to the image's count;
+then cutting the IMAGE to the catalog's density, since the catalog is the shallower side here (589
+stars over 4.84x the frame is ~122 per frame area against 300 detected, and a 2.5x density gap means
+~1.6x longer nearest-neighbour distances, which a 5% `Dist1` window cannot bridge). With densities
+matched it is still 0 pairs, and the distributions say why: `Dist1` spans 7.4-187.8 px for the catalog
+against 60.4-333.8 px for the image. They overlap, so the ratios simply never agree -- **the two sides
+are not the same four stars**, on a frame where the hint is 93 arcmin off and the catalog window is
+therefore centred on the wrong sky.
+
+**What the frozen set could not have told us, stated plainly.** C2' offset the hint by up to 0.70
+frames and still locked 24/24 -- but it projected through a RECTANGLE built by the test around the
+frame, and cut both sides from that same footprint. Production projects through
+`ProjectCatalogStars(rotationInvariant: true)`, a DISC centred on the hint, and ranks by catalog
+magnitude while the image ranks by measured flux on an HOO narrowband crop. Those are exactly the
+"does it work on our inputs" differences this section warned about, and they were enough. **The C2'
+result is not wrong, but it does not transfer as written**, and the next attempt should reproduce the
+production projection inside the probe before touching the solver again.
+
+Next attempt, in this order: (a) make the probe use `ProjectCatalogStars` rather than the test's own
+projection, so the frozen set measures what production does; (b) settle whether the ranking mismatch
+(flux against V on narrowband) is what breaks membership, which `SolverAnchorQualityProbe` is already
+shaped to answer; (c) only then wire it, and wire it AHEAD of the parity race, where the 3.17 s
+actually is.
 
 ### D. Cap the star list; bin ONLY where sampling allows it
 
