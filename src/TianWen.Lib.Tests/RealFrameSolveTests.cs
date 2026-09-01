@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -92,6 +92,58 @@ public class RealFrameSolveTests(ITestOutputHelper output)
         Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(
             Math.Abs(solved.CenterDec - image.ImageMeta.TargetDec), 0.2,
             "the solved centre must be the field the header says it is");
+
+        image.Release();
+    }
+
+    /// <summary>
+    /// A frame whose header points somewhere else entirely still solves. The Vela panel 10 crop
+    /// carries its PARENT panel's pointing -- <c>OBJECT = HD 72800</c> is accurate to 0.4 arcmin, but
+    /// the pixels are 93 arcmin from it, on a 2.17 deg field -- so the anchor pool the seed projects
+    /// from the hint lands 74% outside the frame and starves. Before the positional search this
+    /// returned no solution at ANY radius out to 12 deg and any scale from 0.5x to 2x; ASTAP solved
+    /// it in 0.7 s, which is what said the gap was ours.
+    /// </summary>
+    /// <remarks>
+    /// The two assertions are deliberately opposed. "It solves" alone would pass on a solver that
+    /// simply trusted the hint if the hint were ever fixed; "the answer is far from the hint" alone
+    /// would pass on garbage. Together they say the solver went looking and came back with the right
+    /// field -- and the second one is what fails if the positional search is removed.
+    /// </remarks>
+    [Fact(Timeout = 600_000)]
+    public async Task TheCropWhoseHeaderPointsElsewhereStillSolves()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        var image = await SharedTestData.ExtractGZippedFitsImageAsync(
+            "Vela_SNR_Panel_10-Multi-NB-color-Hydrogen-alpha-Oxygen_III-crop", isReadOnly: false, cancellationToken: ct);
+        var dim = image.GetImageDim();
+        Assert.NotNull(dim);
+
+        var db = new CelestialObjectDB();
+        await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+        var solver = new CatalogPlateSolver(db, NullLogger<CatalogPlateSolver>.Instance);
+
+        var hint = new Astrometry.WCS(image.ImageMeta.TargetRA, image.ImageMeta.TargetDec);
+        var sw = Stopwatch.StartNew();
+        var result = await solver.SolveImageAsync(image, dim.Value, searchOrigin: hint, cancellationToken: ct);
+        sw.Stop();
+
+        Assert.NotNull(result.Solution);
+        var solved = result.Solution.Value;
+        var offArcmin = 60.0 * Astrometry.CoordinateUtils.AngularSeparationDeg(
+            hint.CenterRA, hint.CenterDec, solved.CenterRA, solved.CenterDec);
+        output.WriteLine($"solved {sw.ElapsedMilliseconds} ms at ({solved.CenterRA:F5}h, {solved.CenterDec:F4}) " +
+            $"{offArcmin:F0} arcmin off the header hint, {solved.PixelScaleArcsec:F4}\"/px, {result.MatchedStars} matched");
+
+        // ASTAP puts this field at 08:41:47.5 -48:02:24 with 71 of 72 quads matched; agreeing with an
+        // independent solver is the only oracle this fixture has, since its own header does not know.
+        Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(
+            Astrometry.CoordinateUtils.AngularSeparationDeg(8.69653, -48.0400, solved.CenterRA, solved.CenterDec), 0.1,
+            "the relocated solve must land where an independent solver puts this field");
+        Shouldly.ShouldBeTestExtensions.ShouldBeGreaterThan(offArcmin, 60.0,
+            "the whole point is that the answer is NOT near the header hint -- if this drops below an "
+            + "arcminute the test has stopped exercising the positional search");
 
         image.Release();
     }

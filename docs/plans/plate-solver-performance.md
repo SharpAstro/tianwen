@@ -579,6 +579,77 @@ Detection already measures FWHM/HFD, so the input is in hand.
 Default OFF, and skip the whole phase if phases A-C land the budget. It is the smallest win of the
 four and the only one that can cost accuracy.
 
+### E. Positional search around the hint -- **SHIPPED**
+
+A hint wrong by a large fraction of a frame width is unsolvable today however generous the catalog
+query, because the seed's anchor pool is the brightest catalog stars that project INSIDE THE FRAME
+from the origin: the pool's footprint IS the origin's frame. `searchRadius` widens the QUERY, which
+is why sweeping it to 12 deg (75,062 stars) changes nothing. So the fix is a search over POSITIONS.
+
+`SolveImageAsync` now delegates to `SolveFromOriginAsync(..., allowPositionalSearch)`. When a solve
+fails, `TryFindOriginByPositionalSearch` walks candidate centres outward from the hint until one
+seeds, and the solve re-enters ONCE with that origin -- re-entering rather than resuming mid-solve
+because everything downstream of the query is a function of the origin, and `FindStarsAsync` is
+cached on the `Image`, so the retry pays the query, the quad recovery and the race but not detection.
+
+**The search returns an ORIGIN, not a solution**, and that is what licenses everything below. Whatever
+it finds is re-seeded at full fidelity by the retry and still has to clear the acceptance gate, so a
+coarse search can MISS a lock but cannot admit a wrong one.
+
+**Geometry, not constants.** A frame reaches `0.5 * pixelScale * hypot(w, h)` from its own centre, so
+the query covers `searchRadius + halfDiagonal` exactly. The `0.75 * max(fov)` the ordinary query uses
+is the single-centre form of that same quantity (1.628 deg against a true 1.524 deg, ~7% slack).
+Candidate spacing is `0.35 * min(fov)`: on a square grid the worst distance to a node is `step/sqrt(2)`,
+so every point sits within ~25% of a frame width of some candidate, and the frozen mosaic brackets the
+tolerance at 19.6% seeding / 71.4% not.
+
+**Sizing the query is a CORRECTNESS requirement, not an optimisation**, and this is worth writing down
+because the instinct is the opposite. Measured, the query is sub-linear in area and its cost per star
+FALLS as the radius grows:
+
+| radius | area | stars | ms | us/star | vs area-proportional |
+|---|---|---|---|---|---|
+| 1.63 deg | 8.3 | 2,436 | 5.2 | 2.14 | 1.00x |
+| 3.69 deg | 42.8 | 9,605 | 13.7 | 1.43 | 0.51x |
+| 12.0 deg | 452.4 | 75,062 | 66.0 | 0.88 | 0.23x |
+
+13.7 ms against a 60-220 ms solve. Do not spend a day optimising it. (The general query path does
+re-read each overlapping GSC region's whole entry list per 1x1 deg cell, where the polar path collects
+unique regions and walks each once -- real, and paid for by locality, so not worth chasing either.)
+
+**Getting the cost down took three measured rounds and the first estimate was 60x wrong**, which is
+the part worth remembering:
+
+| | failure path |
+|---|---|
+| before phase E | 4.0 s |
+| naive search (full-fidelity seed per candidate) | **230 s** |
+| + one anchor-pool policy, 250-star verification set | 15.9 s |
+| + a 20,000-hypothesis budget per candidate | **5.8 s** |
+
+Two facts behind that. `PairRansacLock` verifies every hypothesis against the WHOLE detected list
+(1,569 stars on this frame) while capping ANCHORS at 48, so the verification set is what scales with
+field density -- truncating it is the single biggest lever. And `MaxHypotheses` is **1,000,000**; the
+"4096" in the diagnostics is a cancellation-check interval, not a budget, so a candidate centred on
+empty sky was free to spend the real seed's entire allowance. A candidate centred on the truth locks
+in the low hundreds (195 on the frame this exists for).
+
+**An explicitly supplied `searchRadius` is a BOUNDARY, and bounding the candidates is not enough.**
+`PlateSolverTests.GivenDenseFieldAndWrongSearchOriginWhenCatalogPlateSolvingThenItFailsInsteadOfReturningGarbage`
+caught this: it hints 6 deg off with `searchRadius: 2.5` so that no correct correspondence is in
+scope, and the search found the true field anyway. A frame centred at the edge of the search area
+still reaches half a diagonal beyond it, and the disc anchor pool reaches further again -- so the
+ANSWER is checked too, and a relocated solution outside the caller's radius is discarded. A caller who
+passes a radius is saying "the truth is within this of my hint"; a field outside it, however real, is
+not an answer to their question. (The ring loop also had to clamp: `ceil(radius/step)` puts the
+outermost ring past the radius.)
+
+**Outstanding, and it would remove the remaining regression:** gate the search on the direct seed's
+own signal. A misplaced hint scores clearly above chance but under the bar (19-22 hits against a
+chance of 7.5 on the P10 crop); a frame with nothing in it scores AT chance. Gating on that ratio
+would leave the cloudy-frame path paying nothing at all, instead of the +1.8 s it pays now.
+`SeedCost` already carries `BestHits`/`ExpectedChanceHits` for it.
+
 ## Correctness gates
 
 Speed that costs accuracy is a regression, so every phase is measured against the same oracles.
