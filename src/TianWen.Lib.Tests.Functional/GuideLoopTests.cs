@@ -20,6 +20,8 @@ public class GuideLoopTests(ITestOutputHelper output)
 {
     private const double PixelScaleArcsec = 1.5;
     private const double GuideIntervalSeconds = 2.0;
+    /// <summary>The site every loop here guides at, and therefore the one the offline trainer trains for.</summary>
+    private const double SiteLatitude = 48.2;
     private const int FrameWidth = 128;
     private const int FrameHeight = 96;
 
@@ -115,7 +117,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         try
         {
-            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -196,7 +198,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         try
         {
             await guideLoop.RunAsync(Drive, TimeSpan.FromSeconds(GuideIntervalSeconds),
-                hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+                hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -276,7 +278,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         try
         {
             await guideLoop.RunAsync(Drive, TimeSpan.FromSeconds(GuideIntervalSeconds),
-                hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+                hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -359,7 +361,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var offlineTrainer = new NeuralGuideTrainer(model, learningRate: 0.01f);
         for (var e = 0; e < 10; e++)
         {
-            offlineTrainer.TrainEpoch(calResult.Value, pController, maxPulseMs: 2000, numSamples: 128, seed: e);
+            offlineTrainer.TrainEpoch(calResult.Value, pController, maxPulseMs: 2000, siteLatitude: SiteLatitude, numSamples: 128, seed: e);
         }
 
         var tempDir = Directory.CreateTempSubdirectory("guide_loop_online_test_");
@@ -389,7 +391,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
             try
             {
-                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -510,7 +512,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
         try
         {
-            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+            await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds), hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -677,7 +679,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var offlineTrainer = new NeuralGuideTrainer(model, learningRate: 0.01f);
         for (var e = 0; e < 10; e++)
         {
-            offlineTrainer.TrainEpoch(calResult.Value, pController, maxPulseMs: 2000, numSamples: 128, seed: e);
+            offlineTrainer.TrainEpoch(calResult.Value, pController, maxPulseMs: 2000, siteLatitude: SiteLatitude, numSamples: 128, seed: e);
         }
 
         var tempDir = Directory.CreateTempSubdirectory("guide_loop_seeing_online_test_");
@@ -706,7 +708,7 @@ public class GuideLoopTests(ITestOutputHelper output)
 
             try
             {
-                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+                await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(2), hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -760,7 +762,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         await Should.ThrowAsync<InvalidOperationException>(async () =>
         {
             await guideLoop.RunAsync(_ => ValueTask.FromResult(Image.FromChannel(new float[240, 320])),
-                TimeSpan.FromSeconds(1), hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: ct);
+                TimeSpan.FromSeconds(1), hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: ct);
         });
     }
 
@@ -779,7 +781,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var offlineTrainer = new NeuralGuideTrainer(model, learningRate: 0.01f);
         for (var e = 0; e < 10; e++)
         {
-            offlineTrainer.TrainEpoch(calResult, pController, maxPulseMs: 2000, numSamples: 128, seed: e);
+            offlineTrainer.TrainEpoch(calResult, pController, maxPulseMs: 2000, siteLatitude: SiteLatitude, numSamples: 128, seed: e);
         }
         guideLoop.EnableNeuralModel(model);
 
@@ -807,7 +809,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var offlineTrainer = new NeuralGuideTrainer(model, learningRate: 0.01f);
         for (var e = 0; e < 10; e++)
         {
-            offlineTrainer.TrainEpoch(calResult, pController, maxPulseMs: 2000, numSamples: 128, seed: e);
+            offlineTrainer.TrainEpoch(calResult, pController, maxPulseMs: 2000, siteLatitude: SiteLatitude, numSamples: 128, seed: e);
         }
         guideLoop.EnableNeuralModel(model);
 
@@ -833,7 +835,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var offlineTrainer = new NeuralGuideTrainer(model, learningRate: 0.01f);
         for (var e = 0; e < 10; e++)
         {
-            offlineTrainer.TrainEpoch(calResult, pController, maxPulseMs: 2000, numSamples: 128, seed: e);
+            offlineTrainer.TrainEpoch(calResult, pController, maxPulseMs: 2000, siteLatitude: SiteLatitude, numSamples: 128, seed: e);
         }
         guideLoop.EnableNeuralModel(model);
 
@@ -896,7 +898,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         var offlineTrainer = new NeuralGuideTrainer(model, learningRate: 0.005f);
         for (var e = 0; e < 50; e++)
         {
-            offlineTrainer.TrainEpoch(neuralCalResult, pController, maxPulseMs: 2000, numSamples: 512, seed: e, inputNoiseStd: 0.3f);
+            offlineTrainer.TrainEpoch(neuralCalResult, pController, maxPulseMs: 2000, siteLatitude: SiteLatitude, numSamples: 512, seed: e, inputNoiseStd: 0.3f);
         }
 
         neuralLoop.EnableNeuralModel(model);
@@ -983,7 +985,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         try
         {
             await guideLoop.RunAsync(Drive, TimeSpan.FromSeconds(GuideIntervalSeconds),
-                hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+                hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -1044,7 +1046,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         try
         {
             await guideLoop.RunAsync(Drive, TimeSpan.FromSeconds(GuideIntervalSeconds),
-                hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+                hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -1132,7 +1134,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         try
         {
             await guideLoop.RunAsync(Drive, TimeSpan.FromSeconds(GuideIntervalSeconds),
-                hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+                hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -1197,13 +1199,13 @@ public class GuideLoopTests(ITestOutputHelper output)
         var mountDevice = new FakeDevice(DeviceType.Mount, 1, new NameValueCollection
         {
             { "port", "SkyWatcher" },
-            { "latitude", "48.2" },
+            { "latitude", SiteLatitude.ToString(CultureInfo.InvariantCulture) },
             { "longitude", "16.3" },
             { "polarMisalignmentAzArcmin", polarMisalignAzArcmin.ToString(CultureInfo.InvariantCulture) },
             { "polarMisalignmentAltArcmin", polarMisalignAltArcmin.ToString(CultureInfo.InvariantCulture) },
         });
         var mount = (IMountDriver)await hub.ConnectAsync(mountDevice, ct);
-        await mount.SetSiteLatitudeAsync(48.2, ct);
+        await mount.SetSiteLatitudeAsync(SiteLatitude, ct);
         await mount.SetSiteLongitudeAsync(16.3, ct);
         await mount.SetTrackingAsync(true, ct);
         await mount.SyncRaDecAsync(6.0, 45.0, ct);
@@ -1293,7 +1295,7 @@ public class GuideLoopTests(ITestOutputHelper output)
         try
         {
             await guideLoop.RunAsync(RenderAndCount, TimeSpan.FromSeconds(GuideIntervalSeconds),
-                hourAngle: 0, declination: 45.0, siteLatitude: 48.2, cancellationToken: cts.Token);
+                hourAngle: 0, declination: 45.0, siteLatitude: SiteLatitude, cancellationToken: cts.Token);
         }
         catch (OperationCanceledException)
         {

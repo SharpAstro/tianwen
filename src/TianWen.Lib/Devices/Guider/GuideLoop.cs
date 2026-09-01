@@ -299,12 +299,13 @@ internal sealed class GuideLoop
 
     /// <summary>
     /// Enables the neural model for guide corrections. Falls back to P-controller
-    /// if the model produces unreasonable outputs.
+    /// if the model produces unreasonable outputs. The feature builder is NOT created here: it
+    /// needs the site latitude, which only <see cref="RunAsync"/> is handed, and a placeholder
+    /// built with a made-up latitude reads like a value to the next caller.
     /// </summary>
     public void EnableNeuralModel(NeuralGuideModel model)
     {
         _neuralModel = model;
-        _neuralFeatures = new NeuralGuideFeatures(siteLatitude: 0);
         _useNeuralModel = true;
         _consecutiveFallbacks = 0;
     }
@@ -370,10 +371,9 @@ internal sealed class GuideLoop
 
         _isGuiding = true;
         _errorTracker.Reset();
-        if (_neuralFeatures is not null)
-        {
-            _neuralFeatures = new NeuralGuideFeatures(siteLatitude);
-        }
+        // The model is the flag, and the feature builder is created here and nowhere else: this is
+        // the first point at which the site latitude (feature 19, altitude) is actually known.
+        _neuralFeatures = _neuralModel is not null ? new NeuralGuideFeatures(siteLatitude) : null;
         _performanceMonitor?.Reset();
         _experienceBuffer?.Reset();
         _guideStartTimestamp = GetTimestamp();

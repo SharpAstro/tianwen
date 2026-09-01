@@ -66,8 +66,10 @@ internal sealed class NeuralGuideFeatures
     /// <summary>
     /// Creates a new feature builder with the given site latitude for altitude computation.
     /// </summary>
-    /// <param name="siteLatitude">Observer latitude in degrees.</param>
-    public NeuralGuideFeatures(double siteLatitude = 0)
+    /// <param name="siteLatitude">Observer latitude in degrees. Deliberately not defaulted: a
+    /// defaulted zero reads like a measurement and quietly builds equator features for whoever
+    /// forgot to pass one. Construct the builder where the latitude is known, at guide start.</param>
+    public NeuralGuideFeatures(double siteLatitude)
     {
         _siteLatitude = siteLatitude;
     }

@@ -8,6 +8,14 @@ namespace TianWen.Lib.Devices.Guider;
 /// trajectories with the P-controller as teacher (supervised learning).
 /// Implements mini-batch SGD with MSE loss.
 /// </summary>
+/// <remarks>
+/// <see cref="TrainEpoch"/> takes the latitude of the site the model trains FOR. Features 18-20
+/// (hour angle, altitude, declination) are mutually consistent at exactly one latitude, so a model
+/// trained at a fixed placeholder (this used to hardcode 45) learned a relation between the three
+/// that held nowhere else, and at the real site those inputs landed off the manifold the weights
+/// were fitted on. Persistence is per profile and a profile has one site, so one latitude per
+/// training run is the right shape; the caller passes the same value it starts the guide loop with.
+/// </remarks>
 internal sealed class NeuralGuideTrainer
 {
     private readonly NeuralGuideModel _model;
@@ -82,6 +90,9 @@ internal sealed class NeuralGuideTrainer
     /// <param name="calibration">Calibration result for the P-controller.</param>
     /// <param name="pController">P-controller providing target corrections.</param>
     /// <param name="maxPulseMs">Maximum pulse in ms for normalizing targets.</param>
+    /// <param name="siteLatitude">Latitude in degrees of the site the model trains for: the value
+    /// the guide loop will be started with, so the altitude feature is built the way inference
+    /// builds it.</param>
     /// <param name="numSamples">Number of training samples per epoch.</param>
     /// <param name="seed">Random seed for reproducibility.</param>
     /// <param name="inputNoiseStd">Standard deviation of Gaussian noise added to input features
@@ -92,6 +103,7 @@ internal sealed class NeuralGuideTrainer
         GuiderCalibrationResult calibration,
         ProportionalGuideController pController,
         double maxPulseMs,
+        double siteLatitude,
         int numSamples = 256,
         int seed = 0,
         float inputNoiseStd = 0.15f)
@@ -103,7 +115,7 @@ internal sealed class NeuralGuideTrainer
         // Clear gradient accumulators
         ClearGradients();
 
-        var features = new NeuralGuideFeatures(siteLatitude: 45.0);
+        var features = new NeuralGuideFeatures(siteLatitude);
         Span<float> inputBuffer = stackalloc float[NeuralGuideModel.InputSize];
         Span<float> dOutput = stackalloc float[NeuralGuideModel.OutputSize];
 
