@@ -138,6 +138,14 @@ under it, and the fake asserts that state by construction.
 - [ ] **24. Guider calibration slew at HA -0.5 h, Dec 0** against real obstructions: `Session.Lifecycle.cs`
       slews there before calibrating; the scout is OTA-only and runs after centering, so a tree at that
       pointing is found only by trying. (`sequencing.md` carries the "slew slightly off Dec 0" idea.)
+- [ ] **25. An OVERSAMPLED frame, for the solver's detection-binning floor**: any light finer than
+      1.5"/px (the 0.97"/px 9576x6388 polar preview is the canonical one), kept with its measured median
+      FWHM. Every committed fixture is 2.87-5.97"/px, so **no test in the repo reaches the binning gate at
+      all** and both halves of it are currently unmeasured: that a bin is proposed there, and whether
+      `MinSampledFwhmPx` then vetoes it and costs the polar ramp its 5.5 s rung-1 budget. Observe the
+      solver's `LastDetectionBinning` `(Proposed, Used)` and the wall clock of the detect stage. Validates
+      [plate-solver-performance.md](../plans/plate-solver-performance.md) phase D's sampling floor -- and
+      decides whether the budget has to be bought back with a central crop instead of a bin.
 
 ## Gated on gear but NOT validations (tracked in their own backlogs)
 

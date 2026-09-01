@@ -487,6 +487,17 @@ synthetic suite**, because a synthetic field is built from a transform the test 
 dataset rationale, both measurements above, and what real density covers that synthetic fields cannot:
 [docs/plans/plate-solver-performance.md](docs/plans/plate-solver-performance.md).
 
+**Binning before detection is PROPOSED by the plate scale and VETOED by the measured star width.**
+What a bin spends is sampling -- seeing over scale -- and a scale gate cannot see seeing, so the shipped
+"downsample to ~1.5"/px" rule put the binned FWHM under 2 px for any seeing better than 3", i.e. most
+usable nights. `MinSampledFwhmPx` (2.0) re-detects at full resolution when the binned median `StarFWHM`
+lands under it. **It only ever un-does a bin**: the cost is one wasted pass on the cheap raster, against
+a fit built on aliased centroids. Do not try to infer the unbinned width by multiplying back -- measured
+FWHM floors near 1.2 px (2.15 px at bin 1 reads 1.85 at bin 2, not 1.08). Binning's real cost is the star
+COUNT (roughly half), and it can drop a frame under `MinStarsForMatch` outright. **No committed fixture is
+oversampled**, so the gate proposes 1 on all of them and the polar-preview case is reasoned, not measured
+(hardware-validation item 25).
+
 **A remembered parity is a hypothesis BUDGET for the other half, never a skip; and it is keyed on the
 LIGHT PATH.** `SolveHintCache` learns each rig's plate scale and parity from an accepted solve.
 Skipping the doubted parity is the tempting form and it inverts the goal: with one half gone, a frame
