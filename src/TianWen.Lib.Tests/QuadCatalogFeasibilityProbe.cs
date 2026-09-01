@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging.Abstractions;
+using TianWen.Lib.Astrometry;
+using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using Xunit;
@@ -773,6 +777,274 @@ namespace TianWen.Lib.Tests
                         + (ratios.Count > 0 ? $", implied scale median {Pct(ratios, 0.5):F4}" : ""));
                 }
             }
+        }
+
+        /// <summary>
+        /// C3 attempt 2, step (a). C2' locked 24 of 24 through a projection the TEST built -- a
+        /// rectangle from <see cref="VelaProjection.HintWcs"/>, cut to the image's density. Attempt 1
+        /// wired the same matcher into the solver and found ZERO pairs on the real panel-10 crop. So
+        /// this measures the match through the PRODUCTION catalog path, the solver's own
+        /// <see cref="CatalogPlateSolver.ProjectCatalogStars"/> on the REAL header hints inside the
+        /// solver's own query box, so that what the frozen set says is what the solver would see.
+        /// </summary>
+        /// <remarks>
+        /// <para>Two arms. The FROZEN arm runs every anchor-pool policy the seed uses today (disc,
+        /// strict rectangle, 10% margin) plus the two windows C2' says a quad seed wants (0.6 and 1.0
+        /// margin) over the 24 panels from their own header hints, at the solver's default query box
+        /// and at one wide enough not to clip the widest window. The CROP arm runs the same policies
+        /// on the real panel-10 crop through the real catalog -- the frame attempt 1 failed on -- and
+        /// reports where a locked affine puts the frame centre against ASTAP's answer, because a lock
+        /// is only evidence if it lands on the right sky.</para>
+        /// <para>The cut is by DENSITY over the kept area (C2'), for the disc as for a rectangle: the
+        /// disc is pi/4 of a square frame, so its share of 300 detected stars is 235.</para>
+        /// </remarks>
+        [Fact(Timeout = 900_000)]
+        public async Task ReportWhetherTheQuadMatchSurvivesTheProductionProjection()
+        {
+            Assert.SkipUnless(
+                !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TIANWEN_QUAD_FEASIBILITY")),
+                "Set TIANWEN_QUAD_FEASIBILITY=1 to run the phase-C feasibility probe");
+
+            var ct = TestContext.Current.CancellationToken;
+            const int KDet = 300;
+            var manifest = VelaMosaicStarLists.Manifest;
+            var tuples = manifest.CatalogTuples();
+
+            // What the real header hints look like, so the rows below are read against them.
+            var hintErrors = new List<float>();
+            foreach (var panel in manifest.Panels)
+            {
+                var frame = panel.Frames[0];
+                hintErrors.Add((float)(CoordinateUtils.AngularSeparationDeg(
+                    frame.HintRA, frame.HintDec, frame.Wcs.CenterRA, frame.Wcs.CenterDec) / panel.FovDeg));
+            }
+
+            hintErrors.Sort();
+            output.WriteLine($"--- FROZEN panels from their own header hints: hint error median {Pct(hintErrors, 0.5):F3} frames, "
+                + $"p90 {Pct(hintErrors, 0.9):F3}, max {hintErrors[^1]:F3}; image top-K {KDet}");
+
+            foreach (var boxFactor in new[] { 0.75, 1.6 })
+            {
+                output.WriteLine($"  query box {boxFactor:F2} x FOV{(boxFactor == 0.75 ? " (the solver's default)" : "")}");
+                foreach (var arm in ProductionArms)
+                {
+                    foreach (var xSign in new[] { -1.0, 1.0 })
+                    {
+                        int locks = 0, panels = 0, pairs = 0, inliers = 0, projectedSum = 0, cutSum = 0, onFrameSum = 0;
+                        foreach (var panel in manifest.Panels)
+                        {
+                            var frame = panel.Frames[0];
+                            var dim = panel.Dim;
+                            var hint = frame.Hint;
+                            var region = BoxAround(tuples, hint, boxFactor * panel.FovDeg);
+                            var projected = CatalogPlateSolver.ProjectCatalogStars(
+                                region, hint, double.DegreesToRadians(dim.PixelScale / 3600.0),
+                                panel.Width / 2.0, panel.Height / 2.0, dim, xSign, arm.Margin, arm.Disc);
+                            panels++;
+                            projectedSum += projected.Count;
+                            if (projected.Count < 50)
+                            {
+                                continue;
+                            }
+
+                            var trueInFrame = new HashSet<(double RA, double Dec)>();
+                            foreach (var (_, _, idx) in VelaProjection.ProjectInFrameIndexed(manifest.Catalog, frame.Wcs, panel.Width, panel.Height))
+                            {
+                                trueInFrame.Add((manifest.Catalog[idx].RA, manifest.Catalog[idx].Dec));
+                            }
+
+                            var (table, diag, cut, _, _) = MatchProjected(
+                                projected, frame.DetectedPoints(KDet), KDet, AreaRatio(arm, panel.Width, panel.Height));
+                            cutSum += cut.Length;
+                            for (var i = 0; i < cut.Length; i++)
+                            {
+                                if (trueInFrame.Contains((projected[i].RA, projected[i].Dec)))
+                                {
+                                    onFrameSum++;
+                                }
+                            }
+
+                            pairs += diag.RawPairs;
+                            inliers += diag.FilteredPairs;
+                            if (table is not null)
+                            {
+                                locks++;
+                            }
+                        }
+
+                        var n = Math.Max(1, panels);
+                        output.WriteLine($"    {arm.Name,-30} xSign {xSign,+2:F0}: LOCKS {locks,2}/{panels}, raw pairs {pairs,6}, inliers {inliers,5}; "
+                            + $"projected {projectedSum / n,5}/panel, cut {cutSum / n,4}, of which {onFrameSum / n,4} on the true frame");
+                    }
+                }
+            }
+
+            output.WriteLine("--- the real panel-10 crop, through the real catalog");
+            var image = await SharedTestData.ExtractGZippedFitsImageAsync(
+                "Vela_SNR_Panel_10-Multi-NB-color-Hydrogen-alpha-Oxygen_III-crop", isReadOnly: false, cancellationToken: ct);
+            try
+            {
+                var dim = image.GetImageDim() ?? throw new InvalidOperationException("the crop carries no plate scale");
+                var db = new CelestialObjectDB();
+                await db.InitDBAsync(waitForTycho2BulkLoad: true, cancellationToken: ct);
+                var solver = new CatalogPlateSolver(db, NullLogger<CatalogPlateSolver>.Instance);
+                var hint = new WCS(image.ImageMeta.TargetRA, image.ImageMeta.TargetDec);
+                var exposureStart = image.ImageMeta.ExposureStartTime;
+                var dtYr = exposureStart.Year > 1900 ? exposureStart.JulianYearsSinceJ2000() : 0.0;
+
+                // Ranked exactly as the solver ranks them before its seed: by flux, brightest first.
+                var ranked = new List<ImagedStar>(await solver.DetectStarsAsync(image, ct));
+                ranked.Sort((a, b) => b.Flux.CompareTo(a.Flux));
+                var detAll = new Vector2[ranked.Count];
+                for (var i = 0; i < ranked.Count; i++)
+                {
+                    detAll[i] = new Vector2(ranked[i].XCentroid, ranked[i].YCentroid);
+                }
+
+                var fovDeg = Math.Max(dim.FieldOfView.width, dim.FieldOfView.height);
+                var pixelScaleRad = double.DegreesToRadians(dim.PixelScale / 3600.0);
+                var cx = image.Width / 2.0;
+                var cy = image.Height / 2.0;
+                output.WriteLine($"  {image.Width}x{image.Height} at {dim.PixelScale:F3}\"/px, FOV {fovDeg:F2} deg; {ranked.Count} detected; "
+                    + $"header hint {CoordinateUtils.AngularSeparationDeg(hint.CenterRA, hint.CenterDec, AstapCropRAHours, AstapCropDec) / fovDeg:F2} frames from ASTAP's centre");
+
+                foreach (var boxFactor in new[] { 0.75, 1.6 })
+                {
+                    var region = solver.QueryCatalogStarsInRegion(hint, boxFactor * fovDeg, dtYr);
+                    output.WriteLine($"  query box {boxFactor:F2} x FOV: {region.Count} catalog stars");
+                    foreach (var kDet in new[] { 300, 500 })
+                    {
+                        var det = detAll[..Math.Min(kDet, detAll.Length)];
+                        foreach (var arm in ProductionArms)
+                        {
+                            foreach (var xSign in new[] { -1.0, 1.0 })
+                            {
+                                var projected = CatalogPlateSolver.ProjectCatalogStars(
+                                    region, hint, pixelScaleRad, cx, cy, dim, xSign, arm.Margin, arm.Disc);
+                                if (projected.Count < 50)
+                                {
+                                    output.WriteLine($"    K={det.Length,3} {arm.Name,-30} xSign {xSign,+2:F0}: only {projected.Count} projected");
+                                    continue;
+                                }
+
+                                var (table, diag, cut, imageQuads, catalogQuads) = MatchProjected(
+                                    projected, det, det.Length, AreaRatio(arm, image.Width, image.Height));
+
+                                var centre = "";
+                                if (table?.FitAffineTransform() is { } m
+                                    && VelaProjection.HintWcs(hint, dim, xSign).PixelToSky(
+                                        Vector2.Transform(new Vector2((float)cx, (float)cy), m).X,
+                                        Vector2.Transform(new Vector2((float)cx, (float)cy), m).Y) is { } sky)
+                                {
+                                    var offArcmin = 60.0 * CoordinateUtils.AngularSeparationDeg(sky.RA, sky.Dec, AstapCropRAHours, AstapCropDec);
+                                    centre = $"; centre {offArcmin:F1} arcmin from ASTAP, rms {diag.RmsResidualPx:F2} px";
+                                }
+
+                                output.WriteLine($"    K={det.Length,3} {arm.Name,-30} xSign {xSign,+2:F0}: {(table is null ? "no lock" : "LOCK   ")} "
+                                    + $"raw pairs {diag.RawPairs,5}, inliers {diag.FilteredPairs,4}, implied scale {diag.MedianRatio,6:F4}; "
+                                    + $"projected {projected.Count,5}, cut {cut.Length,4}; Dist1 img [{Dist1Range(imageQuads)}] cat [{Dist1Range(catalogQuads)}]{centre}");
+                            }
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                image.Release();
+            }
+        }
+
+        /// <summary>ASTAP's solution for the panel-10 crop, the only oracle that fixture has (see <c>RealFrameSolveTests</c>).</summary>
+        private const double AstapCropRAHours = 8.69653;
+        private const double AstapCropDec = -48.0400;
+
+        /// <param name="Name">Printed label.</param>
+        /// <param name="Margin">Rectangle margin as a fraction of frame size; ignored for the disc.</param>
+        /// <param name="Disc">The seed's rotation-invariant inscribed disc.</param>
+        private readonly record struct ProductionArm(string Name, float Margin, bool Disc);
+
+        /// <summary>
+        /// The seed's three anchor-pool policies in their production order, then the two windows a quad
+        /// seed would want on a hint that is wrong by most of a frame.
+        /// </summary>
+        private static readonly ProductionArm[] ProductionArms =
+        [
+            new ProductionArm("disc (seed pool 1)", 0f, true),
+            new ProductionArm("rect margin 0 (seed pool 2)", 0f, false),
+            new ProductionArm("rect margin 0.1 (seed pool 3)", 0.1f, false),
+            new ProductionArm("rect margin 0.6 (C2')", 0.6f, false),
+            new ProductionArm("rect margin 1.0", 1.0f, false),
+        ];
+
+        /// <summary>Kept area over frame area, which is what the density cut scales the image's star count by.</summary>
+        private static double AreaRatio(ProductionArm arm, int width, int height)
+            => arm.Disc
+                ? Math.PI * Math.Min(width, height) * Math.Min(width, height) / (4.0 * width * height)
+                : (1.0 + 2.0 * arm.Margin) * (1.0 + 2.0 * arm.Margin);
+
+        /// <summary>
+        /// The solver's query REGION, reproduced on the frozen catalog: a box of <paramref name="radiusDeg"/>
+        /// in Dec and <c>radius / cos(dec)</c> in RA about the hint, order preserved (brightest first).
+        /// </summary>
+        private static List<(double RA, double Dec, double VMag)> BoxAround(
+            List<(double RA, double Dec, double VMag)> all, WCS hint, double radiusDeg)
+        {
+            var cosDec = Math.Cos(double.DegreesToRadians(hint.CenterDec));
+            var radiusRA = radiusDeg / (15.0 * cosDec);
+            var kept = new List<(double RA, double Dec, double VMag)>();
+            foreach (var star in all)
+            {
+                var dRa = Math.Abs(star.RA - hint.CenterRA);
+                if (dRa > 12.0)
+                {
+                    dRa = 24.0 - dRa;
+                }
+
+                if (dRa <= radiusRA && Math.Abs(star.Dec - hint.CenterDec) <= radiusDeg)
+                {
+                    kept.Add(star);
+                }
+            }
+
+            return kept;
+        }
+
+        /// <summary>
+        /// Cuts a brightest-first projected list to the image's density over the kept area and runs the
+        /// ratio-only match against the detected top-K.
+        /// </summary>
+        private static (StarReferenceTable? Table, StarReferenceTable.FindFitDiagnostics Diag, Vector2[] Cut, StarQuadList ImageQuads, StarQuadList CatalogQuads) MatchProjected(
+            List<CatalogPlateSolver.ProjectedCatalogStar> projected, Vector2[] det, int kDet, double areaRatio)
+        {
+            var take = Math.Min((int)(kDet * areaRatio), projected.Count);
+            var cut = new Vector2[take];
+            for (var i = 0; i < take; i++)
+            {
+                cut[i] = new Vector2(projected[i].Pixel.XCentroid, projected[i].Pixel.YCentroid);
+            }
+
+            var imageQuads = BuildQuads(det);
+            var catalogQuads = BuildQuads(cut);
+            var (table, diag) = StarReferenceTable.FindFitWithDiagnostics(
+                imageQuads, catalogQuads, minimumCount: 3, quadTolerance: 0.008f, scaleTolerance: 0.05f);
+            return (table, diag, cut, imageQuads, catalogQuads);
+        }
+
+        private static string Dist1Range(StarQuadList quads)
+        {
+            if (quads.Count == 0)
+            {
+                return "empty";
+            }
+
+            float min = float.MaxValue, max = float.MinValue;
+            for (var i = 0; i < quads.Count; i++)
+            {
+                min = Math.Min(min, quads[i].Dist1);
+                max = Math.Max(max, quads[i].Dist1);
+            }
+
+            return $"{min:F1}..{max:F1}";
         }
 
         /// <summary>Quads whose CENTRES coincide, which needs no descriptor tolerance.</summary>
