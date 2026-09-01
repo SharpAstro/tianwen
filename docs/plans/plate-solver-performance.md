@@ -646,21 +646,55 @@ quads and the descriptor changes completely. ASTAP therefore matches the DENSITI
 the star density will be the same as in the image to solve" (line 1633) --- on top of the hard
 `max_stars` cap that keeps both sides shallow.
 
-The probe's two sides were **not** matched that way: at top-K 100 it built 1,629 image quads against
-1,217 catalog quads, and the deeper rows are further apart still. So it may have been measuring what
-happens when two nearest-neighbour graphs are cut at different depths, which is a different question
-from whether the descriptors can match.
+**C0, run 2026-09-01, settles it: the phase is ALIVE and the builder was never the problem.**
+`ReportWhetherSharedQuadsAreAPopulationOrAConstructionProblem` adds three arms to the probe --- the
+shipped baseline, a CEILING that builds both quad lists from only the mutually matched stars (not
+achievable at solve time, it reads the answer; it exists to test the builder), and a sweep of the
+catalog cut, which is the only knob a real solve has.
 
-**The test that would settle it** is a rerun of `QuadCatalogFeasibilityProbe` with the catalog window
-truncated to the SAME star count as the detection list (both by brightness), reporting the shared-quad
-fraction against the count ratio. If the fraction climbs as the ratio approaches 1, the phase is alive
-and the earlier reading was an artefact of the cut; if it stays near 2.6%, the verdict stands on much
-firmer ground than it does now. **Not yet run** --- stated here so the next person does not re-derive
-it, and so the "dead" verdict is not quoted without its caveat.
+| image top-K | baseline shared | **ceiling** | stars det->cat | cat->det |
+|---|---|---|---|---|
+| 200 | 3.6% | **99.7%** | 63.4% | 94.5% |
+| 500 | **15.8%** | **99.8%** | 73.2% | 91.8% |
+
+- **The builder is sound.** Given the same stars on both sides the quad lists agree 99.8%, so nothing
+  about the three-nearest-neighbour construction is unstable. Every point of the shortfall is
+  population.
+- **2.6% is the K=100 row, and the rate climbs steeply with K.** At the 500 we already cap at it is
+  **15.8%**, which is ~59 shared quads per panel against ASTAP's own bar of
+  `minimum_quads = 3 + nr_quads/100` ~= 7. An 8x margin, not a marginal pass. **Do not quote the 2.6%
+  without its K.**
+- **The catalog cut has an OPTIMUM, and it is not "more".** At K=200 the best cut is 1.5x the image
+  count (10.1% against 3.6% at 1x); at K=500 it is 1x. Past the peak the shared fraction FALLS --- 4.5%
+  at 2x, 1.2% at 3x --- while star overlap keeps rising to ~84%. Extra catalog stars the image never
+  detected re-point the catalog-side neighbour graph and destroy quads rather than adding them. So the
+  cut is a tuned quantity, and "query more catalog" is actively wrong.
+- **`cat->det` sits near 92% throughout**: almost every catalog star IS detected. The asymmetry is
+  ours --- we detect far deeper than Tycho-2 --- which is why the cut has to come down to meet it
+  rather than the catalog reaching up.
+
+**This also identifies the real blocker, and it is C1 rather than anything about quads.** Under these
+conditions both sides share a pixel frame exactly, so `Dist1` agrees to well under a pixel --- and
+`FindFit` still locked **0 of 24 panels**. Its `quadTolerance` (0.008 default) is applied to `Dist1` in
+ABSOLUTE PIXELS beside five dimensionless ratios, exactly as `StarReferenceTable`'s own doc warns
+("this tolerance has mixed units: it works because stacking images have near-identical Dist1 values").
+15.8% of quads coincide and the matcher rejects every one of them. A ratio-only match with `Dist1`
+demoted to windowing plus scale recovery is the whole fix.
 
 Worth the effort because of what point 5 above says it buys: not a constant factor, but a positional
 search whose expensive half stops depending on the trial centre, and the deletion of the parity race
 outright. The two things we measure worst at are the two things it addresses.
+
+**Revised phasing, in dependency order.** C1 first because it is a latent bug independent of all this;
+C0 is done.
+
+| | step | gate |
+|---|---|---|
+| ~~C0~~ | ~~is it population or construction?~~ | **DONE: population, ceiling 99.8%** |
+| C1 | ratio-only descriptor match; `Dist1` demoted to the sliding window and to scale recovery | `FindFit` locks > 0 of 24 panels on the frozen set |
+| C2 | catalog cut sized from the detection count, at the measured optimum | shared-quad fraction at or above the 15.8% baseline on the frozen set |
+| C3 | quad seed as an ALTERNATIVE to `PairRansacLock`, behind the existing acceptance gate | no regression on the committed real frames |
+| C4 | quads in the positional search: build image quads once, move only the catalogue | the 93-arcmin crop under 1 s (it is 3.17 s today, ASTAP 1.54 s) |
 
 ### D. Cap the star list; bin ONLY where sampling allows it
 

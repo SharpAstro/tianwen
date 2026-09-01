@@ -497,6 +497,185 @@ namespace TianWen.Lib.Tests
         }
 
         /// <summary>
+        /// C0, the phase-C gate: is the 2.6% shared-quad rate a POPULATION problem or a QUAD
+        /// CONSTRUCTION problem? Nothing below phase C is worth building if it is the latter.
+        /// </summary>
+        /// <remarks>
+        /// <para>Both sides already take top-K, so the star COUNTS were never the issue. What the
+        /// baseline also reports is that barely 63% of the BRIGHTEST detections have a catalog
+        /// counterpart at all, and a quad needs all four of its members shared before the neighbour
+        /// ranking even gets a say -- 0.63^4 is 16% before any attrition. So the question is which of
+        /// those two the rate is measuring.</para>
+        /// <para>Three arms. <b>Baseline</b> is the shipped comparison. <b>Ceiling</b> builds both quad
+        /// lists from ONLY the mutually matched stars, which is not achievable at solve time (it reads
+        /// the answer) and is not meant to be: it is the control that says whether the builder itself
+        /// is stable, and a ceiling far below 100% kills the phase outright. <b>Catalog sweep</b> is
+        /// the actionable one -- at solve time the detection list is what it is and the CATALOG cut is
+        /// the free variable, so this asks whether any cut aligns the two populations.</para>
+        /// </remarks>
+        [Fact(Timeout = 900_000)]
+        public void ReportWhetherSharedQuadsAreAPopulationOrAConstructionProblem()
+        {
+            Assert.SkipUnless(
+                !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TIANWEN_QUAD_FEASIBILITY")),
+                "Set TIANWEN_QUAD_FEASIBILITY=1 to run the phase-C feasibility probe");
+
+            var manifest = VelaMosaicStarLists.Manifest;
+
+            foreach (var kDet in new[] { 200, 500 })
+            {
+                output.WriteLine($"--- image top-K = {kDet}");
+
+                int imgQuads = 0, catQuads = 0, shared = 0, detMatched = 0, detTotal = 0, catMatched = 0, catTotal = 0;
+                int ceilImgQuads = 0, ceilShared = 0, panels = 0;
+                foreach (var panel in manifest.Panels)
+                {
+                    var frame = panel.Frames[0];
+                    var det = frame.DetectedPoints(kDet);
+                    var cat = ProjectTopK(manifest, panel, frame, kDet);
+                    if (det.Length < 50 || cat.Length < 50)
+                    {
+                        continue;
+                    }
+
+                    panels++;
+                    detTotal += det.Length;
+                    catTotal += cat.Length;
+                    detMatched += CountWithin(det, cat, CentreTolerancePx);
+                    catMatched += CountWithin(cat, det, CentreTolerancePx);
+
+                    var iq = BuildQuads(det);
+                    var cq = BuildQuads(cat);
+                    imgQuads += iq.Count;
+                    catQuads += cq.Count;
+                    shared += CountCoincidentQuads(iq, cq);
+
+                    // The ceiling: the same stars on both sides, image coords against catalog coords.
+                    var (dPts, cPts) = MutualMatches(det, cat, CentreTolerancePx);
+                    if (dPts.Length >= 50)
+                    {
+                        var ciq = BuildQuads(dPts);
+                        ceilImgQuads += ciq.Count;
+                        ceilShared += CountCoincidentQuads(ciq, BuildQuads(cPts));
+                    }
+                }
+
+                output.WriteLine(
+                    $"  baseline : {imgQuads,5} img quads vs {catQuads,5} cat quads, shared {shared,5} "
+                    + $"({(imgQuads > 0 ? 100.0 * shared / imgQuads : 0),5:F1}%); "
+                    + $"stars det->cat {(detTotal > 0 ? 100.0 * detMatched / detTotal : 0),5:F1}%, "
+                    + $"cat->det {(catTotal > 0 ? 100.0 * catMatched / catTotal : 0),5:F1}% over {panels} panels");
+                output.WriteLine(
+                    $"  CEILING  : matched-population quads {ceilImgQuads,5}, shared {ceilShared,5} "
+                    + $"({(ceilImgQuads > 0 ? 100.0 * ceilShared / ceilImgQuads : 0),5:F1}%)  <- construction is sound iff this is high");
+
+                foreach (var mult in new[] { 0.5, 1.0, 1.5, 2.0, 3.0 })
+                {
+                    int mImg = 0, mShared = 0, mDetMatched = 0, mDetTotal = 0;
+                    foreach (var panel in manifest.Panels)
+                    {
+                        var frame = panel.Frames[0];
+                        var det = frame.DetectedPoints(kDet);
+                        var cat = ProjectTopK(manifest, panel, frame, (int)(kDet * mult));
+                        if (det.Length < 50 || cat.Length < 50)
+                        {
+                            continue;
+                        }
+
+                        mDetTotal += det.Length;
+                        mDetMatched += CountWithin(det, cat, CentreTolerancePx);
+                        var iq = BuildQuads(det);
+                        mImg += iq.Count;
+                        mShared += CountCoincidentQuads(iq, BuildQuads(cat));
+                    }
+
+                    output.WriteLine(
+                        $"  cat x{mult,-4}: shared {(mImg > 0 ? 100.0 * mShared / mImg : 0),5:F1}%  "
+                        + $"(stars det->cat {(mDetTotal > 0 ? 100.0 * mDetMatched / mDetTotal : 0),5:F1}%)");
+                }
+            }
+        }
+
+        private static Vector2[] ProjectTopK(
+            VelaMosaicManifest manifest, VelaPanel panel,
+            VelaFrame frame, int k)
+        {
+            var all = VelaProjection.ProjectInFrameIndexed(manifest.Catalog, frame.Wcs, panel.Width, panel.Height);
+            var take = Math.Min(k, all.Count);
+            var pts = new Vector2[take];
+            for (var i = 0; i < take; i++)
+            {
+                pts[i] = new Vector2(all[i].X, all[i].Y);
+            }
+
+            return pts;
+        }
+
+        /// <summary>Quads whose CENTRES coincide, which needs no descriptor tolerance.</summary>
+        private static int CountCoincidentQuads(StarQuadList a, StarQuadList b)
+        {
+            var n = 0;
+            for (var i = 0; i < a.Count; i++)
+            {
+                var q = a[i];
+                for (var j = 0; j < b.Count; j++)
+                {
+                    var c = b[j];
+                    var dx = q.X - c.X;
+                    var dy = q.Y - c.Y;
+                    if (dx * dx + dy * dy < CentreTolerancePx * CentreTolerancePx)
+                    {
+                        n++;
+                        break;
+                    }
+                }
+            }
+
+            return n;
+        }
+
+        /// <summary>
+        /// Greedy nearest pairing between the two lists. Used only for the CEILING arm, which is
+        /// deliberately not achievable at solve time -- it reads the answer.
+        /// </summary>
+        private static (Vector2[] A, Vector2[] B) MutualMatches(Vector2[] a, Vector2[] b, float tolerance)
+        {
+            var outA = new List<Vector2>(a.Length);
+            var outB = new List<Vector2>(a.Length);
+            var taken = new bool[b.Length];
+            foreach (var p in a)
+            {
+                var best = -1;
+                var bestD = tolerance * tolerance;
+                for (var j = 0; j < b.Length; j++)
+                {
+                    if (taken[j])
+                    {
+                        continue;
+                    }
+
+                    var dx = p.X - b[j].X;
+                    var dy = p.Y - b[j].Y;
+                    var d = dx * dx + dy * dy;
+                    if (d < bestD)
+                    {
+                        bestD = d;
+                        best = j;
+                    }
+                }
+
+                if (best >= 0)
+                {
+                    taken[best] = true;
+                    outA.Add(p);
+                    outB.Add(b[best]);
+                }
+            }
+
+            return (outA.ToArray(), outB.ToArray());
+        }
+
+        /// <summary>
         /// Star count carried into matching. 500 is what the detector already caps at and what
         /// ASTAP solves this class of field from.
         /// </summary>
