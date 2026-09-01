@@ -811,11 +811,63 @@ magnitude while the image ranks by measured flux on an HOO narrowband crop. Thos
 result is not wrong, but it does not transfer as written**, and the next attempt should reproduce the
 production projection inside the probe before touching the solver again.
 
-Next attempt, in this order: (a) make the probe use `ProjectCatalogStars` rather than the test's own
+The attempt order that followed: (a) make the probe use `ProjectCatalogStars` rather than the test's own
 projection, so the frozen set measures what production does; (b) settle whether the ranking mismatch
-(flux against V on narrowband) is what breaks membership, which `SolverAnchorQualityProbe` is already
-shaped to answer; (c) only then wire it, and wire it AHEAD of the parity race, where the 3.17 s
-actually is.
+(flux against V on narrowband) is what breaks membership; (c) only then wire it, and wire it AHEAD of
+the parity race, where the time actually is. (a) and (b) are answered below.
+
+#### C3, attempt 2 (a): through the production projection it locks, the crop included (2026-09-02)
+
+`ReportWhetherTheQuadMatchSurvivesTheProductionProjection` runs the ratio-only match through the
+solver's own `ProjectCatalogStars`, inside the solver's own query box, on the REAL header hints -- the
+24 frozen panels first, then the panel-10 crop itself through the real catalog. **Attempt 1's zero was
+a density mismatch in the attempt, not a property of the inputs.**
+
+**The frozen panels' header hints are nearly perfect** (median 0.001 frames, p90 0.004, max 0.128), so
+they do not exercise the relocating case at all; C2' and the crop are the wrong-hint evidence. Image
+top-K 300; the two parities give identical rows, as a mirror-invariant descriptor must:
+
+| query box | pool | locks | raw pairs | inliers | projected / panel | cut | on the true frame |
+|---|---|---|---|---|---|---|---|
+| 0.75 x FOV (the default) | disc (seed pool 1) | 24/24 | 315 | 303 | 2,791 | 235 | 233 |
+| 0.75 x FOV | rect, margin 0 | 24/24 | 387 | 371 | 3,547 | 300 | 293 |
+| 0.75 x FOV | rect, margin 0.1 | 24/24 | 451 | 426 | 5,104 | 432 | 307 |
+| 0.75 x FOV | rect, margin 0.6 | 24/24 | 223 | 187 | 8,032 | 1,452 | 652 |
+| 0.75 x FOV | rect, margin 1.0 | **0/24** | 65 | 24 | 8,032 | 2,700 | 1,211 |
+| 1.6 x FOV | rect, margin 0.6 | 24/24 | 579 | 497 | 17,063 | 1,452 | 317 |
+| 1.6 x FOV | rect, margin 1.0 | 24/24 | 765 | 631 | 30,530 | 2,700 | 339 |
+
+**The one failure is the density rule applied to the wrong area.** A 1.0-margin window is 9x the
+frame, but the 0.75 x FOV query box covers only 2.25x of it, so a cut of 300 x 9 = 2,700 lands 1,211
+stars on the true frame against 300 detected -- 4x deeper than the image, which is C0's collapse. The
+same window with a box that covers it puts 339 on the frame and locks 24/24 with the most pairs of any
+row. **Rule: the cut scales by the area actually COVERED -- the window intersected with the query box
+-- never by the nominal window.**
+
+**The crop.** 1310x1291 at 5.966"/px (a 2.17 deg field), 1,569 detected, header 0.71 frames from
+ASTAP's centre. Every policy locks, in both parities, and every locked affine puts the frame centre
+0.0-0.1 arcmin from ASTAP's 08:41:47.5 -48:02:24, at 0.01-0.09 px rms on the quad centres:
+
+| query box | image K | pool | raw pairs = inliers | implied scale | `Dist1` image / catalog (px) |
+|---|---|---|---|---|---|
+| 0.75 x FOV (2,436 stars) | 300 | disc | 6 | 0.9986 | 39.9-231.7 / 14.5-307.7 |
+| 0.75 x FOV | 300 | rect, margin 0 | 13 | 0.9986 | 39.9-231.7 / 14.5-265.5 |
+| 0.75 x FOV | 300 | rect, margin 0.6 | 38 | 0.9982 | 39.9-231.7 / 7.4-295.4 |
+| 0.75 x FOV | 500 | rect, margin 0.6 | 34 | 0.9984 | 22.3-218.1 / 7.4-296.8 |
+| 1.6 x FOV (7,961 stars) | 300 | rect, margin 0.6 | 41 | 0.9983 | 39.9-231.7 / 4.4-303.0 |
+| 1.6 x FOV | 300 | rect, margin 1.0 | 49 | 0.9983 | 39.9-231.7 / 4.4-395.8 |
+| 1.6 x FOV | 500 | rect, margin 1.0 | 60 | 0.9985 | 22.3-218.1 / 4.4-241.5 |
+
+Implied scale 0.9985 against the header's 5.966"/px is 5.975"/px; the accepted solve reports 5.9734.
+The disc -- production's first pool, centred 0.71 frames from the truth -- still finds 6 quads in the
+sliver it shares with the real frame, and they are enough. **What attempt 1 measured was its own cut**:
+`Dist1` of 60-334 px on the image side against 7-188 on the catalog side says the image carried far
+fewer stars than the catalog cut (96 image quads is roughly 130 stars at the ~0.7 quads per star the
+frozen panels build, against ~450 catalog stars in the disc), and a 3.5x density gap re-points every
+neighbour. Cut by covered area, both sides span the same range and the ratios agree.
+
+**(b) is answered in passing.** The crop is an HOO narrowband frame ranked by measured flux against a
+V-ranked catalog, and it locks with 34-60 inliers. Ranking is not what breaks membership.
 
 ### D. Cap the star list; bin ONLY where sampling allows it
 

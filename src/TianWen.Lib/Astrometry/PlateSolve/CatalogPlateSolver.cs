@@ -772,7 +772,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// drift apart -- they must ask the same question of two rasters for their star counts and widths
     /// to be comparable at all.
     /// </summary>
-    private Task<StarList> DetectStarsAsync(Image img, CancellationToken cancellationToken)
+    internal Task<StarList> DetectStarsAsync(Image img, CancellationToken cancellationToken)
         => img.FindStarsAsync(img.ReferenceStarChannel, snrMin: 5f, maxStars: MaxStarsCarriedIntoMatching, minStars: 50, maxRetries: 0, maxFirstPassNoiseSigma: Image.MaxFirstPassNoiseSigma, logger: _logger, cancellationToken: cancellationToken);
 
     /// <summary>
