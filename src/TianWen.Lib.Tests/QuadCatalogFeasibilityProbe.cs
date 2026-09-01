@@ -596,7 +596,68 @@ namespace TianWen.Lib.Tests
             }
         }
 
-        private static Vector2[] ProjectTopK(
+        /// <summary>
+        /// C1: does dropping <c>Dist1</c> from the descriptor test and making its candidate window
+        /// MULTIPLICATIVE turn coincident quads into locks? C0 said 15.8% of quads coincide at K=500
+        /// and <c>FindFit</c> locked 0 of 24 panels anyway, which points at the matcher rather than at
+        /// the quads.
+        /// </summary>
+        /// <remarks>
+        /// The scale sweep matters as much as the on/off comparison: these two fields share a pixel
+        /// frame exactly, so a tolerance of 0 ought to be enough and anything wider only admits more
+        /// candidates. If locks need a WIDE tolerance here, the window is not what was blocking them.
+        /// </remarks>
+        [Fact(Timeout = 900_000)]
+        public void ReportWhetherARatioOnlyMatchLocksWhereTheMixedUnitOneCannot()
+        {
+            Assert.SkipUnless(
+                !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("TIANWEN_QUAD_FEASIBILITY")),
+                "Set TIANWEN_QUAD_FEASIBILITY=1 to run the phase-C feasibility probe");
+
+            var manifest = VelaMosaicStarLists.Manifest;
+
+            foreach (var kDet in new[] { 200, 500 })
+            {
+                foreach (var scaleTol in new float?[] { null, 0.01f, 0.05f, 0.10f })
+                {
+                    int locks = 0, panels = 0, rawPairs = 0;
+                    var ratios = new List<float>();
+
+                    foreach (var panel in manifest.Panels)
+                    {
+                        var frame = panel.Frames[0];
+                        var det = frame.DetectedPoints(kDet);
+                        var cat = ProjectTopK(manifest, panel, frame, kDet);
+                        if (det.Length < 50 || cat.Length < 50)
+                        {
+                            continue;
+                        }
+
+                        panels++;
+                        var (table, diag) = StarReferenceTable.FindFitWithDiagnostics(
+                            BuildQuads(det), BuildQuads(cat), minimumCount: 3, quadTolerance: 0.008f,
+                            scaleTolerance: scaleTol);
+                        rawPairs += diag.RawPairs;
+                        if (table is not null)
+                        {
+                            locks++;
+                            if (!float.IsNaN(diag.MedianRatio))
+                            {
+                                ratios.Add(diag.MedianRatio);
+                            }
+                        }
+                    }
+
+                    ratios.Sort();
+                    output.WriteLine(
+                        $"K={kDet,3} scaleTol={(scaleTol is { } s ? $"{s,5:F2}" : " none"),5}: "
+                        + $"LOCKS {locks,2}/{panels}, raw quad pairs {rawPairs,6}"
+                        + (ratios.Count > 0 ? $", implied scale median {Pct(ratios, 0.5):F4}" : ""));
+                }
+            }
+        }
+
+        internal static Vector2[] ProjectTopK(
             VelaMosaicManifest manifest, VelaPanel panel,
             VelaFrame frame, int k)
         {
@@ -698,7 +759,7 @@ namespace TianWen.Lib.Tests
         /// <c>SortedStarList.FindQuadsAsync</c> does before calling it) or that search looks in the
         /// wrong part of the frame.
         /// </summary>
-        private static StarQuadList BuildQuads(Vector2[] points)
+        internal static StarQuadList BuildQuads(Vector2[] points)
         {
             var stars = new ImagedStar[points.Length];
             for (var i = 0; i < points.Length; i++)

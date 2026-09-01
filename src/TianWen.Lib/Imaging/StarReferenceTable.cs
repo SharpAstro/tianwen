@@ -37,17 +37,24 @@ namespace TianWen.Lib.Imaging;
 /// </list>
 ///
 /// <para><b>Applicability</b></para>
-/// <para>Quad matching requires both star lists to represent similar stellar populations
-/// (same detection characteristics, comparable star counts). This holds for <b>image stacking</b>
-/// where both frames are captured with the same camera and optics. It does <em>not</em> hold for
-/// <b>catalog plate solving</b>, where projected catalog stars and detected image stars have
-/// different populations (faint catalog stars below the detection threshold, detected artefacts
-/// absent from the catalog). The differing nearest-neighbour sets produce incompatible quad
-/// geometries, yielding too few matches for a reliable affine fit, and top-K brightness
-/// selection does <em>not</em> rescue it. Plate solving therefore locks geometry with two-star pair
-/// hypotheses instead (<c>PairRansacLock</c>, which needs only two common members per hypothesis
-/// and verifies by global consensus), followed by proximity matching with brightness-rank
-/// penalties (see <c>CatalogPlateSolver</c>).</para>
+/// <para>Quad matching needs both star lists to represent similar stellar populations (same
+/// detection characteristics, comparable star counts), which holds for <b>image stacking</b> where
+/// both frames come off the same camera and optics. <b>It was recorded here as NOT holding for
+/// catalog plate solving, and that is now measured to be wrong</b> -- kept in view because the claim
+/// stood for months and was cited as settled.</para>
+/// <para>The population argument itself is real and is quantified below: differing
+/// nearest-neighbour sets DO cost most of the quads. What did not follow is the conclusion. At the
+/// 500 stars the solver already caps at, 15.8% of quads survive, which is about 59 per panel against
+/// the 3 + quads/100 that ASTAP's own matcher asks for -- an 8x margin. What actually blocked every
+/// lock was this class's own matcher: see <paramref name="scaleTolerance"/> on <see cref="FindFit"/>.
+/// Matching the five scale-free ratios with a multiplicative <c>Dist1</c> window locks <b>24 of 24</b>
+/// frozen Vela panels where the six-value absolute test locks a randomly-varying handful.</para>
+/// <para>Plate solving still locks geometry with two-star pair hypotheses
+/// (<c>PairRansacLock</c>, which needs only two common members per hypothesis and verifies by global
+/// consensus) followed by proximity matching (see <c>CatalogPlateSolver</c>). Replacing that seed with
+/// a quad match is phases C2-C4 of <c>docs/plans/plate-solver-performance.md</c>, and the prize is not
+/// the constant factor: a quad descriptor does not depend on where the search thinks it is pointing,
+/// so the image side of a positional search is built ONCE instead of per candidate.</para>
 ///
 /// <para><b>Quantified 2026-08-31, and the earlier "no quad lock at any K from 50 to 500" was two
 /// effects reported as one.</b> Re-probed by <c>QuadCatalogFeasibilityProbe</c> over 24 frozen Vela
@@ -66,10 +73,16 @@ namespace TianWen.Lib.Imaging;
 /// <para>What the shared quads DO establish is that the descriptor is sharp when the four stars
 /// survive -- worst-of-five-ratios error median 0.0004-0.0010, p90 &lt;= 0.0039 against the 0.008
 /// default -- and that the <c>Dist1</c> ratio recovers the plate scale to within 0.3% of a
-/// deliberately 3.9%-wrong prior on 23 of 24 panels, matching on the five ratios ALONE. So quads
-/// are the right instrument for the solver's SCALE prior (see <c>C'</c> in
-/// <c>docs/plans/plate-solver-performance.md</c>) and the wrong one for its correspondences. Note
-/// they cannot settle parity either: reflection preserves distances.</para>
+/// deliberately 3.9%-wrong prior on 23 of 24 panels, matching on the five ratios ALONE. That made
+/// quads the right instrument for the solver's SCALE prior (see <c>C'</c> in
+/// <c>docs/plans/plate-solver-performance.md</c>); the sentence that used to follow -- and the wrong
+/// one for its correspondences -- was an inference from the broken matcher, not from the data above,
+/// and 2026-09-01 retired it.</para>
+/// <para><b>Reflection preserves distances, so quads cannot settle parity</b> -- which is a feature
+/// rather than the limitation it reads as. A mirrored field matches the SAME quad, so a quad matcher
+/// never searches both parities; the sign falls out of the fitted affine's determinant afterwards,
+/// which is exactly what ASTAP does with it. Today's seed pays for two parity races that this
+/// would delete.</para>
 /// </summary>
 public class StarReferenceTable
 {
@@ -95,9 +108,18 @@ public class StarReferenceTable
     /// <param name="quadTolerance">Maximum absolute difference allowed on each of the 6 quad distances.
     /// Note: <see cref="StarQuad.Dist1"/> is in absolute pixels while Dist2–Dist6 are normalised ratios,
     /// so this tolerance has mixed units: it works because stacking images have near-identical Dist1 values.</param>
+    /// <param name="scaleTolerance">
+    /// How far the two fields' plate scales may differ, as a FRACTION (0.05 = the longest side may be
+    /// 5% longer or shorter). Null -- the default -- keeps the same-scale behaviour every stacking
+    /// caller relies on: an ABSOLUTE <paramref name="quadTolerance"/> window on
+    /// <see cref="StarQuad.Dist1"/> and a six-value descriptor test. Supplying it switches the
+    /// candidate window to a MULTIPLICATIVE one and drops <c>Dist1</c> from the descriptor test, which
+    /// is what matching against a catalog needs -- there the projected <c>Dist1</c> carries the plate
+    /// scale being recovered, so testing it in pixels rejects correct quads.
+    /// </param>
     /// <returns>A reference table of matched pairs, or <c>null</c> if too few matches survive outlier removal.</returns>
-    public static StarReferenceTable? FindFit(StarQuadList quadStarDistances1, StarQuadList quadStarDistances2, int minimumCount = 6, float quadTolerance = 0.008f)
-        => FindFitWithDiagnostics(quadStarDistances1, quadStarDistances2, minimumCount, quadTolerance).Table;
+    public static StarReferenceTable? FindFit(StarQuadList quadStarDistances1, StarQuadList quadStarDistances2, int minimumCount = 6, float quadTolerance = 0.008f, float? scaleTolerance = null)
+        => FindFitWithDiagnostics(quadStarDistances1, quadStarDistances2, minimumCount, quadTolerance, scaleTolerance).Table;
 
     /// <summary>
     /// Diagnostic version of <see cref="FindFit"/> that surfaces the intermediate
@@ -129,7 +151,8 @@ public class StarReferenceTable
     private const float RansacConfidence = 0.99f;
 
     internal static (StarReferenceTable? Table, FindFitDiagnostics Diagnostics) FindFitWithDiagnostics(
-        StarQuadList quadStarDistances1, StarQuadList quadStarDistances2, int minimumCount = 6, float quadTolerance = 0.008f)
+        StarQuadList quadStarDistances1, StarQuadList quadStarDistances2, int minimumCount = 6, float quadTolerance = 0.008f,
+        float? scaleTolerance = null)
     {
         var diag = new FindFitDiagnostics(quadStarDistances1.Count, quadStarDistances2.Count, 0, 0, float.NaN, quadTolerance, float.NaN);
 
@@ -147,11 +170,17 @@ public class StarReferenceTable
         int q2Count = quadStarDistances2.Count;
         int jLo = 0, jHi = 0;
 
+        // A scale tolerance makes the window MULTIPLICATIVE, which is still monotonic in left.Dist1,
+        // so the two-pointer walk is unaffected. Both bounds are precomputed as factors because the
+        // window is re-derived per i.
+        var scaleLo = scaleTolerance is { } st ? 1f / (1f + st) : 0f;
+        var scaleHi = scaleTolerance is { } st2 ? 1f + st2 : 0f;
+
         for (int i = 0; i < quadStarDistances1.Count; i++)
         {
             var left = quadStarDistances1[i];
-            var lower = left.Dist1 - quadTolerance;
-            var upper = left.Dist1 + quadTolerance;
+            var lower = scaleTolerance is null ? left.Dist1 - quadTolerance : left.Dist1 * scaleLo;
+            var upper = scaleTolerance is null ? left.Dist1 + quadTolerance : left.Dist1 * scaleHi;
 
             // Advance jLo past quads with Dist1 < lower (monotonic over i).
             while (jLo < q2Count && quadStarDistances2[jLo].Dist1 < lower) jLo++;
@@ -160,7 +189,11 @@ public class StarReferenceTable
 
             for (int j = jLo; j < jHi; j++)
             {
-                if (left.WithinTolerance(quadStarDistances2[j], quadTolerance))
+                var right = quadStarDistances2[j];
+                var hit = scaleTolerance is null
+                    ? left.WithinTolerance(right, quadTolerance)
+                    : left.RatiosWithinTolerance(right, quadTolerance);
+                if (hit)
                 {
                     matchList2.Add((i, j));
                 }

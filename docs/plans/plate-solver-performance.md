@@ -681,6 +681,32 @@ ABSOLUTE PIXELS beside five dimensionless ratios, exactly as `StarReferenceTable
 15.8% of quads coincide and the matcher rejects every one of them. A ratio-only match with `Dist1`
 demoted to windowing plus scale recovery is the whole fix.
 
+**C1, also 2026-09-01: the matcher was the whole blocker, and it is fixed.**
+`FindFit`/`FindFitWithDiagnostics` take an optional `scaleTolerance`. Null keeps the shipped
+behaviour exactly -- an ABSOLUTE `quadTolerance` window on `Dist1` plus the six-value
+`WithinTolerance` -- so every stacking caller is unchanged by construction. Supplied, the candidate
+window becomes MULTIPLICATIVE (`Dist1 / (1+s) .. Dist1 * (1+s)`, still monotonic, so the two-pointer
+walk is untouched) and the descriptor test drops to `StarQuad.RatiosWithinTolerance`, the five
+scale-free values.
+
+| image top-K | `scaleTolerance` | locks | raw quad pairs |
+|---|---|---|---|
+| 500 | none (shipped) | 6 / 24 | 73 |
+| 500 | **0.01** | **24 / 24** | **1,368** |
+| 500 | 0.05 | 24 / 24 | 1,384 |
+| 500 | 0.10 | 24 / 24 | 1,392 |
+| 200 | none (shipped) | 0 / 24 | 6 |
+| 200 | 0.01 | 14 / 24 | 122 |
+
+**The sweep is the finding, not the on/off.** From 1% to 10% the pair count moves 1.8% and the locks
+not at all, so what blocked them was the window's SHAPE -- absolute pixels against a dimensionless
+quantity -- and not its width. A wider absolute tolerance would never have found this; only changing
+the units does. Implied scale comes back at 1.0001, as it must for two fields sharing a pixel frame.
+
+**Read the `none` rows as "does not work", not as a precise count.** RANSAC is randomised and 73 raw
+pairs is its noise floor, which is why that row reads 6/24 here and 0/24 in the table above. The 24/24
+is far outside that noise.
+
 Worth the effort because of what point 5 above says it buys: not a constant factor, but a positional
 search whose expensive half stops depending on the trial centre, and the deletion of the parity race
 outright. The two things we measure worst at are the two things it addresses.
@@ -691,7 +717,7 @@ C0 is done.
 | | step | gate |
 |---|---|---|
 | ~~C0~~ | ~~is it population or construction?~~ | **DONE: population, ceiling 99.8%** |
-| C1 | ratio-only descriptor match; `Dist1` demoted to the sliding window and to scale recovery | `FindFit` locks > 0 of 24 panels on the frozen set |
+| ~~C1~~ | ~~ratio-only descriptor match; `Dist1` demoted to the sliding window and to scale recovery~~ | **DONE: 24 of 24 panels lock** |
 | C2 | catalog cut sized from the detection count, at the measured optimum | shared-quad fraction at or above the 15.8% baseline on the frozen set |
 | C3 | quad seed as an ALTERNATIVE to `PairRansacLock`, behind the existing acceptance gate | no regression on the committed real frames |
 | C4 | quads in the positional search: build image quads once, move only the catalogue | the 93-arcmin crop under 1 s (it is 3.17 s today, ASTAP 1.54 s) |
