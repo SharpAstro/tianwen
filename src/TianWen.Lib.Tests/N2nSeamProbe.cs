@@ -126,21 +126,40 @@ public class N2nSeamProbe(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Measures whether the net can be run AT its trained noise band by rescaling the input:
-    /// multiply the pixels by k so the background sigma lands near the single-sub sigma the
-    /// conditioning plane was calibrated for (about 0.01), denoise at full strength, divide by k.
-    /// This is not the rejected conditioning dial, which keeps the pixels and lies about the
-    /// plane; here the plane stays truthful for the pixels the net is actually given and the
-    /// level rides along into a plausible band. Whether the answer survives the round trip is
-    /// the measurement, since nobody has shown the net to be scale-equivariant.
+    /// Measures how the net answers when its input is moved INTO its training band, by two routes
+    /// that have to be told apart. The rescale route multiplies the pixels by k so the background
+    /// sigma lands near the single-sub sigma the conditioning plane was calibrated for (about 0.01),
+    /// denoises at full strength and divides by k: the plane stays truthful for the pixels the net is
+    /// given and the level rides along into a plausible band. The stretch route is the exporter's own
+    /// <see cref="ChunkedNafnetRunner.ApplyInputStretch"/> (one whole-frame per-channel MTF to a
+    /// median of 0.25), run, then <see cref="Image.MtfUnstretch"/>: that is the domain every training
+    /// tile was stored in, so it is the arm hypothesis H0 of <c>docs/plans/denoiser-training.md</c>
+    /// predicts wins, and the one the runner ships once it does. Neither is the rejected conditioning
+    /// dial, which keeps the pixels and lies about the plane. Whether an answer survives its round trip
+    /// is the measurement, since nobody has shown the net to be scale-equivariant.
     /// </summary>
     /// <remarks>
-    /// The scaled frames are deliberately outside the [0, 1] contract at the bright end (a star
+    /// <para>The scaled frames are deliberately outside the [0, 1] contract at the bright end (a star
     /// near 1.0 lands near k), so the scaled copy stamps MaxValue = 1 to pass the miscalibration
-    /// tripwire in <see cref="N2nDenoiser"/>. The runner feeds pixels verbatim and reads that
-    /// property only to stamp the output's metadata, so the stamp changes nothing computed here.
-    /// A background receptive field never sees a star pixel, so background statistics stay valid
-    /// regardless; near-star behaviour is what the crops and the large-correction count are for.
+    /// tripwire in <see cref="N2nDenoiser"/>. The runner reads that property only to stamp the
+    /// output's metadata, so the stamp changes nothing computed here. A background receptive field
+    /// never sees a star pixel, so background statistics stay valid regardless; near-star behaviour
+    /// is what the crops, the large-correction count and the star column are for.</para>
+    ///
+    /// <para><b>The star column is the trainer's own metric</b> (<c>n2n_metrics.star_table</c> and
+    /// <c>measure</c>): stars are local maxima of the INPUT luminance standing at least 8 darkest-half
+    /// MADs above their surroundings, bucketed by that SNR, and every arm reports the median fraction
+    /// of peak amplitude it kept at those positions plus the fraction still 5 sigma above ITS OWN
+    /// noise. The two disagree by design: a model that halves a star while quartering the noise makes
+    /// it more detectable, not less. The one departure from the trainer is the background under a
+    /// peak, a local ring median rather than the tile median, because a whole frame has nebulosity
+    /// where a 256 px tile has a level; without it every noise peak on the nebula counts as a faint
+    /// star and the faint bucket measures noise suppression instead of photometry.</para>
+    ///
+    /// <para>The k = 1 row and the stretch arm are the same computation once the runner stretches for
+    /// itself (its auto-detect then finds the probe-stretched frame already in band and feeds it
+    /// verbatim), so their max |difference| is printed: zero says the runner does exactly what this
+    /// arm does and nothing more, a large number says it does not stretch at all.</para>
     /// </remarks>
     [Fact]
     public async Task ReportInputRescaleResponseOnARealMaster()
@@ -179,6 +198,12 @@ public class N2nSeamProbe(ITestOutputHelper output)
             output.WriteLine($"  ch{c}   input median={inStats[c].Median:F6} MAD={inStats[c].Mad:E3} adjMAD={inAdj[c]:E3}");
         }
 
+        // The star table comes from the INPUT once and is scored at the same positions on every
+        // arm, so a star that an arm erased still counts against it rather than vanishing from it.
+        var lumIn = Luminance(input);
+        var stars = DetectStars(lumIn, width, height);
+        output.WriteLine($"stars   {stars.Length} input-luminance peaks at >= 8 MAD over their ring, by SNR bucket: {BucketCounts(stars)}");
+
         using var factory = LoggerFactory.Create(b => b.AddProvider(new XUnitLoggerProvider(output, appendScope: false)));
         using var enhancer = new N2nDenoiser(new ModelResolver(), factory.CreateLogger<N2nDenoiser>(), overlap: overlap);
 
@@ -194,16 +219,49 @@ public class N2nSeamProbe(ITestOutputHelper output)
                 input.GetChannelSpan(1), width, cropX, cropY, cropW, cropH, winMed - winMad, winMed + 8 * winMad, stride);
         }
 
+        // The exporter's route: every training tile was stored after exactly this stretch, so this
+        // arm hands the net the domain it was trained in and inverts the answer with the same
+        // parameters the stretch returned.
+        var (stretchedInput, stretchApplied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(input);
+        var stretchedMedians = new string[channels];
+        for (var c = 0; c < channels; c++)
+        {
+            stretchedMedians[c] = MedianMad(stretchedInput.GetChannelSpan(c)).Median.ToString("F4");
+        }
+        output.WriteLine($"stretch applied={stretchApplied}  stretched per-channel medians: {string.Join(" ", stretchedMedians)}  (training tiles: 0.25)");
+        var stretchDenoised = await enhancer.EnhanceAsync(stretchedInput, 1.0f, ct);
+        var stretchLinear = stretchApplied ? stretchDenoised.MtfUnstretch(origMin!, balances!) : stretchDenoised;
+        var stretchArm = Planes(stretchLinear);
+        stretchDenoised.Release();
+        Score("stretch  (exporter MTF -> run -> invert)", stretchArm, "stretch");
+
         foreach (var k in new[] { 1f, 8f, honestK / 2f, honestK, honestK * 2f })
         {
             var scaled = ScaledCopy(input, k);
             var overOne = FractionAbove(input, 1f / k);
             var denoised = await enhancer.EnhanceAsync(scaled, 1.0f, ct);
-
-            output.WriteLine($"k={k:F1}  scaled-input pixels above 1.0: {overOne:P3}");
+            var planes = new float[channels][];
             for (var c = 0; c < channels; c++)
             {
-                var outPlane = DividedCopy(denoised.GetChannelSpan(c), k);
+                planes[c] = DividedCopy(denoised.GetChannelSpan(c), k);
+            }
+            denoised.Release();
+
+            Score($"k={k:F1}  scaled-input pixels above 1.0: {overOne:P3}", planes, $"k{k:F0}");
+            if (k == 1f)
+            {
+                output.WriteLine($"         k=1 vs stretch arm: max |diff| = {MaxAbsDifference(planes, stretchArm):E3}  (0 once the runner stretches for itself)");
+            }
+        }
+
+        // Every arm is scored by the identical statistics on a LINEAR-units plane, whichever route
+        // produced it; the heading names the route.
+        void Score(string heading, float[][] planes, string cropTag)
+        {
+            output.WriteLine(heading);
+            for (var c = 0; c < channels; c++)
+            {
+                var outPlane = planes[c];
                 var (median, mad) = MedianMad(outPlane);
                 var adjMad = AdjacentDiffMad(outPlane, width);
                 var (seamMed, _, seamLoud, seamCount) = SeamStats(
@@ -217,11 +275,11 @@ public class N2nSeamProbe(ITestOutputHelper output)
 
                 if (cropDir is not null && c == 1)
                 {
-                    WriteCrop(Path.Combine(cropDir, $"rescale-k{k:F0}.png"),
+                    WriteCrop(Path.Combine(cropDir, $"rescale-{cropTag}.png"),
                         outPlane, width, cropX, cropY, cropW, cropH, winMed - winMad, winMed + 8 * winMad, stride);
                 }
             }
-            denoised.Release();
+            output.WriteLine($"  stars  {StarReport(lumIn, Luminance(planes), stars, width)}");
         }
     }
 
@@ -452,5 +510,199 @@ public class N2nSeamProbe(ITestOutputHelper output)
         for (var i = 0; i < sampled.Count; i++) devs[i] = Math.Abs(sampled[i] - median);
         Array.Sort(devs);
         return (median, devs[devs.Length / 2]);
+    }
+
+    // ---- the trainer's star metric (n2n_metrics.star_table / measure), on a whole frame ----
+
+    private readonly record struct ProbeStar(int X, int Y, float Snr);
+
+    /// <summary>The trainer's master-SNR buckets (<c>n2n_metrics.BUCKETS</c>); the faint end is where
+    /// every failure so far has lived.</summary>
+    private static readonly (float Lo, float Hi, string Label)[] SnrBuckets =
+    [
+        (8f, 15f, "8-15"),
+        (15f, 30f, "15-30"),
+        (30f, 100f, "30-100"),
+        (100f, float.PositiveInfinity, "100+"),
+    ];
+
+    /// <summary>Background under a peak: the median of a 21x21 box minus the 7x7 the star sits in.</summary>
+    private const int RingOuterHalf = 10;
+    private const int RingInnerHalf = 3;
+
+    private static float[] Luminance(Image image)
+    {
+        var (channels, width, height) = image.Shape;
+        var lum = new float[width * height];
+        for (var c = 0; c < channels; c++)
+        {
+            var span = image.GetChannelSpan(c);
+            for (var i = 0; i < lum.Length; i++) lum[i] += span[i];
+        }
+        var inv = 1f / channels;
+        for (var i = 0; i < lum.Length; i++) lum[i] *= inv;
+        return lum;
+    }
+
+    private static float[] Luminance(float[][] planes)
+    {
+        var lum = new float[planes[0].Length];
+        foreach (var plane in planes)
+        {
+            for (var i = 0; i < lum.Length; i++) lum[i] += plane[i];
+        }
+        var inv = 1f / planes.Length;
+        for (var i = 0; i < lum.Length; i++) lum[i] *= inv;
+        return lum;
+    }
+
+    private static float[][] Planes(Image image)
+    {
+        var planes = new float[image.ChannelCount][];
+        for (var c = 0; c < planes.Length; c++) planes[c] = image.GetChannelSpan(c).ToArray();
+        return planes;
+    }
+
+    private static float MaxAbsDifference(float[][] a, float[][] b)
+    {
+        var worst = 0f;
+        for (var c = 0; c < a.Length; c++)
+        {
+            for (var i = 0; i < a[c].Length; i++) worst = Math.Max(worst, Math.Abs(a[c][i] - b[c][i]));
+        }
+        return worst;
+    }
+
+    /// <summary>
+    /// The trainer's <c>bg_stats</c>: the median of everything, and the MAD of the darkest half about
+    /// its own median, so nebulosity is not counted as noise. Sampled like <see cref="MedianMad"/>.
+    /// </summary>
+    private static (float Median, float Mad) DarkHalfStats(ReadOnlySpan<float> values)
+    {
+        var stride = Math.Max(1, values.Length / 200_000);
+        var sampled = new List<float>();
+        for (var i = 0; i < values.Length; i += stride)
+        {
+            if (!float.IsNaN(values[i])) sampled.Add(values[i]);
+        }
+        sampled.Sort();
+        var median = sampled[sampled.Count / 2];
+        var half = sampled.Count / 2 + 1;
+        var lowMedian = sampled[half / 2];
+        var devs = new float[half];
+        for (var i = 0; i < half; i++) devs[i] = Math.Abs(sampled[i] - lowMedian);
+        Array.Sort(devs);
+        return (median, devs[half / 2] + 1e-12f);
+    }
+
+    /// <summary>
+    /// <c>star_table</c> on the whole input luminance: a pixel no 5x5 neighbour exceeds (ties count,
+    /// as <c>maximum_filter</c> has it), standing at least 8 darkest-half MADs above its ring
+    /// background. The global threshold is only the cheap pre-filter; the ring is what keeps a noise
+    /// peak on bright nebulosity out of the table.
+    /// </summary>
+    private static ProbeStar[] DetectStars(float[] lum, int width, int height)
+    {
+        var (median, mad) = DarkHalfStats(lum);
+        var threshold = median + 8f * mad;
+        var ring = new float[(2 * RingOuterHalf + 1) * (2 * RingOuterHalf + 1)];
+        var stars = new List<ProbeStar>();
+        for (var y = RingOuterHalf; y < height - RingOuterHalf; y++)
+        {
+            for (var x = RingOuterHalf; x < width - RingOuterHalf; x++)
+            {
+                var v = lum[y * width + x];
+                if (!(v > threshold) || !IsLocalMaximum(lum, width, x, y, v)) continue;
+                var snr = (v - RingMedian(lum, width, x, y, ring)) / mad;
+                if (BucketOf(snr) >= 0) stars.Add(new ProbeStar(x, y, snr));
+            }
+        }
+        return stars.ToArray();
+    }
+
+    private static bool IsLocalMaximum(float[] lum, int width, int x, int y, float v)
+    {
+        for (var dy = -2; dy <= 2; dy++)
+        {
+            var row = (y + dy) * width + x;
+            for (var dx = -2; dx <= 2; dx++)
+            {
+                if (lum[row + dx] > v) return false;
+            }
+        }
+        return true;
+    }
+
+    private static float RingMedian(float[] lum, int width, int x, int y, float[] scratch)
+    {
+        var n = 0;
+        for (var dy = -RingOuterHalf; dy <= RingOuterHalf; dy++)
+        {
+            var row = (y + dy) * width + x;
+            for (var dx = -RingOuterHalf; dx <= RingOuterHalf; dx++)
+            {
+                if (Math.Abs(dx) <= RingInnerHalf && Math.Abs(dy) <= RingInnerHalf) continue;
+                var v = lum[row + dx];
+                if (!float.IsNaN(v)) scratch[n++] = v;
+            }
+        }
+        if (n == 0) return float.NaN;
+        Array.Sort(scratch, 0, n);
+        return scratch[n / 2];
+    }
+
+    private static int BucketOf(float snr)
+    {
+        for (var b = 0; b < SnrBuckets.Length; b++)
+        {
+            if (snr >= SnrBuckets[b].Lo && snr < SnrBuckets[b].Hi) return b;
+        }
+        return -1;
+    }
+
+    private static string BucketCounts(ProbeStar[] stars)
+    {
+        var counts = new int[SnrBuckets.Length];
+        foreach (var star in stars) counts[BucketOf(star.Snr)]++;
+        var parts = new string[SnrBuckets.Length];
+        for (var b = 0; b < SnrBuckets.Length; b++) parts[b] = $"{SnrBuckets[b].Label}: {counts[b]}";
+        return string.Join("  ", parts);
+    }
+
+    /// <summary>
+    /// <c>measure</c>: per bucket, the median fraction of ring-relative peak amplitude the arm kept
+    /// at the input's star positions, and the fraction of those peaks still 5 darkest-half MADs
+    /// above the ARM's own luminance noise.
+    /// </summary>
+    private static string StarReport(float[] lumIn, float[] lumOut, ProbeStar[] stars, int width)
+    {
+        var (_, outMad) = DarkHalfStats(lumOut);
+        var ring = new float[(2 * RingOuterHalf + 1) * (2 * RingOuterHalf + 1)];
+        var kept = new List<float>[SnrBuckets.Length];
+        var detected = new int[SnrBuckets.Length];
+        for (var b = 0; b < kept.Length; b++) kept[b] = new List<float>();
+
+        foreach (var star in stars)
+        {
+            var b = BucketOf(star.Snr);
+            var p = star.Y * width + star.X;
+            var ampIn = lumIn[p] - RingMedian(lumIn, width, star.X, star.Y, ring);
+            var ampOut = lumOut[p] - RingMedian(lumOut, width, star.X, star.Y, ring);
+            kept[b].Add(ampOut / Math.Max(ampIn, 1e-9f));
+            if (ampOut > 5f * outMad) detected[b]++;
+        }
+
+        var parts = new string[SnrBuckets.Length];
+        for (var b = 0; b < SnrBuckets.Length; b++)
+        {
+            if (kept[b].Count == 0)
+            {
+                parts[b] = $"{SnrBuckets[b].Label}: none";
+                continue;
+            }
+            kept[b].Sort();
+            parts[b] = $"{SnrBuckets[b].Label}: amp kept {kept[b][kept[b].Count / 2]:F3} det {(double)detected[b] / kept[b].Count:P0} (n={kept[b].Count})";
+        }
+        return string.Join("   ", parts);
     }
 }

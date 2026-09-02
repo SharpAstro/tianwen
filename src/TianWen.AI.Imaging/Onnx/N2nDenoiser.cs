@@ -24,10 +24,14 @@ namespace TianWen.AI.Imaging.Onnx;
 /// retrained, re-measure on the held-out sessions rather than assuming a like-for-like recipe
 /// reproduces it.</para>
 ///
-/// <para><b>Domain semantics: linear in, linear out.</b> Unlike the AI4 NAFNet family this net was
-/// trained on linear <c>[0, 1]</c> tiles and must be fed the same, with no MTF round-trip -- see
-/// <see cref="N2nLinearRunner"/>, which exists for that reason. It suppresses grain without
-/// changing histogram macro-shape, so it chains cleanly with other linear-domain processing.</para>
+/// <para><b>Domain semantics: linear in, linear out, the exporter's stretch in between.</b> The
+/// contract at this boundary is a linear <c>[0, 1]</c> frame, the same one the AI4 enhancers take,
+/// and like them the net itself works in the MTF-stretched domain: every training tile was stored
+/// after <see cref="ChunkedNafnetRunner.ApplyInputStretch"/>, so <see cref="N2nLinearRunner"/>
+/// applies that call to the whole frame, runs, and inverts it before blending. Until 2026-09-02 the
+/// runner fed the frame verbatim on the belief that the tiles were linear, which put a real master
+/// about 100x below its training band; the measurement that settled it is in the runner's remarks.
+/// The output is linear, so it chains with other linear-domain processing.</para>
 ///
 /// <para><b>One-shot-colour only.</b> Every training session was OSC, so a mono input is rejected
 /// rather than tiled across the three input slots: that would feed it a distribution nobody has
@@ -147,9 +151,11 @@ public sealed class N2nDenoiser(
         var throughputMpps = result.TotalMs > 0 ? megapixels * 1000.0 / result.TotalMs : 0.0;
         logger?.LogInformation(
             "N2nDenoiser.EnhanceAsync: {Model} {W}x{H}x{C} strength={Strength} tile={Tile} overlap={Overlap} chunks={Chunks} " +
-            "prep={Prep}ms infer={Infer}ms stitch={Stitch}ms throughput={Mpps:F2} Mp/s total={Total}ms",
+            "stretch={Stretched} ({StretchMs}ms) prep={Prep}ms infer={Infer}ms stitch={Stitch}ms unstretch+blend={Unstretch}ms " +
+            "throughput={Mpps:F2} Mp/s total={Total}ms level-restore |offset| median={OffsetMedian:E2} max={OffsetMax:E2}",
             ModelFileName, srcW, srcH, channels, strength, result.TileSize, overlap, result.ChunkCount,
-            result.PrepMs, result.InferMs, result.StitchMs, throughputMpps, result.TotalMs);
+            result.StretchApplied, result.StretchMs, result.PrepMs, result.InferMs, result.StitchMs, result.UnstretchMs,
+            throughputMpps, result.TotalMs, result.LevelOffsetMedianAbs, result.LevelOffsetMaxAbs);
 
         return result.Output;
     }

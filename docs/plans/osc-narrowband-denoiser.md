@@ -672,6 +672,23 @@ label `Enhance (N2N)`); the server endpoint inherits the value through the share
 matrix over a temp-dir `ModelResolver`), and `N2nDenoiserTests.TheTuningDenoiseStrengthDrivesTheBlend`
 (the options path is the identical computation to the direct strength path, checked span-equal).
 
+> **Correction, 2026-09-02.** The wiring notes above and `ship/README.md` say this net "trained on
+> LINEAR [0,1] tiles taken straight from stacked masters". It did not: `DatasetTileExporter` stores
+> every tile after `ApplyInputStretch`, and the eval cache measures per-channel medians of 0.249 to
+> 0.250 with a sub sigma of 0.0082 (the `SIGMA_SCALE` comment's "near 0.01"). `N2nLinearRunner`
+> therefore fed the graph a domain about 100x below the one it trained on. Every number in 1o that
+> was measured on TILES stands. **The real-frame path was re-measured the same day under
+> [denoiser-training.md](denoiser-training.md) H0 (E0.5) and the fix shipped:** on the 163-sub Bubble
+> master, in one process, the verbatim path removed 10 / 9 / 17 percent of the noise (R/G/B) and
+> cut every star's peak by about 30 percent at every SNR (amplitude kept 0.70, flat from SNR 8 to
+> 100+), with a per-chunk level drag of 0.074 on a sky of 0.0019; through the exporter's stretch the
+> same weights remove 13 / 23 / 36 percent, keep 0.73 of a faint star's amplitude rising to 0.93 at
+> the bright end, move no background pixel by more than 10 MAD, and the drag falls to 0.0029 on a
+> level of 0.25. `N2nLinearRunner` now applies `ApplyInputStretch` to the whole frame, runs, and
+> inverts with `MtfUnstretch`; the runner, the enhancer, the ship README and this section are
+> corrected. The 30 percent flat star suppression was not predicted and is the largest single
+> defect the skew caused; the full table is in the denoiser plan's run log.
+
 ## 2. Traps this session re-tripped, which are already documented elsewhere
 
 Recorded here because each one cost real time and each was written down BEFORE it was hit.

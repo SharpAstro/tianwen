@@ -30,10 +30,11 @@ namespace TianWen.Lib.Tests;
 /// <para>
 /// <b>The parity test is the point of this file.</b> The exported graph is already pinned against
 /// torch by <c>n2n-smoke/ship/n2n_export.py</c> (max |diff| 1.49e-7). What no Python check can
-/// cover is the C# deployment path around it: NCHW packing, the median-fill border, the 256 px
-/// chunking, the replicate-pad of an edge chunk, the per-channel level restore, the stitch that
-/// drops a 16 px rim, and the blend. Every one of those fails silently -- a transposed tensor or a
-/// mis-scaled input still produces a plausible-looking picture.
+/// cover is the C# deployment path around it: the whole-frame MTF into the training domain and its
+/// inverse, NCHW packing, the median-fill border, the 256 px chunking, the replicate-pad of an edge
+/// chunk, the per-channel level restore, the stitch that drops a 16 px rim, and the blend. Every one
+/// of those fails silently -- a transposed tensor or a mis-scaled input still produces a
+/// plausible-looking picture, and a frame fed 100x below the training band did for two weeks.
 /// </para>
 /// </summary>
 [Collection("Imaging")]
@@ -136,6 +137,14 @@ public class N2nDenoiserTests(ITestOutputHelper output)
             }
         }
 
+        // One dead pixel per channel, after the grain so the LCG stream is untouched. It is the one
+        // thing a real frame has that a flat synthetic sky does not: a minimum far below the level.
+        // The runner's auto-detect (the exporter's NeedsStretch) keys on median MINUS min, so without
+        // it a plate at 0.26 with +-0.02 grain reads as linear and is stretched, and the parity
+        // fixture, which torch computed on the raw plate, stops applying. With it the parity plate is
+        // in band the way every training tile was (min 0, median near 0.25) and is fed as it is.
+        for (var c = 0; c < channels; c++) planes[c][0, 0] = 0f;
+
         return new Image(planes, BitDepth.Float32, 1.0f, 0f, 0f,
             new ImageMeta { SensorType = SensorType.Color });
     }
@@ -193,6 +202,11 @@ public class N2nDenoiserTests(ITestOutputHelper output)
     /// attributable rather than averaged away across overlapping tiles. That chunk is still
     /// replicate-padded 192 -> 256 to meet the model's declared tile, so the edge-chunk path every
     /// real image takes at its right and bottom margins is covered here too.
+    /// <para>The plate's background of 0.26 is above the 0.125 auto-detect, so the runner feeds it
+    /// as it is and torch saw the same bytes: this pins the graph and the tiling, and by construction
+    /// it cannot see whether a LINEAR frame is stretched first, which is what
+    /// <see cref="ALinearInputTakesTheExportersStretchAndComesBackInItsOwnUnits"/> is for. A plate
+    /// at 0.26 is also, not by accident, where every training tile sat.</para>
     /// </summary>
     [Fact]
     public async Task TheWholePipelineReproducesTorch()
@@ -244,6 +258,56 @@ public class N2nDenoiserTests(ITestOutputHelper output)
         worst.ShouldBeLessThan(1e-3f);
 
         result.Release();
+    }
+
+    /// <summary>
+    /// A linear frame is stretched into the training domain by the runner itself and inverted with
+    /// the same parameters, so doing those two steps by hand around the denoiser gives the identical
+    /// answer: the runner's auto-detect finds the hand-stretched plate already in band and feeds it
+    /// as it is. That equality is the pin. Until 2026-09-02 the runner fed a linear plate verbatim
+    /// and the two routes disagreed by 0.89 on the Bubble master; the parity plate cannot see that,
+    /// because at a background of 0.26 it is already where the training tiles were.
+    /// </summary>
+    [Fact]
+    public async Task ALinearInputTakesTheExportersStretchAndComesBackInItsOwnUnits()
+    {
+        if (!HasModel(out var skip)) { Assert.Skip(skip); return; }
+
+        // The seam master's level and noise (median 0.0019, MAD near 1e-4), in one 160 px chunk.
+        var plate = BuildPlate(160, channels: 3, background: 0.002f, noiseAmplitude: 0.0003f, starCount: 25, seed: 20260902u);
+        using var enhancer = new N2nDenoiser(CreateResolver());
+        var ct = TestContext.Current.CancellationToken;
+
+        var direct = await enhancer.EnhanceAsync(plate, 1.0f, ct);
+
+        var (stretched, applied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(plate);
+        applied.ShouldBeTrue("a plate at 0.002 is linear by the exporter's own test");
+        var sorted = stretched.GetChannelSpan(0).ToArray();
+        Array.Sort(sorted);
+        sorted[sorted.Length / 2].ShouldBe((float)AiNafnetInputs.TargetMedian, 0.01f);
+        var inBand = await enhancer.EnhanceAsync(stretched, 1.0f, ct);
+        var byHand = inBand.MtfUnstretch(origMin!, balances!);
+
+        var worst = 0f;
+        var moved = 0f;
+        for (var c = 0; c < plate.ChannelCount; c++)
+        {
+            var a = direct.GetChannelSpan(c);
+            var b = byHand.GetChannelSpan(c);
+            var src = plate.GetChannelSpan(c);
+            for (var i = 0; i < a.Length; i++)
+            {
+                worst = Math.Max(worst, Math.Abs(a[i] - b[i]));
+                moved = Math.Max(moved, Math.Abs(a[i] - src[i]));
+            }
+        }
+        output.WriteLine($"runner vs by-hand stretch: max |diff| {worst:E3}; runner vs input: max |diff| {moved:E3}");
+        worst.ShouldBeLessThan(1e-6f);
+        // It denoised: an identity runner would pass the line above too.
+        moved.ShouldBeGreaterThan(1e-4f);
+
+        direct.Release();
+        inBand.Release();
     }
 
     /// <summary>
@@ -422,12 +486,15 @@ public class N2nDenoiserTests(ITestOutputHelper output)
     /// the join is invisible to it. This plate is 512 px, which is 9 chunks.
     /// </summary>
     /// <remarks>
-    /// <para><b>The background is deliberately far below the training level.</b> The net carries a
-    /// learned sky-level prior and <c>RestoreLevel</c> corrects the resulting drag per chunk, so the
-    /// SIZE of the per-chunk disagreement grows as the input level departs from what it was trained
-    /// on. At an in-distribution 0.26 the disagreement is small enough that an unweighted stitch
-    /// looks fine and this test would pass while asserting nothing. 0.002 is the level of the real
-    /// master this was reported on.</para>
+    /// <para><b>The background is the level of the real master this was reported on (0.002), so the
+    /// plate takes the path a master takes end to end:</b> the runner stretches it to the training
+    /// median, denoises, and inverts. The net carries a learned sky-level prior and <c>RestoreLevel</c>
+    /// corrects the resulting drag per chunk, so the SIZE of the per-chunk disagreement grows as the
+    /// input level departs from the training band; before the runner stretched for itself, a linear
+    /// 0.002 sat 100x below that band, the drag was 39 times the sky level, and an unweighted stitch
+    /// drew a grid that the feather now has to hide. At an in-distribution 0.26 the disagreement is
+    /// small enough that this test would pass while asserting nothing, which is why the plate stays
+    /// linear rather than being handed to the net pre-stretched.</para>
     ///
     /// <para>The seam positions are derived, not guessed: chunks step <c>tile - overlap</c> and keep
     /// <c>tile - 2 * border</c>, so consecutive retained regions share <c>overlap - 2 * border</c>
