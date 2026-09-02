@@ -13,6 +13,12 @@ namespace TianWen.Lib.Astrometry;
 /// us use Cholesky which is numerically well-behaved for the well-scaled
 /// inputs SIP produces (pixel offsets centred on CRPIX).
 /// </para>
+/// <para>
+/// A caller with hundreds of thousands of rows (the background fit over a working-resolution
+/// plane) accumulates <c>AᵀA</c> and <c>Aᵀb</c> itself and calls
+/// <see cref="SolveNormalEquations"/> directly, which is the same solve without a design matrix
+/// of one row per pixel ever existing.
+/// </para>
 /// </summary>
 internal static class PolynomialLeastSquares
 {
@@ -39,38 +45,63 @@ internal static class PolynomialLeastSquares
         if (rows < cols) return null;
         if (rhs.Length != rows) throw new ArgumentException("rhs length must equal designMatrix row count", nameof(rhs));
 
-        // Column-norm preconditioning: scale each column to unit L2 norm before
-        // forming the normal equations. Cholesky on AᵀA squares the design
-        // matrix's condition number; for polynomial fits with raw pixel
-        // offsets (~10² × ²-px monomials end up ~10⁴ apart in magnitude) this
-        // is the difference between a usable fit and a numerically-poisoned
-        // one. The unit-norm columns also make the symmetric diagonal-PSD
-        // check robust under tiny inputs. We undo the scaling on the way out.
-        var scales = new double[cols];
-        for (var col = 0; col < cols; col++)
-        {
-            double sumSq = 0;
-            for (var r = 0; r < rows; r++) sumSq += designMatrix[r, col] * designMatrix[r, col];
-            var s = Math.Sqrt(sumSq);
-            scales[col] = s > 0 ? s : 1.0;
-        }
-
-        // Form normal equations against the scaled design: N = ÃᵀÃ, c = Ãᵀb,
-        // where Ã[:, k] = A[:, k] / scales[k]. N is symmetric so we only fill
-        // the lower triangle and mirror in Cholesky.
+        // Form the normal equations N = AᵀA, c = Aᵀb. N is symmetric so we only
+        // accumulate the lower triangle and mirror it.
         var n = new double[cols, cols];
         var c = new double[cols];
         for (var i = 0; i < cols; i++)
         {
             double ci = 0;
             for (var r = 0; r < rows; r++) ci += designMatrix[r, i] * rhs[r];
-            c[i] = ci / scales[i];
+            c[i] = ci;
 
             for (var j = 0; j <= i; j++)
             {
                 double s = 0;
                 for (var r = 0; r < rows; r++) s += designMatrix[r, i] * designMatrix[r, j];
-                var sScaled = s / (scales[i] * scales[j]);
+                n[i, j] = s;
+                n[j, i] = s;
+            }
+        }
+
+        return SolveNormalEquations(n, c);
+    }
+
+    /// <summary>
+    /// Solve the normal equations <c>N x = c</c> for <c>N = AᵀA</c> (symmetric, positive-definite for a
+    /// full-rank design) and <c>c = Aᵀb</c>, both already accumulated by the caller.
+    /// </summary>
+    /// <returns>Coefficient vector; <c>null</c> when <c>N</c> is not positive-definite (a rank-deficient
+    /// design, or one with too few rows).</returns>
+    public static double[]? SolveNormalEquations(double[,] normalMatrix, ReadOnlySpan<double> normalRhs)
+    {
+        var cols = normalMatrix.GetLength(0);
+        if (normalMatrix.GetLength(1) != cols) throw new ArgumentException("normal matrix must be square", nameof(normalMatrix));
+        if (normalRhs.Length != cols) throw new ArgumentException("rhs length must equal the normal matrix size", nameof(normalRhs));
+
+        // Column-norm preconditioning: scale each column to unit L2 norm before
+        // factorising. Cholesky on AᵀA squares the design matrix's condition
+        // number; for polynomial fits with raw pixel offsets (~10² × ²-px
+        // monomials end up ~10⁴ apart in magnitude) this is the difference
+        // between a usable fit and a numerically-poisoned one. The unit-norm
+        // columns also make the symmetric diagonal-PSD check robust under tiny
+        // inputs. A column's L2 norm is the square root of its diagonal entry.
+        // We undo the scaling on the way out.
+        var scales = new double[cols];
+        for (var col = 0; col < cols; col++)
+        {
+            var s = Math.Sqrt(normalMatrix[col, col]);
+            scales[col] = s > 0 ? s : 1.0;
+        }
+
+        var n = new double[cols, cols];
+        var c = new double[cols];
+        for (var i = 0; i < cols; i++)
+        {
+            c[i] = normalRhs[i] / scales[i];
+            for (var j = 0; j <= i; j++)
+            {
+                var sScaled = normalMatrix[i, j] / (scales[i] * scales[j]);
                 n[i, j] = sScaled;
                 n[j, i] = sScaled;
             }

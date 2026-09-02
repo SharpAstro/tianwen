@@ -1,6 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using TianWen.AI.Imaging.Onnx;
+using TianWen.Lib.Extensions;
+using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 
 namespace TianWen.AI.Imaging;
@@ -29,7 +32,9 @@ public static class AiServiceCollectionExtensions
     /// <item><see cref="IStellarSharpener"/> -> <see cref="OnnxStellarSharpener"/>.</item>
     /// <item><see cref="INonStellarDeconvolver"/> -> <see cref="OnnxNonStellarDeconvolver"/>.</item>
     /// <item><see cref="IDenoiseEnhancer"/> -> <see cref="OnnxDenoiser"/>.</item>
-    /// <item><see cref="IGradientCorrector"/> -> <see cref="OnnxBackgroundExtractor"/> (GraXpert BGE).</item>
+    /// <item><see cref="IGradientCorrector"/> -> <see cref="FallbackGradientCorrector"/>: <see cref="OnnxBackgroundExtractor"/>
+    /// (GraXpert BGE) when its weights are installed, else the classical <see cref="ClassicalBackgroundExtractor"/>,
+    /// which is also registered as <see cref="IBackgroundExtractor"/> in its own right.</item>
     /// </list>
     /// The <c>SharpenPipeline</c> orchestrator (Phase 5) lives in
     /// <c>TianWen.Lib</c> and will be registered there.
@@ -42,7 +47,15 @@ public static class AiServiceCollectionExtensions
         services.TryAddSingleton<IStellarSharpener, OnnxStellarSharpener>();
         services.TryAddSingleton<INonStellarDeconvolver, OnnxNonStellarDeconvolver>();
         services.TryAddSingleton<IDenoiseEnhancer, OnnxDenoiser>();
-        services.TryAddSingleton<IGradientCorrector, OnnxBackgroundExtractor>();
+        // Gradient correction is the one role with an AI-free implementation in TianWen.Lib, so a missing
+        // GraXpert install degrades to it instead of to a missing-model failure.
+        services.TryAddSingleton<OnnxBackgroundExtractor>();
+        services.AddClassicalBackgroundExtractor();
+        services.TryAddSingleton<IGradientCorrector>(sp => new FallbackGradientCorrector(
+            sp.GetRequiredService<IModelResolver>(),
+            sp.GetRequiredService<OnnxBackgroundExtractor>(),
+            sp.GetRequiredService<ClassicalBackgroundExtractor>(),
+            sp.GetService<ILogger<FallbackGradientCorrector>>()));
         // The orchestrator lives in TianWen.Lib (zero-AI dep) but consumers
         // will want both wired together; register it here so a single
         // AddTianWenAi() call sets up the whole sharpen flow.

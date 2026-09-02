@@ -1086,6 +1086,38 @@ against 207 MB of GraXpert weights already on disk. **Never make a shipped capab
 script only a checkout can run.** Mechanism + the SAS-Pro sibling pattern:
 [docs/plans/ai-enhancement.md](docs/plans/ai-enhancement.md).
 
+### Classical Background Extraction (`TianWen.Lib.Imaging.BackgroundExtraction`)
+
+`ClassicalBackgroundExtractor` is the AI-free gradient corrector: a robust iterative degree-2 polynomial
+on a block-mean working grid, with an optional inpainted low-pass surface on its residual
+(`SurfaceRefinement`), applied in LINEAR with the model's median added back per plane. It is both
+`IBackgroundExtractor` (headless, options per call) and `IGradientCorrector`, and `AddTianWenAi()`
+registers `FallbackGradientCorrector` for the pipeline role: GraXpert when `graxpert_bge.onnx` resolves,
+this otherwise, so a machine without GraXpert still flattens. Design, the reference review it came from
+and the measurements: [docs/plans/background-extraction.md](docs/plans/background-extraction.md). The
+rules that bite:
+
+- **Every threshold is in noise units of the WORKING grid**, a block mean of `Downsample^2` pixels, so
+  "2 sigma" is two sigma of a noise four times smaller than the frame's. A "dim plateau" at 1.5
+  frame-sigma is 6 working-sigma and is rejected without any polygon.
+- **The polynomial stage iterates to convergence; the surface stage runs ONCE.** The surface's
+  residual is a high-pass, a smooth feature of scale s leaks about (sigma_blur/s)^2 of its amplitude into
+  it, and on a deep master that beats the block-mean noise at the peak of an ordinary dome: an iterated
+  sigma rejection carved the peak out and the harmonic hole-fill widened the hole every pass (7.1e-4 RMS
+  model error against 1.1e-4 single-pass). Never close that loop.
+- **Stars are not structure, and neither is a star's blur shadow.** Structure seeds exclude COMPACT
+  pixels (a one-working-pixel high-pass a star fails and a nebula passes), and compact is the positive
+  high-pass core plus its eight neighbours only; flagging the negative side too cost a third of the grid.
+- **A one-channel `SensorType.RGGB` input is a mosaic and is fitted per photosite colour** (split, four
+  planes at half the factor, merge). One plane on a mosaic removes the average gradient and leaves each
+  colour's own behind.
+- **The level is per plane and the pedestal field is untouched.** One scalar level would equalise the
+  channels, which is background neutralisation and a separate step; accumulating the level onto the
+  pedestal is what forced `WithZeroPedestal` on GraXpert-flattened masters.
+- `StructureThresholdSigma` (3) and `SurfaceStructureThresholdSigma` (10) are reasoned defaults, not
+  measured ones, and `SurfaceRefinement` is off by default because a flexible surface hollows a
+  frame-filling nebula. Pinned by `ClassicalBackgroundExtractorTests`.
+
 ### Hosting API (`TianWen.Hosting` + `TianWen.Server`)
 
 Headless REST + WebSocket API plus an ASCOM Alpaca device plane on one ASP.NET Core host: **native v1**
