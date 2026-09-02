@@ -166,19 +166,27 @@ public class RealFrameSolveTests(ITestOutputHelper output)
         // Before the quad seed this was the cache's end-to-end pin: the second solve spent 1.6x fewer
         // hypotheses (9,165,717 -> 5,813,171) because the remembered PARITY capped the doubted half.
         // The quad seed measures parity and scale on the frame itself, ahead of the race, so the first
-        // solve already knows everything the cache could tell the second and the two spend the same
-        // 8,381 hypotheses -- 1,094x fewer than the first solve used to. What is pinned now is that no
-        // material saving is LEFT: a second solve markedly cheaper than the first would mean the seed
-        // had stopped supplying parity or scale and the cache was covering for it. The cache's own
+        // solve already knows everything the cache could tell the second. What is pinned now is that no
+        // material saving is LEFT, and it is pinned on the half that ANSWERS: that scan is deterministic
+        // for a given input, so the two solves must spend exactly the same on it, and a second solve
+        // markedly cheaper there would mean the seed had stopped supplying parity or scale and the cache
+        // was covering for it. The abandoned half is NOT compared between solves: its count is quantised
+        // to the 4,096-hypothesis cancellation check and lands one quantum either way depending on
+        // where the winner's claim caught it, which is how the total read 8,381 on one CI run and 12,477
+        // on the next for this very frame (2026-09-01) and broke a +/-25% band on the total. What it
+        // must show instead is that the claim stopped it long before the per-pool budget the cache
+        // would cap it at, which is the operational meaning of "nothing left to add". The cache's own
         // behaviour is pinned in SolveHintCacheTests; its end-to-end win survives only on a frame where
         // the quad seed declines, which no committed fixture reproduces.
-        var firstHypotheses = solver.LastSeedHypotheses;
+        var firstTotal = solver.LastSeedHypotheses;
+        var (firstWinner, firstAbandoned) = solver.LastSeedHypothesesByOutcome;
         var swSecond = Stopwatch.StartNew();
         var again = await solver.SolveImageAsync(image, dim.Value, searchOrigin: hint, cancellationToken: ct);
         swSecond.Stop();
-        var secondHypotheses = solver.LastSeedHypotheses;
-        output.WriteLine($"second solve {swSecond.ElapsedMilliseconds} ms, seed hypotheses {firstHypotheses:N0} -> {secondHypotheses:N0} "
-            + $"({(firstHypotheses > 0 ? (double)firstHypotheses / Math.Max(1, secondHypotheses) : 0):F1}x fewer)");
+        var secondTotal = solver.LastSeedHypotheses;
+        var (secondWinner, secondAbandoned) = solver.LastSeedHypothesesByOutcome;
+        output.WriteLine($"second solve {swSecond.ElapsedMilliseconds} ms, seed hypotheses {firstTotal:N0} -> {secondTotal:N0}; "
+            + $"winning parity {firstWinner:N0} -> {secondWinner:N0}, abandoned parity {firstAbandoned:N0} -> {secondAbandoned:N0}");
 
         Assert.NotNull(again.Solution);
         var solvedAgain = again.Solution.Value;
@@ -189,10 +197,14 @@ public class RealFrameSolveTests(ITestOutputHelper output)
             "a remembered scale and parity may make the solve cheaper, never different");
         Shouldly.ShouldBeTestExtensions.ShouldBe(solver.LastOriginSource, CatalogPlateSolver.OriginSource.QuadSeed,
             "the second solve must relocate through the quad seed as the first did");
-        Shouldly.ShouldBeTestExtensions.ShouldBeInRange(secondHypotheses, (int)(firstHypotheses * 0.75), (int)(firstHypotheses * 1.25),
-            $"with the quad seed supplying parity and scale on the FIRST solve the cache has nothing material left to add "
-            + $"({firstHypotheses:N0} -> {secondHypotheses:N0} hypotheses; measured equal, and the band is +/-25% because the "
-            + "abandoned parity's count depends on when its sibling cancelled it)");
+        Shouldly.ShouldBeTestExtensions.ShouldBe(secondWinner, firstWinner,
+            "the winning parity's scan is deterministic for a given input, and the quad seed already told the FIRST solve "
+            + "its parity and scale, so a remembered light path has nothing to change on the half that answers");
+        Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(firstAbandoned, CatalogPlateSolver.DoubtedParityHypothesisBudget,
+            "the winner's claim must stop the abandoned half within a few 4,096-hypothesis cancellation quanta on the FIRST "
+            + "solve, long before the per-pool budget a remembered parity would cap it at; otherwise the cache had a saving left");
+        Shouldly.ShouldBeTestExtensions.ShouldBeLessThan(secondAbandoned, CatalogPlateSolver.DoubtedParityHypothesisBudget,
+            "and on the second solve, where the cache does cap it, the claim must still come first");
 
         image.Release();
     }

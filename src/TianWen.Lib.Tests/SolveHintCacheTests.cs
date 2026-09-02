@@ -19,10 +19,13 @@ namespace TianWen.Lib.Tests;
 /// and that a wrong answer is never the price.
 /// </summary>
 /// <remarks>
-/// Asserted on <see cref="CatalogPlateSolver.LastSeedHypotheses"/>, because the cache's entire effect
-/// is work that does not happen: the emitted WCS is identical with it and without it, so nothing an
-/// ordinary assertion can reach would move if it were deleted. Hypotheses rather than milliseconds --
-/// they are deterministic for a given input, so the same numbers hold on CI and in Debug.
+/// Asserted on <see cref="CatalogPlateSolver.LastSeedHypothesesByOutcome"/>, because the cache's entire
+/// effect is work that does not happen: the emitted WCS is identical with it and without it, so nothing
+/// an ordinary assertion can reach would move if it were deleted. Hypotheses rather than milliseconds,
+/// and the WINNING half's rather than the total: that scan is deterministic for a given input, so the
+/// same number holds on CI and in Debug, while the abandoned half's count is quantised to its
+/// 4,096-hypothesis cancellation check and lands a quantum either way with the scheduler (13,031
+/// against 8,935 on two CI runs of the same easy field, 2026-09-01).
 /// </remarks>
 [Collection("Astrometry")]
 public class SolveHintCacheTests(ITestOutputHelper output)
@@ -68,13 +71,13 @@ public class SolveHintCacheTests(ITestOutputHelper output)
     /// </summary>
     /// <remarks>
     /// It deliberately does NOT assert a saving, because on this frame there is none to assert and a
-    /// test that claimed one would be measuring noise: an easy field seeds in 8,937 hypotheses across
-    /// the whole race, phase A's cancellation has already stopped the loser, and the quad recovery
-    /// answers from the frame's own stars so the remembered scale is never consulted. The saving
-    /// lands where the seed is expensive, and is measured there --
-    /// <see cref="RealFrameSolveTests.TheCropWhoseHeaderPointsElsewhereStillSolves"/>, 1.6x.
-    /// What matters here is the other half of the contract: the hints are HINTS, so the answer must
-    /// not move.
+    /// test that claimed one would be measuring noise: an easy field seeds in a few thousand hypotheses
+    /// across the whole race, phase A's cancellation has already stopped the loser, and the quad seed
+    /// answers scale and parity from the frame's own stars so the remembered ones are never consulted.
+    /// Since the quad seed runs ahead of the race no committed fixture shows the cache a saving at all
+    /// (<see cref="RealFrameSolveTests.TheCropWhoseHeaderPointsElsewhereStillSolves"/> pins that
+    /// nothing material is left). What matters here is the other half of the contract: the hints are
+    /// HINTS, so the answer must not move, and neither may the cost of the half that answers.
     /// </remarks>
     [Fact(Timeout = 300_000)]
     public async Task AnAcceptedSolveTeachesTheLightPathAndTheNextAnswerIsIdentical()
@@ -87,16 +90,18 @@ public class SolveHintCacheTests(ITestOutputHelper output)
         var hint = new WCS(TargetRA, TargetDec);
 
         var first = await solver.SolveImageAsync(image, dim, searchOrigin: hint, searchRadius: 3d, cancellationToken: ct);
-        var firstHypotheses = solver.LastSeedHypotheses;
+        var firstTotal = solver.LastSeedHypotheses;
+        var (firstWinner, firstAbandoned) = solver.LastSeedHypothesesByOutcome;
         first.Solution.ShouldNotBeNull("the premise is a frame that solves");
         solver.Hints.Count.ShouldBe(1, "an accepted solve teaches the light path it came from");
 
         var second = await solver.SolveImageAsync(image, dim, searchOrigin: hint, searchRadius: 3d, cancellationToken: ct);
-        var secondHypotheses = solver.LastSeedHypotheses;
+        var secondTotal = solver.LastSeedHypotheses;
+        var (secondWinner, secondAbandoned) = solver.LastSeedHypothesesByOutcome;
         second.Solution.ShouldNotBeNull();
 
-        output.WriteLine($"seed hypotheses: first {firstHypotheses:N0}, second {secondHypotheses:N0} "
-            + $"({(firstHypotheses > 0 ? (double)secondHypotheses / firstHypotheses : 0):P1} of the first)");
+        output.WriteLine($"seed hypotheses: first {firstTotal:N0}, second {secondTotal:N0}; "
+            + $"winning parity {firstWinner:N0} -> {secondWinner:N0}, abandoned {firstAbandoned:N0} -> {secondAbandoned:N0}");
 
         // The answer must not move -- the whole design rests on the hints being hints.
         var a = first.Solution.Value;
@@ -104,9 +109,9 @@ public class SolveHintCacheTests(ITestOutputHelper output)
         CoordinateUtils.AngularSeparationDeg(a.CenterRA, a.CenterDec, b.CenterRA, b.CenterDec)
             .ShouldBeLessThan(1.0 / 3600.0, "a remembered scale and parity may make the solve cheaper, never different");
 
-        secondHypotheses.ShouldBeLessThanOrEqualTo(firstHypotheses,
-            "a light path's remembered scale and parity may never make its own field COSTLIER to "
-            + "solve than it was with no history at all");
+        secondWinner.ShouldBe(firstWinner,
+            "a light path's remembered scale and parity may never change what the half that answers spends "
+            + "on its own field: that scan is deterministic, and the cache only ever caps the OTHER half");
     }
 
     [Fact(Timeout = 300_000)]
