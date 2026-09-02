@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Microsoft.Extensions.Logging;
+using TianWen.Lib.Imaging;
 
 namespace TianWen.UI.FitsViewer
 {
@@ -10,9 +11,17 @@ namespace TianWen.UI.FitsViewer
         private const string ProgId = "TianWen.FitsViewer";
         private const string AppName = "TianWen FITS Image Viewer";
 
+        /// <summary>
+        /// The Explorer thumbnail provider, published beside the executable by CI. The tarball's equivalent
+        /// of the MSIX manifest's <c>desktop2:ThumbnailHandler</c> + <c>com:SurrogateServer</c> pair.
+        /// </summary>
+        private const string ThumbnailDllName = "tianwen-thumb.dll";
+        private const string ThumbnailProviderName = "Astro Photo Viewer thumbnail provider";
+
         private static readonly Dictionary<string, string[]> ExtensionGroups = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["FITS"] = [".fit", ".fits", ".fts", ".fz"]
+            ["FITS"] = [".fit", ".fits", ".fts", ".fz"],
+            ["SER"] = [".ser"]
         };
 
         internal static int Register(string group, ILogger logger)
@@ -82,6 +91,8 @@ namespace TianWen.UI.FitsViewer
                     logger.LogInformation("Registered {Extension} -> {ProgId}", ext, ProgId);
                 }
 
+                RegisterThumbnailProvider(classesKey, exePath, extensions, logger);
+
                 // Notify Explorer of the association change
                 SHChangeNotify(0x08000000 /* SHCNE_ASSOCCHANGED */, 0x0000 /* SHCNF_IDLIST */, nint.Zero, nint.Zero);
 
@@ -93,6 +104,44 @@ namespace TianWen.UI.FitsViewer
                 logger.LogError(ex, "Failed to register file associations");
                 return 1;
             }
+        }
+
+        /// <summary>
+        /// Registers <c>tianwen-thumb.dll</c> as the thumbnail provider for every extension in the group,
+        /// so an unpackaged install gets the same Explorer thumbnails the Store package declares in its
+        /// manifest. Two keys, both per user: the CLSID's <c>InprocServer32</c> pointing at the DLL, and
+        /// each extension's <c>ShellEx\{IThumbnailProvider}</c> naming the CLSID. Under the EXTENSION key,
+        /// not our ProgId: the shell consults the extension whichever app the user made the default, and
+        /// this app is only ever a candidate. The shell hosts the DLL in its own surrogate process by
+        /// default (no <c>DisableProcessIsolation</c> is written), so it never loads into explorer.exe.
+        /// </summary>
+        [SupportedOSPlatform("windows")]
+        private static void RegisterThumbnailProvider(Microsoft.Win32.RegistryKey classesKey, string exePath, string[] extensions, ILogger logger)
+        {
+            var thumbDll = Path.Combine(Path.GetDirectoryName(exePath) ?? string.Empty, ThumbnailDllName);
+            if (!File.Exists(thumbDll))
+            {
+                logger.LogWarning("No {Dll} beside the executable, so Explorer thumbnails are not registered", ThumbnailDllName);
+                return;
+            }
+
+            var clsid = ThumbnailRenderer.ShellExtensionClsid.ToString("B");
+            using (var clsidKey = classesKey.CreateSubKey(@"CLSID\" + clsid))
+            {
+                clsidKey.SetValue(null, ThumbnailProviderName);
+                using var inprocKey = clsidKey.CreateSubKey("InprocServer32");
+                inprocKey.SetValue(null, thumbDll);
+                inprocKey.SetValue("ThreadingModel", "Both");
+            }
+
+            var handlerId = ThumbnailRenderer.ThumbnailProviderHandlerId.ToString("B");
+            foreach (var ext in extensions)
+            {
+                using var shellExKey = classesKey.CreateSubKey($@"{ext}\ShellEx\{handlerId}");
+                shellExKey.SetValue(null, clsid);
+            }
+
+            logger.LogInformation("Registered Explorer thumbnails for {Extensions} via {Dll}", string.Join(", ", extensions), thumbDll);
         }
 
         [SupportedOSPlatform("windows")]

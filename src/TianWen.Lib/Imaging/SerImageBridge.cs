@@ -1,4 +1,6 @@
 using System;
+using System.Buffers.Binary;
+using System.Runtime.InteropServices;
 using SharpAstro.Ser;
 
 namespace TianWen.Lib.Imaging;
@@ -79,16 +81,62 @@ public static class SerImageBridge
     {
         ArgumentNullException.ThrowIfNull(reader);
 
-        var (sensor, ox, oy) = reader.ColorId.ToSensorType();
-        int w = reader.Width, h = reader.Height;
         var raw = new ushort[reader.SamplesPerFrame];
         reader.ReadFrame16(index, raw);
-        var scale = 1f / reader.MaxSampleValue;
+        return ToImage(raw, reader.ColorId, reader.Width, reader.Height, reader.MaxSampleValue);
+    }
+
+    /// <summary>
+    /// The same materialisation from a frame that arrived as BYTES rather than through a
+    /// <see cref="SerReader"/>: <paramref name="frame"/> is exactly one frame (<see cref="SerHeader.FrameSizeBytes"/>)
+    /// in the file's own byte order and sample width. This is the path a consumer with only a stream
+    /// takes, the Explorer thumbnail handler being the first (the shell hands it an <c>IStream</c>, and the
+    /// memory-mapped reader wants a path). The sample decode mirrors <see cref="SerReader.ReadFrame16"/>:
+    /// 8-bit widened, 16-bit byte-swapped to host order when the header says so.
+    /// </summary>
+    public static Image ToImage(in SerHeader header, ReadOnlySpan<byte> frame)
+    {
+        if (frame.Length != header.FrameSizeBytes)
+        {
+            throw new ArgumentException($"Expected exactly one frame of {header.FrameSizeBytes} bytes, got {frame.Length}.", nameof(frame));
+        }
+
+        var samples = new ushort[header.Width * header.Height * header.PlaneCount];
+        if (header.BytesPerSample == 1)
+        {
+            for (var i = 0; i < samples.Length; i++)
+            {
+                samples[i] = frame[i];
+            }
+        }
+        else
+        {
+            var src16 = MemoryMarshal.Cast<byte, ushort>(frame);
+            if (header.DataLittleEndian == BitConverter.IsLittleEndian)
+            {
+                src16[..samples.Length].CopyTo(samples);
+            }
+            else
+            {
+                for (var i = 0; i < samples.Length; i++)
+                {
+                    samples[i] = BinaryPrimitives.ReverseEndianness(src16[i]);
+                }
+            }
+        }
+
+        return ToImage(samples, header.ColorId, header.Width, header.Height, header.MaxSampleValue);
+    }
+
+    private static Image ToImage(ReadOnlySpan<ushort> raw, SerColorId colorId, int w, int h, int maxSampleValue)
+    {
+        var (sensor, ox, oy) = colorId.ToSensorType();
+        var scale = 1f / maxSampleValue;
         var meta = new ImageMeta { SensorType = sensor, BayerOffsetX = ox, BayerOffsetY = oy };
 
-        if (reader.ColorId.IsColor)
+        if (colorId.IsColor)
         {
-            var bgr = reader.ColorId == SerColorId.Bgr;
+            var bgr = colorId == SerColorId.Bgr;
             int rIdx = bgr ? 2 : 0, bIdx = bgr ? 0 : 2;
             var data = Image.CreateChannelData(3, h, w);
             for (var y = 0; y < h; y++)

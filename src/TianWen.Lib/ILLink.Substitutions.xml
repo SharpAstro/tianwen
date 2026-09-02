@@ -1,0 +1,58 @@
+<linker>
+  <!--
+    Feature switch TianWen.Lib.EmbeddedCatalogs. A consumer that never opens a catalog sets
+
+        <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedCatalogs" Value="false" Trim="true" />
+
+    and the trimmer / NativeAOT compiler drops every manifest resource named below from the output.
+    The first consumer is tianwen-thumb.dll, the Explorer thumbnail provider: its code is 1.7 MB and
+    these resources are 57 MB, so the switch is the difference between a 3 MB and a 60 MB shell DLL.
+
+    Why the list lives HERE and not in the consumer: ILC indexes an embedded ILLink.Substitutions.xml
+    by the module that embeds it, so a consumer's copy naming TianWen.Lib resources removes nothing
+    (measured: 59.6 MB either way). Only this assembly's own file, or a global substitution file passed
+    on the ILC command line, reaches them. (No double hyphen anywhere in this comment: XML forbids it,
+    and the parser that enforces it is the test that pins this file.)
+
+    The names are manifest resource names and must match the assembly exactly; there is no wildcard.
+    EmbeddedCatalogFeatureSwitchTests pins this list against the built assembly, so adding a catalog
+    without adding it here fails a test rather than silently shipping it in the thumbnail DLL. A
+    resource that a THUMBNAIL genuinely needs would be the first one to leave this list.
+  -->
+  <assembly fullname="TianWen.Lib" feature="TianWen.Lib.EmbeddedCatalogs" featurevalue="false">
+    <resource name="TianWen.Lib.Astrometry.Catalogs.Barnard.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.Barnard.shapes.json.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.CG.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.Ced.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.Ced.shapes.json.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.Cl.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.DG.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.Dobashi.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.Dobashi.shapes.json.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.GUM.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.HH.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.HR.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.LDN.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.LDN.shapes.json.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.NGC.addendum.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.NGC.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.RCW.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.Sh.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.filter_curves.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.hd_hip_cross.bin.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.hd_to_tyc.bin" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.hd_to_tyc.bin.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.hd_to_tyc_multi.json.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.hip_to_tyc.bin" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.hip_to_tyc.bin.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.hip_to_tyc_multi.json.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.pickles_sed.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.sensor_qe.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.simbad_merge.bin.gz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.tyc2.bin" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.tyc2_gsc_bounds.bin.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.tyc2_pm_sidecar.bin.lz" action="remove" />
+    <resource name="TianWen.Lib.Astrometry.Catalogs.vdB.gs.gz" action="remove" />
+    <resource name="TianWen.Lib.Devices.Fake.Data.jupiter.rgb.gz" action="remove" />
+  </assembly>
+</linker>

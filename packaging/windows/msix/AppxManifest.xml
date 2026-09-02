@@ -16,7 +16,9 @@
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap rescap">
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop2="http://schemas.microsoft.com/appx/manifest/desktop/windows10/2"
+  IgnorableNamespaces="uap rescap com desktop2">
 
   <Identity
     Name="SharpAstro.AstroPhotoViewer"
@@ -87,8 +89,32 @@
               <uap:FileType>.fz</uap:FileType>
               <uap:FileType>.ser</uap:FileType>
             </uap:SupportedFileTypes>
+            <!--
+              Explorer thumbnails for the five types. The Clsid must be the Id of the com:Class below,
+              which build-msix.ps1 checks on every push. ONE class for all five, because a thumbnail
+              handler is only ever given a stream and sniffs FITS vs SER from the first bytes itself.
+            -->
+            <desktop2:ThumbnailHandler Clsid="bde44417-0b48-4d32-931e-8b3192e81be2" />
           </uap:FileTypeAssociation>
         </uap:Extension>
+
+        <!--
+          The COM class behind the ThumbnailHandler above: tianwen-thumb.dll, a native (NativeAOT) in
+          process server that ships in this package next to the exe. SurrogateServer, not an in-proc
+          registration, is the ONLY form a packaged shell extension may take: the shell hosts it in its
+          own dllhost.exe, so nothing of ours ever loads into explorer.exe. That is also why the DLL
+          initialises from a stream (IInitializeWithStream) and never from a path.
+        -->
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="Astro Photo Viewer thumbnail provider">
+              <com:Class Id="bde44417-0b48-4d32-931e-8b3192e81be2"
+                         Path="tianwen-thumb.dll"
+                         ThreadingModel="Both"
+                         DisplayName="Astro Photo Viewer thumbnail provider" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
       </Extensions>
     </Application>
   </Applications>

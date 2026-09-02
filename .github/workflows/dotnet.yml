@@ -654,6 +654,17 @@ jobs:
     - name: Publish TianWen.UI.FitsViewer
       run: dotnet publish src/TianWen.UI.FitsViewer/TianWen.UI.FitsViewer.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
       shell: bash
+    # The Explorer thumbnail provider (a NativeAOT COM DLL, ~3 MB) ships INSIDE the viewer's tree: the
+    # MSIX manifest names it by a package-relative path and the tarball's `--register` looks for it
+    # beside the exe, so copying it here is what puts it in both the Store package and the release
+    # asset with no further step. Windows only, it is a shell extension. Its dependency graph is a
+    # subset of the viewer's, so the notices generated above already cover it.
+    - name: Publish TianWen.Shell.Thumbnails into the viewer tree
+      if: startsWith(matrix.rid, 'win-')
+      run: |
+        dotnet publish src/TianWen.Shell.Thumbnails/TianWen.Shell.Thumbnails.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
+        cp src/TianWen.Shell.Thumbnails/bin/Release/net10.0/${{ matrix.rid }}/publish/tianwen-thumb.dll src/TianWen.UI.FitsViewer/bin/Release/net10.0/${{ matrix.rid }}/publish/
+      shell: bash
     - name: Publish TianWen.UI.Gui
       run: dotnet publish src/TianWen.UI.Gui/TianWen.UI.Gui.csproj -r ${{ matrix.rid }} -c Release -p:Version=${VERSION_PREFIX}${VERSION_REV}${VERSION_HASH} -p:FileVersion=${VERSION_PREFIX}.${VERSION_REV} -p:GeneratePackageOnBuild=false
       shell: bash

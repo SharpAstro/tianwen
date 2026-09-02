@@ -20,6 +20,7 @@
   <Project Path="TianWen.Hosting.Contracts/TianWen.Hosting.Contracts.csproj" />
   <Project Path="TianWen.RemoteClient/TianWen.RemoteClient.csproj" />
   <Project Path="TianWen.Server/TianWen.Server.csproj" />
+  <Project Path="TianWen.Shell.Thumbnails/TianWen.Shell.Thumbnails.csproj" />
   <Project Path="TianWen.Lib.SourceGenerators/TianWen.Lib.SourceGenerators.csproj" />
   <Project Path="TianWen.Lib.Tests.Functional/TianWen.Lib.Tests.Functional.csproj" />
   <Project Path="TianWen.Lib.Tests.Simulators/TianWen.Lib.Tests.Simulators.csproj" />

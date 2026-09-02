@@ -1327,6 +1327,17 @@ installer, and the activation bug that shipped:
 - For an UNPACKAGED install `FileAssociationRegistrar` still does the registering. Neither route can do
   better on Windows 10/11: they make the app a *candidate*, and the user assigns the default in
   Settings.
+- **Explorer thumbnails are `tianwen-thumb.dll`, a NativeAOT COM DLL that ships INSIDE the viewer's
+  publish tree** (`TianWen.Shell.Thumbnails`; imaging in `TianWen.Lib`'s `ThumbnailRenderer`, the DLL
+  only moves bytes). Four rules, reasoning in [docs/plans/explorer-thumbnails.md](docs/plans/explorer-thumbnails.md):
+  a packaged shell extension runs ONLY in the shell's surrogate, so it gets a STREAM and nothing else
+  (`IInitializeWithStream`, container sniffed from the first bytes, one class for all five types);
+  **an embedded `ILLink.Substitutions.xml` applies only to the assembly that embeds it**, so the 57 MB
+  catalog strip is a feature switch IN TianWen.Lib (`TianWen.Lib.EmbeddedCatalogs=false`, 59.6 MB to
+  3 MB, list pinned both ways by `EmbeddedCatalogFeatureSwitchTests`); the CLSID is written in three
+  places and never changes (`build-msix.ps1` checks the manifest agrees with itself and that the DLL is
+  in the tree being packed); and **caching is the shell's** (`thumbcache_*.db`, re-extracted on a miss
+  or a newer mtime), so the handler is stateless and the library holds no thumbnail cache.
 
 ### Image Pipeline & Buffer Lifecycle
 
