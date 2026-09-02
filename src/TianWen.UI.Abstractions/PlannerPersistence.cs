@@ -11,6 +11,7 @@ using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
 using TianWen.Lib.Astrometry.SOFA;
 using TianWen.Lib.Devices;
+using TianWen.Lib.IO;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.UI.Abstractions;
@@ -422,7 +423,7 @@ public static class PlannerPersistence
         var currentName = Path.GetFileNameWithoutExtension(currentFilePath);
         string? best = null;
         string? bestName = null;
-        foreach (var path in Directory.EnumerateFiles(dir, "*.json"))
+        foreach (var path in FileEnumeration.EnumerateFiles(dir, ".json", recursive: false))
         {
             var name = Path.GetFileNameWithoutExtension(path);
             // Only accept strictly-older YYYY-MM-DD.json siblings (string compare works

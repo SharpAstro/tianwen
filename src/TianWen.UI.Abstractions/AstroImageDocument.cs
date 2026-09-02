@@ -30,9 +30,6 @@ public sealed class AstroImageDocument : IPreviewSource
     /// <c>.fz</c> is an fpack tile-compressed FITS and loads through the same FITS path as the rest.</summary>
     public static readonly ImmutableArray<string> SupportedExtensions = [".fits", ".fit", ".fts", ".fz", ".tif", ".tiff", ".cr2", ".cr3", ".ser"];
 
-    /// <summary>Glob patterns matching all supported file extensions (for folder scanning).</summary>
-    public static readonly ImmutableArray<string> SupportedPatterns = [.. SupportedExtensions.Select(ext => "*" + ext)];
-
     /// <summary>File dialog filter definitions.</summary>
     public static readonly (string Name, string[] Extensions)[] FileDialogFilters =
     [

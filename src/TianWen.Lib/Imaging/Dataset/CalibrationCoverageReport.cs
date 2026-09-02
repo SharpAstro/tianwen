@@ -4,11 +4,13 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
+using System.IO.Enumeration;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Imaging.Calibration;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Imaging.Dataset;
 
@@ -367,7 +369,10 @@ public static class CalibrationCoverageReport
         var byGeometry = new Dictionary<(int, int), (HashSet<string> Hashes, DateTimeOffset Latest)>();
         foreach (var root in roots)
         {
-            foreach (var path in Directory.EnumerateFiles(root, "BPM*.fits", SearchOption.AllDirectories))
+            foreach (var path in FileEnumeration.Enumerate(root, recursive: true,
+                static (ref FileSystemEntry entry) => !entry.IsDirectory
+                    && entry.FileName.StartsWith("BPM", StringComparison.OrdinalIgnoreCase)
+                    && entry.FileName.EndsWith(".fits", StringComparison.OrdinalIgnoreCase)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (!Image.TryReadFitsHeader(path, out var info))

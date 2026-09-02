@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.IO;
 using TianWen.Lib.Imaging.Stacking;
 
 namespace TianWen.AI.Imaging;
@@ -638,7 +639,7 @@ public static class DatasetBuildRunner
                 checkpoint.SessionId, checkpoint.TileCount, checkpoint.TileDirRelative);
             return false;
         }
-        var onDisk = Directory.EnumerateFiles(dir, "*" + DatasetTileExporter.TileExtension).Count();
+        var onDisk = FileEnumeration.CountFiles(dir, DatasetTileExporter.TileExtension, recursive: false);
         if (onDisk < checkpoint.TileCount)
         {
             logger?.LogWarning(

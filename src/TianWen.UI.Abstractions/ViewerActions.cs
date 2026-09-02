@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.IO;
 
 namespace TianWen.UI.Abstractions;
 
@@ -235,8 +236,9 @@ public static class ViewerActions
             return;
         }
 
-        var files = AstroImageDocument.SupportedPatterns
-            .SelectMany(p => Directory.EnumerateFiles(folderPath, p, SearchOption.TopDirectoryOnly))
+        // One directory-index pass matched by extension suffix; the old per-pattern loop listed the
+        // folder once per supported extension and followed reparse points into wherever they led.
+        var files = FileEnumeration.EnumerateFiles(folderPath, AstroImageDocument.SupportedExtensions, recursive: false)
             .Select(Path.GetFileName)
             .OfType<string>()
             .Distinct(StringComparer.OrdinalIgnoreCase)

@@ -10,6 +10,7 @@ using TianWen.AI.Imaging;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
+using TianWen.Lib.IO;
 using TianWen.UI.Abstractions;
 
 namespace TianWen.Cli;
@@ -703,9 +704,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
                 }
             }
 
-            var option = parseResult.GetValue(recursiveOpt) ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-            var files = Directory.EnumerateFiles(path, "*.*", option)
-                .Where(p => FitsFolderFrameSource.FitsExtensions.Any(e => p.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+            var files = FileEnumeration.EnumerateFiles(path, FitsFolderFrameSource.FitsExtensions, parseResult.GetValue(recursiveOpt))
                 .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
 
