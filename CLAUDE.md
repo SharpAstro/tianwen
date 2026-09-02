@@ -1049,8 +1049,17 @@ A CPU-first planetary stacker, **completely separate** from the deep-sky `Imagin
   `AddTianWenN2nDenoiser` makes it the `IDenoiseEnhancer` unconditionally. It is deliberately **not**
   Auto's preferred denoiser, never having been compared against AI4 on the enhance pipeline's own job.
   The user-facing strength dial is a **blend**, with the graph's own `strength` pinned to 1.0 (the
-  conditioning-plane dial was measured and rejected). Design + measurements:
-  [`docs/plans/osc-narrowband-denoiser.md`](docs/plans/osc-narrowband-denoiser.md) section 1o.
+  conditioning-plane dial was measured and rejected). **The net works in the exporter's MTF-stretched
+  domain, not in linear units**: every training tile was stored after
+  `ChunkedNafnetRunner.ApplyInputStretch`, so `N2nLinearRunner` applies that same call to the whole
+  frame, runs, and inverts with `MtfUnstretch` before blending; the boundary contract stays linear
+  in, linear out. For two weeks it fed the frame verbatim on the belief the tiles were linear, 100x
+  below the training band, which removed a tenth of the noise and cut every star's peak by 30 percent
+  at every brightness while no metric looked. A parity fixture that runs the same bytes on both sides
+  cannot see a domain error; verify the domain a runner hands a graph against the domain the training
+  bytes are in. Design + measurements:
+  [`docs/plans/osc-narrowband-denoiser.md`](docs/plans/osc-narrowband-denoiser.md) section 1o and
+  [`docs/plans/denoiser-training.md`](docs/plans/denoiser-training.md) H0 / section 9.
 - **RC-Astro (BlurX / NoiseX / StarXTerminator)** -- `AddRcAstroAi()`. Its `.onnx` files are
   **encrypted at rest** (the license forbids extracting the weights), so they are driven through the
   `rc-astro` CLI's `--json` NDJSON protocol, **never** loaded into ORT: `RcAstroEnhancerBase` writes the

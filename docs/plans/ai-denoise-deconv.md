@@ -1375,6 +1375,25 @@ the shape axis, from this master: adjacent-difference MAD over plain MAD reads 0
 while G and B sit near white. The shape story is strong for R and open for G/B; know that before
 attributing the whole G/B shortfall to it.
 
+**Correction, 2026-09-02: the 3b session's "nothing in the trainer normalises or centres the pixels"
+is true of the TRAINER and misses the EXPORTER.** `DatasetTileExporter` writes every tile after
+`ChunkedNafnetRunner.ApplyInputStretch` (its own XML doc: "tile bytes are stored post-stretch"), and
+the eval cache measures per-channel medians of 0.249 to 0.250 on master, sub and half-master tiles
+alike, a sub darkest-half sigma of 0.0082 and a master's of 0.00126. `N2nLinearRunner` feeds a
+linear `[0,1]` frame verbatim (median ~0.005, trainer-sigma ~8e-5 on the seam master), so the shipped
+model runs about 100x below the level and sigma it was trained on. That is the mechanism behind the
+input-rescale response peaking at the "honest" k = 124 (which lifts both sigma and median into the
+training band), and it is a confound on every real-frame number in this section. The Python-side
+verdicts (measured on the tiles, in distribution) stand; the C# ones are re-measured under
+[denoiser-training.md](denoiser-training.md) H0 / E0.5 before anything else in that plan runs.
+**Re-measured and fixed the same day.** Through the exporter's stretch the same weights land on the
+k = 124 row of the table above (87 / 77 / 64 percent MAD kept) with zero background movers, and the
+per-chunk level drag falls from 0.074 on a 0.0019 sky to 0.0029 on a 0.25 level. The finding the
+table above could not show, because the probe had no star column then: the verbatim path cut every
+star's peak by about 30 percent at every SNR (amplitude kept 0.70 flat), which the stretch turns into
+0.73 at SNR 8-15 rising to 0.93 at 100+. `N2nLinearRunner` now stretches for itself; the full
+six-arm table is section 9 of the denoiser plan, and this table's k = 1 row describes the retired path.
+
 ### Infra
 
 - Repo layout: `training/` at repo root (Python: `dataset.py`, `train_denoise.py`,

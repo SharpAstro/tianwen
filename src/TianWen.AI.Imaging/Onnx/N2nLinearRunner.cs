@@ -12,15 +12,35 @@ using TianWen.Lib.Stat;
 namespace TianWen.AI.Imaging.Onnx;
 
 /// <summary>
-/// Chunked inference for the in-house Noise2Noise denoiser: the LINEAR-domain sibling of
-/// <see cref="ChunkedNafnetRunner"/>. Shares its tiling helpers (<see cref="ChunkedInference"/>)
-/// and its border convention, and differs in the three ways that made reusing it impossible.
+/// Chunked inference for the in-house Noise2Noise denoiser: linear <c>[0, 1]</c> in, linear out, and
+/// the same MTF round-trip as <see cref="ChunkedNafnetRunner"/> in between. Shares its tiling helpers
+/// (<see cref="ChunkedInference"/>) and its border convention, and differs in the two ways that made
+/// reusing it impossible: the conditioning plane and the fixed tile.
 /// </summary>
 /// <remarks>
-/// <para><b>No MTF round-trip.</b> <see cref="ChunkedNafnetRunner"/> opens with
-/// <c>ApplyInputStretch</c>, because the AI4 NAFNets were trained on stretched inputs. This net
-/// was trained on linear <c>[0, 1]</c> tiles taken straight from stacked masters, so stretching
-/// first would be plain train/inference skew. The input is fed verbatim.</para>
+/// <para><b>The MTF round-trip is the exporter's, and it is the one preprocessing step there is.</b>
+/// <c>DatasetTileExporter</c> stores every training tile after
+/// <see cref="ChunkedNafnetRunner.ApplyInputStretch"/> (one whole-frame, per-channel stretch to a
+/// median of 0.25; the trainer reads the bytes as stored), so that same call on the whole input,
+/// before chunking, is what puts a frame in the domain the net was trained in, and
+/// <see cref="Image.MtfUnstretch"/> with the parameters it returned brings the answer back to the
+/// input's units before the blend. Until 2026-09-02 this runner fed a linear frame verbatim on the
+/// belief that the net had "trained on linear tiles", which put a real master about 100x below the
+/// level and the sigma of every tile it had seen. Measured on the 163-sub Bubble master
+/// (<c>N2nSeamProbe</c>, one process, same file): the verbatim path removed 10 / 9 / 17 percent of
+/// the noise (R/G/B), cut EVERY star's peak by about 30 percent whatever its brightness (amplitude
+/// kept 0.70, flat from SNR 8 to 100+), and the level prior dragged each chunk by a median 0.074 in
+/// linear units on a sky of 0.0019, some 740 input MADs that <see cref="RestoreLevel"/> then put
+/// back (the reason the PR #184 seams were as large as they were). Through the exporter's stretch the
+/// same weights remove 13 / 23 / 36 percent, keep 0.73 of a faint star's amplitude rising to 0.93 at
+/// the bright end, move no background pixel by more than 10 MAD, and the per-chunk drag falls to
+/// 0.0029 on a level of 0.25. That is hypothesis H0 of <c>docs/plans/denoiser-training.md</c>,
+/// confirmed; the per-SNR table is in its run log.</para>
+///
+/// <para>The auto-detect inside <c>ApplyInputStretch</c> is part of the contract, not a convenience:
+/// a frame whose median already sits above 0.125 is fed as it is, exactly as the exporter would have
+/// stored it, so a pre-stretched input takes the same path in training and here, and a frame this
+/// runner has stretched itself is not stretched twice.</para>
 ///
 /// <para><b>The conditioning is per tile, and lives inside the graph.</b> The model takes a
 /// fourth plane holding the tile's own measured background sigma, which is what makes its
@@ -54,7 +74,8 @@ internal static class N2nLinearRunner
     /// Run one denoise pass over <paramref name="input"/> and blend the result back toward it.
     /// </summary>
     /// <param name="input">Source image, linear and normalised to <c>[0, 1]</c> -- the same scale
-    /// the trainer saw (<see cref="Image.UnitScaleDivisor"/>).</param>
+    /// the exporter normalised its frames to before stretching them
+    /// (<see cref="Image.UnitScaleDivisor"/>).</param>
     /// <param name="blend">User-facing strength in <c>(0, 1]</c>: the output is
     /// <c>input + blend * (denoised - input)</c>, so 1.0 is the model's full opinion and values
     /// below it walk back toward the untouched input.</param>
@@ -110,13 +131,19 @@ internal static class N2nLinearRunner
         var totalSw = Stopwatch.StartNew();
         var phaseSw = Stopwatch.StartNew();
 
-        // 1. Border the source so its own edges are covered by a chunk interior, then tile.
+        // 0. Into the training domain: the exporter's whole-frame stretch, or nothing when the
+        //    auto-detect says the frame is already there (see the class remarks).
+        var (stretched, stretchApplied, origMin, balances) = ChunkedNafnetRunner.ApplyInputStretch(input);
+        var stretchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
+        ct.ThrowIfCancellationRequested();
+
+        // 1. Border the stretched frame so its own edges are covered by a chunk interior, then tile.
         var paddedChannels = new float[channels][];
         int paddedW = 0, paddedH = 0;
         for (var c = 0; c < channels; c++)
         {
             paddedChannels[c] = ChunkedInference.AddBorder(
-                input.GetChannelSpan(c), srcW, srcH, border, out paddedW, out paddedH);
+                stretched.GetChannelSpan(c), srcW, srcH, border, out paddedW, out paddedH);
         }
         ct.ThrowIfCancellationRequested();
 
@@ -137,6 +164,10 @@ internal static class N2nLinearRunner
         var planeStride = tileH * tileW;
         var strengthTensor = new DenseTensor<float>(new[] { 1.0f }.AsMemory(), ReadOnlySpan<int>.Empty);
         var strengthValue = NamedOnnxValue.CreateFromTensor(strengthInputName, strengthTensor);
+        // |offset| per (channel, chunk) from RestoreLevel, kept for the result: how far the net's
+        // level prior dragged each tile is the number that says whether the input sat in the
+        // net's training band (see the remarks on RestoreLevel).
+        var levelOffsets = new float[channels * chunkCount];
 
         for (var i = 0; i < chunkCount; i++)
         {
@@ -195,43 +226,63 @@ internal static class N2nLinearRunner
                 {
                     outSpan.Slice(chOffset + y * tileW, w).CopyTo(outData.AsSpan(y * w, w));
                 }
-                RestoreLevel(srcChunk.Data.AsSpan(0, h * w), outData);
+                levelOffsets[c * chunkCount + i] = MathF.Abs(RestoreLevel(srcChunk.Data.AsSpan(0, h * w), outData));
                 outChunksByChannel[c][i] = srcChunk with { Data = outData };
             }
         }
         var inferMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
+        var levelOffsetMax = 0f;
+        foreach (var offset in levelOffsets) levelOffsetMax = MathF.Max(levelOffsetMax, offset);
+        var levelOffsetMedian = StatisticsHelper.MedianFast(levelOffsets);
 
-        // 3. Stitch, un-border, and blend back toward the input in one pass over the plane. The
-        //    blend is applied here rather than per chunk because it is linear, so the two are
-        //    identical and this way it is stated once.
-        var outChannelData = new float[channels][,];
+        // 3. Stitch and un-border, per channel, still in the net's domain.
+        var inferredData = new float[channels][,];
         for (var c = 0; c < channels; c++)
         {
             var stitched = new float[paddedW * paddedH];
             ChunkedInference.Stitch(outChunksByChannel[c], stitched, paddedW, paddedH, border,
                 featherPx: overlap - 2 * border);
             var unpadded = ChunkedInference.RemoveBorder(stitched, paddedW, paddedH, border);
+            var plane = new float[srcH, srcW];
+            unpadded.AsSpan().CopyTo(MemoryMarshal.CreateSpan(ref plane[0, 0], srcW * srcH));
+            inferredData[c] = plane;
+        }
+        var stitchMs = phaseSw.ElapsedMilliseconds; phaseSw.Restart();
 
+        // 4. Back to the input's units with the parameters the stretch returned, exactly as
+        //    ChunkedNafnetRunner does; a frame that was fed as it is comes back as it is.
+        var inferred = new Image(inferredData, BitDepth.Float32, 1.0f, 0f, 0f, input.ImageMeta);
+        var restored = stretchApplied ? inferred.MtfUnstretch(origMin!, balances!) : inferred;
+
+        // 5. Blend back toward the input, in the input's units, in one pass over the plane. The
+        //    blend is applied here rather than per chunk because it is linear, so the two are
+        //    identical and this way it is stated once.
+        var outChannelData = new float[channels][,];
+        for (var c = 0; c < channels; c++)
+        {
             var plane = new float[srcH, srcW];
             var dst = MemoryMarshal.CreateSpan(ref plane[0, 0], srcW * srcH);
+            var denoised = restored.GetChannelSpan(c);
             if (blend >= 1.0f)
             {
-                unpadded.AsSpan().CopyTo(dst);
+                denoised.CopyTo(dst);
             }
             else
             {
                 var src = input.GetChannelSpan(c);
                 for (var k = 0; k < dst.Length; k++)
                 {
-                    dst[k] = src[k] + blend * (unpadded[k] - src[k]);
+                    dst[k] = src[k] + blend * (denoised[k] - src[k]);
                 }
             }
             outChannelData[c] = plane;
         }
-        var stitchMs = phaseSw.ElapsedMilliseconds;
+        var unstretchMs = phaseSw.ElapsedMilliseconds;
 
         var output = new Image(outChannelData, BitDepth.Float32, input.MaxValue, input.MinValue, 0f, input.ImageMeta);
-        return new N2nRunResult(output, chunkCount, tileW, prepMs, inferMs, stitchMs, totalSw.ElapsedMilliseconds);
+        return new N2nRunResult(
+            output, chunkCount, tileW, stretchApplied, stretchMs, prepMs, inferMs, stitchMs, unstretchMs,
+            totalSw.ElapsedMilliseconds, levelOffsetMedian, levelOffsetMax);
     }
 
     /// <summary>
@@ -272,7 +323,8 @@ internal static class N2nLinearRunner
     /// by however many stars the tile happens to hold, so a bright chunk and an empty one are
     /// corrected on the same footing.</para>
     /// </remarks>
-    private static void RestoreLevel(ReadOnlySpan<float> source, Span<float> denoised)
+    /// <returns>The offset that was added, 0 when nothing was (a non-finite median leaves the chunk alone).</returns>
+    private static float RestoreLevel(ReadOnlySpan<float> source, Span<float> denoised)
     {
         using var scratch = ArrayPoolHelper.Rent<float>(source.Length * 2);
         var buffer = scratch.AsSpan();
@@ -283,21 +335,32 @@ internal static class N2nLinearRunner
 
         // MedianFast reorders its input, which is why both go through scratch copies.
         var offset = StatisticsHelper.MedianFast(srcScratch) - StatisticsHelper.MedianFast(denScratch);
-        if (offset == 0f || !float.IsFinite(offset)) return;
+        if (offset == 0f || !float.IsFinite(offset)) return 0f;
         for (var i = 0; i < denoised.Length; i++) denoised[i] += offset;
+        return offset;
     }
 }
 
 /// <summary>
-/// Per-call result + timing breakdown from <see cref="N2nLinearRunner.Run"/>. There is no
-/// stretch/unstretch pair here (this net is linear-domain), which is the visible difference from
-/// <see cref="ChunkedNafnetResult"/>.
+/// Per-call result + timing breakdown from <see cref="N2nLinearRunner.Run"/>, the shape of
+/// <see cref="ChunkedNafnetResult"/> plus the two level-restore statistics. <see cref="StretchApplied"/>
+/// is the auto-detect's decision (false for an input already in the training band);
+/// <see cref="UnstretchMs"/> covers the inverse MTF and the blend, which share a pass.
+/// <see cref="LevelOffsetMedianAbs"/> / <see cref="LevelOffsetMaxAbs"/> are |offset| over every
+/// (channel, chunk) that <c>RestoreLevel</c> added, in the domain the net saw: a drag that is a
+/// large fraction of the level says the input sat outside the training band, which is how the
+/// verbatim-input defect would have been visible in a log line had this existed then.
 /// </summary>
 internal sealed record N2nRunResult(
     Image Output,
     int ChunkCount,
     int TileSize,
+    bool StretchApplied,
+    long StretchMs,
     long PrepMs,
     long InferMs,
     long StitchMs,
-    long TotalMs);
+    long UnstretchMs,
+    long TotalMs,
+    float LevelOffsetMedianAbs,
+    float LevelOffsetMaxAbs);
