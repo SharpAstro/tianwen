@@ -2,6 +2,7 @@ using System;
 using System.CommandLine;
 using System.Globalization;
 using System.IO;
+using TianWen.Lib.IO;
 using TianWen.Lib.Sequencing;
 
 namespace TianWen.Cli;
@@ -171,5 +172,5 @@ internal sealed class FlatsSubCommand(
     }
 
     private static int CountFlats(string flatsRoot)
-        => Directory.Exists(flatsRoot) ? Directory.GetFiles(flatsRoot, "*.fits", SearchOption.AllDirectories).Length : 0;
+        => Directory.Exists(flatsRoot) ? FileEnumeration.CountFiles(flatsRoot, ".fits", recursive: true) : 0;
 }

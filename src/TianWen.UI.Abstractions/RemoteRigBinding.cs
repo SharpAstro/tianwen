@@ -7,6 +7,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using TianWen.Lib.Devices;
+using TianWen.Lib.IO;
 
 namespace TianWen.UI.Abstractions
 {
@@ -118,7 +119,7 @@ namespace TianWen.UI.Abstractions
             }
 
             var loaded = new List<RemoteRigBinding>();
-            foreach (var file in Directory.EnumerateFiles(folder, "*.json"))
+            foreach (var file in FileEnumeration.EnumerateFiles(folder, ".json", recursive: false))
             {
                 var binding = await external
                     .TryReadJsonAsync(file, RemoteRigJsonContext.Default.RemoteRigBinding, logger, cancellationToken)

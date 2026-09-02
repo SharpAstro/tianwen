@@ -1629,6 +1629,16 @@ Canonical example: `AppSignalHandler.PollCameraTelemetry` and `EquipmentTabState
 - **Correct abstraction levels**: pure math/data in `TianWen.Lib`, UI state in `TianWen.UI.Abstractions`,
   Vulkan-specific rendering in `TianWen.UI.Shared` / `TianWen.UI.Gui`. Never put GPU calls in Lib or Abstractions.
 - **No code duplication**: reuse single sources of truth (e.g., `Image.StretchValue()`)
+- **Directory walks go through `FileEnumeration` (`TianWen.Lib/IO`), never the `SearchOption`
+  overloads of `Directory.EnumerateFiles`/`GetFiles`.** Those run with the legacy defaults: they ENTER
+  every reparse point (the organized archive's `targets/` junction farm was scanned once per link, and a
+  scratch junction into `D:\Astro-Pics` turned a scratch walk into an archive walk), abort the whole walk
+  on the first unreadable directory, and match `*.fits` case-sensitively on Linux. `FileEnumeration` sits on
+  `FileSystemEnumerable<T>` (the directory index, no per-file open: a million tiles in about a second),
+  skips reparse points, ignores inaccessible directories, keeps hidden files, uses a 64 KiB buffer and
+  matches extensions as an ordinal-ignore-case name SUFFIX (`.fits.gz` is one extension). Results are
+  unordered; sort with `StringComparer.OrdinalIgnoreCase` where determinism matters. Pinned by
+  `FileEnumerationTests`, including a real junction that must be neither listed nor entered.
 
 ## Package Management
 

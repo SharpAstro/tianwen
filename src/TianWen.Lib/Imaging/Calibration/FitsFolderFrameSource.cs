@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using TianWen.Lib.IO;
 
 namespace TianWen.Lib.Imaging.Calibration;
 
@@ -69,10 +70,10 @@ public sealed class FitsFolderFrameSource : IFrameSource
     /// <inheritdoc/>
     public async IAsyncEnumerable<FrameInfo> EnumerateAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var searchOption = _recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
-        // EnumerateFiles itself is lazy, so the directory scan also streams.
-        var paths = Directory.EnumerateFiles(_folder, "*.*", searchOption)
-            .Where(IsFitsPath)
+        // FileEnumeration is lazy, so the directory scan streams. It also refuses to enter reparse
+        // points (the organized archive's junction farm used to be scanned once per link) and skips
+        // a folder it cannot read instead of aborting a multi-hour walk; see its remarks.
+        var paths = FileEnumeration.EnumerateFiles(_folder, FitsExtensions, _recursive)
             .OrderBy(p => p, StringComparer.OrdinalIgnoreCase);
 
         foreach (var path in paths)
@@ -111,18 +112,6 @@ public sealed class FitsFolderFrameSource : IFrameSource
         // "Ha" and a recorded "Ha" are indistinguishable downstream.
         var filter = Filter.FromName(declared) with { RawName = declared };
         return frame with { Meta = frame.Meta with { Filter = filter } };
-    }
-
-    private static bool IsFitsPath(string path)
-    {
-        foreach (var ext in FitsExtensions)
-        {
-            if (path.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static FrameInfo? TryReadFrameInfo(string path)

@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Astrometry.Catalogs;
+using TianWen.Lib.IO;
 using TianWen.Lib.Astrometry.Comets;
 using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging.Calibration;
@@ -228,7 +229,7 @@ public sealed class StackingPipeline(
         // rebuild, so we keep them across runs.
         var wipedCount = 0;
         var skippedCount = 0;
-        foreach (var f in Directory.EnumerateFiles(outputDir, "*.fits"))
+        foreach (var f in FileEnumeration.EnumerateFiles(outputDir, ".fits", recursive: false))
         {
             if (IntegrationFitsWriter.IsTianWenMaster(f))
             {

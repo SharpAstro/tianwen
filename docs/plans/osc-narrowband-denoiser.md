@@ -67,6 +67,9 @@ Two independent reasons, and both are silent:
   (6,438 x 2 + 3,002 calibration + 14 provenance = the 15,892 the log reported against 9,454 files
   actually on disk) and one copy is then dropped as a duplicate. `find` does not follow junctions by
   default, which is why a shell count disagrees with the scanner and looks like the scanner is wrong.
+  **Fixed 2026-09-02:** every production scan now goes through `FileEnumeration` (`TianWen.Lib/IO`),
+  which never lists or enters a reparse point, so the junction farm is invisible to a walk rather
+  than doubled. The three-subtree root advice above still stands because of the first reason.
 
 Rooted correctly the same archive gives **52 sessions / 6,437 lights, zero exclusions, zero
 duplicates**, and the session key carries the filter
