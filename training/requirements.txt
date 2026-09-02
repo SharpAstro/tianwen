@@ -1,0 +1,19 @@
+# The trainer's environment, pinned to what produced n2n_v19d (2026-08-16) and reproduced it bit
+# for bit from this directory (E0, 2026-09-02; training/denoise/repro-v19d.ps1).
+#
+# The cu126 index is load-bearing: a bare `pip install torch` resolves to a cu130 wheel, CUDA 13
+# dropped Maxwell/Pascal/Volta, and the GTX 1070 (sm_61) would then train on the CPU without a word.
+# Verify after installing:
+#   python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_arch_list())"
+# must print 2.13.0+cu126, True, and an arch list containing sm_61.
+#
+# onnxruntime is the CPU build: it only checks the exported graph against torch, and the .NET side
+# runs DirectML, which this package has nothing to do with. matplotlib is not needed; no script here
+# imports it (the figures in the run records were drawn with PIL).
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch==2.13.0+cu126
+numpy==2.5.2
+scipy==1.18.0
+pillow==12.3.0
+onnx==1.22.0
+onnxruntime==1.28.0

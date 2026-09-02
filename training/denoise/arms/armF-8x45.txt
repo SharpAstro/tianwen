@@ -1,0 +1,29 @@
+# armF: the THIRD disjoint 8-session set. Disjoint from armD (v19d) and armE (v23e).
+#
+# Matched to armD on camera split (5 ASI533 + 3 SV605CC) and, on the ASI533 side, on CONTENT:
+# armD is 4 HD/COO mosaic panels + RCW 27; armF is 4 HD panels + RCW 32. Five distinct nights.
+#
+# Chosen to avoid armE's two flagged confounds: NO moving target (armE carried comet
+# C/2025 R2 SWAN, whose object smears in the master and shifts between subs, corrupting the pair
+# AND the reference) and NO galaxy.
+#
+# Also chosen to avoid two contaminations neither earlier arm was screened for:
+#   - NO Rim Nebula session. Four are available in the pool and the Rim observer is the cell that
+#     discriminates hardest; including one would hand armF a home advantage armD and armE lack.
+#   - NO Tarantula session. Both available ones sit in the same folder tree as the pinned GATE
+#     session (2025-10/Tarantula Nebula/2025-11-01), so training on them would leak into the
+#     measurement that SELECTS the checkpoint.
+#
+# Two mismatches that the pool cannot fix, stated rather than hidden:
+#   - armD's SV605CC trio is cluster + planetary + emission; the only SV605CC sessions left after
+#     the Tarantula exclusion are three bright emission nebulae. Unavoidable.
+#   - Orion/RGB shares a folder tree with armE's Orion/Ha-OIII (sibling processings of the same
+#     nights), so armF is not fully independent of armE in one of eight slots.
+2026-01-01|ZWO ASI533MC Pro|HD 71181
+2026-01-11|ZWO ASI533MC Pro|HD 76360
+2026-01-18/Panel 11|ZWO ASI533MC Pro|HD 71216
+2026-02-16|ZWO ASI533MC Pro|HD 77566
+2025-12-27 Panel 2 f3.2/Panel 2_RCW32_08 43 54_-41 14 32_LIGHT|ZWO ASI533MC Pro|RCW 32
+2025-12-17 Rosette + Carina Nebula/2025-12-17/Rosette Nebula|SVBONY SV605CC|Rosette Nebula
+2025-12-17 Rosette + Carina Nebula/2025-12-17/Carina Nebula|SVBONY SV605CC|eta Car Nebula
+2025-10/Orion/RGB|SVBONY SV605CC|Great Orion Nebula

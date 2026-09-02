@@ -1,0 +1,29 @@
+# Experiments ledger
+
+One line per run or measurement, oldest first: what was trained or measured, on which prepared
+cache, how many seeds, the verdict. Negatives are included, and a result that needed a new
+explanation after the fact is recorded as a finding rather than a conclusion. The full run records
+(logs, checkpoints, figures, and each run script with its pre-registered predictions) stay under
+`D:\Astro-Dataset\n2n-smoke\<gen>\`; the narrative is `docs/plans/osc-narrowband-denoiser.md`
+sections 1a to 1o and `docs/plans/denoiser-training.md`. A new run appends one row here and names
+the commit it ran from.
+
+| gen | date | cache | what | seeds | verdict |
+|---|---|---|---|---|---|
+| l1, l2, a_up, a_avg, v2 to v8 | 2026-08-12 | n2n (calgated; 8 train + 2 val sessions, 960 cells) | smoke ablations: L1 vs L2, transposed conv vs upsample, 4v4 averaging, DoG band loss at three weights, noise conditioning with mixed levels | 1, unseeded | conditioning is what keeps faint stars (amplitude kept 0.75 / 0.62 for v4 / v8 against 0.10 / 0.07 for plain L1 / L2); fabricated point sources per tile 26 to 209 against the raw sub's own 22 |
+| v9 | 2026-08-13 | n2n-ds | half-master pairs against a matched control on one shared cache | 1, unseeded | RETRACTED: torch was never seeded, so the positive was a draw |
+| v10 to v13 | 2026-08-13 to 14 | n2n-ds | the seeded verdict on half-master pairs, and the gate (fabrication bar, noise, faint amplitude) with its stopping rule | 3 per arm, 15 runs | half pairs null across seeds; the gate selects mid-schedule checkpoints; every run bit-identical on re-run |
+| v14 | 2026-08-14 | n2n-ds | per-band noise conditioning (`--cond-bands`), and half pairs underneath it | 3 x 2 arms | bands no better than the scalar plane; half pairs null again, two of three never passed the gate |
+| v15 | 2026-08-14 | n2n-ds | `--gate-observe`: the val session the gate does not select on, probed on the same schedule | 3 | selections reproduced v13 exactly; the probed session is the stricter of the two by luck of ordering |
+| v16 | 2026-08-14 | n2n-ds | genuinely short schedules (1,600 and 2,400 steps) against the truncated long one | 3 x 2 | NEGATIVE: the mid-schedule pick is a hot-learning-rate artefact of cosine annealing, not a budget finding |
+| v17, v17b, v17c | 2026-08-15 | n2n-big (60 sessions) | the first run sized to produce a model: 60 sessions, base 32 and 48; the two controls; the fabrication question closed | 1 + 3 + 3 | the budget was wrong and v16 said why; v17c (60 sessions, base 32) becomes the large-pool control |
+| v18 | 2026-08-16 | n2n-a52, n2n-b52 | drop the 8 ASI585 sessions against dropping 8 random ones | 3 x 2 | the ASI585 sessions are innocent; dropping 8 of anything changes nothing |
+| v19 | 2026-08-16 | n2n-c21, n2n-d8 | a 2x2 on session count against cells per session, nested in v17's 60 | 3 x 2 | read as "session COUNT is the lever"; v19d seed 2 (8 sessions x 45 cells) is the checkpoint that ships |
+| v20 | 2026-08-16 | n2n-eval4 | observer rotation over every unseen session; no training | none | the few-session arms win on all four observers, including the rig they never saw |
+| v21 | 2026-08-16 | n2n-big, n2n-d8 | band conditioning at 60 and at 8 sessions | 3 x 2 | no rescue of the 60-session arm, and it destabilises training |
+| v22 | 2026-08-16 | n2n-big, n2n-eval4 | four measurements on existing checkpoints (paircorr, keptshared, structfrontier, structkeep); no training | none | the N2N premise of independent pair noise is broken in every session, not in a bad subset; the few-session operator property |
+| v23 | 2026-08-16 | n2n-e8 | armE: eight different sessions to armD's recipe, matched on camera | 3 | PA, PB and PC all failed; "session count is the lever" does not survive |
+| v24 | 2026-08-16 | n2n-f8 | armF: a third disjoint eight, screened for content | 3 | no recipe: the 8-session outcome is a high-variance draw (0.825 / 0.726 / 0.739 across the three draws) |
+| ship | 2026-08-17 | n2n-d8 | export v19d seed 2 to ONNX (opset 17, sigma baked in), the dial study, the cross-language parity fixture | none | shipped opt-in; the blend is the dial and the conditioning dial is rejected; a per-channel level prior found and corrected by `RestoreLevel` |
+| E0.5 | 2026-09-02 | none (C#, the 163-sub Bubble master) | H0: the runner fed linear pixels to a net trained on stretched tiles | none | CONFIRMED and fixed; the verbatim path had cut every star peak by 30 percent at every SNR; `docs/plans/denoiser-training.md` section 9 |
+| E0 | 2026-09-02 | n2n-d8 | this directory reproduces `n2n_v19d_s2_final.pt` from the cache (`denoise/repro-v19d.ps1`, 12.3 min on the 1070) | 1 (seed 2) | PASSED: both checkpoints (gate-selected step 1500, score 0.709; final step 4000) reproduce all 813,251 parameters bit for bit, and the log matches the 2026-08-16 run at every printed loss and gate figure. The script's first verdict read DIFFERENT because it hashed the FILES: `torch.save` names every archive member after the output stem and the trainer now records one more key (`pair_time`); re-saving the reference with that key under the repro's name gave the repro's hash exactly. Checkpoints are compared tensor for tensor now (`n2n_ckpt_equal.py`), never by hash |

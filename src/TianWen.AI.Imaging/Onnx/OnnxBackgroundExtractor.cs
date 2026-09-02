@@ -15,7 +15,8 @@ namespace TianWen.AI.Imaging.Onnx;
 
 /// <summary>
 /// AI background-gradient correction via the GraXpert BGE ONNX model
-/// (Steffenhir/GraXpert, MIT-licensed). Downsamples the source to 240x240,
+/// (Steffenhir/GraXpert; code GPL-3.0, AI models CC-BY-NC-SA-4.0, read from the
+/// user's own install and never redistributed). Downsamples the source to 240x240,
 /// edge-pads to 256x256, normalises per-channel via median + MAD, runs a
 /// single-pass NHWC inference, denormalises, smooths, and upsamples the
 /// estimated background back to source dimensions. The corrected image is

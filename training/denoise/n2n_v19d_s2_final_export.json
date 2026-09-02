@@ -1,0 +1,58 @@
+{
+ "checkpoint": "n2n_v19d_s2_final.pt",
+ "cache": "C:\\tianwen-scratch\\n2n-d8",
+ "cond_planes": 1,
+ "params": 813251,
+ "opset": 17,
+ "tile": 256,
+ "border_px": 16,
+ "sigma_scale": 100.0,
+ "strength": 1.0,
+ "parity_max_abs": {
+  "baked": 1.4901161193847656e-07,
+  "plain": 1.4901161193847656e-07
+ },
+ "tile_signal_sigma": 0.029825812205672264,
+ "sigma_fixture": [
+  {
+   "cell": 0,
+   "sigma": 0.4964187741279602,
+   "numpy_ref": 0.4964187741279602
+  },
+  {
+   "cell": 27,
+   "sigma": 0.8219420909881592,
+   "numpy_ref": 0.8219420909881592
+  },
+  {
+   "cell": 54,
+   "sigma": 0.05289614200592041,
+   "numpy_ref": 0.05289614200592041
+  },
+  {
+   "cell": 82,
+   "sigma": 0.3743499517440796,
+   "numpy_ref": 0.3743499517440796
+  },
+  {
+   "cell": 109,
+   "sigma": 0.1220703125,
+   "numpy_ref": 0.1220703125
+  },
+  {
+   "cell": 137,
+   "sigma": 0.1302078366279602,
+   "numpy_ref": 0.1302078366279602
+  },
+  {
+   "cell": 164,
+   "sigma": 0.1017257571220398,
+   "numpy_ref": 0.1017257571220398
+  },
+  {
+   "cell": 192,
+   "sigma": 0.10986328125,
+   "numpy_ref": 0.10986328125
+  }
+ ]
+}

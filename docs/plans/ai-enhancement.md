@@ -9,8 +9,10 @@ optionally recombine. Each step must be usable standalone (starless export, deco
 a pre-starless image, etc.), so the orchestrator composes atomic `IImageEnhancer`s
 rather than baking the chain into one method.
 
-Reference implementation: SetiAstroSuite Pro (Python, see `~/source/repos/other/setiastrosuitepro/`
--- a sibling checkout of this org's repos, not inside `tianwen/`; GPL-3.0 per its own README).
+Reference implementation: SetiAstroSuite Pro (Python, `github.com/setiastro/setiastrosuitepro`,
+GPL-3.0 per its own README and the GitHub API; **no local checkout exists on this machine as of
+2026-09-02**, the `~/source/repos/other/setiastrosuitepro` path older notes cite is stale, so read
+it from GitHub).
 Models distributed under their GitHub release `setiastro/setiastrosuitepro` tag
 `benchmarkFIT` (2 zip assets, ~2.5 GB extracted). Same architecture (NAFNet),
 same training distribution, same input conventions; we just port the orchestration

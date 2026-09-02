@@ -1,0 +1,12 @@
+# armE: 8 DIFFERENT sessions x 45 cells, disjoint from armD (v19d's 8), composition-matched:
+# 5 ASI533 sparse star-field panels + 3 SV605CC of which one bright-nebula session, mirroring
+# armD's 5+3 with its one nebula (Statue of Liberty). Every few-session number since v15 rests
+# on armD's particular 8; this arm tests whether ANY 8 does it, or those 8.
+2026-01-06|ZWO ASI533MC Pro|HD 74167
+2026-01-11|ZWO ASI533MC Pro|HD 72800
+2026-02-14|ZWO ASI533MC Pro|HIP 40810
+2026-02-16|ZWO ASI533MC Pro|HD 75426
+2026-01-20|ZWO ASI533MC Pro|HD 258924
+2025-10/2025-10-28|SVBONY SV605CC|Triangulum Galaxy
+2025-10/C2025_R2_SWAN/2025-10-18/RGB|SVBONY SV605CC|C/2025 R2 (SWAN)
+2025-10/Orion/Ha-OIII|SVBONY SV605CC|Great Orion Nebula

@@ -722,6 +722,7 @@ Ordered by value per unit of work, not by dependency.
 | ~~**N2d**~~ | ~~**Rotate the observer session.**~~ **DONE 2026-08-16, see 1j.** 8 of 8 cells favour the few-session arms, including on the ASI585 field they never trained on and v17c did. Proximity excluded. | 25 min | Cleared the confound that would have invalidated 1b, 1h and 1i, and unblocked N2b. |
 | ~~**N2b**~~ | ~~**PSF conditioning in the trainer.**~~ **PARTLY DONE 2026-08-16 as band conditioning, negative, see 1k.** The cheap tile-measurable proxy (`--cond-bands`, 3 noise-colour planes) does not rescue the 60-session arm and destabilised training. | 1.4 h | Killed the proxy, not the hypothesis: band sigma describes NOISE colour, and 1i is about SIGNAL scale. |
 | ~~**N2e**~~ | ~~**A signal-scale conditioning plane, measurable from ONE tile.**~~ **MOOT per 1l (2026-08-16).** The mechanism is corruption of the TARGETS (time-correlated pair residue), which no input-side plane can describe away; 1k's negative was structural, not a proxy problem. The fix axis is N8's pair selection, not a richer estimator. | - | Withdrawn before any code was written, which is the cheap time to withdraw it. |
+| **N12** | **The next campaign is planned in [denoiser-training.md](denoiser-training.md)** (2026-09-02): H0 the runner domain fix (above), H1 synthetic noise injection for master depth, H2 noise shape, H3 the level prior, H4 broadband transfer (the SV545 `IDAS LPS-D3` nights), H5 capacity, H6 observer-pool resolution. N3, N10 and N11 below are absorbed there as H4, the "no size recipe" invariant and H6. | plan | Everything below this row is pre-registered there with arms and kill criteria. |
 | **N3** | **Restate the deployment target.** The pool is 3 nm + quad-band + zero broadband. Either accept OSC narrowband as the target (and say so everywhere the docs claim broadband), or deliberately acquire broadband training data. | doc | Section 0. Everything measured so far is a narrowband result wearing a general label. |
 | ~~**N4**~~ | ~~**Ship a checkpoint behind a strength dial.**~~ **DONE 2026-08-17, see 1o.** `n2n_v19d_s2` exported to ONNX with the conditioning baked in, wired as an opt-in `IDenoiseEnhancer` (`AddTianWenN2nDenoiser`), pinned by a cross-language parity test. Two things changed on the way: the shipped dial is the BLEND, not `with_sigma`'s `strength` (measured and rejected), and the model needed a per-channel level restore it did not have. Distribution (2026-08-17): in-repo at `src/TianWen.AI.Imaging/models/` as a plain git blob (an `.gitattributes` exemption from the `*.onnx` LFS rule, taken because the LFS budget was exhausted and this was the one object missing from the runners' cache; revert expected 2026-09), materialized by the fetch script, parity-tested in CI -- see the end of 1o. | medium | Done. |
 | ~~**N8**~~ | ~~**Run v23: the causal test + the which-8 arm.**~~ **DONE 2026-08-16, all three predictions failed, see 1m.** Pair-time moves the operator by -10% to -27% (wrong direction), and armE shows the count claim was never established. | 2 h | Closed the residue pathway and, more valuably, found that 1i had a confound nobody had checked. |
@@ -765,7 +766,11 @@ Ordered by value per unit of work, not by dependency.
 
 - Run records: `D:\Astro-Dataset\n2n-smoke\v17\README.md` (budget error, bar-migration autopsy,
   spurious-site composition), `v17c\README.md` (the three-arm comparison and the dual-bar result).
-- Checkpoints: `C:\tianwen-scratch\n2n-big\n2n_v17{b,c}_s{0,1,2}{,_final}.pt` (`_final` = selected).
+- Checkpoints: `C:\temp\tianwen-scratch\n2n-big\n2n_v17{b,c}_s{0,1,2}{,_final}.pt` (`_final` = selected).
+  **The scratch moved from `C:\tianwen-scratch` to `C:\temp\tianwen-scratch`** (verified 2026-09-02;
+  the old root no longer exists). The trainer's `--cache` default and the `EVAL` constants in the
+  `ship/` and `v24/scripts/` files still name the old path; pass `--cache` explicitly. Shipped arm:
+  `C:\temp\tianwen-scratch\n2n-d8\n2n_v19d_s2_final.pt`.
 - Scripts, in `v17b/scripts` and `v17c/scripts`: `n2n_bars.py` (dual-bar, matched-noise, all 9
   checkpoints), `n2n_gate.py` (with the absolute-bar twin), `n2n_frontier.py`.
 - PSF analysis, scratchpad: `psf_radial.py` (re-implements the C# aggregation so a check does not
@@ -783,6 +788,7 @@ Ordered by value per unit of work, not by dependency.
   `n2n-smoke/scripts/n2n_arm_filter_map.py`. One row per (arm, session) carrying the resolved
   filter, its source (organized bake or measured verdict) and its join basis, so a later reader can
   see which attributions are exact and which are not. **The arms live in the training caches, not in
-  the run records**: v13/first-8 is `C:\tianwen-scratch\n2n\meta.json`, v15 is `n2n-ds`, v17 is
-  `n2n-big`; each holds `train_sessions` + `val_sessions` by name.
+  the run records**: v13/first-8 is `C:\temp\tianwen-scratch\n2n\meta.json`, v15 is `n2n-ds`, v17 is
+  `n2n-big`, v19d (shipped) is `n2n-d8`, armE `n2n-e8`, armF `n2n-f8`, the four-observer eval cache
+  `n2n-eval4`; each holds `train_sessions` + `val_sessions` by name.
 - Filter verdicts: `D:\Astro-Organized\_provenance\group-{a,b,c}-locked.csv`, with per-session basis.
