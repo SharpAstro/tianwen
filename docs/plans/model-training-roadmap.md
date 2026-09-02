@@ -41,8 +41,12 @@ the run log of the first campaign.
 
 ## 2. Shared infrastructure that does not exist yet
 
-**The trainer is not in the repo.** Every Python file that trains, gates, scores, exports or fixtures a
-model lives under `D:\Astro-Dataset\n2n-smoke\` (newest generation `v24/scripts/`, deployment set
+**The trainer IS in the repo since 2026-09-02 (`training/denoise/`, E0 passed; see `training/README.md`
+for what came across and what stayed on D:). The rest of this section is the state it was written
+against, kept because the layout below is still the target: only `denoise/` exists, and `common/` is
+deliberately deferred until a second trainer needs it.** Before that day the trainer was not in the
+repo: every Python file that trained, gated, scored, exported or fixtured a model lived under
+`D:\Astro-Dataset\n2n-smoke\` (newest generation `v24/scripts/`, deployment set
 `ship/`), snapshotted per run and referenced from the plan docs by absolute path. Losing that disk
 loses the ability to retrain or re-export. There is no `requirements.txt`, `pyproject.toml` or
 environment file anywhere; the versions are recoverable only from `ship/n2n_v19d_s2_final_export.json`
