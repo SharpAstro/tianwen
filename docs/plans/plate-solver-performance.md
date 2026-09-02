@@ -272,8 +272,8 @@ never `ReferenceEquals` on a record struct.
 Guarded by `SolveHintCacheTests` (learning, light-path separation, and that an unidentified frame or a
 non-positive ratio teaches nothing) plus the second solve in
 `RealFrameSolveTests.TheCropWhoseHeaderPointsElsewhereStillSolves`, which asserts on
-`CatalogPlateSolver.LastSeedHypotheses` -- deterministic, unlike wall clock -- and was seen to FAIL
-with the cap disabled.
+`CatalogPlateSolver.LastSeedHypothesesByParity` (the winning half is deterministic, unlike wall clock;
+the abandoned half is not, see the 2026-09-01 note under C3) and was seen to FAIL with the cap disabled.
 
 ### B. Tycho-2 pre-baked region index -- **OBSOLETE, the work is already done**
 
@@ -903,10 +903,23 @@ Two consequences worth recording:
 
 - **The cache's end-to-end pin on this frame is gone, and that is correct.** The second solve used to
   spend 1.6x fewer hypotheses because the remembered parity capped the doubted half; the seed now tells
-  the FIRST solve the parity and the scale, so both solves spend the same 8,381, and `RealFrameSolveTests`
-  pins that no material saving is left (+/-25%, since the abandoned half's count depends on when its
-  sibling cancelled it). The cache still earns its keep wherever the quad seed declines; no committed
-  fixture reproduces that.
+  the FIRST solve the parity and the scale, so both solves spend the same on the half that answers, and
+  `RealFrameSolveTests` pins that no material saving is left. The cache still earns its keep wherever
+  the quad seed declines; no committed fixture reproduces that.
+  **The abandoned half is not deterministic, and a band on the total cannot hold (2026-09-01).** The
+  first CI run after this landed read 8,381 hypotheses on the first solve and 8,381 on the second on
+  every leg but one; the ubuntu x64 leg read 12,477 then 8,381 and failed the +/-25% band, and the
+  next run's x64 leg read 13,031 then 8,935 on the hint-cache test's easy field. Both differences are
+  exactly 4,096: the losing parity reads its cancellation token every 4,096 hypotheses, so whether
+  the winner's claim catches it just before or just after a check boundary costs one whole quantum,
+  which on an 8,381 total is 49% and no band under that is safe. The counter is now split by parity
+  (`LastSeedHypothesesByParity`); the tests pin the winning half EXACTLY (it is the deterministic
+  part, and the part a cache could change) and bound the abandoned half by the doubted-parity budget,
+  which is what "nothing material left to add" means operationally. The 8,381 quoted above is 189
+  hypotheses for the half that answered plus 8,192 (two quanta) for the loser, and the 12,477 was the
+  same 189 plus three; the easy hint-cache field splits 743 plus 8,192. The winning half is the figure
+  to compare across machines, and it says the relocated solve costs 48,000x fewer hypotheses than it
+  did, not 1,094x: the total was always mostly the loser waiting to notice it had been cancelled.
 - **The frozen-panel pins all hold** -- 24 of 24 seed from the header hint and agree with the frozen
   solution, and the unrelated-field, triple-overlap and anchor-pool tests are unchanged -- so a
   near-perfect hint loses nothing: the seed relocates by ~0 and hands the race the scale and parity it

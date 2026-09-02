@@ -293,19 +293,57 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
     /// <summary>Test seam: what the solver has learned about the rigs it has solved for.</summary>
     internal SolveHintCache Hints => _hints;
 
-    private int _seedHypotheses;
+    private int _seedHypothesesStd;
+    private int _seedHypothesesMirror;
 
     /// <summary>
     /// Test seam: hypotheses the pair-lock seed spent on the most recent solve, summed over both
     /// parities, every anchor pool and the relocation retry.
     /// </summary>
     /// <remarks>
-    /// The measure the cache has to be judged on, for the same reason phase A was: its entire effect
-    /// is work that DOES NOT HAPPEN, so the emitted WCS is identical with it and without it and only
-    /// the cost moves. Hypotheses rather than milliseconds because they are deterministic for a given
-    /// input, so they compare across machines, across builds and between a Debug and a Release run.
+    /// <para>The measure the cache has to be judged on, for the same reason phase A was: its entire
+    /// effect is work that DOES NOT HAPPEN, so the emitted WCS is identical with it and without it and
+    /// only the cost moves. Hypotheses rather than milliseconds because they compare across machines,
+    /// across builds and between a Debug and a Release run.</para>
+    /// <para><b>Only the half that answers is deterministic for a given input.</b> The abandoned half
+    /// reads its cancellation token every 4,096 hypotheses (<see cref="PairRansacLock"/>'s innermost
+    /// loop, deliberately), so its count is quantised to that check and lands one quantum either side
+    /// depending on where its sibling's claim caught it: the same solve on the same bytes read 8,381
+    /// on one CI run and 12,477 on the next (ubuntu x64, 2026-09-01), the difference exactly 4,096. A
+    /// test that compares two solves therefore reads <see cref="LastSeedHypothesesByParity"/> and pins
+    /// the winning half exactly; this total is for logging and for a doomed scan, where the abandoned
+    /// half's 1.4M is the whole story and a quantum is noise.</para>
     /// </remarks>
-    internal int LastSeedHypotheses => _seedHypotheses;
+    internal int LastSeedHypotheses => _seedHypothesesStd + _seedHypothesesMirror;
+
+    /// <summary>
+    /// <see cref="LastSeedHypotheses"/> split by parity: the standard (<c>xSign = +1</c>) and the
+    /// mirror (<c>xSign = -1</c>) attempt's spend, each summed over its tiers and any re-run. Which of
+    /// the two answered is <see cref="ParityRaceOutcome.WinnerIsStd"/>.
+    /// </summary>
+    internal (int Std, int Mirror) LastSeedHypothesesByParity => (_seedHypothesesStd, _seedHypothesesMirror);
+
+    /// <summary>
+    /// <see cref="LastSeedHypothesesByParity"/> divided by <see cref="ParityRaceOutcome.WinnerIsStd"/>:
+    /// what the half that answered spent, and what the abandoned half spent before its sibling's claim
+    /// (or its budget) stopped it. The first is the deterministic figure to compare between solves.
+    /// </summary>
+    internal (int Winner, int Abandoned) LastSeedHypothesesByOutcome => LastParityRace.WinnerIsStd
+        ? (_seedHypothesesStd, _seedHypothesesMirror)
+        : (_seedHypothesesMirror, _seedHypothesesStd);
+
+    /// <summary>Books one seed tier's spend against the parity that made it.</summary>
+    private void CountSeedHypotheses(double xSign, int hypotheses)
+    {
+        if (xSign > 0)
+        {
+            Interlocked.Add(ref _seedHypothesesStd, hypotheses);
+        }
+        else
+        {
+            Interlocked.Add(ref _seedHypothesesMirror, hypotheses);
+        }
+    }
 
     /// <summary>
     /// Hypotheses per anchor pool allowed to the parity a remembered solve says is the WRONG one.
@@ -398,7 +436,8 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
         {
             // Per SOLVE, not per call: the relocation retry re-enters here and its seed is part of
             // what this solve cost.
-            _seedHypotheses = 0;
+            _seedHypothesesStd = 0;
+            _seedHypothesesMirror = 0;
             LastQuadSeed = null;
             LastOriginSource = OriginSource.Hint;
         }
@@ -1429,7 +1468,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
                 var recoveredPixelScaleRad = hintPixelScaleRad / recovery.Ratio;
                 seedLock = TrySeedPairLock(catalogCoords, detPts, currentOrigin, recoveredPixelScaleRad,
                     cx, cy, dim, xSign, RecoveredScaleTolerance, out var recoveredCost, _logger, cancellationToken, maxHypotheses: seedHypothesisBudget);
-                Interlocked.Add(ref _seedHypotheses, recoveredCost.Hypotheses);
+                CountSeedHypotheses(xSign, recoveredCost.Hypotheses);
                 if (seedLock is not null)
                 {
                     pixelScaleRad = recoveredPixelScaleRad;
@@ -1450,7 +1489,7 @@ internal sealed class CatalogPlateSolver(ICelestialObjectDB db, ILogger logger) 
             {
                 seedLock = TrySeedPairLock(catalogCoords, detPts, currentOrigin, pixelScaleRad, cx, cy,
                     dim, xSign, Math.Max(scaleRange, MinPairLockScaleTolerance), out var headerCost, _logger, cancellationToken, maxHypotheses: seedHypothesisBudget);
-                Interlocked.Add(ref _seedHypotheses, headerCost.Hypotheses);
+                CountSeedHypotheses(xSign, headerCost.Hypotheses);
             }
 
             // A seed this far clear of chance settles the parity, so tell the sibling to stop --
