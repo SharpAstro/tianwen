@@ -50,3 +50,10 @@ obj-aot/
 # BenchmarkDotNet run output (dotnet run --project src/TianWen.UI.Benchmarks); lands
 # beside whatever directory the run started from, so both are ignored.
 BenchmarkDotNet.Artifacts/
+
+# Model training (training/): checkpoints and exports never enter git. The LFS budget is exhausted
+# (a stray .onnx here would go to LFS via .gitattributes and burn it) and a checkpoint is 3 MB of
+# binary per seed; they live in the prepared cache under TIANWEN_SCRATCH. The one shipped model is
+# src/TianWen.AI.Imaging/models/, by hand, through n2n_export.py.
+training/**/*.pt
+training/**/*.onnx

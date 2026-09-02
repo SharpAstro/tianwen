@@ -5,7 +5,12 @@ Part of the TianWen TODO set. See [TODO.md](../../TODO.md) for the index and the
 ## Guider
 
 - [ ] `appState` parameter should probably be an enum (`GuiderStateChangedEventArgs.cs:34`)
-- [ ] Decide whether to ship a pretrained neural guide model (or train from scratch per-mount)
+- [ ] Decide whether to ship a pretrained neural guide model (or train from scratch per-mount). **Plan
+  (2026-09-02): [../plans/neural-guider-training.md](../plans/neural-guider-training.md).** Its H5 predicts
+  "both": the policy transfers across mounts, the PE component does not, so ship a pretrained base and
+  refine per profile online. Its H1/H2 say the four items below are moot until the trainer's TARGET
+  changes: `TrainEpoch` distils the P controller, so it cannot clear the monitor's 15 percent bar by
+  construction; the predictive (next-frame) target is what makes any of them answerable.
 - [ ] Guider profile should use profile id (not name) for model persistence and lookup
 - [ ] Write guide logs (CSV) into folder next to model weights for post-session analysis
 - [ ] Investigate if increasing neural model parameters (wider/deeper MLP) improves guide accuracy

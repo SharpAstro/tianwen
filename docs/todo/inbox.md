@@ -170,7 +170,7 @@ TianWen; there were no other-repo strays to leave behind.
 
 ### Newly filed by this sweep
 
-- [ ] Siril gradient-correction script as a reference (08-18) -> [imaging.md](imaging.md), deferred CLI verbs
+- [x] Siril gradient-correction script as a reference (08-18) -> [imaging.md](imaging.md), deferred CLI verbs. **DONE 2026-09-02**, see [background-extraction.md](../plans/background-extraction.md) "Reference review".
 - [ ] Audit that every exit path stops / parks / flips (08-28 item 1) -> [sequencing.md](sequencing.md)
 - [ ] Atlas as a quasi-goto aid for a slew-less mount, incl. the flip-Dec geometry (08-28 item 2) -> [ui.md](ui.md)
 - [ ] Resume an interrupted session, e.g. a mosaic stopped by dew (08-28 item 3) -> [sequencing.md](sequencing.md)

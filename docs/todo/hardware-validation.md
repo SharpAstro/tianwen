@@ -153,4 +153,9 @@ under it, and the fake asserts that state by construction.
   [planetary-native-video.md](../plans/planetary-native-video.md).
 - `train-guide-model` CLI (records N real worm cycles as the teacher signal) -- `TODO.md`.
 - QHY294 gain-1600 dark library for the denoiser dataset -- `imaging.md`.
+- Three nights with `SessionConfiguration.SaveIntermediates` on, on both main rigs (ASI533 + Samyang,
+  SV605CC + SH61), so the deconvolver's real-defocus validation has ladders; none exist as of
+  2026-09-02 -- `docs/plans/deconvolver-training.md` H6 / E6.
+- One recording night for the neural guider (`train-guide-model`, open-loop worm cycles + closed-loop
+  P), then one guided night with the model admitted -- `docs/plans/neural-guider-training.md` N7.
 - Seed ZWO EAF `MaxStep` from hardware during discovery -- `TODO.md` (item 18 above is its confirmation).

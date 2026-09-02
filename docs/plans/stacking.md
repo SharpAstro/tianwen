@@ -7,8 +7,10 @@ bias/dark/flat generation, per-light calibration, star-based registration with
 sub-pixel warp, intensity normalization, per-pixel outlier rejection, and final
 integration. Cover both batch (post-session) and live (during-session) workflows.
 
-Reference implementation: SetiAstroSuitePro (Python, see `~/source/repos/other/setiastrosuitepro/`
--- a sibling checkout of this org's repos, not inside `tianwen/`; GPL-3.0 per its own README).
+Reference implementation: SetiAstroSuitePro (Python, `github.com/setiastro/setiastrosuitepro`,
+GPL-3.0 per its own README and the GitHub API; **no local checkout exists on this machine as of
+2026-09-02**, the `~/source/repos/other/setiastrosuitepro` path older notes cite is stale, so read
+it from GitHub).
 Match feature parity for the core algorithms, but redesign for SIMD / tile-pipelined
 async / strong-typed Span\<float\> in C#.
 

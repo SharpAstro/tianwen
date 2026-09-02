@@ -361,7 +361,15 @@ Each verb maps to an enhancer / classical implementation that hasn't been wired 
 - [ ] `tianwen image correct-aberration` -- optical aberration correction (coma, astigmatism, off-axis distortion). Models hosted in `riccardoalberghi/abberation_models` (different repo + release cadence than AI4); needs a separate fetcher branch in `tools/tianwen-ai-models-fetch.ps1` + runtime self-bootstrap. **Not the same fix as raising SIP order** -- SIP corrects centroid position, never PSF/star shape; see `docs/plans/astropy-parity.md`'s SIP design note.
 - [ ] WCS-driven image undistort + mosaic reprojection (use `WCS.PixelToSky`/`SkyToPixel` generatively, to resample pixels, not just report a header). See [docs/plans/wcs-reprojection.md](../plans/wcs-reprojection.md).
 - [ ] `tianwen image flatten` -- ABE gradient removal (classical poly + RBF, no AI). See `docs/plans/background-extraction.md`.
-- [ ] **Read Siril's gradient-correction scripts as a reference for the above** (user, 2026-08-18).
+- [x] **Read Siril's gradient-correction scripts as a reference for the above** (user, 2026-08-18).
+  **DONE 2026-09-02**: all three read in full and distilled into
+  [background-extraction.md](../plans/background-extraction.md) "Reference review". Two of them
+  change that plan: `AutoGradientRemoval.py` needs NO sample points (robust pixel-set rejection +
+  a masked low-pass inpainting surface, which also retires the RBF solver question), and
+  `AutoBGE.py` (the SAS v2 AutoDBE port) fits AND corrects in a STRETCHED domain, which we must not copy;
+  SAS Pro's current `abe.py` (read from GitHub the same day) calls moving the correction back to linear
+  its "KEY FIX", seeds its sampler and defaults RBF on. Also
+  found: GraXpert is GPL-3.0 code + CC-BY-NC-SA-4.0 models, not the "MIT" two of our comments said.
   Siril's background extraction is one of the three prior-art implementations
   [background-extraction.md](../plans/background-extraction.md) already names (with PixInsight
   ABE/DBE and GraXpert), but only GraXpert has a concrete interop question recorded against it (its

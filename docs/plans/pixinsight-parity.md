@@ -59,9 +59,11 @@ Snapshot taken 2026-08-29. Update the STATUS cell in place as linked plans chang
    above, which run inside PixInsight.** [background-extraction.md](background-extraction.md)'s
    reference implementation for ABE is `abe.py` from this app, not a PJSR script. Confirmed GPL-3.0
    (its own `README.md`: "Seti Astro Suite Pro is licensed under the GNU General Public License
-   v3.0"). Reference checkout lives at `~/source/repos/other/setiastrosuitepro`, a sibling of this
-   org's repos rather than inside `tianwen/` -- a path a doc's relative reference got wrong once
-   already, worth getting right at the source.
+   v3.0"). ~~Reference checkout lives at `~/source/repos/other/setiastrosuitepro`~~ **No local
+   checkout exists on this machine (checked 2026-09-02)**; the source is
+   `github.com/setiastro/setiastrosuitepro` (`src/setiastro/saspro/abe.py`, read from `main` that
+   day, see background-extraction.md's "Reference review"). The path claim was wrong twice, once
+   as an in-repo relative path and once as a sibling checkout; cite the GitHub URL.
 
 Two more SetiAstro/PixInsight-script-derived backlog items, both NOT STARTED, both in the same
 `docs/todo/imaging.md` section:

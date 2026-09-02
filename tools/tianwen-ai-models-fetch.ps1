@@ -85,7 +85,7 @@ function Get-DefaultSasProDir {
 }
 
 function Get-DefaultGraXpertDir {
-    # GraXpert (Steffenhir/GraXpert, MIT) stores its ONNX models under
+    # GraXpert (Steffenhir/GraXpert; GPL-3.0 code, CC-BY-NC-SA-4.0 models) stores its ONNX models under
     # %LOCALAPPDATA%/GraXpert/GraXpert/<bucket>/<version>/model.onnx -- one
     # subdir per model kind (bge-ai-models, denoise-ai-models, etc.) with
     # one semver-named version dir each. We only consume the BGE bucket for

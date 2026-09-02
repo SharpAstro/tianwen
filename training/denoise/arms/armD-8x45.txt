@@ -1,0 +1,10 @@
+# v15's own 8 sessions x 45 cells = 360; only the density changes from v15
+# 8 sessions, a strict subset of the v17 60
+2026-01-01|ZWO ASI533MC Pro|COO 71
+2026-01-05/Panel 6|ZWO ASI533MC Pro|HD 76358
+2026-02-16|ZWO ASI533MC Pro|HD 77850
+2025-10/2025-10-28|SVBONY SV605CC|Pleiades
+2026-01-06|ZWO ASI533MC Pro|HD 76304
+2025-08-20 - Helix Nebula|SVBONY SV605CC|Helix Nebula
+2026-01-23|ZWO ASI533MC Pro|RCW 27
+2026-02-14 Statue of Liberty Nebula/2026-02-14|SVBONY SV605CC|Statue of Liberty Nebula
