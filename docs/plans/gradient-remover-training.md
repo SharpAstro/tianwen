@@ -34,7 +34,7 @@ fills today. Shared discipline: [model-training-roadmap.md](model-training-roadm
 | The role | shipped | `IGradientCorrector : IImageEnhancer` (`src/TianWen.Lib/Imaging/Enhancement/`), `EnhanceAndEstimateBackgroundAsync` returning the surface; `GradientCorrectionStep` must run first in `SharpenPipeline` (enforced) |
 | Today's implementation | shipped | `OnnxBackgroundExtractor` (`src/TianWen.AI.Imaging/Onnx/`): GraXpert BGE, downsample to 240, pad to 256, per-channel median+MAD normalise, single NHWC pass, denormalise, smooth, upsample; output `source - background + mean(background)`. Read from the user's GraXpert install (`%LOCALAPPDATA%\GraXpert\GraXpert\bge-ai-models\1.0.1\model.onnx`, 217.7 MB); GPL-3.0 code, CC-BY-NC-SA-4.0 weights, never redistributed and never a training target |
 | CLI surface | shipped | `tianwen image flatten` with `--save-gradient` (`src/TianWen.Cli/ImageSubCommand.cs`) |
-| Classical flattener | NOT STARTED | [background-extraction.md](background-extraction.md); after the 2026-09-02 review the recommended Phase 2 is the sample-free robust-rejection + structure-mask + masked-low-pass-inpainting surface (AutoGradientRemoval.py), degree 2 polynomial, correction in LINEAR, level preserved |
+| Classical flattener | **SHIPPED 2026-09-02** (`ClassicalBackgroundExtractor`, also the `IGradientCorrector` that `AddTianWenAi()` falls back to when GraXpert is absent; that plan's "Implementation" section has the measurements) | [background-extraction.md](background-extraction.md); after the 2026-09-02 review the recommended Phase 2 is the sample-free robust-rejection + structure-mask + masked-low-pass-inpainting surface (AutoGradientRemoval.py), degree 2 polynomial, correction in LINEAR, level preserved |
 | Ephemerides | shipped | `MeeusMoon` (`Astrometry/Lunar/`, internal), `VSOP87a` (`Astrometry/VSOP87/`), `CatalogPlateSolver`, `FitsHeaderEditor` writing `AIRMASS` / `CENTALT` / `CENTAZ` |
 | Scenes | on disk | Retained linear session masters: 51 (`2025-2026-organized\session-masters\`, filters known) + 67 (`2025-2026-darkscaled\`). Calibrated subs are NOT retained (scratch is wiped per session), 5,908 of them per bake |
 | Real pairs (control) | not measured | 2.1c: same-night, same-field high-vs-low-airmass frames on zenith-crossing targets; the cards are on disk |
@@ -190,7 +190,7 @@ convention every reference and the existing extractor share).
 
 | Step | What | Cost | Decides |
 |---|---|---|---|
-| G0 | Background-extraction Phases 1 and 2 (the classical flattener, sample-free, linear, level-preserving) with its synthetic tests | 2 to 3 days | H1 prerequisite, the baseline, the fallback |
+| G0 | **DONE 2026-09-02.** Background-extraction Phases 1 and 2 (the classical flattener, sample-free, linear, level-preserving) with its synthetic tests; two of its thresholds are reasoned rather than measured and G1's run over the masters is where they get measured | done, one day | H1 prerequisite, the baseline, the fallback |
 | G1 | Gradient-distribution report over all 67 masters (amplitude, direction, shape; joined to covariates) as a sibling of `psf-noise-report.md` | a day | H1; the injection family |
 | G2 | Whole-frame linear exporter (masters; then the `ExportWholeFrame` sub option) with covariates and fitted coefficients per row | 1 to 2 days | H2, H3 data |
 | G3 | Airmass-pair control on the zenith-crossing sessions, no training | half a day | H7 |
@@ -207,8 +207,9 @@ convention every reference and the existing extractor share).
 `OnnxBackgroundExtractor`'s downsample / normalise / upsample / add-back skeleton (extract it to a
 base so the two cannot drift); `EnhanceAndEstimateBackgroundAsync` returns the surface, which is what
 `tianwen image flatten --save-gradient` already asks for. Selection: the classical
-`PolynomialBackgroundExtractor` from background-extraction is the AI-free fallback and the default
-when no weights are present; the in-house net sits behind the same in-house backend flag as the
+`ClassicalBackgroundExtractor` from background-extraction is the AI-free fallback and the default
+when no weights are present (shipped 2026-09-02 as `FallbackGradientCorrector`, GraXpert when its
+weights resolve, the classical fit otherwise); the in-house net sits behind the same in-house backend flag as the
 other roles (the `n2n`-to-`tianwen` rename noted in the deconvolver plan); GraXpert stays where it
 is. With this and P4 the in-house tier can run the whole canonical program.
 
@@ -216,7 +217,7 @@ is. With this and P4 the in-house tier can run the whole canonical program.
 
 | Phase | Deliverable | Exit |
 |---|---|---|
-| P5.0 | Classical flattener shipped (background-extraction Phases 1 and 2) | G0 |
+| P5.0 | **DONE 2026-09-02.** Classical flattener shipped (background-extraction Phases 1 and 2) | G0 |
 | P5.1 | Gradient-distribution report; whole-frame exporter; airmass control | G1, G2, G3 |
 | P5.2 | Arm M and arm S answered with posted comparisons | G4, G5 |
 | P5.3 | Injection conditioning and the site prior; real-frame gate defined | G6, G7 |

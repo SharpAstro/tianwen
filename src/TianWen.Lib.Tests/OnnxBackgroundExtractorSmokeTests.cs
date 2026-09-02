@@ -8,6 +8,7 @@ using Shouldly;
 using TianWen.AI.Imaging;
 using TianWen.AI.Imaging.Onnx;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using Xunit;
 
@@ -242,8 +243,79 @@ public class OnnxBackgroundExtractorSmokeTests(ITestOutputHelper output)
 
         using var provider = services.BuildServiceProvider();
         var corrector = provider.GetRequiredService<IGradientCorrector>();
-        corrector.ShouldBeOfType<OnnxBackgroundExtractor>();
-        corrector.Name.ShouldContain("GraXpert");
+        // The role is the GraXpert-or-classical pick; which one answers depends on whether this machine
+        // has GraXpert's weights, and the name says which.
+        var fallback = corrector.ShouldBeOfType<FallbackGradientCorrector>();
+        if (HasBgeModel(out _))
+        {
+            fallback.Pick().ShouldBeOfType<OnnxBackgroundExtractor>();
+            corrector.Name.ShouldContain("GraXpert");
+        }
+        else
+        {
+            fallback.Pick().ShouldBeOfType<ClassicalBackgroundExtractor>();
+            corrector.Name.ShouldContain("classical");
+        }
+        // The classical extractor is reachable in its own right, and is the same instance the pick uses.
+        var extractor = provider.GetRequiredService<IBackgroundExtractor>();
+        extractor.ShouldBeOfType<ClassicalBackgroundExtractor>();
+        ReferenceEquals(extractor, provider.GetRequiredService<ClassicalBackgroundExtractor>()).ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A machine without GraXpert used to have NO gradient correction: <c>flatten</c> and the pipeline's
+    /// gradient step failed on the missing model file. Now the classical fit answers, and it answers with a
+    /// background surface too, so <c>--save-gradient</c> keeps working.
+    /// </summary>
+    [Fact]
+    public async Task FallbackGradientCorrector_RunsTheClassicalFitWhenTheWeightsAreAbsent()
+    {
+        using var graXpert = new OnnxBackgroundExtractor(new AbsentModelResolver());
+        var classical = new ClassicalBackgroundExtractor();
+        var fallback = new FallbackGradientCorrector(new AbsentModelResolver(), graXpert, classical);
+
+        fallback.Pick().ShouldBeSameAs(classical);
+        fallback.Name.ShouldContain("classical");
+
+        var src = BuildSyntheticRgbWithGradient(128, 96);
+        var (corrected, background) = await fallback.EnhanceAndEstimateBackgroundAsync(src, TestContext.Current.CancellationToken);
+        corrected.Shape.ShouldBe(src.Shape);
+        background.ShouldNotBeNull();
+        background.Shape.ShouldBe(src.Shape);
+        corrected.Release();
+        background.Release();
+    }
+
+    [Fact]
+    public void FallbackGradientCorrector_PrefersGraXpertWhenTheWeightsResolve()
+    {
+        using var graXpert = new OnnxBackgroundExtractor(new PretendPresentModelResolver());
+        var classical = new ClassicalBackgroundExtractor();
+        var fallback = new FallbackGradientCorrector(new PretendPresentModelResolver(), graXpert, classical);
+
+        // Only the pick is asserted: the pretend path holds no weights, so nothing here may run inference.
+        fallback.Pick().ShouldBeSameAs(graXpert);
+        fallback.Name.ShouldContain("GraXpert");
+    }
+
+    private sealed class AbsentModelResolver : IModelResolver
+    {
+        public string Resolve(string modelFileName) => throw new System.IO.FileNotFoundException(modelFileName);
+        public bool TryResolve(string modelFileName, out string? absolutePath)
+        {
+            absolutePath = null;
+            return false;
+        }
+    }
+
+    private sealed class PretendPresentModelResolver : IModelResolver
+    {
+        public string Resolve(string modelFileName) => modelFileName;
+        public bool TryResolve(string modelFileName, out string? absolutePath)
+        {
+            absolutePath = modelFileName;
+            return true;
+        }
     }
 
     private sealed class IdentityCorrector : IGradientCorrector

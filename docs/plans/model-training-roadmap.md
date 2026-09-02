@@ -12,7 +12,7 @@ the run log of the first campaign.
 |---|---|---|---|
 | OSC denoiser (P1) | [denoiser-training.md](denoiser-training.md) | v19d shipped opt-in; pool 100 percent narrowband; master-depth gap open; **E0.5 done 2026-09-02: the runner now stretches into the training domain, H0 confirmed, a 30 percent flat star suppression removed; E0 done the same day: the trainer is in `training/denoise/` and reproduces both v19d seed-2 checkpoints bit for bit** | E1, the injection exporter |
 | Non-stellar deconvolver (P2) | [deconvolver-training.md](deconvolver-training.md) | Not started; PSF family measured per (train, filter, channel); store predates the deblender; no ladder captured | E0: `dataset build --force-psf`; E1: oracle ceiling + encoding spread |
-| Gradient remover (P5) | [gradient-remover-training.md](gradient-remover-training.md) | Not started; needs the classical flattener first | G0: background-extraction Phases 1 and 2 (also the AI-free fallback for the role) |
+| Gradient remover (P5) | [gradient-remover-training.md](gradient-remover-training.md) | Not started as training; **G0 done 2026-09-02**: the classical flattener is `ClassicalBackgroundExtractor` and `AddTianWenAi()` falls back to it when GraXpert is not installed | G1: run it over the 67 retained masters and record per-master residuals, the baseline P5 must beat |
 | Star remover (P4) | [star-remover-training.md](star-remover-training.md) | Not started; last by design (depends on P2's PSF family and P5's flattener) | R0 after P2.0 |
 | Neural guider | [neural-guider-training.md](neural-guider-training.md) | Shipped, opt-in, cannot beat its own teacher by construction | N1: measure the imitation ceiling on the coupling harness |
 
@@ -23,7 +23,7 @@ the run log of the first campaign.
    real-frame verdict in the programme was measured through that skew. Fixing it moved the
    real-frame result onto the best rescale arm and removed a 30 percent flat star suppression no
    metric had seen; every later arm is judged through the fixed runner, in linear units.
-2. **Background-extraction Phases 1 and 2 (G0) next**, because it is three things at once: the
+2. **Background-extraction Phases 1 and 2 (G0) next** (done 2026-09-02), because it is three things at once: the
    classical `IGradientCorrector` fallback the product needs anyway, the baseline P5 must beat, and
    the flatten step P4 and P5 both consume. It is pure math in `TianWen.Lib`, fully synthetic-testable,
    and its design is complete after the reference review.

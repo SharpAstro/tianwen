@@ -1,8 +1,11 @@
 # PLAN: Background extraction (ABE / gradient removal)
 
-> Status: **NOT STARTED**. Design captured for future work; no code yet. **The three Siril reference
-> scripts were read in full on 2026-09-02** (section "Reference review" below); two of them change
-> the design, so read that section before the Algorithm one, which predates it.
+> Status: **Phases 1 and 2 SHIPPED 2026-09-02** (`TianWen.Lib/Imaging/BackgroundExtraction/`; the
+> section "Implementation" below is the record of what was built, what it measured and what changed
+> the design on the way). Phases 3 to 5 not started, and Phase 3 stays unbuilt unless measured to add
+> something. **The three Siril reference scripts were read in full on 2026-09-02** (section
+> "Reference review" below); two of them changed the design, so read that section before the
+> Algorithm one, which predates it.
 
 ## Goal
 
@@ -344,14 +347,18 @@ permits; shipping them inside a release asset would not be, for the reason
 
 ### Project layout
 
+As shipped (the pre-review sketch had `PolynomialBackgroundExtractor` / `PolyRbfBackgroundExtractor` /
+`SamplePointGenerator`; the review removed the sampler and the solver, so one class carries both stages):
+
 ```
 TianWen.Lib/Imaging/BackgroundExtraction/        -- zero AI dep, zero UI dep
-├── IBackgroundExtractor.cs                       (Image -> (cleanedImage, backgroundModel))
-├── PolynomialBackgroundExtractor.cs              (Stage 1: poly fit + auto samples)
-├── PolyRbfBackgroundExtractor.cs                 (Stage 1 + Stage 2: poly + RBF refine)
-├── SamplePointGenerator.cs                       (auto-place + descend-to-dim + bright-avoid)
-├── BackgroundExtractionOptions.cs                (degree, sample density, exclusion polygons)
-└── BackgroundExtractionResult.cs                 (cleanedImage, backgroundImage, residualRms)
+├── IBackgroundExtractor.cs                       (Image + options -> BackgroundExtractionResult)
+├── ClassicalBackgroundExtractor.cs               (IBackgroundExtractor AND IGradientCorrector: working grid, CFA split, upsample, correction)
+├── RobustBackgroundFit.cs                        (internal: the per-plane fit on arrays; polynomial stage, surface stage)
+├── BackgroundExtractionOptions.cs                (options record, BackgroundCorrection, ExclusionPolygon)
+└── BackgroundExtractionResult.cs                 (Cleaned, Background, per-plane ChannelFitDiagnostics)
+TianWen.Lib/Extensions/BackgroundExtractionServiceCollectionExtensions.cs   (AddClassicalBackgroundExtractor / AddClassicalBackgroundExtraction)
+TianWen.AI.Imaging/FallbackGradientCorrector.cs  (GraXpert when its weights resolve, else the classical fit; what AddTianWenAi registers)
 ```
 
 Headless-first: no Qt, no UI. The GUI/CLI surfaces (Phase 4+) call into this
@@ -362,28 +369,34 @@ core and render whatever preview they want.
 ```csharp
 public interface IBackgroundExtractor
 {
-    Task<BackgroundExtractionResult> ExtractAsync(
-        Image source,
-        BackgroundExtractionOptions options,
-        CancellationToken ct = default);
+    Task<BackgroundExtractionResult> ExtractAsync(Image source, BackgroundExtractionOptions options, CancellationToken cancellationToken = default);
 }
 
-public sealed record BackgroundExtractionOptions(
-    int PolynomialDegree = 4,                       // 1-6; degree 4 is SAS Pro default
-    int SampleCount = 24,                            // anchor samples before bright-rejection
-    bool UseRbfRefinement = false,                   // Stage 2 toggle
-    double RbfSmoothing = 0.0,                       // multiquadric smoothing factor
-    ImmutableArray<ExclusionPolygon> Exclusions = default,
-    bool PreserveLevel = true);                      // add back median(background); never re-baseline (see Output)
+public sealed record BackgroundExtractionOptions          // init-only properties; these are the reference defaults
+{
+    int Downsample = 4;                        // block mean; a CFA mosaic is split first and fitted at half this
+    int PolynomialDegree = 2;                  // 0..6, on coordinates normalised to [-1, 1]
+    bool SurfaceRefinement = false;            // the inpainted low-pass surface on the polynomial's residual
+    float SurfaceScalePercent = 5;             // model radius, percent of the smaller working dimension
+    int SurfaceInpaintPasses = 10; float SurfaceSmoothness = 1;
+    float RejectBrightSigma = 2, RejectDarkSigma = 4;
+    int MaxIterations = 20; float ConvergenceTolerance = 1e-4f, MinKeptFraction = 0.02f;
+    bool ProtectStructure = true; float StructureThresholdSigma = 3, SurfaceStructureThresholdSigma = 10, StructureAmount = 0.5f;
+    BackgroundCorrection Correction = Subtract;   // or Divide
+    bool PreserveLevel = true;                    // add back median(model) PER PLANE; never re-baseline (see Output)
+    ImmutableArray<ExclusionPolygon> Exclusions;  // full-image pixel coordinates, even-odd rule
+}
 
-public sealed record BackgroundExtractionResult(
-    Image Cleaned,                                   // source - background + pedestal
-    Image Background,                                // the fitted gradient (for inspection)
-    float ResidualRms);                              // diagnostic
+public sealed record BackgroundExtractionResult(Image Cleaned, Image Background, ImmutableArray<ChannelFitDiagnostics> Planes)
+{ float ResidualRms; }                         // Planes: one per FITTED plane, so four for a CFA mosaic
+public sealed record ChannelFitDiagnostics(int Plane, int Iterations, bool Converged, float KeptFraction,
+    float ExcludedFraction, float ResidualSigma, float ResidualRms, float Level);
 ```
 
-`PolynomialBackgroundExtractor` does Stage 1 only; `PolyRbfBackgroundExtractor`
-extends it with Stage 2. DI picks one by config.
+`ClassicalBackgroundExtractor` is the one implementation and implements `IGradientCorrector` too;
+`AddClassicalBackgroundExtraction()` registers it as both roles with no AI project referenced, and
+`AddTianWenAi()` puts `FallbackGradientCorrector` (GraXpert when its weights resolve, else this) in
+front of the pipeline role.
 
 ### Reuse from existing TianWen code
 
@@ -424,11 +437,121 @@ extends it with Stage 2. DI picks one by config.
 
 | Phase | Scope | Notes |
 |-------|-------|-------|
-| 1 | `IBackgroundExtractor` interface + `PolynomialBackgroundExtractor` (Stage 1 only). Headless API + tests against synthetic gradients. | Smallest useful chunk; covers 80% of real-world need. |
-| 2 | Robust pixel-set rejection (2/4 sigma asymmetric) + structure-protection mask + the masked low-pass inpainting surface as the flexible model (AutoGradientRemoval, see the review). Caller exclusion polygons fold into the same mask. | Replaces the sample-walk design; `SamplePointGenerator` (AutoBGE's descend-to-dim walk, fully recorded in the review) is the fallback if the pixel-set fit disappoints on real data. |
+| 1 | **DONE 2026-09-02.** `IBackgroundExtractor` + the stiff polynomial stage of `ClassicalBackgroundExtractor`: robust 2/4-sigma iteration to automatic convergence, structure protection, normalised coordinates, degree 0 to 6, block-mean working grid, per-plane level preservation, CFA mosaics per photosite colour, exclusion polygons, divide mode. Headless API + 30 synthetic tests. | The default for the unattended pipeline role; see "Implementation". |
+| 2 | **DONE 2026-09-02**, as `SurfaceRefinement` on the same class: compact-structure rejection, the masked low-pass inpainting surface on the polynomial's residual, structure marked once against it, refit, final smoothing. Runs ONCE, deliberately (see "Implementation"). Caller exclusion polygons fold into the same mask. Off by default. | `SamplePointGenerator` stays unbuilt: the pixel-set fit did not disappoint on the synthetic cases; real masters are the open measurement. |
 | 3 | `PolyRbfBackgroundExtractor` adds RBF multiquadric refinement. | **Only if measured to add something over Phase 2's surface**; the review removed the need for a dense solver. |
 | 4 | CLI command (`tianwen abe ...`) + GUI integration (preview panel with exclude-polygon editor). | UI work; mirrors SAS Pro's interactive workflow. |
 | 5 | Pipeline integration: optional ABE step in any future `LinearProcessingPipeline` orchestrator that chains stacking -> ABE -> color calibration. | Keeps each step composable as separate `IXxx` services. |
+
+## Implementation (Phases 1 and 2, shipped 2026-09-02)
+
+`ClassicalBackgroundExtractor` (`TianWen.Lib/Imaging/BackgroundExtraction/`) is both the headless
+`IBackgroundExtractor` and an `IGradientCorrector`; `RobustBackgroundFit` is the per-plane arithmetic
+it runs, on arrays, testable without an `Image`. Pinned by `ClassicalBackgroundExtractorTests` (30
+tests against synthetic truth: a ramp under noise and stars, a dome, a blob, a NaN border, a
+vignette, three channels with different skies, a CFA mosaic with per-colour gradients, exclusion
+polygons, determinism, DI) and by the fallback tests in `OnnxBackgroundExtractorSmokeTests`.
+
+### What it does
+
+1. **Working grid.** Block mean by `Downsample` (4), NaN-aware (an all-NaN block is no data). A
+   one-channel `SensorType.RGGB` mosaic is split into its four photosite planes first
+   (`Image.SplitBayerChannels`) and each is fitted at half the factor, so the working resolution is
+   unchanged; the corrected planes and the models are merged back into mosaics. A single plane
+   subtracted from a mosaic removes only the average gradient and leaves each colour's own residual
+   behind as a colour gradient, and the viewer hands every OSC frame to an enhancer as a mosaic, so
+   this is the default path, not a special case. An odd-sized mosaic is fitted as one plane, logged.
+2. **Stage 1, the stiff polynomial, iterates.** `x^i y^j, i + j <= degree` on coordinates normalised
+   to [-1, 1], solved through the normal equations accumulated in double
+   (`PolynomialLeastSquares.SolveNormalEquations`; no design matrix of one row per pixel ever exists),
+   falling back one degree at a time when rank-deficient. Residual over the kept pixels, robust
+   median and sigma (1.4826 x MAD), keep within [median - 4 sigma, median + 2 sigma] and not
+   structure, never fewer than max(16, 2 percent), refit; stop when the kept fraction moves by less
+   than 1e-4, cap 20. This is what PixInsight's GradientCorrection calls "automatic convergence",
+   and here it is always on.
+3. **Stage 2, the surface, runs once** (`SurfaceRefinement`, off by default). On the polynomial's
+   residual: compact structure leaves (below), the masked low-pass inpainting surface is fitted
+   (fill the holes with the kept mean, then `SurfaceInpaintPasses` x {three-pass box blur of the
+   model radius, restore the kept pixels}, then one more blur), structure is marked ONCE against that
+   surface (`SurfaceStructureThresholdSigma`), the surface is refitted without it and smoothed by
+   `radius x SurfaceSmoothness`. The model radius is 5 percent of the smaller working dimension.
+4. **Structure protection** (both stages): seeds where the residual exceeds k sigma above the median,
+   low-passed with radius `r x (0.5 + amount)`, cut at `(1 - amount) x 0.5`. An isolated pixel never
+   becomes structure (its blurred weight is far under the cut); a compact bright region does, dim
+   wings included.
+5. **Upsample and correct.** The working-grid model goes back to plane resolution bilinearly
+   (`Image.BilinearResize`, pixel-centre convention, the primitive the GraXpert path uses too); the
+   correction is in LINEAR, per plane: `source - background + median(background)` clamped at zero,
+   or `source / max(background, 1e-6) x median(background)`. A NaN source pixel stays NaN. The level
+   is per plane, so a colour gradient's removal never doubles as a background neutralisation, and the
+   image's pedestal field is left alone: the ONNX path accumulates its level onto the pedestal, which
+   is what forced `MasterPreviewRenderer.WithZeroPedestal` on GraXpert-flattened masters.
+6. **Diagnostics per plane** (`ChannelFitDiagnostics`): iterations, converged, kept fraction (of the
+   valid pixels), excluded fraction (polygons plus no-data blocks, of all pixels), residual sigma and
+   RMS in image units, the level. Nothing in the fit is random, so a run is deterministic by
+   construction.
+7. **The product wiring.** `AddTianWenAi()` registers `FallbackGradientCorrector` as the
+   `IGradientCorrector`: GraXpert's BGE when `graxpert_bge.onnx` resolves, the classical fit
+   otherwise, decided per call by a file probe. Before this a machine without GraXpert had no gradient
+   correction at all (`flatten` and the pipeline step failed on a missing model); now it gets the
+   classical fit and a background plate for `--save-gradient`, and the log says which answered.
+
+### Three findings, each of which changed the design
+
+- **Iterating the surface stage feeds on itself.** The surface reproduces the kept pixels and
+  low-passes them at the model radius, so its residual is a high-pass, and a smooth feature of scale
+  s leaks about (sigma_blur / s)^2 of its amplitude into it. On the synthetic dome (amplitude 0.003,
+  sigma 0.12 W, over 2e-4 noise) that leakage is six sigma of the BLOCK-MEAN noise at the peak; a
+  2-sigma rejection carved the peak out, the harmonic hole-fill undershot it, the residual grew, and
+  the hole widened every pass until the dome was gone: 7.1e-4 RMS model error, against 1.1e-4 for the
+  single pass that shipped. The reference iterates its surface too and survives because its threshold
+  is absolute in a stretched domain, where the noise is relatively larger. Stated in noise units on
+  linear data, that loop must not be closed.
+- **Stars are not structure.** On block-mean noise even a 1.5 px star's wings clear a 3-sigma seed
+  threshold (its next block carries 3 percent of the peak, tens of sigma), so every bright star seeded
+  a five-by-five cluster that the growth step turned into a protected disc: 69 percent kept on a
+  sixty-star field. Stars are COMPACT: they fail a one-working-pixel high-pass (the residual minus its
+  radius-1 three-pass blur) that a gradient, a dome or a nebula wider than a few blocks passes
+  untouched. Compact pixels never seed structure, and in the surface stage they are what leaves.
+- **A bright star's blur shadow is not compact either.** The first compact test flagged both sides of
+  the high-pass, and a bright star's spill drives the high-pass of CLEAN blocks two and three away
+  strongly negative: a third of the grid gone on a thirty-star field. Compact is the positive
+  high-pass core plus its eight neighbours (which do carry the wings), nothing more: 86 percent kept
+  on the same field.
+
+### Measured (256 x 192 synthetic, sky 0.010, noise 2e-4, working grid 64 x 48)
+
+| Case | Result |
+|---|---|
+| Planar ramp (0.004 across, 0.002 down) + 60 stars, degree 2 | model RMS error 4.0e-6 (noise 2e-4: the block mean and the fit average it down 50x); 7 iterations, converged; kept 0.816, which is what the truth predicts (60 stars x 9 blocks = 17.6 percent, plus 2.3 percent of noise tails); every star's excess over the true sky unchanged at its peak to 1.5e-4 |
+| Ramp + Gaussian dome (0.003, sigma 0.12 W) + 30 stars | polynomial-only model RMS error 7.1e-4; with `SurfaceRefinement` 1.1e-4, kept 0.862, 14 stage-1 iterations |
+| Ramp + compact blob (0.02, sigma 20 px), surface on | model error under the blob 2.6e-3 with structure protection vs 3.4e-3 without; corrected peak kept 87 percent vs 83 percent (the compact test already carves the blob's core; protection adds the wings) |
+| Multiplicative vignette (1 - 0.3 r^2), divide mode | centre and corner medians agree to 1e-4; level preserved |
+| Three channels, skies 0.010 / 0.014 / 0.020, slopes 0.004 / -0.003 / 0.002 | each channel's cleaned median is its own sky at frame centre to 1e-4; the offsets survive |
+| RGGB mosaic, per-colour skies 0.010 / 0.015 / 0.008, slopes 0.004 / 0 / -0.003 | four planes fitted; mosaic model RMS error under 1e-4; each colour's left and right medians agree to 1.5e-4 (a one-plane fit would leave 3.5e-3) |
+| 12 px NaN border | NaN pattern preserved exactly; model finite everywhere; error under 1e-4 including the extrapolated border |
+
+### Defaults that are reasoned, not measured
+
+`StructureThresholdSigma` 3 (polynomial stage) and `SurfaceStructureThresholdSigma` 10 (surface
+stage). The reference's 0.05 is absolute in stretched units and has no meaning on a linear frame, so
+both are starts, not measurements. Ten sits between the dome's leakage (six sigma) and the blob's
+(eighty) on the synthetic cases; a real master with a faint extended nebula under a strong dome is
+the case that decides it, and `tianwen image flatten --save-gradient` over the retained masters is
+how to look (gradient-remover-training.md, G0's test). `SurfaceRefinement` is off by default for the
+reason the reference gives about its own flexible model: it follows a frame-filling nebula and
+hollows it.
+
+### Not built, and why
+
+- **Phase 3 (RBF)**: the surface does the job on the synthetic cases; RBF only if measured to add
+  something (open question 2).
+- **`SamplePointGenerator`**: the pixel-set fit did not disappoint; it stays the recorded fallback.
+- **Phases 4 and 5** (CLI options, GUI, pipeline step): `tianwen image flatten` already runs the
+  `IGradientCorrector`, which is now GraXpert-or-classical; exposing degree, surface, divide and
+  polygons on the CLI is Phase 4.
+- **A stretch for sampling** (SAS Pro's placement trick) was not needed: the correction is linear and
+  so is the fit.
 
 ## Open questions
 
