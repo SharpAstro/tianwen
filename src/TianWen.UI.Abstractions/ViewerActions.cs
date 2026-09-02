@@ -35,7 +35,8 @@ public static class ViewerActions
     /// What a viewer shows when it has to pick a stretch for itself: first entry of
     /// <see cref="StretchLinkModes"/>, which is <see cref="StretchMode.Auto"/>.
     ///
-    /// <para>Auto resolves per frame (<see cref="ResolveAutoStretchMode"/>): a colour frame with an
+    /// <para>Auto resolves per frame (<see cref="StretchModeExtensions.ResolveAuto"/>, in TianWen.Lib so the
+    /// Explorer thumbnail resolves it the same way): a colour frame with an
     /// active colour calibration renders LINKED, so the measured white balance shows as colour; a
     /// colour frame without one renders UNLINKED, which neutralises each channel's background for a
     /// clean look with no cast to guess at; a mono frame renders LINKED (Linked and Unlinked coincide
@@ -49,21 +50,6 @@ public static class ViewerActions
     /// command -- cannot drift apart again.</para>
     /// </summary>
     public static StretchMode DefaultStretchMode => StretchLinkModes[0];
-
-    extension(StretchMode mode)
-    {
-        /// <summary>
-        /// Resolves <see cref="StretchMode.Auto"/> to a concrete mode; returns any other mode unchanged.
-        /// Colour + a calibration to show -&gt; Linked (the WB survives as colour); colour without one -&gt;
-        /// Unlinked (each channel's background neutralised, no cast asserted); mono -&gt; Linked (the two
-        /// coincide). Called by the producers before a <see cref="StretchUniforms"/> is built, so Auto
-        /// never reaches the shader.
-        /// </summary>
-        public StretchMode ResolveAuto(bool isColour, bool calibrationActive)
-            => mode is not StretchMode.Auto ? mode
-                : !isColour ? StretchMode.Linked
-                : calibrationActive ? StretchMode.Linked : StretchMode.Unlinked;
-    }
 
     public static void CycleStretchLink(ViewerState state, bool reverse = false)
     {

@@ -118,6 +118,44 @@ function Test-ManifestAssets {
     if ($problems.Count) { throw ("Asset problems:`n  " + ($problems -join "`n  ")) }
 }
 
+function Test-ManifestHandlers {
+    # The Explorer thumbnail handler is ONE guid written in TWO places (desktop2:ThumbnailHandler/@Clsid
+    # and com:Class/@Id) plus a DLL the com:Class names by package-relative path. A mismatch installs a
+    # package whose thumbnails silently never appear, and a missing DLL does the same, so both are
+    # checked here: the guid pair on every push, the DLL whenever there is a publish tree to look in.
+    param([string]$PublishDir)
+
+    [xml]$xml = Get-Content -Raw -LiteralPath $manifestTemplate
+    $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
+    $ns.AddNamespace('com', 'http://schemas.microsoft.com/appx/manifest/com/windows10')
+    $ns.AddNamespace('desktop2', 'http://schemas.microsoft.com/appx/manifest/desktop/windows10/2')
+
+    $classes = @($xml.SelectNodes('//com:SurrogateServer/com:Class', $ns))
+    $handlers = @($xml.SelectNodes('//desktop2:ThumbnailHandler', $ns))
+    if ($handlers.Count -eq 0) { throw 'The manifest declares no desktop2:ThumbnailHandler; Explorer thumbnails are a shipped feature.' }
+
+    foreach ($handler in $handlers) {
+        $clsid = $handler.GetAttribute('Clsid')
+        $class = $classes | Where-Object { $_.GetAttribute('Id') -ieq $clsid } | Select-Object -First 1
+        if (-not $class) { throw "desktop2:ThumbnailHandler Clsid $clsid has no com:SurrogateServer/com:Class with that Id." }
+        Write-Host ("  ok  ThumbnailHandler {0} -> {1}" -f $clsid, $class.GetAttribute('Path'))
+    }
+
+    foreach ($class in $classes) {
+        $rel = $class.GetAttribute('Path')
+        if ($class.GetAttribute('ThreadingModel') -ne 'Both') {
+            throw "com:Class $rel must declare ThreadingModel=Both; the shell's surrogate activates handlers from either apartment."
+        }
+        if ($PublishDir) {
+            $path = Join-Path $PublishDir $rel
+            if (-not (Test-Path -LiteralPath $path)) {
+                throw "The manifest names $rel but $PublishDir has no such file. Publish TianWen.Shell.Thumbnails for this architecture and copy the DLL into the viewer's publish tree (CI does this in publish-apps)."
+            }
+            Write-Host ("  ok  {0} ({1:N0} bytes)" -f $rel, (Get-Item -LiteralPath $path).Length)
+        }
+    }
+}
+
 function Resolve-SdkTool {
     # makeappx for packing, signtool for the local-test signature: one pinned package serves
     # both, so a second tool cannot drift onto a second version.
@@ -257,6 +295,8 @@ if ($PSCmdlet.ParameterSetName -eq 'Bundle') {
 
 Write-Host 'Checking manifest assets'
 Test-ManifestAssets
+Write-Host 'Checking manifest shell handlers'
+Test-ManifestHandlers
 
 if ($ValidateOnly) {
     # Prove the version rules are enforced, using the shapes that have actually caused trouble,
@@ -276,6 +316,7 @@ Assert-Version $Version
 if (-not (Test-Path -LiteralPath $PublishDir)) { throw "PublishDir not found: $PublishDir" }
 $exe = Join-Path $PublishDir 'tianwen-fits.exe'
 if (-not (Test-Path -LiteralPath $exe)) { throw "tianwen-fits.exe not found in $PublishDir" }
+Test-ManifestHandlers -PublishDir $PublishDir
 
 $stage = Join-Path ([IO.Path]::GetTempPath()) ("msix-" + [guid]::NewGuid().ToString('N'))
 try {

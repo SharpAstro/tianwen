@@ -36,6 +36,38 @@ pinned CI tool.
   the same end state, and neither can do better on Windows 10/11: they make the app a *candidate*, and
   the user assigns the default in Settings.
 
+## Explorer thumbnails (`tianwen-thumb.dll`)
+
+The full design, the measurements and the caching answer are in
+[`../plans/explorer-thumbnails.md`](../plans/explorer-thumbnails.md); this section keeps the shape and
+the rules. The shell activates a COM `IThumbnailProvider` for the file type; ours is a **NativeAOT
+shared library with source-generated COM** (`TianWen.Shell.Thumbnails`), 3 MB, shipped INSIDE the
+viewer's publish tree so the MSIX manifest can name it by a package-relative path and the tarball's
+`--register` finds it beside the exe. All imaging is `ThumbnailRenderer` in TianWen.Lib; the DLL moves
+bytes across the COM boundary and nothing else.
+
+- **A packaged shell extension may only run in the shell's surrogate** (`desktop2:ThumbnailHandler`
+  whose Clsid is a `com:SurrogateServer` class), never in-proc. So the handler is given a STREAM and
+  nothing else: `IInitializeWithStream` is the only initialiser, and the container is sniffed from the
+  first bytes (FITS `SIMPLE  =`, SER `LUCAM-RECORDER`), one class for all five types. Do not add
+  `IInitializeWithFile` for the tarball case: the packaged path is the one Windows exercises in the
+  Store build, and it cannot use it.
+- **Why a .NET DLL is fine here when managed shell extensions never were:** the objection is the shared
+  CLR loaded into explorer.exe. A NativeAOT library has its own runtime, and the surrogate rule keeps
+  it out of Explorer regardless. `DllCanUnloadNow` answers `S_FALSE` forever (NativeAOT cannot unload);
+  the surrogate's idle exit is how the DLL leaves memory.
+- **An embedded `ILLink.Substitutions.xml` applies only to the assembly that embeds it.** TianWen.Lib
+  carries 57 MB of catalogs against 1.7 MB of code the thumbnail needs; a consumer-side file naming
+  them removed nothing. The switch lives IN TianWen.Lib (`TianWen.Lib.EmbeddedCatalogs`, set false
+  via `RuntimeHostConfigurationOption Trim="true"`), and `EmbeddedCatalogFeatureSwitchTests` pins the
+  list against the assembly both ways because the format has no wildcard.
+- **The CLSID is written in three places and must never change once shipped** (the C# constant, the
+  manifest's `ThumbnailHandler`, its `com:Class`); `build-msix.ps1` checks the manifest agrees with
+  itself on every push and that the DLL is in the tree being packed.
+- **Caching is the shell's.** `thumbcache_*.db` per size class, re-extracted only on a miss or a newer
+  modified time; the handler is stateless and the library holds no thumbnail cache. A future in-app
+  strip reads `IThumbnailCache` rather than building a third.
+
 ## The single-instance hand-off
 
 **The gate is folder-scoped, and the pipe IS the lock.** `InstanceGate` (SharpAstro.AppShell) claims a

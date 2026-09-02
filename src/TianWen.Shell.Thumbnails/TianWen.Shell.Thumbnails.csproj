@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    tianwen-thumb.dll: the Windows Explorer thumbnail provider for the FITS viewer's file types.
+
+    A native (NativeAOT) in-process COM server that the shell hosts in its own surrogate process
+    (dllhost.exe), never inside explorer.exe. The COM plumbing is the .NET source-generated kind
+    (GeneratedComInterface / GeneratedComClass), so there is no CLR anywhere in the picture: the DLL
+    carries its own runtime, which is what makes a managed shell extension acceptable where the
+    shared-CLR kind never was. See docs/plans/explorer-thumbnails.md.
+
+    It ships INSIDE the viewer's publish tree (CI copies it next to tianwen-fits.exe on the Windows
+    legs), so the MSIX manifest can name it by a package-relative path and the tarball's
+    FileAssociationRegistrar can find it beside the exe.
+  -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>tianwen-thumb</AssemblyName>
+    <RootNamespace>TianWen.Shell.Thumbnails</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <NativeLib>Shared</NativeLib>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition=" '$(Version)' == '' ">
+    <Version Condition=" '$(VersionSuffix)' != '' And $(VersionSuffix[0]) != '+'">$(VersionPrefix)-$(VersionSuffix)</Version>
+    <Version Condition=" '$(VersionSuffix)' != '' And $(VersionSuffix[0]) == '+'">$(VersionPrefix)$(VersionSuffix)</Version>
+    <Version Condition=" '$(Version)' == '' ">$(VersionPrefix)</Version>
+  </PropertyGroup>
+
+  <!-- A thumbnail never opens a catalog. TianWen.Lib's own ILLink.Substitutions.xml drops its 57 MB of
+       embedded astrometry data when this switch is false, which takes the DLL from 59.6 MB to 3 MB.
+       Trim="true" is what forwards the switch to the trimmer / ILC as a feature setting. -->
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="TianWen.Lib.EmbeddedCatalogs" Value="false" Trim="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\TianWen.Lib\TianWen.Lib.csproj" />
+  </ItemGroup>
+
+</Project>

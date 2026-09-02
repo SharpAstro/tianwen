@@ -85,6 +85,10 @@
          camera's video path scales it to the correct angular size and runs it through the optical chain.
          Source: https://science.nasa.gov/asset/hubble/jupiter-opal-2024/ -->
     <EmbeddedResource Include="Devices/Fake/Data/jupiter.rgb.gz" WithCulture="false" />
+    <!-- Feature switch TianWen.Lib.EmbeddedCatalogs (default on): a trimmed / AOT consumer that sets it
+         false drops every resource above and below from ITS output, this assembly's build is unchanged.
+         The list, and why it has to be embedded here and not in the consumer, is in the file itself. -->
+    <EmbeddedResource Include="ILLink.Substitutions.xml" LogicalName="ILLink.Substitutions.xml" />
     <!-- Catalogs migrated to the ASCII-separated .gs.gz format: keep the .json.lz on
          disk as preprocessor input but exclude it from the assembly so only the
          faster path ships. See docs/plans/catalog-binary-format.md. -->

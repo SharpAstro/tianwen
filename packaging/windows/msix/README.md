@@ -117,6 +117,37 @@ handler: the shell keeps that choice in a per-user `UserChoice` key sealed with 
 accept from an installer or a package, so both routes register a *candidate* and the user assigns it
 in Settings.
 
+## Explorer thumbnails
+
+The same five types get thumbnails in Explorer from `tianwen-thumb.dll`, declared in the manifest as a
+`desktop2:ThumbnailHandler` on the file type association plus a `com:SurrogateServer` class
+(`windows.comServer`) that names the DLL by package-relative path. Design, measurements and the caching
+model: [`docs/plans/explorer-thumbnails.md`](../../../docs/plans/explorer-thumbnails.md).
+
+What this directory has to know about it:
+
+- **The DLL must be in the publish tree being packed.** CI publishes `TianWen.Shell.Thumbnails` for
+  each Windows RID and copies `tianwen-thumb.dll` beside `tianwen-fits.exe` before uploading the
+  `tianwen-fits-win-*` artifact, so the `msix` job and the release tarball both carry it with no step
+  of their own. Packing a tree without it is refused here (`Test-ManifestHandlers`), because the
+  package would install fine and simply never show a thumbnail. To pack locally:
+
+  ```powershell
+  dotnet publish src/TianWen.Shell.Thumbnails/TianWen.Shell.Thumbnails.csproj -r win-arm64 -c Release
+  Copy-Item src/TianWen.Shell.Thumbnails/bin/Release/net10.0/win-arm64/publish/tianwen-thumb.dll `
+            src/TianWen.UI.FitsViewer/bin/Release/net10.0/win-arm64/publish/
+  ```
+
+- **One GUID, two places.** The handler's `Clsid` and the class's `Id` must be the same GUID, and
+  `-ValidateOnly` checks they are (a mismatch is a package whose thumbnails silently never appear). The
+  GUID is also `ThumbnailRenderer.ShellExtensionClsid` in TianWen.Lib and must never change once
+  shipped.
+- **`SurrogateServer` is not a choice.** A packaged shell extension may only run in the shell's own
+  `dllhost.exe`; that is why the DLL initialises from a stream and why nothing of ours ever loads into
+  explorer.exe. `ThreadingModel` must be `Both`, which the validation also checks.
+- **Caching is Windows'.** The shell keeps `thumbcache_*.db` per user and re-asks the handler only on a
+  miss or a newer file modified time. Nothing in the package caches anything.
+
 ## Assets
 
 `Assets/*.png` are generated from `Resources/MilkyWay.ico` by `tools/bake-msix-assets.py`; the recipe
