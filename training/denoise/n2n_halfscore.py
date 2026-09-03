@@ -37,6 +37,24 @@ import n2n_smoke as S
 
 DOT_SIGMA = 5.0
 
+# The band decomposition H2 turns on, transcribed from NoiseField.BandSigmasOf so the numbers are
+# comparable to the exporter's: bands at sigma 0, 1, 2, 4; each band is the difference of two
+# Gaussian low-passes; the band's sigma is 1.4826 x MAD, not a standard deviation; the ratio is
+# band1 over band0. E1's whole point was that a shape number only means something measured the same
+# way, so this must not be "improved".
+BAND_SIGMAS = (0.0, 1.0, 2.0, 4.0)
+
+
+def band_ratio(plane):
+    """band1/band0 of a 2D array, the C# convention. Scene-free only if `plane` is a difference."""
+    from scipy.ndimage import gaussian_filter
+    blurred = [plane if s <= 0 else gaussian_filter(plane, s, mode="nearest") for s in BAND_SIGMAS]
+    sig = []
+    for lo, hi in zip(blurred, blurred[1:]):
+        d = lo - hi
+        sig.append(1.4826 * float(np.median(np.abs(d - np.median(d)))))
+    return sig[1] / sig[0] if sig[0] > 0 else float("nan")
+
 
 def luminance(a):
     return a.mean(axis=1)
@@ -70,6 +88,9 @@ def main():
     ap.add_argument("--skip-val-sessions", type=int, default=0)
     ap.add_argument("--blend", default="", help="comma alphas, e.g. 0.25,0.5,0.75,1 -- see the note on matched strength")
     ap.add_argument("--match", default="5,10,20", help="noise-removal percentages to compare the arms AT")
+    ap.add_argument("--shape", action="store_true",
+                    help="H2: band1/band0 of the noise each model LEAVES, measured scene-free by "
+                         "denoising both halves and differencing them")
     a = ap.parse_args()
 
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -153,14 +174,45 @@ def main():
     # are stored in. MtfUnstretch is monotone but not affine, so the two are not identical -- it
     # cannot reorder the models, since every arm is blended the same way, but a number here is a
     # trade curve and not a promise about a specific slider position.
+    # RESIDUAL SHAPE, scene-free. A and B are independent noise realisations of ONE scene, so their
+    # difference cancels the scene and leaves noise alone -- the same trick the exporter's
+    # --measure-shape uses, which is why the two numbers can be compared at all. Denoising BOTH and
+    # differencing gives the shape of what a model LEAVES BEHIND; the raw difference is the 0.463
+    # target. Per channel because 3b found R dominated by correlated stacking noise where G and B sit
+    # near white, so a luminance-only number would average the effect away.
+    raw_b = S.crop(half_b)
+
+    def shape_of(a_arr, b_arr, cells=None):
+        d = a_arr - b_arr
+        n = len(d) if cells is None else min(cells, len(d))
+        return [float(np.mean([band_ratio(d[i, c]) for i in range(n)])) for c in range(d.shape[1])]
+
+    shapes = {"raw halves": shape_of(raw_a, raw_b)} if a.shape else {}
+    # The blended sweep re-measures shape at every alpha, so it runs on a SUBSAMPLE of the cells: the
+    # full set is 192 tiles x 3 channels x 3 blurs per alpha per model, which is minutes of CPU for a
+    # number whose spread across cells is far smaller than the effect being read.
+    SHAPE_CELLS = 48
+
     alphas = [float(x) for x in a.blend.split(",") if x.strip()]
     curves = {}
     for spec in a.models:
         slug, ckpt = spec.split("=", 1)
         arr = S.crop(S.denoise(a.cache, ckpt, half_a, dev))
         add(slug, arr)
+        arr_b = S.crop(S.denoise(a.cache, ckpt, half_b, dev)) if a.shape else None
+        if a.shape:
+            shapes[slug] = shape_of(arr, arr_b)
         if alphas:
-            curves[slug] = [(0.0, 0.0, 0.0)] + [trade(raw_a + al * (arr - raw_a)) for al in alphas]
+            zero = shape_of(raw_a, raw_b, SHAPE_CELLS) if a.shape else None
+            pts = [(0.0, 0.0, 0.0, float(np.mean(zero)) if zero else float("nan"))]
+            for al in alphas:
+                removed, spent, cast = trade(raw_a + al * (arr - raw_a))
+                sh = float("nan")
+                if a.shape:
+                    sh = float(np.mean(shape_of(raw_a + al * (arr - raw_a),
+                                                raw_b + al * (arr_b - raw_b), SHAPE_CELLS)))
+                pts.append((removed, spent, cast, sh))
+            curves[slug] = pts
 
     print(f"Scored on half A. Floor for invention is the raw half at {floor:.1f} spurious/tile.\n")
     print(f"{'model':14s} {'noise':>7} | {'vs OTHER HALF (clean)':^24} | "
@@ -195,6 +247,17 @@ def main():
         print("\nEvery model spends more signal than it buys quiet, with an independent reference, "
               "so the original verdict stands and the leak was not the reason for it.")
 
+    if shapes:
+        ref = shapes["raw halves"]
+        print(f"\nRESIDUAL SHAPE (H2): band1/band0 of the noise each model LEAVES, scene-free from the "
+              f"difference of the two denoised halves, in the exporter's own band convention. The raw "
+              f"halves are the target a model should still look like; injection was measured at 0.216 "
+              f"white and 0.460 warped against this pool's real 0.463.")
+        print(f"{'model':14s} {'R':>7} {'G':>7} {'B':>7}   {'|delta| vs raw halves':>22}")
+        for slug, s in shapes.items():
+            d = "" if slug == "raw halves" else f"{np.mean([abs(x - y) for x, y in zip(s, ref)]):22.3f}"
+            print(f"{slug:14s} " + " ".join(f"{x:7.3f}" for x in s) + f"   {d}")
+
     if len(rows) > 1 and len(rows[0]["bias"]) == 3:
         print("\nLEVEL BIAS, per channel, in units of the raw half's background noise. A denoiser owes "
               "the level nothing: it should change the noise and leave the sky where it was. CAST is "
@@ -212,22 +275,29 @@ def main():
         targets = [float(x) for x in a.match.split(",") if x.strip()]
         print(f"\nAT MATCHED NOISE REMOVED, each model blended back toward its own input over "
               f"alpha {alphas}. Lower is better: it is the faint-star amplitude spent to buy that "
-              f"much quiet, and beside it the colour cast at that same strength. A dash means the "
-              f"model cannot reach that removal even at alpha 1.")
-        # Each cell is "amplitude spent / colour cast", both at that noise removal.
-        print(f"{'model':14s} " + " ".join(f"{t:>13.0f}%" for t in targets) + "   max removed")
+              f"much quiet, then the colour cast at that same strength, then (with --shape) the "
+              f"residual band1/band0 it leaves, whose target is the raw halves' own row at the "
+              f"bottom. A dash means the model cannot reach that removal even at alpha 1.")
+        wide = a.shape
+        # Each cell is "amplitude spent / colour cast", plus residual shape when --shape is on.
+        cell_w = 21 if wide else 14
+        print(f"{'model':14s} " + " ".join(f"{t:>{cell_w}.0f}%" for t in targets) + "   max removed")
         for slug, pts in curves.items():
             pts = sorted(pts)
             cells_out = []
             for t in targets:
-                hit = f"{'-':>14}"
-                for (r0, s0, c0), (r1, s1, c1) in zip(pts, pts[1:]):
-                    if r0 <= t <= r1 and r1 > r0:
-                        f = (t - r0) / (r1 - r0)
-                        hit = f"{s0 + (s1 - s0) * f:6.1f} /{c0 + (c1 - c0) * f:6.1f}"
+                hit = f"{'-':>{cell_w}}"
+                for p0, p1 in zip(pts, pts[1:]):
+                    if p0[0] <= t <= p1[0] and p1[0] > p0[0]:
+                        f = (t - p0[0]) / (p1[0] - p0[0])
+                        v = [x0 + (x1 - x0) * f for x0, x1 in zip(p0[1:], p1[1:])]
+                        hit = f"{v[0]:6.1f} /{v[1]:6.1f}" + (f" /{v[2]:6.3f}" if wide else "")
                         break
                 cells_out.append(hit)
-            print(f"{slug:14s} " + " ".join(cells_out) + f"   {max(r for r, _, _ in pts):6.1f}%")
+            print(f"{slug:14s} " + " ".join(cells_out) + f"   {max(p[0] for p in pts):6.1f}%")
+        if wide:
+            print(f"{'raw halves':14s} " + " ".join(f"{'':>{cell_w - 7}}{np.mean(shapes['raw halves']):6.3f}"
+                                                   for _ in targets) + "        (target)")
 
     print(f"\nCAVEAT on the spurious column, which is NOT comparable to the sub-level one. The "
           f"truth mask is the master at 8 MAD, but a half-master's own detection bar is 5 of ITS "
