@@ -452,3 +452,89 @@ Readings, in order of weight:
 Artifacts: `scratchpad/h0/before.log`, `before-telemetry.log`, `after.log`, crops under
 `h0/before/` and `h0/after/` (`rescale-stretch.png`, `rescale-k*.png`, `rescale-input.png`, channel 1,
 896 x 384 at y = 1200, ticks at every seam). The crops are session scratch, not committed.
+
+### E2, 2026-09-03: H1 and H3 on the injection arms, against a matched control
+
+Six checkpoints of this campaign (S-white s0-2, and a matched N2N control s0-2) plus the three v19d
+controls, all scored in ONE run of `n2n_halfscore.py` on the `eval4` cache: 192 val cells carrying a
+half-master pair, 56,216 master-detected stars, four held-out observers. Scoring the old numbers
+again rather than quoting them is deliberate; a table assembled from two runs of two versions of a
+script is not a comparison.
+
+**The matched control is new and it earned its keep immediately.** The v19d controls were trained on
+the DARKSCALED pool and these arms on ORGANIZED, so any difference between them confounds the regime
+under test with the pool draw, and v24 had already measured that draw carrying more variance than
+most effects chased here. The control arm is N2N on the SAME pool, the SAME eight sessions, the SAME
+cells and the SAME recipe, differing only in `--mix-avg` where the arms have `--synthetic`. It landed
+a WORSE trade than v19d at every strength, so comparing the arms against v19d alone would have
+flattered them.
+
+#### The reading that was about to be wrong
+
+Exchange rate (amplitude spent per unit of noise removed) put white at 1.54 to 1.75 and the controls
+at 1.39 to 1.93: overlap, which reads as H1's kill. The conclusion was right and the reason was not.
+The arms were not doing the same amount of work (white removes 6 to 13 percent of the noise, the
+controls 18 to 35), and within BOTH control families the rate gets BETTER the harder the model
+denoises (control 1.93 to 1.57, v19d 1.67 to 0.90). A rate that varies with intensity ranks the
+intensities. `--blend` fixes it: blending an output back toward its input walks each model down its
+own curve, which is verbatim what the shipped runner's strength dial does, so every model has a value
+at the same noise removed.
+
+#### At matched noise removed
+
+Amplitude spent / colour cast, both at that strength. Lower is better on each.
+
+| model | at 4 % removed | at 6 % | at 10 % | max reach |
+|---|---|---|---|---|
+| white s0 / s1 / s2 | 6.3 / 1.0 · 5.7 / 0.5 · 5.5 / 1.9 | - · 8.9 / 0.8 · 8.5 / 2.9 | - · 15.4 / 1.5 · 15.3 / 5.3 | 5.9 / 12.8 / 10.1 % |
+| control s0 / s1 / s2 | 6.3 / 1.0 · 5.5 / 1.0 · 4.9 / 1.1 | 9.7 / 1.6 · 8.2 / 1.5 · 7.4 / 1.7 | 16.8 / 2.7 · 14.1 / 2.6 · 12.5 / 2.9 | 21.8 / 31.8 / 35.2 % |
+| v19d s0 / s1 / s2 | 5.4 / 1.4 · 4.4 / 2.1 · 3.2 / 1.5 | 8.3 / 2.1 · 6.8 / 3.2 · 4.9 / 2.3 | 14.7 / 3.7 · 11.9 / 5.5 · 8.4 / 3.9 | 18.0 / 21.9 / 25.8 % |
+
+#### One more confound: the controls were CHOSEN and the arms were not
+
+The table above is not like for like. All three v19d checkpoints are gate-selected mid-schedule
+(steps 2200, 900, 1500) and control s0 at step 3100, while every white checkpoint is final weights
+because no probe passed every gate. A selected checkpoint is picked to be good; an unselected one is
+wherever the schedule ended. Re-scored with every family at FINAL weights, at 10 percent removed:
+
+| family | s0 | s1 | s2 |
+|---|---|---|---|
+| white (final, as before) | - | 15.4 | 15.3 |
+| control, final | 17.5 | 14.1 | 12.5 |
+| v19d, final | 13.7 | 14.2 | 13.9 |
+| v19d, gate-selected (the row above's source) | 14.7 | 11.9 | **8.4** |
+
+**The gate is doing real work, and it is not the regime.** v19d's three finals converge to 13.7 to
+14.2 where its gate-selected checkpoints span 8.4 to 14.7: the 8.4 that made v19d look dominant is
+selection, not training. This is incidental evidence that the gate earns its keep, and it is exactly
+the kind of difference that a table assembled without asking how each checkpoint was chosen reports
+as a regime effect.
+
+**H1: KILLED for S-white, on the "do not separate" clause rather than by trailing.** Like for like at
+final weights, white (15.3 to 15.4 at 10 percent removed) sits inside the matched control's band
+(12.5 to 17.5) and just above v19d's tight one (13.7 to 14.2). That is well short of the predicted
++0.03 improvement and is the pre-registered kill. **One asymmetry survives selection and is not a
+tie:** white cannot reach past 12.8 percent noise removal even at full strength, where the control
+families reach 21 to 35. The supervised arm is not trading worse so much as it is weaker, which is a
+different failure and points at a different suspect.
+
+**H3: NOT SUPPORTED, and the way it failed is the finding.** Per-channel level bias at each model's
+own full strength separated the arms cleanly and with no overlap across three seeds each: cast (the
+max-minus-min differential across R, G and B, in units of the raw half's noise) read 1.67 / 1.98 /
+5.37 for white against 6.78 to 12.24 for the control and 7.41 to 13.86 for v19d, with every N2N model
+pushing blue up by 5.5 to 12.9. It is the same confound. Matched at 10 percent removed the same nine
+models overlap (white 1.5 and 5.3, control 2.6 to 2.9, v19d 3.7 to 5.5) and the worst of all nine is a
+white seed. At final weights it goes mildly the other way: v19d reads 1.8 to 2.4 at 10 percent removed
+against white's 1.5 and 5.3. The level prior is a property of the strength, not of the training regime,
+and the direction that remains is not the predicted one. The bias table
+stays in the script because the per-channel breakdown shows the direction, but it now says on its face
+that it is not a ranking.
+
+#### What the 1:1 comparison showed that no column did
+
+`compare-e2-h1.png` (raw half A, white s1, control s2, v19d s2, half B, master; one stretch per row
+taken from the raw column; 1:1, no resample). White s1 is nearly indistinguishable from its input.
+Both N2N models visibly quiet the background and thin the faint stars, and in the green-cast cell both
+pull the sky toward neutral grey while white keeps the cast. That last observation is what prompted
+measuring level bias at all, and then measuring it at matched strength, which is what turned it from a
+finding into an artefact. The image is what raised the question; it is not what answered it.
