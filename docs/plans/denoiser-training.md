@@ -289,7 +289,17 @@ shape is not testing H2.
 
 Per tile, read the cell's sub `NoiseMad` values from the manifest, take their median as "one sub"
 for that cell, and draw the injected sigma log-uniform over [0.1, 1.5] of it. The bottom of that range
-is below master depth (0.152x) on purpose, so the deployed level is interior, not an edge. The
+is below master depth (0.152x) on purpose, so the deployed level is interior, not an edge.
+
+**CORRECTED 2026-09-03: 0.1 is not below master depth on this pool, and a fixed bottom cannot be.**
+Master depth is 1/sqrt(StackedFrames) and the organized bake runs from 15 frames to 257, so it spans
+0.258 down to 0.062 with a median of 0.089: the 0.1 floor sits ABOVE the master depth of **34 of the
+51 sessions**, and the conditioning plane at inference would read a level below everything the model
+had seen. That is H0's domain skew one layer up, so the floor is now derived per session
+(`MasterDepthFraction`, default half the session's own master depth, clamped by the old 0.1) and the
+row records `MasterDepth` so a reader can check the range covered it. The 0.152x the paragraph above
+quotes was reasoned on a 43-frame master, which is the darkscaled pool, not this one. Pinned by
+`TheDeploymentDepthIsInteriorToTheInjectedRange` at 15, 64 and 257 frames. The
 conditioning plane is computed from the noisy tile inside the graph exactly as today, so the model
 still reads its own input's noise; the injected level is never handed to it as a label (the
 tile-border asymmetry lesson in another form: never condition on a number inference cannot measure).

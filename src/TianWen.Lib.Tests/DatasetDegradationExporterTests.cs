@@ -355,6 +355,36 @@ namespace TianWen.Lib.Tests
             picked.Length.ShouldBeGreaterThan(1, "a prefix would pick the same cell for every seed");
         }
 
+        /// <summary>
+        /// The level the model is DEPLOYED at must be interior to the range it is trained across, or the
+        /// conditioning plane reads an out-of-distribution level at inference: the H0 domain skew again,
+        /// one layer up. Deployment depth is the master's own 1/sqrt(StackedFrames) and it varies by a
+        /// factor of four across one bake, so the bottom of the range is derived per session rather than
+        /// fixed. Measured on the real pool before this was pinned: the fixed 0.1 floor sat ABOVE the
+        /// master depth of 34 of 51 sessions.
+        /// </summary>
+        [Theory]
+        [InlineData(15)]    // a shallow session: master depth 0.258, above the 0.1 clamp
+        [InlineData(64)]    // 0.125
+        [InlineData(257)]   // the deepest in the organized pool: 0.062
+        public async Task TheDeploymentDepthIsInteriorToTheInjectedRange(int stackedFrames)
+        {
+            var bake = BuildBake(stackedFrames);
+            var outDir = Path.Combine(_root, $"depth-{stackedFrames}");
+
+            await DatasetDegradationExporter.RunAsync(
+                new DatasetDegradationExporter.Options(bake, outDir, Draws: 24, CellsPerSession: 1, Seed: 7),
+                logger: null,
+                TestContext.Current.CancellationToken);
+
+            var rows = ReadDegradationRows(outDir);
+            var masterDepth = 1.0 / Math.Sqrt(stackedFrames);
+            rows.ShouldAllBe(r => r.MasterDepth == masterDepth);
+            var lowest = rows.Min(r => r.DepthScale);
+            output.WriteLine($"N={stackedFrames}: master depth {masterDepth:F3}, drawn depths {lowest:F3} to {rows.Max(r => r.DepthScale):F3}");
+            lowest.ShouldBeLessThan(masterDepth, "the deployed level must sit inside the range, not at or past its edge");
+        }
+
         [Fact]
         public async Task TheExportIsResumableAndSkipsWhatItAlreadyDid()
         {

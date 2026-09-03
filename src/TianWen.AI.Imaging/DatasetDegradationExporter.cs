@@ -101,8 +101,9 @@ namespace TianWen.AI.Imaging
         /// <param name="Mode">Degradation mode.</param>
         /// <param name="Shape">Noise shape.</param>
         /// <param name="StackedFrames">Frames integrated into the source master (its <c>STACK_N</c>).</param>
-        /// <param name="DepthScale">Injected noise level as a multiple of ONE sub's noise. The master's own
-        /// depth is 1/sqrt(<paramref name="StackedFrames"/>), which is inside the drawn range on purpose.</param>
+        /// <param name="DepthScale">Injected noise level as a multiple of ONE sub's noise, drawn log-uniform.
+        /// <see cref="MasterDepth"/> is interior to that range by construction, because the bottom of the
+        /// range is derived from it per session rather than fixed.</param>
         /// <param name="OneSubSigma">Measured noise of one sub at the cell's background, unit-scaled linear.</param>
         /// <param name="BackgroundLevel">The cell's robust background, unit-scaled linear.</param>
         /// <param name="AdjacentDiffSigma">The structure-insensitive noise estimate of the same cell, as a
@@ -118,6 +119,9 @@ namespace TianWen.AI.Imaging
         /// <param name="NoiseAnchor">Which measurement set the level: <c>sub-noisemad</c> (a real sub's
         /// measured noise, converted to linear through the MTF slope) or <c>master-mad</c> (the fallback
         /// when the cell has no sub rows, which reads a cell's structure as noise and overstates it).</param>
+        /// <param name="MasterDepth">The session's own master depth, 1/sqrt(StackedFrames): the level the
+        /// model meets at inference. It must be INTERIOR to the drawn range, which is what makes the
+        /// bottom of that range a per-session value rather than a constant.</param>
         /// <param name="Seed">The draw's RNG seed, so one tile can be re-derived on its own.</param>
         public sealed record DegradationRow(
             string Tile,
@@ -139,6 +143,7 @@ namespace TianWen.AI.Imaging
             double PositionAngleDeg,
             double FieldRadius,
             string NoiseAnchor,
+            double MasterDepth,
             int Seed);
 
         /// <summary>What to export.</summary>
@@ -153,7 +158,12 @@ namespace TianWen.AI.Imaging
         /// order), or 0 for all of them.</param>
         /// <param name="MaxSessions">Cap on sessions, or 0 for all.</param>
         /// <param name="Seed">Base seed; each (session, cell, draw) derives its own from it.</param>
-        /// <param name="MinDepthScale">Bottom of the log-uniform level range, in multiples of one sub.</param>
+        /// <param name="MinDepthScale">Hard floor of the log-uniform level range, in multiples of one sub.
+        /// A CLAMP, not the value: the bottom actually used is the smaller of this and
+        /// <paramref name="MasterDepthFraction"/> of the session's own master depth.</param>
+        /// <param name="MasterDepthFraction">The bottom of the range as a fraction of the session's master
+        /// depth (1/sqrt(StackedFrames)), so the level the model is DEPLOYED at is always interior to the
+        /// range rather than at or past its edge.</param>
         /// <param name="MaxDepthScale">Top of the level range.</param>
         /// <param name="WarpResampleSigma">Warped shape only: extra smoothing per realisation, in pixels,
         /// standing in for a resampling kernel wider than bilinear. The knob that calibrates the arm
@@ -172,6 +182,7 @@ namespace TianWen.AI.Imaging
             int Seed = 1,
             double WarpResampleSigma = 0.0,
             double MinDepthScale = 0.1,
+            double MasterDepthFraction = 0.5,
             double MaxDepthScale = 1.5,
             double MinExtraFwhmPx = 0.5,
             double MaxExtraFwhmPx = 4.0,
@@ -440,7 +451,16 @@ namespace TianWen.AI.Imaging
             var calibration = default(LinearDegradation.NoiseCalibration);
             var adjacent = double.NaN;
             var anchor = "";
-            var depthScale = LogUniform(rng, options.MinDepthScale, options.MaxDepthScale);
+            // The bottom of the range must sit BELOW the depth the model is deployed at, or the
+            // conditioning plane at inference reads a level the model never saw in training, which is
+            // the H0 domain skew wearing different clothes. Deployment depth is the master's own,
+            // 1/sqrt(StackedFrames), and it varies by a factor of four across one bake (0.26 for a
+            // 15-frame session, 0.062 for a 257-frame one), so no fixed bottom serves both ends: the
+            // plan's 0.1 was reasoned on a 43-frame master and sits ABOVE the master depth of 34 of
+            // this pool's 51 sessions. Deriving it per session removes the constant.
+            var masterDepth = 1.0 / Math.Sqrt(Math.Max(1, stackedFrames));
+            var minDepth = Math.Min(options.MinDepthScale, options.MasterDepthFraction * masterDepth);
+            var depthScale = LogUniform(rng, minDepth, options.MaxDepthScale);
 
             for (var c = 0; c < channels; c++)
             {
@@ -512,6 +532,7 @@ namespace TianWen.AI.Imaging
                     PositionAngleDeg: positionAngle,
                     FieldRadius: fieldRadius,
                     NoiseAnchor: anchor,
+                    MasterDepth: masterDepth,
                     Seed: seed);
             }
             finally

@@ -21,6 +21,28 @@
 #   KILL: the two arms overlap across three seeds. Then shape is not the lever, S-white is the cheaper
 #   recipe, and --warp-sigma becomes a knob nobody has to set.
 #
+# ADDENDUM 2026-09-03, after launch, correcting the REASONING above and not the prediction or the
+#   kill criterion (those stand as written; a pre-registration that gets edited to fit is not one).
+#   H2's low confidence rested on "the conditioning plane reads a scalar level, not a shape", which is
+#   only half the mechanism. That half is right: the net cannot be TOLD the shape. But the other half
+#   does not need telling. A denoiser trained on white noise LEARNS a filter tuned to white noise, and
+#   applied to correlated noise it mis-smooths regardless of what it is handed as conditioning. Both
+#   arms are scored on the same REAL inputs, which carry the real correlated shape, so E2 does test
+#   that mechanism. Confidence stays low for a different reason: nobody has measured how much a
+#   learned filter's shape-specificity is worth at these depths.
+#
+#   What E2 CANNOT settle is an overlap. "Shape does not matter" and "this architecture cannot express
+#   shape" look identical then, and the existing band-conditioning null (v14, v21) does not separate
+#   them either: every pair those runs ever saw had the same shape (0.59 to 0.60), so the plane had no
+#   shape variation to learn from. That null is about the data, not the mechanism.
+#
+#   E2b, defined NOW so it cannot be invented to fit the result: an arm that draws --warp-sigma PER
+#   DRAW the way depth is already drawn, so one training set spans the sub-to-master shape range. It is
+#   the first data on which --cond-bands is testable at all, and it is the recipe that would ship,
+#   since a user's frame can sit anywhere on that range. TRIGGER: run E2b if the arms OVERLAP or if
+#   warped wins; skip it only if white wins outright. The overlap is the interesting case, not the
+#   dull one, which is why the trigger is not "if H2 lands".
+#
 # NOT predicted, and worth watching: whether the level prior (H3) is weaker in the synthetic arms.
 #   They see the whole [0.1, 1.5] range on every session rather than eight sessions' worth of sky
 #   levels, so if the prior is a training-distribution artefact this is where it should loosen.
@@ -45,6 +67,7 @@
 # Run detached; read the status file, never the log:
 #   Start-Process pwsh -ArgumentList '-NoProfile','-File',"$PWD\run-e2.ps1" -WindowStyle Hidden
 param(
+    [string[]]$Arms = @('white', 'warped'),
     [string]$Exports = 'D:\Astro-Dataset\degraded',
     [string]$Scratch = ($env:TIANWEN_SCRATCH ?? 'C:\temp\tianwen-scratch'),
     [string]$LogDir = 'C:\temp\e2',
@@ -64,12 +87,20 @@ New-Item -ItemType Directory -Force $snap | Out-Null
 Copy-Item *.py, run-e2.ps1 $snap -Force
 
 try {
-    foreach ($arm in 'white', 'warped') {
+    # An arm whose export is still running is SKIPPED, not fatal: the two arms are independent runs
+    # that meet only at scoring, so the first can train while the second exports. Re-run this script
+    # for the rest; a prepared cache and an existing checkpoint are both skipped.
+    $ready = @()
+    foreach ($arm in $Arms) {
+        $armStatus = Join-Path (Join-Path $Exports $arm) 'degrade.status'
+        $state = if (Test-Path $armStatus) { (Get-Content $armStatus -Raw).Trim() } else { 'missing' }
+        if ($state -eq 'done') { $ready += $arm }
+        else { "skip $arm : export says '$state'" | Tee-Object -FilePath $log -Append }
+    }
+    if ($ready.Count -eq 0) { throw "no export arm is done (looked for: $($Arms -join ', '))" }
+
+    foreach ($arm in $ready) {
         $root = Join-Path $Exports $arm
-        $armStatus = Join-Path $root 'degrade.status'
-        if (-not (Test-Path $armStatus) -or (Get-Content $armStatus -Raw).Trim() -ne 'done') {
-            throw "export arm '$arm' is not done: $armStatus says '$(if (Test-Path $armStatus) { (Get-Content $armStatus -Raw).Trim() } else { 'missing' })'"
-        }
         $cache = Join-Path $Scratch "n2n-e2-$arm"
         if (Test-Path (Join-Path $cache 'meta.json')) {
             "prepare $arm : cache already present, skipped" | Tee-Object -FilePath $log -Append
@@ -84,7 +115,7 @@ try {
     }
 
     if (-not $PrepareOnly) {
-        foreach ($arm in 'white', 'warped') {
+        foreach ($arm in $ready) {
             $cache = Join-Path $Scratch "n2n-e2-$arm"
             foreach ($seed in $Seeds) {
                 $out = "e2_${arm}_s$seed.pt"
