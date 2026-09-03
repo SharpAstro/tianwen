@@ -81,7 +81,8 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
 
         // Pump time in small increments: the obs loop yields on SleepAsync until
         // we advance past its target time, ensuring deterministic sequencing.
-        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(24), cancellationToken: cancellationToken);
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(24),
+            progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: cancellationToken);
 
         loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within timeout");
         await loopTask;

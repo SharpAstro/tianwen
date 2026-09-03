@@ -259,19 +259,30 @@ logger, then rank durations.
 `SessionTestHelper` defaults to `FakeMountDriver`; pass `mountPort: "LX200"` or `"SkyWatcher"` only for
 protocol-specific tests.
 
-**Cooperative time pump pattern** for tests that run session loops via `Task.Run`:
+**Cooperative time pump pattern** for tests that run session loops via `Task.Run`. Use
+`FakeTimeProviderWrapper.PumpUntilCompletedAsync` and **always pass the progress probe** -- never
+hand-roll the `while (pumped < budget) { Advance(); }` loop this used to show:
 ```csharp
-ctx.External.ExternalTimePump = true;
-var loopTask = Task.Run(async () => await ctx.Session.ImagingLoopAsync(...));
-var pumpIncrement = TimeSpan.FromSeconds(5);
-var pumped = TimeSpan.Zero;
-while (pumped < TimeSpan.FromHours(4) && !loopTask.IsCompleted && !ct.IsCancellationRequested)
-{
-    ctx.External.Advance(pumpIncrement);
-    pumped += pumpIncrement;
-    await Task.Delay(1, ct);
-}
+ctx.TimeProvider.ExternalTimePump = true;
+var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ImagingLoopAsync(...), ctx.Token));
+await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+    progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
 ```
+**The budget bounds a STALL, not the run, and the probe is what makes that true.** Waiter pacing alone
+is not enough: `WaiterCount` is global and a fake guider/camera is parked in `SleepAsync` more or less
+permanently, so "is anyone waiting?" answers yes whether or not the driven loop has caught up -- while
+the loop's own tick is a `PeriodicTimer`, which registers no waiter AND **coalesces**, dropping any tick
+whose continuation is still queued. Every advance the loop does not observe is budget spent for nothing,
+and how many there are is a property of the thread pool: measured on one machine, one test, nothing but
+scheduling changing, a 30-minute observation cost **33 to 50 minutes** of budget. A CI runner four
+collections deep is free to be an order worse, and then a healthy loop trips a fake-time cap that reads
+exactly like a hang -- which is what `GivenCloudsRollingInWhenStarCountDropsThenConditionDetected` did
+on 2026-09-02. With the probe the budget resets on progress, so a slow runner merely takes longer, while
+a loop that has genuinely stopped still trips it. A real hang stays bounded by `[Fact(Timeout = ...)]`.
+Pinned by `FakeTimePumpTests`, whose no-probe case is the old pump kept green as the shape of that
+failure. The pump **throws** with the counters on give-up, so do not read a downstream
+`IsCompleted.ShouldBeTrue` as the diagnosis.
+
 **Never** use `SleepAsync(subExposure)` in a pump loop; it advances fake time even when the `Task.Run`
 hasn't been scheduled yet, causing targets to "set" before imaging starts. `Advance` fires timers
 synchronously; `Task.Delay(1)` yields to the thread pool.

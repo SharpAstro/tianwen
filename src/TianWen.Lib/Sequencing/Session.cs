@@ -37,6 +37,7 @@ internal partial record Session(
     private int _activeObservation = UNINITIALIZED_OBSERVATION_INDEX;
     private int _spareIndex;
     private int _totalFramesWritten;
+    private long _imagingLoopTicks;
     private long _totalExposureTimeTicks;
 
     // Per-driver fault accumulator. Incremented by ResilientCall via its
@@ -190,6 +191,18 @@ internal partial record Session(
     public int TotalFramesWritten => Volatile.Read(ref _totalFramesWritten);
     public TimeSpan TotalExposureTime => TimeSpan.FromTicks(Interlocked.Read(ref _totalExposureTimeTicks));
     public int CurrentObservationIndex => _activeObservation;
+
+    /// <summary>
+    /// Monotonic count of <see cref="ImagingLoopAsync"/> iterations across the whole session (never
+    /// reset per observation). Test seam: it is the loop's OWN progress, which is what a fake-clock
+    /// pump has to pace against. Fake time alone cannot serve, because the loop's tick is a
+    /// <see cref="System.Threading.PeriodicTimer"/> and a periodic timer COALESCES: a tick that
+    /// fires while the loop's continuation has not been scheduled yet is dropped, so an advance the
+    /// loop never observed is fake time spent for nothing. How often that happens is a property of
+    /// the thread pool, not of the session -- which is exactly why a pump that bounds a run by fake
+    /// time measures the runner rather than the loop.
+    /// </summary>
+    internal long ImagingLoopTicks => Interlocked.Read(ref _imagingLoopTicks);
     /// <summary>Number of meridian flips actually performed or detected this session. Test seam used to
     /// assert that a non-German mount (fork / Alt-Az) images across the meridian without ever flipping.</summary>
     internal int MeridianFlipCount { get; private set; }

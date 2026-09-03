@@ -63,27 +63,55 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     /// <summary>
     /// Drives <paramref name="loopTask"/> (a session loop started via <c>Task.Run</c> with
     /// <see cref="ExternalTimePump"/> = true) to completion by advancing fake time, PACED to the
-    /// loop: it advances only while the loop is parked at a <see cref="SleepAsync"/> waiter, and
-    /// waits while the loop is doing CPU work. Fake time therefore tracks the loop's real progress
-    /// instead of racing wall-clock, which is starvation-proof under CI thread-pool load. The old
-    /// unconditional <c>Advance</c> + <c>Task.Delay(1)</c> pump burned its whole fake-time budget in
-    /// a few wall-clock seconds, so under load the loop could not process its frames before the pump
-    /// gave up -- the <c>loopTask.IsCompleted == false</c> flake.
+    /// loop: it advances only while something is parked at a <see cref="SleepAsync"/> waiter, and
+    /// waits while the loop is doing CPU work rather than racing wall-clock.
+    /// <para>
+    /// <b><paramref name="maxFakeTime"/> bounds a STALL, not the run</b>, and supplying
+    /// <paramref name="progress"/> is what makes that true. The waiter pacing above is necessary but
+    /// NOT sufficient, because <see cref="WaiterCount"/> is global: a fake guider's capture loop and
+    /// a fake camera sit parked in <see cref="SleepAsync"/> more or less permanently, so "is anyone
+    /// waiting?" answers yes whether or not the loop being driven has caught up. The loop's own tick
+    /// is a <see cref="System.Threading.PeriodicTimer"/>, which registers no waiter AND coalesces --
+    /// a tick that fires while its continuation is still queued is dropped, never queued behind the
+    /// last one. So every advance the loop does not observe is budget spent for nothing, and how
+    /// many of those there are is a property of the thread pool. Measured on one machine, one test,
+    /// with nothing but scheduling changing: 30 minutes of observation cost 33 to 50 minutes of
+    /// budget. A CI runner running four collections in parallel is free to be an order worse, and
+    /// when it is, a perfectly healthy loop trips a fake-time cap that reads exactly like a hang.
+    /// That was the <c>loopTask.IsCompleted == false</c> failure, and it is not flakiness: the cap
+    /// was measuring the runner.
+    /// </para>
+    /// <para>
+    /// With <paramref name="progress"/> supplied the budget resets every time the loop moves, so a
+    /// slow runner merely takes longer instead of failing, while a loop that has genuinely stopped
+    /// still trips it -- which is the only thing the cap was ever meant to catch. A real hang, where
+    /// the loop never re-parks at all, stays bounded by the test's own <c>[Fact(Timeout)]</c>.
+    /// </para>
     /// </summary>
     /// <param name="loopTask">The session-loop task to drive to completion.</param>
     /// <param name="increment">Fake-time step per advance.</param>
-    /// <param name="maxFakeTime">Safety cap on total fake time pumped.</param>
+    /// <param name="maxFakeTime">Fake time the loop may go WITHOUT progressing before this throws
+    ///   (the whole run when no <paramref name="progress"/> is supplied).</param>
     /// <param name="onIteration">Optional 1-based per-iteration hook, run after each advance, for
     ///   injecting conditions mid-run (clouds, focus drift, ...). Sync bodies return
     ///   <see cref="ValueTask.CompletedTask"/>.</param>
+    /// <param name="progress">Monotonic counter of the DRIVEN loop's own progress -- for a session
+    ///   loop, <c>Session.ImagingLoopTicks</c>. Pass it wherever one exists; without it the cap is
+    ///   back to measuring the thread pool.</param>
     /// <param name="cancellationToken">Cancelled by the test's <c>[Fact(Timeout)]</c>, which bounds
     ///   a genuine hang (the loop never re-parking).</param>
     /// <returns>Total fake time pumped.</returns>
+    /// <exception cref="TimeoutException">The loop stopped progressing for
+    ///   <paramref name="maxFakeTime"/> of fake time. Every caller treats a non-completed loop as a
+    ///   failure, so it is reported here, where the counters that say WHICH failure it was are still
+    ///   in hand, rather than as a bare <c>IsCompleted</c> assertion downstream that cannot tell a
+    ///   stalled loop from a starved one.</exception>
     public async Task<TimeSpan> PumpUntilCompletedAsync(
         Task loopTask,
         TimeSpan increment,
         TimeSpan maxFakeTime,
         Func<int, ValueTask>? onIteration = null,
+        Func<long>? progress = null,
         CancellationToken cancellationToken = default)
     {
         // Both waits below -- this loop's trailing delay, and every SleepAsync parked under it -- ask
@@ -96,7 +124,10 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
 
         var pumped = TimeSpan.Zero;
         var iteration = 0;
-        while (pumped < maxFakeTime && !loopTask.IsCompleted && !cancellationToken.IsCancellationRequested)
+        var startProgress = progress?.Invoke() ?? 0L;
+        var lastProgress = startProgress;
+        var stalledFor = TimeSpan.Zero;
+        while (!loopTask.IsCompleted && !cancellationToken.IsCancellationRequested)
         {
             // Pace to the loop: advance only once it is parked at a SleepAsync waiter; while it is
             // doing CPU work (no waiter) wait for it to re-park rather than racing wall-clock.
@@ -113,6 +144,39 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
                 await onIteration(iteration);
             }
             await Task.Delay(1, cancellationToken);
+
+            // Charge the budget only while the loop is NOT moving. The probe is read AFTER the delay
+            // above, so a loop whose continuation merely had to wait its turn on the pool counts as
+            // progress rather than as a stall -- which is the whole distinction this exists to make.
+            if (progress is null)
+            {
+                stalledFor = pumped;
+            }
+            else
+            {
+                var current = progress();
+                if (current != lastProgress)
+                {
+                    lastProgress = current;
+                    stalledFor = TimeSpan.Zero;
+                }
+                else
+                {
+                    stalledFor += increment;
+                }
+            }
+
+            if (stalledFor >= maxFakeTime)
+            {
+                throw new TimeoutException(
+                    $"Pumped {pumped} of fake time over {iteration} advances of {increment} and the loop " +
+                    (progress is null
+                        ? "never completed. No progress probe was supplied, so this cap measured the RUN, and a "
+                          + "run's fake-time cost depends on how often the thread pool let the loop observe an "
+                          + "advance. Pass progress: () => session.ImagingLoopTicks before reading this as a hang."
+                        : $"made no progress for the last {stalledFor} of it (probe {startProgress} -> "
+                          + $"{lastProgress}). It is parked but not advancing: a stall, not a starved runner."));
+            }
         }
         return pumped;
     }

@@ -122,6 +122,37 @@ Checks that only a real device or a real night can answer live in ONE place, ind
 
 ## Flaky CI Tests
 
+- [x] **`SessionImagingTests.GivenCloudsRollingInWhenStarCountDropsThenConditionDetected` -- NOT flaky;
+  the pump's budget was measuring the CI runner** (red on `3f870333`, run 33687279158, 2026-09-02;
+  fixed 2026-09-03). It failed `imagingTask.IsCompleted` after spending its whole 4-hour fake-time
+  budget in ~4 s of wall clock on a 30-minute observation. `PumpUntilCompletedAsync` paced on
+  `WaiterCount`, which is **global**: a fake guider's capture loop and a fake camera sit parked in
+  `SleepAsync` more or less permanently, so "is anyone waiting?" answered yes whether or not the loop
+  being driven had caught up. Meanwhile the imaging loop's tick is a `PeriodicTimer`, which registers
+  no waiter **and coalesces** -- a tick firing while its continuation is still queued is dropped, not
+  queued behind the last one. So every advance the loop did not observe was budget spent for nothing,
+  and how many of those there are is a property of the thread pool, not of the session.
+  **Measured, one machine, one test, nothing but scheduling changing: 30 minutes of observation cost
+  33-50 minutes of budget** (idle 37-50 min, under 16-thread CPU load 33 min -- load made it *better*,
+  because it slows the pump too; the full functional suite 41 min). CI needed ~8x and was never
+  reproduced here, so the mechanism is measured but the CI red itself is not a red-to-green repro.
+  **The budget now bounds a STALL, not the run**: `PumpUntilCompletedAsync` takes
+  `progress: () => ctx.Session.ImagingLoopTicks` (new `Session.ImagingLoopTicks` seam) and resets the
+  budget whenever the loop moves, so a starved runner merely takes longer while a loop that has
+  genuinely stopped still trips it; a real hang stays bounded by `[Fact(Timeout)]`. It now **throws**
+  with the counters instead of returning quietly into a downstream `IsCompleted.ShouldBeTrue` that
+  cannot tell a stalled loop from a starved one. All 11 session-loop call sites pass the probe; the
+  scout site keeps the run-bounding fallback deliberately. Pinned by `FakeTimePumpTests`, where the
+  **no-probe case is the old pump kept green as the shape of this failure** -- the two tests differ
+  only in whether the probe is supplied, and the probe case was seen to FAIL against the old
+  semantics before being committed.
+  **Found on the way and NOT fixed:** this test never detected a condition at all. Clouds are injected
+  once the baseline exists (pump 9-39 across runs) and cleared on `iteration > 10`, which is already
+  true, so `CloudCoverage` is 0.8 for exactly ONE pump iteration. Measured: **0 "Condition
+  deterioration detected" events**, 59-60 frames, recovery path never entered. Forcing a ~2-minute
+  cloud window still produced 0 events and 59 frames, so `CloudCoverage = 0.8` does not drop the star
+  count below the 0.6 baseline ratio on this fixture either -- the test's premise, not just its
+  timing, needs work. Its name promises `ThenConditionDetected` and nothing asserts it.
 - [x] `SessionImagingTests.GivenHighAltitudeTarget...HighUtilization`: fixed: cooperative time pump (`ExternalTimePump + Advance`)
 - [x] `SessionImagingTests.GivenDitherEveryNth...DitheringTriggered`: fixed: same root cause (SleepAsync pump race)
 - [x] `SessionImagingTests.GivenFocusDrift...AutoRefocusTriggered`: fixed: same root cause

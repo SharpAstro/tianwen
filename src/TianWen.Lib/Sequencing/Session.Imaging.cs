@@ -418,6 +418,7 @@ internal partial record Session
         )
         {
             tickCount++;
+            Interlocked.Increment(ref _imagingLoopTicks);
 
             // Poll all device states (focuser temp/pos/moving, mount RA/Dec/HA/pier)
             await PollDeviceStatesAsync(cancellationToken);
