@@ -295,7 +295,8 @@ namespace TianWen.Lib.Tests
                     {
                         var pool = VelaProjection.ProjectInFrame(Manifest.Catalog, hintWcs, panel.Width, panel.Height, margin);
                         if (PairRansacLock.TryLock(pool, det, det, panel.Width, panel.Height,
-                                seedTolerance, out _) is not null)
+                                seedTolerance, out _,
+                                cancellationToken: TestContext.Current.CancellationToken) is not null)
                         {
                             if (margin == 0.0)
                             {

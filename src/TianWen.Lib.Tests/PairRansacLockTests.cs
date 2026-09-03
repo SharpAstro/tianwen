@@ -65,7 +65,8 @@ public class PairRansacLockTests(ITestOutputHelper output)
         }
         var detectedArr = detected.ToArray();
 
-        var locked = PairRansacLock.TryLock(catalog, detectedArr, detectedArr, W, H, scaleTolerance: 0.04f, out var diagnostics);
+        var locked = PairRansacLock.TryLock(catalog, detectedArr, detectedArr, W, H, scaleTolerance: 0.04f, out var diagnostics,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         locked.ShouldNotBeNull($"should lock at rot={rotDeg} deg scale={scale}; {diagnostics}");
         output.WriteLine($"rot={rotDeg} scale={scale}: hits={locked.Value.Hits}/{locked.Value.Census} " +
@@ -91,7 +92,8 @@ public class PairRansacLockTests(ITestOutputHelper output)
         var catalog = MakeField(400, seed: 42);
         var detected = MakeField(1500, seed: 1337);
 
-        var locked = PairRansacLock.TryLock(catalog, detected, detected, W, H, scaleTolerance: 0.04f, out var diagnostics);
+        var locked = PairRansacLock.TryLock(catalog, detected, detected, W, H, scaleTolerance: 0.04f, out var diagnostics,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         locked.ShouldBeNull($"no hypothesis over unrelated fields may beat the chance model, but got {diagnostics}");
         output.WriteLine($"unrelated fields: {diagnostics}");
@@ -112,7 +114,8 @@ public class PairRansacLockTests(ITestOutputHelper output)
                 catalog[i].Y + (float)(rng.NextDouble() - 0.5));
         }
 
-        var locked = PairRansacLock.TryLock(catalog, detected, detected, W, H, scaleTolerance: 0.04f, out var diagnostics);
+        var locked = PairRansacLock.TryLock(catalog, detected, detected, W, H, scaleTolerance: 0.04f, out var diagnostics,
+            cancellationToken: TestContext.Current.CancellationToken);
 
         locked.ShouldBeNull($"a mirror flip is not expressible as rotation + positive scale and must not verify, but got {diagnostics}");
         output.WriteLine($"mirrored field: {diagnostics}");

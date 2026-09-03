@@ -63,7 +63,8 @@ namespace TianWen.Lib.Tests
                     {
                         var got = CatalogPlateSolver.TrySeedPairLock(
                             catalog, det, frame.Hint, pixelScaleRad, cx, cy, dim, xSign,
-                            scaleTolerance: 0.03f, out var cost);
+                            scaleTolerance: 0.03f, out var cost,
+                            cancellationToken: TestContext.Current.CancellationToken);
                         attempts[i++] = (xSign, got, cost);
                     }
 

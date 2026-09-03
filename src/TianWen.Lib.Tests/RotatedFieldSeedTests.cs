@@ -84,8 +84,9 @@ namespace TianWen.Lib.Tests
                 "the rectangle is the CONTROL: if it stops picking off-sensor anchors here, this test " +
                 "has stopped discriminating and the disc assertion above proves nothing");
 
-            var discLock = PairRansacLock.TryLock(disc, detPts, detPts, W, H, 0.03f, out var discDiag);
-            var rectLock = PairRansacLock.TryLock(rect, detPts, detPts, W, H, 0.03f, out var rectDiag);
+            var ct = TestContext.Current.CancellationToken;
+            var discLock = PairRansacLock.TryLock(disc, detPts, detPts, W, H, 0.03f, out var discDiag, cancellationToken: ct);
+            var rectLock = PairRansacLock.TryLock(rect, detPts, detPts, W, H, 0.03f, out var rectDiag, cancellationToken: ct);
             output.WriteLine($"  disc:      {(discLock is null ? "NO LOCK" : $"locked {discLock.Value.Hits}/{discLock.Value.Census}")} -- {discDiag}");
             output.WriteLine($"  rectangle: {(rectLock is null ? "NO LOCK" : $"locked {rectLock.Value.Hits}/{rectLock.Value.Census}")} -- {rectDiag}");
 
