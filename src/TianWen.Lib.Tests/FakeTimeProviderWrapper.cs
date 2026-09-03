@@ -29,6 +29,13 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
     public bool ExternalTimePump { get; set; }
 
     /// <summary>
+    /// How many 1 ms polls <see cref="PumpUntilCompletedAsync"/> will wait for a
+    /// <see cref="SleepAsync"/> waiter to appear before advancing anyway. Pacing is an optimisation;
+    /// liveness is not, and a session loop has phases with no waiter at all.
+    /// </summary>
+    private const int MaxWaiterWaitPolls = 50;
+
+    /// <summary>
     /// Number of <see cref="SleepAsync"/> calls currently parked inside the
     /// <see cref="ExternalTimePump"/> wait loop. The external pump should wait
     /// for this to become &gt; 0 before advancing fake time on the first
@@ -131,7 +138,22 @@ public sealed class FakeTimeProviderWrapper : ITimeProvider
         {
             // Pace to the loop: advance only once it is parked at a SleepAsync waiter; while it is
             // doing CPU work (no waiter) wait for it to re-park rather than racing wall-clock.
-            await WaitForFirstWaiterAsync(loopTask, cancellationToken);
+            //
+            // BOUNDED, because pacing must never become the stop condition. A session loop has whole
+            // phases with nothing parked in SleepAsync -- a slew poll, a goto-completion hook, the gap
+            // between two observations -- and an unbounded wait there spins forever WITHOUT ever
+            // reaching the budget check below, so the run hangs until the test's [Fact(Timeout)]
+            // instead of failing with a diagnosis. Waiting a short while and then advancing anyway
+            // costs the paced case nothing (a waiter appears in a poll or two) and keeps the loop
+            // live for the phases that have no waiter at all.
+            for (var waited = 0;
+                 WaiterCount == 0 && waited < MaxWaiterWaitPolls
+                    && !loopTask.IsCompleted && !cancellationToken.IsCancellationRequested;
+                 waited++)
+            {
+                await Task.Delay(1, cancellationToken);
+            }
+
             if (loopTask.IsCompleted || cancellationToken.IsCancellationRequested)
             {
                 break;

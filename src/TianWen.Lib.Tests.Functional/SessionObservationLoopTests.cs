@@ -708,18 +708,25 @@ public class SessionObservationLoopTests(ITestOutputHelper output)
         ctx.TimeProvider.ExternalTimePump = true;
         var loopTask = ctx.Track(Task.Run(async () => await ctx.Session.ObservationLoopAsync(ct), ct));
         var stopped = false;
-        var pumped = TimeSpan.Zero;
-        while (!loopTask.IsCompleted && pumped < TimeSpan.FromHours(4))
-        {
-            if (!stopped && frames.Count(f => f.TargetName == "FirstTarget") >= 3)
+
+        // Paced to the loop, NOT a hand-rolled Advance loop. This test's premise is "stop the mount
+        // once three frames of the first target exist", so it needs the loop to actually receive its
+        // ticks. A raw pump free-runs: it charges 5 s of fake time per iteration whether or not the
+        // loop observed one, the 10-minute observation window elapses while the loop has seen a
+        // handful of ticks, and the whole two-target schedule finishes having written ONE frame. That
+        // is how this went red on CI -- FirstTarget=1, so the premise never fired and `stopped` was
+        // still false at the assertion. The probe makes the budget bound a stall instead.
+        await ctx.TimeProvider.PumpUntilCompletedAsync(loopTask, TimeSpan.FromSeconds(5), TimeSpan.FromHours(4),
+            onIteration: async _ =>
             {
-                await ctx.Mount.SetTrackingAsync(false, ct);
-                stopped = true;
-            }
-            ctx.TimeProvider.Advance(TimeSpan.FromSeconds(5));
-            pumped += TimeSpan.FromSeconds(5);
-            await Task.Delay(1, ct);
-        }
+                if (!stopped && frames.Count(f => f.TargetName == "FirstTarget") >= 3)
+                {
+                    await ctx.Mount.SetTrackingAsync(false, ct);
+                    stopped = true;
+                }
+            },
+            progress: () => ctx.Session.ImagingLoopTicks, cancellationToken: ct);
+
         loopTask.IsCompleted.ShouldBeTrue("observation loop should have completed within the pumped window");
         await loopTask;
         output.WriteLine($"verdict: {ctx.Session.MountLimitVerdict.Describe()}; frames: {string.Join(", ", frames.GroupBy(f => f.TargetName).Select(g => $"{g.Key}={g.Count()}"))}; tracking={await ctx.Mount.IsTrackingAsync(ct)}");
