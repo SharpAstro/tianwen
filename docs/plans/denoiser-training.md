@@ -538,3 +538,64 @@ Both N2N models visibly quiet the background and thin the faint stars, and in th
 pull the sky toward neutral grey while white keeps the cast. That last observation is what prompted
 measuring level bias at all, and then measuring it at matched strength, which is what turned it from a
 finding into an artefact. The image is what raised the question; it is not what answered it.
+
+#### H2, with the warped arm in
+
+The two arms are a clean one-variable contrast, verified rather than assumed: identical export seed, so
+48,960 rows each with identical keys, **zero** rows differing in drawn depth or in seed, and `Shape`
+the only field that differs; then identical prepared caches (600 cells, same keys, same splits). All
+three warped seeds failed the gate exactly as all three white seeds did, so both arms are final
+weights and there is no selection asymmetry between them either.
+
+| amplitude spent at | 4 % | 6 % | 10 % | max reach |
+|---|---|---|---|---|
+| white s0 / s1 / s2 | 6.3 / 5.7 / 5.5 | - / 8.9 / 8.6 | - / 15.5 / 15.3 | 5.9 / 12.8 / 10.1 % |
+| warped s0 / s1 / s2 | 6.2 / 5.8 / 4.4 | 9.5 / 8.9 / 6.7 | 16.6 / 14.9 / 11.5 | 10.3 / 19.7 / 15.8 % |
+| control, final | 6.6 / 5.5 / 4.9 | 10.1 / 8.3 / 7.4 | 17.5 / 14.2 / 12.5 | 21.0 / 31.8 / 35.2 % |
+| v19d, final | 5.3 / 5.5 / 5.4 | 7.9 / 8.3 / 8.1 | 13.7 / 14.3 / 13.9 | 24.5 / 28.7 / 26.6 % |
+
+**H2: KILLED.** Warped beats white by about 1.1 points of amplitude at 10 percent removed against a
+predicted 2 or more, and `warped_s0` is worse than both white seeds. The arms overlap across three
+seeds, which is the pre-registered kill.
+
+**H2's second clause was mis-specified, and the direction is the finding.** It predicted warped's
+residual band1/band0 would sit CLOSER to the real 0.463. At matched strength it sits further: white
+leaves 0.339 to 0.370, warped 0.215 to 0.258, the controls 0.240 to 0.264. That is mechanically right
+and the proxy was wrong -- a model that correctly recognises correlated noise REMOVES it, so it leaves
+a whiter residual. "Residual still looks like the input's noise" measures how little was done, not how
+well. Warped's residual being indistinguishable from the controls' is the honest sign it learned what
+they learned. Do not re-use this clause; if a future run wants a shape claim, it needs a target derived
+from what a correct denoiser should leave, not from the input.
+
+#### The finding that outranks all three hypotheses
+
+Twelve checkpoints, four training regimes, three pools, two injected noise shapes. Decomposed at each
+matched point, over the four regimes' three seeds each:
+
+| at | grand mean | between-regime sd | within-regime (seed) sd | ratio |
+|---|---|---|---|---|
+| 4 % | 5.59 | 0.20 | 0.58 | 0.34 |
+| 6 % | 8.43 | 0.28 | 0.82 | 0.35 |
+| 10 % | 14.54 | 0.61 | 1.40 | 0.44 |
+
+**The seed moves the matched trade two to three times as much as the training regime does**, and the
+best three models at every matched point are `warped_s2`, `control_s2` and `v19d_s0`: one from each of
+three different regimes. The ranking is by seed, not by recipe.
+
+**Two claims in the sections above are therefore weaker than they were written, and both are corrected
+here rather than edited away.** "Shape bought about 60 percent more reach" (9.6 to 15.3 percent mean)
+is t = 1.7, p about 0.16 against a within-arm sd of 4.1 at n = 3: suggestive, not established. Warped's
+1.1-point trade edge over white is the same story. Neither is a result at this sample size.
+
+**The design was underpowered for every question it asked.** At sd 1.4, detecting a 1-point regime
+effect at 80 percent power needs about **31 seeds per arm** (~6 h GPU each); three seeds can only
+resolve about 3 points, and nothing in play is that large. Any future arm on this axis needs seeds
+rather than variations, and the first thing worth trying is anything that COLLAPSES the seed spread,
+because that is what makes every later experiment readable.
+
+**E2b, pre-registered as triggering on exactly this overlap, is NOT run as designed.** Not because the
+result disappointed, but because it is another three-seed arm and three seeds cannot read a one-point
+effect. The pre-registration's own fear -- that an overlap could not separate "shape does not matter"
+from "this architecture cannot express shape" -- is answered by other means: shape moved reach and
+moved the residual, so the architecture expresses it. Shape changes what the model DOES and not the
+trade it OFFERS. If E2b is ever run, it runs at the power the question needs, on reach, not the trade.
