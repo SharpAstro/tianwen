@@ -370,7 +370,7 @@ internal partial record Session
 
         // Tick = GCD/6, clamped to [1s, 5s]. Fast enough for responsive monitoring
         // (guiding, pier side, altitude) while keeping timer callback counts manageable.
-        // GCD and LCM are kept for dithering cadence.
+        // The dither cadence counts FRAMES, not ticks, so no LCM is needed for it.
         var allSubExposuresSec = new HashSet<int>();
         for (var i = 0; i < scopes; i++)
         {
@@ -382,10 +382,9 @@ internal partial record Session
 
         var allExposuresArray = allSubExposuresSec.ToArray();
         var gcdSec = (int)GCD(allExposuresArray);
-        var lcmSec = (int)LCM(gcdSec, allExposuresArray);
         var tickSec = Math.Clamp(gcdSec / 6, 1, 5);
         var tickDuration = TimeSpan.FromSeconds(tickSec);
-        var ditherEveryNTicks = Configuration.DitherEveryNthFrame * (lcmSec / tickSec);
+        var framesSinceDither = 0;
         var expStartTimes = new DateTimeOffset[scopes];
         var expTicks = new int[scopes];
         var tickCount = 0;
@@ -622,13 +621,20 @@ internal partial record Session
 
             await ticker.WaitForNextTickAsync(cancellationToken);
 
-            var imageFetchSuccess = new BitVector32(scopes);
+            // Zero, not `scopes`: BitVector32(int) seeds the DATA, so the old form started with the
+            // bit pattern of the OTA count already set. Combined with the indexer taking a MASK
+            // rather than an index (below), a single-OTA rig started "one flag set" and never
+            // changed it.
+            var imageFetchSuccess = new BitVector32(0);
             for (var i = 0; i < scopes && !cancellationToken.IsCancellationRequested; i++)
             {
                 var tick = --expTicks[i];
 
                 var camDriver = Setup.Telescopes[i].Camera.Driver;
-                imageFetchSuccess[i] = false;
+                // 1 << i, not i: BitVector32's int indexer is a bit MASK. Mask 0 -- what `i` is for
+                // the first OTA -- reads false forever and writes nothing, so on a single-OTA rig this
+                // whole flag set was inert and `fetchImagesSuccessAll` was a constant.
+                imageFetchSuccess[1 << i] = false;
                 if (tick <= 0)
                 {
                     var frameExpTime = TimeSpan.FromSeconds(currentSubExposuresSec[i]);
@@ -646,7 +652,7 @@ internal partial record Session
                                 camDriver, camDriver.GetImageAsync,
                                 ResilientCallOptions.IdempotentRead, cancellationToken) is { Width: > 0, Height: > 0 } image)
                         {
-                            imageFetchSuccess[i] = true;
+                            imageFetchSuccess[1 << i] = true;
                             _cameraStates[i] = _cameraStates[i] with { State = Devices.CameraState.Download };
 
                             _logger.LogInformation("Camera #{CameraNumber} {CameraName} finished {ExposureStartTime} exposure of frame #{FrameNo}",
@@ -704,7 +710,7 @@ internal partial record Session
                         && !cancellationToken.IsCancellationRequested
                     );
 
-                    if (!imageFetchSuccess[i])
+                    if (!imageFetchSuccess[1 << i])
                     {
                         _logger.LogError("Failed fetching camera #{CameraNumber)} {CameraName} {ExposureStartTime} exposure of frame #{FrameNo}, camera state: {CameraState}",
                             i + 1, camDriver.Name, frameExpTime, frameNo, await camDriver.GetCameraStateAsync(cancellationToken));
@@ -957,6 +963,7 @@ internal partial record Session
                             _logger.LogWarning(
                                 "Condition deterioration detected on telescope #{TelescopeNumber}: {CurrentStars} stars vs baseline {BaselineStars} (ratio={Ratio:F2}), pausing guiding.",
                                 i + 1, currentMetrics.StarCount, currentBaselines[i].StarCount, starCountRatio);
+                            ConditionDeteriorationCount++;
 
                             await WriteQueuedImagesToFitsFilesAsync();
                             await guider.Driver.PauseAsync(cancellationToken).ConfigureAwait(false);
@@ -968,6 +975,7 @@ internal partial record Session
                             if (recovered)
                             {
                                 _logger.LogInformation("Conditions recovered on telescope #{TelescopeNumber}, resuming imaging.", i + 1);
+                                ConditionRecoveryCount++;
                                 await guider.Driver.UnpauseAsync(cancellationToken).ConfigureAwait(false);
                             }
                             else
@@ -981,11 +989,21 @@ internal partial record Session
                     }
                 }
 
-                if (ditherEveryNTicks > 0)
+                // Counted in FRAMES, which is what the setting is named for. It used to be
+                // `tickCount % ditherEveryNTicks == 0` against a frames-to-ticks conversion, and that
+                // only ever fired because the gate above was a constant true: this block runs on the
+                // ticks where a frame completed, and those land on one phase mod (subExposure/tick)
+                // -- 1, 7, 13, ... for a 30 s sub on a 5 s tick -- so a modulus keyed to multiples of
+                // 6 coincides with them only when the phase happens to be 0, and otherwise never
+                // dithers at all. Counting the frames this block actually sees needs no phase to line
+                // up and no conversion to be right.
+                if (Configuration.DitherEveryNthFrame > 0)
                 {
-                    var shouldDither = (tickCount % ditherEveryNTicks) == 0;
+                    framesSinceDither++;
+                    var shouldDither = framesSinceDither >= Configuration.DitherEveryNthFrame;
                     if (shouldDither)
                     {
+                        framesSinceDither = 0;
                         _ditherPending = true;
                         if (await ResilientInvokeAsync(
                                 guider.Driver,
@@ -1001,8 +1019,8 @@ internal partial record Session
                     }
                     else
                     {
-                        _logger.LogInformation("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} ticks)",
-                            tickCount % ditherEveryNTicks, ditherEveryNTicks);
+                        _logger.LogInformation("Skipping dithering ({DitheringRound}/{DitherEveryNthFrame} frames)",
+                            framesSinceDither, Configuration.DitherEveryNthFrame);
                     }
                 }
             }

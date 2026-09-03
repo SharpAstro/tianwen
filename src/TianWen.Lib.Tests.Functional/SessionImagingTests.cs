@@ -518,10 +518,15 @@ public class SessionImagingTests(ITestOutputHelper output)
                     ctx.Camera.CloudCoverage = 0.8;
                     cloudsInjected = true;
                 }
-                // After a few cloudy pump iterations, clear the sky so recovery can succeed
-                else if (cloudsInjected && !cloudsCleared && iteration > 10)
+                // Clear the sky once the loop has actually NOTICED, so recovery can succeed. Keyed on
+                // the detection rather than on a pump-iteration number: the baseline lands anywhere
+                // between pump 9 and 39 depending on the runner, so the old `iteration > 10` was
+                // already true when the clouds went in and cleared them one iteration later -- 5
+                // seconds of fake time, never a whole sub. This test detected nothing at all for
+                // months while asserting only that it had SET a property.
+                else if (cloudsInjected && !cloudsCleared && ctx.Session.ConditionDeteriorationCount > 0)
                 {
-                    output.WriteLine($"Clearing clouds at pump {iteration}");
+                    output.WriteLine($"Deterioration detected by pump {iteration}; clearing clouds so recovery can succeed");
                     ctx.Camera.CloudCoverage = 0;
                     cloudsCleared = true;
                 }
@@ -535,6 +540,16 @@ public class SessionImagingTests(ITestOutputHelper output)
         // then
         cloudsInjected.ShouldBeTrue("clouds should have been injected during the test");
         ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(0, "should have written frames before clouds");
+
+        // The name of this test. Nothing here asserted it before, so it passed while the star count
+        // never moved: CloudCoverage was not monotonic and everything from 0.6 up sat on a plateau at
+        // ~0.63 of the clear-sky count, comfortably above the 0.6 gate.
+        ctx.Session.ConditionDeteriorationCount.ShouldBeGreaterThan(0,
+            "clouds at coverage 0.8 must drop the star count through ConditionDeteriorationThreshold");
+        cloudsCleared.ShouldBeTrue("the detection must have happened while the test could still clear the sky");
+        ctx.Session.ConditionRecoveryCount.ShouldBeGreaterThan(0,
+            "with the sky cleared, WaitForConditionRecoveryAsync must recover rather than abandon the target");
+        result.ShouldBe(ImageLoopNextAction.AdvanceToNextObservation);
 
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
         output.WriteLine($"Total exposure time: {ctx.Session.TotalExposureTime}");

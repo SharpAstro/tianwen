@@ -206,6 +206,24 @@ internal partial record Session(
     /// <summary>Number of meridian flips actually performed or detected this session. Test seam used to
     /// assert that a non-German mount (fork / Alt-Az) images across the meridian without ever flipping.</summary>
     internal int MeridianFlipCount { get; private set; }
+
+    /// <summary>
+    /// Times the imaging loop saw the star count fall through
+    /// <see cref="SessionConfiguration.ConditionDeteriorationThreshold"/> and paused for cloud. Test
+    /// seam: a cloud test that only sets <c>CloudCoverage</c> and counts frames cannot tell "the
+    /// deterioration branch ran" from "the sky never dimmed enough to notice", and the session-level
+    /// outcome is the same either way -- which is how a test named for detecting a condition ran for
+    /// months detecting none.
+    /// </summary>
+    internal int ConditionDeteriorationCount { get; private set; }
+
+    /// <summary>
+    /// Times <see cref="WaitForConditionRecoveryAsync"/> answered that conditions came back, so
+    /// imaging resumed rather than the target being abandoned. Paired with
+    /// <see cref="ConditionDeteriorationCount"/> it pins the whole arc; on its own, neither half
+    /// distinguishes a recovery from a give-up (both advance to the next observation).
+    /// </summary>
+    internal int ConditionRecoveryCount { get; private set; }
     public ImmutableArray<FocusRunRecord> FocusHistory => [.. _focusHistory];
     public ImmutableArray<(int Position, float Hfd)> ActiveFocusSamples => _activeFocusSamples;
     public ImmutableArray<GuideErrorSample> GuideSamples => _guideSamples.Snapshot;

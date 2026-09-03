@@ -146,13 +146,47 @@ Checks that only a real device or a real night can answer live in ONE place, ind
   **no-probe case is the old pump kept green as the shape of this failure** -- the two tests differ
   only in whether the probe is supplied, and the probe case was seen to FAIL against the old
   semantics before being committed.
-  **Found on the way and NOT fixed:** this test never detected a condition at all. Clouds are injected
-  once the baseline exists (pump 9-39 across runs) and cleared on `iteration > 10`, which is already
-  true, so `CloudCoverage` is 0.8 for exactly ONE pump iteration. Measured: **0 "Condition
-  deterioration detected" events**, 59-60 frames, recovery path never entered. Forcing a ~2-minute
-  cloud window still produced 0 events and 59 frames, so `CloudCoverage = 0.8` does not drop the star
-  count below the 0.6 baseline ratio on this fixture either -- the test's premise, not just its
-  timing, needs work. Its name promises `ThenConditionDetected` and nothing asserts it.
+- [x] **The same clouds test detected no condition at all, and finding out why turned up three more
+  bugs** (2026-09-03). It asserted only that it had SET `CloudCoverage`; measured, it produced **0
+  "Condition deterioration detected" events** over 59-60 frames and never entered the recovery path.
+  Four separate causes, each found by measuring the one before it:
+  - **The cloud window was one pump iteration.** Clouds go in once the baseline exists (pump 9-39
+    depending on the runner) and were cleared on `iteration > 10`, already true by then. Now keyed on
+    `Session.ConditionDeteriorationCount > 0`, so the sky clears once the loop has actually noticed.
+  - **`CloudCoverage` was not monotonic in obscuration.** The opacity ramp divided by `1 - threshold`,
+    which IS the coverage, so the ramp FLATTENED as coverage rose. Measured on the imaging path
+    against a 41-star clear baseline: 0.5 -> 19 stars, then 0.6 -> 25 and 0.7/0.8/0.9/0.95 all -> 26,
+    with a cliff to 0 only at exactly 1.0 (a different branch, which renders no stars at all). The
+    test's 0.8 sat on that 0.634 plateau, comfortably above the 0.6 gate. Fixed with a fixed edge
+    softness.
+  - **The glow carried no shot noise**, and the cloud is applied to an image whose noise is already
+    baked in, so a uniform multiply-plus-constant scaled signal and noise together and left SNR --
+    and the star count -- untouched. Only PATCHY cloud ever cost a detection. Fixed; uniform overcast
+    at 0.9 went 38 -> 28 stars on its own.
+  - **Extinction was capped at 90%**, i.e. 2.5 magnitudes, so the brightest stars punched through any
+    overcast -- exactly what two guider tests' comments described before reaching for a hard 1.0 to
+    get a starless frame. Replaced with Beer-Lambert (`exp(-6 * opacity)`). Final curve: 0.0 -> 41,
+    0.3 -> 25, 0.5 -> 13, 0.8 -> 0. Pinned by
+    `ConditionDeteriorationTests.StarCount_IsMonotonicallyNonIncreasing_InCloudCoverage`, seen to fail
+    against the old model (`0.60->41, 0.80->41, 0.95->41`) before being committed.
+- [x] **`fetchImagesSuccessAll` was a constant `true` on every single-OTA rig** (found 2026-09-03 by
+  the repaired clouds test, fixed with it). `BitVector32`'s `int` indexer is a bit **MASK**, not an
+  index, so `imageFetchSuccess[0]` is mask 0: it reads false forever and writes nothing. The vector
+  was also seeded `new BitVector32(scopes)` (data = the OTA count, not zero), and
+  `BitVectorExtensions.AllSet(n)` masked on `n - 1`, which is **zero for one OTA** -- and
+  `(Data & 0) == 0` is unconditionally true. So the per-frame gate never worked, and the whole
+  metrics block (focus-drift trend AND condition deterioration) ran on EVERY 5 s tick against
+  whatever `_lastFrameMetrics` last held, instead of once per 30 s frame. Under cloud that is a
+  pause/recover thrash: **297 deteriorations and 297 recoveries over 322 ticks, 4 frames written**,
+  against 1/1 and 59 frames after the fix. Masks are now `1 << i` and `AllSet` uses
+  `(1 << bitCount) - 1`.
+- [x] **Dithering was expressed in ticks and only ever fired because that gate was broken** (same
+  sweep). `tickCount % ditherEveryNTicks == 0` against a frames-to-ticks conversion: with the gate
+  fixed, this block runs only on ticks where a frame completed, and those land on one phase mod
+  `subExposure/tick` (1, 7, 13, ... for a 30 s sub on a 5 s tick), so a modulus keyed to multiples of
+  6 coincides with them only if the phase happens to be 0 -- otherwise it never dithers at all, which
+  is how `GivenDitherEveryNthFrame...DitheringTriggered` went red the moment the gate started
+  working. Now counts the frames the block actually sees, which is what `DitherEveryNthFrame` says.
 - [x] `SessionImagingTests.GivenHighAltitudeTarget...HighUtilization`: fixed: cooperative time pump (`ExternalTimePump + Advance`)
 - [x] `SessionImagingTests.GivenDitherEveryNth...DitheringTriggered`: fixed: same root cause (SleepAsync pump race)
 - [x] `SessionImagingTests.GivenFocusDrift...AutoRefocusTriggered`: fixed: same root cause
