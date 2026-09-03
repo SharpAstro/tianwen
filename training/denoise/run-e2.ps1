@@ -72,8 +72,13 @@
 # from the BAKE (real subs) instead of a degraded export, and trains the v19d recipe with --mix-avg and
 # without --synthetic. Without it E2 cannot say whether supervised injection or the pool moved a number.
 #
-# Run detached; read the status file, never the log:
-#   Start-Process pwsh -ArgumentList '-NoProfile','-File',"$PWD\run-e2.ps1" -WindowStyle Hidden
+# Run detached; read the status file, never the log. Use -Command and NOT -File whenever an array
+# parameter is passed: under -File every argument is a bare string, so `-Seeds 3 4 5 6 7 8` binds only
+# the 3 and lets 4 fall through POSITIONALLY onto -Exports (the run then hunts for the export under a
+# directory named "4"), while `-Seeds 3,4,5,6,7,8` binds the whole thing as the single string
+# "3,4,5,6,7,8" and trains one run it calls seed 345678. Both happened, in that order, on 2026-09-03.
+#   $s = "$PWD\run-e2.ps1"
+#   Start-Process pwsh -ArgumentList '-NoProfile','-Command',"& '$s' -Arms warped -Seeds 3,4,5,6" -WindowStyle Hidden
 param(
     [string[]]$Arms = @('white', 'warped'),
     [string]$Exports = 'D:\Astro-Dataset\degraded',
@@ -85,6 +90,19 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
+
+# A mis-bound argument must not present itself as a missing export. Both of the -File binding traps
+# above land here, as $Exports = '4' or a $Seeds of one absurd number, and the first one's only symptom
+# was "export says 'missing'" -- which reads as "the export is not finished yet", the one message that
+# invites you to wait rather than to look.
+if (-not (Test-Path -PathType Container $Exports)) {
+    throw "Exports root '$Exports' is not a directory. If you passed -Seeds under pwsh -File, the extra values bound positionally onto -Exports; use -Command instead."
+}
+foreach ($s in $Seeds) {
+    if ($s -lt 0 -or $s -gt 999) {
+        throw "Seed '$s' is out of range. Under pwsh -File, '-Seeds 3,4,5' arrives as the single string '3,4,5' and coerces to 345; use -Command instead."
+    }
+}
 New-Item -ItemType Directory -Force $LogDir | Out-Null
 $status = Join-Path $LogDir 'e2.status'
 $log = Join-Path $LogDir 'e2.log'

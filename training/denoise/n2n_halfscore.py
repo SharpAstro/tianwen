@@ -84,7 +84,10 @@ def spurious_per_tile(la, truth):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--cache", required=True, help="see the note in n2n_metrics.py; no default")
-    ap.add_argument("--models", nargs="+", required=True, help="slug=checkpoint.pt")
+    ap.add_argument("--models", nargs="+", required=True,
+                    help="slug=checkpoint.pt, or slug=a.pt+b.pt+c.pt to average those checkpoints' "
+                         "OUTPUTS (not their weights: different seeds mean different inits, so they "
+                         "are not in one basin and averaging the weights would be meaningless)")
     ap.add_argument("--skip-val-sessions", type=int, default=0)
     ap.add_argument("--blend", default="", help="comma alphas, e.g. 0.25,0.5,0.75,1 -- see the note on matched strength")
     ap.add_argument("--match", default="5,10,20", help="noise-removal percentages to compare the arms AT")
@@ -193,13 +196,24 @@ def main():
     # number whose spread across cells is far smaller than the effect being read.
     SHAPE_CELLS = 48
 
+    def run(ckpt_spec, src):
+        """One checkpoint, or the MEAN OUTPUT of several. E2 measured the seed to move the matched
+        trade two to three times as much as the training regime does, so averaging seeds is the lever
+        the data points at, and it costs no training. Outputs and not weights: a different seed is a
+        different init, so the checkpoints are not in one loss basin."""
+        parts = ckpt_spec.split("+")
+        out = S.crop(S.denoise(a.cache, parts[0], src, dev))
+        for extra in parts[1:]:
+            out = out + S.crop(S.denoise(a.cache, extra, src, dev))
+        return out / len(parts)
+
     alphas = [float(x) for x in a.blend.split(",") if x.strip()]
     curves = {}
     for spec in a.models:
         slug, ckpt = spec.split("=", 1)
-        arr = S.crop(S.denoise(a.cache, ckpt, half_a, dev))
+        arr = run(ckpt, half_a)
         add(slug, arr)
-        arr_b = S.crop(S.denoise(a.cache, ckpt, half_b, dev)) if a.shape else None
+        arr_b = run(ckpt, half_b) if a.shape else None
         if a.shape:
             shapes[slug] = shape_of(arr, arr_b)
         if alphas:
