@@ -549,6 +549,18 @@ public class SessionImagingTests(ITestOutputHelper output)
         cloudsCleared.ShouldBeTrue("the detection must have happened while the test could still clear the sky");
         ctx.Session.ConditionRecoveryCount.ShouldBeGreaterThan(0,
             "with the sky cleared, WaitForConditionRecoveryAsync must recover rather than abandon the target");
+
+        // ONE cloud event is ONE detection, and the upper bound is the half that bites. A `> 0`
+        // assertion passes just as happily on 297, which is what this run actually produced while
+        // `fetchImagesSuccessAll` was a constant true: the metrics block ran every 5 s tick against
+        // the last frame's stale metrics instead of once per completed 30 s frame, so a single cloudy
+        // frame re-fired the branch until the sky cleared, pausing the guider and burning a recovery
+        // poll each time. Frames written collapsed from 59 to 4 and nothing was red. The bound, not
+        // the presence, is what makes that visible.
+        ctx.Session.ConditionDeteriorationCount.ShouldBeLessThanOrEqualTo(3,
+            "one cloud event must not re-trigger per tick; the per-frame gate is what bounds it");
+        ctx.Session.TotalFramesWritten.ShouldBeGreaterThan(40,
+            "imaging must resume and use the rest of the window, not be starved by repeated recoveries");
         result.ShouldBe(ImageLoopNextAction.AdvanceToNextObservation);
 
         output.WriteLine($"Frames written: {ctx.Session.TotalFramesWritten}");
