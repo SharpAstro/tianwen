@@ -129,11 +129,17 @@ def main():
     raw_amp = rows[0]["amp_b"]
 
     def trade(arr):
-        """(noise removed %, faint amplitude spent %) for one output, both against the raw half."""
+        """(noise removed %, faint amplitude spent %, colour cast) for one output, vs the raw half.
+
+        Cast rides along because it has the SAME operating-point confound the trade does: an arm that
+        denoises gently shifts the level less for that reason alone, so a raw cast column cannot tell
+        a weaker prior from a weaker model.
+        """
         la = luminance(arr)
         noise = float(np.mean([M.bg_stats(t)[1] for t in la])) / base_noise
         amp = M.measure(la, stars, lb)[0][0]
-        return (1.0 - noise) * 100.0, (raw_amp - amp) / raw_amp * 100.0
+        b = (np.median(arr, axis=(2, 3)).mean(axis=0) - raw_med) / base_noise
+        return (1.0 - noise) * 100.0, (raw_amp - amp) / raw_amp * 100.0, float(b.max() - b.min())
 
     # MATCHED STRENGTH. The exchange rate is not strength-invariant: within both N2N families it
     # IMPROVES the harder the model denoises (control 1.93 -> 1.57, v19d 1.67 -> 0.90 as removal goes
@@ -154,7 +160,7 @@ def main():
         arr = S.crop(S.denoise(a.cache, ckpt, half_a, dev))
         add(slug, arr)
         if alphas:
-            curves[slug] = [(0.0, 0.0)] + [trade(raw_a + al * (arr - raw_a)) for al in alphas]
+            curves[slug] = [(0.0, 0.0, 0.0)] + [trade(raw_a + al * (arr - raw_a)) for al in alphas]
 
     print(f"Scored on half A. Floor for invention is the raw half at {floor:.1f} spurious/tile.\n")
     print(f"{'model':14s} {'noise':>7} | {'vs OTHER HALF (clean)':^24} | "
@@ -193,7 +199,10 @@ def main():
         print("\nLEVEL BIAS, per channel, in units of the raw half's background noise. A denoiser owes "
               "the level nothing: it should change the noise and leave the sky where it was. CAST is "
               "the differential (max minus min across R, G and B), which is the part a stretch cannot "
-              "hide and the part the eye sees as a colour change.")
+              "hide and the part the eye sees as a colour change. THIS TABLE IS NOT A RANKING: it is "
+              "taken at each model's own full strength, and E2 measured the separation it shows to be "
+              "almost entirely that -- matched at 4 and 10 percent removal the same nine models "
+              "overlap. Read the cast beside the trade in the matched table below, never here.")
         print(f"{'model':14s} {'dR':>7} {'dG':>7} {'dB':>7} {'cast':>7}")
         for r in rows[1:]:
             b = r["bias"]
@@ -203,19 +212,22 @@ def main():
         targets = [float(x) for x in a.match.split(",") if x.strip()]
         print(f"\nAT MATCHED NOISE REMOVED, each model blended back toward its own input over "
               f"alpha {alphas}. Lower is better: it is the faint-star amplitude spent to buy that "
-              f"much quiet. A dash means the model cannot reach that removal even at alpha 1.")
-        print(f"{'model':14s} " + " ".join(f"{t:6.0f}%" for t in targets) + "    max removed")
+              f"much quiet, and beside it the colour cast at that same strength. A dash means the "
+              f"model cannot reach that removal even at alpha 1.")
+        # Each cell is "amplitude spent / colour cast", both at that noise removal.
+        print(f"{'model':14s} " + " ".join(f"{t:>13.0f}%" for t in targets) + "   max removed")
         for slug, pts in curves.items():
             pts = sorted(pts)
             cells_out = []
             for t in targets:
-                hit = "     -"
-                for (r0, s0), (r1, s1) in zip(pts, pts[1:]):
+                hit = f"{'-':>14}"
+                for (r0, s0, c0), (r1, s1, c1) in zip(pts, pts[1:]):
                     if r0 <= t <= r1 and r1 > r0:
-                        hit = f"{s0 + (s1 - s0) * (t - r0) / (r1 - r0):6.1f}"
+                        f = (t - r0) / (r1 - r0)
+                        hit = f"{s0 + (s1 - s0) * f:6.1f} /{c0 + (c1 - c0) * f:6.1f}"
                         break
                 cells_out.append(hit)
-            print(f"{slug:14s} " + " ".join(cells_out) + f"    {max(r for r, _ in pts):6.1f}%")
+            print(f"{slug:14s} " + " ".join(cells_out) + f"   {max(r for r, _, _ in pts):6.1f}%")
 
     print(f"\nCAVEAT on the spurious column, which is NOT comparable to the sub-level one. The "
           f"truth mask is the master at 8 MAD, but a half-master's own detection bar is 5 of ITS "
