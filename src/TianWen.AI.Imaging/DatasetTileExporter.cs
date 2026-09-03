@@ -488,7 +488,7 @@ public static class DatasetTileExporter
 
     /// <summary>Writes one CHW fp16 tile at <paramref name="cell"/> and returns the MAD of the
     /// stored channel-0 tile (the manifest's per-tile noise proxy).</summary>
-    private static double WriteTile(Image stretched, Point cell, int tileSize, string path, string sessionId)
+    internal static double WriteTile(Image stretched, Point cell, int tileSize, string path, string sessionId)
     {
         var halfs = ExtractTileHalfs(stretched, cell, tileSize, out var ch0Buf);
         EnsureTileIsUsable(halfs, cell, sessionId, path);
@@ -545,7 +545,7 @@ public static class DatasetTileExporter
     /// the parity check re-derives through this exact path so "stored == re-stretched" is pinned.
     /// NaN samples (which should not occur inside StatsRect) are clamped to 0 so a stray edge pixel
     /// can never poison training.</summary>
-    private static Half[] ExtractTileHalfs(Image stretched, Point cell, int tileSize, out float[] ch0)
+    internal static Half[] ExtractTileHalfs(Image stretched, Point cell, int tileSize, out float[] ch0)
     {
         var channels = stretched.ChannelCount;
         var w = stretched.Width;
@@ -736,14 +736,17 @@ public static class DatasetTileExporter
     /// larger of the two matches inference's ÷MaxValue exactly on a correctly-labelled frame while
     /// still landing the brightest pixel of a stale-labelled frame at 1.</para>
     /// </summary>
-    private static Image ToUnitRange(Image img)
+    /// <summary>
+    /// The scalar <see cref="ToUnitRange"/> divides by, or 1 when it would pass the frame through
+    /// untouched. Exposed separately because the degradation exporter applies the TARGET frame's
+    /// divisor to a degraded CELL: sharing the scalar is what keeps a pair in one domain, and
+    /// re-deriving it from the degraded frame would rescale the input side by whatever the injected
+    /// noise did to the frame's maximum.
+    /// </summary>
+    internal static float UnitDivisor(Image img)
     {
-        var w = img.Width;
-        var h = img.Height;
-        var channelCount = img.ChannelCount;
-
         var dataMax = float.NegativeInfinity;
-        for (var c = 0; c < channelCount; c++)
+        for (var c = 0; c < img.ChannelCount; c++)
         {
             var span = img.GetChannelSpan(c);
             for (var i = 0; i < span.Length; i++)
@@ -756,7 +759,17 @@ public static class DatasetTileExporter
             }
         }
         var divisor = MathF.Max(img.MaxValue, dataMax);
-        if (!(divisor > 1f)) // NaN / <= 1 => already in [0, 1] (or an empty frame)
+        return divisor > 1f ? divisor : 1f;
+    }
+
+    internal static Image ToUnitRange(Image img)
+    {
+        var w = img.Width;
+        var h = img.Height;
+        var channelCount = img.ChannelCount;
+
+        var divisor = UnitDivisor(img);
+        if (divisor == 1f) // already in [0, 1] (or an empty frame)
         {
             return img;
         }

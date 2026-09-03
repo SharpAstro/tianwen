@@ -98,6 +98,24 @@ public partial class Image
     /// Maps [0,1] → [0,1] with midtone balance controlling the curve shape.
     /// This is the single source of truth: the GLSL shader reimplements the same formula.
     /// </summary>
+    /// <summary>
+    /// Slope of <see cref="MidtonesTransferFunction"/> at <paramref name="value"/>:
+    /// <c>d/dx MTF(m, x) = m(1 - m) / ((2m - 1)x - m)^2</c>.
+    /// </summary>
+    /// <remarks>
+    /// The stretch is steep near black, so a small LINEAR perturbation becomes a much larger stretched
+    /// one, by exactly this factor to first order. That is what converts a noise measurement taken in
+    /// one domain into the other: the training manifest's <c>NoiseMad</c> columns are stretched-domain
+    /// numbers, and an injector that has to add noise in LINEAR units needs the local slope to divide
+    /// by. Exact for the transform, first-order in the perturbation, which is the right order for a
+    /// sigma that sits far below the level it is measured at.
+    /// </remarks>
+    public static double MidtonesTransferFunctionSlope(double midToneBalance, double value)
+    {
+        var d = Math.FusedMultiplyAdd(Math.FusedMultiplyAdd(2, midToneBalance, -1), Math.Clamp(value, 0, 1d), -midToneBalance);
+        return midToneBalance * (1 - midToneBalance) / (d * d);
+    }
+
     public static double MidtonesTransferFunction(double midToneBalance, double value)
     {
         var clamped = Math.Clamp(value, 0, 1d);
@@ -219,6 +237,58 @@ public partial class Image
         }
 
         return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, imageMeta);
+    }
+
+    /// <summary>
+    /// The forward <see cref="MtfStretch"/> with the parameters GIVEN rather than measured: subtract
+    /// <paramref name="origMin"/> per channel, then apply the MTF with <paramref name="balances"/>.
+    /// The exact inverse of <see cref="MtfUnstretch"/>, and the same operation
+    /// <see cref="MtfStretch"/> performs after it has derived those two from the image.
+    /// </summary>
+    /// <remarks>
+    /// This exists for training pairs, where both sides must land in ONE domain
+    /// (docs/plans/deconvolver-training.md section 2). A degraded frame's own minimum and median move
+    /// a little against its target's, so a pair stretched with each side's own parameters encodes the
+    /// stretch difference as signal and the net learns to undo the stretch instead of the degradation.
+    /// The target's parameters are the honest choice: at inference there is no target, the input IS
+    /// the frame, and its own parameters are what the exporter's input side would have had.
+    /// <para>A second consequence makes the whole exporter cheap: with the parameters fixed by the
+    /// target, the transform is pointwise and identical everywhere, so a degradation can be applied to
+    /// one CELL rather than to the whole canvas per draw.</para>
+    /// </remarks>
+    /// <param name="origMin">Per-channel minimum to subtract; length must be the channel count.</param>
+    /// <param name="balances">Per-channel midtones balance; length must be the channel count.</param>
+    public Image MtfStretchWith(ReadOnlySpan<float> origMin, ReadOnlySpan<double> balances)
+    {
+        var (channels, width, height) = Shape;
+        ArgumentOutOfRangeException.ThrowIfNotEqual(origMin.Length, channels);
+        ArgumentOutOfRangeException.ThrowIfNotEqual(balances.Length, channels);
+
+        var pixelCount = width * height;
+        var newData = CreateChannelData(channels, height, width);
+        for (var c = 0; c < channels; c++)
+        {
+            var src = GetChannelSpan(c);
+            var dst = MemoryMarshal.CreateSpan(ref newData[c][0, 0], pixelCount);
+            var min = origMin[c];
+            var beta = balances[c];
+            for (var i = 0; i < pixelCount; i++)
+            {
+                var v = src[i];
+                if (float.IsNaN(v))
+                {
+                    dst[i] = float.NaN;
+                }
+                else
+                {
+                    var shifted = v - min;
+                    if (shifted < 0f) shifted = 0f;  // float wobble guard, as in MtfStretch
+                    dst[i] = (float)MidtonesTransferFunction(beta, shifted);
+                }
+            }
+        }
+
+        return new Image(newData, BitDepth.Float32, 1.0f, 0f, 0f, ImageMeta);
     }
 
     /// <summary>

@@ -164,6 +164,35 @@ cheaper recipe. Note from 3b: R's residual is dominated by correlated stacking n
 difference MAD over MAD 0.51) while G and B sit near white (0.88, 1.05), so the shape story may hold
 for red only; report the three channels separately.
 
+**MEASURED 2026-09-03 (E1), and the arms are now calibrated rather than assumed.** The exporter's
+`--measure-shape` computes band1/band0 scene-free (the difference of two frames of one scene) for the
+injected draws AND for the bake's own real pairs with the SAME code, because 0.60 and 0.32 came from
+another implementation on another domain and a number is only a target if it is measured the same
+way. On `2025-2026-organized`, 64 pairs each:
+
+| population | band1/band0 |
+|---|---|
+| real sub pairs | 0.786 |
+| **real half-master pairs (the deployment regime)** | **0.463** |
+| injected, S-white | 0.216 |
+| injected, S-warped, bilinear alone | 0.328 |
+| injected, S-warped, `--warp-sigma 0.5` | **0.460** |
+| injected, S-warped, `--warp-sigma 0.8` | 0.765 |
+
+Three things follow. **The ordering the hypothesis rests on replicates** (a master's noise is smoother
+than a sub's) even though the absolute numbers differ from the Python probe's, so the phenomenon is
+real and the two estimators simply disagree on scale. **White is nowhere near either regime** (0.216
+against 0.463), which is the hypothesis' premise confirmed with a number. And **bilinear resampling
+alone does not get there either** (0.328): the registrar's warp is not the only thing correlating a
+real frame's noise, which on an OSC set is unsurprising once said out loud, since every frame has
+been through a demosaic before anything else touches it. The `--warp-sigma` knob stands in for the
+whole correlating chain, and at 0.5 px the injected shape lands on the deployment regime to within
+one percent (0.460 against 0.463); 0.8 px reproduces a single sub (0.765 against 0.786).
+
+*So the arms to run are S-white against S-warped AT `--warp-sigma 0.5`*, and the sigma is re-measured
+per bake rather than carried as a constant: it is a property of that bake's demosaic and registration,
+not of the code.
+
 **H3. A wide level range weakens the per-channel level prior.** The shipped model drags an input
 toward the sky level of its eight training sessions (median shift vs input level correlates at
 -0.988), fixed at inference by `RestoreLevel`. A model that has seen many sky levels should learn
@@ -295,7 +324,7 @@ Settled by the campaign; restated so no run re-derives them.
 |---|---|---|---|
 | **E0** | **DONE 2026-09-02, PASSED.** Repo-ise the trainer (roadmap section 2): `training/denoise/` with `n2n_smoke.py`, `n2n_gate.py`, `n2n_metrics.py`, `n2n_bars.py`, `n2n_rotate.py`, `n2n_structfrontier.py`, `ship/*`; a pinned `requirements.txt`; every `C:\tianwen-scratch` default and `EVAL` constant becomes a required argument or reads `C:\temp\tianwen-scratch`. **Acceptance: re-run v19d seed 2 from the `n2n-d8` cache and reproduce `n2n_v19d_s2_final.pt` bit-identically** (the deterministic mode was verified to do this on the 1070). Anything else and the port changed the trainer. *Result: `repro-v19d.ps1` re-ran the recipe in 12.3 min; the log matches the 2026-08-16 run at every printed loss and gate figure (selected step 1500, score 0.709; the final gate row identical to the digit), and both checkpoints reproduce all 813,251 parameters bit for bit. The script's first verdict was DIFFERENT because it hashed the files: `torch.save` names every archive member after the output stem and pickles the trainer's metadata dict, which now carries `pair_time`, so identical weights under another name are a different file by construction; re-saving the reference with that key under the repro's name reproduced the repro's hash exactly. The comparison is tensor for tensor now (`n2n_ckpt_equal.py`) and `-CompareOnly` re-judges without retraining.* | done, 12 min GPU | Whether the campaign starts from a controlled instrument: it does |
 | **E0.5** | **DONE 2026-09-02, H0 confirmed** (result under H0, table in section 9). Stretch-run-invert in `N2nLinearRunner`; the seam probe re-run on the seam-report master with a faint-star amplitude column; the four "linear" claims corrected (runner, enhancer, ship README, run-log 1o). The parity fixture was regenerated with one dead pixel in the plate so the auto-detect reads it as in band and torch and the runner see the same bytes (the stretch itself is pinned in C#, by equality with the by-hand route, not by a Python MTF). The 3b real-master table is superseded by section 9. Ran before E0 because it costs nothing E0 provides. | done, 3 h | H0 |
-| **E1** | Injection exporter over the retained linear masters (two modes: white, warped), producing a cache with the same slot layout the trainer reads so `--train` is unchanged; a `--synthetic` regime flag drawing (master tile + noise, master tile) pairs. Measure the injector's band1/band0 against 0.32 first. | 1 to 2 days of code, minutes to bake | Whether H2 can be tested at all |
+| **E1** | **DONE 2026-09-03.** `tianwen dataset degrade` (`DatasetDegradationExporter`, shared with the deconvolver's E2): retained linear masters, cells and level anchor taken from the P0 manifest, both sides stretched with the TARGET's parameters, tiles written P0-shaped so `--prepare` reads them unchanged (slot 0 clean, slots 1..8 draws). Shape measured against the bake's own real pairs and the warped arm calibrated to the deployment regime (see H2). Still owed on the Python side: the `--synthetic` regime flag that draws (clean, degraded) as a supervised pair rather than two draws as an N2N one | 1 to 2 days of code, minutes to bake | Whether H2 can be tested at all |
 | **E2** | Arm S-white and S-warped, three seeds each, controls v19d s0-2 and v17c s0-2 re-scored on the same slices. Score on the four `eval4` observers at sub depth AND on half-master inputs against the other half. Post a labelled comparison image. | 6 x 11 min GPU, then scoring | H1, H2 |
 | **E3** | Level-prior regression on every E2 checkpoint. | minutes | H3 |
 | **E4** | Bake the two non-comet SV545 sessions (`run-dataset-bake.ps1`, per subtree, never the SV545 root); score every checkpoint on them. | 1 to 2 h bake | H4 step 1, adds observers for H6 |

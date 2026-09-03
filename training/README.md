@@ -65,6 +65,25 @@ python n2n_smoke.py --train --cache $env:TIANWEN_SCRATCH\n2n-d8 --loss l2 --upsa
     --band-loss 3 --band-scales "2,4 4,8" --base 32 --steps 4000 --gate-every 100 --seed 2 --out n2n_v19d_s2.pt
 ```
 
+### Training on injected pairs
+
+The C# side exports a degraded cache that `--prepare` reads with **no change**: its manifest is
+P0-shaped, so the clean target lands in slot 0 and the draws in the sub slots, exactly where subs
+would be. Export it first (from the repo root, Release):
+
+```pwsh
+tianwen dataset degrade --bake D:\Astro-Dataset\2025-2026-organized --out $env:TIANWEN_SCRATCH\deg-warped `
+    --mode noise --shape warped --warp-sigma 0.5 --draws 8 --cells 300 --measure-shape
+python n2n_smoke.py --prepare --root $env:TIANWEN_SCRATCH\deg-warped --cache $env:TIANWEN_SCRATCH\n2n-inj1 ...
+```
+
+Two things to know before using one. **A pair of draws is an N2N pair and a draw against slot 0 is a
+SUPERVISED pair**, which is the point of the arm; the trainer's existing regimes give the first for
+free and the second needs the `--synthetic` flag that does not exist yet. And **`--warp-sigma` is a
+measurement, not a constant**: run with `--measure-shape` and match the injected band1/band0 to the
+bake's own real half-master pairs (0.5 px landed on 0.460 against 0.463 for `2025-2026-organized`).
+Injecting at the wrong shape trains for a noise distribution no frame has.
+
 Four rules, each of which cost a wrong conclusion once (the roadmap's section 4 has the list):
 
 - **Pre-register.** Predictions go into the run script's header before the prepare, the way

@@ -220,7 +220,7 @@ disk; the frames are taken either way.
 |---|---|---|---|
 | E0 | `dataset build --force-psf` on the organized bake so the store reflects the current detector; re-render the report; re-fit the per-(train, filter, channel) (FWHM, beta) distributions. | ~10 min (reads retained masters) | Calibration of everything below |
 | E1 | H5 encoding spread; H1 oracle ceiling table with Richardson-Lucy and the exact kernel over the sweep. | a day, CPU | The ceiling and the contract floor |
-| E2 | The degradation exporter (linear blur, noise after, target-parameter stretch, estimator labels, radius tags); parity of the stretch against `Image.MtfStretch`. | 1 to 2 days | Whether pairs are honest |
+| E2 | **SHIPPED 2026-09-03 as the shared exporter** (`tianwen dataset degrade --mode blur`, `DatasetDegradationExporter`): linear Moffat blur with a drawn (FWHM, beta, elongation, PA), noise after, both sides stretched with the TARGET's parameters, field-radius tag per cell, and the drawn kernel parameters in `degradations.jsonl`. Parity is stronger than planned: the clean tile derived from the RETAINED master is byte-identical to the P0 tile of the same cell (0.0 on every session measured), which pins the whole path rather than just the stretch. Still owed: psf01 labels from `HfdPsfEstimator` on the degraded stretched frame under both encodings (H2, H5), and the per-(train, filter, channel) draw distribution, which needs E0's re-measured store | 1 to 2 days | Whether pairs are honest |
 | E3 | Smoke arms, three seeds each, on the U-Net: kernel vs estimator label (H2), shared vs per-channel (H3), noise vs none (H4), two vs three bands (H8). Post a labelled comparison at 1:1 around bright and faint stars. | 4 pairs x 3 seeds x 11 min | H2, H3, H4, H8 |
 | E4 | Stationary vs position-varying (H7) on the refractor trains. | 2 x 3 x 11 min | H7 |
 | E5 | On-the-fly torch degradation with the MTF pin, if E3 is sample-hungry. | a day | Sample efficiency |
@@ -244,7 +244,7 @@ release, and Auto stays RC then SAS then in-house rescue until a human side-by-s
 | Phase | Deliverable | Exit |
 |---|---|---|
 | P2.0 | Store re-measured; oracle ceiling and encoding spread tabled | E0, E1 |
-| P2.1 | Degradation exporter with stretch parity; first pairs | E2 |
+| P2.1 | Degradation exporter with stretch parity; first pairs (**exporter + parity done 2026-09-03**; psf01 labelling and the measured draw distribution owed) | E2 |
 | P2.2 | H2/H3/H4/H8 answered on the smoke U-Net with posted comparisons | E3 |
 | P2.3 | H7 answered; recipe fixed | E4, E5 |
 | P2.4 | Ladders captured; H6 range measured | E6 |

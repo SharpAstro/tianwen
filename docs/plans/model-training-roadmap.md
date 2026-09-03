@@ -10,8 +10,8 @@ the run log of the first campaign.
 
 | Training | Plan | State 2026-09-02 | Next concrete step |
 |---|---|---|---|
-| OSC denoiser (P1) | [denoiser-training.md](denoiser-training.md) | v19d shipped opt-in; pool 100 percent narrowband; master-depth gap open; **E0.5 done 2026-09-02: the runner now stretches into the training domain, H0 confirmed, a 30 percent flat star suppression removed; E0 done the same day: the trainer is in `training/denoise/` and reproduces both v19d seed-2 checkpoints bit for bit** | E1, the injection exporter |
-| Non-stellar deconvolver (P2) | [deconvolver-training.md](deconvolver-training.md) | Not started; PSF family measured per (train, filter, channel); store predates the deblender; no ladder captured | E0: `dataset build --force-psf`; E1: oracle ceiling + encoding spread |
+| OSC denoiser (P1) | [denoiser-training.md](denoiser-training.md) | v19d shipped opt-in; pool 100 percent narrowband; master-depth gap open; **E0.5 + E0 done 2026-09-02** (runner domain fixed, trainer in the repo, v19d reproduced bit for bit); **E1 done 2026-09-03**: `tianwen dataset degrade` exports injected pairs, and the warped arm is calibrated to the deployment regime by measurement (band1/band0 0.460 against a real half-master's 0.463; white reads 0.216) | E2: arms S-white against S-warped at --warp-sigma 0.5, three seeds each |
+| Non-stellar deconvolver (P2) | [deconvolver-training.md](deconvolver-training.md) | Not started as training; PSF family measured per (train, filter, channel); store predates the deblender; no ladder captured; **E2's exporter shipped 2026-09-03** (`--mode blur`, shared with the denoiser) with byte-parity against the bake's own tiles | E0: `dataset build --force-psf`; E1: oracle ceiling + encoding spread |
 | Gradient remover (P5) | [gradient-remover-training.md](gradient-remover-training.md) | Not started as training; **G0 done 2026-09-02** (`ClassicalBackgroundExtractor`, the `AddTianWenAi()` fallback when GraXpert is absent); **G1 done 2026-09-03**: `tianwen dataset gradient-report` over both bakes, 118 masters. H1 answered: p-p p50 2.32 sigma / p95 13.66, amplitude driven by FIELD OF VIEW, a dome is the plurality shape (so the injection needs the quadratic), direction tracks the horizon (58 to 61 percent within 45 degrees), **the Moon is refuted** (7 percent, both bakes). Both of G0's reasoned thresholds now measured | G2: the whole-frame linear exporter, injection family drawn from G1's distribution |
 | Star remover (P4) | [star-remover-training.md](star-remover-training.md) | Not started; last by design (depends on P2's PSF family and P5's flattener) | R0 after P2.0 |
 | Neural guider | [neural-guider-training.md](neural-guider-training.md) | Shipped, opt-in, cannot beat its own teacher by construction | N1: measure the imitation ceiling on the coupling harness |
@@ -31,6 +31,7 @@ the run log of the first campaign.
    retained LINEAR masters, with three modes: noise injection, PSF blur plus noise, star injection.
    One exporter, because all three need the same thing the P0 tiles cannot give (a linear frame to
    degrade before the exporter's own stretch) and the same parity pin against `Image.MtfStretch`.
+   **Done 2026-09-03 for the first two modes (section 2).**
 4. **Denoiser E1 to E5** (synthetic injection, shape, broadband) and **deconvolver E0 to E4** in
    parallel; both are 11-minute local runs on the 0.81 M U-Net and share the eval tooling.
 5. **Neural guider N1 to N5** whenever the imaging GPU is busy: it needs no GPU at all.
@@ -39,7 +40,7 @@ the run log of the first campaign.
 7. **Rented GPU only for a capacity question the local smoke has already made worth asking**
    (denoiser H5), never for an ablation sweep.
 
-## 2. Shared infrastructure that does not exist yet
+## 2. Shared infrastructure (what exists now, and what does not)
 
 **The trainer IS in the repo since 2026-09-02 (`training/denoise/`, E0 passed; see `training/README.md`
 for what came across and what stayed on D:). The rest of this section is the state it was written
@@ -84,9 +85,26 @@ SHA-256, git commit, ONNX SHA-256, tensor conventions incl. domain and stretch c
 encoding where relevant, timestamp) asserted at load by the C# enhancer: mismatch means refuse, log,
 fall back to the next backend. `N2nDenoiser` ships without one today.
 
-**One shared degradation exporter** (section 1, item 3), in C# beside `DatasetTileExporter` so it
-reuses `ToUnitRange`, `ApplyInputStretch`, the structure-biased cell choice and the parity gate, and
-so the P2/P4 pairs cover the same pixels as the P0 tiles of the same session.
+**One shared degradation exporter: SHIPPED 2026-09-03** as `DatasetDegradationExporter`
+(`tianwen dataset degrade`), in C# beside `DatasetTileExporter` and reusing its `ToUnitRange`,
+`ApplyInputStretch` and tile writer. Two of the three modes are in (noise injection for the denoiser's
+E1, blur-then-noise for the deconvolver's E2); star injection waits on the star remover's R0, which
+does not exist yet. Four decisions it settled, each of which is a way the naive version is wrong:
+
+- **Both sides of a pair take the TARGET's unit divisor and MTF parameters** (`Image.MtfStretchWith`).
+  Each side taking its own would encode the stretch difference as signal, and injected noise moves a
+  frame's maximum, so the unit divisor alone would rescale the input side. It also makes the transform
+  pointwise, which is what lets a draw be applied to one CELL instead of the whole canvas per draw.
+- **Cells and the level anchor come from the P0 manifest**, so a degraded tile covers exactly the
+  pixels its P0 counterpart does and the injected level is anchored on a REAL sub's measured noise.
+- **The manifest is P0-shaped**, so the trainer's `--prepare` reads a degraded cache with no Python
+  change: `Frame` = `master` for the clean target lands in slot 0 and `deg000..` in the sub slots.
+  Verified by running the trainer's own `load_cells` over an exported cache rather than by reading its
+  source (36 cells, master resolved, four draws in the sub slots). Degradation parameters live in their
+  own `degradations.jsonl` rather than as extra columns, so one fact keeps one authority.
+- **The parity gate is against the bake itself**: the clean tile derived from the retained master is
+  byte-identical to the P0 tile of the same cell (0.0 measured on every session). A self-parity check
+  compares a path against itself and cannot see a drift between the two paths; this one can.
 
 ## 3. Compute, measured
 
