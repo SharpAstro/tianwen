@@ -45,6 +45,35 @@ public static class CoordinateUtils
     }
 
     /// <summary>
+    /// Position angle (bearing) of sky position 2 as seen from sky position 1, degrees in [0, 360)
+    /// measured from north through east, in the same RA-hours / Dec-degrees convention as
+    /// <see cref="AngularSeparationDeg"/>. Undefined (0) when the two coincide.
+    /// </summary>
+    public static double PositionAngleDeg(double ra1Hours, double dec1Deg, double ra2Hours, double dec2Deg)
+    {
+        var dRa = double.DegreesToRadians((ra2Hours - ra1Hours) * 15.0);
+        var (sinDec1, cosDec1) = Math.SinCos(double.DegreesToRadians(dec1Deg));
+        var (sinDec2, cosDec2) = Math.SinCos(double.DegreesToRadians(dec2Deg));
+        var pa = Math.Atan2(Math.Sin(dRa) * cosDec2, cosDec1 * sinDec2 - sinDec1 * cosDec2 * Math.Cos(dRa));
+        return ConditionDegrees(double.RadiansToDegrees(pa));
+    }
+
+    /// <summary>
+    /// Parallactic angle: the position angle of the ZENITH as seen from a sky position, degrees in
+    /// (-180, 180] measured from north through east. Zero when the zenith is due north of the target
+    /// (a target south of the zenith at transit), 180 when due south, positive after transit
+    /// (<paramref name="hourAngleHours"/> &gt; 0) for a target south of the zenith. Hemisphere-agnostic:
+    /// <c>tan q = sin H / (tan phi cos delta - sin delta cos H)</c>.
+    /// </summary>
+    public static double ParallacticAngleDeg(double hourAngleHours, double decDeg, double latitudeDeg)
+    {
+        var h = hourAngleHours * Math.PI / 12.0;
+        var (sinDec, cosDec) = Math.SinCos(double.DegreesToRadians(decDeg));
+        var q = Math.Atan2(Math.Sin(h), Math.Tan(double.DegreesToRadians(latitudeDeg)) * cosDec - sinDec * Math.Cos(h));
+        return ConditionDegreesSigned(double.RadiansToDegrees(q));
+    }
+
+    /// <summary>
     /// Inverse of <see cref="PixelScaleArcsec"/>: derives focal length from an
     /// (already-measured) pixel scale. Useful for stamping the master FITS
     /// with a focal length consistent with the plate-solve result rather than

@@ -17,8 +17,28 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
     /// <param name="ResidualSigma">Robust sigma (1.4826 x MAD) of the residual over the kept pixels, image units.</param>
     /// <param name="ResidualRms">RMS of the residual over the kept pixels, image units.</param>
     /// <param name="Level">The level added back (median of the model), image units; 0 when the level is not preserved.</param>
+    /// <param name="Coefficients">The polynomial stage's coefficients in <see cref="BackgroundPolynomial"/> term order
+    /// (<c>1, x, y, x^2, xy, y^2, ...</c> over <c>[-1, 1]</c> normalised working-grid coordinates, x = column, y = row),
+    /// image units. The fitted degree is <see cref="BackgroundPolynomial.DegreeOf"/> of the length, which is lower
+    /// than the requested one after a rank-deficiency fallback; empty when nothing was fitted. With
+    /// <see cref="BackgroundExtractionOptions.SurfaceRefinement"/> on, the model also carries the inpainted surface,
+    /// which these do not describe.</param>
     public sealed record ChannelFitDiagnostics(
-        int Plane, int Iterations, bool Converged, float KeptFraction, float ExcludedFraction, float ResidualSigma, float ResidualRms, float Level);
+        int Plane, int Iterations, bool Converged, float KeptFraction, float ExcludedFraction, float ResidualSigma, float ResidualRms, float Level,
+        ImmutableArray<double> Coefficients)
+    {
+        // An ImmutableArray compares by reference, which would make two identical fits unequal records;
+        // the coefficients are part of the value, so compare them as a sequence.
+        public bool Equals(ChannelFitDiagnostics? other) =>
+            other is not null
+            && Plane == other.Plane && Iterations == other.Iterations && Converged == other.Converged
+            && KeptFraction.Equals(other.KeptFraction) && ExcludedFraction.Equals(other.ExcludedFraction)
+            && ResidualSigma.Equals(other.ResidualSigma) && ResidualRms.Equals(other.ResidualRms) && Level.Equals(other.Level)
+            && Coefficients.AsSpan().SequenceEqual(other.Coefficients.AsSpan());
+
+        public override int GetHashCode() =>
+            HashCode.Combine(Plane, Iterations, Converged, KeptFraction, ResidualSigma, ResidualRms, Level, Coefficients.IsDefault ? 0 : Coefficients.Length);
+    }
 
     /// <summary>
     /// The cleaned frame, the background model it was cleaned with, and per-plane fit diagnostics.

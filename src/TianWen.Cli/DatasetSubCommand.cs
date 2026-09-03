@@ -7,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using TianWen.AI.Imaging;
+using TianWen.Lib.Astrometry.PlateSolve;
 using TianWen.Lib.Imaging;
 using TianWen.Lib.Imaging.Calibration;
 using TianWen.Lib.Imaging.Dataset;
@@ -20,7 +21,7 @@ namespace TianWen.Cli;
 /// CLI contract: NO machine specifics; archive roots and the output dir are required parameters
 /// with fail-fast validation; behavioural knobs carry portable defaults only.
 /// </summary>
-internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<DatasetSubCommand>? logger = null)
+internal sealed class DatasetSubCommand(IConsoleHost consoleHost, IPlateSolverFactory? plateSolverFactory = null, ILogger<DatasetSubCommand>? logger = null)
 {
     public Command Build()
     {
@@ -330,7 +331,7 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
 
         return new Command("dataset", "Training-dataset tooling (see docs/plans/ai-denoise-deconv.md).")
         {
-            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand() },
+            Subcommands = { buildCommand, BuildReportCommand(consoleHost), BuildGradientReportCommand(), BuildCoverageCommand(consoleHost), BuildTagFilterCommand(), BuildTagObjectCommand(), BuildTagSiteElevationCommand() },
         };
     }
 
@@ -498,6 +499,96 @@ internal sealed class DatasetSubCommand(IConsoleHost consoleHost, ILogger<Datase
 
         return command;
     }
+
+    /// <summary>
+    /// <c>tianwen dataset gradient-report</c>: run the classical background fit over retained session
+    /// masters and render <c>stats/gradient-report.md</c> (docs/plans/gradient-remover-training.md, G1).
+    /// Sibling of <c>report</c>: reads masters, never the archive, never the tiles; accumulates in
+    /// <c>stats/gradient-masters.jsonl</c> so a killed run keeps what it finished and a re-run only
+    /// measures what is new.
+    /// </summary>
+    private Command BuildGradientReportCommand()
+    {
+        var mastersOpt = new Option<string[]>("--masters")
+        {
+            Description = "A directory of master FITS files (not recursive) or a single master; repeatable.",
+            Required = true,
+            AllowMultipleArgumentsPerToken = true,
+        };
+        var outOpt = new Option<string>("--out", "-o")
+        {
+            Description = "Output root; the store and report land under <out>/stats.",
+            Required = true,
+        };
+        var noSweepOpt = new Option<bool>("--no-sweep")
+        {
+            Description = "Skip the threshold sweep (eight extra fits per master) and record the default fit only.",
+        };
+        var noSolveOpt = new Option<bool>("--no-solve")
+        {
+            Description = "Do not plate-solve; the frame's horizon and Moon directions stay unknown.",
+        };
+        var forceOpt = new Option<bool>("--force")
+        {
+            Description = "Re-measure masters already in the store (the new record wins; nothing is erased).",
+        };
+
+        var command = new Command("gradient-report",
+            "Fit every master with the classical background extractor and report the gradient distribution " +
+            "(amplitude in background sigma, direction against the horizon and the Moon, shape, and how far " +
+            "the two reasoned thresholds move the model).")
+        {
+            Options = { mastersOpt, outOpt, noSweepOpt, noSolveOpt, forceOpt },
+        };
+
+        command.SetAction(async (parseResult, ct) =>
+        {
+            var files = ImmutableArray.CreateBuilder<string>();
+            foreach (var entry in parseResult.GetValue(mastersOpt) ?? [])
+            {
+                if (Directory.Exists(entry))
+                {
+                    files.AddRange(FileEnumeration.EnumerateFiles(entry, MasterExtensions, recursive: false));
+                }
+                else if (File.Exists(entry))
+                {
+                    files.Add(entry);
+                }
+                else
+                {
+                    consoleHost.WriteError($"--masters entry does not exist: {entry}");
+                    return 1;
+                }
+            }
+            if (files.Count == 0)
+            {
+                consoleHost.WriteError("No master FITS files found under --masters.");
+                return 1;
+            }
+
+            var solve = !parseResult.GetValue(noSolveOpt);
+            if (solve && plateSolverFactory is null)
+            {
+                consoleHost.WriteScrollable("[gradient] no plate solver is available on this host; running as --no-solve");
+                solve = false;
+            }
+
+            var result = await DatasetGradientReport.RunAsync(
+                new DatasetGradientReport.RunOptions(files.ToImmutable(), parseResult.GetValue(outOpt)!,
+                    Sweep: !parseResult.GetValue(noSweepOpt), Solve: solve, Force: parseResult.GetValue(forceOpt)),
+                plateSolverFactory, logger,
+                progress: new Progress<string>(line => consoleHost.WriteScrollable(line)),
+                cancellationToken: ct);
+
+            consoleHost.WriteScrollable(
+                $"[gradient] measured {result.Measured} ({result.Solved} solved), skipped {result.Skipped}, failed {result.Failed}; report: {result.ReportPath}");
+            return result.Failed > 0 && result.Measured == 0 ? 2 : 0;
+        });
+
+        return command;
+    }
+
+    private static readonly string[] MasterExtensions = [".fits", ".fit", ".fits.gz", ".fit.gz", ".fz"];
 
     /// <summary>
     /// <c>tianwen dataset tag-filter</c> writes a FILTER card into frames whose capture software

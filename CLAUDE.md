@@ -1114,9 +1114,22 @@ rules that bite:
 - **The level is per plane and the pedestal field is untouched.** One scalar level would equalise the
   channels, which is background neutralisation and a separate step; accumulating the level onto the
   pedestal is what forced `WithZeroPedestal` on GraXpert-flattened masters.
-- `StructureThresholdSigma` (3) and `SurfaceStructureThresholdSigma` (10) are reasoned defaults, not
-  measured ones, and `SurfaceRefinement` is off by default because a flexible surface hollows a
-  frame-filling nebula. Pinned by `ClassicalBackgroundExtractorTests`.
+- **Neither structure threshold is a tuning knob, measured over 118 real masters, and the switch that
+  matters is `SurfaceRefinement`.** `StructureThresholdSigma` (3) is safe anywhere in 2 to 6 and even
+  deleting the mask moves a real model by 0.03 sigma at p95, because it was tuned on a synthetic field
+  far denser in bright stars than a deep master; `SurfaceStructureThresholdSigma` (10) is INERT across
+  5/10/20/40 (identical on every metric) since a real surface's high-pass residual never reaches five
+  sigma, though it is wired and binds at 1.5. Turning `SurfaceRefinement` ON moves the model 0.40 sigma
+  RMS at p50 and drops the kept fraction 0.795 to 0.581 against a median gradient of 2.32 sigma, so it
+  stays off: a flexible surface hollows a frame-filling nebula. Pinned by
+  `ClassicalBackgroundExtractorTests`.
+- **`tianwen dataset gradient-report` is the measurement** (`DatasetGradientReport`, append-only
+  `stats/gradient-masters.jsonl` + a rewritten `stats/gradient-report.md` per bake, detached via
+  `tools/run-gradient-report.ps1`): per master the model's amplitude in the plane's own sigma, shape,
+  brightening direction, and the horizon and Moon geometry from one plate solve. **A TianWen master's
+  canvas ring is EXACT ZERO where no frame covered it** (0.3 percent of a frame at the median) and must
+  be masked to NaN before fitting, or the fit chases the edge. What it found:
+  [docs/plans/gradient-remover-training.md](docs/plans/gradient-remover-training.md) H1.
 
 ### Hosting API (`TianWen.Hosting` + `TianWen.Server`)
 

@@ -142,7 +142,7 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
             for (var p = 0; p < planeCount; p++)
             {
                 var o = outcomes[p];
-                diagnostics.Add(new ChannelFitDiagnostics(p, o.Iterations, o.Converged, o.KeptFraction, o.ExcludedFraction, o.ResidualSigma, o.ResidualRms, levels[p]));
+                diagnostics.Add(new ChannelFitDiagnostics(p, o.Iterations, o.Converged, o.KeptFraction, o.ExcludedFraction, o.ResidualSigma, o.ResidualRms, levels[p], o.Coefficients));
                 summary.Append(p).Append(':').Append(o.Iterations).Append(o.Converged ? "it" : "it(cap)")
                     .Append(" kept=").Append(o.KeptFraction.ToString("F3"))
                     .Append(" excluded=").Append(o.ExcludedFraction.ToString("F3"))

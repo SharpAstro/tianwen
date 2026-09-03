@@ -152,6 +152,26 @@ public readonly record struct SiteContext
     }
 
     /// <summary>
+    /// Geometric azimuth in degrees [0, 360) from north through east, for an hour angle (HOURS) and
+    /// declination (degrees) at <paramref name="latitudeDeg"/>; NaN when any input is NaN. The
+    /// companion of <see cref="AltitudeDegrees(double, double, double)"/> and, like it, refraction-free
+    /// (refraction moves a body along the vertical, so the azimuth is exact either way).
+    /// </summary>
+    public static double AzimuthDegrees(double latitudeDeg, double hourAngleHours, double decDeg)
+    {
+        if (double.IsNaN(latitudeDeg) || double.IsNaN(hourAngleHours) || double.IsNaN(decDeg))
+        {
+            return double.NaN;
+        }
+
+        var ha = hourAngleHours * Math.PI / 12.0;
+        var (sinLat, cosLat) = Math.SinCos(latitudeDeg * Math.PI / 180.0);
+        var (sinDec, cosDec) = Math.SinCos(decDeg * Math.PI / 180.0);
+        var az = Math.Atan2(-cosDec * Math.Sin(ha), sinDec * cosLat - cosDec * sinLat * Math.Cos(ha));
+        return CoordinateUtils.ConditionDegrees(az * 180.0 / Math.PI);
+    }
+
+    /// <summary>
     /// Returns the Dec at which altitude = 0 for the given RA.
     /// dec_horizon = atan(-cos(HA) / tan(lat))
     /// </summary>

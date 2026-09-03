@@ -1140,7 +1140,7 @@ public static class DatasetPsfNoiseReport
         return values[values.Count / 2];
     }
 
-    private static Percentiles PercentilesOf<T>(List<T> values) where T : struct, IConvertible
+    internal static Percentiles PercentilesOf<T>(List<T> values) where T : struct, IConvertible
     {
         if (values.Count == 0) return Percentiles.Empty;
         var arr = new double[values.Count];

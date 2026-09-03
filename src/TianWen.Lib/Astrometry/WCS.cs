@@ -134,6 +134,35 @@ public record struct WCS(double CenterRA, double CenterDec)
         => CoordinateUtils.ConditionDegreesSigned(RotationDeg - other.RotationDeg);
 
     /// <summary>
+    /// The direction in PIXEL space that a sky position angle points in on this frame: degrees in
+    /// [0, 360) with 0 along +X (columns) and 90 along +Y (rows, which is DOWN a top-down frame).
+    /// NaN without a CD matrix.
+    /// <para>
+    /// A unit step on the sky at position angle <paramref name="positionAngleDeg"/> (from north
+    /// through east) is <c>(sin PA, cos PA)</c> in the intermediate world coordinates (east, north)
+    /// the CD matrix produces, so the inverse matrix carries it to pixels. Handedness comes along for
+    /// free: a mirrored frame answers with the mirrored pixel direction, which is the point of asking
+    /// the matrix rather than adding the angle to <see cref="RotationDeg"/>.
+    /// </para>
+    /// </summary>
+    public readonly double SkyPositionAngleToPixelAngleDeg(double positionAngleDeg)
+    {
+        if (!HasCDMatrix)
+        {
+            return double.NaN;
+        }
+        var det = CD1_1 * CD2_2 - CD1_2 * CD2_1;
+        if (Math.Abs(det) < 1e-20)
+        {
+            return double.NaN;
+        }
+        var (east, north) = Math.SinCos(double.DegreesToRadians(positionAngleDeg));
+        var dx = (CD2_2 * east - CD1_2 * north) / det;
+        var dy = (-CD2_1 * east + CD1_1 * north) / det;
+        return CoordinateUtils.ConditionDegrees(double.RadiansToDegrees(Math.Atan2(dy, dx)));
+    }
+
+    /// <summary>
     /// Pixel scale in arcseconds per pixel, derived from the CD matrix determinant.
     /// Returns <see cref="double.NaN"/> if no CD matrix is available.
     /// </summary>

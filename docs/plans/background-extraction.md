@@ -531,16 +531,58 @@ polygons, determinism, DI) and by the fallback tests in `OnnxBackgroundExtractor
 | RGGB mosaic, per-colour skies 0.010 / 0.015 / 0.008, slopes 0.004 / 0 / -0.003 | four planes fitted; mosaic model RMS error under 1e-4; each colour's left and right medians agree to 1.5e-4 (a one-plane fit would leave 3.5e-3) |
 | 12 px NaN border | NaN pattern preserved exactly; model finite everywhere; error under 1e-4 including the extrapolated border |
 
-### Defaults that are reasoned, not measured
+**What the fit finds on REAL masters** (118 of them, 2026-09-03): peak-to-peak p50 2.32 background
+sigma and 8.3 percent of the sky level, p95 13.66 sigma, worst 18.2; median linear share 0.64 with a
+dome the plurality shape (100 of 197 planes on the training bake), so degree 2 earns its place;
+kept fraction p50 0.79; the canvas ring masked as absent is 0.3 percent of a frame at the median.
+Amplitude tracks FIELD OF VIEW, not sky conditions: the 24 mm wide-field camera sits at p50 11.28
+sigma against 2.24 for the 533. Full distribution, direction and covariates:
+[gradient-remover-training.md](gradient-remover-training.md) section 2, H1.
+
+### The two thresholds, MEASURED over 118 real masters (2026-09-03)
 
 `StructureThresholdSigma` 3 (polynomial stage) and `SurfaceStructureThresholdSigma` 10 (surface
-stage). The reference's 0.05 is absolute in stretched units and has no meaning on a linear frame, so
-both are starts, not measurements. Ten sits between the dome's leakage (six sigma) and the blob's
-(eighty) on the synthetic cases; a real master with a faint extended nebula under a strong dome is
-the case that decides it, and `tianwen image flatten --save-gradient` over the retained masters is
-how to look (gradient-remover-training.md, G0's test). `SurfaceRefinement` is off by default for the
-reason the reference gives about its own flexible model: it follows a frame-filling nebula and
-hollows it.
+stage) were reasoned starts: the reference's 0.05 is absolute in stretched units and means nothing on
+a linear frame. `tianwen dataset gradient-report` re-runs the whole fit at each setting on every
+retained master and measures how far the model moves from the default's, in the plane's own sigma
+(gradient-remover-training.md, G1). The answer for both is that **neither threshold is where the
+decision lives**, but for opposite reasons.
+
+| Setting | Kept p50 | delta RMS p50 / p95 | delta p-p p50 / p95 |
+|---|---|---|---|
+| `StructureThresholdSigma` 2 | 0.778 | 0.01 / 0.08 | 0.05 / 0.35 |
+| **3 (default)** | 0.795 | 0 / 0 | 0 / 0 |
+| 4 | 0.799 | 0.00 / 0.02 | 0.01 / 0.07 |
+| 6 | 0.800 | 0.00 / 0.03 | 0.01 / 0.09 |
+| structure mask off entirely | 0.800 | 0.00 / 0.03 | 0.01 / 0.10 |
+| `SurfaceRefinement` on, surface threshold 5, 10, 20 or 40 | 0.581 | 0.40 / 1.72 | 1.88 / 10.43 |
+
+Figures are `2025-2026-darkscaled` (67 masters); `2025-2026-organized` (51) replicates every row
+independently: 2 gives 0.02 / 0.08, 4 and 6 and off give at most 0.03 at p95, kept 0.786 to 0.804, and
+the surface stage is again identical at all four thresholds (0.33 / 2.10 RMS, kept 0.586).
+
+- **`StructureThresholdSigma` is safe anywhere in 2 to 6, and deleting the mask outright moves a real
+  master's model by 0.03 sigma at p95.** The synthetic sixty-star field it was tuned on is far denser
+  in bright stars, relative to the frame, than a real deep master: on real data the polynomial is
+  averaging over so many blocks that the protected pixels barely shift it. Keep 3 (it costs nothing
+  and the synthetic case shows what an unmasked fit does when stars DO dominate), but do not treat it
+  as a tuning knob, and do not re-tune it on synthetic frames.
+- **`SurfaceStructureThresholdSigma` is inert across its whole plausible range**: 5, 20 and 40 are
+  identical to the default 10 on every metric, on all 118 masters. It is wired and does bind when it
+  can reach the residual (`TheSurfaceStructureThresholdBindsWhenItIsLowEnoughToReachTheResidual` pins
+  1.5 against 40: the model moves 14.7 noise sigma and the synthetic blob's peak goes 83 to 97 percent
+  kept), so the finding is about the DATA: after the polynomial stage's own mask and the inpaint, the
+  surface's high-pass residual on a real master never reaches five sigma. A threshold that would bind
+  is below 5, which is also where noise starts being marked as structure. **Leave it at 10 and do not
+  present it as tunable.**
+- **What the surface stage does is the real decision, and it is large.** Switching `SurfaceRefinement`
+  on moves the model by 0.40 sigma RMS at the median and 1.72 at p95, changes peak-to-peak by 1.88
+  sigma at the median and 10.43 at p95, and drops the kept fraction from 0.795 to 0.581. Against a
+  median gradient of 2.32 sigma that is most of the signal being re-modelled, on frames where the
+  polynomial had already converged. It stays **off by default** for the reason the reference gives
+  about its own flexible model, now with a number attached: it follows a frame-filling nebula and
+  hollows it, and on this archive it would be re-modelling a fifth to a half of every gradient it is
+  handed.
 
 ### Not built, and why
 
