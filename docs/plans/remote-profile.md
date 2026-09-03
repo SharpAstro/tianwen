@@ -737,7 +737,10 @@ be stated rather than argued.
 `HttpClient.Timeout`, so it ran on the 100 s default and a rig that went dark read as reachable for
 over a minute (mildly wrong for one rig, glaring on a board of six). `NodeTimeouts` now gives each
 request its own budget (state poll 5 s, preview 30 s, control 10 s) behind a 60 s `HttpClient`
-backstop, so a dark rig is reported unreachable in about five seconds. (2) A mirror existed only after
+backstop, so a dark rig is reported unreachable in about five seconds. Budget expiry and caller
+cancellation both surface as `OperationCanceledException` meaning opposite things (the rig is dark; the
+caller went away), so a `catch ... when (...)` filter must test the ORIGINAL caller token, never a
+linked one, or a dark rig reads as a cancelled poll. (2) A mirror existed only after
 a rig was *selected*, so the board needed a connect-all path; because the board is always the landing
 tab, that is effectively at startup -- which is what promoted the timeout fix from cleanup to
 prerequisite, since an off rig would otherwise have shown as connecting for 100 s on every launch.

@@ -116,6 +116,14 @@ The engine and its DSL reference live in **DIR.Lib's README** under "Declarative
 consumer has to know, and the part that was learned by being bitten. `CLAUDE.md` keeps the one-line
 form of each rule; the reasoning is here.
 
+- **Alias, don't import.** Keep `using DIR.Lib;` and add a per-project
+  `global using Layout = DIR.Lib.Layout;` (or a csproj `<Using ... Alias="Layout"/>`), then write the
+  qualified `Layout.Node` / `Layout.Builder`. Do NOT `using DIR.Lib.Layout;`: it drops the
+  collision-prone barewords (`Node`, `Content`, `Size<T>`) into scope. A consumer that already owns
+  its own `Layout` type must rename it (PTV did: `Layout` -> `ElementGrid`).
+- **Conditional background:** `.Bg(color)` always sets a value, so for a nullable background build
+  the base node then `if (cond) n = n.Bg(color);`; never `.Bg(default)`, which paints transparent
+  rather than leaving the property null.
 - **Responsive primitives (DIR.Lib 6.14):** `Sizing.Star(weight, min, max)` clamps
   (`.WStar/.HStar(w, min, max)`, `.WClamp/.HClamp`) -- a min-clamped Star holds its floor and
   overflows *visibly* instead of starving to zero when Fixed siblings eat the container, a

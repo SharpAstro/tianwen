@@ -197,3 +197,20 @@ with neither it returns `null` rather than guess. A declared scale is either rep
 `DeclaredPixelScale` is the ACTUAL image scale, so it already includes binning; `DerivedPixelScale` is
 per unbinned photosite, which is why `GetImageDim` multiplies pixel size by `BinX` only on that
 branch. Collapsing them into one property would silently double-count binning on a binned frame.
+
+## A light carries the guiding quality of its own exposure
+
+`ImageMeta.Guiding` (`GuidingStats`) is written as `GUIDERMS` / `GUIRMSRA` / `GUIRMSDE` / `GUIDEPK` /
+`GUIDEN`, all arcsec. `GuideStatistics.OverExposure` reduces `Session.GuideSamples` over
+`[ExposureStartTime, +ExposureDuration]` and never a rolling session average: that answers "how is the
+rig doing tonight", a different question, and is actively misleading stamped on a sub taken during the
+other hour. Three rules: settling/dither samples inside the window are INCLUDED (a live guiding
+display excludes them because a dither is a commanded move, but if the guider had not settled while
+the shutter was open the sub IS smeared, and filtering makes the worst frames report the cleanest
+numbers); null is not zero, so an unguided rig writes NO cards rather than `GUIDERMS = 0`, which would
+claim perfect guiding; and `GUIDEPK` earns its keep because RMS hides the single gust that trails one
+sub, which is the defect it is worst at describing. Nothing else in the wild writes these cards; a
+survey of the reference archive found zero guiding keywords across N.I.N.A.- and SharpCap-authored
+lights, so they are ours. The session stamps `ICameraDriver.GuideStats` just before `GetImageAsync`,
+since the statistic is only complete once the shutter closes and that call is the one place an
+`ImageMeta` is built. Pinned by `GuideStatisticsTests` + an end-to-end `SessionImagingTests` case.

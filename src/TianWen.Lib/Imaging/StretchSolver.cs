@@ -52,7 +52,7 @@ public static class StretchSolver
         // The shader multiply defaults to the stat-scaling WB, so single-WB callers are unchanged.
         var shaderWb = shaderWhiteBalance ?? whiteBalance ?? (1f, 1f, 1f);
 
-        // Auto is a UI intent resolved by the producer (ViewerActions.ResolveAutoStretchMode) and must
+        // Auto is a UI intent resolved by the producer (StretchModeExtensions.ResolveAuto) and must
         // not reach here; if one ever does, treat it as Linked rather than write mode 4 into a uniform
         // the shader has no branch for. Not the resolution point on purpose: this layer is pure math and
         // knows nothing about whether a calibration is active.
