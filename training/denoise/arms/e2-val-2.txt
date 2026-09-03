@@ -1,0 +1,8 @@
+# E2 val sessions: 8 train + 2 val drawn from D:\Astro-Dataset5-2026-organized with every
+# session sharing a camera and target with an eval4 observer EXCLUDED, so an arm is never scored
+# on a scene it trained on. Two of those overlaps are the SAME NIGHT (Skull and Crossbones
+# 2026-02-14, Rim Nebula 2025-05-02) and the rest are the same rig on the same target another
+# night, which for a denoiser judged on faint structure is the same leak.
+# Order is the trainer's own: sorted, then Random(42).shuffle, over the ELIGIBLE set.
+ZWO-ASI533MC-Pro/Optolong-L-Quad-Enhance/HIP-80609/2026-04-21|ZWO ASI533MC Pro|HIP 80609|Optolong L-Quad Enhance
+SVBONY-SV605CC/Optolong-L-Quad-Enhance/Pleiades/2025-10-28|SVBONY SV605CC|Triangulum Galaxy|Optolong L-Quad Enhance

@@ -35,6 +35,7 @@ BYTES = CH * TILE * TILE * 2
 SUBS_PER_CELL = 8
 MIX_LEVELS = (1, 2, 4)   # subs averaged per side; 8 subs per cell caps the disjoint pair at 4
 HALF = "half"            # the half-master regime, which is not a count of subs
+SYNTH = "synth"          # supervised against slot 0, only meaningful on an injected cache
 
 # Cache slot map. Subs occupy 1..SUBS_PER_CELL so a sub index doubles as its slot.
 SLOT_MASTER = 0
@@ -132,15 +133,20 @@ def read_val_names(meta_path):
         return json.load(fh)["val_sessions"]
 
 
-def read_train_names(path):
-    """An explicit train session list: one name per line, blanks and # comments ignored.
+def read_val_list(path):
+    """An explicit val session list.
 
-    Pinning TRAIN by name exists for subset experiments, and the obvious alternative does not
-    work. Dropping N sessions and re-slicing `sessions[:count - N]` looks equivalent and is not:
-    the shuffle runs over the WHOLE session list, so removing 8 entries pulls the next 8 up into
-    the gap. The resulting arm would differ from the run it is compared against by 16 sessions
-    while claiming to differ by 8, which is a confound built into the instrument.
+    The companion to --train-from-list, and it exists for the same reason --train-from-list does:
+    when sessions must be EXCLUDED (E2 excludes every session that shares a camera and target with
+    an eval4 observer, or the arm is scored on scenes it trained on), the exclusion has to hold for
+    both splits. Pinning val to a meta.json only copies whatever the first cache happened to pick,
+    which is not an exclusion.
     """
+    return read_name_list(path, "val")
+
+
+def read_name_list(path, what):
+    """An explicit session list: one name per line, blanks and # comments ignored."""
     if not path:
         return None
     names = []
@@ -150,8 +156,20 @@ def read_train_names(path):
             if line and not line.startswith("#"):
                 names.append(line)
     if not names:
-        raise SystemExit(f"train session list {path} is empty")
+        raise SystemExit(f"{what} session list {path} is empty")
     return names
+
+
+def read_train_names(path):
+    """An explicit train session list: one name per line, blanks and # comments ignored.
+
+    Pinning TRAIN by name exists for subset experiments, and the obvious alternative does not
+    work. Dropping N sessions and re-slicing `sessions[:count - N]` looks equivalent and is not:
+    the shuffle runs over the WHOLE session list, so removing 8 entries pulls the next 8 up into
+    the gap. The resulting arm would differ from the run it is compared against by 16 sessions
+    while claiming to differ by 8, which is a confound built into the instrument.
+    """
+    return read_name_list(path, "train")
 
 
 def choose(cells, n_train_sessions, n_val_sessions, cells_per_session, seed=42,
@@ -214,7 +232,8 @@ def prepare(args):
     cells = drop_foreign_channel_sessions(args.root, cells)
     train_keys, val_keys, train_s, val_s = choose(
         cells, args.train_sessions, args.val_sessions, args.cells_per_session,
-        require_halves=args.require_halves, val_names=read_val_names(args.val_from_meta),
+        require_halves=args.require_halves,
+        val_names=read_val_list(args.val_from_list) or read_val_names(args.val_from_meta),
         val_cells_per_session=args.val_cells_per_session,
         train_names=read_train_names(args.train_from_list))
     keys = train_keys + val_keys
@@ -259,8 +278,17 @@ def prepare(args):
     mm.flush()
 
     print(f"  half-master pairs: {sum(halves)}/{n} cells")
+    # Whether the sub slots hold INJECTED draws (frame names deg000..) rather than real subs. The
+    # trainer needs to know, because --synthetic pairs a slot against slot 0 and that is only a
+    # supervised pair when slot 0 is the clean target of the degradation rather than an integration
+    # the subs are noisy views OF. Recorded from the tiles that were actually read, not from a flag,
+    # so a cache cannot claim to be something its bytes are not.
+    injected = all(
+        os.path.basename(rel).rsplit("_", 1)[-1].startswith("deg")
+        for key in keys for rel in cells[key]["subs"][:SUBS_PER_CELL])
+    print(f"  sub slots: {'INJECTED draws' if injected else 'real subs'}")
     meta = {
-        "cells": n, "slots": SLOTS_WITH_HALVES,
+        "cells": n, "slots": SLOTS_WITH_HALVES, "injected": bool(injected),
         "train_cells": len(train_keys), "val_cells": len(val_keys),
         "train_sessions": train_s, "val_sessions": val_s,
         "has_halves": halves,
@@ -544,6 +572,20 @@ def train(args):
     # against 2.96x for the deepest pair 8 subs allow (4v4). That is the regime the model is
     # deployed in and, until this bake, the training set had no pair anywhere near it.
     regimes = list(MIX_LEVELS) if args.mix_avg else [args.pair_avg]
+    if args.synthetic:
+        # Supervised, and EXCLUSIVE: an arm that mixed noise-to-clean with noise-to-noise would not
+        # answer H1, which asks whether supervised injection beats N2N at deployment depth. Refused
+        # on a cache of real subs, where slot 0 is an integration the subs are noisy views of and
+        # "supervised" would silently mean "regress a sub onto a 9x quieter version of itself".
+        if not meta.get("injected"):
+            raise SystemExit("--synthetic needs a cache prepared from an injected export "
+                             "(tianwen dataset degrade); this one holds real subs")
+        if args.half_pairs:
+            raise SystemExit("--synthetic and --half-pairs are different regimes; pick one")
+        regimes = [SYNTH]
+        print("regime: synthetic (a degraded draw against the clean target in slot 0). "
+              "Note the target is a MASTER, so it carries its own 1/sqrt(N) noise and the model "
+              "learns to leave that; score against a held-out half, never against this target.")
     half_train = np.array([], dtype=np.int64)
     if args.half_pairs:
         flags = meta.get("has_halves")
@@ -654,7 +696,11 @@ def train(args):
         # denoising strength into a function the model learns rather than a constant it assumes.
         k = regimes[int(rng.integers(0, len(regimes)))] if len(regimes) > 1 else regimes[0]
         regime_steps[k] += 1
-        if k == HALF:
+        if k == SYNTH:
+            # Input: one injected draw. Target: the undegraded tile every draw was made from.
+            x = torch.from_numpy(np.ascontiguousarray(mm[idx, a])).to(dev).float()
+            y = torch.from_numpy(np.ascontiguousarray(mm[idx, SLOT_MASTER])).to(dev).float()
+        elif k == HALF:
             # The two halves are already integrated, so there is nothing to average: this is a
             # plain N2N pair that happens to be quiet. The split is INTERLEAVED upstream
             # (SessionRegistrar takes i%2), so the two sides are statistically exchangeable and
@@ -925,6 +971,11 @@ if __name__ == "__main__":
     p.add_argument("--train-sessions", type=int, default=8)
     p.add_argument("--val-sessions", type=int, default=2)
     p.add_argument("--cells-per-session", type=int, default=120)
+    p.add_argument("--val-from-list", default=None,
+                   help="pin the val sessions BY NAME to a list file, one name per line. The "
+                        "companion to --train-from-list, for when sessions must be EXCLUDED from "
+                        "both splits (E2 excludes the eval4 observers' own scenes). Wins over "
+                        "--val-from-meta when both are given")
     p.add_argument("--val-from-meta", default=None,
                    help="pin the val sessions BY NAME to those recorded in an existing cache's "
                         "meta.json. Without it, raising --train-sessions moves the val split and "
@@ -962,6 +1013,12 @@ if __name__ == "__main__":
                         "'near' only adjacent subs (and interleaves the averages), 'any' is the "
                         "original unrestricted draw, byte-for-byte. v22 measured time-correlated "
                         "residue in every session's pairs; this is the causal test")
+    p.add_argument("--synthetic", action="store_true",
+                   help="supervised regime: train an injected draw against the CLEAN target in "
+                        "slot 0, instead of one noisy view against another. Needs a cache prepared "
+                        "from `tianwen dataset degrade`, and is exclusive of the N2N regimes so the "
+                        "arm answers H1. The target is a master, so it carries its own 1/sqrt(N) "
+                        "noise: score against a held-out half, never against the target itself")
     p.add_argument("--half-pairs", action="store_true",
                    help="train on the half-master pair as a fourth regime (needs a cache "
                         "prepared from a bake that exports halves)")

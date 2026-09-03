@@ -288,9 +288,23 @@ namespace TianWen.AI.Imaging
                 throw new IOException($"retained master for {sessionId} could not be read");
             }
 
-            var selected = options.CellsPerSession > 0 && cells.Count > options.CellsPerSession
-                ? cells.Take(options.CellsPerSession).ToList()
-                : cells.ToList();
+            // Subsetting is a seeded SAMPLE, not a prefix. The P0 cells arrive sorted row-major, so
+            // taking the first N would take the top of the canvas: a training set drawn only from the
+            // top of every frame, with the field-radius covariate the deconvolver's H7 needs collapsed
+            // onto one edge. Seeded on the session id so a re-run picks the same cells, and re-sorted
+            // afterwards so the manifest order stays canonical.
+            var selected = cells.ToList();
+            if (options.CellsPerSession > 0 && selected.Count > options.CellsPerSession)
+            {
+                var rng = new Random(DrawSeed(options.Seed, sessionId, -1, -1, -1));
+                for (var i = selected.Count - 1; i > 0; i--)
+                {
+                    var j = rng.Next(i + 1);
+                    (selected[i], selected[j]) = (selected[j], selected[i]);
+                }
+                selected = selected.Take(options.CellsPerSession).ToList();
+                selected.Sort(static (a, b) => a.Y != b.Y ? a.Y.CompareTo(b.Y) : a.X.CompareTo(b.X));
+            }
 
             var slug = DatasetTileExporter.Sanitize(sessionId);
             var tilesDir = Path.Combine(options.OutDir, "tiles", slug);

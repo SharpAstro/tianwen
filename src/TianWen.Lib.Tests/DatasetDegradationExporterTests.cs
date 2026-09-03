@@ -260,7 +260,7 @@ namespace TianWen.Lib.Tests
 
             // The draw must differ from the clean tile by noise ONLY: same scene, same level, and a
             // difference whose spread matches the level the row claims to have injected.
-            var clean = ReadTile(outDir, $"tiles/{DatasetTileExporter.Sanitize(SessionId)}/x0_y0_master.f16");
+            var clean = ReadTile(outDir, CleanTileOf(rows[0]));
             var drawn = ReadTile(outDir, rows[0].Tile);
             var diff = new float[clean.Length];
             for (var i = 0; i < clean.Length; i++)
@@ -313,12 +313,46 @@ namespace TianWen.Lib.Tests
 
             // A blurred frame's brightest pixel is lower and its faint structure smoother: the peak of
             // the difference must be negative where the stars are.
-            var clean = ReadTile(outDir, $"tiles/{DatasetTileExporter.Sanitize(SessionId)}/x0_y0_master.f16");
+            var clean = ReadTile(outDir, CleanTileOf(rows[0]));
             var blurred = ReadTile(outDir, rows[0].Tile);
             var cleanPeak = clean.Max();
             var blurredPeak = blurred.Max();
             output.WriteLine($"added {rows[0].ExtraFwhmPx:F2} px (beta {rows[0].MoffatBeta:F2}): peak {cleanPeak:F4} -> {blurredPeak:F4}");
             ((double)blurredPeak).ShouldBeLessThan(cleanPeak, "adding blur must lower the brightest pixel");
+        }
+
+        /// <summary>
+        /// Subsetting cells must SAMPLE, not take a prefix: the P0 cells arrive sorted row-major, so a
+        /// prefix is the top of the canvas and a training set drawn from it sees one edge of every
+        /// frame. Seeded, so the same cells come back on a re-run.
+        /// </summary>
+        [Fact]
+        public async Task SubsettingCellsSamplesInsteadOfTakingTheTopOfTheFrame()
+        {
+            var bake = BuildBake();
+            var outA = Path.Combine(_root, "subset-a");
+            var outB = Path.Combine(_root, "subset-b");
+            var options = new DatasetDegradationExporter.Options(bake, outA, Draws: 1, CellsPerSession: 1, Seed: 3);
+
+            await DatasetDegradationExporter.RunAsync(options, logger: null, TestContext.Current.CancellationToken);
+            await DatasetDegradationExporter.RunAsync(options with { OutDir = outB }, logger: null, TestContext.Current.CancellationToken);
+
+            var a = ReadDegradationRows(outA).Single();
+            var b = ReadDegradationRows(outB).Single();
+            (a.CellX, a.CellY).ShouldBe((b.CellX, b.CellY), "the same seed must pick the same cell");
+
+            // The fixture's two cells are (0,0) and the bottom-right one; a prefix would always pick
+            // (0,0), so a seed that lands on the other one is what proves this samples.
+            var seeds = Enumerable.Range(1, 12).Select(async s =>
+            {
+                var dir = Path.Combine(_root, $"subset-s{s}");
+                await DatasetDegradationExporter.RunAsync(options with { OutDir = dir, Seed = s }, logger: null, TestContext.Current.CancellationToken);
+                var row = ReadDegradationRows(dir).Single();
+                return (row.CellX, row.CellY);
+            });
+            var picked = (await Task.WhenAll(seeds)).Distinct().ToArray();
+            output.WriteLine($"cells picked across 12 seeds: {string.Join(", ", picked.Select(p => $"({p.CellX},{p.CellY})"))}");
+            picked.Length.ShouldBeGreaterThan(1, "a prefix would pick the same cell for every seed");
         }
 
         [Fact]
@@ -384,6 +418,12 @@ namespace TianWen.Lib.Tests
                 .Where(static l => l.Length > 0)
                 .Select(static l => JsonSerializer.Deserialize<DatasetDegradationExporter.DegradationRow>(l)!)];
         }
+
+        /// <summary>The clean tile that pairs with a degraded row. Derived from the ROW's cell, never
+        /// hardcoded: which cell a session contributes is a seeded sample, so a fixed name is a test
+        /// that passes on the luck of the seed.</summary>
+        private static string CleanTileOf(DatasetDegradationExporter.DegradationRow row)
+            => $"tiles/{DatasetTileExporter.Sanitize(row.SessionId)}/x{row.CellX}_y{row.CellY}_{DatasetDegradationExporter.FrameClean}.f16";
 
         private static float[] ReadTile(string root, string relative)
         {
