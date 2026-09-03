@@ -599,3 +599,59 @@ effect. The pre-registration's own fear -- that an overlap could not separate "s
 from "this architecture cannot express shape" -- is answered by other means: shape moved reach and
 moved the residual, so the architecture expresses it. Shape changes what the model DOES and not the
 trade it OFFERS. If E2b is ever run, it runs at the power the question needs, on reach, not the trade.
+
+### 2026-09-04: the metric's "faint stars" are largely NOT stars on a nebula field
+
+Raised as a question -- might some of the faint stars be detail we misread as stars? -- and it is the
+most consequential thing this campaign has measured, because it changes what every number in it means.
+
+**`star_table` has no star test.** It accepts any 5x5 local maximum above median + 8 MAD. No PSF check,
+no roundness, no catalogue. On a pool that is 100 percent OSC narrowband emission nebulae that also
+admits knots, filament crests and dust-lane edges.
+
+**A shape proxy could not settle it.** Classifying peaks by second-moment FWHM and ellipticity against
+the population's OWN median said 96.9 percent were "PSF-like", which is close to worthless: the test
+is self-referential, and had the population been mostly knots the median would be a knot and knots
+would pass. It does establish one useful negative -- the gate1500-vs-shipped ranking is identical on
+every subset -- but it cannot answer the question asked.
+
+**An external catalogue can.** Plate-solve the master (`tianwen solve --update-fits`), project every
+detected peak, and ask Gaia DR3 whether a star is there. Two fields, both directions, coincidence floor
+quoted because a crowded field matches by chance:
+
+| field | peaks | matched | coincidence | expected star-peaks |
+|---|---|---|---|---|
+| M33 (galactic lat -31, sparse) | 1,754 | **99.6 %** | 10.3 % | ~100 % |
+| Great Orion (emission nebula) | 11,406 | **30.0 %** | 8.1 % | 33 % |
+
+**So on a nebula field about two thirds of the metric's "faint stars" have no star there**, while on a
+sparse field essentially all of them do. It is not noise (an 8-MAD peak over 9.3 Mpx is statistically
+impossible from Gaussian noise) and it is not catalogue truncation: the offline ASTAP D50 extract gave
+68 percent and untruncated Vizier, 21 percent deeper, gives 67 percent.
+
+**What it does and does not invalidate.** Every model was scored on the SAME peaks, so every ranking
+stands, `gate1500` over `shipped4000` included. What changes is the reading: "the shipped model spends
+32 percent of faint-star amplitude" is mostly "it flattens a third of the faint nebular structure",
+which for an image enhancer is the more serious charge, not a lesser one. It also explains the
+metric's oddest behaviour, flagged in `n2n_halfscore.py`'s own caveat as the direction flipping a third
+time: a model that reveals real nebulosity below the 8-MAD truth bar is scored as FABRICATING it.
+
+**Tooling, in `training/denoise/`.** `gaia_vizier.py` (TAP/ADQL, disk-cached per field),
+`gaia_d50.py` (offline ASTAP extract), `peak_audit.py` (both directions plus the coincidence floor).
+Three traps found while building it, each of which produced a plausible wrong answer first:
+
+- **ADQL `BOX` width is COORDINATE degrees of RA at CDS, not true angle.** Passing true angle narrows
+  the box by 1/cos(dec) and drops peaks near the RA edges: M33 read 90.0 percent instead of 99.6. The
+  tell was that a DEEPER catalogue matched FEWER, which is impossible; at Orion's -5.4 deg it would
+  have been invisible, and it would have been silently wrong on every northern field.
+- **A match rate is unreadable without its coincidence floor.** At Orion's peak density, 8.1 percent of
+  peaks match something by chance; the faint buckets of the reverse direction sit at exactly that.
+- **D50 is not a substitute where the image is deep.** It caps at 5000 stars/sqr(degree), and its
+  bright-end retention against Vizier (23 to 40 percent at BP 13 to 15) is not what a brightest-first
+  cut produces. Unexplained; the decode is validated against the format's own Sirius vector, the
+  traversal is not. Offline fallback only.
+
+**Next, and it is a change to the metric rather than to a model:** report amplitude on Gaia-CONFIRMED
+stars separately from amplitude on unmatched compact detail. Both matter and a denoiser should scrub
+neither, but conflating them is what made this unreadable. It needs one WCS per eval session, which is
+a one-off solve of six masters.
