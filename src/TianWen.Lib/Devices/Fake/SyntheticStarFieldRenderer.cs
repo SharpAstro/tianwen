@@ -50,11 +50,13 @@ internal static class SyntheticStarFieldRenderer
         double cloudCoverage = 0.0,
         int cloudSeed = 77,
         double cloudGlow = 200.0,
+        CloudLayer cloudLayer = CloudLayer.Altocumulus,
         float[,]? dest = null)
     {
         return Render(width, height, defocusSteps, offsetX: 0, offsetY: 0,
             hyperbolaA, hyperbolaB, exposureSeconds, skyBackground, readNoise, starCount, seed,
-            noiseSeed: noiseSeed, cloudCoverage: cloudCoverage, cloudSeed: cloudSeed, cloudGlow: cloudGlow, dest: dest);
+            noiseSeed: noiseSeed, cloudCoverage: cloudCoverage, cloudSeed: cloudSeed, cloudGlow: cloudGlow,
+            cloudLayer: cloudLayer, dest: dest);
     }
 
     /// <summary>
@@ -108,6 +110,7 @@ internal static class SyntheticStarFieldRenderer
         double cloudCoverage = 0.0,
         int cloudSeed = 77,
         double cloudGlow = 200.0,
+        CloudLayer cloudLayer = CloudLayer.Altocumulus,
         float[,]? dest = null)
     {
         var rng = new Random(seed);
@@ -220,8 +223,8 @@ internal static class SyntheticStarFieldRenderer
         }
         else if (cloudCoverage > 0)
         {
-            var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed);
-            ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds, cloudSeed);
+            var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed, cloudLayer);
+            ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds, cloudSeed, cloudLayer);
         }
 
         return data;
@@ -253,6 +256,7 @@ internal static class SyntheticStarFieldRenderer
         double cloudCoverage = 0.0,
         int cloudSeed = 77,
         double cloudGlow = 200.0,
+        CloudLayer cloudLayer = CloudLayer.Altocumulus,
         double apertureScaleFactor = 1.0,
         float[,]? dest = null)
     {
@@ -365,8 +369,8 @@ internal static class SyntheticStarFieldRenderer
         }
         else if (cloudCoverage > 0)
         {
-            var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed);
-            ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds, cloudSeed);
+            var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed, cloudLayer);
+            ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds, cloudSeed, cloudLayer);
         }
 
         return data;
@@ -513,8 +517,10 @@ internal static class SyntheticStarFieldRenderer
     /// <param name="coverage">Cloud coverage fraction (0.0 = clear, 1.0 = overcast). Controls threshold.</param>
     /// <param name="seed">Random seed for deterministic cloud patterns.</param>
     /// <returns>Float array [height, width] with opacity values in [0, 1].</returns>
-    internal static float[,] GenerateCloudMap(int width, int height, double coverage, int seed)
+    internal static float[,] GenerateCloudMap(int width, int height, double coverage, int seed,
+        CloudLayer layer = CloudLayer.Altocumulus)
     {
+        var profile = CloudLayerProfile.For(layer);
         var map = new float[height, width];
         if (coverage <= 0)
         {
@@ -524,13 +530,13 @@ internal static class SyntheticStarFieldRenderer
         // Multi-octave value noise with anisotropic scaling for streaky clouds.
         // Each octave uses its own random grid at a different frequency.
         var rng = new Random(seed);
-        const int octaves = 4;
-        var stretchX = 2.5; // horizontal stretch for streaky appearance
+        var octaves = profile.Octaves;
+        var stretchX = profile.StretchX; // horizontal stretch, drawn out along the wind
 
         // Accumulate weighted octaves into a float buffer
         var noise = new double[height, width];
         var totalWeight = 0.0;
-        var cellSize = 128.0; // coarse first octave; large cloud features
+        var cellSize = profile.CellSize; // coarse first octave; large cloud features
         var weight = 1.0;
 
         for (var oct = 0; oct < octaves; oct++)
@@ -596,7 +602,7 @@ internal static class SyntheticStarFieldRenderer
         //
         // With a fixed softness the covered region actually closes over as coverage rises, 1.0 becomes
         // continuous with 0.95 instead of a cliff, and the parameter means what its name says.
-        const double edgeSoftness = 0.15;
+        var edgeSoftness = profile.EdgeSoftness;
         var threshold = 1.0 - coverage;
         for (var y = 0; y < height; y++)
         {
@@ -617,11 +623,14 @@ internal static class SyntheticStarFieldRenderer
     /// <param name="cloudMap">Cloud opacity map [0=clear, 1=opaque].</param>
     /// <param name="cloudGlow">Background glow added where clouds are present (scattered light, in ADU).</param>
     /// <param name="seed">Seed for the glow's shot noise, so a frame stays reproducible.</param>
-    internal static void ApplyCloudMap(float[,] data, float[,] cloudMap, double cloudGlow, int seed)
+    internal static void ApplyCloudMap(float[,] data, float[,] cloudMap, double cloudGlow, int seed,
+        CloudLayer layer = CloudLayer.Altocumulus)
     {
         var height = data.GetLength(0);
         var width = data.GetLength(1);
         var rng = new Random(seed);
+        var profile = CloudLayerProfile.For(layer);
+        var glowCeiling = cloudGlow * profile.GlowScale;
 
         for (var y = 0; y < height; y++)
         {
@@ -631,7 +640,15 @@ internal static class SyntheticStarFieldRenderer
                 if (opacity > 0)
                 {
                     // Attenuate signal (stars + sky) and add cloud glow.
-                    var glow = cloudGlow * opacity;
+                    //
+                    // The glow is tied to what the cloud actually EXTINGUISHED (`1 - transmission`),
+                    // not to opacity directly. Ramping it linearly while extinction falls
+                    // exponentially takes light out faster than it puts it back, so a thin edge went
+                    // DARKER than clear sky -- 701 ADU at opacity 0.2 against a 1000 ADU sky, a dip
+                    // that rendered as a hard black rim around every patch. Cloud is not a hole.
+                    // Tied this way the brightness rises monotonically from sky to full glow and the
+                    // rim cannot exist.
+                    var glow = glowCeiling * (1.0 - Math.Exp(-profile.OpticalDepth * opacity));
 
                     // The glow is SCATTERED LIGHT, so it arrives as photons and carries its own shot
                     // noise. That term is what actually costs a detection, and leaving it out is why
@@ -656,8 +673,7 @@ internal static class SyntheticStarFieldRenderer
                     // starless frame. Optical depth makes extinction deepen continuously instead:
                     // exp(-6) is ~6.5 mag at full opacity, so a fully closed deck is starless on its
                     // own and 1.0 is no longer a cliff.
-                    const double opticalDepth = 6.0;
-                    var transmission = Math.Exp(-opticalDepth * opacity);
+                    var transmission = Math.Exp(-profile.OpticalDepth * opacity);
 
                     data[y, x] = (float)Math.Max(0.0, data[y, x] * transmission + glow + shot);
                 }

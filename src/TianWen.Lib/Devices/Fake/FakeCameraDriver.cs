@@ -737,6 +737,15 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
     public double CloudCoverage { get; set; }
 
     /// <summary>
+    /// Which deck <see cref="CloudCoverage"/> describes. Coverage says how much of the sky is
+    /// covered; this says what the covering is made of, and the two together are what decide
+    /// whether a session shrugs, pauses and recovers, or gives the target up. Thin cirrus over the
+    /// whole sky and a closed stratus deck are both coverage 1.0 and could hardly be less alike to
+    /// a star detector.
+    /// </summary>
+    public CloudLayer CloudLayer { get; set; } = CloudLayer.Altocumulus;
+
+    /// <summary>
     /// Test seam: when &gt; 0, the next <see cref="StartExposureAsync"/> call throws
     /// <see cref="System.IO.IOException"/> (classified as transient by
     /// <c>ResilientCall</c>) and decrements the counter. Use to script
@@ -1189,7 +1198,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                             : SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocus,
                                 stars: starSpan, offsetX: offsetX, offsetY: offsetY,
                                 exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
-                                cloudCoverage: CloudCoverage, cloudSeed: cloudSeed,
+                                cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, cloudLayer: CloudLayer,
                                 apertureScaleFactor: apertureScale, dest: dest);
                     }
                     else
@@ -1206,7 +1215,7 @@ internal sealed class FakeCameraDriver : FakeDeviceDriverBase, ICameraDriver, IV
                         array = SyntheticStarFieldRenderer.Render(imgWidth, imgHeight, defocusSteps: defocus,
                             offsetX: TotalStarOffset.X, offsetY: TotalStarOffset.Y,
                             exposureSeconds: exposureSec, noiseSeed: _frameRng.Next(),
-                            cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, dest: dest);
+                            cloudCoverage: CloudCoverage, cloudSeed: cloudSeed, cloudLayer: CloudLayer, dest: dest);
                     }
 
                     // Compute actual min/max of the rendered data. Vectorised via
