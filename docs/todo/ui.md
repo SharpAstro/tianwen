@@ -552,3 +552,11 @@ levers, both low priority because production (NativeAOT) first-open is already f
       handlers may rely on running their prefix on the render thread) and needs its own release, so
       the per-call-site offload above is the surgical fix for now.
 
+## GLSL shader cleanup
+
+- [ ] The stereographic-projection GLSL (`stereoProject`) is currently inlined into `skymap_star.vert`
+      / `skymap_line.vert` / `skymap_overlay.vert`. It was a shared C# const substituted at runtime via
+      a `PROJECTION_PLACEHOLDER` token; the switch to pre-baked SPIR-V (`tools/BakeShaders`) inlined it
+      into all three files. Restoring a single source (a BakeShaders placeholder or a `#include` step)
+      is a deferred cleanup.
+

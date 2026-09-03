@@ -65,7 +65,8 @@ It is resolved to a concrete mode before any `StretchUniforms` is built. Auto is
 the shader's numeric values for None/Linked/Unlinked/Luma are unchanged, and `StretchSolver` maps a
 stray Auto to Linked as a backstop.
 
-Resolution is the pure extension `mode.ResolveAuto(isColour, calibrationActive)` (`ViewerActions`):
+Resolution is the pure extension `mode.ResolveAuto(isColour, calibrationActive)`
+(`StretchModeExtensions`, TianWen.Lib, shared with the Explorer thumbnail renderer):
 
 | input | resolves to | why |
 |---|---|---|

@@ -149,7 +149,8 @@ TianWen; there were no other-repo strays to leave behind.
 ### Closed since the note was written
 
 - [x] **Auto stretch mode, and it should be the default** (08-27). SHIPPED. `StretchMode.Auto` is a UI
-  intent resolved by `ViewerActions.ResolveAutoStretchMode` *before* any `StretchUniforms` is built --
+  intent resolved by `StretchModeExtensions.ResolveAuto` (moved into TianWen.Lib 2026-09-02 to share
+  with the Explorer thumbnail renderer) *before* any `StretchUniforms` is built --
   never a shader mode -- and `ViewerActions.DefaultStretchMode` is `Auto`. It resolves to Linked when a
   colour calibration is active and Unlinked when it is not, which is the behaviour the note asked for.
   Pinned by `ViewerActionsTests.DefaultStretchMode_IsAuto` and `ColorCalibrationToggleTests`.
