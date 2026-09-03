@@ -53,6 +53,47 @@ sigma and of its median), principal direction, and low-order shape coefficients.
 direction correlating with the frame's `CENTAZ`-projected up-direction and with moon azimuth on
 moon-up nights. This table IS the injection distribution.
 
+**RESULT 2026-09-03 (G1): amplitude and horizon direction confirmed, "dominated by a linear term"
+half right, the Moon refuted.** `tianwen dataset gradient-report` over both bakes, independently:
+`2025-2026-darkscaled` (67 masters, 197 planes, 62 solved, 15 moon-up) and `2025-2026-organized`
+(51 masters, 153 planes, 51 solved, 14 moon-up). Reports and the per-master JSONL are in each bake's
+`stats/`. Read the second as a replication: every figure below lands within a few percent on it.
+
+- **Amplitude is real but the bulk sits an order of magnitude below the top of the predicted range.**
+  Peak-to-peak of the fitted model, in the plane's own background sigma: p5 0.83, p25 1.58, **p50
+  2.32**, p75 3.53, p95 13.66, max 18.2 (organized: 0.79 / 1.59 / **2.28** / 3.09 / 6.80). As a
+  fraction of the fit's median level: p50 8.3 %, p95 31 %. So the injection family must be *dense
+  near 1 to 4 sigma* with a tail to about 20, not uniform over 1 to 30: sampling the predicted range
+  uniformly would spend most of its capacity on gradients this archive does not contain.
+- **The amplitude is a property of the FIELD OF VIEW, not of the night.** Per camera, p-p / sigma
+  p50: ASI585MC Pro (the 24 mm wide field, 9 masters) **11.28** (p95 20.81), ASI1600MM Pro 8.56 (2
+  masters, so read it as a hint), SV605CC 2.42 (14), ASI533MC Pro 2.24 (42). Every master at or above
+  12 sigma is one of the 24 mm wide-field ones. The second bake is the natural control: it holds no
+  585 masters at all (SV605CC 2.57, ASI533MC 2.12) and its p95 is 6.80 against darkscaled's 13.66, so
+  the entire high tail is the wide field rather than a set of unusually bad nights. Condition the injection on
+  plate scale and frame coverage, or the wide-field frames define a tail the narrow ones never see.
+- **A dome is the plurality shape, so "dominated by a linear term" cannot be taken as "a ramp".**
+  Linear share of the peak-to-peak: p5 0.26, p50 0.64, p95 0.93; shape census over 197 planes is
+  Dome 100, Ramp 50, Saddle 40, Bowl 7 (organized: 88 / 33 / 27 / 5 of 153), and 100 of 197 planes
+  carry a dome deeper than a quarter of their linear range. Curvature median 1.11 sigma. **The
+  injection needs the quadratic term; a linear-only family would be off-distribution for half the
+  archive**, which is also why degree 2 is the right default for the classical fit.
+- **Direction tracks the horizon, and this is the one prediction that lands cleanly.** |brightening
+  minus anti-zenith| over the solved masters: p50 34 degrees, **58 % within 45 degrees** against 25 %
+  by chance (organized: p50 33, **61 %**), with 25 of 57 masters inside 30 degrees. It survives the
+  epoch caveat below, which can only have diluted it.
+- **The Moon is refuted, not merely unconfirmed.** On moon-up masters |brightening minus Moon PA| is
+  p50 112 degrees with **7 % within 45** (organized: p50 91, 7 %), i.e. materially WORSE than chance
+  in both bakes, over 15 and 14 masters. Whatever moonglow contributes here does not point away from
+  the Moon in the frame; do not condition the injection on Moon azimuth on this evidence. It stays
+  worth re-testing on a set selected for a bright Moon well clear of the horizon.
+- **Epoch caveat, and it bounds every direction figure above.** Covariates are evaluated at the
+  master's `DATE-OBS`, which is the reference sub's start rather than an exposure-weighted mid-session
+  instant, so the parallactic angle carries tens of degrees of uncertainty over a multi-hour session.
+  The horizon correlation is measured THROUGH that smearing; a mid-session epoch can only sharpen it.
+- **The fit itself:** kept fraction p50 0.79, iterations p50 11, canvas ring masked as absent 0.3 %
+  of a frame at the median. About 30 to 38 s per master in Release for a plate solve plus nine fits.
+
 **H2. Flatten-and-inject on masters alone gives enough scene diversity, given augmentation.** 67
 masters is few scenes, but each yields unlimited (gradient, target) pairs, and the covariates rotate
 with the scene under flips and rotations if the injector rotates them consistently.
@@ -190,8 +231,8 @@ convention every reference and the existing extractor share).
 
 | Step | What | Cost | Decides |
 |---|---|---|---|
-| G0 | **DONE 2026-09-02.** Background-extraction Phases 1 and 2 (the classical flattener, sample-free, linear, level-preserving) with its synthetic tests; two of its thresholds are reasoned rather than measured and G1's run over the masters is where they get measured | done, one day | H1 prerequisite, the baseline, the fallback |
-| G1 | Gradient-distribution report over all 67 masters (amplitude, direction, shape; joined to covariates) as a sibling of `psf-noise-report.md` | a day | H1; the injection family |
+| G0 | **DONE 2026-09-02.** Background-extraction Phases 1 and 2 (the classical flattener, sample-free, linear, level-preserving) with its synthetic tests; its two reasoned thresholds were measured by G1 and both are now settled (`background-extraction.md`) | done, one day | H1 prerequisite, the baseline, the fallback |
+| G1 | **DONE 2026-09-03.** Gradient-distribution report over both bakes (118 masters, 350 planes) as a sibling of `psf-noise-report.md`: `tianwen dataset gradient-report`, `stats/gradient-report.md` + `gradient-masters.jsonl` per bake. Answered H1 (see section 2) and measured both of G0's reasoned thresholds | done, a day | H1; the injection family |
 | G2 | Whole-frame linear exporter (masters; then the `ExportWholeFrame` sub option) with covariates and fitted coefficients per row | 1 to 2 days | H2, H3 data |
 | G3 | Airmass-pair control on the zenith-crossing sessions, no training | half a day | H7 |
 | G4 | Arm M, three seeds; nebulosity strata report; labelled comparison at full resolution on three Ha-rich masters | 3 x minutes | H2, H8 |
@@ -218,7 +259,7 @@ is. With this and P4 the in-house tier can run the whole canonical program.
 | Phase | Deliverable | Exit |
 |---|---|---|
 | P5.0 | **DONE 2026-09-02.** Classical flattener shipped (background-extraction Phases 1 and 2) | G0 |
-| P5.1 | Gradient-distribution report; whole-frame exporter; airmass control | G1, G2, G3 |
+| P5.1 | Gradient-distribution report (**G1 done 2026-09-03**); whole-frame exporter; airmass control | G1, G2, G3 |
 | P5.2 | Arm M and arm S answered with posted comparisons | G4, G5 |
 | P5.3 | Injection conditioning and the site prior; real-frame gate defined | G6, G7 |
 | P5.4 | v1 exported, wired, contract-asserted | G8 (optional), G9 |

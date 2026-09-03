@@ -415,6 +415,46 @@ public class ClassicalBackgroundExtractorTests(ITestOutputHelper output)
         unguarded.Cleaned.Release(); unguarded.Background.Release();
     }
 
+    /// <summary>
+    /// The G1 sweep over 67 real masters moved the model by exactly nothing between
+    /// <see cref="BackgroundExtractionOptions.SurfaceStructureThresholdSigma"/> 5, 10, 20 and 40: identical to two
+    /// decimals on every metric. That reads the same whether the threshold never binds on real data or is not wired
+    /// at all, and the two call for opposite responses, so pin the wiring here. Against a blob the surface WOULD
+    /// otherwise follow, a low threshold must mark it and a threshold no residual can reach must not.
+    /// </summary>
+    [Fact]
+    public async Task TheSurfaceStructureThresholdBindsWhenItIsLowEnoughToReachTheResidual()
+    {
+        var rng = new Random(8);
+        var plane = Plane((x, y) => Ramp(x, y) + Blob(x, y));
+        AddNoise(plane, rng, Noise);
+        var source = Mono(plane);
+        var extractor = new ClassicalBackgroundExtractor();
+        var options = WithSurface(BackgroundExtractionOptions.Default);
+
+        var binding = await extractor.ExtractAsync(source, options with { SurfaceStructureThresholdSigma = 1.5f }, TestContext.Current.CancellationToken);
+        var inert = await extractor.ExtractAsync(source, options with { SurfaceStructureThresholdSigma = 40f }, TestContext.Current.CancellationToken);
+
+        var bindingBg = binding.Background.GetChannelSpan(0);
+        var inertBg = inert.Background.GetChannelSpan(0);
+        var maxDelta = 0f;
+        for (var i = 0; i < bindingBg.Length; i++)
+        {
+            maxDelta = MathF.Max(maxDelta, MathF.Abs(bindingBg[i] - inertBg[i]));
+        }
+
+        var peakTruth = Blob(W / 2, H / 2);
+        var peakBinding = (binding.Cleaned.GetChannelSpan(0)[H / 2 * W + W / 2] - binding.Planes[0].Level) / peakTruth;
+        var peakInert = (inert.Cleaned.GetChannelSpan(0)[H / 2 * W + W / 2] - inert.Planes[0].Level) / peakTruth;
+        output.WriteLine($"surface threshold 1.5 vs 40: max model delta {maxDelta:E2} ({maxDelta / Noise:F1} noise sigma); blob peak kept {peakBinding:P0} vs {peakInert:P0}");
+
+        maxDelta.ShouldBeGreaterThan(Noise, $"the threshold moved the model by {maxDelta / Noise:F2} noise sigma, so it is not reaching the fit");
+        peakBinding.ShouldBeGreaterThan(peakInert, "marking the blob as structure keeps more of its peak than letting the surface follow it");
+
+        binding.Cleaned.Release(); binding.Background.Release();
+        inert.Cleaned.Release(); inert.Background.Release();
+    }
+
     [Fact]
     public async Task AnExclusionPolygonKeepsTheFitOutOfARegion()
     {

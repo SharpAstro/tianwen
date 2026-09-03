@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using System.Threading;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Stat;
@@ -40,8 +42,12 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
     /// </remarks>
     internal static class RobustBackgroundFit
     {
+        /// <param name="Coefficients">The polynomial stage's final coefficients in <see cref="BackgroundPolynomial"/>
+        /// order over the working grid, image units; empty when nothing was fitted. The surface stage adds to the
+        /// model but not to these.</param>
         internal readonly record struct FitOutcome(
-            int Iterations, bool Converged, float KeptFraction, float ExcludedFraction, float ResidualSigma, float ResidualRms);
+            int Iterations, bool Converged, float KeptFraction, float ExcludedFraction, float ResidualSigma, float ResidualRms,
+            ImmutableArray<double> Coefficients);
 
         private const float MadToSigma = 1.4826f;
 
@@ -75,7 +81,7 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
             if (validCount == 0)
             {
                 model.Clear();
-                return new FitOutcome(0, false, 0f, excludedFraction, 0f, 0f);
+                return new FitOutcome(0, false, 0f, excludedFraction, 0f, 0f, ImmutableArray<double>.Empty);
             }
 
             var kept = (bool[])valid.Clone();
@@ -95,13 +101,14 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
             var converged = false;
             var sigma = 0f;
             var rms = 0f;
+            var coefficients = ImmutableArray<double>.Empty;
 
             while (iterations < options.MaxIterations)
             {
                 ct.ThrowIfCancellationRequested();
                 iterations++;
 
-                FitPolynomial(plane, width, height, kept, options.PolynomialDegree, model);
+                coefficients = FitPolynomial(plane, width, height, kept, options.PolynomialDegree, model);
 
                 var m = 0;
                 var sumSq = 0.0;
@@ -184,7 +191,7 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                     model, kept, residual, scratch, temp!, compact!, seed, structure);
             }
 
-            return new FitOutcome(iterations, converged, (float)keptCount / validCount, excludedFraction, sigma, rms);
+            return new FitOutcome(iterations, converged, (float)keptCount / validCount, excludedFraction, sigma, rms, coefficients);
         }
 
         /// <summary>
@@ -432,26 +439,18 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
         /// all on one line, a one-pixel-wide plane) falls back one degree at a time down to the constant.
         /// The model is evaluated everywhere, kept or not.
         /// </summary>
-        internal static void FitPolynomial(ReadOnlySpan<float> plane, int width, int height, ReadOnlySpan<bool> kept, int degree, Span<float> model)
+        /// <returns>The coefficients actually used, in <see cref="BackgroundPolynomial"/> order for the degree
+        /// that solved (which is lower than <paramref name="degree"/> after a fallback); empty, with the model
+        /// cleared, when no pixel was kept.</returns>
+        internal static ImmutableArray<double> FitPolynomial(ReadOnlySpan<float> plane, int width, int height, ReadOnlySpan<bool> kept, int degree, Span<float> model)
         {
             var sx = width > 1 ? 2.0 / (width - 1) : 0.0;
             var sy = height > 1 ? 2.0 / (height - 1) : 0.0;
 
             for (var d = degree; d >= 0; d--)
             {
-                var terms = (d + 1) * (d + 2) / 2;
-                var expX = new int[terms];
-                var expY = new int[terms];
-                var t = 0;
-                for (var total = 0; total <= d; total++)
-                {
-                    for (var i = total; i >= 0; i--)
-                    {
-                        expX[t] = i;
-                        expY[t] = total - i;
-                        t++;
-                    }
-                }
+                var exponents = BackgroundPolynomial.Exponents(d);
+                var terms = exponents.Length;
 
                 var ata = new double[terms, terms];
                 var atb = new double[terms];
@@ -484,7 +483,7 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                         }
                         for (var a = 0; a < terms; a++)
                         {
-                            term[a] = xp[expX[a]] * yp[expY[a]];
+                            term[a] = xp[exponents[a].X] * yp[exponents[a].Y];
                         }
                         var v = (double)plane[idx];
                         for (var a = 0; a < terms; a++)
@@ -501,7 +500,7 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                 if (!any)
                 {
                     model.Clear();
-                    return;
+                    return ImmutableArray<double>.Empty;
                 }
                 for (var a = 0; a < terms; a++)
                 {
@@ -537,13 +536,18 @@ namespace TianWen.Lib.Imaging.BackgroundExtraction
                         var sum = 0.0;
                         for (var a = 0; a < terms; a++)
                         {
-                            sum += coefficients[a] * xp[expX[a]] * yp[expY[a]];
+                            sum += coefficients[a] * xp[exponents[a].X] * yp[exponents[a].Y];
                         }
                         model[row + x] = (float)sum;
                     }
                 }
-                return;
+                return ImmutableCollectionsMarshal.AsImmutableArray(coefficients);
             }
+
+            // Unreachable in practice: with any pixel kept the constant term's 1x1 system is positive
+            // definite. Stated rather than assumed, so a caller never reads a stale model.
+            model.Clear();
+            return ImmutableArray<double>.Empty;
         }
 
         /// <summary>

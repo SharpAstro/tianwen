@@ -367,8 +367,17 @@ Each verb maps to an enhancer / classical implementation that hasn't been wired 
   the reference review, not deferred.
 - [ ] `tianwen image flatten` options for the classical fit (background-extraction Phase 4): `--degree`,
   `--surface`, `--divide`, exclusion polygons, and a way to force classical over GraXpert; then the GUI
-  preview. The two structure thresholds (3 and 10 sigma) want measuring on real masters first
-  (gradient-remover-training.md G1).
+  preview. **The two structure thresholds were measured 2026-09-03 (G1, 118 masters) and neither is a
+  knob**: 3 is safe anywhere in 2 to 6, 10 is inert across 5 to 40 because a real surface residual never
+  reaches five sigma. Do NOT expose either on the CLI; expose `--surface`, which is the switch that
+  actually moves the model (0.40 sigma RMS p50, kept 0.795 to 0.581). See
+  [background-extraction.md](../plans/background-extraction.md), "The two thresholds, MEASURED".
+- [x] **Gradient-distribution report over the retained masters** (gradient-remover-training.md G1).
+  **DONE 2026-09-03**: `tianwen dataset gradient-report --masters <bake>/session-masters --out <bake>`
+  (`DatasetGradientReport`, `tools/run-gradient-report.ps1` for the detached run), append-only
+  `stats/gradient-masters.jsonl` + a rewritten `stats/gradient-report.md`. 118 masters over both bakes:
+  amplitude, shape, principal direction joined to altitude, azimuth, airmass, parallactic angle and Moon
+  geometry, plus a threshold sweep. The H1 verdict is in the plan.
 - [x] **Read Siril's gradient-correction scripts as a reference for the above** (user, 2026-08-18).
   **DONE 2026-09-02**: all three read in full and distilled into
   [background-extraction.md](../plans/background-extraction.md) "Reference review". Two of them
