@@ -162,6 +162,7 @@ var rootCommand = new RootCommand
             services.GetRequiredService<SharpenPipeline>(),
             services.GetRequiredService<IStarRemover>(),
             services.GetRequiredService<IGradientCorrector>(),
+            services.GetRequiredService<TianWen.Lib.Imaging.BackgroundExtraction.IBackgroundExtractor>(),
             new TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer(
                 services.GetRequiredService<TianWen.Lib.Astrometry.Catalogs.ICelestialObjectDB>(),
                 services.GetRequiredService<ILogger<TianWen.Lib.Imaging.Stacking.MasterPreviewRenderer>>()),

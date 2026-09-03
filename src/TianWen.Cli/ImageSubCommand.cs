@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
+using System.Numerics;
+using System.Diagnostics.CodeAnalysis;
 using System.CommandLine;
 using System.CommandLine.Parsing;
 using System.IO;
@@ -10,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using SharpAstro.Png;
 using TianWen.Lib.Astrometry;
 using TianWen.Lib.Imaging;
+using TianWen.Lib.Imaging.BackgroundExtraction;
 using TianWen.Lib.Imaging.Enhancement;
 using TianWen.Lib.Imaging.Stacking;
 using TianWen.UI.Abstractions;
@@ -25,6 +29,12 @@ namespace TianWen.Cli;
 /// is preserved by construction. MTF and GHS on stars were considered
 /// but dropped: GHS is undocumented for stars-only plates (per gh-astro.co.uk)
 /// and MTF on stars doesn't beat StarStretch.</summary>
+/// <summary>Which background model <c>tianwen image flatten</c> fits. <see cref="Auto"/> takes the
+/// registered <c>IGradientCorrector</c>, which is GraXpert BGE where its weights are installed and the
+/// classical fit otherwise; <see cref="Classical"/> and <see cref="Graxpert"/> name one and refuse to
+/// fall back, so a script gets the model it asked for on every machine.</summary>
+public enum FlattenBackend { Auto, Classical, Graxpert }
+
 public enum StarStretchMode { StarStretch, Asinh }
 
 /// <summary>Stretch selector for the starless plate (under
@@ -144,6 +154,7 @@ internal sealed class ImageSubCommand(
     SharpenPipeline sharpenPipeline,
     IStarRemover starRemover,
     IGradientCorrector gradientCorrector,
+    IBackgroundExtractor backgroundExtractor,
     MasterPreviewRenderer previewRenderer,
     ILogger<ImageSubCommand>? logger = null)
 {
@@ -991,15 +1002,48 @@ internal sealed class ImageSubCommand(
         {
             Description = "Also write the estimated background surface as <output>_gradient.fits (+ .png if --png is set). Useful for sanity-checking the gradient model - you can see whether it picked up light pollution vs vignette vs sky-glow asymmetry. Skipped by default to avoid leaking a 120 MB plate per call on large drizzles.",
         };
+        var backendOpt = new Option<FlattenBackend>("--backend")
+        {
+            Description = "'auto' (default) uses the registered IGradientCorrector: GraXpert BGE when its weights are installed, the classical fit otherwise. 'classical' always uses the classical polynomial fit and is what the tuning options below apply to. 'graxpert' demands the AI model and fails if it is absent rather than falling back silently.",
+            DefaultValueFactory = _ => FlattenBackend.Auto,
+        };
+        var degreeOpt = new Option<int?>("--degree")
+        {
+            Description = "Classical only. Polynomial degree, 0 to 6, on coordinates normalised to [-1, 1]. Default 2, which is what the three reference implementations agree on: 1 cannot follow a dome, and above 3 the fit starts following the nebula.",
+        };
+        var surfaceOpt = new Option<bool>("--surface")
+        {
+            Description = "Classical only. Add the inpainted low-pass surface on the polynomial's residual, which follows a light-pollution dome the quadratic cannot. OFF by default and measured to be the switch that matters: over 118 real masters it moves the model 0.40 sigma RMS at p50 and drops the kept fraction from 0.795 to 0.581, because a flexible surface hollows a frame-filling nebula.",
+        };
+        var downsampleOpt = new Option<int?>("--downsample")
+        {
+            Description = "Classical only. Block-mean factor for the working grid, 1 to 32. Default 4; a CFA mosaic is split first and fitted at half this. Larger is faster and stiffer.",
+        };
+        var divideOpt = new Option<bool>("--divide")
+        {
+            Description = "Classical only. Divide by the background instead of subtracting: for a MULTIPLICATIVE residue (vignetting a flat did not remove). The right fix for that is a better flat; this is the escape hatch when there is none. An additive gradient (light pollution, sky glow) must stay subtractive.",
+        };
+        var excludeOpt = new Option<string[]>("--exclude")
+        {
+            Description = "Classical only, repeatable. A region the fit must not sample, in FULL-IMAGE pixels: either a rectangle 'x0,y0,x1,y1' or a polygon 'x,y;x,y;x,y' with at least three vertices. The model is still EVALUATED there (the polynomial is defined everywhere), so an excluded galaxy core keeps a background under it.",
+            Arity = ArgumentArity.ZeroOrMore,
+            AllowMultipleArgumentsPerToken = true,
+        };
 
-        var cmd = new Command("flatten", "AI gradient correction via GraXpert BGE ONNX (subtractive). " +
-            "Estimates the smooth background (light pollution, vignette, sky-glow asymmetry) and " +
-            "subtracts it while preserving the mean sky level. Runs at the head of the canonical " +
-            "Frank Sackenheim flow (gradient -> stars -> detail -> stretch). Requires the GraXpert " +
-            "BGE model materialised via tools/tianwen-ai-models-fetch.ps1.")
+        var cmd = new Command("flatten", "Gradient correction: estimates the smooth background " +
+            "(light pollution, vignette, sky-glow asymmetry) and takes it out while preserving the " +
+            "mean sky level per plane. Runs at the head of the canonical Frank Sackenheim flow " +
+            "(gradient -> stars -> detail -> stretch). Two backends: the GraXpert BGE ONNX model when " +
+            "its weights are installed (tools/tianwen-ai-models-fetch.ps1), and the classical robust " +
+            "polynomial fit, which needs nothing and is what --degree/--surface/--downsample/" +
+            "--divide/--exclude tune. Passing any of those selects --backend classical.")
         {
             Arguments = { inputArg },
-            Options = { outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saveGradientOpt },
+            Options =
+            {
+                outputOpt, formatOpt, pngPqPeakNitsOpt, pngPqGamutOpt, saveGradientOpt,
+                backendOpt, degreeOpt, surfaceOpt, downsampleOpt, divideOpt, excludeOpt,
+            },
         };
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -1021,14 +1065,123 @@ internal sealed class ImageSubCommand(
             var gamutToBt2020 = parseResult.GetValue(pngPqGamutOpt) == PngPqGamut.Bt2020;
             var saveGradient = parseResult.GetValue(saveGradientOpt);
 
+            var degree = parseResult.GetValue(degreeOpt);
+            var downsample = parseResult.GetValue(downsampleOpt);
+            var surface = parseResult.GetValue(surfaceOpt);
+            var divide = parseResult.GetValue(divideOpt);
+            var excludeSpecs = parseResult.GetValue(excludeOpt) ?? [];
+            var tuned = degree.HasValue || downsample.HasValue || surface || divide || excludeSpecs.Length > 0;
+            var backend = parseResult.GetValue(backendOpt);
+            if (tuned && backend == FlattenBackend.Auto)
+            {
+                // A tuning option under 'auto' would be SILENTLY ignored whenever the GraXpert weights
+                // happen to be installed, which is the machine-dependent half of a two-machine bug.
+                // Selecting the backend the options belong to is the only reading that cannot surprise.
+                backend = FlattenBackend.Classical;
+            }
+            else if (tuned && backend != FlattenBackend.Classical)
+            {
+                consoleHost.WriteError("--degree/--downsample/--surface/--divide/--exclude tune the classical fit and have no meaning for --backend graxpert.");
+                src.Release();
+                return 1;
+            }
+
+            var exclusions = ImmutableArray<ExclusionPolygon>.Empty;
+            if (excludeSpecs.Length > 0)
+            {
+                var built = ImmutableArray.CreateBuilder<ExclusionPolygon>(excludeSpecs.Length);
+                foreach (var spec in excludeSpecs)
+                {
+                    if (!TryParseExclusion(spec, out var polygon))
+                    {
+                        consoleHost.WriteError($"--exclude: cannot read '{spec}'. Use a rectangle 'x0,y0,x1,y1' or a polygon 'x,y;x,y;x,y'.");
+                        src.Release();
+                        return 1;
+                    }
+                    built.Add(polygon);
+                }
+                exclusions = built.MoveToImmutable();
+            }
+
+            if (backend == FlattenBackend.Graxpert && !gradientCorrector.Name.Contains("GraXpert", StringComparison.OrdinalIgnoreCase))
+            {
+                // Naming a backend has to mean it. 'auto' is the mode that silently substitutes; asking
+                // for GraXpert on a machine without its weights and quietly getting the classical fit
+                // would make a script's output depend on which box it ran on.
+                consoleHost.WriteError(
+                    "--backend graxpert: the GraXpert BGE weights are not installed, so the active corrector is "
+                    + $"'{gradientCorrector.Name}'. Install them (tools/tianwen-ai-models-fetch.ps1, or GraXpert's own cache), "
+                    + "or use --backend classical / --backend auto.");
+                return 1;
+            }
+
+            BackgroundExtractionOptions? classicalOptions = null;
+            if (backend == FlattenBackend.Classical)
+            {
+                classicalOptions = BackgroundExtractionOptions.Default with
+                {
+                    PolynomialDegree = degree ?? BackgroundExtractionOptions.Default.PolynomialDegree,
+                    Downsample = downsample ?? BackgroundExtractionOptions.Default.Downsample,
+                    SurfaceRefinement = surface,
+                    Correction = divide ? BackgroundCorrection.Divide : BackgroundCorrection.Subtract,
+                    Exclusions = exclusions,
+                };
+                try
+                {
+                    classicalOptions.Validate();
+                }
+                catch (ArgumentException ex)
+                {
+                    consoleHost.WriteError($"flatten: {ex.Message}");
+                    src.Release();
+                    return 1;
+                }
+            }
+
             consoleHost.WriteScrollable(
-                $"[flatten] {input} {src.Width}x{src.Height}x{src.ChannelCount}{(saveGradient ? " save-gradient=true" : "")}");
+                $"[flatten] {input} {src.Width}x{src.Height}x{src.ChannelCount} backend={backend.ToString().ToLowerInvariant()}"
+                + (classicalOptions is { } o
+                    ? $" degree={o.PolynomialDegree} downsample={o.Downsample} surface={o.SurfaceRefinement}"
+                      + $" {o.Correction.ToString().ToLowerInvariant()}"
+                      + (exclusions.Length > 0 ? $" exclusions={exclusions.Length}" : "")
+                    : "")
+                + (saveGradient ? " save-gradient=true" : ""));
 
             Image flattened;
             Image? background = null;
             try
             {
-                if (saveGradient)
+                if (classicalOptions is { } options)
+                {
+                    // The classical extractor hands back the model whether or not it was asked, so
+                    // --save-gradient costs nothing here and the "no separate surface" note below is
+                    // unreachable on this path.
+                    var result = await backgroundExtractor.ExtractAsync(normalised, options, ct);
+                    flattened = result.Cleaned;
+                    background = saveGradient ? result.Background : null;
+                    if (!saveGradient)
+                    {
+                        result.Background.Release();
+                    }
+
+                    // The kept fraction is the one number that says whether the fit sampled the sky or
+                    // the object: it is the share of working pixels the final iteration was made on, and
+                    // a frame-filling nebula drives it down. G1 measured 0.795 with the surface off
+                    // against 0.581 with it on over 118 real masters, so a run well under that is the
+                    // signal to look at --exclude or to turn --surface back off.
+                    foreach (var plane in result.Planes)
+                    {
+                        consoleHost.WriteScrollable(
+                            $"[flatten]   plane {plane.Plane}: kept {plane.KeptFraction:P1}"
+                            // P2, and only above a hundredth of a percent: a TianWen master's canvas
+                            // ring makes this nonzero on almost every real frame, and "excluded 0.0%"
+                            // reads as a bug rather than as the edge blocks it is.
+                            + (plane.ExcludedFraction >= 1e-4f ? $" excluded {plane.ExcludedFraction:P2}" : "")
+                            + $" residual {plane.ResidualSigma:0.###e+0} sigma, level {plane.Level:0.####}"
+                            + $", {plane.Iterations} iterations{(plane.Converged ? "" : " (NOT converged)")}");
+                    }
+                }
+                else if (saveGradient)
                 {
                     (flattened, background) = await gradientCorrector.EnhanceAndEstimateBackgroundAsync(normalised, ct);
                 }
@@ -1084,6 +1237,61 @@ internal sealed class ImageSubCommand(
             return 0;
         });
         return cmd;
+    }
+
+    /// <summary>
+    /// Reads one <c>--exclude</c> value: a rectangle <c>x0,y0,x1,y1</c> or a polygon
+    /// <c>x,y;x,y;x,y</c>. Both are FULL-IMAGE pixel coordinates. The two shapes are told apart by the
+    /// separator rather than by counting, so a four-vertex polygon is still a polygon.
+    /// </summary>
+    internal static bool TryParseExclusion(string spec, [NotNullWhen(true)] out ExclusionPolygon? polygon)
+    {
+        polygon = null;
+        if (string.IsNullOrWhiteSpace(spec))
+        {
+            return false;
+        }
+
+        if (spec.Contains(';', StringComparison.Ordinal))
+        {
+            var parts = spec.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length < 3)
+            {
+                return false;
+            }
+            var vertices = ImmutableArray.CreateBuilder<Vector2>(parts.Length);
+            foreach (var part in parts)
+            {
+                var xy = part.Split(',', StringSplitOptions.TrimEntries);
+                if (xy.Length != 2
+                    || !float.TryParse(xy[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x)
+                    || !float.TryParse(xy[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y))
+                {
+                    return false;
+                }
+                vertices.Add(new Vector2(x, y));
+            }
+            polygon = new ExclusionPolygon(vertices.MoveToImmutable());
+            return true;
+        }
+
+        var n = spec.Split(',', StringSplitOptions.TrimEntries);
+        if (n.Length != 4)
+        {
+            return false;
+        }
+        var v = new float[4];
+        for (var i = 0; i < 4; i++)
+        {
+            if (!float.TryParse(n[i], NumberStyles.Float, CultureInfo.InvariantCulture, out v[i]))
+            {
+                return false;
+            }
+        }
+        // Order the corners so '400,300,100,200' means the same rectangle as '100,200,400,300'.
+        polygon = ExclusionPolygon.Rectangle(
+            MathF.Min(v[0], v[2]), MathF.Min(v[1], v[3]), MathF.Max(v[0], v[2]), MathF.Max(v[1], v[3]));
+        return true;
     }
 
     // -------- tianwen image render -------------------------------------
