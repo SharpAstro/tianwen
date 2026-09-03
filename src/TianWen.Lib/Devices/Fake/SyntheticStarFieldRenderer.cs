@@ -221,7 +221,7 @@ internal static class SyntheticStarFieldRenderer
         else if (cloudCoverage > 0)
         {
             var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed);
-            ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds);
+            ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds, cloudSeed);
         }
 
         return data;
@@ -366,7 +366,7 @@ internal static class SyntheticStarFieldRenderer
         else if (cloudCoverage > 0)
         {
             var cloudMap = GenerateCloudMap(width, height, cloudCoverage, cloudSeed);
-            ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds);
+            ApplyCloudMap(data, cloudMap, cloudGlow * exposureSeconds, cloudSeed);
         }
 
         return data;
@@ -577,17 +577,33 @@ internal static class SyntheticStarFieldRenderer
             weight *= 0.5;     // halve amplitude
         }
 
-        // Normalize and threshold
+        // Normalize and threshold.
+        //
+        // The threshold sets WHAT FRACTION of the sky is covered; the softness sets how fast a patch
+        // goes from clear to opaque at its edge. Those are separate facts and the divisor must be the
+        // second one. It used to be `1.0 - threshold`, which is just `coverage` again -- so the ramp
+        // FLATTENED as coverage rose, and the model was not monotonic in its own parameter: at
+        // coverage 1.0 the opacity reduced to the raw noise (mean ~0.5, i.e. half-attenuation),
+        // strictly LESS obscuring than the steep ramp at coverage 0.5.
+        //
+        // Measured end to end on the imaging path (detected stars against a clear-sky baseline of 41):
+        // coverage 0.5 -> 19 stars, then 0.6 -> 25, and 0.7/0.8/0.9/0.95 all -> 26, before falling off
+        // a cliff to 0 at exactly 1.0 where ApplyUniformOvercast takes over. More cloud, more stars.
+        // Everything from 0.6 up sat on that 0.634 plateau, which is why a session test asking for a
+        // 40% star-count drop at coverage 0.8 could never see one, and why two guider tests had
+        // already been moved to a hard 1.0 with a comment about "partial cloud attenuation" rather
+        // than the parameter being fixed.
+        //
+        // With a fixed softness the covered region actually closes over as coverage rises, 1.0 becomes
+        // continuous with 0.95 instead of a cliff, and the parameter means what its name says.
+        const double edgeSoftness = 0.15;
         var threshold = 1.0 - coverage;
         for (var y = 0; y < height; y++)
         {
             for (var x = 0; x < width; x++)
             {
                 var v = noise[y, x] / totalWeight;
-                var opacity = threshold < 1.0
-                    ? Math.Clamp((v - threshold) / (1.0 - threshold), 0, 1)
-                    : v;
-                map[y, x] = (float)opacity;
+                map[y, x] = (float)Math.Clamp((v - threshold) / edgeSoftness, 0, 1);
             }
         }
 
@@ -600,10 +616,12 @@ internal static class SyntheticStarFieldRenderer
     /// <param name="data">Image data array to modify in-place.</param>
     /// <param name="cloudMap">Cloud opacity map [0=clear, 1=opaque].</param>
     /// <param name="cloudGlow">Background glow added where clouds are present (scattered light, in ADU).</param>
-    internal static void ApplyCloudMap(float[,] data, float[,] cloudMap, double cloudGlow)
+    /// <param name="seed">Seed for the glow's shot noise, so a frame stays reproducible.</param>
+    internal static void ApplyCloudMap(float[,] data, float[,] cloudMap, double cloudGlow, int seed)
     {
         var height = data.GetLength(0);
         var width = data.GetLength(1);
+        var rng = new Random(seed);
 
         for (var y = 0; y < height; y++)
         {
@@ -612,8 +630,36 @@ internal static class SyntheticStarFieldRenderer
                 var opacity = cloudMap[y, x];
                 if (opacity > 0)
                 {
-                    // Attenuate signal (stars + sky) and add cloud glow
-                    data[y, x] = (float)(data[y, x] * (1.0 - opacity * 0.9) + cloudGlow * opacity);
+                    // Attenuate signal (stars + sky) and add cloud glow.
+                    var glow = cloudGlow * opacity;
+
+                    // The glow is SCATTERED LIGHT, so it arrives as photons and carries its own shot
+                    // noise. That term is what actually costs a detection, and leaving it out is why
+                    // a uniformly overcast frame used to detect as many stars as a clear one: this
+                    // runs AFTER FillBackground, so the image already has its noise baked in, and a
+                    // multiply-plus-constant then scales signal and noise TOGETHER -- SNR, and with
+                    // it the star count, comes out unchanged no matter how opaque the cloud. Only
+                    // PATCHY cloud ever cost anything, via the spatial structure rather than the
+                    // extinction. Measured on the imaging path against a 41-star clear baseline,
+                    // uniform opacity at coverage 0.9 detected 38.
+                    // Uniform in +/-sqrt(glow) to match FillBackground's uniform-band convention
+                    // rather than mixing a Gaussian in here; sigma is ~0.58*sqrt(glow).
+                    var shot = glow > 0 ? (rng.NextDouble() * 2.0 - 1.0) * Math.Sqrt(glow) : 0.0;
+
+                    // Beer-Lambert, not a linear cap. This used to be `1.0 - opacity * 0.9`, which
+                    // bottoms out at 10% transmission -- only 2.5 magnitudes of extinction, so the
+                    // brightest stars punched through however opaque the cloud was, and the star
+                    // count stopped responding to coverage well before overcast. That is what the
+                    // "partial cloud attenuation caps at 90% and lets the brightest star through"
+                    // comments in the guider tests were describing, and why they had to reach for a
+                    // hard 1.0 (a different branch entirely, which renders no stars at all) to get a
+                    // starless frame. Optical depth makes extinction deepen continuously instead:
+                    // exp(-6) is ~6.5 mag at full opacity, so a fully closed deck is starless on its
+                    // own and 1.0 is no longer a cliff.
+                    const double opticalDepth = 6.0;
+                    var transmission = Math.Exp(-opticalDepth * opacity);
+
+                    data[y, x] = (float)Math.Max(0.0, data[y, x] * transmission + glow + shot);
                 }
             }
         }

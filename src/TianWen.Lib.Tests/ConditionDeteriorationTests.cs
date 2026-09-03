@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Shouldly;
 using TianWen.Lib.Devices.Fake;
@@ -77,6 +78,49 @@ public sealed class ConditionDeteriorationTests
         var ratio = (float)overcastStars.Count / clearStars.Count;
         ratio.ShouldBeLessThan(0.7f,
             $"Heavy clouds should reduce stars to <70% of clear ({overcastStars.Count}/{clearStars.Count} = {ratio:F2})");
+    }
+
+    /// <summary>
+    /// The property the model lacked: more cloud must never mean more stars. It was not monotonic in
+    /// its own parameter, and the plateau that created is what a session test asking for a 40%
+    /// star-count drop at coverage 0.8 kept landing on. Measured on the imaging path against a
+    /// 41-star clear baseline before the fix: 0.5 -> 19, then 0.6 -> 25 and 0.7/0.8/0.9/0.95 all -> 26,
+    /// with a cliff to 0 only at exactly 1.0 (a different branch, which renders no stars at all).
+    /// <para>
+    /// Three separate causes, all of them fixed: the opacity ramp was divided by <c>1 - threshold</c>,
+    /// which IS the coverage, so the ramp flattened as coverage rose; the glow was noiseless, and
+    /// since the cloud is applied to an image whose noise is already baked in, a uniform
+    /// multiply-plus-constant left SNR -- and the star count -- untouched; and extinction was capped
+    /// at 90%, only 2.5 magnitudes, so the brightest stars punched through any overcast.
+    /// </para>
+    /// A fixed cloud seed is used so this measures the coverage parameter and not the weather.
+    /// </summary>
+    [Fact]
+    public async Task StarCount_IsMonotonicallyNonIncreasing_InCloudCoverage()
+    {
+        var coverages = new[] { 0.0, 0.2, 0.4, 0.6, 0.8, 0.95 };
+        var counts = new int[coverages.Length];
+
+        for (var i = 0; i < coverages.Length; i++)
+        {
+            var data = SyntheticStarFieldRenderer.Render(
+                Width, Height, defocusSteps: 0, exposureSeconds: Exposure,
+                starCount: 80, seed: Seed, noiseSeed: 1,
+                cloudCoverage: coverages[i], cloudSeed: 77);
+            counts[i] = (await ToImage(data).FindStarsAsync(0, snrMin: 5, maxStars: 200,
+                cancellationToken: TestContext.Current.CancellationToken)).Count;
+        }
+
+        var report = string.Join(", ", coverages.Zip(counts, (c, n) => $"{c:F2}->{n}"));
+        counts[0].ShouldBeGreaterThan(10, $"clear sky must detect plenty of stars ({report})");
+
+        for (var i = 1; i < counts.Length; i++)
+        {
+            counts[i].ShouldBeLessThanOrEqualTo(counts[i - 1],
+                $"raising cloud coverage must never RAISE the detected star count ({report})");
+        }
+
+        counts[^1].ShouldBe(0, $"a nearly closed deck must be starless, not merely dimmer ({report})");
     }
 
     [Fact]
