@@ -338,7 +338,14 @@ Each step: verify with the 1649-test suite + the init time harness in
 `CelestialObjectDBBenchmarkTests.GivenNewDBWhenInitializingThenItCompletesInUnder20Seconds`
 (prints per-phase breakdown).
 
-## Phase 2: Pre-bake init state (~280–400 ms savings target)
+## Phase 2: Pre-bake init state (~280–400 ms savings target) -- **DONE 2026-09-03**
+
+> **2A and 2B shipped 2026-05-05** (see the status block at the top of this file). **2C is
+> closed in both halves**: the Tycho-2 bulk load measured 0.3 ms of init on 2026-08-31 once
+> `ExpandTycho2`/`ExpandTycho2CrossRef` moved the decompression to build time, and the BFS
+> half was **superseded rather than implemented** -- see [§ 2C] below. Init went 729 -> 343 ms
+> against a 280–400 ms target, and the largest surviving phase, `hd-hip-cross` at 121.8 ms,
+> IS 2A's deserialise-and-apply path rather than the 330 ms recompute it replaced.
 
 Format migration is done; remaining cost is **dict mutation**, which can't be
 parallelised further without changing semantics. The next step is to skip the
@@ -464,11 +471,42 @@ from the embedded `.gs.gz` files + `_predefinedObjects`.
 Defer until 2A ships and we've measured the deserialise-and-apply cost
 empirically. Phase 2A's binary format will likely be reusable here.
 
-### 2C. Lookup-speed BFS pooling (separate, smaller win)
+### 2C. Lookup-speed BFS pooling (separate, smaller win) -- **SUPERSEDED 2026-08-09**
 
 (Was previously the secondary section below.) Out of scope for Phase 2's main
 win but tackle in the same PR series if 2A's `ApplyHdHipCrossSnapshot` happens
 to land the same `FrozenDictionary` shape.
+
+**Neither option below was taken, and the reason is that a third one dominates
+both.** `_crossIndexClosures` (`CelestialObjectDB.cs`, commit `a7c7f9a2`) memoises
+`TryGetCrossIndices` in a lazy `ConcurrentDictionary`, which is legitimate because
+`_crossIndexLookuptable` is append-only during init and frozen afterwards -- an
+index's closure is a fixed function of it and cannot change. That lands the
+*second* option's outcome (a single dict hit, zero alloc on the repeat) **without
+its ~50 ms of extra init**, since entries appear only for indices something
+actually asks about, and it removes the walk that the *first* option would have
+kept while merely pooling its scratch.
+
+**It was found by measuring the sky map, not by working this plan**, which is why
+the trade looks different from the one sketched here. A full-sky overlay gather
+allocated 78.1 MB per pass; `GC.GetAllocatedBytesForCurrentThread` deltas around
+each phase of the sweep put **53.89 MB of that in `TryGetCrossIndices` alone**.
+With the memo (plus a `RaDecIndex` per-cell merge cache and the overlay no longer
+asking the same question twice per object) the gather measured **22.98 MB and
+84.8 ms against 78.1 MB and 105.7 ms, Gen0/1000 8833 -> 1833**. The GC pressure is
+the part that mattered: the gather runs off the render thread, so the frame felt
+the collections rather than the walk.
+
+Two details worth keeping:
+
+- **The early-out for an index with no cross-reference row shipped alongside and
+  is not what fixed it.** 113k of the 151k objects a full-sky sweep visits DO have
+  a row, so it answers only a quarter of calls. Anything that credits the early-out
+  for the allocation drop is misreading the measurement.
+- **Cost, stated:** the cache is resident memory, up to roughly 20 MB once a session
+  has swept the whole sky, against 54 MB of churn per pass. Worth it for a desktop
+  app already holding a 2.5M-star catalog; the trade would want revisiting if this
+  ever ran somewhere small.
 
 ## Out-of-Scope (explicitly NOT touched)
 
@@ -502,7 +540,11 @@ to land the same `FrozenDictionary` shape.
   `.msgpack.lz` (will be LFS-tracked by the `*.lz` glob). Local dev with LFS
   materialised is fine; CI `lfs: true` already fetches real content.
 
-## Lookup Speed (secondary)
+## Lookup Speed (secondary) -- **CLOSED, see [§ 2C]**
+
+The two options below were the menu; neither was chosen, because memoising the
+closure beats both. The measurements and the reasoning are in § 2C above -- read
+that rather than this, which is kept for the shape of the original question.
 
 Lookup is already fast (90 ns `TryLookupByIndex`, 722 ns `TryGetCrossIndices`
 with 4 KB alloc from per-call BFS) per the `CelestialObjectDBBenchmarks`. The

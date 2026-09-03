@@ -33,7 +33,7 @@ Status of every `PLAN-*.md` in the repo root, cross-checked against the codebase
 | [first-light-resilience](first-light-resilience.md) | **DONE** (2 of 3 sub-plans shipped; sub-plan 3 deferred) |
 | [driver-resilience](driver-resilience.md) | **DONE** (merged to main as 6 PRs + ARCH doc) |
 | [fov-obstruction-detection](fov-obstruction-detection.md) | **DONE** (merged to main; scout UI/WebSocket surfacing, single-frame retry, Layer-2 recovery test all shipped) |
-| [catalog-binary-format](catalog-binary-format.md) | **PARTIAL ~85%** (Option D + Phase 2A + 2B shipped; Phase 2C Tycho-2 bulk load deferred) |
+| [catalog-binary-format](catalog-binary-format.md) | **DONE** (Option D + Phase 2A + 2B + both halves of 2C; init 729 -> 343 ms) |
 | [polar-alignment](polar-alignment.md) | **DONE ~85%** (Phases 1-5 shipped; refraction-corrected apparent pole + live pressure/temperature still pending) |
 | [gpu-stretch-tests](gpu-stretch-tests.md) | **DONE ~90%** (Phases 1-4 + follow-ups D & F shipped; Phase 5 separate-CI-job replaced by inline `test-unit` run with mesa-vulkan-drivers) |
 | [icc](icc.md) | **DONE ~95%** (Tiff 3.0 + new SharpAstro.Jpeg consumed; display helper + Nina JPEG injection wired) |
@@ -182,7 +182,7 @@ Not shipped (TODO.md lines 142, 146):
 - **Refraction-corrected apparent pole.** `PolarAlignmentSession.cs:658-659` literally sets `RefractedPoleRaHours: trueRa` / `RefractedPoleDecDeg: trueDec`; the apparent-pole rings draw on the true pole. Decomposition gauges already use refraction-aware math (correct numbers), only the overlay center is stale. Matters most at lat ≤ 35°.
 - **Live site pressure/temperature.** DONE (`feat/top-5-todo`, 2026-06-12) via `SiteConditions.Resolve(IWeatherDriver?)` -> the 1010/10 hardcode is gone; live weather feeds refraction, else pressure derives from elevation. Unblocks polar-alignment refraction. (Values deliberately not profile-stored -- they vary.)
 
-## catalog-binary-format: PARTIAL ~85%
+## catalog-binary-format: DONE
 
 Plan now leads with **Option D** (ASCII-separated text + `tools/preprocess-catalog.ps1`
 MSBuild step) instead of Option A (MessagePack). Tycho2 stays untouched (parallel
@@ -197,7 +197,7 @@ multi-member lzip already optimal; gzip would lose parallelism, see plan doc).
 - Catalog rollout: **DONE**, all 13 SIMBAD catalogs (HR, GUM, RCW, LDN, Dobashi, Sh, Barnard, Ced, CG, vdB, DG, HH, Cl) and both NGC (NGC, NGC.addendum) shipped on the `.gs.gz` path.
 - Compression swap (lzip → gzip on `.gs` files): **DONE**; bench showed BCL GZipStream is 4-8× faster on small single-stream payloads, +2.3 % on size (1,001 KB → 1,024 KB embedded).
 - Tests: **DONE**, 1,841 unit tests pass against the migrated format; `CelestialObjectDBBenchmarkTests` prints per-phase breakdown.
-- Secondary lookup speed improvement (`ArrayPool` BFS / frozen-dict transitive closure): **NOT STARTED**.
+- Secondary lookup speed improvement (`ArrayPool` BFS / frozen-dict transitive closure): **SUPERSEDED** by `_crossIndexClosures`, see Phase 2C below.
 
 **Phase 1 numbers (post-migration, post-gzip):**
 
@@ -208,11 +208,13 @@ multi-member lzip already optimal; gzip would lose parallelism, see plan doc).
 
 The hot phases are now dict-mutation work, not parse work; what Phase 2 is for.
 
-**Phase 2 (pre-bake init state): 2A SHIPPED:**
+**Phase 2 (pre-bake init state): DONE (2A + 2B + 2C):**
 
 - 2A SHIPPED (2026-05-05): `tools/precompute-hd-hip-cross/` bakes the post-`BuildHdHipCrossIndicesViaTyc` state into `hd_hip_cross.bin.gz` (~2.4 MB embedded). Runtime apply takes ~110 ms (parallel SHA-256 input hash + gzip read + dict mutation) vs ~460 ms live compute. Net saving: ~350 ms on the hd-hip-cross phase. CI guards in `HdHipCrossSnapshotTests` catch staleness + algorithm-vs-snapshot drift. Re-bake via `pwsh tools/precompute-hd-hip-cross.ps1`.
 	- 2B SHIPPED (2026-05-05): `tools/precompute-simbad-merge.ps1` bakes the post-SIMBAD-merge state into `simbad_merge.bin.gz` (~754 KB embedded). Runtime apply skips ~180 ms of parse + dict-mutation work across 14 catalogs. Same hash-verify-then-apply pattern as 2A. CI guards in `SimbadMergeSnapshotTests` (commit `8da9b16`). Re-bake via `pwsh tools/precompute-simbad-merge.ps1`.
-	- 2C: Tycho-2 bulk load **deferred**; BFS pooling for secondary lookups also not started.
+	- 2C SHIPPED in both halves (2026-09-03 close-out). **Tycho-2 bulk load: 0.3 ms of init**, measured 2026-08-31 -- `ExpandTycho2` plus the background task closed it, and `ExpandTycho2CrossRef` then caught `hip_to_tyc`/`hd_to_tyc` still lzip-decompressing at runtime (274.7 ms). **Init 587 -> 343 ms, the blocking join phase 269.9 -> 0.0 ms.**
+	- **The BFS half was superseded, not skipped** (`a7c7f9a2`, 2026-08-09): `_crossIndexClosures` memoises `TryGetCrossIndices` lazily, which is the frozen-dict option's outcome without its ~50 ms of init, and it removes the walk the `ArrayPool` option would have kept. Found by measuring the sky map's full-sky overlay gather (78.1 MB a pass, **53.89 MB of it in `TryGetCrossIndices`**) -> **22.98 MB, 105.7 -> 84.8 ms, Gen0/1000 8833 -> 1833**. The missing-row early-out shipped with it and answers only a quarter of calls, so it is not what did the work.
+	- **Nothing actionable remains.** `hd-hip-cross` at 121.8 ms is the largest surviving phase and IS 2A's deserialise-and-apply path, not the 330 ms recompute it replaced. Phase 2 targeted 280-400 ms; init went 729 -> 343 ms.
 
 ## gpu-stretch-tests: DONE ~90%
 
@@ -275,9 +277,9 @@ and a breaking-change bump on `SharpAstro.Tiff`.
 
 ## Bottom line
 
-- **Shipped:** serial-probe (merged), driver-resilience (merged), fov-obstruction-detection (merged), polar-alignment (merged, refraction polish pending), gpu-stretch-tests (Phases 1-4 + follow-ups D & F), icc (all four phases).
+- **Shipped:** serial-probe (merged), driver-resilience (merged), fov-obstruction-detection (merged), polar-alignment (merged, refraction polish pending), gpu-stretch-tests (Phases 1-4 + follow-ups D & F), icc (all four phases), catalog-binary-format (Option D + Phase 2 in full).
 - **Substantially advanced:** milkyway (Phases 1-2 done, 3-4 scaffolded).
-- **Partially started:** skymap-gpu-overlays (Phase 1 + cache hit), tui-live-session-parity (preview mount section + partial abort flow), catalog-binary-format (Option D + Phase 2A + 2B shipped; 2C deferred).
+- **Partially started:** skymap-gpu-overlays (Phase 1 + cache hit), tui-live-session-parity (preview mount section + partial abort flow).
 - **Essentially untouched:** site horizon mask (sub-plan 3 of first-light-resilience) deferred until operational data warrants it.
 
 **First-light-resilience status:** 2 of 3 sub-plans shipped (driver resilience + FOV obstruction).

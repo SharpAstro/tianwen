@@ -439,8 +439,12 @@ time, since `NewInstanceFromDevice(sp)` has no profile context).
 **`CatalogPlateSolver` requires Tycho-2 to be loaded.** The solver self-inits the
 `ICelestialObjectDB` at the top of `SolveImageAsync` via the idempotent `InitDBAsync`
 fast path (`_isInitialized`), so any caller (CLI, hosted API, tests) works without
-remembering to init upstream. First call pays the Tycho-2 bulk-decode cost (~500 ms
-typical); subsequent calls are free.
+remembering to init upstream. First call pays a full DB init (**~343 ms**, Release + warm);
+subsequent calls are free. **That is no longer a Tycho-2 bulk-decode cost** -- since the
+2026-08-31 build-time expansion the Tycho-2 half is 0.3 ms and its blocking join 0.0 ms, and
+the largest phase is `hd-hip-cross` at 121.8 ms, which is the pre-baked snapshot's
+deserialise-and-apply rather than a recompute
+([docs/plans/catalog-binary-format.md](docs/plans/catalog-binary-format.md)).
 
 **A header hint comes from `OBJCTRA`/`OBJCTDEC` first, and `RA`/`DEC` is NOT the frame centre**
 (`RA`/`DEC` is what the *mount reported*, agreeing with the frame only on a synced mount).
