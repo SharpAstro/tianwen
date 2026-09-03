@@ -64,11 +64,20 @@
 # sessions by the trainer's own rule (sorted, Random(42).shuffle), so the split is stated rather than
 # incidental and an arm is never scored on a scene it trained on.
 #
+# THE MATCHED CONTROL (added 2026-09-03, after the white arm's first scoring). The v19d controls were
+# trained on the DARKSCALED pool and these arms on ORGANIZED, so a difference between them confounds
+# the regime under test with the pool, and v24 already measured the pool draw carrying more variance
+# than most effects chased here. The 'control' arm is therefore an N2N run on the SAME pool, the SAME
+# eight sessions and the SAME cells as the synthetic arms, with only the regime different: it prepares
+# from the BAKE (real subs) instead of a degraded export, and trains the v19d recipe with --mix-avg and
+# without --synthetic. Without it E2 cannot say whether supervised injection or the pool moved a number.
+#
 # Run detached; read the status file, never the log:
 #   Start-Process pwsh -ArgumentList '-NoProfile','-File',"$PWD\run-e2.ps1" -WindowStyle Hidden
 param(
     [string[]]$Arms = @('white', 'warped'),
     [string]$Exports = 'D:\Astro-Dataset\degraded',
+    [string]$Bake = 'D:/Astro-Dataset/2025-2026-organized',
     [string]$Scratch = ($env:TIANWEN_SCRATCH ?? 'C:\temp\tianwen-scratch'),
     [string]$LogDir = 'C:\temp\e2',
     [int[]]$Seeds = @(0, 1, 2),
@@ -92,6 +101,7 @@ try {
     # for the rest; a prepared cache and an existing checkpoint are both skipped.
     $ready = @()
     foreach ($arm in $Arms) {
+        if ($arm -eq 'control') { $ready += $arm; continue }   # reads the bake, not an export
         $armStatus = Join-Path (Join-Path $Exports $arm) 'degrade.status'
         $state = if (Test-Path $armStatus) { (Get-Content $armStatus -Raw).Trim() } else { 'missing' }
         if ($state -eq 'done') { $ready += $arm }
@@ -100,10 +110,20 @@ try {
     if ($ready.Count -eq 0) { throw "no export arm is done (looked for: $($Arms -join ', '))" }
 
     foreach ($arm in $ready) {
-        $root = Join-Path $Exports $arm
+        $root = if ($arm -eq 'control') { $Bake } else { Join-Path $Exports $arm }
         $cache = Join-Path $Scratch "n2n-e2-$arm"
-        if (Test-Path (Join-Path $cache 'meta.json')) {
-            "prepare $arm : cache already present, skipped" | Tee-Object -FilePath $log -Append
+        $meta = Join-Path $cache 'meta.json'
+        if (Test-Path $meta) {
+            # STALENESS GATE. "The cache exists" is not "the cache is of THIS export": a re-export
+            # leaves the old cache in place and the skip below would then train on the tiles that
+            # were re-exported to get rid of. It happened once (the depth-range fix), and it is
+            # invisible, because the run reports "skipped" and trains happily on the wrong bytes.
+            # Refusing rather than deleting: 2.5 GB is the user's to throw away, not this script's.
+            $rows = if ($arm -eq 'control') { Join-Path $Bake 'tiles-manifest.jsonl' } else { Join-Path (Join-Path $Exports $arm) 'degradations.jsonl' }
+            if ((Get-Item $rows).LastWriteTimeUtc -gt (Get-Item $meta).LastWriteTimeUtc) {
+                throw "cache $cache is older than the export it came from ($rows). Delete the cache and re-run; a prepared cache is never edited in place."
+            }
+            "prepare $arm : cache already present and newer than the export, skipped" | Tee-Object -FilePath $log -Append
         }
         else {
             "prepare $arm -> $cache" | Tee-Object -FilePath $log -Append
@@ -124,7 +144,10 @@ try {
                     continue
                 }
                 "train $arm seed $seed -> $out" | Tee-Object -FilePath $log -Append
-                & python n2n_smoke.py --train --cache $cache --synthetic --loss l2 --upsample --cond `
+                # The ONLY difference between the control and the synthetic arms: the regime. Same
+                # recipe, same pool, same sessions, same cells.
+                $regime = if ($arm -eq 'control') { '--mix-avg' } else { '--synthetic' }
+                & python n2n_smoke.py --train --cache $cache $regime --loss l2 --upsample --cond `
                     --band-loss 3 --band-scales "2,4 4,8" --base 32 --steps 4000 --gate-every 100 `
                     --seed $seed --out $out *>> $log
                 if ($LASTEXITCODE -ne 0) { throw "train failed for $arm seed $seed" }
